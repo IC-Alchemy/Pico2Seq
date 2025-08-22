@@ -10,19 +10,8 @@
 #include <Adafruit_SH110X.h>
 
 
-// Audio and DSP
-#include "src/audio/audio.h"
-#include "src/audio/audio_i2s.h"
-#include "src/dsp/adsr.h"
-#include "src/dsp/ladder.h"
-#include "src/dsp/svf.h"
-#include "src/dsp/oscillator.h"
-#include "src/dsp/delayline.h"
-#include "src/scales/scales.h"
-#include "src/dsp/wavefolder.h"
-#include "src/dsp/overdrive.h"
-
 // Matrix and Sequencer
+#include "src/scales/scales.h"
 #include "src/matrix/Matrix.h"
 #include "src/sequencer/Sequencer.h"
 #include "src/sequencer/SequencerDefs.h"
@@ -46,11 +35,6 @@
 
 // OLED Display
 #include "src/OLED/oled.h"
-
-// Voices
-#include "src/voice/VoiceManager.h"
-#include "src/voice/Voice.h"
-#include "src/sequencer/Sequencer.h"
 
 // Standard libraries
 #include <Wire.h>
