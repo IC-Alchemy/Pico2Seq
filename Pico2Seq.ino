@@ -193,10 +193,10 @@ void updateParametersForStep(uint8_t stepToUpdate) ///  This is the selected ste
 
 }
 
-VoiceState voiceState1;
-VoiceState voiceState2;
-VoiceState voiceState3;
-VoiceState voiceState4;
+volatile VoiceState voiceState1;
+volatile VoiceState voiceState2;
+volatile VoiceState voiceState3;
+volatile VoiceState voiceState4;
 
 void onStepCallback(uint32_t uClockCurrentStep)
 {
@@ -218,26 +218,13 @@ void onStepCallback(uint32_t uClockCurrentStep)
     // applyAS5600BaseValues(&tempState1, 0);
     // applyAS5600BaseValues(&tempState2, 1);
 
-    // Update CV and Gate outputs
-    // The noteIndex is a float from 0.0 to 47.0. We scale it by 5 to get a value between 0 and 235,
-    // which is within the 8-bit PWM range of 0-255.
-    analogWrite(CV1_PIN, tempState1.noteIndex * 5);
-    digitalWrite(GATE1_PIN, tempState1.isGateHigh ? HIGH : LOW);
-
-    analogWrite(CV2_PIN, tempState2.noteIndex * 5);
-    digitalWrite(GATE2_PIN, tempState2.isGateHigh ? HIGH : LOW);
-
-    analogWrite(CV3_PIN, tempState3.noteIndex * 5);
-    digitalWrite(GATE3_PIN, tempState3.isGateHigh ? HIGH : LOW);
-
-    analogWrite(CV4_PIN, tempState4.noteIndex * 5);
-    digitalWrite(GATE4_PIN, tempState4.isGateHigh ? HIGH : LOW);
-
     // Store states
+    noInterrupts();
     voiceState1 = tempState1;
     voiceState2 = tempState2;
     voiceState3 = tempState3;
     voiceState4 = tempState4;
+    interrupts();
 }
 
 // =======================
@@ -254,7 +241,15 @@ void onStepCallback(uint32_t uClockCurrentStep)
  */
 void setup()
 {
-    // Core 0 setup
+    // CV/Gate Pin setup
+    pinMode(CV1_PIN, OUTPUT);
+    pinMode(GATE1_PIN, OUTPUT);
+    pinMode(CV2_PIN, OUTPUT);
+    pinMode(GATE2_PIN, OUTPUT);
+    pinMode(CV3_PIN, OUTPUT);
+    pinMode(GATE3_PIN, OUTPUT);
+    pinMode(CV4_PIN, OUTPUT);
+    pinMode(GATE4_PIN, OUTPUT);
 }
 
 // =======================
@@ -336,17 +331,6 @@ void setup1()
     display.begin();
     Serial.println("OLED display initialized");
 
-    // CV/Gate Pin setup
-    pinMode(CV1_PIN, OUTPUT);
-    pinMode(GATE1_PIN, OUTPUT);
-    pinMode(CV2_PIN, OUTPUT);
-    pinMode(GATE2_PIN, OUTPUT);
-    pinMode(CV3_PIN, OUTPUT);
-    pinMode(GATE3_PIN, OUTPUT);
-    pinMode(CV4_PIN, OUTPUT);
-    pinMode(GATE4_PIN, OUTPUT);
-
-
     Matrix_init(&touchSensor);
     Serial.println("Matrix initialized");
 
@@ -396,7 +380,27 @@ void setup1()
  */
 void loop()
 {
-    // Core 0 loop
+    noInterrupts();
+    VoiceState localVoiceState1 = voiceState1;
+    VoiceState localVoiceState2 = voiceState2;
+    VoiceState localVoiceState3 = voiceState3;
+    VoiceState localVoiceState4 = voiceState4;
+    interrupts();
+
+    // Update CV and Gate outputs
+    // The noteIndex is a float from 0.0 to 47.0. We scale it by 5 to get a value between 0 and 235,
+    // which is within the 8-bit PWM range of 0-255.
+    analogWrite(CV1_PIN, localVoiceState1.noteIndex * 5);
+    digitalWrite(GATE1_PIN, localVoiceState1.isGateHigh ? HIGH : LOW);
+
+    analogWrite(CV2_PIN, localVoiceState2.noteIndex * 5);
+    digitalWrite(GATE2_PIN, localVoiceState2.isGateHigh ? HIGH : LOW);
+
+    analogWrite(CV3_PIN, localVoiceState3.noteIndex * 5);
+    digitalWrite(GATE3_PIN, localVoiceState3.isGateHigh ? HIGH : LOW);
+
+    analogWrite(CV4_PIN, localVoiceState4.noteIndex * 5);
+    digitalWrite(GATE4_PIN, localVoiceState4.isGateHigh ? HIGH : LOW);
 }
 
 // =======================
