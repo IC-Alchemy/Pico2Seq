@@ -2,7 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include "SequencerDefs.h"
-#include "Sequencer.h"
+#include "SequencerClass.h"
 #include "Arduino.h"
 
 // External mode state variables

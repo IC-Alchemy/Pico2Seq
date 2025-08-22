@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <stddef.h>
 #include "../matrix/Matrix.h"
-#include "../sequencer/SequencerDefs.h"
+#include <Sequencer.h>
 #include "../sensors/as5600.h"
 #include "../LEDMatrix/LEDMatrixFeedback.h"
 #include "ButtonManager.h"

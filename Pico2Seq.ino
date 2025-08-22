@@ -1,10 +1,8 @@
 #include "includes.h"
 #include "diagnostic.h"
 #include "src/dsp/dsp.h"
-#include "src/voice/Voice.h"
 #include "src/utils/Debug.h"
 #include "src/scales/scales.h"
-#include "src/voice/VoicePresets.h"
 
 // =======================
 //   GLOBAL VARIABLES

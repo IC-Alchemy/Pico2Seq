@@ -1,7 +1,6 @@
 #include "AS5600Manager.h"
 #include <Arduino.h>
-#include "../sequencer/SequencerDefs.h"
-#include "../sequencer/Sequencer.h"
+#include <Sequencer.h>
 #include "../ui/UIState.h"
 #include "as5600.h"
 #include <algorithm>

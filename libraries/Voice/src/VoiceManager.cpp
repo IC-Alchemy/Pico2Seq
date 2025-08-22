@@ -3,7 +3,7 @@
 #include <cstring>
 #include "../utils/Debug.h"
 #include "../scales/scales.h" // Inject scale data into voices
-#include "Voice.h"
+#include "VoiceClass.h"
 #include "VoicePresets.h"
 
 /**

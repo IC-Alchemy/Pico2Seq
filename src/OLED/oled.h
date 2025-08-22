@@ -6,8 +6,7 @@
 #include <Adafruit_SH110X.h>
 #include "../ui/UIState.h"
 #include "../ui/ButtonManager.h"
-#include "../sequencer/Sequencer.h"
-#include "../sequencer/SequencerDefs.h"
+#include <Sequencer.h>
 #include "../LEDMatrix/LEDConstants.h"
 
 /**

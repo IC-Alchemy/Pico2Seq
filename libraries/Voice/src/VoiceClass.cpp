@@ -1,4 +1,4 @@
-#include "Voice.h"
+#include "VoiceClass.h"
 #include "../dsp/dsp.h"
 #include "Arduino.h"
 #include <algorithm>

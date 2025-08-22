@@ -1,11 +1,8 @@
 #include "UIEventHandler.h"
+#include <Sequencer.h>
+#include <Voice.h>
 #include "../midi/MidiManager.h"
 #include "../scales/scales.h"
-#include "../sequencer/Sequencer.h"
-#include "../sequencer/ShuffleTemplates.h"
-#include "../voice/Voice.h"
-#include "../voice/VoiceManager.h"
-#include "../voice/VoicePresets.h"
 #include "ButtonManager.h"
 #include "ButtonHandlers.h"
 #include "UIConstants.h"

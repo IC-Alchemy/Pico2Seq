@@ -5,7 +5,7 @@
 #include <FastLED.h>
 #include "../ui/UIState.h"
 #include "../sensors/as5600.h"
-#include "ledMatrix.h"
+#include "LEDMatrixClass.h"
 #include "LEDMatrixFeedback.h"
 #include "LEDConstants.h"
 

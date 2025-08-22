@@ -1,4 +1,4 @@
-#include "ledMatrix.h"
+#include "LEDMatrixClass.h"
 
 /**
  * @brief LEDMatrix implementation for 8x8 WS2812B matrix

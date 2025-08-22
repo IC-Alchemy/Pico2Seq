@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Voice.h"
+#include "VoiceClass.h"
 #include <cstdint>
 
 namespace VoicePresets {

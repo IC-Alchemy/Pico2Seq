@@ -4,6 +4,6 @@
 #include "LEDConstants.h"
 #include "LEDController.h"
 #include "LEDMatrixFeedback.h"
-#include "ledMatrix.h"
+#include "LEDMatrixClass.h"
 
 #endif

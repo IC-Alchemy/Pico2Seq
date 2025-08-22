@@ -1,7 +1,7 @@
 #ifndef LEDMATRIX_FEEDBACK_H
 #define LEDMATRIX_FEEDBACK_H
 
-#include "ledMatrix.h"
+#include "LEDMatrixClass.h"
 #include "LEDConstants.h"
 #include "../voice/VoiceManager.h"
 

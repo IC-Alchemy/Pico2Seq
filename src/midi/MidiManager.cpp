@@ -1,7 +1,6 @@
 #include "MidiManager.h"
 #include "../scales/scales.h"  // ADD THIS LINE
-#include "../sequencer/Sequencer.h"
-#include "../sequencer/SequencerDefs.h" // For VoiceState and GateTimer definitions
+#include <Sequencer.h>
 #include <algorithm> // For std::max, std::min, std::abs
 #include <cmath> // For mathematical functions
 

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Voice.h"
-#include "../sequencer/Sequencer.h"
+#include "VoiceClass.h"
+#include <Sequencer.h>
 #include <vector>
 #include <memory>
 #include <functional>

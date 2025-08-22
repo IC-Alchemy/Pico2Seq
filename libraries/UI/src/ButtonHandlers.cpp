@@ -2,9 +2,8 @@
 #include "UIConstants.h"
 #include "UIState.h"
 #include "ButtonManager.h"
-#include "../sequencer/Sequencer.h"
+#include <Sequencer.h>
 #include "../scales/scales.h"
-#include "../sequencer/ShuffleTemplates.h"
 #include "../voice/VoiceManager.h"
 #include "../LEDMatrix/LEDMatrixFeedback.h"
 #include <uClock.h>

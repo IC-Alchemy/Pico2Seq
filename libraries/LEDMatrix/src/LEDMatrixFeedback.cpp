@@ -3,9 +3,9 @@
 #include <FastLED.h>
 #include <cmath>
 
-#include "ledMatrix.h"
+#include "LEDMatrixClass.h"
 #include "LEDConstants.h"
-#include "../sequencer/Sequencer.h"
+#include <Sequencer.h>
 #include "../ui/UIEventHandler.h"
 #include "../ui/ButtonManager.h"
 #include "../utils/Debug.h"
