@@ -22,7 +22,6 @@
 #include "src/dsp/wavefolder.h"
 #include "src/dsp/overdrive.h"
 
-
 // Matrix and Sequencer
 #include "src/matrix/Matrix.h"
 #include "src/sequencer/Sequencer.h"

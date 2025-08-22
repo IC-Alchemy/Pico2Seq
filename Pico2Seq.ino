@@ -686,8 +686,10 @@ void fill_audio_buffer(audio_buffer_t *buffer)
         float softLimitedOutput = daisysp::SoftLimit(processedOutput);
 
         // Output to stereo channels with gain reduction
-        out[2 * i + 0] = convertSampleToInt16(softLimitedOutput * 0.5f); // Left channel
-        out[2 * i + 1] = convertSampleToInt16(softLimitedOutput * 0.5f); // Right channel
+        // Optimization: Convert sample once for both channels since it's mono output
+        int16_t convertedSample = convertSampleToInt16(softLimitedOutput);
+        out[2 * i + 0] = convertedSample; // Left channel
+        out[2 * i + 1] = convertedSample; // Right channel
     }
 
     buffer->sample_count = N;
