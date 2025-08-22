@@ -251,8 +251,7 @@ void initAS5600BaseValues();
 extern AS5600Sensor as5600Sensor;
 
 
-extern AS5600BaseValuesVoice1 as5600BaseValuesVoice1;
-extern AS5600BaseValuesVoice1 as5600BaseValuesVoice2;
+
 extern float delayTarget;
 extern float feedbackAmmount;
 

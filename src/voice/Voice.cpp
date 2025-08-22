@@ -3,6 +3,7 @@
 #include "Arduino.h"
 #include <algorithm>
 #include <cmath>
+#include <mutex>
 #include "../scales/scales.h" // Use centralized SCALES_COUNT / SCALE_STEPS
 #include "VoicePresets.h"
 
@@ -11,18 +12,23 @@ static constexpr float FREQ_SLEW_RATE = 0.00035f; // Slide speed
 static constexpr float BASE_FREQ =
     110.0f; // Base frequency for note calculations
 
+// Thread-safe one-time init guard for frequency table
+namespace { static std::once_flag g_freqTableOnce; }
+
 // Static member initialization
 float Voice::frequencyLookupTable[128];
 bool Voice::lookupTableInitialized = false;
 
 // Initialize frequency lookup table covering MIDI 0..127
-void Voice::initFrequencyLookupTable()
+inline void Voice::initFrequencyLookupTable() noexcept
 {
-  // Use daisysp::mtof once per MIDI note value
-  for (int midi = 0; midi < 128; ++midi)
-  {
-    frequencyLookupTable[midi] = daisysp::mtof(static_cast<float>(midi));
-  }
+  std::call_once(g_freqTableOnce, []() noexcept {
+    // Use daisysp::mtof once per MIDI note value
+    for (int midi = 0; midi < 128; ++midi)
+    {
+      frequencyLookupTable[midi] = daisysp::mtof(static_cast<float>(midi));
+    }
+  });
 }
 
 Voice::Voice(uint8_t id, const VoiceConfig &cfg)
@@ -30,12 +36,8 @@ Voice::Voice(uint8_t id, const VoiceConfig &cfg)
       gate(false),
       sequencer(nullptr)
 {
-  // Initialize frequency lookup table once (thread-safe since all voices share it)
-  if (!lookupTableInitialized)
-  {
-    initFrequencyLookupTable();
-    lookupTableInitialized = true;
-  }
+  // Initialize frequency lookup table once in a thread-safe manner
+  initFrequencyLookupTable();
 
   // Initialize oscillators vector
   oscillators.resize(config.oscillatorCount);
@@ -242,9 +244,7 @@ void Voice::applyEffects(float& signal)
   // Apply effects chain
   processEffectsChain(signal);
 
-
-  // 0 Velocity is still audible, use gate off for silence 
-  signal *= (.2f + (state.velocityLevel));
+  // Level adjustments removed from here; handled in finalizeOutput
 }
 
 float Voice::finalizeOutput(float signal, float envelopeValue)
@@ -255,10 +255,13 @@ float Voice::finalizeOutput(float signal, float envelopeValue)
   // Apply high-pass filter
   highPassFilter.Process(filteredSignal);
 
-  float highPassedSignal = highPassFilter.High()*envelopeValue;
+  // Get high-passed signal (no envelope or level applied here yet)
+  float highPassedSignal = highPassFilter.High();
 
-  // Apply envelope and output level
-  float finalOutput = (highPassedSignal * config.outputLevel);
+  // Apply envelope multiplication and final output scaling (including velocity-based level)
+  float finalOutput = highPassedSignal * envelopeValue;
+  finalOutput *= (config.outputLevel * (0.2f + state.velocityLevel));
+
   return finalOutput;
 }
 
@@ -271,34 +274,26 @@ void Voice::processEffectsChain(float &signal)
     }
 
     if (config.hasWavefolder)
-    {
+    { signal *= config.wavefolderGain;
       signal = wavefolder.Process(signal);
-      signal *= config.wavefolderGain;
     }
   }
 
   void Voice::updateOscillatorFrequencies()
   {
-    // GATE-CONTROLLED FREQUENCY UPDATES: Only update frequencies when gate is HIGH
-    if (!state.isGateHigh)
-    {
-      return; // Skip frequency updates when gate is LOW
-    }
-
-   
-
+    // Always update frequencies based on current state so parameter changes apply immediately
     // Calculate base frequency once and cache it (used when harmony offset is 0)
     const float baseFreq = calculateNoteFrequency(state.noteIndex, state.octaveOffset, 0);
-
+  
     // Limit oscillator loop to max 3
     const size_t oscCount = std::min(static_cast<size_t>(3), oscillators.size());
-
+  
     for (size_t i = 0; i < oscCount; i++)
     {
       // Calculate frequency for this oscillator using harmony interval
       float harmonyFreq;
       const int harmonyInterval = config.harmony[i];
-
+  
       if (harmonyInterval == 0)
       {
         harmonyFreq = baseFreq;
@@ -307,10 +302,10 @@ void Voice::processEffectsChain(float &signal)
       {
         harmonyFreq = calculateNoteFrequency(state.noteIndex, state.octaveOffset, harmonyInterval);
       }
-
+  
       // Apply semitone-based detuning: frequency multiplier = 2^(semitones/12)
       const float targetFreq = harmonyFreq * powf(2.0f, config.oscDetuning[i] / 12.0f);
-
+  
       if (state.hasSlide)
       {
         // Set target for slewing
@@ -332,11 +327,11 @@ void Voice::processEffectsChain(float &signal)
     float attack =
         daisysp::fmap(state.attackTimeSeconds, 0.002f, 0.75f, daisysp::Mapping::LINEAR);
     float decay =
-        daisysp::fmap(state.decayTimeSeconds, 0.002f, 0.7f, daisysp::Mapping::LOG);
+        daisysp::fmap(state.decayTimeSeconds, 0.002f, 0.8f, daisysp::Mapping::LOG);
     float release = decay; // Use decay for release in this implementation
 
     envelope.SetAttackTime(attack);
-    envelope.SetDecayTime(0.01f + (release * 0.32f));
+    envelope.SetDecayTime(0.1f + (release * 0.32f));
     envelope.SetReleaseTime(release);
   }
 
@@ -436,22 +431,15 @@ void Voice::processEffectsChain(float &signal)
 
   void Voice::setFrequency(float frequency)
   {
-    // GATE-CONTROLLED FREQUENCY UPDATES: Only update oscillator frequencies when gate is HIGH
-    // This maintains consistency with updateOscillatorFrequencies() and the gate-controlled architecture
-    if (!state.isGateHigh)
-    {
-      return; // Skip frequency updates when gate is LOW
-    }
-
-    // Set the base frequency for all oscillators with semitone-based detuning
+    // Always set oscillator frequencies so pitch-related changes are reflected immediately
     for (uint8_t i = 0; i < config.oscillatorCount && i < oscillators.size() && i < 3; i++)
     {
       float targetFreq;
-
+  
       // Semitone-based detuning: frequency multiplier = 2^(semitones/12)
       // Positive values detune up, negative values detune down
       targetFreq = frequency * powf(2.0f, config.oscDetuning[i] / 12.0f);
-
+  
       if (state.hasSlide)
       {
         // Set target for slewing (slide functionality)
@@ -501,7 +489,7 @@ void Voice::processEffectsChain(float &signal)
       
       // Calculate filter frequency from normalized filter parameter (0.0-1.0)
       // Using exponential mapping like PicoMudrasSequencer.ino: 100Hz to 9710Hz
-      filterFrequency =100.f+ daisysp::fmap(state.filterCutoff, 250.0f, 8000.0f, daisysp::Mapping::EXP);
+      filterFrequency = daisysp::fmap(state.filterCutoff, 250.0f, 8000.0f, daisysp::Mapping::EXP);
       
       // Apply envelope parameters (attack, decay/release)
       applyEnvelopeParameters();

@@ -382,11 +382,3 @@ private:
    */
   void processFrequencySlew(uint8_t oscIndex, float targetFreq);
 };
-
-/**
- * @brief Namespace containing predefined voice configurations
- * 
- * Provides factory functions for common synthesizer voice types including
- * analog, digital, bass, lead, pad, and percussion configurations.
- */
-// VoicePresets declarations moved to VoicePresets.h

@@ -24,9 +24,14 @@ extern std::unique_ptr<VoiceManager> voiceManager;
 
 // AS5600 global variables moved from main file
 // Note: currentAS5600Parameter is now accessed via uiState.currentAS5600Parameter
-AS5600BaseValuesVoice1 as5600BaseValuesVoice1;
-AS5600BaseValuesVoice1 as5600BaseValuesVoice2;
+
 unsigned long lastAS5600ButtonPress = 0;
+
+// Definitions for AS5600 base value globals (previously declared as extern).
+// Centralize the definitions here so other translation units can reference them
+// via extern declarations if necessary (but header externs have been removed).
+AS5600BaseValuesVoice1 as5600BaseValuesVoice1;
+AS5600BaseValues as5600BaseValuesVoice2;
 
 // Flash speed zones configuration for dynamic boundary proximity feedback
 const FlashSpeedConfig FLASH_SPEED_ZONES[] = {

@@ -663,16 +663,16 @@ void fill_audio_buffer(audio_buffer_t *buffer)
     float processedOutput;
 
     // Determine target gains based on delay state
-    float targetDelayOutputGain = uiState.delayOn ? 1.0f : 0.0f;
-    float targetFeedbackGain = uiState.delayOn ? feedbackAmmount : 0.0f;
+   // float targetDelayOutputGain = uiState.delayOn ? 1.0f : 0.0f;
+   // float targetFeedbackGain = uiState.delayOn ? feedbackAmmount : 0.0f;
 
     // Smooth parameters once per buffer to reduce CPU load
-    currentFeedbackGain = delayTimeSmoothing(currentFeedbackGain, targetFeedbackGain, FEEDBACK_FADE_RATE);
-    currentDelayOutputGain = delayTimeSmoothing(currentDelayOutputGain, targetDelayOutputGain, FEEDBACK_FADE_RATE);
-    currentDelay = delayTimeSmoothing(currentDelay, delayTarget, 0.0001f);
+  //  currentFeedbackGain = delayTimeSmoothing(currentFeedbackGain, targetFeedbackGain, FEEDBACK_FADE_RATE);
+    //currentDelayOutputGain = delayTimeSmoothing(currentDelayOutputGain, targetDelayOutputGain, FEEDBACK_FADE_RATE);
+    //currentDelay = delayTimeSmoothing(currentDelay, delayTarget, 0.0001f);
 
     // Set delay time once per buffer for efficiency
-    del1.SetDelay(currentDelay);
+  //  del1.SetDelay(currentDelay);
 
     // Process each sample in the buffer
     for (int i = 0; i < N; ++i)
@@ -681,10 +681,10 @@ void fill_audio_buffer(audio_buffer_t *buffer)
         finalVoiceOutput = voiceManager->processAllVoices();
 
         // Apply global delay effect
-        processedOutput = processDelayEffect(finalVoiceOutput);
+      //  processedOutput = processDelayEffect(finalVoiceOutput);
 
         // Apply soft limiting to prevent clipping
-        float softLimitedOutput = daisysp::SoftLimit(processedOutput);
+        float softLimitedOutput = daisysp::SoftLimit(finalVoiceOutput);
 
         // Output to stereo channels with gain reduction
         // Optimization: Convert sample once for both channels since it's mono output
