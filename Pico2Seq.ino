@@ -4,6 +4,7 @@
 #include "src/voice/Voice.h"
 #include "src/utils/Debug.h"
 #include "src/scales/scales.h"
+#include "src/voice/VoicePresets.h"
 
 // =======================
 //   GLOBAL VARIABLES
@@ -876,7 +877,6 @@ void setup1()
         // Serial.println("MPR121 thresholds configured to 155/55");
     }
 
-    initUIEventHandler(uiState);
 
     // Initialize OLED display
     display.begin();

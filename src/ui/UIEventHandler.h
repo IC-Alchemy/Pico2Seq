@@ -25,11 +25,7 @@ class MidiNoteManager; // Forward declare MidiNoteManager
 //   FUNCTION DECLARATIONS
 // =======================
 
-/**
- * @brief Initialize the UI event handler system.
- * @param uiState Reference to the central UI state object.
- */
-void initUIEventHandler(UIState& uiState);
+
 
 /**
  * @brief Main matrix event handler (Arduino-friendly consolidated signature).

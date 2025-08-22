@@ -5,6 +5,7 @@
 #include "../sequencer/ShuffleTemplates.h"
 #include "../voice/Voice.h"
 #include "../voice/VoiceManager.h"
+#include "../voice/VoicePresets.h"
 #include "ButtonManager.h"
 #include "ButtonHandlers.h"
 #include "UIConstants.h"
@@ -81,26 +82,21 @@ extern float delayTarget;
                                     UIState &uiState, Sequencer *const *sequencers,
                                     size_t sequencerCount);
 
-static void autoSelectAS5600Parameter(ParamId paramId, UIState &uiState);
-static void handleAS5600ParameterControl(UIState &uiState);
+ // Private helper handlers for matrixEventHandler
+ static void handleSlideModeToggle(const MatrixButtonEvent &evt, UIState &uiState);
+ static void handleVoiceSwitch(const MatrixButtonEvent &evt, UIState &uiState, MidiNoteManager &midiNoteManager);
+ static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount);
+ static void handleRandomizeMatrixButtons(const MatrixButtonEvent &evt, UIState &uiState);
+ static void handlePlayStopButton(const MatrixButtonEvent &evt, UIState &uiState);
+ static void handleOtherControlButtons(const MatrixButtonEvent &evt, UIState &uiState);
+ // Optional micro-helpers for randomize buttons
+ static inline bool isRandomizeButton(uint8_t idx);
+ static uint8_t resolveRandomizeVoiceIndex(uint8_t pressedRandomizeButton, const UIState &uiState);
 
-/**
- * @brief Initialize the UI event handler system and default voice presets
- *
- * Sets up the button manager state and initializes default voice preset
- * indices for all four voices. This ensures the UI starts in a known
- * state with sensible voice configurations.
- *
- * @param uiState Reference to the central UI state object to initialize
- */
-void initUIEventHandler(UIState &uiState)
-{
-  initButtonManager(uiState);
+ static void autoSelectAS5600Parameter(ParamId paramId, UIState &uiState);
+ static void handleAS5600ParameterControl(UIState &uiState);
 
-  // Initialize default voice preset indices for all voices
-  uiState.voice1PresetIndex = UIEventConstants::DEFAULT_VOICE_1_PRESET;
-  uiState.voice2PresetIndex = UIEventConstants::DEFAULT_VOICE_2_PRESET;
-}
+
 
 /**
  * @brief Primary matrix event handler that always uses the provided sequencer array.
@@ -113,8 +109,7 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
                         Sequencer *const *sequencers, size_t sequencerCount,
                         MidiNoteManager &midiNoteManager)
 {
-  // Ensure we have a valid sequencer array (must have at least one valid entry to operate)
-  // If none available, silently ignore sequencer-specific operations.
+
   // Poll held buttons (long press detection) using the supplied array.
   pollUIHeldButtons(uiState, sequencers, sequencerCount);
 
@@ -134,24 +129,7 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
   {
     if (evt.type == MATRIX_BUTTON_PRESSED)
     {
-      // Toggle slide mode state
-      uiState.slideMode = !uiState.slideMode;
-
-      if (uiState.slideMode)
-      {
-        // Clear conflicting modes when entering slide mode
-        for (int paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
-        {
-          uiState.parameterButtonHeld[paramIndex] = false;
-        }
-        uiState.modGateParamSeqLengthsMode = false;
-        uiState.selectedStepForEdit = -1;
-        Serial.println("Entered Slide Mode");
-      }
-      else
-      {
-        Serial.println("Exited Slide Mode");
-      }
+      handleSlideModeToggle(evt, uiState);
     }
     return; // Exit after handling slide mode toggle
   }
@@ -171,16 +149,7 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
   {
     if (evt.type == MATRIX_BUTTON_PRESSED)
     {
-      midiNoteManager.onModeSwitch();
-
-      // Cycle to next voice (0-3, wrapping around)
-      uiState.selectedVoiceIndex = (uiState.selectedVoiceIndex + 1) % UIEventConstants::MAX_VOICES;
-      uiState.isVoice2Mode = (uiState.selectedVoiceIndex == UIEventConstants::VOICE_2_INDEX); // Legacy compatibility
-      uiState.selectedStepForEdit = -1;                                                       // Clear step editing when switching voices
-      uiState.voiceSwitchTriggered = true;                                                    // Set flag for immediate OLED update
-
-      Serial.print("Switched to Voice ");
-      Serial.println(uiState.selectedVoiceIndex + 1);
+      handleVoiceSwitch(evt, uiState, midiNoteManager);
     }
     return; // Exit after handling voice switch
   }
@@ -200,34 +169,7 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
   {
     if (evt.type == MATRIX_BUTTON_PRESSED)
     {
-      // Get the currently active sequencer pointer from the provided array (no globals)
-      Sequencer *activeSequencerPtr = nullptr;
-      if (sequencers && uiState.selectedVoiceIndex < sequencerCount)
-      {
-        activeSequencerPtr = sequencers[uiState.selectedVoiceIndex];
-      }
- 
-      if (activeSequencerPtr)
-      {
-        Sequencer &currentActiveSequencer = *activeSequencerPtr;
- 
-        // Get current slide value and toggle it
-        uint8_t currentSlideValue = currentActiveSequencer.getStepParameterValue(
-            ParamId::Slide, evt.buttonIndex);
-        uint8_t newSlideValue = (currentSlideValue > UIEventConstants::SLIDE_OFF_VALUE) ? UIEventConstants::SLIDE_OFF_VALUE : UIEventConstants::SLIDE_ON_VALUE;
- 
-        // Apply the new slide value to the step
-        currentActiveSequencer.setStepParameterValue(ParamId::Slide, evt.buttonIndex, newSlideValue);
- 
-        Serial.print("Step ");
-        Serial.print(evt.buttonIndex);
-        Serial.print(" slide ");
-        Serial.println(newSlideValue > UIEventConstants::SLIDE_OFF_VALUE ? "ON" : "OFF");
-      }
-      else
-      {
-        // No sequencer available for the selected voice; ignore.
-      }
+      handleSlideModeStep(evt, uiState, sequencers, sequencerCount);
     }
     return; // In slide mode, step buttons only toggle slide
   }
@@ -253,59 +195,10 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
    * functions which track press duration and trigger appropriate actions.
    */
 
-  // Handle Randomize Button 1: targets voice based on current page
-  // When on voices 1-2 page: button 1 = voice 1, when on voices 3-4 page: button 1 = voice 3
-  if (evt.buttonIndex == BUTTON_RANDOMIZE_SEQ1)
+  // Delegate handling of randomize buttons (BUTTON_RANDOMIZE_SEQ1 and BUTTON_RANDOMIZE_SEQ2)
+  if (evt.buttonIndex == BUTTON_RANDOMIZE_SEQ1 || evt.buttonIndex == BUTTON_RANDOMIZE_SEQ2)
   {
-    // Determine target voice based on currently selected voice
-    int voiceIndex;
-    if (uiState.selectedVoiceIndex <= UIEventConstants::VOICE_2_INDEX)
-    {
-      // On voices 1-2 page: button 1 targets voice 1
-      voiceIndex = UIEventConstants::VOICE_1_INDEX;
-    }
-    else
-    {
-      // On voices 3-4 page: button 1 targets voice 3
-      voiceIndex = UIEventConstants::VOICE_3_INDEX;
-    }
-
-    if (evt.type == MATRIX_BUTTON_PRESSED)
-    {
-      beginRandomizePress(voiceIndex, uiState);
-    }
-    else if (evt.type == MATRIX_BUTTON_RELEASED)
-    {
-      handleRandomizeButton(voiceIndex, uiState);
-    }
-    return; // Exit after handling randomize button
-  }
-
-  // Handle Randomize Button 2: targets voice based on current page
-  // When on voices 1-2 page: button 2 = voice 2, when on voices 3-4 page: button 2 = voice 4
-  if (evt.buttonIndex == BUTTON_RANDOMIZE_SEQ2)
-  {
-    // Determine target voice based on currently selected voice
-    int voiceIndex;
-    if (uiState.selectedVoiceIndex <= UIEventConstants::VOICE_2_INDEX)
-    {
-      // On voices 1-2 page: button 2 targets voice 2
-      voiceIndex = UIEventConstants::VOICE_2_INDEX;
-    }
-    else
-    {
-      // On voices 3-4 page: button 2 targets voice 4
-      voiceIndex = UIEventConstants::VOICE_4_INDEX;
-    }
-
-    if (evt.type == MATRIX_BUTTON_PRESSED)
-    {
-      beginRandomizePress(voiceIndex, uiState);
-    }
-    else if (evt.type == MATRIX_BUTTON_RELEASED)
-    {
-      handleRandomizeButton(voiceIndex, uiState);
-    }
+    handleRandomizeMatrixButtons(evt, uiState);
     return; // Exit after handling randomize button
   }
 
@@ -324,31 +217,7 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
    */
   if (evt.buttonIndex == BUTTON_PLAY_STOP)
   {
-    if (evt.type == MATRIX_BUTTON_PRESSED)
-    {
-      uiState.playStopPressTime = millis();
-      uiState.playStopWasPressed = true;
-    }
-    else if (evt.type == MATRIX_BUTTON_RELEASED && uiState.playStopWasPressed)
-    {
-      unsigned long pressDurationMs = millis() - uiState.playStopPressTime;
-      uiState.playStopWasPressed = false;
-
-      if (isLongPress(pressDurationMs) && !isClockRunning)
-      {
-        // Long press when stopped: enter settings mode
-        uiState.settingsMode = true;
-        uiState.settingsMenuIndex = UIEventConstants::SETTINGS_MENU_INITIAL_INDEX;
-        uiState.settingsSubMenuIndex = UIEventConstants::SETTINGS_SUBMENU_INITIAL_INDEX;
-        uiState.inPresetSelection = false;
-        Serial.println("Entered settings mode");
-      }
-      else if (!isLongPress(pressDurationMs))
-      {
-        // Short press: normal play/stop functionality
-        handleControlButton(evt.buttonIndex, uiState);
-      }
-    }
+    handlePlayStopButton(evt, uiState);
     return; // Exit after handling play/stop button
   }
 
@@ -363,10 +232,7 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
    * like scale changes, theme changes, delay toggle, etc. Only processes
    * press events to avoid double-triggering on release.
    */
-  if (evt.type == MATRIX_BUTTON_PRESSED)
-  {
-    handleControlButton(evt.buttonIndex, uiState);
-  }
+  handleOtherControlButtons(evt, uiState);
 }
  
 /**
@@ -887,4 +753,147 @@ void pollUIHeldButtons(UIState &uiState, Sequencer &seq1, Sequencer &seq2,
 {
   Sequencer *sequencers[UIEventConstants::MAX_VOICES] = { &seq1, &seq2, &seq3, &seq4 };
   pollUIHeldButtons(uiState, sequencers, UIEventConstants::MAX_VOICES);
+}
+
+static void handleSlideModeToggle(const MatrixButtonEvent &evt, UIState &uiState)
+{
+  // Toggle slide mode state
+  uiState.slideMode = !uiState.slideMode;
+
+  if (uiState.slideMode)
+  {
+    // Clear conflicting modes when entering slide mode
+    for (int paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
+    {
+      uiState.parameterButtonHeld[paramIndex] = false;
+    }
+    uiState.modGateParamSeqLengthsMode = false;
+    uiState.selectedStepForEdit = -1;
+    Serial.println("Entered Slide Mode");
+  }
+  else
+  {
+    Serial.println("Exited Slide Mode");
+  }
+}
+
+static void handleVoiceSwitch(const MatrixButtonEvent &evt, UIState &uiState, MidiNoteManager &midiNoteManager)
+{
+  midiNoteManager.onModeSwitch();
+
+  // Cycle to next voice (0-3, wrapping around)
+  uiState.selectedVoiceIndex = (uiState.selectedVoiceIndex + 1) % UIEventConstants::MAX_VOICES;
+  uiState.isVoice2Mode = (uiState.selectedVoiceIndex == UIEventConstants::VOICE_2_INDEX); // Legacy compatibility
+  uiState.selectedStepForEdit = -1;                                                       // Clear step editing when switching voices
+  uiState.voiceSwitchTriggered = true;                                                    // Set flag for immediate OLED update
+
+  Serial.print("Switched to Voice ");
+  Serial.println(uiState.selectedVoiceIndex + 1);
+}
+
+static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount)
+{
+  // Get the currently active sequencer pointer from the provided array (no globals)
+  Sequencer *activeSequencerPtr = nullptr;
+  if (sequencers && uiState.selectedVoiceIndex < sequencerCount)
+  {
+    activeSequencerPtr = sequencers[uiState.selectedVoiceIndex];
+  }
+
+  if (activeSequencerPtr)
+  {
+    Sequencer &currentActiveSequencer = *activeSequencerPtr;
+
+    // Get current slide value and toggle it
+    uint8_t currentSlideValue = currentActiveSequencer.getStepParameterValue(
+        ParamId::Slide, evt.buttonIndex);
+    uint8_t newSlideValue = (currentSlideValue > UIEventConstants::SLIDE_OFF_VALUE) ? UIEventConstants::SLIDE_OFF_VALUE : UIEventConstants::SLIDE_ON_VALUE;
+
+    // Apply the new slide value to the step
+    currentActiveSequencer.setStepParameterValue(ParamId::Slide, evt.buttonIndex, newSlideValue);
+
+    Serial.print("Step ");
+    Serial.print(evt.buttonIndex);
+    Serial.print(" slide ");
+    Serial.println(newSlideValue > UIEventConstants::SLIDE_OFF_VALUE ? "ON" : "OFF");
+  }
+  else
+  {
+    // No sequencer available for the selected voice; ignore.
+  }
+}
+
+static inline bool isRandomizeButton(uint8_t idx)
+{
+  return (idx == BUTTON_RANDOMIZE_SEQ1) || (idx == BUTTON_RANDOMIZE_SEQ2);
+}
+
+static uint8_t resolveRandomizeVoiceIndex(uint8_t pressedRandomizeButton, const UIState &uiState)
+{
+  bool firstPage = (uiState.selectedVoiceIndex <= UIEventConstants::VOICE_2_INDEX);
+  if (pressedRandomizeButton == BUTTON_RANDOMIZE_SEQ1)
+  {
+    return firstPage ? UIEventConstants::VOICE_1_INDEX : UIEventConstants::VOICE_3_INDEX;
+  }
+  else
+  {
+    return firstPage ? UIEventConstants::VOICE_2_INDEX : UIEventConstants::VOICE_4_INDEX;
+  }
+}
+
+static void handleRandomizeMatrixButtons(const MatrixButtonEvent &evt, UIState &uiState)
+{
+  if (!isRandomizeButton(evt.buttonIndex))
+  {
+    return;
+  }
+
+  uint8_t voiceIndex = resolveRandomizeVoiceIndex(evt.buttonIndex, uiState);
+
+  if (evt.type == MATRIX_BUTTON_PRESSED)
+  {
+    beginRandomizePress(voiceIndex, uiState);
+  }
+  else if (evt.type == MATRIX_BUTTON_RELEASED)
+  {
+    handleRandomizeButton(voiceIndex, uiState);
+  }
+}
+
+static void handlePlayStopButton(const MatrixButtonEvent &evt, UIState &uiState)
+{
+  if (evt.type == MATRIX_BUTTON_PRESSED)
+  {
+    uiState.playStopPressTime = millis();
+    uiState.playStopWasPressed = true;
+  }
+  else if (evt.type == MATRIX_BUTTON_RELEASED && uiState.playStopWasPressed)
+  {
+    unsigned long pressDurationMs = millis() - uiState.playStopPressTime;
+    uiState.playStopWasPressed = false;
+
+    if (isLongPress(pressDurationMs) && !isClockRunning)
+    {
+      // Long press when stopped: enter settings mode
+      uiState.settingsMode = true;
+      uiState.settingsMenuIndex = UIEventConstants::SETTINGS_MENU_INITIAL_INDEX;
+      uiState.settingsSubMenuIndex = UIEventConstants::SETTINGS_SUBMENU_INITIAL_INDEX;
+      uiState.inPresetSelection = false;
+      Serial.println("Entered settings mode");
+    }
+    else if (!isLongPress(pressDurationMs))
+    {
+      // Short press: normal play/stop functionality
+      handleControlButton(evt.buttonIndex, uiState);
+    }
+  }
+}
+
+static void handleOtherControlButtons(const MatrixButtonEvent &evt, UIState &uiState)
+{
+  // Handle remaining control buttons (only on press events)
+  if (evt.type == MATRIX_BUTTON_PRESSED)
+  {
+    handleControlButton(evt.buttonIndex, uiState);
+  }
 }

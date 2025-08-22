@@ -1,5 +1,6 @@
 #include "oled.h"
 #include "../voice/Voice.h"
+#include "../voice/VoicePresets.h"
 #include "../../includes.h"
 #include "../sequencer/SequencerDefs.h"
 #include "../sequencer/ShuffleTemplates.h"
@@ -64,10 +65,7 @@ bool OLEDDisplay::begin()
   return true;
 }
 
-// clear():
-// - Idempotent clear that only operates when the display is initialized to avoid
-//   accidental I2C calls during early boot or error states.
-// - Calls display() to push the clear buffer to the panel.
+
 void OLEDDisplay::clear()
 {
   if (!isDisplayInitialized)
@@ -79,24 +77,14 @@ void OLEDDisplay::clear()
   displayHardware.display();
 }
 
-// setVoiceManager():
-// - Stores a non-owning pointer to the VoiceManager to query voice configs for UI
-//   presentation. This avoids dynamic lookup/registration, following our zero-heap
-//   philosophy in update paths.
+
 void OLEDDisplay::setVoiceManager(VoiceManager *voiceManager)
 {
   voiceManagerReference = voiceManager;
   Serial.println("OLED: Voice manager reference set");
 }
 
-// displayVoiceParameterToggles():
-// - High-level settings view for a single selected voice, showing key toggles and
-//   enumerations (e.g., filter mode). It is intended to be immediately readable.
-// - Safety: exits early if display not initialized or manager is null.
-// - Mapping: uses extern voice IDs -> maps UI selectedVoiceIndex to concrete VoiceID.
-// - Layout: draws a bordered card-like view with a header and aligned columns for
-//   names, values, and button hints to support muscle memory.
-// - Performance: single clear at start and single display() at end; simple text ops.
+
 void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceManager *voiceManager)
 {
   if (!isDisplayInitialized || !voiceManager)
@@ -108,8 +96,8 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
   displayHardware.setTextSize(1);
   displayHardware.setTextColor(SH110X_WHITE);
 
-  // Draw professional border
-//  displayHardware.drawRect(0, 0, OLEDConstants::SCREEN_WIDTH, OLEDConstants::SCREEN_HEIGHT, SH110X_WHITE);
+// Draw professional border
+ displayHardware.drawRect(0, 0, OLEDConstants::SCREEN_WIDTH, OLEDConstants::SCREEN_HEIGHT, SH110X_WHITE);
 
   // Header with current voice indicator
   displayHardware.setCursor(OLEDConstants::TEXT_MARGIN - 3, 1);
@@ -148,11 +136,11 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
   };
 
   const VoiceParameterDisplayInfo parameterInfo[] = {
-      {"Envelope", 9},
-      {"Overdrive", 10},
-      {"Wavefolder", 11},
-      {"Filter Mode", 12},
-      {"Filter Res", 13}};
+      {"Envelope", 8},
+      {"Overdrive", 9},
+      {"Wavefolder", 10},
+      {"Filter Mode", 11},
+      {"Filter Res", 12}};
 
   constexpr int parameterCount = sizeof(parameterInfo) / sizeof(parameterInfo[0]);
 
@@ -171,16 +159,16 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
     displayHardware.setCursor(70, currentYPosition);
     switch (parameterInfo[paramIndex].buttonNumber)
     {
-    case 9: // Envelope
+    case 8: // Envelope
       displayHardware.print(voiceConfiguration->hasEnvelope ? "ON" : "OFF");
       break;
-    case 10: // Overdrive
+    case 9: // Overdrive
       displayHardware.print(voiceConfiguration->hasOverdrive ? "ON" : "OFF");
       break;
-    case 11: // Wavefolder
+    case 10: // Wavefolder
       displayHardware.print(voiceConfiguration->hasWavefolder ? "ON" : "OFF");
       break;
-    case 12: // Filter Mode
+    case 11: // Filter Mode
     {
       const char *filterModeNames[] = {"LP12", "LP24", "LP36", "BP12", "BP24"};
       const int filterModeIndex = static_cast<int>(voiceConfiguration->filterMode);
@@ -194,7 +182,7 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
       }
     }
     break;
-    case 13: // Filter Resonance
+    case 12: // Filter Resonance
       displayHardware.print(static_cast<int>(voiceConfiguration->filterRes * 100));
       displayHardware.print("%");
       break;
