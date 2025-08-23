@@ -39,36 +39,36 @@
  */
 
 // Voice-specific CC base numbers
-constexpr uint8_t CC_VOICE1_BASE = 71;  ///< Base CC number for Voice 1 (range: 71-74)
-constexpr uint8_t CC_VOICE2_BASE = 75;  ///< Base CC number for Voice 2 (range: 75-78)
+constexpr uint8_t CC_VOICE1_BASE = 71; ///< Base CC number for Voice 1 (range: 71-74)
+constexpr uint8_t CC_VOICE2_BASE = 75; ///< Base CC number for Voice 2 (range: 75-78)
 
 // Parameter offset mappings (added to base for final CC number)
-constexpr uint8_t CC_OCTAVE_OFFSET = 0;  ///< Octave: CC71/75
-constexpr uint8_t CC_DECAY_OFFSET = 1;   ///< Decay:  CC72/76
-constexpr uint8_t CC_ATTACK_OFFSET = 2;  ///< Attack: CC73/77
-constexpr uint8_t CC_FILTER_OFFSET = 3;  ///< Filter: CC74/78 (standard)
+constexpr uint8_t CC_OCTAVE_OFFSET = 0; ///< Octave: CC71/75
+constexpr uint8_t CC_DECAY_OFFSET = 1;  ///< Decay:  CC72/76
+constexpr uint8_t CC_ATTACK_OFFSET = 2; ///< Attack: CC73/77
+constexpr uint8_t CC_FILTER_OFFSET = 3; ///< Filter: CC74/78 (standard)
 
 // =======================
 //   CHANNEL CONFIGURATION
 // =======================
 
-constexpr uint8_t CC_MIDI_CHANNEL = 1;  ///< MIDI channel for all CC messages
+constexpr uint8_t CC_MIDI_CHANNEL = 1; ///< MIDI channel for all CC messages
 
 // =======================
 //   TRANSMISSION SETTINGS
 // =======================
 
-constexpr unsigned long CC_MIN_INTERVAL_MS = 10;  ///< Minimum time between CC transmissions (ms)
-constexpr bool CC_RATE_LIMITING_ENABLED = true;   ///< Enable/disable transmission rate limiting
+constexpr unsigned long CC_MIN_INTERVAL_MS = 10; ///< Minimum time between CC transmissions (ms)
+constexpr bool CC_RATE_LIMITING_ENABLED = true;  ///< Enable/disable transmission rate limiting
 
 // =======================
 //   VALUE SCALING
 // =======================
 
-constexpr float CC_PARAMETER_MIN = 0.0f;  ///< Minimum normalized parameter value
-constexpr float CC_PARAMETER_MAX = 1.0f;  ///< Maximum normalized parameter value
-constexpr uint8_t CC_MIDI_MIN = 0;        ///< Minimum MIDI CC value
-constexpr uint8_t CC_MIDI_MAX = 127;      ///< Maximum MIDI CC value
+constexpr float CC_PARAMETER_MIN = 0.0f; ///< Minimum normalized parameter value
+constexpr float CC_PARAMETER_MAX = 1.0f; ///< Maximum normalized parameter value
+constexpr uint8_t CC_MIDI_MIN = 0;       ///< Minimum MIDI CC value
+constexpr uint8_t CC_MIDI_MAX = 127;     ///< Maximum MIDI CC value
 
 // =======================
 //   DEBUG CONFIGURATION
@@ -82,15 +82,15 @@ constexpr bool CC_PERFORMANCE_MONITORING = false; ///< Enable performance metric
 //   FEATURE FLAGS
 // =======================
 
-constexpr bool CC_CHANGE_DETECTION_ENABLED = true;  ///< Enable change detection to prevent spam
-constexpr bool CC_HYSTERESIS_ENABLED = false;       ///< Enable hysteresis for change detection
-constexpr uint8_t CC_HYSTERESIS_THRESHOLD = 1;      ///< MIDI value change threshold for hysteresis
+constexpr bool CC_CHANGE_DETECTION_ENABLED = true; ///< Enable change detection to prevent spam
+constexpr bool CC_HYSTERESIS_ENABLED = false;      ///< Enable hysteresis for change detection
+constexpr uint8_t CC_HYSTERESIS_THRESHOLD = 1;     ///< MIDI value change threshold for hysteresis
 
 // =======================
 //   ARRAY SIZING
 // =======================
 
-constexpr uint8_t CC_MAX_VOICES = 2;      ///< Maximum number of voices supported
-constexpr uint8_t CC_PARAMETERS_PER_VOICE = 4;  ///< Number of CC parameters per voice
+constexpr uint8_t CC_MAX_VOICES = 2;           ///< Maximum number of voices supported
+constexpr uint8_t CC_PARAMETERS_PER_VOICE = 4; ///< Number of CC parameters per voice
 
 #endif // MIDI_CC_CONFIG_H

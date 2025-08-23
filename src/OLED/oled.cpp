@@ -1,6 +1,7 @@
 #include "oled.h"
 #include "../voice/Voice.h"
 #include "../voice/VoicePresets.h"
+#include "../voice/VoiceSystem.h" // Added for complete VoiceSystem type
 #include "../../includes.h"
 #include "../sequencer/SequencerDefs.h"
 #include "../sequencer/ShuffleTemplates.h"
@@ -109,15 +110,8 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
   displayHardware.drawFastHLine(OLEDConstants::TEXT_MARGIN - 3, OLEDConstants::LINE_SPACING,
                                 OLEDConstants::SCREEN_WIDTH - (2 * OLEDConstants::TEXT_MARGIN) + 6, SH110X_WHITE);
 
-  // Get external voice IDs for voice mapping
-  extern uint8_t voice1Id;
-  extern uint8_t voice2Id;
-  extern uint8_t voice3Id;
-  extern uint8_t voice4Id;
-
   // Map selected voice index to actual voice ID
-  const uint8_t voiceIDs[] = {voice1Id, voice2Id, voice3Id, voice4Id};
-  const uint8_t currentVoiceID = voiceIDs[uiState.selectedVoiceIndex];
+  const uint8_t currentVoiceID = voiceSystem.getVoiceId(uiState.selectedVoiceIndex);
   VoiceConfig *voiceConfiguration = voiceManager->getVoiceConfig(currentVoiceID);
 
   if (!voiceConfiguration)
@@ -486,9 +480,8 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
   if (uiState.inPresetSelection)
   {
     // Enhanced preset selection with cycling interface
-    int currentPresetIndex = (uiState.settingsMenuIndex == 0) ? uiState.voice1PresetIndex : (uiState.settingsMenuIndex == 1) ? uiState.voice2PresetIndex
-                                                                                        : (uiState.settingsMenuIndex == 2)   ? uiState.voice3PresetIndex
-                                                                                                                             : uiState.voice4PresetIndex;
+    int currentPresetIndex = (uiState.settingsMenuIndex < UIState::MAX_VOICES) ? 
+                            uiState.voicePresetIndices[uiState.settingsMenuIndex] : 0;
 
     // Header with voice info
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, OLEDConstants::TEXT_MARGIN);
@@ -569,9 +562,9 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
 
       // Current preset name for each voice
       displayHardware.setCursor(12, yPosition);
-      const char *presetName = (voiceIndex == 0) ? VoicePresets::getPresetName(uiState.voice1PresetIndex) : (voiceIndex == 1) ? VoicePresets::getPresetName(uiState.voice2PresetIndex)
-                                                                                                        : (voiceIndex == 2)   ? VoicePresets::getPresetName(uiState.voice3PresetIndex)
-                                                                                                                              : VoicePresets::getPresetName(uiState.voice4PresetIndex);
+      const char *presetName = (voiceIndex < UIState::MAX_VOICES) ? 
+                            VoicePresets::getPresetName(uiState.voicePresetIndices[voiceIndex]) : 
+                            "Unknown";
       displayHardware.print(presetName);
     }
   }
@@ -588,12 +581,9 @@ void OLEDDisplay::displayVoiceParameterInfo(const UIState &uiState, VoiceManager
   displayHardware.setTextColor(SH110X_WHITE);
 
   // Get current voice configuration
-  extern uint8_t voice3Id;
-  extern uint8_t voice4Id;
   uint8_t selected = uiState.selectedVoiceIndex;
   uint8_t currentVoiceId = (selected == 0) ? leadVoiceId : (selected == 1) ? bassVoiceId
-                                                       : (selected == 2)   ? voice3Id
-                                                                           : voice4Id;
+                                                       : voiceSystem.getVoiceId(selected);
   VoiceConfig *config = voiceManager->getVoiceConfig(currentVoiceId);
 
   if (!config)
@@ -695,22 +685,14 @@ void OLEDDisplay::forceUpdate(const UIState &uiState, VoiceManager *voiceManager
   // Store voice manager reference
   voiceManagerReference = voiceManager;
 
-  // Force immediate display update for voice parameter changes
-  if (uiState.settingsMode && (uiState.inVoiceParameterMode)
-                              )
+  // Force immediate update if in settings mode to show voice parameter toggles
+  if (uiState.settingsMode)
   {
-    Serial.println("OLED: Conditions met - updating display");
-
-    // Display voice parameter toggles immediately (this handles its own display setup)
     displayVoiceParameterToggles(uiState, voiceManager);
     displayHardware.display();
+  }
 
-    Serial.println("OLED: Force update completed - displaying voice parameter toggles");
-  }
-  else
-  {
-    Serial.println("OLED: Conditions not met for force update");
-  }
+
 }
 
 void OLEDDisplay::onVoiceParameterChanged(uint8_t voiceId, const VoiceState &state)
@@ -730,29 +712,24 @@ void OLEDDisplay::onVoiceParameterChanged(uint8_t voiceId, const VoiceState &sta
     return;
   }
 
-  // Get external voice IDs for proper mapping
-  extern uint8_t voice1Id;
-  extern uint8_t voice2Id;
-
-  // Determine which voice this corresponds to (Voice 1 or Voice 2)
+  // Determine which voice this corresponds to
   uint8_t displayVoiceNumber = 0;
-  if (voiceId == voice1Id)
+  bool voiceFound = false;
+  
+  for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++)
   {
-    displayVoiceNumber = 1;
+    if (voiceId == voiceSystem.getVoiceId(i))
+    {
+      displayVoiceNumber = i + 1; // Convert to 1-based
+      voiceFound = true;
+      break;
+    }
   }
-  else if (voiceId == voice2Id)
-  {
-    displayVoiceNumber = 2;
-  }
-  else
+  
+  if (!voiceFound)
   {
     Serial.print("OLED: Warning - Unknown voice ID: ");
-    Serial.print(voiceId);
-    Serial.print(" (leadVoiceId: ");
-    Serial.print(voice1Id);
-    Serial.print(", bassVoiceId: ");
-    Serial.print(voice2Id);
-    Serial.println(")");
+    Serial.println(voiceId);
     return;
   }
   /*
@@ -807,46 +784,14 @@ void OLEDDisplay::onVoiceSwitched(const UIState &uiState, VoiceManager *voiceMan
   // Store voice manager reference
   voiceManagerReference = voiceManager;
 
-  // Get external voice IDs for proper mapping
-  extern uint8_t voice1Id;
-  extern uint8_t voice2Id;
-  extern uint8_t voice3Id;
-  extern uint8_t voice4Id;
-
-  uint8_t selected = uiState.selectedVoiceIndex;
-  uint8_t currentVoiceId = (selected == 0) ? voice1Id : (selected == 1) ? voice2Id
-                                                    : (selected == 2)   ? voice3Id
-                                                                        : voice4Id;
-  uint8_t displayVoiceNumber = selected + 1;
-
-  /*
-   // Comprehensive debug output for voice switching
-   Serial.println("=== OLED Voice Switch (Button 24) ===");
-   Serial.print("Switched to Voice: ");
-   Serial.println(displayVoiceNumber);
-   Serial.print("Voice ID: ");
-   Serial.println(currentVoiceId);
-   Serial.print("Lead Voice ID: ");
-   Serial.println(voice1Id);
-   Serial.print("Bass Voice ID: ");
-   Serial.println(voice2Id);
-   Serial.print("Settings Mode: ");
-   Serial.println(uiState.settingsMode);
-   Serial.println("====================================");
-*/
-
   // Force immediate update if in settings mode to show voice parameter toggles
   if (uiState.settingsMode)
   {
-    //  Serial.println("OLED: Forcing immediate update for voice switch in settings mode");
     displayVoiceParameterToggles(uiState, voiceManager);
     displayHardware.display();
-    // Serial.println("OLED: Voice switch display update completed");
   }
-  else
-  {
-    // Serial.println("OLED: Voice switch noted - will update on next regular refresh");
-  }
+
+
 }
 
 void OLEDDisplay::onVoiceSwitched(uint8_t newVoiceId)
@@ -931,7 +876,7 @@ void OLEDDisplay::runStartupAnimation()
   displayHardware.clearDisplay();
 
   // Horizontal wipe effect across screen
-  for (int wipeWidth = 0; wipeWidth <= OLEDConstants::SCREEN_WIDTH; wipeWidth += 6)
+  for (int wipeWidth = 0; wipeWidth <= OLEDConstants::SCREEN_WIDTH; wipeWidth += 10)
   {
     displayHardware.fillRect(0, 0, wipeWidth, OLEDConstants::SCREEN_HEIGHT, SH110X_WHITE);
     displayHardware.display();

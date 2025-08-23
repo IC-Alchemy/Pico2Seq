@@ -36,14 +36,21 @@ Per-step parameter control with a **magnetic encoder**
 Step sequencing with **per-step parameter automation**
 MIDI I/O support
 
+**Recent Architecture Improvements:**
+- Centralized VoiceSystem for efficient voice management
+- Array-based voice access patterns for better maintainability
+- Scalable design supporting easy voice count modifications
+- Reduced code duplication across the codebase
+
 Key Files
 
-
 src/voice/Voice.cpp - The heart of the DSP engine
-PicoMudrasSequencer.ino - Main Arduino sketch
+src/voice/VoiceSystem.h - Centralized voice management architecture
+Pico2Seq.ino - Main Arduino sketch
 src/audio/ - I2S audio interface for the Pico2
 src/sequencer/ - Step sequencer logic
 src/dsp/ - DSP building blocks (filters, oscillators, effects)
+src/ui/UIState.h - UI state management with array-based voice handling
 
 Getting Started
 

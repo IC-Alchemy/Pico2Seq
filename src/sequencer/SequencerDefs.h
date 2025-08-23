@@ -213,9 +213,9 @@ constexpr ParameterDefinition CORE_PARAMETERS[] = {
   {"Velocity",         0.5f,      0.0f,     1.0f,     false,  SequencerConstants::DEFAULT_STEPS_COUNT}, // Voice amplitude (0.0-1.0)
   {"Filter",           0.5f,      0.0f,     1.0f,     false,  SequencerConstants::DEFAULT_STEPS_COUNT}, // Filter cutoff (0.0-1.0)
   {"Attack",           0.01f,     0.0f,     1.0f,     false,  SequencerConstants::DEFAULT_STEPS_COUNT}, // Attack time (0.0-1.0 seconds)
-  {"Decay",            0.11f,     0.0f,     1.0f,     false,  SequencerConstants::DEFAULT_STEPS_COUNT}, // Decay time (0.0-1.0 seconds)
+  {"Decay",            0.3f,     0.0f,     1.0f,     false,  SequencerConstants::DEFAULT_STEPS_COUNT}, // Decay time (0.0-1.0 seconds)
   {"Octave",           0.0f,      0.0f,     1.0f,     false,  SequencerConstants::DEFAULT_STEPS_COUNT}, // Octave offset (0.0=C2, 0.5=C3, 1.0=C4)
-  {"GateLength",       0.1f,      0.001f,   1.0f,     false,  SequencerConstants::DEFAULT_STEPS_COUNT}, // Gate duration (fraction of step)
+  {"GateLength",       0.3f,      0.001f,   1.0f,     false,  SequencerConstants::DEFAULT_STEPS_COUNT}, // Gate duration (fraction of step)
   {"Gate",             false,     false,    true,     true,   SequencerConstants::DEFAULT_STEPS_COUNT}, // Gate on/off state
   {"Slide",            false,     false,    true,     true,   SequencerConstants::DEFAULT_STEPS_COUNT}  // Portamento enable
 };
@@ -277,7 +277,7 @@ struct Step {
   float velocityLevel = 0.5f;                // Voice amplitude (0.0-1.0)
   float filterCutoff = 0.5f;                 // Filter cutoff frequency (0.0-1.0)
   float attackTimeSeconds = 0.04f;           // Envelope attack time (0.0-1.0 seconds)
-  float decayTimeSeconds = 0.1f;             // Envelope decay time (0.0-1.0 seconds)
+  float decayTimeSeconds = 0.2f;             // Envelope decay time (0.0-1.0 seconds)
   float octaveOffset = 0.0f;                 // Octave offset (0.0=C2, 0.5=C3, 1.0=C4)
   uint16_t gateLengthTicks = SequencerConstants::DEFAULT_GATE_LENGTH_TICKS; // Gate duration in clock ticks
   bool isGateActive = false;                 // Step active/inactive state

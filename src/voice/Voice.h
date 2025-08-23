@@ -292,6 +292,10 @@ private:
   float slideTimeSeconds = 0.06f;
   float slideAlpha = 0.00035f;
 
+  // Cached detune multipliers to avoid powf in the realtime path
+  // detuneMul[i] = 2^(oscDetuning[i] / 12)
+  float detuneMul[3] = {1.0f, 1.0f, 1.0f};
+
   // Sequencer integration
   Sequencer* sequencer;
   // Owns the sequencer when attached via unique_ptr overload
@@ -318,7 +322,13 @@ private:
   void updateFilter(float envelopeValue);
 
   /**
-   * @brief Mix all oscillator outputs
+   * @brief Recompute cached detune multipliers from configuration
+   *        Uses fast exp2f with 1/12 factor to avoid powf in realtime code.
+   */
+  void recomputeDetuneMultipliers();
+
+  /**
+   * @brief Mix and process oscillator outputs
    * @return float Mixed oscillator signal (-1.0 to +1.0)
    */
   float mixOscillators();

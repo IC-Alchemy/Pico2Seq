@@ -375,7 +375,7 @@ void updateSettingsModeLEDs(LEDMatrix& ledMatrix, const UIState& uiState) {
 
             // Highlight currently selected preset
             uint8_t currentPresetIndex = (uiState.settingsMenuIndex == 0) ?
-                uiState.voice1PresetIndex : uiState.voice2PresetIndex;
+                uiState.voicePresetIndices[0] : uiState.voicePresetIndices[1];
 
             if (i == currentPresetIndex) {
                 // Current preset - bright pulsing

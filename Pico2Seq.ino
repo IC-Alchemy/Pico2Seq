@@ -5,6 +5,7 @@
 #include "src/utils/Debug.h"
 #include "src/scales/scales.h"
 #include "src/voice/VoicePresets.h"
+#include "src/voice/VoiceSystem.h"
 
 // =======================
 //   GLOBAL VARIABLES
@@ -39,10 +40,7 @@ constexpr float FEEDBACK_FADE_RATE = 0.01f;
 // =======================
 // Voice Management System
 std::unique_ptr<VoiceManager> voiceManager;
-uint8_t voice1Id = 0;
-uint8_t voice2Id = 0;
-uint8_t voice3Id = 0;
-uint8_t voice4Id = 0;
+VoiceSystem voiceSystem; // Consolidated voice system
 
 // Global Audio Effects (shared between voices)
 daisysp::Svf delLowPass;
@@ -57,11 +55,7 @@ float feedbackAmmount = 0.45f; // Safer initial feedback level
 // Audio Buffer Management
 audio_buffer_pool_t *producer_pool = nullptr;
 
-// Voice State Storage (for compatibility)
-VoiceState voiceState1;
-VoiceState voiceState2;
-VoiceState voiceState3;
-VoiceState voiceState4;
+// Voice State Storage is now in voiceSystem
 
 // =======================
 //   HARDWARE INTERFACE CONSTANTS
@@ -99,11 +93,8 @@ void loop1();
 // =======================
 //   SEQUENCER STATE VARIABLES
 // =======================
-volatile bool GATE1 = false;
-volatile bool GATE2 = false;
-volatile uint8_t currentSequencerStep = 0;
-GateTimer gateTimer1;
-GateTimer gateTimer2;
+uint8_t currentSequencerStep = 0;
+// Gate states and timers are now in voiceSystem
 
 // =======================
 //   SENSOR INPUT VARIABLES
@@ -154,10 +145,7 @@ void muteOscillators()
 {
     if (voiceManager)
     {
-        voiceManager->setVoiceVolume(voice1Id, 0.0f);
-        voiceManager->setVoiceVolume(voice2Id, 0.0f);
-        voiceManager->setVoiceVolume(voice3Id, 0.0f);
-        voiceManager->setVoiceVolume(voice4Id, 0.0f);
+        voiceSystem.muteAllVoices(voiceManager.get());
     }
 }
 
@@ -165,10 +153,7 @@ void unmuteOscillators()
 {
     if (voiceManager)
     {
-        voiceManager->setVoiceVolume(voice1Id, 0.5f);
-        voiceManager->setVoiceVolume(voice2Id, 0.5f);
-        voiceManager->setVoiceVolume(voice3Id, 0.5f);
-        voiceManager->setVoiceVolume(voice4Id, 0.5f);
+        voiceSystem.unmuteAllVoices(voiceManager.get());
     }
 }
 void onClockStart()
@@ -254,16 +239,14 @@ void initOscillators()
     voiceManager = std::make_unique<VoiceManager>(4);
 
     // Create voices 1-4 using presets from UIState defaults
-    voice1Id = voiceManager->addVoice(VoicePresets::getPresetConfig(uiState.voice1PresetIndex));
-    voice2Id = voiceManager->addVoice(VoicePresets::getPresetConfig(uiState.voice2PresetIndex));
-    voice3Id = voiceManager->addVoice(VoicePresets::getPresetConfig(uiState.voice3PresetIndex));
-    voice4Id = voiceManager->addVoice(VoicePresets::getPresetConfig(uiState.voice4PresetIndex));
+    const uint8_t *presetIndices = uiState.voicePresetIndices;
+    Sequencer *sequencers[] = {&seq1, &seq2, &seq3, &seq4};
 
-    // Attach sequencers to voices for parameter automation
-    voiceManager->attachSequencer(voice1Id, &seq1);
-    voiceManager->attachSequencer(voice2Id, &seq2);
-    voiceManager->attachSequencer(voice3Id, &seq3);
-    voiceManager->attachSequencer(voice4Id, &seq4);
+    for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++)
+    {
+        voiceSystem.setVoiceId(i, voiceManager->addVoice(VoicePresets::getPresetConfig(presetIndices[i])));
+        voiceManager->attachSequencer(voiceSystem.getVoiceId(i), sequencers[i]);
+    }
 
     // Note: OLED display registration occurs in setup1() after display initialization
 }
@@ -278,25 +261,14 @@ void applyVoicePreset(uint8_t voiceNumber, uint8_t presetIndex)
     }
 
     VoiceConfig config = VoicePresets::getPresetConfig(presetIndex);
-    uint8_t voiceId;
-    switch (voiceNumber)
+
+    if (voiceNumber < 1 || voiceNumber > VoiceSystem::MAX_VOICES)
     {
-    case 1:
-        voiceId = voice1Id;
-        break;
-    case 2:
-        voiceId = voice2Id;
-        break;
-    case 3:
-        voiceId = voice3Id;
-        break;
-    case 4:
-        voiceId = voice4Id;
-        break;
-    default:
         Serial.println("Invalid voice number");
         return;
     }
+
+    uint8_t voiceId = voiceSystem.getVoiceId(voiceNumber - 1); // Convert 1-based to 0-based index
 
     if (voiceManager->setVoiceConfig(voiceId, config))
     {
@@ -409,10 +381,10 @@ void updateParametersForStep(uint8_t stepToUpdate) ///  This is the selected ste
         }
 
         // Debug print if needed
-        Serial.print("  -> Set ");
-        Serial.print(CORE_PARAMETERS[static_cast<int>(heldMapping->paramId)].name);
-        Serial.print(" to ");
-        Serial.println(valueToSet);
+      //  Serial.print("  -> Set ");
+     //   Serial.print(CORE_PARAMETERS[static_cast<int>(heldMapping->paramId)].name);
+       // Serial.print(" to ");
+      //  Serial.println(valueToSet);
     }
 
     // Provide immediate audio feedback when recording parameters to current step
@@ -483,7 +455,8 @@ void updateVoiceParameters(
     }
 
     // OPTIMIZATION: Calculate voice ID once and consolidate all voice updates
-    uint8_t voiceId = isVoice2 ? voice2Id : voice1Id;
+    uint8_t voiceIndex = isVoice2 ? 1 : 0;
+    uint8_t voiceId = voiceSystem.getVoiceId(voiceIndex);
 
     // GATE-CONTROLLED FREQUENCY UPDATES: Only update frequency when gate is HIGH
     // This prevents new frequencies from being sent when gate is LOW, allowing
@@ -514,24 +487,13 @@ void updateVoiceParametersForVoice(
     }
 
     // Map to actual VoiceManager voice IDs
-    uint8_t voiceId;
-    switch (voiceNumber)
+    if (voiceNumber < 1 || voiceNumber > VoiceSystem::MAX_VOICES)
     {
-    case 1:
-        voiceId = voice1Id;
-        break;
-    case 2:
-        voiceId = voice2Id;
-        break;
-    case 3:
-        voiceId = voice3Id;
-        break;
-    case 4:
-        voiceId = voice4Id;
-        break;
-    default:
-        return; // Invalid
+        return; // Invalid voice number
     }
+
+    uint8_t voiceIndex = voiceNumber - 1; // Convert 1-based to 0-based
+    uint8_t voiceId = voiceSystem.getVoiceId(voiceIndex);
 
     // Push full state to voice (Voice computes frequencies internally on gate HIGH)
     voiceManager->updateVoiceState(voiceId, state);
@@ -568,24 +530,13 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
     uint8_t voiceNumber = selectedIndex + 1;            // 1..4
 
     // Pick the matching VoiceState for the selected voice
-    VoiceState *activeVoiceState = nullptr;
-    switch (voiceNumber)
+    if (voiceNumber < 1 || voiceNumber > VoiceSystem::MAX_VOICES)
     {
-    case 1:
-        activeVoiceState = &voiceState1;
-        break;
-    case 2:
-        activeVoiceState = &voiceState2;
-        break;
-    case 3:
-        activeVoiceState = &voiceState3;
-        break;
-    case 4:
-        activeVoiceState = &voiceState4;
-        break;
-    default:
-        return; // Invalid
+        return; // Invalid voice number
     }
+
+    uint8_t voiceIndex = voiceNumber - 1; // Convert 1-based to 0-based
+    VoiceState *activeVoiceState = &voiceSystem.getVoiceState(voiceIndex);
 
     // Update voice state with new step parameters + AS5600 encoder modifications
     activeSeq.playStepNow(stepIndex, activeVoiceState);
@@ -599,8 +550,8 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
     // Update synth hardware for immediate audio feedback using the per-voice function
     updateVoiceParametersForVoice(*activeVoiceState, voiceNumber);
 
-    Serial.print("Applied immediate voice updates for step ");
-    Serial.println(stepIndex);
+    //Serial.print("Applied immediate voice updates for step ");
+    //Serial.println(stepIndex);
 }
 
 //  This gets called every 16th note
@@ -632,16 +583,24 @@ void onStepCallback(uint32_t uClockCurrentStep)
     applyAS5600DelayValues();
 
     // 4. Update synth hardware (voices 1/2 with gates + MIDI; 3/4 audio only)
-    updateVoiceParametersForVoice(tempState1, 1, true, &GATE1, &gateTimer1);
-    updateVoiceParametersForVoice(tempState2, 2, true, &GATE2, &gateTimer2);
-    updateVoiceParametersForVoice(tempState3, 3, false);
-    updateVoiceParametersForVoice(tempState4, 4, false);
+    VoiceState tempStates[] = {tempState1, tempState2, tempState3, tempState4};
 
-    // Store states
-    voiceState1 = tempState1;
-    voiceState2 = tempState2;
-    voiceState3 = tempState3;
-    voiceState4 = tempState4;
+    for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++)
+    {
+        if (i < 2) // Voices 0 and 1 (1-based: 1 and 2) have gate support
+        {
+            updateVoiceParametersForVoice(tempStates[i], i + 1, true,
+                                          &voiceSystem.getGate(i),
+                                          &voiceSystem.getGateTimer(i));
+        }
+        else // Voices 2 and 3 (1-based: 3 and 4) are audio only
+        {
+            updateVoiceParametersForVoice(tempStates[i], i + 1, false);
+        }
+
+        // Store state
+        voiceSystem.getVoiceState(i) = tempStates[i];
+    }
 }
 
 /**
@@ -663,16 +622,16 @@ void fill_audio_buffer(audio_buffer_t *buffer)
     float processedOutput;
 
     // Determine target gains based on delay state
-   // float targetDelayOutputGain = uiState.delayOn ? 1.0f : 0.0f;
-   // float targetFeedbackGain = uiState.delayOn ? feedbackAmmount : 0.0f;
+    // float targetDelayOutputGain = uiState.delayOn ? 1.0f : 0.0f;
+    // float targetFeedbackGain = uiState.delayOn ? feedbackAmmount : 0.0f;
 
     // Smooth parameters once per buffer to reduce CPU load
-  //  currentFeedbackGain = delayTimeSmoothing(currentFeedbackGain, targetFeedbackGain, FEEDBACK_FADE_RATE);
-    //currentDelayOutputGain = delayTimeSmoothing(currentDelayOutputGain, targetDelayOutputGain, FEEDBACK_FADE_RATE);
-    //currentDelay = delayTimeSmoothing(currentDelay, delayTarget, 0.0001f);
+    //  currentFeedbackGain = delayTimeSmoothing(currentFeedbackGain, targetFeedbackGain, FEEDBACK_FADE_RATE);
+    // currentDelayOutputGain = delayTimeSmoothing(currentDelayOutputGain, targetDelayOutputGain, FEEDBACK_FADE_RATE);
+    // currentDelay = delayTimeSmoothing(currentDelay, delayTarget, 0.0001f);
 
     // Set delay time once per buffer for efficiency
-  //  del1.SetDelay(currentDelay);
+    //  del1.SetDelay(currentDelay);
 
     // Process each sample in the buffer
     for (int i = 0; i < N; ++i)
@@ -681,7 +640,7 @@ void fill_audio_buffer(audio_buffer_t *buffer)
         finalVoiceOutput = voiceManager->processAllVoices();
 
         // Apply global delay effect
-      //  processedOutput = processDelayEffect(finalVoiceOutput);
+        //  processedOutput = processDelayEffect(finalVoiceOutput);
 
         // Apply soft limiting to prevent clipping
         float softLimitedOutput = daisysp::SoftLimit(finalVoiceOutput);
@@ -826,7 +785,7 @@ void setup1()
     // Initialize lightweight debug system
     Debug::begin(115200);
     Debug::setEnabled(false);
-  //  Debug::setLevel(Debug::Level::Info);
+    //  Debug::setLevel(Debug::Level::Info);
 
     Serial.print("[CORE1] Setup starting... ");
 
@@ -873,10 +832,9 @@ void setup1()
 
         // Configure MPR121 touch thresholds.
         // Using the original, more conservative thresholds.
-        touchSensor.setThresholds(50, 25); // touch, release thresholds
+        touchSensor.setThresholds(55, 22); // touch, release thresholds
         // Serial.println("MPR121 thresholds configured to 155/55");
     }
-
 
     // Initialize OLED display
     display.begin();
@@ -904,8 +862,7 @@ void setup1()
     // Force a matrix scan to test the system
     Serial.println("Forcing initial matrix scan...");
     Matrix_scan();
-   // Matrix_printState();
-
+    // Matrix_printState();
 
     // Use a lambda to capture the context needed by the event handler
     Matrix_setEventHandler([](const MatrixButtonEvent &evt)
@@ -975,12 +932,9 @@ void loop1()
 {
     // Process MIDI input/output
     usb_midi.read();
-    pollUIHeldButtons(uiState, seq1, seq2);
 
     unsigned long currentMillis = millis();
-
-    // Check if any parameter buttons are held for real-time recording
-    bool parameterRecordingActive = isAnyParameterButtonHeld(uiState);
+    pollUIHeldButtons(uiState, seq1, seq2);
 
     // =======================
     //   TIMING AND SEQUENCER PROCESSING
@@ -998,22 +952,11 @@ void loop1()
         midiNoteManager.updateTiming(globalTickCounter);
 
         // Process sequencer note duration timing
-        seq1.tickNoteDuration(&voiceState1);
-        seq2.tickNoteDuration(&voiceState2);
+        seq1.tickNoteDuration(&voiceSystem.getVoiceState(0));
+        seq2.tickNoteDuration(&voiceSystem.getVoiceState(1));
 
         // Process gate timers - now synchronized with MidiNoteManager
-        gateTimer1.tick();
-
-        if (gateTimer1.isExpired() && GATE1)
-        {
-            GATE1 = false;
-        }
-
-        gateTimer2.tick();
-        if (gateTimer2.isExpired() && GATE2)
-        {
-            GATE2 = false;
-        }
+        voiceSystem.tickAllGateTimers();
     }
 
     // =======================
@@ -1024,7 +967,7 @@ void loop1()
 
     const unsigned long LED_UPDATE_INTERVAL = 10;    // 10ms interval for LED updates
     const unsigned long CONTROL_UPDATE_INTERVAL = 2; // 2ms interval for sensor polling
-    uint16_t currentTouchedButtons = touchSensor.touched();
+    //uint16_t currentTouchedButtons = touchSensor.touched();
 
     // =======================
     //   SENSOR AND CONTROL INPUT PROCESSING
@@ -1033,6 +976,9 @@ void loop1()
     if ((currentMillis - lastControlUpdate >= CONTROL_UPDATE_INTERVAL))
     {
         lastControlUpdate = currentMillis;
+
+    // Check if any parameter buttons are held for real-time recording
+    bool parameterRecordingActive = isAnyParameterButtonHeld(uiState);
 
         // Scan button matrix for user input
         Matrix_scan();
@@ -1054,6 +1000,11 @@ void loop1()
         }
     }
 
+    // Update LEDs and display at controlled intervals (100Hz update rate)
+    if (currentMillis - lastLEDUpdate >= LED_UPDATE_INTERVAL)
+    {
+        lastLEDUpdate = currentMillis;
+
     // =======================
     //   DISPLAY AND LED PROCESSING
     // =======================
@@ -1063,11 +1014,6 @@ void loop1()
         uiState.voiceSwitchTriggered = false; // Clear the trigger flag
         display.onVoiceSwitched(uiState, voiceManager.get());
     }
-
-    // Update LEDs and display at controlled intervals (100Hz update rate)
-    if (currentMillis - lastLEDUpdate >= LED_UPDATE_INTERVAL)
-    {
-        lastLEDUpdate = currentMillis;
 
         // Update step sequence LEDs
         updateStepLEDs(ledMatrix, seq1, seq2, seq3, seq4, uiState, mm);

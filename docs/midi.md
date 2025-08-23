@@ -11,6 +11,10 @@ The `src/midi` folder contains the MIDI communication system for the PicoMudrasS
 **CC Number Mapping:**
 - Voice 1: CC71-74 (Octave=71, Decay=72, Attack=73, Filter=74)
 - Voice 2: CC75-78 (Octave=75, Decay=76, Attack=77, Filter=78)
+- Voice 3: CC79-82 (Octave=79, Decay=80, Attack=81, Filter=82)
+- Voice 4: CC83-86 (Octave=83, Decay=84, Attack=85, Filter=86)
+
+**Note:** The system now supports up to 4 voices through the VoiceSystem architecture, with CC mappings extended accordingly.
 
 **Transmission Settings:**
 - Minimum interval: 10ms between CC transmissions
@@ -25,9 +29,10 @@ The `src/midi` folder contains the MIDI communication system for the PicoMudrasS
 ### 2. MidiManager.h - Core MIDI Interface
 
 **MidiNoteManager Class:**
-- Handles dual-voice MIDI note tracking
-- Manages monophonic behavior per voice
+- Handles multi-voice MIDI note tracking through VoiceSystem integration
+- Manages monophonic behavior per voice (up to 4 voices)
 - Synchronizes note events with gate timing
+- Uses centralized VoiceSystem for voice state management
 
 **Key Data Structures:**
 
@@ -78,11 +83,29 @@ struct CCParameterState {
 ### Timing Control
 ```cpp
 void updateTiming(uint16_t currentTick) {
-    // Check both voices for expired gates
-    if (voice1Tracker.isGateExpired()) {
-        processNoteOff(&voice1Tracker);
+    // Check all voices for expired gates using VoiceSystem
+    for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++) {
+        if (voiceSystem.getGateTimer(i).isExpired()) {
+            processNoteOff(i);
+        }
     }
 }
+```
+
+### VoiceSystem Integration
+
+The MIDI system now integrates with the centralized VoiceSystem architecture:
+
+```cpp
+// Access voice states through VoiceSystem
+VoiceState& voiceState = voiceSystem.getVoiceState(voiceIndex);
+
+// Gate management through VoiceSystem
+voiceSystem.setGate(voiceIndex, true);  // Note on
+voiceSystem.setGate(voiceIndex, false); // Note off
+
+// Bulk operations for all voices
+voiceSystem.stopAllGates();  // All notes off
 ```
 
 ## MIDI CC System

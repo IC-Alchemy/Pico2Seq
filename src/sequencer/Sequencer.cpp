@@ -237,8 +237,7 @@ void Sequencer::advanceStep(uint8_t current_uclock_step, int mm_distance,
         }
     }
 
-    // Track if any parameters were recorded during this step
-    bool parametersRecorded = false;
+
 
     // Handle real-time parameter recording first
     // Disable distance sensor control when in edit mode (selectedStepForEdit >= 0)
@@ -280,7 +279,6 @@ void Sequencer::advanceStep(uint8_t current_uclock_step, int mm_distance,
                     }
                 }
 
-                parametersRecorded = true;
 
                 // For all other parameters, scale the normalized value to the parameter's range
                 float value = mapNormalizedValueToParamRange(pb.id, normalizedDistance);
@@ -373,7 +371,13 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
     {
         // Calculate the final note value
         int finalNote = noteVal + octaveOffset;
-
+     // Output gate signal based on channel
+             if (channel == 1) {
+                 digitalWrite(10, HIGH);  // Voice 1 gate output
+             } else if (channel == 2) {
+                 digitalWrite(11, HIGH);  // Voice 2 gate output
+             }
+            
         // If the step's gate is on, decide whether to start a new note or slide to it.
         if (!slideVal)
         {
@@ -383,14 +387,7 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
                 voiceState->shouldRetrigger = true;
             }
 
-            // Trigger note with velocity scaled to MIDI range (0-127)
-            // Output gate signal based on channel
-             if (channel == 1) {
-                 digitalWrite(10, HIGH);  // Voice 1 gate output
-             } else if (channel == 2) {
-                 digitalWrite(11, HIGH);  // Voice 2 gate output
-             }
-            
+       
             startNote(static_cast<uint8_t>(finalNote), static_cast<uint8_t>(velocityVal * 127.0f),
                       noteDurationTicks);
         }
@@ -537,8 +534,7 @@ void Sequencer::randomizeParameters()
     parameterManager.randomizeParameters();
     for (size_t i = 0; i < 16; ++i){
 setStepParameterValue(ParamId::Octave, i, 0.0f);
-setStepParameterValue(ParamId::Attack, i, 0.001f);
-setStepParameterValue(ParamId::Decay, i, 0.12f);
+
 
 
     }

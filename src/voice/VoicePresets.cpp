@@ -1,15 +1,18 @@
 #include "VoicePresets.h"
 #include <array>
 
-namespace VoicePresets {
+namespace VoicePresets
+{
 
   // Thread-safe static storage for presets
-  static const std::array<VoiceConfig, 7>& presetStorage() noexcept {
-    static std::array<VoiceConfig, 7> presets = []() noexcept {
+  static const std::array<VoiceConfig, 7> &presetStorage() noexcept
+  {
+    static std::array<VoiceConfig, 7> presets = []() noexcept
+    {
       std::array<VoiceConfig, 7> p{};
       // Analog
       {
-        VoiceConfig& config = p[0];
+        VoiceConfig &config = p[0];
         config.oscillatorCount = 3;
         config.oscWaveforms[0] = daisysp::Oscillator::WAVE_POLYBLEP_SAW;
         config.oscWaveforms[1] = daisysp::Oscillator::WAVE_POLYBLEP_SAW;
@@ -18,7 +21,7 @@ namespace VoicePresets {
         config.oscAmplitudes[1] = .2f;
         config.oscAmplitudes[2] = .2f;
         config.oscDetuning[0] = 0.0f;
-        config.oscDetuning[1] = 0.045f;   // Slight detune
+        config.oscDetuning[1] = 0.045f; // Slight detune
         config.oscDetuning[2] = -0.04f; // Slight detune opposite
         config.harmony[0] = 0;          // Root note
         config.harmony[1] = 0;          // Unison (no harmony)
@@ -39,21 +42,21 @@ namespace VoicePresets {
 
         config.defaultAttack = 0.04f;
         config.defaultDecay = 0.14f;
-        config.defaultSustain = 0.45f;
+        config.defaultSustain = 0.3f;
         config.defaultRelease = 0.1f;
-        config.outputLevel = 0.9f;   
+        config.outputLevel = 0.9f;
       }
 
       // Digital
       {
-        VoiceConfig& config = p[1];
+        VoiceConfig &config = p[1];
         config.oscillatorCount = 1;
         config.oscWaveforms[0] = daisysp::Oscillator::WAVE_POLYBLEP_SAW;
 
         config.oscAmplitudes[0] = 1.f;
         config.oscDetuning[0] = 0.0f; // Fixed duplicate assignment
 
-        config.harmony[0] = 0;  // Root note
+        config.harmony[0] = 0; // Root note
         config.filterRes = 0.2f;
         config.filterDrive = 1.5f;
         config.filterPassbandGain = 0.2f;
@@ -68,14 +71,14 @@ namespace VoicePresets {
         config.wavefolderGain = 3.0f;
         config.defaultAttack = 0.015f;
         config.defaultDecay = 0.1f;
-        config.defaultSustain = 0.1f;
+        config.defaultSustain = 0.3f;
         config.defaultRelease = 0.1f;
-        config.outputLevel = 0.9f;  
+        config.outputLevel = 0.9f;
       }
 
       // Bass
       {
-        VoiceConfig& config = p[2];
+        VoiceConfig &config = p[2];
         config.oscillatorCount = 2;
         config.oscWaveforms[0] = daisysp::Oscillator::WAVE_POLYBLEP_SAW;
         config.oscWaveforms[1] = daisysp::Oscillator::WAVE_POLYBLEP_TRI;
@@ -100,12 +103,12 @@ namespace VoicePresets {
         config.defaultDecay = 0.3f;
         config.defaultSustain = 0.4f;
         config.defaultRelease = 0.2f;
-        config.outputLevel = 1.f;    // Lower level for pad
+        config.outputLevel = 1.f; // Lower level for pad
       }
 
       // Lead
       {
-        VoiceConfig& config = p[3];
+        VoiceConfig &config = p[3];
         config.oscillatorCount = 2;
         config.oscWaveforms[0] = daisysp::Oscillator::WAVE_POLYBLEP_SAW;
         config.oscWaveforms[1] = daisysp::Oscillator::WAVE_POLYBLEP_SQUARE;
@@ -132,12 +135,12 @@ namespace VoicePresets {
         config.defaultDecay = 0.2f;
         config.defaultSustain = 0.35f;
         config.defaultRelease = 0.15f;
-        config.outputLevel = 0.7f;   
+        config.outputLevel = 0.7f;
       }
 
       // Square
       {
-        VoiceConfig& config = p[4];
+        VoiceConfig &config = p[4];
         config.oscillatorCount = 1;
         config.oscWaveforms[0] = daisysp::Oscillator::WAVE_POLYBLEP_SQUARE;
         config.oscAmplitudes[0] = .95f;
@@ -153,20 +156,20 @@ namespace VoicePresets {
         config.filterMode = daisysp::LadderFilter::FilterMode::LP24;
         config.hasOverdrive = false;
         config.hasWavefolder = false;
-        config.overdriveGain = 0.6f;
-        config.overdriveDrive = 0.25f;
+        config.overdriveGain = 0.5f;
+        config.overdriveDrive = 0.35f;
         config.wavefolderGain = 3.0f;
 
         config.defaultAttack = 0.02f;
         config.defaultDecay = 0.2f;
         config.defaultSustain = 0.0f;
         config.defaultRelease = 0.15f;
-        config.outputLevel = 0.8f;   
+        config.outputLevel = 0.8f;
       }
 
       // Pad
       {
-        VoiceConfig& config = p[5];
+        VoiceConfig &config = p[5];
         config.oscillatorCount = 3;
         config.oscWaveforms[0] = daisysp::Oscillator::WAVE_POLYBLEP_SAW;
         config.oscWaveforms[1] = daisysp::Oscillator::WAVE_POLYBLEP_SAW;
@@ -192,30 +195,20 @@ namespace VoicePresets {
         config.defaultDecay = 0.2f;
         config.defaultSustain = 0.5f;
         config.defaultRelease = .5f; // Long release
-        config.outputLevel = 0.95f;    // Lower level for pad
+        config.outputLevel = 0.95f;  // Lower level for pad
       }
 
       // Percussion
       {
-        VoiceConfig& config = p[6];
-        config.oscillatorCount = 3;
-        config.oscWaveforms[0] = daisysp::Oscillator::WAVE_SIN;
-        config.oscWaveforms[1] = daisysp::Oscillator::WAVE_SIN;
-        config.oscWaveforms[2] = daisysp::Oscillator::WAVE_SIN;
-        config.oscAmplitudes[0] = 0.98f;
-        config.oscAmplitudes[1] = 0.62f;
-        config.oscAmplitudes[2] = 0.62f;
-        config.oscDetuning[0] = 0.0f;
-        config.oscDetuning[1] = 7.0f;
-        config.oscDetuning[2] = -5.0f;
-        config.harmony[0] = 0; // Root note
-        config.harmony[1] = 0; // Unison
-        config.harmony[2] = 0; // Unison
+        VoiceConfig &config = p[6];
+        config.oscillatorCount = 0;                       // No oscillators, only noise
+        config.oscWaveforms[0] = VoiceConfig::WAVE_NOISE; // Use noise for percussive texture
+        config.oscAmplitudes[0] = 1.f;
 
         config.filterRes = 0.4f;
         config.filterDrive = 2.3f;
         config.filterPassbandGain = 0.33f;
-        config.highPassFreq = 180.0f;
+        config.highPassFreq = 200.0f;
         config.filterMode = daisysp::LadderFilter::FilterMode::LP24;
 
         config.hasOverdrive = false;
@@ -228,7 +221,7 @@ namespace VoicePresets {
         config.defaultDecay = 0.08f;
         config.defaultSustain = 0.0f;
         config.defaultRelease = 0.07f;
-        config.outputLevel = 0.9f;   
+        config.outputLevel = 0.9f;
       }
 
       return p;
@@ -236,18 +229,18 @@ namespace VoicePresets {
     return presets;
   }
 
-  static constexpr const char* VOICE_PRESET_NAMES[] = {"Analog", "Digital", "Bass", "Lead", "Square", "Pad", "Percussion"};
+  static constexpr const char *VOICE_PRESET_NAMES[] = {"Analog", "Digital", "Bass", "Lead", "Square", "Pad", "Percussion"};
   static constexpr uint8_t VOICE_PRESET_COUNT = 7;
 
-  const VoiceConfig& getAnalogVoice() noexcept { return presetStorage()[0]; }
-  const VoiceConfig& getDigitalVoice() noexcept { return presetStorage()[1]; }
-  const VoiceConfig& getBassVoice() noexcept { return presetStorage()[2]; }
-  const VoiceConfig& getLeadVoice() noexcept { return presetStorage()[3]; }
-  const VoiceConfig& getSquareVoice() noexcept { return presetStorage()[4]; }
-  const VoiceConfig& getPadVoice() noexcept { return presetStorage()[5]; }
-  const VoiceConfig& getPercussionVoice() noexcept { return presetStorage()[6]; }
+  const VoiceConfig &getAnalogVoice() noexcept { return presetStorage()[0]; }
+  const VoiceConfig &getDigitalVoice() noexcept { return presetStorage()[1]; }
+  const VoiceConfig &getBassVoice() noexcept { return presetStorage()[2]; }
+  const VoiceConfig &getLeadVoice() noexcept { return presetStorage()[3]; }
+  const VoiceConfig &getSquareVoice() noexcept { return presetStorage()[4]; }
+  const VoiceConfig &getPadVoice() noexcept { return presetStorage()[5]; }
+  const VoiceConfig &getPercussionVoice() noexcept { return presetStorage()[6]; }
 
-  const char* getPresetName(uint8_t presetIndex) noexcept
+  const char *getPresetName(uint8_t presetIndex) noexcept
   {
     if (presetIndex < VOICE_PRESET_COUNT)
     {
@@ -256,18 +249,25 @@ namespace VoicePresets {
     return "Unknown";
   }
 
-  const VoiceConfig& getPresetConfig(uint8_t presetIndex) noexcept
+  const VoiceConfig &getPresetConfig(uint8_t presetIndex) noexcept
   {
     switch (presetIndex)
     {
-      default:
-      case 0: return getAnalogVoice();
-      case 1: return getDigitalVoice();
-      case 2: return getBassVoice();
-      case 3: return getLeadVoice();
-      case 4: return getSquareVoice();
-      case 5: return getPadVoice();
-      case 6: return getPercussionVoice();
+    default:
+    case 0:
+      return getAnalogVoice();
+    case 1:
+      return getDigitalVoice();
+    case 2:
+      return getBassVoice();
+    case 3:
+      return getLeadVoice();
+    case 4:
+      return getSquareVoice();
+    case 5:
+      return getPadVoice();
+    case 6:
+      return getPercussionVoice();
     }
   }
 

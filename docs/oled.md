@@ -133,11 +133,27 @@ The `src/OLED` folder contains the display system for the PicoMudrasSequencer, p
 
 ### Internal Modules
 
-- **UIState**: Current user interface state
+- **UIState**: Current user interface state with array-based voice management
 - **ButtonManager**: Button input handling
 - **Sequencer**: Sequence parameter access
-- **VoiceManager**: Voice configuration management
+- **VoiceSystem**: Centralized voice state and configuration management
 - **LEDConstants**: Shared display constants
+
+### VoiceSystem Integration
+
+The OLED display system has been updated to work with the new VoiceSystem architecture:
+
+**Voice Display Updates:**
+- Voice ID retrieval through `voiceSystem.getVoiceId(selectedVoiceIndex)`
+- Voice state access via `voiceSystem.getVoiceState(voiceIndex)`
+- Preset index management through `uiState.voicePresetIndices[voiceIndex]`
+- Scalable voice display supporting up to 4 voices
+
+**Benefits:**
+- Consistent voice indexing across all display functions
+- Simplified voice parameter display logic
+- Reduced conditional branching for voice selection
+- Easy extension for additional voices
 
 ## Usage Examples
 

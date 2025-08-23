@@ -10,8 +10,68 @@ The voice system consists of several key components:
 
 - **`Voice`**: Individual synthesizer voice with oscillators, filter, envelope, and effects
 - **`VoiceManager`**: Manages multiple voices with allocation, deallocation, and unified audio processing
+- **`VoiceSystem`**: Centralized struct that consolidates voice IDs, states, gates, and timers into arrays for efficient management
 - **`VoicePresets`**: Factory system for common synthesizer voice configurations
 - **Supporting Classes**: `VoiceManagerBuilder`, `VoiceFactory` for easy setup and configuration
+
+### VoiceSystem Architecture
+
+The `VoiceSystem` struct provides a centralized approach to managing multiple voices, replacing individual voice variables with arrays for better maintainability and scalability:
+
+```cpp
+struct VoiceSystem {
+    static const uint8_t MAX_VOICES = 4;
+    
+    uint8_t voiceIds[MAX_VOICES];
+    VoiceState voiceStates[MAX_VOICES];
+    bool gates[MAX_VOICES];
+    GateTimer gateTimers[MAX_VOICES];
+    
+    // Getter methods for safe access
+    uint8_t getVoiceId(uint8_t index) const;
+    VoiceState& getVoiceState(uint8_t index);
+    const VoiceState& getVoiceState(uint8_t index) const;
+    bool getGate(uint8_t index) const;
+    void setGate(uint8_t index, bool state);
+    GateTimer& getGateTimer(uint8_t index);
+    
+    // Helper functions for common operations
+    void muteAllVoices();
+    void unmuteAllVoices();
+    void setAllVoiceVolumes(float volume);
+    void stopAllGates();
+    void tickAllGateTimers();
+};
+```
+
+This architecture provides:
+- **Centralized Management**: All voice-related data in one structure
+- **Array-based Access**: Eliminates repetitive code with loop-based operations
+- **Type Safety**: Bounds checking and consistent access patterns
+- **Scalability**: Easy to change voice count by modifying MAX_VOICES constant
+- **Helper Functions**: Common operations like muting all voices or stopping all gates
+
+### UIState Integration
+
+The UI system has been updated to work seamlessly with the VoiceSystem architecture:
+
+```cpp
+struct UIState {
+    // Voice preset management using arrays
+    static const uint8_t MAX_VOICES = 4;
+    uint8_t voicePresetIndices[MAX_VOICES];
+    
+    // Other UI state variables...
+    uint8_t selectedVoiceIndex;
+    // ...
+};
+```
+
+Key improvements:
+- **Array-based Preset Management**: `voicePresetIndices[MAX_VOICES]` replaces individual `voice1PresetIndex`, `voice2PresetIndex`, etc.
+- **Consistent Indexing**: All voice-related UI operations use the same indexing scheme
+- **Simplified Access**: `uiState.voicePresetIndices[voiceIndex]` instead of conditional selection
+- **Scalable Design**: Adding more voices requires only changing the MAX_VOICES constant
 
 ### Key Features
 
@@ -504,6 +564,101 @@ if (voiceManager.hasAvailableSlots()) {
 // Remove voices to free memory
 voiceManager.removeVoice(voiceId);
 voiceManager.removeAllVoices();
+```
+
+## System Refactoring and Migration
+
+### Migration from Individual Variables to VoiceSystem
+
+The voice system has undergone a significant architectural refactoring to improve maintainability and scalability. The migration involved:
+
+#### Before (Individual Variables)
+```cpp
+// Old approach - individual variables for each voice
+extern uint8_t voice1Id, voice2Id, voice3Id, voice4Id;
+extern VoiceState voiceState1, voiceState2, voiceState3, voiceState4;
+extern bool GATE1, GATE2, GATE3, GATE4;
+extern GateTimer gateTimer1, gateTimer2, gateTimer3, gateTimer4;
+
+// UI state with individual preset indices
+struct UIState {
+    uint8_t voice1PresetIndex;
+    uint8_t voice2PresetIndex;
+    uint8_t voice3PresetIndex;
+    uint8_t voice4PresetIndex;
+};
+```
+
+#### After (VoiceSystem Architecture)
+```cpp
+// New approach - centralized VoiceSystem
+extern VoiceSystem voiceSystem;
+
+// UI state with array-based preset management
+struct UIState {
+    uint8_t voicePresetIndices[MAX_VOICES];
+};
+```
+
+### Benefits of the Refactoring
+
+1. **Reduced Code Duplication**: Eliminated repetitive code patterns across multiple files
+2. **Improved Maintainability**: Changes to voice management logic only need to be made in one place
+3. **Enhanced Consistency**: All voice operations follow the same access patterns
+4. **Better Scalability**: Adding or removing voices requires minimal code changes
+5. **Cleaner Architecture**: Centralized voice management reduces coupling between modules
+6. **Loop-based Operations**: Common operations like muting all voices can be implemented with simple loops
+7. **Type Safety**: Array bounds checking and consistent data types
+
+### Files Updated During Refactoring
+
+The following files were updated to use the new VoiceSystem architecture:
+
+- **`src/voice/VoiceSystem.h`**: New centralized voice management structure
+- **`src/ui/UIState.h`**: Updated to use voice preset arrays
+- **`src/midi/MidiManager.cpp/.h`**: Refactored to use VoiceSystem for MIDI handling
+- **`src/ui/ButtonHandlers.cpp`**: Updated voice ID access patterns
+- **`src/ui/UIEventHandler.cpp`**: Centralized voice ID retrieval
+- **`src/OLED/oled.cpp`**: Updated display logic to use VoiceSystem
+- **`src/LEDMatrix/LEDMatrixFeedback.cpp`**: Updated LED feedback for voice states
+- **`Pico2Seq.ino`**: Main loop updated to use VoiceSystem helper functions
+
+### Usage Examples with New Architecture
+
+#### Voice Access
+```cpp
+// Old way - conditional selection
+uint8_t currentVoiceId;
+if (selectedVoice == 0) currentVoiceId = voice1Id;
+else if (selectedVoice == 1) currentVoiceId = voice2Id;
+// ...
+
+// New way - direct array access
+uint8_t currentVoiceId = voiceSystem.getVoiceId(selectedVoice);
+```
+
+#### Voice State Management
+```cpp
+// Old way - individual variable updates
+if (voiceIndex == 0) voiceState1 = newState;
+else if (voiceIndex == 1) voiceState2 = newState;
+// ...
+
+// New way - direct array assignment
+voiceSystem.getVoiceState(voiceIndex) = newState;
+```
+
+#### Bulk Operations
+```cpp
+// Old way - manual loops
+for (int i = 0; i < 4; i++) {
+    if (i == 0) osc1.SetAmp(0.0f);
+    else if (i == 1) osc2.SetAmp(0.0f);
+    // ...
+}
+
+// New way - helper functions
+voiceSystem.muteAllVoices();
 ```
 
 ## Blocking Issues Discovered

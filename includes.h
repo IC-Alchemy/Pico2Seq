@@ -50,6 +50,7 @@
 // Voices
 #include "src/voice/VoiceManager.h"
 #include "src/voice/Voice.h"
+#include "src/voice/VoiceSystem.h"
 #include "src/sequencer/Sequencer.h"
 
 // Standard libraries

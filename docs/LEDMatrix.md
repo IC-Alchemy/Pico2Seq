@@ -46,7 +46,12 @@ Manages all control LED functionality for user interface elements.
 **Control LED Positions:**
 - Parameter buttons: Note, Velocity, Filter, Attack, Decay, Octave, Slide
 - Delay parameters: Time, Feedback (AS5600 encoder control)
-- Mode indicators: Voice 1/2, Delay toggle, Randomize
+- Mode indicators: Voice 1-4 (VoiceSystem integration), Delay toggle, Randomize
+
+**VoiceSystem Integration:**
+- Updated to support up to 4 voices through centralized VoiceSystem
+- Voice indicators now use `voiceSystem.getVoiceId(index)` for consistent voice identification
+- Preset feedback uses `uiState.voicePresetIndices[voiceIndex]` for array-based access
 
 **Key Functions:**
 - `initLEDController()` - System initialization

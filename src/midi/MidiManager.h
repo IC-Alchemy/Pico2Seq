@@ -5,7 +5,7 @@
 #include <MIDI.h>
 #include <Adafruit_TinyUSB.h>
 #include "../sequencer/SequencerDefs.h" // For VoiceState and GateTimer definitions
-#include "MidiCCConfig.h" // MIDI CC configuration constants
+#include "MidiCCConfig.h"               // MIDI CC configuration constants
 
 // =======================
 //   MIDI CC CONFIGURATION
@@ -25,12 +25,13 @@
  */
 
 // CC parameter index mapping for array access
-enum class CCParameterIndex : uint8_t {
-    FILTER = 0,  // Index 0 in ccStates array
-    ATTACK = 1,  // Index 1 in ccStates array
-    DECAY = 2,   // Index 2 in ccStates array
-    OCTAVE = 3,  // Index 3 in ccStates array
-    COUNT = 4    // Total number of CC parameters
+enum class CCParameterIndex : uint8_t
+{
+    FILTER = 0, // Index 0 in ccStates array
+    ATTACK = 1, // Index 1 in ccStates array
+    DECAY = 2,  // Index 2 in ccStates array
+    OCTAVE = 3, // Index 3 in ccStates array
+    COUNT = 4   // Total number of CC parameters
 };
 
 /**
@@ -40,19 +41,21 @@ enum class CCParameterIndex : uint8_t {
  * including change detection and rate limiting. One instance exists for each
  * parameter of each voice (2 voices × 4 parameters = 8 total instances).
  */
-struct CCParameterState {
-    float lastValue = 0.0f;                    ///< Last raw parameter value (0.0f - 1.0f)
-    uint8_t lastMidiValue = 0;                 ///< Last transmitted MIDI value (0-127)
-    bool hasChanged = false;                   ///< Flag indicating value has changed since last check
-    unsigned long lastTransmissionTime = 0;   ///< Timestamp of last CC transmission (milliseconds)
-    uint32_t changeCount = 0;                  ///< Total number of changes detected (for debugging)
-    bool isInitialized = false;                ///< Flag to track first value assignment
+struct CCParameterState
+{
+    float lastValue = 0.0f;                 ///< Last raw parameter value (0.0f - 1.0f)
+    uint8_t lastMidiValue = 0;              ///< Last transmitted MIDI value (0-127)
+    bool hasChanged = false;                ///< Flag indicating value has changed since last check
+    unsigned long lastTransmissionTime = 0; ///< Timestamp of last CC transmission (milliseconds)
+    uint32_t changeCount = 0;               ///< Total number of changes detected (for debugging)
+    bool isInitialized = false;             ///< Flag to track first value assignment
 
     /**
      * @brief Reset state to initial values
      * Called during initialization or when resetting CC state.
      */
-    void reset() {
+    void reset()
+    {
         lastValue = 0.0f;
         lastMidiValue = 0;
         hasChanged = false;
@@ -65,7 +68,8 @@ struct CCParameterState {
      * @brief Check if this is the first time setting a value
      * @return true if no value has been set yet
      */
-    bool isFirstValue() const {
+    bool isFirstValue() const
+    {
         return !isInitialized;
     }
 
@@ -73,13 +77,15 @@ struct CCParameterState {
      * @brief Mark parameter as initialized with first value
      * Called after the first parameter value is processed.
      */
-    void markInitialized() {
+    void markInitialized()
+    {
         isInitialized = true;
     }
 };
 
 // Forward declarations
 class Sequencer;
+struct VoiceSystem;
 
 // =======================
 //   ENHANCED MIDI NOTE TRACKING STRUCTURES
@@ -88,10 +94,11 @@ class Sequencer;
 /**
  * @brief State of an active MIDI note
  */
-enum class MidiNoteState : uint8_t {
-    INACTIVE = 0,    // No note playing
-    ACTIVE = 1,      // Note is currently playing
-    PENDING_OFF = 2  // Note should be turned off on next update
+enum class MidiNoteState : uint8_t
+{
+    INACTIVE = 0,   // No note playing
+    ACTIVE = 1,     // Note is currently playing
+    PENDING_OFF = 2 // Note should be turned off on next update
 };
 
 /**
@@ -100,43 +107,47 @@ enum class MidiNoteState : uint8_t {
  * This structure maintains complete state information for MIDI note lifecycle
  * management, ensuring proper note-on/off pairing and gate timing synchronization.
  */
-struct MidiNoteTracker {
+struct MidiNoteTracker
+{
     // Note identification
-    volatile int8_t activeMidiNote = -1;        // Currently playing MIDI note (-1 = none)
-    volatile uint8_t activeVelocity = 0;        // Velocity of active note
-    volatile uint8_t activeChannel = 1;         // MIDI channel for this voice
+    volatile int8_t activeMidiNote = -1; // Currently playing MIDI note (-1 = none)
+    volatile uint8_t activeVelocity = 0; // Velocity of active note
+    volatile uint8_t activeChannel = 1;  // MIDI channel for this voice
 
     // State management
     volatile MidiNoteState state = MidiNoteState::INACTIVE;
-    volatile bool gateActive = false;           // Current gate state
-    volatile bool pendingNoteChange = false;    // Flag for note change during gate
+    volatile bool gateActive = false;        // Current gate state
+    volatile bool pendingNoteChange = false; // Flag for note change during gate
 
     // Timing synchronization
-    volatile uint16_t gateStartTick = 0;        // Tick when gate opened
-    volatile uint16_t gateDurationTicks = 0;    // Expected gate duration
-    volatile uint16_t currentTick = 0;          // Current timing tick
+    volatile uint16_t gateStartTick = 0;     // Tick when gate opened
+    volatile uint16_t gateDurationTicks = 0; // Expected gate duration
+    volatile uint16_t currentTick = 0;       // Current timing tick
 
     // Thread safety
-    volatile bool updateInProgress = false;     // Atomic update flag
+    volatile bool updateInProgress = false; // Atomic update flag
 
     /**
      * @brief Check if a note is currently active
      */
-    bool isNoteActive() const volatile {
+    bool isNoteActive() const volatile
+    {
         return state == MidiNoteState::ACTIVE && activeMidiNote >= 0;
     }
 
     /**
      * @brief Check if gate timing has expired
      */
-    bool isGateExpired() const volatile {
+    bool isGateExpired() const volatile
+    {
         return gateActive && (currentTick >= (gateStartTick + gateDurationTicks));
     }
 
     /**
      * @brief Reset tracker to inactive state
      */
-    void reset() volatile {
+    void reset() volatile
+    {
         activeMidiNote = -1;
         activeVelocity = 0;
         state = MidiNoteState::INACTIVE;
@@ -152,7 +163,8 @@ struct MidiNoteTracker {
  * Handles all MIDI note lifecycle events with proper synchronization
  * between gate timing and note-on/off events.
  */
-class MidiNoteManager {
+class MidiNoteManager
+{
 public:
     MidiNoteManager();
 
@@ -175,10 +187,10 @@ public:
     void emergencyStop();
 
     // Additional cleanup methods for specific scenarios
-    void onSequencerStop();           // Called when sequencer stops
-    void onModeSwitch();              // Called when switching between voice modes
+    void onSequencerStop();                  // Called when sequencer stops
+    void onModeSwitch();                     // Called when switching between voice modes
     void onParameterChange(uint8_t voiceId); // Called when parameters change during playback
-    void onTempoChange();             // Called when tempo changes significantly
+    void onTempoChange();                    // Called when tempo changes significantly
 
     // Thread safety
     void beginAtomicUpdate(uint8_t voiceId);
@@ -278,7 +290,7 @@ public:
      * @param paramId Parameter type
      * @return Parameter name string
      */
-    const char* getParameterName(ParamId paramId);
+    const char *getParameterName(ParamId paramId);
 
     /**
      * @brief Reset all CC state tracking to initial values
@@ -298,8 +310,8 @@ public:
 
 private:
     // MIDI note tracking for dual voice management
-    MidiNoteTracker voice1Tracker;  ///< Note state tracking for Voice 1
-    MidiNoteTracker voice2Tracker;  ///< Note state tracking for Voice 2
+    MidiNoteTracker voice1Tracker; ///< Note state tracking for Voice 1
+    MidiNoteTracker voice2Tracker; ///< Note state tracking for Voice 2
 
     /**
      * @brief CC parameter state tracking array
@@ -314,11 +326,11 @@ private:
     CCParameterState ccStates[2][4];
 
     // Internal helpers
-    MidiNoteTracker* getTracker(uint8_t voiceId);
-    const MidiNoteTracker* getTracker(uint8_t voiceId) const;
+    MidiNoteTracker *getTracker(uint8_t voiceId);
+    const MidiNoteTracker *getTracker(uint8_t voiceId) const;
     void sendMidiNoteOn(int8_t midiNote, uint8_t velocity, uint8_t channel);
     void sendMidiNoteOff(int8_t midiNote, uint8_t channel);
-    void processNoteOff(MidiNoteTracker* tracker);
+    void processNoteOff(MidiNoteTracker *tracker);
 };
 
 // =======================
@@ -337,21 +349,8 @@ extern midi::MidiInterface<midi::SerialMIDI<Adafruit_USBD_MIDI>> usb_midi;
 extern Sequencer seq1;
 extern Sequencer seq2;
 
-// VoiceState objects for inter-core communication
-extern  VoiceState voiceState1;
-extern  VoiceState voiceState2;
+extern VoiceSystem voiceSystem;
 
-// Gate control variables
-extern  GateTimer gateTimer1;
-extern  GateTimer gateTimer2;
-extern volatile bool GATE1;
-extern volatile bool GATE2;
-
-// =======================
-//   FUNCTION DECLARATIONS
-// =======================
-
-// Legacy compatibility functions (will be refactored to use MidiNoteManager)
 int getMidiNote(uint8_t finalNoteValue);
 
 #endif // MIDI_MANAGER_H
