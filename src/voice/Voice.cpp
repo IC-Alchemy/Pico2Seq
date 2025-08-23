@@ -344,8 +344,8 @@ inline void Voice::applyEnvelopeParameters() noexcept
       daisysp::fmap(state.decayTimeSeconds, 0.002f, 0.8f, daisysp::Mapping::LOG);
   //float release = decay; // Use decay for release in this implementation
 
-  envelope.SetAttackTime(attack, 0.1f);
-  envelope.SetDecayTime(0.1f + (decay * 0.32f));
+  envelope.SetAttackTime(attack, 0.6f);
+  envelope.SetDecayTime(0.05f + (decay * 0.32f));
   envelope.SetReleaseTime(decay);
 }
 

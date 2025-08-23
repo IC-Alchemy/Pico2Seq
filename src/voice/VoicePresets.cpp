@@ -21,15 +21,15 @@ namespace VoicePresets
         config.oscAmplitudes[1] = .2f;
         config.oscAmplitudes[2] = .2f;
         config.oscDetuning[0] = 0.0f;
-        config.oscDetuning[1] = 0.045f; // Slight detune
-        config.oscDetuning[2] = -0.04f; // Slight detune opposite
+        config.oscDetuning[1] = 0.012f; // Slight detune
+        config.oscDetuning[2] = -0.01f; // Slight detune opposite
         config.harmony[0] = 0;          // Root note
         config.harmony[1] = 0;          // Unison (no harmony)
         config.harmony[2] = 0;          // Unison (no harmony)
 
-        config.filterRes = 0.33f;
+        config.filterRes = 0.43f;
         config.filterDrive = 3.1f;
-        config.filterMode = daisysp::LadderFilter::FilterMode::LP24;
+        config.filterMode = daisysp::LadderFilter::FilterMode::LP36;
         config.filterPassbandGain = 0.23f;
         config.highPassFreq = 150.0f;
 
@@ -143,17 +143,15 @@ namespace VoicePresets
         VoiceConfig &config = p[4];
         config.oscillatorCount = 1;
         config.oscWaveforms[0] = daisysp::Oscillator::WAVE_POLYBLEP_SQUARE;
-        config.oscAmplitudes[0] = .95f;
-        config.oscDetuning[0] = 0.0f;
+        config.oscAmplitudes[0] = 1.f;
+        config.harmony[0] = 0; // Root note
+        config.oscPulseWidth[0] = 0.21f;
 
-        config.harmony[0] = 7; // Root note
-        config.oscPulseWidth[0] = 0.255f;
-
-        config.filterRes = 0.55f;
-        config.filterDrive = 2.8f;
+        config.filterRes = 0.62f;
+        config.filterDrive = 3.3f;
         config.filterPassbandGain = 0.33f;
         config.highPassFreq = 150.0f;
-        config.filterMode = daisysp::LadderFilter::FilterMode::LP24;
+        config.filterMode = daisysp::LadderFilter::FilterMode::LP36;
         config.hasOverdrive = false;
         config.hasWavefolder = false;
         config.overdriveGain = 0.5f;
@@ -164,7 +162,7 @@ namespace VoicePresets
         config.defaultDecay = 0.2f;
         config.defaultSustain = 0.0f;
         config.defaultRelease = 0.15f;
-        config.outputLevel = 0.8f;
+        config.outputLevel = 1.f;
       }
 
       // Pad
