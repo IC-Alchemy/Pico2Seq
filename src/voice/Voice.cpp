@@ -225,7 +225,7 @@ void Voice::updateFilter(float envelopeValue)
 {
   // Update filter frequency with envelope modulation
   filter.SetFreq((filterFrequency * envelopeValue) +
-                 (filterFrequency * .1f));
+                 (filterFrequency * .25f));
 }
 
 float Voice::mixOscillators()
@@ -295,45 +295,52 @@ inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept
 
 void Voice::updateOscillatorFrequencies()
 {
-  // Always update frequencies based on current state so parameter changes apply immediately
-  // Calculate base frequency once and cache it (used when harmony offset is 0)
-  const float baseFreq = calculateNoteFrequency(state.noteIndex, state.octaveOffset, 0);
-
-  // Limit oscillator loop to max 3
-  const size_t oscCount = std::min(static_cast<size_t>(3), oscillators.size());
-
-  for (size_t i = 0; i < oscCount; i++)
+  // Only update oscillator frequencies if the gate is high.
+  // This prevents re-pitching during the release phase of the envelope.
+  if (!state.isGateHigh)
   {
-    // Calculate frequency for this oscillator using harmony interval
-    float harmonyFreq;
-    const int harmonyInterval = config.harmony[i];
+return;
+  }
+    // Always update frequencies based on current state so parameter changes apply immediately
+    // Calculate base frequency once and cache it (used when harmony offset is 0)
+    const float baseFreq = calculateNoteFrequency(state.noteIndex, state.octaveOffset, 0);
 
-    if (harmonyInterval == 0)
-    {
-      harmonyFreq = baseFreq;
-    }
-    else
-    {
-      harmonyFreq = calculateNoteFrequency(state.noteIndex, state.octaveOffset, harmonyInterval);
-    }
+    // Limit oscillator loop to max 3
+    const size_t oscCount = std::min(static_cast<size_t>(3), oscillators.size());
 
-    // Apply semitone-based detuning using cached multiplier
-    const float targetFreq = harmonyFreq * detuneMul[i];
+    for (size_t i = 0; i < oscCount; i++)
+    {
+      // Calculate frequency for this oscillator using harmony interval
+      float harmonyFreq;
+      const int harmonyInterval = config.harmony[i];
 
-    if (state.hasSlide)
-    {
-      // Set target for slewing
-      freqSlew[i].targetFreq = targetFreq;
-    }
-    else
-    {
-      // Set frequency directly
-      oscillators[i].SetFreq(targetFreq);
-      freqSlew[i].currentFreq = targetFreq;
-      freqSlew[i].targetFreq = targetFreq;
+      if (harmonyInterval == 0)
+      {
+        harmonyFreq = baseFreq;
+      }
+      else
+      {
+        harmonyFreq = calculateNoteFrequency(state.noteIndex, state.octaveOffset, harmonyInterval);
+      }
+
+      // Apply semitone-based detuning using cached multiplier
+      const float targetFreq = harmonyFreq * detuneMul[i];
+
+      if (state.hasSlide)
+      {
+        // Set target for slewing
+        freqSlew[i].targetFreq = targetFreq;
+      }
+      else
+      {
+        // Set frequency directly
+        oscillators[i].SetFreq(targetFreq);
+        freqSlew[i].currentFreq = targetFreq;
+        freqSlew[i].targetFreq = targetFreq;
+      }
     }
   }
-}
+
 
 inline void Voice::applyEnvelopeParameters() noexcept
 {
@@ -344,7 +351,7 @@ inline void Voice::applyEnvelopeParameters() noexcept
       daisysp::fmap(state.decayTimeSeconds, 0.002f, 0.8f, daisysp::Mapping::LOG);
   //float release = decay; // Use decay for release in this implementation
 
-  envelope.SetAttackTime(attack, 0.6f);
+  envelope.SetAttackTime(attack, 1.6f);
   envelope.SetDecayTime(0.05f + (decay * 0.32f));
   envelope.SetReleaseTime(decay);
 }
@@ -420,17 +427,15 @@ inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset,
   }
   else
   {
-    // No scale table injected; treat indices as chromatic steps
     harmonyNoteIndex = std::max(0, std::min(noteIndex + harmony, static_cast<int>(SCALE_STEPS - 1)));
     scaleSemitone = harmonyNoteIndex;
   }
 
-  // Base MIDI mapping: center around 36 as before (C2-ish) then add octave offset in semitones
+  // Base MIDI mapping: center around 48 as before (C3-ish) then add octave offset
   int midiNote = scaleSemitone + 48 + static_cast<int>(octaveOffset);
-  // Clamp to MIDI range 0..127
+
   midiNote = std::max(0, std::min(midiNote, 127));
 
-  // Fast lookup
   return frequencyLookupTable[midiNote];
 }
 

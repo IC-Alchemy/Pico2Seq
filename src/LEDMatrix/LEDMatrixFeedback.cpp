@@ -77,7 +77,7 @@ const LEDThemeColors ALL_THEMES[] = {
       {  CRGB(20, 90, 140),   // gateOnV1 - cool cyan-blue (visible on dark)
         CRGB(6, 6, 8),       // gateOffV1 - near-black
         CRGB(40, 55, 160), // gateOnV2 - desaturated light blue accent
-        CRGB(8, 4, 6),       // gateOffV2 - very dark maroon-ish
+        CRGB(8, 4, 10),       // gateOffV2 - very dark maroon-ish
         CRGB(24, 48, 80),    // playheadAccent - deep navy accent
         CRGB(18, 30, 50),    // idleBreathingBlue - muted navy
         CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
@@ -108,7 +108,7 @@ const LEDThemeColors ALL_THEMES[] = {
     {
         // DARK_EMBER theme - deep charcoal with warm amber ember accents
         CRGB(200, 120, 60),  // gateOnV1 - ember orange
-        CRGB(8, 6, 6),       // gateOffV1 - near-black
+        CRGB(8, 9, 4),       // gateOffV1 - near-black
         CRGB(255, 180, 110), // gateOnV2 - warm amber highlight
         CRGB(10, 6, 5),      // gateOffV2 - deep dark
         CRGB(40, 24, 18),    // playheadAccent - dark warm accent
@@ -141,11 +141,11 @@ const LEDThemeColors ALL_THEMES[] = {
   
     {
         // MODERN theme - muted, high-legibility palette with warm accent
-        CRGB(48, 200, 180),  // gateOnV1 - soft teal
-        CRGB(10, 40, 36),    // gateOffV1 - muted dark teal
-        CRGB(255, 130, 110), // gateOnV2 - warm coral accent
-        CRGB(30, 12, 10),    // gateOffV2 - deep muted maroon
-        CRGB(20, 24, 28),    // playheadAccent base dark (will be brightened when added)
+        CRGB(48, 177, 111),  // gateOnV1 - soft teal
+        CRGB(3, 8, 10),    // gateOffV1 - muted dark teal
+        CRGB(222, 130, 66), // gateOnV2 - warm coral accent
+        CRGB(15, 6, 5),    // gateOffV2 - deep muted maroon
+        CRGB(20, 24, 66),    // playheadAccent base dark (will be brightened when added)
         CRGB(60, 84, 110),   // idleBreathingBlue - slate blue for breathing
         CRGB(12, 16, 20),    // editModeDimBlueV1 - dim slate
         CRGB(18, 22, 26),    // editModeDimBlueV2 - slightly lighter slate
@@ -174,11 +174,11 @@ const LEDThemeColors ALL_THEMES[] = {
     },
     {
         // BLUE theme - high-contrast cool blues and cyan accents
-        CRGB(40, 160, 255),  // gateOnV1 - vivid cyan-blue
+        CRGB(40, 122, 188),  // gateOnV1 - vivid cyan-blue
         CRGB(6, 8, 12),      // gateOffV1 - almost black
-        CRGB(120, 200, 255), // gateOnV2 - soft sky blue
+        CRGB(120, 100,200), // gateOnV2 - soft sky blue
         CRGB(8, 6, 10),      // gateOffV2 - deep charcoal
-        CRGB(32, 64, 160),   // playheadAccent - strong blue accent
+        CRGB(32, 99, 12),   // playheadAccent - strong blue accent
         CRGB(16, 36, 80),    // idleBreathingBlue - deep ocean blue
         CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
         CRGB(12, 16, 20),    // editModeDimBlueV2
@@ -207,11 +207,11 @@ const LEDThemeColors ALL_THEMES[] = {
     },
     {
         // GREEN theme - lush greens with clean high-contrast accents
-        CRGB(80, 200, 120),  // gateOnV1 - vivid green
-        CRGB(6, 8, 6),       // gateOffV1 - near-black green tint
-        CRGB(160, 240, 180), // gateOnV2 - pale mint accent
-        CRGB(8, 6, 6),       // gateOffV2 - deep dark
-        CRGB(40, 110, 60),   // playheadAccent - strong forest accent
+        CRGB(40, 150, 80),  // gateOnV1 - vivid green
+        CRGB(2, 8, 12),       // gateOffV1 - near-black green tint
+        CRGB(39, 180, 122), // gateOnV2 - pale mint accent
+        CRGB(1, 12, 6),       // gateOffV2 - deep dark
+        CRGB(0, 110, 60),   // playheadAccent - strong forest accent
         CRGB(18, 44, 28),    // idleBreathingBlue - deep forest for breathing
         CRGB(8, 12, 10),     // editModeDimBlueV1 - very dark green slate
         CRGB(12, 16, 14),    // editModeDimBlueV2
@@ -673,6 +673,16 @@ void updateStepLEDs(
     const UIState& uiState,
     int mm
 ) {
+    // If requested, immediately clear smoothed buffers to force a visual refresh
+    if (uiState.resetStepsLightsFlag) {
+        for (int i = 0; i < LEDConstants::MATRIX_TOTAL_LEDS; ++i) {
+            smoothedTargetColorBuffer[i] = CRGB::Black;
+        }
+        // One-shot consumption of the flag. UIState is passed as const to renderers,
+        // so we clear it here intentionally to prevent continuous clearing every frame.
+        const_cast<UIState&>(uiState).resetStepsLightsFlag = false;
+    }
+
     // Handle settings mode LED feedback
     if (uiState.settingsMode) {
         updateSettingsModeLEDs(ledMatrix, uiState);
@@ -688,6 +698,55 @@ void updateStepLEDs(
     const ParamButtonMapping* heldMapping = getHeldParameterButton(uiState);
     bool anyParamForLengthHeld = (heldMapping != nullptr);
     ParamId activeParamIdForLength = anyParamForLengthHeld ? heldMapping->paramId : ParamId::Count;
+
+    // Gate sequence length mode visualization: blink LEDs up to current gate length for selected voice
+    if (uiState.gateSeqLengthMode) {
+        // Select active sequencer by selectedVoiceIndex (0..3)
+        const Sequencer* seqPtr = (uiState.selectedVoiceIndex == 0) ? &seq1 :
+                                  (uiState.selectedVoiceIndex == 1) ? &seq2 :
+                                  (uiState.selectedVoiceIndex == 2) ? &seq3 : &seq4;
+        const Sequencer& activeSeq = *seqPtr;
+
+        const bool isSecondInPair = (uiState.selectedVoiceIndex % 2) == 1;
+        const int baseOffset = isSecondInPair ? 24 : 0; // fixed offset for bottom row
+        const CRGB withinColorBase = isSecondInPair ? getActiveThemeColors()->gateOnV2
+                                                    : getActiveThemeColors()->gateOnV1;
+
+        // Simple blink state
+        static bool blinkState = false;
+        static uint32_t lastBlinkMs = 0;
+        const uint32_t now = millis();
+        if (now - lastBlinkMs > 250) { // ~4 Hz
+            blinkState = !blinkState;
+            lastBlinkMs = now;
+        }
+
+        const uint8_t gateLen = activeSeq.getParameterStepCount(ParamId::Gate);
+
+        // Dim the other row fully to focus on the selected voice
+        for (int step = 0; step < LEDConstants::MAX_STEP_BUTTONS; ++step) {
+            const int otherIndex = (isSecondInPair ? 0 : 24) + step;
+            nblend(smoothedTargetColorBuffer[otherIndex], CRGB::Black, LEDConstants::TARGET_SMOOTHING_BLEND_AMOUNT);
+            nblend(ledMatrix.getLeds()[otherIndex], smoothedTargetColorBuffer[otherIndex], LEDConstants::DIM_BLEND_AMOUNT);
+        }
+
+        // Paint selected row with blinking up-to-length visualization
+        for (int step = 0; step < LEDConstants::MAX_STEP_BUTTONS; ++step) {
+            CRGB target = CRGB::Black;
+            if (step < gateLen && gateLen > 1) {
+                target = withinColorBase;
+                if (blinkState) {
+                    // Dim on alternate frames for blink
+                    target.nscale8(60);
+                }
+            }
+            const int ledIndex = baseOffset + step;
+            nblend(smoothedTargetColorBuffer[ledIndex], target, LEDConstants::TARGET_SMOOTHING_BLEND_AMOUNT);
+            nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex], LEDConstants::STANDARD_BLEND_AMOUNT);
+        }
+
+        return;
+    }
 
     if (uiState.slideMode) {
         // Select sequencer based on selectedVoiceIndex (0..3)

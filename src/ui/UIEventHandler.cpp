@@ -39,12 +39,12 @@ namespace UIEventConstants
   static constexpr uint8_t SLIDE_ON_VALUE = 1;
 
   // Voice parameter button range (buttons 9-24 in settings mode)
-  static constexpr uint8_t VOICE_PARAM_BUTTON_MIN = 9;
+  static constexpr uint8_t VOICE_PARAM_BUTTON_MIN = 8;
   static constexpr uint8_t VOICE_PARAM_BUTTON_MAX = 24;
 
   // Filter mode cycling constants
   static constexpr int FILTER_MODE_COUNT = 5;
-  static constexpr float FILTER_RESONANCE_STEP = 0.1f;
+  static constexpr float FILTER_RESONANCE_STEP = 0.025f;
   static constexpr float FILTER_RESONANCE_MAX = 1.0f;
   static constexpr float FILTER_RESONANCE_MIN = 0.0f;
 }
@@ -85,6 +85,7 @@ static void handleVoiceSwitch(const MatrixButtonEvent &evt, UIState &uiState, Mi
 static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount);
 static void handleRandomizeMatrixButtons(const MatrixButtonEvent &evt, UIState &uiState);
 static void handlePlayStopButton(const MatrixButtonEvent &evt, UIState &uiState);
+static void handleAS5600ControlButton(const MatrixButtonEvent &evt, UIState &uiState);
 static void handleOtherControlButtons(const MatrixButtonEvent &evt, UIState &uiState);
 // Optional micro-helpers for randomize buttons
 static inline bool isRandomizeButton(uint8_t idx);
@@ -92,6 +93,44 @@ static uint8_t resolveRandomizeVoiceIndex(uint8_t pressedRandomizeButton, const 
 
 static void autoSelectAS5600Parameter(ParamId paramId, UIState &uiState);
 static void handleAS5600ParameterControl(UIState &uiState);
+
+static void handleAS5600ControlButton(const MatrixButtonEvent &evt, UIState &uiState)
+{
+  if (evt.type == MATRIX_BUTTON_PRESSED)
+  {
+    uiState.as5600ControlPressTime = millis();
+    uiState.as5600ControlWasPressed = true;
+    return;
+  }
+
+  if (evt.type == MATRIX_BUTTON_RELEASED && uiState.as5600ControlWasPressed)
+  {
+    unsigned long pressDurationMs = millis() - uiState.as5600ControlPressTime;
+    uiState.as5600ControlWasPressed = false;
+
+    if (!isLongPress(pressDurationMs))
+    {
+      // Short press behavior
+      // If we're in Settings mode while stopped, repurpose Button 25 as a simple
+      // toggle between Preset selection and Parameter mode. Otherwise, keep
+      // existing AS5600 parameter cycling behavior.
+      if (uiState.settingsMode && !isClockRunning)
+      {
+        uiState.inPresetSelection = !uiState.inPresetSelection;
+        uiState.selectedStepForEdit = -1;
+      }
+      else
+      {
+        // Existing behavior outside of settings: cycle AS5600 parameter
+        handleControlButton(BUTTON_AS5600_CONTROL, uiState);
+      }
+    }
+
+    // Exit gate sequence length mode on release
+    uiState.gateSeqLengthMode = false;
+    uiState.selectedStepForEdit = -1;
+  }
+}
 
 /**
  * @brief Primary matrix event handler that always uses the provided sequencer array.
@@ -169,6 +208,12 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
   }
 
   // Handle other buttons
+  // Dedicated handling for AS5600 control to support hold-mode
+  if (evt.buttonIndex == BUTTON_AS5600_CONTROL)
+  {
+    handleAS5600ControlButton(evt, uiState);
+    return;
+  }
   if (handleParameterButtonEvent(evt, uiState))
     return;
   if (handleStepButtonEvent(evt, uiState, sequencers, sequencerCount))
@@ -209,12 +254,7 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
    *
    * Long press detection prevents accidental settings mode entry during performance.
    */
-  if (evt.buttonIndex == BUTTON_PLAY_STOP)
-  {
-    handlePlayStopButton(evt, uiState);
-    return; // Exit after handling play/stop button
-  }
-
+ 
   // =======================
   //   OTHER CONTROL BUTTONS
   // =======================
@@ -343,6 +383,32 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
   if (evt.buttonIndex >= NUMBER_OF_STEP_BUTTONS)
   {
     return false;
+  }
+
+  // =======================
+  //   GATE SEQ LENGTH MODE
+  // =======================
+  // While holding AS5600 control (long press), allow setting Gate track length (2-16)
+  if (uiState.gateSeqLengthMode && evt.type == MATRIX_BUTTON_PRESSED)
+  {
+    // Resolve current active sequencer
+    Sequencer *currentActiveSequencerPtr = nullptr;
+    // 'sequencers' array is authoritative
+    if (sequencers && uiState.selectedVoiceIndex < sequencerCount)
+    {
+      currentActiveSequencerPtr = sequencers[uiState.selectedVoiceIndex];
+    }
+    if (currentActiveSequencerPtr)
+    {
+      uint8_t requested = static_cast<uint8_t>(evt.buttonIndex + 1); // 1..16
+      if (requested < 2) requested = 2;
+      if (requested > 16) requested = 16;
+      currentActiveSequencerPtr->setParameterStepCount(ParamId::Gate, requested);
+      // Optional UI feedback flags
+      uiState.resetStepsLightsFlag = true;
+      uiState.selectedStepForEdit != -1;
+    }
+    return true; // consume event in this mode
   }
 
   // =======================
@@ -547,6 +613,7 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
     {
       uint8_t newParameterStepCount = evt.buttonIndex + 1; // Convert 0-based index to 1-based count
       currentActiveSequencer.setParameterStepCount(heldParameterMapping->paramId, newParameterStepCount);
+      uiState.selectedStepForEdit != -1;
     }
     return true; // Event was handled as parameter length adjustment
   }
@@ -677,6 +744,31 @@ void pollUIHeldButtons(UIState &uiState, Sequencer *const *sequencers, size_t se
       }
     }
   }
+
+  // Detect long hold of AS5600 control to enter Gate Sequence Length mode
+  // Suppress this feature while in settings menus (stopped state)
+  if (uiState.as5600ControlWasPressed && !uiState.gateSeqLengthMode && !uiState.settingsMode)
+  {
+    unsigned long pressDurationMs = currentTimeMs - uiState.as5600ControlPressTime;
+    if (isLongPress(pressDurationMs))
+    {
+      uiState.gateSeqLengthMode = true;
+      // Clear conflicting modes when entering this mode
+      uiState.slideMode = false;
+      for (int paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
+      {
+        uiState.parameterButtonHeld[paramIndex] = false;
+      }
+      uiState.selectedStepForEdit = -1;
+    }
+  }
+  // Safety: if the AS5600 control is no longer held, ensure we exit the mode
+  else if (!uiState.as5600ControlWasPressed && uiState.gateSeqLengthMode)
+  {
+    uiState.gateSeqLengthMode = false;
+          uiState.selectedStepForEdit = -1;
+
+  }
 }
 
 /*
@@ -713,6 +805,7 @@ static void handleSlideModeToggle(const MatrixButtonEvent &evt, UIState &uiState
       uiState.parameterButtonHeld[paramIndex] = false;
     }
     uiState.modGateParamSeqLengthsMode = false;
+    uiState.gateSeqLengthMode = false;
     uiState.selectedStepForEdit = -1;
   }
   else
@@ -730,8 +823,8 @@ static void handleVoiceSwitch(const MatrixButtonEvent &evt, UIState &uiState, Mi
   uiState.selectedStepForEdit = -1;                                                       // Clear step editing when switching voices
   uiState.voiceSwitchTriggered = true;                                                    // Set flag for immediate OLED update
 
-  Serial.print("Switched to Voice ");
-  Serial.println(uiState.selectedVoiceIndex + 1);
+  //Serial.print("Switched to Voice ");
+//  Serial.println(uiState.selectedVoiceIndex + 1);
 }
 
 static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount)
@@ -799,40 +892,15 @@ static void handleRandomizeMatrixButtons(const MatrixButtonEvent &evt, UIState &
   }
 }
 
-static void handlePlayStopButton(const MatrixButtonEvent &evt, UIState &uiState)
-{
-  if (evt.type == MATRIX_BUTTON_PRESSED)
-  {
-    uiState.playStopPressTime = millis();
-    uiState.playStopWasPressed = true;
-  }
-  else if (evt.type == MATRIX_BUTTON_RELEASED && uiState.playStopWasPressed)
-  {
-    unsigned long pressDurationMs = millis() - uiState.playStopPressTime;
-    uiState.playStopWasPressed = false;
-
-    if (isLongPress(pressDurationMs) && !isClockRunning)
-    {
-      // Long press when stopped: enter settings mode
-      uiState.settingsMode = true;
-      uiState.settingsMenuIndex = UIEventConstants::SETTINGS_MENU_INITIAL_INDEX;
-      uiState.settingsSubMenuIndex = UIEventConstants::SETTINGS_SUBMENU_INITIAL_INDEX;
-      uiState.inPresetSelection = false;
-      Serial.println("Entered settings mode");
-    }
-    else if (!isLongPress(pressDurationMs))
-    {
-      // Short press: normal play/stop functionality
-      handleControlButton(evt.buttonIndex, uiState);
-    }
-  }
-}
-
 static void handleOtherControlButtons(const MatrixButtonEvent &evt, UIState &uiState)
 {
   // Handle remaining control buttons (only on press events)
   if (evt.type == MATRIX_BUTTON_PRESSED)
   {
-    handleControlButton(evt.buttonIndex, uiState);
+    // AS5600 control is handled separately to support hold behavior
+    if (evt.buttonIndex != BUTTON_AS5600_CONTROL)
+    {
+      handleControlButton(evt.buttonIndex, uiState);
+    }
   }
 }

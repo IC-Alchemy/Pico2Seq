@@ -129,7 +129,7 @@ void ParameterManager::randomizeParameters()
             }
             case ParamId::GateLength:
             { // Corrected from GateSize
-                std::uniform_real_distribution<float> dist(0.05f, 0.3f);
+                std::uniform_real_distribution<float> dist(0.05f, 0.5f);
                 _tracks[i].setValue(step, dist(generator));
                 break;
             }
@@ -146,10 +146,10 @@ void ParameterManager::randomizeParameters()
                 if ((step % 2) == 0)
                 { // 25% chance to pick a long attack; otherwise preserve even/odd behavior
 
-                    std::uniform_int_distribution<int> chance_dist(0, 3); // 1-in-4 when == 0
+                    std::uniform_int_distribution<int> chance_dist(0, 4); // 1-in-4 when == 0
                     if (chance_dist(generator) == 0)
                     {
-                        std::uniform_real_distribution<float> dist_long(0.0f, 0.1f);
+                        std::uniform_real_distribution<float> dist_long(0.05f, 0.5f);
                         _tracks[i].setValue(step, dist_long(generator));
                     }
                     else
@@ -161,7 +161,7 @@ void ParameterManager::randomizeParameters()
 
                 else
                 { // Odd steps
-                    std::uniform_real_distribution<float> dist(0.0f, 0.01f);
+                    std::uniform_real_distribution<float> dist(0.0f, 0.07f);
                     _tracks[i].setValue(step, dist(generator));
                 }
 
@@ -189,7 +189,7 @@ void ParameterManager::randomizeParameters()
                 }
                 else
                 { // Odd steps
-                    std::uniform_real_distribution<float> dist(0.001f, 0.2f);
+                    std::uniform_real_distribution<float> dist(0.02f, 0.2f);
                     _tracks[i].setValue(step, dist(generator));
                 }
 

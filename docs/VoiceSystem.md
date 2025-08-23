@@ -291,3 +291,34 @@ The VoiceSystem is designed to be:
 ## Conclusion
 
 The VoiceSystem architecture represents a significant improvement in the Pico2Seq codebase, providing better maintainability, performance, and scalability while reducing code complexity. The centralized approach eliminates common sources of bugs and makes the system easier to understand and extend.
+
+## Gate Sequence Length Mode
+
+### Overview
+Gate Sequence Length Mode allows quick adjustment of the per-voice Gate track length (2–16 steps). The sequencer uses the Gate track length as the primary sequence loop length while supporting polymetric lengths for other parameters.
+
+### Activation & Exit
+- Hold the AS5600 control button to enter the mode.
+- Release the button to exit the mode.
+- Toggling slide mode also exits the mode.
+
+### Controls
+- While held in this mode, press any step button (1–16) to set the Gate sequence length for the currently selected voice.
+- Values are clamped to 2–16 steps.
+
+### LED Feedback
+- While active, the LED matrix blinks the selected voice’s step row up to the current Gate length.
+- The non-selected voice row is dimmed to focus attention.
+- Changing the length triggers an immediate LED refresh via `uiState.resetStepsLightsFlag`.
+
+### OLED Feedback
+- The OLED displays:
+  - Header: "Gate Len Mode"
+  - Selected voice number
+  - Current Gate length value
+  - A horizontal bar filling proportionally up to 16 steps
+
+### Implementation Notes
+- UI handling occurs in `src/ui/UIEventHandler.cpp` (AS5600 long-hold detection and step press mapping to `Sequencer::setParameterStepCount(ParamId::Gate, ...)`).
+- LED rendering occurs in `src/LEDMatrix/LEDMatrixFeedback.cpp` with a distinct branch when `uiState.gateSeqLengthMode` is true.
+- OLED rendering occurs in `src/OLED/oled.cpp` and takes precedence over default views when the mode is active.

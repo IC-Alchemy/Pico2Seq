@@ -101,7 +101,7 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
  displayHardware.drawRect(0, 0, OLEDConstants::SCREEN_WIDTH, OLEDConstants::SCREEN_HEIGHT, SH110X_WHITE);
 
   // Header with current voice indicator
-  displayHardware.setCursor(OLEDConstants::TEXT_MARGIN - 3, 1);
+  displayHardware.setCursor(OLEDConstants::TEXT_MARGIN - 3, 2);
   displayHardware.print("VOICE ");
   displayHardware.print(uiState.selectedVoiceIndex + 1);
   displayHardware.print(" PARAMETERS");
@@ -139,7 +139,7 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
   constexpr int parameterCount = sizeof(parameterInfo) / sizeof(parameterInfo[0]);
 
   // Display parameters in organized vertical layout
-  const int startYPosition = 15;
+  const int startYPosition = 14;
   for (int paramIndex = 0; paramIndex < parameterCount; paramIndex++)
   {
     const int currentYPosition = startYPosition + (paramIndex * OLEDConstants::LINE_SPACING);
@@ -184,11 +184,7 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
       break;
     }
 
-    // Display button number indicator
-    displayHardware.setCursor(110, currentYPosition);
-    displayHardware.print("[");
-    displayHardware.print(parameterInfo[paramIndex].buttonNumber);
-    displayHardware.print("]");
+ 
   }
 
   displayHardware.display();
@@ -233,9 +229,10 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
 
   // Priority-based display logic to prevent menu conflicts and ensure proper display hierarchy
 
-  // HIGHEST PRIORITY: Voice parameter editing mode in settings
-  if (uiState.settingsMode && voiceManager && uiState.inVoiceParameterMode &&
-      (millis() - uiState.voiceParameterChangeTime < LEDConstants::VOICE_PARAM_SETTINGS_TIMEOUT_MS))
+  // HIGHEST PRIORITY: Voice parameter view in settings
+  // Show parameter toggles whenever settings mode is active AND preset selection is not active.
+  // Also keep supporting the transient inVoiceParameterMode flag.
+  if (uiState.settingsMode && voiceManager && (!uiState.inPresetSelection || uiState.inVoiceParameterMode))
   {
     displayVoiceParameterToggles(uiState, voiceManager);
     displayHardware.display();
@@ -250,31 +247,50 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     return;
   }
 
-  // LOW PRIORITY: Voice parameter info display (outside settings mode)
-  if (uiState.inVoiceParameterMode &&
-      (millis() - uiState.voiceParameterChangeTime < LEDConstants::VOICE_PARAM_TIMEOUT_MS))
+  // MEDIUM-LOW PRIORITY: Gate Sequence Length Mode (active while AS5600 control is held)
+  if (uiState.gateSeqLengthMode)
   {
-    // Show voice parameter info for limited time after change
+    // Determine current sequencer and its gate length
+    const Sequencer &currentSeq = (uiState.selectedVoiceIndex == 0) ? seq1 : (uiState.selectedVoiceIndex == 1) ? seq2
+                                                                             : (uiState.selectedVoiceIndex == 2)   ? seq3
+                                                                                                                   : seq4;
+    const uint8_t gateLen = currentSeq.getParameterStepCount(ParamId::Gate);
+
+    // Header
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, OLEDConstants::TEXT_MARGIN);
     displayHardware.setTextSize(1);
-    displayHardware.print("VOICE PARAM MODE");
+    displayHardware.print("Sequence Length");
 
-    displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 20);
-    displayHardware.print("Button: ");
-    displayHardware.print(uiState.lastVoiceParameterButton);
-
-    displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 35);
+    // Voice and length info
+    displayHardware.setTextSize(1);
+    displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 24);
     displayHardware.print("Voice: ");
     displayHardware.print(uiState.selectedVoiceIndex + 1);
+
+    displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 36);
+    displayHardware.print("Length: ");
+    displayHardware.setTextSize(2);
+    displayHardware.print(gateLen);
+
+    // Simple horizontal bar up to length (max 16)
+    const int barY = 56;
+    const int left = 2;
+    const int right = OLEDConstants::SCREEN_WIDTH - 2;
+    const int totalW = right - left;
+    const uint8_t cappedLen = (gateLen == 0) ? 16 : min<uint8_t>(gateLen, 16);
+    // Outline
+    displayHardware.drawRect(left, barY - 6, totalW, 6, SH110X_WHITE);
+    // Fill proportional to cappedLen
+    const int fillW = (totalW - 2) * cappedLen / 16;
+    if (fillW > 0)
+    {
+      displayHardware.fillRect(left + 1, barY - 5, fillW, 4, SH110X_WHITE);
+    }
 
     displayHardware.display();
     return;
   }
-  else if (uiState.inVoiceParameterMode)
-  {
-    // Clear voice parameter mode after timeout
-    const_cast<UIState &>(uiState).inVoiceParameterMode = false;
-  }
+
 
   const ParamButtonMapping *heldParam = getHeldParameterButton(uiState);
 
@@ -611,19 +627,19 @@ void OLEDDisplay::displayVoiceParameterInfo(const UIState &uiState, VoiceManager
 
   switch (uiState.lastVoiceParameterButton)
   {
-  case 9:
+  case 8:
     paramName = "Envelope";
     paramValue = config->hasEnvelope ? "ON" : "OFF";
     break;
-  case 10:
+  case 9:
     paramName = "Overdrive";
     paramValue = config->hasOverdrive ? "ON" : "OFF";
     break;
-  case 11:
+  case 10:
     paramName = "Wavefolder";
     paramValue = config->hasWavefolder ? "ON" : "OFF";
     break;
-  case 12:
+  case 11:
   {
     paramName = "Filter Mode";
     const char *filterNames[] = {"LP12", "LP24", "LP36", "BP12", "BP24"};
@@ -638,7 +654,7 @@ void OLEDDisplay::displayVoiceParameterInfo(const UIState &uiState, VoiceManager
     }
   }
   break;
-  case 13:
+  case 12:
     paramName = "Filter Res";
     paramValue = String(config->filterRes, 2);
     break;
@@ -685,10 +701,17 @@ void OLEDDisplay::forceUpdate(const UIState &uiState, VoiceManager *voiceManager
   // Store voice manager reference
   voiceManagerReference = voiceManager;
 
-  // Force immediate update if in settings mode to show voice parameter toggles
+  // Force immediate update in settings mode, honoring preset/parameter toggle
   if (uiState.settingsMode)
   {
-    displayVoiceParameterToggles(uiState, voiceManager);
+    if (voiceManager && (!uiState.inPresetSelection || uiState.inVoiceParameterMode))
+    {
+      displayVoiceParameterToggles(uiState, voiceManager);
+    }
+    else
+    {
+      displaySettingsMenu(uiState);
+    }
     displayHardware.display();
   }
 
@@ -784,10 +807,17 @@ void OLEDDisplay::onVoiceSwitched(const UIState &uiState, VoiceManager *voiceMan
   // Store voice manager reference
   voiceManagerReference = voiceManager;
 
-  // Force immediate update if in settings mode to show voice parameter toggles
+  // Force immediate update in settings mode, honoring preset/parameter toggle
   if (uiState.settingsMode)
   {
-    displayVoiceParameterToggles(uiState, voiceManager);
+    if (voiceManager && (!uiState.inPresetSelection || uiState.inVoiceParameterMode))
+    {
+      displayVoiceParameterToggles(uiState, voiceManager);
+    }
+    else
+    {
+      displaySettingsMenu(uiState);
+    }
     displayHardware.display();
   }
 

@@ -61,9 +61,15 @@ struct UIState
     uint8_t settingsSubMenuIndex = 0; // For preset selection
     bool inPresetSelection = false;
     static constexpr int MAX_VOICES = 4;
-    uint8_t voicePresetIndices[MAX_VOICES] = {3, 2, 1, 5}; // Default presets: Lead, Bass, Lead, Percussion
+    uint8_t voicePresetIndices[MAX_VOICES] = {4, 2, 1, 6}; // Default presets: Lead, Bass, Lead, Percussion
     unsigned long playStopPressTime = 0;
     bool playStopWasPressed = false;
+
+    // --- AS5600 Control Hold / Gate Seq Length Mode ---
+    // Press/hold tracking for BUTTON_AS5600_CONTROL to enable gate seq length mode while held
+    unsigned long as5600ControlPressTime = 0;
+    bool as5600ControlWasPressed = false;
+    bool gateSeqLengthMode = false; // When true, step buttons set Gate track length (per selected voice)
 
     // --- Voice Parameter Editing State ---
     bool inVoiceParameterMode = false;

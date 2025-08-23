@@ -778,13 +778,11 @@ void setup1()
 
     // Initialize MIDI communication
     usb_midi.begin(MIDI_CHANNEL_OMNI);
+
     delay(100);
 
     Serial.begin(115200);
 
-    // Initialize lightweight debug system
-    Debug::begin(115200);
-    Debug::setEnabled(false);
     //  Debug::setLevel(Debug::Level::Info);
 
     Serial.print("[CORE1] Setup starting... ");
