@@ -292,6 +292,11 @@ private:
   float slideTimeSeconds = 0.06f;
   float slideAlpha = 0.00035f;
 
+  // Smooth wet/dry mix for wavefolder to prevent clicks when toggling
+  float wavefolderMix = 0.0f;         // current wet amount [0..1]
+  float wavefolderMixTarget = 0.0f;   // target wet amount [0..1]
+  float wavefolderMixAlpha = 0.0f;    // per-sample smoothing coefficient
+
   // Cached detune multipliers to avoid powf in the realtime path
   // detuneMul[i] = 2^(oscDetuning[i] / 12)
   float detuneMul[3] = {1.0f, 1.0f, 1.0f};

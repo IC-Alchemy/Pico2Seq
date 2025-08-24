@@ -96,6 +96,15 @@ void Voice::init(float sr)
     slideAlpha = 1.0f - std::exp(-invTauFs);
   }
 
+  // Initialize wavefolder wet/dry smoothing (about 5ms time constant)
+  {
+    const float tau = 0.005f; // seconds
+    const float invTauFs = 1.0f / (tau * sampleRate);
+    wavefolderMixAlpha = 1.0f - std::exp(-invTauFs);
+    wavefolderMixTarget = config.hasWavefolder ? 1.0f : 0.0f;
+    wavefolderMix = wavefolderMixTarget; // start with no transition
+  }
+
   // Initialize oscillators
   for (size_t i = 0; i < oscillators.size() && i < config.oscillatorCount;
        i++)
@@ -136,18 +145,13 @@ void Voice::init(float sr)
   envelope.SetReleaseTime(config.defaultRelease);
 
   // Initialize effects
-  if (config.hasOverdrive)
-  {
-    overdrive.Init();
-    overdrive.SetDrive(config.overdriveDrive);
-  }
+  overdrive.Init();
+  overdrive.SetDrive(config.overdriveDrive);
 
-  if (config.hasWavefolder)
-  {
-    wavefolder.Init();
-    wavefolder.SetGain(config.wavefolderGain);
-    wavefolder.SetOffset(config.wavefolderOffset);
-  }
+  // Always initialize wavefolder so it's safe to process even when toggled at runtime
+  wavefolder.Init();
+  wavefolder.SetGain(config.wavefolderGain);
+  wavefolder.SetOffset(config.wavefolderOffset);
 
   // Update detune multipliers in case config changed before init
   recomputeDetuneMultipliers();
@@ -155,22 +159,53 @@ void Voice::init(float sr)
 
 void Voice::setConfig(const VoiceConfig &cfg)
 {
+  // Update configuration without full reinitialization to avoid audio dropouts
+  const bool oscCountChanged = (cfg.oscillatorCount != config.oscillatorCount);
   config = cfg;
 
-  // Resize oscillators if needed
-  if (oscillators.size() != config.oscillatorCount)
+  // Do not resize oscillators here to avoid reallocations in the audio thread
+  // If the oscillator count changed, we defer vector resizing until a safe point
+  if (!oscCountChanged)
   {
-    oscillators.resize(config.oscillatorCount);
-    // Initialize new oscillators
-    for (size_t i = 0; i < oscillators.size(); i++)
+    // Update oscillator params non-destructively
+    const size_t oscCount = std::min(static_cast<size_t>(3), oscillators.size());
+    for (size_t i = 0; i < oscCount; i++)
     {
-      oscillators[i].Init(sampleRate);
+      oscillators[i].SetWaveform(config.oscWaveforms[i]);
+      oscillators[i].SetAmp(config.oscAmplitudes[i]);
+      if (config.oscWaveforms[i] == daisysp::Oscillator::WAVE_POLYBLEP_SAW)
+      {
+        oscillators[i].SetPw(config.oscPulseWidth[i]);
+      }
     }
   }
 
-  // Update all components with new configuration
-  init(sampleRate);
+  // Update filter and high-pass parameters
+  filter.SetRes(config.filterRes);
+  filter.SetInputDrive(config.filterDrive);
+  filter.SetPassbandGain(config.filterPassbandGain);
+  filter.SetFilterMode(config.filterMode);
+  highPassFilter.SetFreq(config.highPassFreq);
+  highPassFilter.SetRes(config.highPassRes);
+
+  // Update overdrive params (module is stateless aside from drive/gain)
+  if (config.hasOverdrive)
+  {
+    overdrive.SetDrive(config.overdriveDrive);
+  }
+
+  // Wavefolder gain/offset are applied per-sample in applyEffects();
+  // update the mix target here to crossfade smoothly after a toggle
+  wavefolderMixTarget = config.hasWavefolder ? 1.0f : 0.0f;
+
+  // Envelope defaults are handled by applyEnvelopeParameters() from state,
+  // so no need to touch ADSR timings here.
+
+  // Refresh cached detune multipliers for semitone detuning
+  recomputeDetuneMultipliers();
 }
+
+
 
 // Injected scale-data setters (defined out-of-line)
 void Voice::setScaleTable(const int (*table)[48], size_t scaleCount)
@@ -261,17 +296,32 @@ float Voice::mixOscillators()
 void Voice::applyEffects(float &signal)
 {
   // Apply effects chain
- if (config.hasOverdrive)
+  if (config.hasOverdrive)
   {
     signal = overdrive.Process(signal) * config.overdriveGain;
   }
 
-  if (config.hasWavefolder)
-  {
-    signal *= config.wavefolderGain;
-    signal = wavefolder.Process(signal);
-  }
+  // Smoothly mix in the wavefolder to avoid clicks when toggled
+  // Remove external pre-gain: wavefolder uses its internal gain set via SetGain
+  // Keep gain/offset in sync with current config each call
+  wavefolder.SetGain(config.wavefolderGain);
+  wavefolder.SetOffset(config.wavefolderOffset);
+
+  // Update target based on toggle and smooth towards it
+  wavefolderMixTarget = config.hasWavefolder ? 1.0f : 0.0f;
+  wavefolderMix += (wavefolderMixTarget - wavefolderMix) * wavefolderMixAlpha;
+
+  // Process wet signal and crossfade with dry
+  const float wet = wavefolder.Process(signal);
+  signal = (1.0f - wavefolderMix) * signal + wavefolderMix * wet;
+
   // Level adjustments removed from here; handled in finalizeOutput
+}
+
+// Provide a wrapper to maintain API compatibility
+void Voice::processEffectsChain(float &signal)
+{
+  applyEffects(signal);
 }
 
 inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept
