@@ -62,6 +62,8 @@ struct UIState
     bool inPresetSelection = false;
     static constexpr int MAX_VOICES = 4;
     uint8_t voicePresetIndices[MAX_VOICES] = {4, 2, 1, 6}; // Default presets: Lead, Bass, Lead, Percussion
+    // New: transient preset index while navigating before confirming apply
+    uint8_t presetSelectionIndex = 0;
     unsigned long playStopPressTime = 0;
     bool playStopWasPressed = false;
 
