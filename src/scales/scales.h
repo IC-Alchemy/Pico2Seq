@@ -3,18 +3,24 @@
 
 #include <Arduino.h>
 
-// Centralized scale size constants — use these everywhere instead of hard-coded literals.
-// This makes it safe to change the number of scales or the number of steps per scale.
-constexpr size_t SCALES_COUNT = 13;   // Number of distinct scale definitions
-constexpr size_t SCALE_STEPS  = 48;   // Number of step-to-semitone entries per scale
+// Dimensions for scale tables and chord progressions.
+// Do not change these without updating associated data in scales.cpp.
+
+// Array dimension constants
+constexpr size_t SCALES_COUNT = 10;              // Number of available scales
+constexpr size_t SCALE_STEPS = 47;               // Number of steps per scale (across multiple octaves)
+constexpr size_t NUM_CHORD_PROGRESSIONS = 9;     // Number of chord progression patterns
+constexpr size_t CHORD_PROGRESSION_LENGTH = 8;   // Number of steps per chord progression
 
 // Global scale data used across the application.
-// NOTE: Synthesis components (e.g., Voice) should NOT access these globals directly.
-//       Instead, inject references via setters (e.g., Voice::setScaleTable and
-//       Voice::setCurrentScalePointer) to keep modules testable and decoupled.
-//       These globals remain for UI/Sequencer modules that manage scale selection.
-extern int scale[SCALES_COUNT][SCALE_STEPS];          // Scale tables: dynamic dimensions
-extern const char* scaleNames[SCALES_COUNT];          // Human-readable scale names
-extern uint8_t currentScale;      // Currently selected scale index (0..SCALES_COUNT-1)
+// Synthesis code should not access these directly; inject references instead
+// (e.g., Voice::setScaleTable, Voice::setCurrentScalePointer).
+extern int scaleTable[SCALES_COUNT][SCALE_STEPS];     // step -> semitone offset for each scale
+extern const char* scaleNames[SCALES_COUNT];          // human-readable names per scale
+extern uint8_t currentScale;                          // selected scale index [0..SCALES_COUNT-1]
+
+// Chord progression table expressed in 1-based scale degrees.
+// Voice.cpp subtracts 1 at use-site to convert to 0-based indices.
+extern const short chordProgression[NUM_CHORD_PROGRESSIONS][CHORD_PROGRESSION_LENGTH];
 
 #endif // SCALES_H

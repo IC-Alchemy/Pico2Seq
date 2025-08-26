@@ -1,20 +1,14 @@
 #include "includes.h"
-#include "diagnostic.h"
-#include "src/dsp/dsp.h"
-#include "src/voice/Voice.h"
 #include "src/utils/Debug.h"
-#include "src/scales/scales.h"
+#include "src/scales/chord_stepper.h"
 #include "src/voice/VoicePresets.h"
-#include "src/voice/VoiceSystem.h"
 
-// =======================
-//   GLOBAL VARIABLES
-// =======================
-UIState uiState;   // Central state object for the UI
-Sequencer seq1(1); // Channel 1 for first sequencer
-Sequencer seq2(2); // Channel 2 for second sequencer
-Sequencer seq3(3); // Channel 3 for third sequencer
-Sequencer seq4(4); // Channel 4 for fourth sequencer
+ // Centralized UI state shared across cores; drives all non-audio systems (why: single source of truth)
+UIState uiState;
+Sequencer seq1(1);
+Sequencer seq2(2);
+Sequencer seq3(3);
+Sequencer seq4(4);
 LEDMatrix ledMatrix;
 
 // --- MIDI & Clock ---
@@ -46,16 +40,18 @@ VoiceSystem voiceSystem; // Consolidated voice system
 daisysp::Svf delLowPass;
 daisysp::DelayLine<float, MAX_DELAY_SAMPLES> del1;
 float feedbackGain1 = 0.65f;
-float currentDelayOutputGain = 0.0f; // For smooth delay output fade
-float currentFeedbackGain = 0.0f;    // For smooth delay feedback fade
+// Smooth ramping to avoid pops when toggling delay or changing parameters (why: artifact prevention)
+float currentDelayOutputGain = 0.0f;
+float currentFeedbackGain = 0.0f;
 float delayTarget = 48000.0f * 0.15f;
 float currentDelay = 48000.0f * 0.15f;
-float feedbackAmmount = 0.45f; // Safer initial feedback level
+// Keep headroom to prevent runaway feedback
+float feedbackAmmount = 0.45f;
 
 // Audio Buffer Management
 audio_buffer_pool_t *producer_pool = nullptr;
 
-// Voice State Storage is now in voiceSystem
+ // Voice state is owned by voiceSystem (why: centralizes voice lifecycle and timing)
 
 // =======================
 //   HARDWARE INTERFACE CONSTANTS
@@ -115,10 +111,7 @@ uint32_t ppqnTicksPending = 0;
 // =======================
 //   INTERRUPT HANDLERS
 // =======================
-void touchInterrupt()
-{
-    touchFlag = true;
-}
+void touchInterrupt() { touchFlag = true; }
 
 // =======================
 //   AUDIO PROCESSING HELPER FUNCTIONS
@@ -137,30 +130,20 @@ float delayTimeSmoothing(float currentDelay, float targetDelay, float slewRate)
 }
 
 // --- Clock Callbacks ---
-void onSync24Callback(uint32_t tick)
-{
-    usb_midi.sendRealTime(midi::Clock);
-}
+void onSync24Callback(uint32_t /*tick*/) { usb_midi.sendRealTime(midi::Clock); }
 void muteOscillators()
 {
-    if (voiceManager)
-    {
-        voiceSystem.muteAllVoices(voiceManager.get());
-    }
+    if (voiceManager) { voiceSystem.muteAllVoices(voiceManager.get()); }
 }
 
 void unmuteOscillators()
 {
-    if (voiceManager)
-    {
-        voiceSystem.unmuteAllVoices(voiceManager.get());
-    }
+    if (voiceManager) { voiceSystem.unmuteAllVoices(voiceManager.get()); }
 }
 void onClockStart()
 {
-    // Serial.println("[uClock] onClockStart()");
     usb_midi.sendRealTime(midi::Start);
-    // Start all four sequencers so LEDs and audio advance for 3/4 as well
+    // Start all sequencers so transport-driven visuals/audio remain aligned (why: UX consistency)
     seq1.start();
     seq2.start();
     seq3.start();
@@ -172,16 +155,12 @@ void onClockStart()
 void onClockStop()
 {
     usb_midi.sendRealTime(midi::Stop);
-    // Stop all four sequencers
     seq1.stop();
     seq2.stop();
     seq3.stop();
     seq4.stop();
-
-    // Use MidiNoteManager for comprehensive cleanup
+    // Ensure all pending notes are released (why: prevent stuck notes across transports)
     midiNoteManager.onSequencerStop();
-
-    // Legacy allNotesOff() call for sequencer state cleanup
     muteOscillators();
     isClockRunning = false;
     Serial.println("[uClock] onClockStop()");
@@ -283,8 +262,6 @@ void applyVoicePreset(uint8_t voiceNumber, uint8_t presetIndex)
     }
 }
 
-// Long press detection is now handled by ButtonManager module
-// isVoice2Mode is now managed by ButtonManager module
 const uint8_t VOICE2_LED_OFFSET = 32;                        // Starting LED index for Voice 2
 int currentThemeIndex = static_cast<int>(LEDTheme::DEFAULT); // Global variable for current theme
 
@@ -293,9 +270,9 @@ int currentThemeIndex = static_cast<int>(LEDTheme::DEFAULT); // Global variable 
  * @param tick Current PPQN tick count
  * @note Keep minimal - runs in interrupt context
  */
-void onOutputPPQNCallback(uint32_t tick)
+void onOutputPPQNCallback(uint32_t /*tick*/)
 {
-    // Increment counter to signal pending tick processing
+    // Defer heavy timing work to Core 1 loop (why: keep ISR minimal)
     ppqnTicksPending++;
 }
 
@@ -380,11 +357,6 @@ void updateParametersForStep(uint8_t stepToUpdate) ///  This is the selected ste
             midiNoteManager.updateParameterCC(midiVoiceId, heldMapping->paramId, valueToSet);
         }
 
-        // Debug print if needed
-      //  Serial.print("  -> Set ");
-     //   Serial.print(CORE_PARAMETERS[static_cast<int>(heldMapping->paramId)].name);
-       // Serial.print(" to ");
-      //  Serial.println(valueToSet);
     }
 
     // Provide immediate audio feedback when recording parameters to current step
@@ -401,73 +373,60 @@ void updateVoiceParameters(
     volatile bool *gate = nullptr,
     volatile GateTimer *gateTimer = nullptr)
 {
-    // Handle gate timing and MIDI note events (sequencer playback mode only)
+    // Handle gate timing and MIDI note events (why: keep transport/MIDI in lock-step)
     if (updateGate && gate && gateTimer)
     {
-        uint8_t voiceId = isVoice2 ? 1 : 0;
+        const uint8_t voiceId = isVoice2 ? 1 : 0;
 
         if (state.isGateHigh)
         {
-            // Calculate MIDI note to match audio synthesis approach
-            uint8_t noteIndex = static_cast<uint8_t>(std::max(0.0f, std::min(state.noteIndex, static_cast<float>(SCALE_STEPS - 1))));
-            int midiNote = scale[currentScale][noteIndex] + 36 + static_cast<int>(state.octaveOffset);
+            // Compute MIDI note in scale and octave
+            const uint8_t noteIndex = state.noteIndex;
+            const int midiNote = scaleTable[currentScale][noteIndex] + 36 + static_cast<int>(state.octaveOffset);
 
-            // Always restart the gate timer for gated steps to ensure proper timing
+            // Ensure gate timing accuracy
             gateTimer->start(state.gateLengthTicks);
 
-            // Only send MIDI note-on when gate transitions from off to on
+            // Rising edge -> note on
             if (!(*gate))
             {
                 *gate = true;
-
-                // Clamp MIDI note to valid range (0-127)
-                int clampedMidiNote = std::max(0, std::min(midiNote, 127));
-
-                // Use MidiNoteManager for proper note lifecycle management
-                midiNoteManager.noteOn(voiceId, static_cast<int8_t>(clampedMidiNote),
-                                       static_cast<uint8_t>(state.velocityLevel * 127), 1, state.gateLengthTicks);
+                const int clampedMidiNote = std::max(0, std::min(midiNote, 127));
+                midiNoteManager.noteOn(voiceId,
+                                       static_cast<int8_t>(clampedMidiNote),
+                                       static_cast<uint8_t>(state.velocityLevel * 127),
+                                       1,
+                                       state.gateLengthTicks);
             }
             else
             {
-                // Gate is already on - check if note changed and handle retrigger
-                int8_t currentActiveNote = midiNoteManager.getActiveNote(voiceId);
+                // Gate continued; if note changed during hold, retrigger
+                const int8_t currentActiveNote = midiNoteManager.getActiveNote(voiceId);
                 if (currentActiveNote != midiNote)
                 {
-                    // Note changed during gate - retrigger with new note
-                    midiNoteManager.noteOn(voiceId, static_cast<int8_t>(midiNote),
-                                           static_cast<uint8_t>(state.velocityLevel * 127), 1, state.gateLengthTicks);
+                    midiNoteManager.noteOn(voiceId,
+                                           static_cast<int8_t>(midiNote),
+                                           static_cast<uint8_t>(state.velocityLevel * 127),
+                                           1,
+                                           state.gateLengthTicks);
                 }
                 *gate = true;
             }
 
-            // Update MidiNoteManager gate state
             midiNoteManager.setGateState(voiceId, true, state.gateLengthTicks);
         }
         else
         {
-            // Step has no gate - turn off immediately
+            // No gate: stop immediately
             gateTimer->stop();
             *gate = false;
-
-            // Use MidiNoteManager for proper note-off handling
-            midiNoteManager.setGateState(voiceId, false);
+            midiNoteManager.setGateState(isVoice2 ? 1 : 0, false);
         }
     }
 
-    // OPTIMIZATION: Calculate voice ID once and consolidate all voice updates
-    uint8_t voiceIndex = isVoice2 ? 1 : 0;
-    uint8_t voiceId = voiceSystem.getVoiceId(voiceIndex);
-
-    // GATE-CONTROLLED FREQUENCY UPDATES: Only update frequency when gate is HIGH
-    // This prevents new frequencies from being sent when gate is LOW, allowing
-    // current notes to continue playing or fade naturally
-    // Frequency will be updated inside Voice::updateParameters() when gate is HIGH
-
-    // Update all voice parameters through VoiceManager in single call
-    voiceManager->updateVoiceState(voiceId, state);
-
-    // Send MIDI CC messages for parameter changes
-    uint8_t midiVoiceId = isVoice2 ? 1 : 0;
+    // Push parameters to synth engine
+    const uint8_t voiceIdForState = isVoice2 ? 1 : 0;
+    voiceManager->updateVoiceState(voiceIdForState, state);
 }
 // New helper to update a specific voice (1-4)
 void updateVoiceParametersForVoice(
@@ -554,10 +513,21 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
     //Serial.println(stepIndex);
 }
 
-//  This gets called every 16th note
+ //  This gets called every 16th note
 void onStepCallback(uint32_t uClockCurrentStep)
 {
     currentSequencerStep = static_cast<uint8_t>(uClockCurrentStep); // Raw uClock step, sequencers handle their own modulo
+
+    // Initialize and tick chord stepper (defaults: change every 64 steps across 8 chords)
+    static bool chordInit = false;
+    if (!chordInit)
+    {
+        ChordStepper::setProgressionLength(8);
+        ChordStepper::setStepsPerChange(64);
+        ChordStepper::reset(uClockCurrentStep);
+        chordInit = true;
+    }
+    ChordStepper::tick(uClockCurrentStep);
 
     // 2. Advance sequencers and get their new state into local temporary variables.
     // Extend to four voices; distance sensor assigned to currently selected voice only
@@ -622,16 +592,16 @@ void fill_audio_buffer(audio_buffer_t *buffer)
     float processedOutput;
 
     // Determine target gains based on delay state
-    // float targetDelayOutputGain = uiState.delayOn ? 1.0f : 0.0f;
-    // float targetFeedbackGain = uiState.delayOn ? feedbackAmmount : 0.0f;
+    float targetDelayOutputGain = uiState.delayOn ? 1.0f : 0.0f;
+    float targetFeedbackGain = uiState.delayOn ? feedbackAmmount : 0.0f;
 
     // Smooth parameters once per buffer to reduce CPU load
-    //  currentFeedbackGain = delayTimeSmoothing(currentFeedbackGain, targetFeedbackGain, FEEDBACK_FADE_RATE);
-    // currentDelayOutputGain = delayTimeSmoothing(currentDelayOutputGain, targetDelayOutputGain, FEEDBACK_FADE_RATE);
-    // currentDelay = delayTimeSmoothing(currentDelay, delayTarget, 0.0001f);
+    currentFeedbackGain = delayTimeSmoothing(currentFeedbackGain, targetFeedbackGain, FEEDBACK_FADE_RATE);
+    currentDelayOutputGain = delayTimeSmoothing(currentDelayOutputGain, targetDelayOutputGain, FEEDBACK_FADE_RATE);
+   currentDelay = delayTimeSmoothing(currentDelay, delayTarget, 0.0001f);
 
     // Set delay time once per buffer for efficiency
-    //  del1.SetDelay(currentDelay);
+   del1.SetDelay(currentDelay);
 
     // Process each sample in the buffer
     for (int i = 0; i < N; ++i)
@@ -640,7 +610,8 @@ void fill_audio_buffer(audio_buffer_t *buffer)
         finalVoiceOutput = voiceManager->processAllVoices();
 
         // Apply global delay effect
-        //  processedOutput = processDelayEffect(finalVoiceOutput);
+        // Optional global delay; currently bypassed to save CPU headroom on Core 0
+        processedOutput = processDelayEffect(finalVoiceOutput);
 
         // Apply soft limiting to prevent clipping
         float softLimitedOutput = daisysp::SoftLimit(finalVoiceOutput);
@@ -664,7 +635,7 @@ void fill_audio_buffer(audio_buffer_t *buffer)
  * @param inputSignal Dry input signal from voice processing
  * @return Mixed dry and wet signal with delay effect applied
  *
- * @note Feedback is clamped at 75% to prevent runaway feedback
+ * @note Feedback is clamped to avoid runaway feedback
  */
 float processDelayEffect(float inputSignal)
 {
@@ -679,7 +650,7 @@ float processDelayEffect(float inputSignal)
     float filteredFeedback = delLowPass.Low();
 
     // Write to delay line: dry input + filtered feedback (clamped at 75%)
-    del1.Write(inputSignal + (filteredFeedback * 0.75f));
+    del1.Write(inputSignal + (filteredFeedback * 0.98f));
 
     // Mix dry and wet signals based on current delay output gain
     return inputSignal + (delayOutput * currentDelayOutputGain);
@@ -701,20 +672,17 @@ void setupI2SAudio(audio_format_t *audioFormat, audio_i2s_config_t *i2sConfig)
     // Initialize I2S hardware with specified format
     if (!audio_i2s_setup(audioFormat, i2sConfig))
     {
-        g_errorState |= ERR_AUDIO;
         return;
     }
 
     // Connect audio buffer pool to I2S interface
     if (!audio_i2s_connect(producer_pool))
     {
-        g_errorState |= ERR_AUDIO;
         return;
     }
 
     // Enable audio processing
     audio_i2s_set_enabled(true);
-    g_audioOK = true;
 }
 
 // =======================
@@ -860,7 +828,7 @@ void setup1()
     // Force a matrix scan to test the system
     Serial.println("Forcing initial matrix scan...");
     Matrix_scan();
-    // Matrix_printState();
+    // Matrix_printState(); // Debug helper; disabled to keep serial quiet in production
 
     // Use a lambda to capture the context needed by the event handler
     Matrix_setEventHandler([](const MatrixButtonEvent &evt)
@@ -965,7 +933,7 @@ void loop1()
 
     const unsigned long LED_UPDATE_INTERVAL = 10;    // 10ms interval for LED updates
     const unsigned long CONTROL_UPDATE_INTERVAL = 2; // 2ms interval for sensor polling
-    //uint16_t currentTouchedButtons = touchSensor.touched();
+    // uint16_t currentTouchedButtons = touchSensor.touched(); // Kept for quick local diagnostics
 
     // =======================
     //   SENSOR AND CONTROL INPUT PROCESSING

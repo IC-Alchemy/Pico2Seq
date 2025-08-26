@@ -300,7 +300,7 @@ int getMidiNote(uint8_t finalNoteValue)
     }
 
     // Base MIDI note C2 (36)
-    return scale[currentScale][finalNoteValue] + 36;
+    return scaleTable[currentScale][finalNoteValue] + 36;
 }
 
 // Enhanced allNotesOff function using MidiNoteManager

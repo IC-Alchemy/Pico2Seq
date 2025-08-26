@@ -56,7 +56,6 @@ String formatParameterValueForDisplay(ParamId paramId, float value);
 #### System Management
 ```cpp
 float calculateAS5600BoundaryProximity(AS5600ParameterMode param);
-float calculateDynamicFlashSpeed(AS5600ParameterMode param);
 void resetAS5600BaseValues(UIState& uiState, bool currentVoiceOnly = true);
 void initAS5600BaseValues();
 ```
@@ -91,23 +90,6 @@ public:
 
 ### Enums and Structs
 
-#### FlashSpeedZone
-```cpp
-enum class FlashSpeedZone : uint8_t {
-    Normal = 0,   // Normal operation range
-    Warning = 1,  // Warning zone (approaching limits)
-    Critical = 2  // Critical zone (at boundaries)
-};
-```
-
-#### FlashSpeedConfig
-```cpp
-struct FlashSpeedConfig {
-    float speedMultiplier;  // Flash speed multiplier (1.0x to 3.0x)
-    float thresholdStart;   // Zone start threshold (0.0-1.0)
-    float thresholdEnd;     // Zone end threshold (0.0-1.0)
-};
-```
 
 ## Important Constants and Configuration
 
@@ -136,19 +118,6 @@ namespace MagneticEncoder {
     static constexpr float DELAY_FEEDBACK_MAX = 0.91f;
     static constexpr float MINIMUM_INCREMENT_THRESHOLD = 0.0005f;
     static constexpr float PARAMETER_RANGE_SCALE_FACTOR = 0.75f;
-
-    // Flash speed zone thresholds
-    static constexpr float NORMAL_ZONE_START = 0.0f;
-    static constexpr float NORMAL_ZONE_END = 0.65f;
-    static constexpr float WARNING_ZONE_START = 0.65f;
-    static constexpr float WARNING_ZONE_END = 0.8375f;
-    static constexpr float CRITICAL_ZONE_START = 0.8375f;
-    static constexpr float CRITICAL_ZONE_END = 1.0f;
-
-    // Flash speed multipliers
-    static constexpr float NORMAL_FLASH_SPEED = 1.0f;
-    static constexpr float WARNING_FLASH_SPEED = 2.0f;
-    static constexpr float CRITICAL_FLASH_SPEED = 3.0f;
 
     // Default parameter values
     static constexpr float DEFAULT_DELAY_TIME_SAMPLES = 48000.0f * 0.2f;
@@ -307,7 +276,6 @@ This approach avoids dead zones by scaling the sequencer output within the dynam
 ### Performance Tuning
 - **Update Frequency**: Adjust READ_INTERVAL_MS for responsiveness vs. performance balance
 - **Velocity Thresholds**: Tune MINIMUM_INCREMENT_THRESHOLD to reduce noise
-- **Flash Zones**: Adjust boundary proximity thresholds for visual feedback
 
 ## Blocking Issues
 

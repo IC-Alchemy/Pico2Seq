@@ -10,7 +10,7 @@
 #include <cstring> // For strcmp, strlen
 #include <Arduino.h>
 
-// ========================= OLED Display Module =========================
+ // ========================= OLED Display Module =========================
 // Overview:
 // - Purpose: Centralized UI rendering for PicoMudrasSequencer on an SH110X OLED.
 // - Responsibilities: Initialize display hardware, render hierarchical UI (settings,
@@ -508,46 +508,83 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
     // Draw separator line
     displayHardware.drawFastHLine(OLEDConstants::TEXT_MARGIN, OLEDConstants::HEADER_HEIGHT,
                                   OLEDConstants::SCREEN_WIDTH - 10, SH110X_WHITE);
-
-    // Current preset - large and centered
+ 
+    // Voice selector row (reflects buttons 0-3 selecting voice)
+    {
+      const int selectorY = OLEDConstants::HEADER_HEIGHT + 6;
+      const int boxW = 18;
+      const int boxH = 10;
+      const int gap = 6;
+      for (int v = 0; v < 4; ++v)
+      {
+        const int x = OLEDConstants::TEXT_MARGIN + v * (boxW + gap);
+        // Draw box for each voice
+        displayHardware.drawRect(x, selectorY, boxW, boxH, SH110X_WHITE);
+        // Print voice number inside box
+        displayHardware.setTextSize(1);
+        displayHardware.setCursor(x + 6, selectorY + 1);
+        displayHardware.print(v + 1);
+        // Highlight currently selected menu voice with a small filled indicator
+        if (v == static_cast<int>(uiState.settingsMenuIndex))
+        {
+          displayHardware.fillCircle(x + boxW - 3, selectorY + 2, 2, SH110X_WHITE);
+        }
+      }
+    }
+ 
+    // Current preset - large and centered (render below selector row)
     displayHardware.setTextSize(2);
     const char *currentPresetName = VoicePresets::getPresetName(currentPresetIndex);
     int textWidth = strlen(currentPresetName) * 12; // Approximate width for size 2
     int centerX = (OLEDConstants::SCREEN_WIDTH - textWidth) / 2;
-    displayHardware.setCursor(centerX, 20);
+    displayHardware.setCursor(centerX, 28);
     displayHardware.print(currentPresetName);
-
-    // Subtle underline animation
+ 
+    // Indicate if this differs from the saved preset
+    bool isDifferent = (uiState.settingsMenuIndex < UIState::MAX_VOICES) &&
+                       (uiState.presetSelectionIndex != uiState.voicePresetIndices[uiState.settingsMenuIndex]);
+    if (isDifferent)
+    {
+      displayHardware.setTextSize(1);
+      displayHardware.setCursor(centerX, 44);
+      displayHardware.print("(new)");
+    }
+ 
+    // Subtle underline animation under preset name
     uint8_t phase = (millis() / 120) % (OLEDConstants::SCREEN_WIDTH - 10);
-    displayHardware.drawFastHLine(OLEDConstants::TEXT_MARGIN, 38, OLEDConstants::SCREEN_WIDTH - 10, SH110X_WHITE);
-    displayHardware.drawFastHLine(OLEDConstants::TEXT_MARGIN, 39, phase, SH110X_WHITE);
-
-    // Navigation indicators
+    displayHardware.drawFastHLine(OLEDConstants::TEXT_MARGIN, 46, OLEDConstants::SCREEN_WIDTH - 10, SH110X_WHITE);
+    displayHardware.drawFastHLine(OLEDConstants::TEXT_MARGIN, 47, phase, SH110X_WHITE);
+ 
+    // Navigation indicators (Prev/Next preset hints) placed lower
     displayHardware.setTextSize(1);
-
-    // Previous preset (if available)
     if (currentPresetIndex > 0)
     {
-      displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 45);
+      displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 52);
       displayHardware.print("< ");
       displayHardware.print(VoicePresets::getPresetName(currentPresetIndex - 1));
     }
-
-    // Next preset (if available)
     if (currentPresetIndex < VoicePresets::getPresetCount() - 1)
     {
       const char *nextPresetName = VoicePresets::getPresetName(currentPresetIndex + 1);
       int nextTextWidth = strlen(nextPresetName) * 6 + 12; // 6 pixels per char + "> " width
-      displayHardware.setCursor(OLEDConstants::SCREEN_WIDTH - nextTextWidth, 45);
+      displayHardware.setCursor(OLEDConstants::SCREEN_WIDTH - nextTextWidth, 52);
       displayHardware.print(nextPresetName);
       displayHardware.print(" >");
     }
-
-    // Preset counter at bottom
-    displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 56);
+ 
+    // Preset counter at bottom and help hints
+    displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 62);
     displayHardware.print(currentPresetIndex + 1);
     displayHardware.print("/");
     displayHardware.print(VoicePresets::getPresetCount());
+ 
+    // Hints: Buttons 0-3 = select voice, Buttons 8-15 = select preset, Play=Apply, Scale=Cancel
+    const int hintY = 62;
+    const int hintX = OLEDConstants::SCREEN_WIDTH - 110; // align right-ish
+    displayHardware.setCursor(hintX, hintY);
+    displayHardware.print("0-3:Voice 8-15:Preset");
+    displayHardware.setCursor(hintX, hintY - 8);
+    displayHardware.print("Play=Apply Scale=Cancel");
   }
   else
   {

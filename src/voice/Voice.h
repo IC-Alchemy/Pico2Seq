@@ -377,7 +377,7 @@ private:
    * Uses MIDI_BASE_OFFSET (36) to center around C2. Implements gate-controlled
    * architecture to prevent audio glitches during parameter changes.
    */
-  float calculateNoteFrequency(float note, int8_t octaveOffset, int harmony);
+  float calculateNoteFrequency(float note, int8_t octaveOffset, int harmony,int8_t chordProgressionIndex,int8_t chordIndex);
 
   /**
    * @brief Initialize frequency lookup table (called once)

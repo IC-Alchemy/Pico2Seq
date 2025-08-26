@@ -14,34 +14,6 @@ namespace daisysp {
   class Oscillator;
 }
 
-/**
- * @brief Flash speed zones for dynamic boundary proximity feedback
- * 
- * Defines different visual feedback zones based on how close a parameter
- * value is to its minimum or maximum boundary. Used to provide visual
- * warnings when approaching parameter limits.
- */
-enum class FlashSpeedZone : uint8_t {
-  Normal = 0,   // Normal operation range (0.0 to 0.65 proximity factor)
-  Warning = 1,  // Warning zone (0.65 to 0.8375 proximity factor)
-  Critical = 2  // Critical zone (0.8375 to 1.0 proximity factor)
-};
-
-/**
- * @brief Configuration for flash speed zones
- * 
- * Defines the speed multiplier and threshold ranges for each flash zone.
- * Used to create dynamic visual feedback that increases in intensity as
- * parameter values approach their boundaries.
- */
-struct FlashSpeedConfig {
-  float speedMultiplier;  // Flash speed multiplier for this zone
-  float thresholdStart;   // Proximity factor where this zone starts (0.0-1.0)
-  float thresholdEnd;     // Proximity factor where this zone ends (0.0-1.0)
-};
-
-// Global flash speed zone configuration array
-extern const FlashSpeedConfig FLASH_SPEED_ZONES[];
 
 // ======================
 // Core Parameter Management Functions
@@ -216,17 +188,6 @@ String formatParameterValueForDisplay(ParamId paramId, float value);
  */
 float calculateAS5600BoundaryProximity(AS5600ParameterMode param);
 
-/**
- * @brief Calculate dynamic flash speed based on boundary proximity
- * 
- * Determines the appropriate flash speed multiplier based on how close
- * a parameter value is to its boundaries. Provides visual feedback that
- * increases in intensity as limits are approached.
- * 
- * @param param The parameter type to analyze
- * @return Flash speed multiplier (1.0x to 3.0x)
- */
-float calculateDynamicFlashSpeed(AS5600ParameterMode param);
 
 /**
  * @brief Reset AS5600 base values to default positions

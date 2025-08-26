@@ -33,18 +33,6 @@ unsigned long lastAS5600ButtonPress = 0;
 AS5600BaseValuesVoice1 as5600BaseValuesVoice1;
 AS5600BaseValues as5600BaseValuesVoice2;
 
-// Flash speed zones configuration for dynamic boundary proximity feedback
-const FlashSpeedConfig FLASH_SPEED_ZONES[] = {
-    {SensorConstants::MagneticEncoder::NORMAL_FLASH_SPEED,
-     SensorConstants::MagneticEncoder::NORMAL_ZONE_START,
-     SensorConstants::MagneticEncoder::NORMAL_ZONE_END},
-    {SensorConstants::MagneticEncoder::WARNING_FLASH_SPEED,
-     SensorConstants::MagneticEncoder::WARNING_ZONE_START,
-     SensorConstants::MagneticEncoder::WARNING_ZONE_END},
-    {SensorConstants::MagneticEncoder::CRITICAL_FLASH_SPEED,
-     SensorConstants::MagneticEncoder::CRITICAL_ZONE_START,
-     SensorConstants::MagneticEncoder::CRITICAL_ZONE_END}};
-
 // =======================
 //   AS5600 PARAMETER BOUNDS MANAGEMENT
 // =======================
@@ -392,7 +380,7 @@ String formatParameterValueForDisplay(ParamId paramId, float value)
 }
 
 // ======================
-// Boundary Proximity and Flash Speed
+// Boundary Proximity 
 // ======================
 
 float calculateAS5600BoundaryProximity(AS5600ParameterMode param)
@@ -451,20 +439,6 @@ float calculateAS5600BoundaryProximity(AS5600ParameterMode param)
   return std::min(1.0f, fabsf(value - mid) / halfRange);
 }
 
-float calculateDynamicFlashSpeed(AS5600ParameterMode param)
-{
-  float proximity = calculateAS5600BoundaryProximity(param);
-  // Iterate zones to find matching threshold
-  for (const auto &zone : FLASH_SPEED_ZONES)
-  {
-    if (proximity >= zone.thresholdStart && proximity < zone.thresholdEnd)
-    {
-      return zone.speedMultiplier;
-    }
-  }
-  // Edge case: exactly 1.0 proximity
-  return FLASH_SPEED_ZONES[2].speedMultiplier; // Critical
-}
 
 // Helper function for the "Shift and Scale" mapping.
 // This function takes a sequencer value (0.0-1.0) and an AS5600 offset
