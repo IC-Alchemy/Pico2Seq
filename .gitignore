@@ -3,3 +3,9 @@ build/
 .roo/mcp.json
 .editorconfig
 .clang-format
+.kiro/specs/code-cleanup-refactor/design.md
+.kiro/specs/code-cleanup-refactor/requirements.md
+.kiro/specs/code-cleanup-refactor/tasks.md
+.kiro/steering/product.md
+.kiro/steering/structure.md
+.kiro/steering/tech.md
