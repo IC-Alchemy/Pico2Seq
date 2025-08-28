@@ -42,9 +42,7 @@ uint8_t VoiceManager::addVoice(const VoiceConfig &config)
     uint8_t voiceId = generateVoiceId();
     auto voice = std::make_unique<Voice>(voiceId, config);
 
-    // Inject scale context to avoid global coupling inside Voice
-    voice->setScaleTable(scale, SCALES_COUNT);
-    voice->setCurrentScalePointer(&currentScale);
+
 
     voice->init(sampleRate);
 

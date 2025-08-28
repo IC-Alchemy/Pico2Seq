@@ -122,7 +122,7 @@ void Voice::init(float sr) {
   filter.SetInputDrive(config.filterDrive);
   filter.SetPassbandGain(config.filterPassbandGain);
   filter.SetFilterMode(config.filterMode);
-  
+
   highPassFilter.Init(sampleRate);
   highPassFilter.SetFreq(config.highPassFreq);
   highPassFilter.SetRes(config.highPassRes);
@@ -137,7 +137,7 @@ void Voice::init(float sr) {
   // Initialize effects
   overdrive.Init();
   overdrive.SetDrive(config.overdriveDrive);
-  
+
   wavefolder.Init();
   wavefolder.SetGain(config.wavefolderGain);
   wavefolder.SetOffset(config.wavefolderOffset);
@@ -253,7 +253,7 @@ inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept {
   float filteredSignal = filter.Process(signal);
   highPassFilter.Process(filteredSignal);
   float highPassedSignal = highPassFilter.High();
-  
+
   float finalOutput = highPassedSignal * envelopeValue;
   finalOutput *= (config.outputLevel * state.velocityLevel);
   return finalOutput;
@@ -265,14 +265,14 @@ void Voice::updateOscillatorFrequencies() {
   if (!state.isGateHigh) {
     return;
   }
-  
+
   const float baseFreq = calculateNoteFrequency(state.noteIndex, state.octaveOffset, 0, 0, ChordStepper::getIndex());
   const size_t oscCount = std::min(static_cast<size_t>(3), oscillators.size());
 
   for (size_t i = 0; i < oscCount; i++) {
     const float freq = calculateNoteFrequency(state.noteIndex, state.octaveOffset, config.harmonyOffsets[i], config.detuneAmounts[i], ChordStepper::getIndex());
     freqSlew[i].targetFreq = freq;
-    
+
     if (!state.hasSlide) {
       freqSlew[i].currentFreq = freq;
       oscillators[i].SetFreq(freq);
@@ -283,9 +283,9 @@ void Voice::updateOscillatorFrequencies() {
 
 
 void Voice::applyEnvelopeParameters() {
-  envelope.SetTime(ADSR_SEG_ATTACK, config.attackTime);
-  envelope.SetTime(ADSR_SEG_DECAY, config.decayTime);
-  envelope.SetTime(ADSR_SEG_RELEASE, config.releaseTime);
+  envelope.SetTime(daisysp::ADSR_SEG_ATTACK, config.attackTime);
+  envelope.SetTime(daisysp::ADSR_SEG_DECAY, config.decayTime);
+  envelope.SetTime(daisysp::ADSR_SEG_RELEASE, config.releaseTime);
   envelope.SetSustainLevel(config.sustainLevel);
 }
 
@@ -293,11 +293,11 @@ float Voice::calculateNoteFrequency(int noteIndex, int octaveOffset, int harmony
   const int effectiveNoteIndex = noteIndex + harmonyOffset;
   const int octaveAdjustedNoteIndex = effectiveNoteIndex + (octaveOffset * 12);
   const int clampedNoteIndex = std::max(0, std::min(octaveAdjustedNoteIndex, static_cast<int>(frequencyLookupTable.size()) - 1));
-  
+
   const float baseFreq = frequencyLookupTable[clampedNoteIndex];
   const float detuneMultiplier = detuneMultipliers[static_cast<size_t>(std::abs(detuneAmount)) % detuneMultipliers.size()];
   const float detunedFreq = (detuneAmount >= 0) ? baseFreq * detuneMultiplier : baseFreq / detuneMultiplier;
-  
+
   return detunedFreq;
 }
 

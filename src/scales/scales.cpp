@@ -24,7 +24,7 @@ Notes:
 // Human-readable scale names. Only first 10 entries are defined by design.
 const char* scaleNames[SCALES_COUNT] = {
     "Major",
-    "Dorian", 
+    "Dorian",
     "Lydian",
     "Mixolydian",
     "Natural Minor",
@@ -37,7 +37,7 @@ const char* scaleNames[SCALES_COUNT] = {
 };
 
 // Semitone offsets across multiple octaves for each scale.
-int scaleTable[SCALES_COUNT][SCALE_STEPS] = {    
+int scaleTable[SCALES_COUNT][SCALE_STEPS] = {
     // Ionian (Major): 1-2-3-4-5-6-7
     {0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24, 26,
      28, 29, 31, 33, 35, 36, 38, 40, 41, 43, 45, 47, 48, 50, 52, 53,
