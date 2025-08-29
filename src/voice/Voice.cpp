@@ -117,7 +117,7 @@ void Voice::init(float sr)
     oscillators[i].SetAmp(config.oscAmplitudes[i]);
 
     // Set pulse width for square/pulse waves
-    if (config.oscWaveforms[i] == daisysp::Oscillator::WAVE_POLYBLEP_SAW)
+    if (config.oscWaveforms[i] == daisysp::Oscillator::WAVE_POLYBLEP_SQUARE)
     {
       oscillators[i].SetPw(config.oscPulseWidth[i]);
     }
@@ -400,8 +400,8 @@ void Voice::applyEffects(float &signal)
     signal = overdrive.Process(signal) * config.overdriveGain;
   }
 
-  // Wavefolder: only process when enabled AND the current wet mix is significant.
-  if (config.hasWavefolder )
+  // Wavefolder
+  if (config.hasWavefolder)
   {
     signal = wavefolder.Process(signal);
   }
