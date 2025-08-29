@@ -1,6 +1,5 @@
 #include "Voice.h"
 #include "../dsp/dsp.h"
-#include "Arduino.h"
 #include <algorithm>
 #include <cmath>
 #include <mutex>
@@ -47,6 +46,16 @@ inline void Voice::recomputeDetuneMultipliers()
   }
 }
 
+// Helper to compute smoothing alpha for a one-pole smoother with time constant tau (seconds):
+// alpha = 1 - exp(-1/(tau*fs)). Returns 1.0f when tau or sampleRate are non-positive.
+static inline float makeSmoothingAlpha(float tauSeconds, float sampleRate) noexcept
+{
+  if (tauSeconds <= 0.0f || sampleRate <= 0.0f)
+    return 1.0f;
+  const float invTauFs = 1.0f / (tauSeconds * sampleRate);
+  return 1.0f - std::exp(-invTauFs);
+}
+
 Voice::Voice(uint8_t id, const VoiceConfig &cfg)
     : voiceId(id), config(cfg), sampleRate(48000.0f), filterFrequency(1000.0f),
       gate(false),
@@ -56,6 +65,10 @@ Voice::Voice(uint8_t id, const VoiceConfig &cfg)
   initFrequencyLookupTable();
   // Initialize cached detune multipliers
   recomputeDetuneMultipliers();
+
+  // Initialize runtime caches used by optimizations
+  lastAppliedFilterCutoff = -1.0f;
+  lastEnvelopeValue = 0.0f;
 
   // Initialize oscillators vector
   oscillators.resize(config.oscillatorCount);
@@ -78,7 +91,6 @@ Voice::Voice(uint8_t id, const VoiceConfig &cfg)
   state.isGateHigh = false;
   state.hasSlide = false;
   state.shouldRetrigger = false;
-
 }
 
 void Voice::init(float sr)
@@ -86,21 +98,12 @@ void Voice::init(float sr)
   sampleRate = sr;
 
   // Compute per-sample slide coefficient from time constant
-  if (slideTimeSeconds <= 0.0f)
-  {
-    slideAlpha = 1.0f; // instantaneous
-  }
-  else
-  {
-    const float invTauFs = 1.0f / (slideTimeSeconds * sampleRate);
-    slideAlpha = 1.0f - std::exp(-invTauFs);
-  }
+  slideAlpha = makeSmoothingAlpha(slideTimeSeconds, sampleRate);
 
   // Initialize wavefolder wet/dry smoothing (about 5ms time constant)
   {
     const float tau = 0.005f; // seconds
-    const float invTauFs = 1.0f / (tau * sampleRate);
-    wavefolderMixAlpha = 1.0f - std::exp(-invTauFs);
+    wavefolderMixAlpha = makeSmoothingAlpha(tau, sampleRate);
     wavefolderMixTarget = config.hasWavefolder ? 1.0f : 0.0f;
     wavefolderMix = wavefolderMixTarget; // start with no transition
   }
@@ -136,6 +139,17 @@ void Voice::init(float sr)
   highPassFilter.Init(sampleRate);
   highPassFilter.SetFreq(config.highPassFreq);
   highPassFilter.SetRes(config.highPassRes);
+  // Initialize filter cutoff smoothing state (reduces zipper noise from abrupt SetFreq calls).
+  // Use a short time-constant (4 ms) to remain responsive while smoothing envelope-modulation.
+  filterCutoffCurrent = filterFrequency;
+  {
+    const float tau = 0.004f; // seconds
+    filterCutoffAlpha = makeSmoothingAlpha(tau, sampleRate);
+  }
+
+  // Initialize runtime caches used by optimizations
+  lastAppliedFilterCutoff = -1.0f;
+  lastEnvelopeValue = 0.0f;
 
   // Initialize envelope
   envelope.Init(sampleRate);
@@ -173,7 +187,7 @@ void Voice::setConfig(const VoiceConfig &cfg)
     {
       oscillators[i].SetWaveform(config.oscWaveforms[i]);
       oscillators[i].SetAmp(config.oscAmplitudes[i]);
-      if (config.oscWaveforms[i] == daisysp::Oscillator::WAVE_POLYBLEP_SAW)
+      if (config.oscWaveforms[i] == daisysp::Oscillator::WAVE_POLYBLEP_SQUARE)
       {
         oscillators[i].SetPw(config.oscPulseWidth[i]);
       }
@@ -210,8 +224,71 @@ void Voice::setConfig(const VoiceConfig &cfg)
 // Injected scale-data setters (defined out-of-line)
 void Voice::setScaleTable(const int (*table)[48], size_t scaleCount)
 {
+  // Assign pointers first (external owner still owns memory).
   scaleTable = table;
   scaleTableCount = scaleCount;
+
+  // Precompute per-scale unique-degree caches used by calculateNoteFrequency.
+  // This is intentionally done outside the realtime path and may allocate/free.
+  scaleUniqueCounts.clear();
+  scaleIndexToRank.clear();
+  scaleUniqueIndexList.clear();
+
+  if (scaleTable == nullptr || scaleTableCount == 0)
+  {
+    // Nothing to cache
+    return;
+  }
+
+  // Reserve memory for deterministic layout: scaleCount * 48 entries each
+  scaleUniqueCounts.resize(scaleCount);
+  scaleIndexToRank.resize(scaleCount * 48);
+  scaleUniqueIndexList.resize(scaleCount * 48);
+
+  for (size_t s = 0; s < scaleCount; ++s)
+  {
+    const int *row = scaleTable[s];
+
+    // Build list of unique starting indices (first occurrence of each semitone step)
+    uint8_t uniquePos[48];
+    uint8_t uniqueCount = 0;
+
+    // First unique is always index 0
+    uniquePos[uniqueCount++] = 0;
+    for (int i = 1; i < static_cast<int>(SCALE_STEPS); ++i)
+    {
+      if (row[i] != row[i - 1])
+      {
+        uniquePos[uniqueCount++] = static_cast<uint8_t>(i);
+      }
+    }
+
+    // Store unique count
+    scaleUniqueCounts[s] = uniqueCount;
+
+    // Write unique index list padded into the per-scale slot (first uniqueCount entries valid)
+    const size_t base = s * 48;
+    for (uint8_t u = 0; u < uniqueCount; ++u)
+    {
+      scaleUniqueIndexList[base + u] = uniquePos[u];
+    }
+    // Pad remaining with last value (safe, won't be referenced)
+    for (uint8_t u = uniqueCount; u < 48; ++u)
+    {
+      scaleUniqueIndexList[base + u] = uniquePos[uniqueCount - 1];
+    }
+
+    // Build index->rank mapping: for each original index j, find which unique segment it belongs to.
+    for (uint8_t u = 0; u < uniqueCount; ++u)
+    {
+      const uint8_t start = uniquePos[u];
+      const uint8_t end = (u + 1 < uniqueCount) ? static_cast<uint8_t>(uniquePos[u + 1] - 1) : static_cast<uint8_t>(SCALE_STEPS - 1);
+      for (uint8_t j = start; j <= end; ++j)
+      {
+        scaleIndexToRank[base + j] = u;
+      }
+    }
+  }
 }
 
 void Voice::setCurrentScalePointer(const uint8_t *ptr)
@@ -228,6 +305,8 @@ float Voice::process() noexcept
 
   // 1) Envelope
   float envelopeValue = computeEnvelope();
+  // Cache envelope value for cheap per-voice checks in hot paths (avoids reprocessing ADSR)
+  lastEnvelopeValue = envelopeValue;
 
   // 2) Filter cutoff update (uses envelope)
   updateFilter(envelopeValue);
@@ -236,7 +315,6 @@ float Voice::process() noexcept
   float mixed = mixOscillators();
 
   // 4) Effects and gain shaping pre-filter
-  applyEffects(mixed);
 
   // 5) Filter processing, HPF, and final scaling
   return finalizeOutput(mixed, envelopeValue);
@@ -258,15 +336,33 @@ float Voice::computeEnvelope()
 
 void Voice::updateFilter(float envelopeValue)
 {
-  // Update filter frequency with envelope modulation
-  filter.SetFreq((filterFrequency * envelopeValue) +
-                 (filterFrequency * .25f));
+  // Compute the intended (instantaneous) cutoff target using previous logic
+  const float targetCutoff = (filterFrequency * envelopeValue) + (filterFrequency * 0.1f);
+
+  // Exponential smoothing to prevent zipper noise when targetCutoff jumps.
+  // filterCutoffAlpha was initialized in init() (per-sample coefficient).
+  filterCutoffCurrent += filterCutoffAlpha * (targetCutoff - filterCutoffCurrent);
+
+  // Thresholded SetFreq to avoid unnecessary work when cutoff changes are tiny.
+  const float cutoffChangeThreshold = 0.5f; // Hz absolute threshold
+  if (fabsf(filterCutoffCurrent - lastAppliedFilterCutoff) > cutoffChangeThreshold)
+  {
+    filter.SetFreq(filterCutoffCurrent);
+    lastAppliedFilterCutoff = filterCutoffCurrent;
+  }
 }
 
 float Voice::mixOscillators()
 {
 
   float mixedOscillators = 0.0f;
+
+  // Very cheap per-voice silence short-circuit: if envelope is enabled and the cached
+  // envelope value is effectively zero, skip oscillator/noise processing entirely.
+  if (config.hasEnvelope && lastEnvelopeValue <= 0.0005f)
+  {
+    return 0.0f;
+  }
 
   // Determine number of oscillators to process (max 3)
   const size_t oscCount = std::min(static_cast<size_t>(3), oscillators.size());
@@ -295,25 +391,20 @@ float Voice::mixOscillators()
 
 void Voice::applyEffects(float &signal)
 {
-  // Apply effects chain
-  if (config.hasOverdrive)
+  // Apply effects chain with cheap bypass guards to avoid calling
+  // heavy Process() methods when they will produce no audible output.
+
+  // Overdrive: only process when enabled AND the configured output gain is non-zero.
+  if (config.hasOverdrive )
   {
     signal = overdrive.Process(signal) * config.overdriveGain;
   }
 
-  // Smoothly mix in the wavefolder to avoid clicks when toggled
-  // Remove external pre-gain: wavefolder uses its internal gain set via SetGain
-  // Keep gain/offset in sync with current config each call
-  wavefolder.SetGain(config.wavefolderGain);
-  wavefolder.SetOffset(config.wavefolderOffset);
-
-  // Update target based on toggle and smooth towards it
-  wavefolderMixTarget = config.hasWavefolder ? 1.0f : 0.0f;
-  wavefolderMix += (wavefolderMixTarget - wavefolderMix) * wavefolderMixAlpha;
-
-  // Process wet signal and crossfade with dry
-  const float wet = wavefolder.Process(signal);
-  signal = (1.0f - wavefolderMix) * signal + wavefolderMix * wet;
+  // Wavefolder: only process when enabled AND the current wet mix is significant.
+  if (config.hasWavefolder )
+  {
+    signal = wavefolder.Process(signal);
+  }
 
   // Level adjustments removed from here; handled in finalizeOutput
 }
@@ -326,8 +417,13 @@ void Voice::processEffectsChain(float &signal)
 
 inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept
 {
+
+    // Apply effects (pre-filter)
+  applyEffects(signal);
   // Apply ladder filter
   float filteredSignal = filter.Process(signal);
+
+
 
   // Apply high-pass filter
   highPassFilter.Process(filteredSignal);
@@ -337,8 +433,8 @@ inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept
 
   // Apply envelope multiplication and final output scaling (including velocity-based level)
   float finalOutput = highPassedSignal * envelopeValue;
-  finalOutput *= (config.outputLevel * ( state.velocityLevel));
-
+  const float outputScale = config.outputLevel * state.velocityLevel;
+  finalOutput *= outputScale;
   return finalOutput;
 }
 
@@ -402,71 +498,49 @@ inline void Voice::applyEnvelopeParameters() noexcept
   //float release = decay; // Use decay for release in this implementation
 
   envelope.SetAttackTime(attack, 1.6f);
-  envelope.SetDecayTime(0.05f + (decay * 0.32f));
+  envelope.SetDecayTime(0.1f + (decay * 0.32f));
   envelope.SetReleaseTime(decay);
 }
 
 inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset,
                                     int harmony) noexcept
 {
-  // Clamp note to valid range with ARM-friendly integer operations
+  // Clamp note to valid range
   const int noteIndex = std::max(0, std::min(static_cast<int>(note), static_cast<int>(SCALE_STEPS - 1)));
 
-  // Resolve target index by advancing across UNIQUE scale degrees (not raw indices)
-  // This fixes pentatonic and other scales with repeated entries in the SCALE_STEPS-step table.
-  auto advanceDegrees = [](const int *row, int startIdx, int degreeOffset) -> int
-  {
-    int idx = startIdx;
-    if (degreeOffset == 0)
-      return idx;
-
-    if (degreeOffset > 0)
-    {
-      int remaining = degreeOffset;
-      int prev = row[idx];
-      while (remaining > 0 && idx < static_cast<int>(SCALE_STEPS - 1))
-      {
-        ++idx;
-        if (row[idx] != prev)
-        {
-          --remaining;
-          prev = row[idx];
-        }
-      }
-      return idx; // clamped at SCALE_STEPS-1 if we ran out
-    }
-    else // degreeOffset < 0
-    {
-      int remaining = -degreeOffset;
-      int prev = row[idx];
-      while (remaining > 0 && idx > 0)
-      {
-        --idx;
-        if (row[idx] != prev)
-        {
-          --remaining;
-          prev = row[idx];
-        }
-      }
-      return idx; // clamped at 0 if we ran out
-    }
-  };
-
   int harmonyNoteIndex = noteIndex;
+  int scaleSemitone;
 
   // Resolve scale step to semitone offset using injected scale table if available
-  int scaleSemitone; // chromatic fallback will set this below
   if (scaleTable && scaleTableCount > 0 && currentScalePtr)
   {
     const uint8_t idx = *currentScalePtr;
     if (idx < scaleTableCount)
     {
-      const int *row = scaleTable[idx];
-      // Advance by harmony degrees across UNIQUE semitone changes in the row
-      harmonyNoteIndex = advanceDegrees(row, noteIndex, harmony);
-      // Clamp defensively (advanceDegrees already clamps but keep safe)
-      harmonyNoteIndex = std::max(0, std::min(harmonyNoteIndex, static_cast<int>(SCALE_STEPS - 1)));
-      scaleSemitone = row[harmonyNoteIndex];
+      // Use pre-calculated LUTs for harmony resolution
+      const int uniqueCount = scaleUniqueCounts[idx];
+      if (uniqueCount > 0)
+      {
+        // These are flat arrays; calculate pointer to the start of the current scale's data.
+        const auto *rankLut = &scaleIndexToRank[idx * 48];
+        const auto *uniqueIndexLut = &scaleUniqueIndexList[idx * 48];
+
+        // 1. Find the rank of the starting note in its scale
+        int startRank = rankLut[noteIndex];
+
+        // 2. Add harmony offset to get the target rank
+        int targetRank = startRank + harmony;
+
+        // 3. Clamp the rank to the valid range of unique notes for the scale
+        targetRank = std::max(0, std::min(targetRank, uniqueCount - 1));
+
+        // 4. Find the index in the original scale table corresponding to the target rank
+        harmonyNoteIndex = uniqueIndexLut[targetRank];
+      }
+      // else: if uniqueCount is 0, something is wrong, but we'll just use noteIndex.
+
+      // Final semitone lookup from the scale table
+      scaleSemitone = scaleTable[idx][harmonyNoteIndex];
     }
     else
     {
@@ -477,13 +551,15 @@ inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset,
   }
   else
   {
+    // No scale table; fall back to chromatic
     harmonyNoteIndex = std::max(0, std::min(noteIndex + harmony, static_cast<int>(SCALE_STEPS - 1)));
     scaleSemitone = harmonyNoteIndex;
   }
 
-  // Base MIDI mapping: center around 48 as before (C3-ish) then add octave offset
+  // Base MIDI mapping: center around 48 (C3) then add octave offset
   int midiNote = scaleSemitone + 48 + static_cast<int>(octaveOffset);
 
+  // Clamp to valid MIDI range
   midiNote = std::max(0, std::min(midiNote, 127));
 
   return frequencyLookupTable[midiNote];

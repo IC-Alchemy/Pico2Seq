@@ -18,6 +18,15 @@ VoiceManager::VoiceManager(uint8_t maxVoices)
     : maxVoiceCount(maxVoices), nextVoiceId(1), sampleRate(48000.0f), globalVolume(1.0f)
 {
     voices.reserve(maxVoiceCount);
+
+    // Initialize compressor with default settings for a tight, punchy mix
+    compressor.Init(sampleRate);
+    compressor.SetThreshold(-25.0f);
+    compressor.SetRatio(3.0f);
+    compressor.SetAttack(0.040f);  // 50 ms
+    compressor.SetRelease(0.002f); // 1 ms
+    compressor.AutoMakeup(true);
+
     DBG_INFO("VoiceManager: constructed maxVoices=%u", maxVoices);
 }
 
@@ -302,6 +311,15 @@ Sequencer *VoiceManager::getSequencer(uint8_t voiceId)
 void VoiceManager::init(float sr)
 {
     sampleRate = sr;
+
+    // Reinitialize compressor for new sample rate and reapply settings
+    compressor.Init(sampleRate);
+    compressor.SetThreshold(-15.0f);
+    compressor.SetRatio(6.0f);
+    compressor.SetAttack(0.002f);  // 2 ms
+    compressor.SetRelease(0.200f); // 200 ms
+    compressor.AutoMakeup(true);
+
     DBG_INFO("VoiceManager: init sampleRate=%.1f", sr);
     for (auto &managedVoice : voices)
     {
@@ -323,20 +341,48 @@ void VoiceManager::init(float sr)
  * Optimized for embedded systems with minimal branching
  */
  float VoiceManager::processAllVoices() noexcept
-{
-    float mixedOutput = 0.0f;
+ {
+     float mixedOutput = 0.0f;
 
-    for (auto &managedVoice : voices)
-    {
-        if (managedVoice->enabled && managedVoice->voice)
-        {
-            float voiceOutput = managedVoice->voice->process();
-            mixedOutput += voiceOutput * managedVoice->mixLevel;
-        }
-    }
+     for (auto &managedVoice : voices)
+     {
+         if (managedVoice->enabled && managedVoice->voice)
+         {
+             float voiceOutput = managedVoice->voice->process();
+             mixedOutput += voiceOutput * managedVoice->mixLevel;
+         }
+     }
 
-    return std::clamp(mixedOutput * globalVolume, -1.0f, 1.0f);
-}
+     // Efficient compressor usage:
+     // - Update compressor internal state (envelope/gain) every compressorUpdateInterval samples
+     //   by calling Process(). That updates the internal gain_.
+     // - On intermediate samples call Apply(), which is a single multiply by the current gain.
+     float compressed = mixedOutput;
+     if (compressorUpdateInterval == 0)
+     {
+         // Defensive: if interval disabled, update every sample (legacy behavior)
+         compressed = compressor.Process(mixedOutput);
+     }
+     else
+     {
+         if (compressorUpdateCounter == 0)
+         {
+             // Update compressor internals (more expensive) once every interval
+             compressed = compressor.Process(mixedOutput);
+         }
+         else
+         {
+             // Apply current gain (cheap)
+             compressed = compressor.Apply(mixedOutput);
+         }
+
+         // Increment and wrap the counter
+         compressorUpdateCounter = (compressorUpdateCounter + 1) % compressorUpdateInterval;
+     }
+
+     // Final global volume and hard clamp to safe output range
+     return std::clamp(compressed * globalVolume, -1.0f, 1.0f);
+ }
 
 /**
  * Processes a single voice and returns its output
@@ -435,114 +481,7 @@ std::vector<uint8_t> VoiceManager::getActiveVoiceIds() const
     return activeIds;
 }
 
-/**
- * Calculates approximate memory usage of the voice management system
- *
- * @return size_t Total bytes allocated for VoiceManager and all managed voices
- *
- * Includes: manager object, voice vector, all ManagedVoice instances,
- * Voice objects, and their DSP components (oscillators, filters, envelopes)
- * Useful for memory profiling and embedded system resource monitoring
- */
-size_t VoiceManager::getMemoryUsage() const
-{
-    size_t totalSize = sizeof(VoiceManager);
 
-    // Add size of voice vector and managed voices
-    totalSize += voices.capacity() * sizeof(std::unique_ptr<ManagedVoice>);
-
-    for (const auto &managedVoice : voices)
-    {
-        totalSize += sizeof(ManagedVoice);
-        if (managedVoice->voice)
-        {
-            totalSize += sizeof(Voice);
-            // Add approximate size of voice components
-            totalSize += managedVoice->voice->getConfig().oscillatorCount * sizeof(daisysp::Oscillator);
-            totalSize += sizeof(daisysp::LadderFilter); // Filter
-            totalSize += sizeof(daisysp::Svf);          // High-pass filter
-            totalSize += sizeof(daisysp::Adsr);         // Envelope
-        }
-    }
-
-    return totalSize;
-}
-
-/**
- * Sets the individual mix level for a voice
- * Controls relative volume of voice in final mix (0.0 to 1.0)
- *
- * @param voiceId Voice to control
- * @param mix Mix level (0.0 = silent, 1.0 = full volume, clamped to range)
- *
- * Applied before global volume scaling in processAllVoices()
- * Useful for voice balancing and individual voice control
- */
-void VoiceManager::setVoiceMix(uint8_t voiceId, float mix)
-{
-    ManagedVoice *managedVoice = findVoice(voiceId);
-    if (managedVoice)
-    {
-        managedVoice->mixLevel = std::max(0.0f, std::min(1.0f, mix));
-        DBG_INFO("VoiceManager: setVoiceMix id=%u mix=%.2f", voiceId, managedVoice->mixLevel);
-    }
-    else
-    {
-        DBG_WARN("VoiceManager: setVoiceMix failed id=%u", voiceId);
-    }
-}
-
-/**
- * Gets the current mix level for a voice
- *
- * @param voiceId Voice to query
- * @return float Current mix level (0.0 to 1.0), or 0.0 if voice not found
- *
- * Returns stored mix level without global volume scaling
- */
-float VoiceManager::getVoiceMix(uint8_t voiceId) const
-{
-    const ManagedVoice *managedVoice = findVoice(voiceId);
-    return managedVoice ? managedVoice->mixLevel : 0.0f;
-}
-
-/**
- * Sets the output channel assignment for a voice
- * Routes voice audio to specific hardware output channel
- *
- * @param voiceId Voice to route
- * @param outputChannel Hardware output channel number (0-based indexing)
- *
- * Used for multi-output systems or stereo panning
- * Actual routing depends on underlying audio system implementation
- */
-void VoiceManager::setVoiceOutput(uint8_t voiceId, uint8_t outputChannel)
-{
-    ManagedVoice *managedVoice = findVoice(voiceId);
-    if (managedVoice)
-    {
-        managedVoice->outputChannel = outputChannel;
-        DBG_INFO("VoiceManager: setVoiceOutput id=%u ch=%u", voiceId, outputChannel);
-    }
-    else
-    {
-        DBG_WARN("VoiceManager: setVoiceOutput failed id=%u", voiceId);
-    }
-}
-
-/**
- * Gets the current output channel assignment for a voice
- *
- * @param voiceId Voice to query
- * @return uint8_t Current output channel number, or 0 if voice not found
- *
- * Returns stored output channel assignment
- */
-uint8_t VoiceManager::getVoiceOutput(uint8_t voiceId) const
-{
-    const ManagedVoice *managedVoice = findVoice(voiceId);
-    return managedVoice ? managedVoice->outputChannel : 0;
-}
 
 /**
  * Returns list of all available voice preset names
@@ -705,50 +644,8 @@ void VoiceManager::notifyVoiceUpdated(uint8_t voiceId, const VoiceState &state)
     DBG_VERBOSE("VoiceManager: notifyUpdate id=%u note=%.1f vel=%.2f gate=%d", voiceId, state.noteIndex, state.velocityLevel, state.isGateHigh ? 1 : 0);
 }
 
-/**
- * Sets the volume level for a specific voice
- * Alias for setVoiceMix() - controls individual voice loudness
- *
- * @param voiceId Voice to control
- * @param volume Volume level (0.0 = silent, 1.0 = full, clamped to range)
- *
- * Convenience method for volume control terminology
- * Same as setVoiceMix() - affects individual voice level before global scaling
- */
-// Voice Parameter Control Methods
-void VoiceManager::setVoiceVolume(uint8_t voiceId, float volume)
-{
-    ManagedVoice *managedVoice = findVoice(voiceId);
-    if (managedVoice && managedVoice->voice)
-    {
-        managedVoice->mixLevel = std::max(0.0f, std::min(1.0f, volume));
-        DBG_INFO("VoiceManager: setVoiceVolume id=%u vol=%.2f", voiceId, managedVoice->mixLevel);
-    }
-    else
-    {
-        DBG_WARN("VoiceManager: setVoiceVolume failed id=%u", voiceId);
-    }
-}
 
-/**
- * Sets the fundamental frequency for a voice
- * Controls oscillator pitch in Hz
- *
- * @param voiceId Voice to control
- * @param frequency Frequency in Hz (e.g., 440.0f for A4)
- *
- * Immediately updates voice oscillators to new frequency
- * Used for MIDI note input, pitch bend, or manual tuning
- */
-void VoiceManager::setVoiceFrequency(uint8_t voiceId, float frequency)
-{
-    ManagedVoice *managedVoice = findVoice(voiceId);
-    if (managedVoice && managedVoice->voice)
-    {
-        managedVoice->voice->setFrequency(frequency);
-        DBG_VERBOSE("VoiceManager: setVoiceFrequency id=%u f=%.2f", voiceId, frequency);
-    }
-}
+
 
 /**
  * Sets the portamento (slide) time for frequency changes

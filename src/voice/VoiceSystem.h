@@ -95,36 +95,8 @@ struct VoiceSystem
         return (voiceIndex < 2) ? gateTimers[voiceIndex] : dummy;
     }
 
-    // Helper functions for common voice operations
-    void muteAllVoices(VoiceManager *voiceManager)
-    {
-        if (!voiceManager)
-            return;
-        for (uint8_t i = 0; i < MAX_VOICES; i++)
-        {
-            voiceManager->setVoiceVolume(voiceIds[i], 0.0f);
-        }
-    }
 
-    void unmuteAllVoices(VoiceManager *voiceManager)
-    {
-        if (!voiceManager)
-            return;
-        for (uint8_t i = 0; i < MAX_VOICES; i++)
-        {
-            voiceManager->setVoiceVolume(voiceIds[i], 1.0f);
-        }
-    }
 
-    void setAllVoiceVolumes(VoiceManager *voiceManager, float volume)
-    {
-        if (!voiceManager)
-            return;
-        for (uint8_t i = 0; i < MAX_VOICES; i++)
-        {
-            voiceManager->setVoiceVolume(voiceIds[i], volume);
-        }
-    }
 
     void stopAllGates()
     {

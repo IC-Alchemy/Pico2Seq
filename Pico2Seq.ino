@@ -143,30 +143,23 @@ void onSync24Callback(uint32_t tick)
 }
 void muteOscillators()
 {
-    if (voiceManager)
-    {
-        voiceSystem.muteAllVoices(voiceManager.get());
-    }
+
 }
 
 void unmuteOscillators()
 {
-    if (voiceManager)
-    {
-        voiceSystem.unmuteAllVoices(voiceManager.get());
-    }
+
 }
 void onClockStart()
 {
     // Serial.println("[uClock] onClockStart()");
     usb_midi.sendRealTime(midi::Start);
-    // Start all four sequencers so LEDs and audio advance for 3/4 as well
+    // Start all four sequencers so  LEDs and audio advance for 3/4 as well
     seq1.start();
     seq2.start();
     seq3.start();
     seq4.start();
     isClockRunning = true;
-    unmuteOscillators();
 }
 
 void onClockStop()
@@ -182,7 +175,6 @@ void onClockStop()
     midiNoteManager.onSequencerStop();
 
     // Legacy allNotesOff() call for sequencer state cleanup
-    muteOscillators();
     isClockRunning = false;
     Serial.println("[uClock] onClockStop()");
 }
@@ -191,21 +183,6 @@ void onClockStop()
 //   FUNCTION DEFINITIONS
 // =======================
 
-/**
- * @brief Convert floating-point audio sample to 16-bit integer
- *
- * Scales and clamps floating-point samples to prevent overflow and distortion.
- *
- * @param sample Floating-point sample (-1.0 to +1.0 range)
- * @return 16-bit integer sample for I2S output
- */
-static inline int16_t convertSampleToInt16(float sample)
-{
-    float scaled = sample * INT16_MAX_AS_FLOAT;
-    scaled = roundf(scaled);
-    scaled = daisysp::fclamp(scaled, INT16_MIN_AS_FLOAT, INT16_MAX_AS_FLOAT);
-    return static_cast<int16_t>(scaled);
-}
 
 /**
  * @brief Initialize audio synthesis system and voice management
@@ -603,6 +580,40 @@ void onStepCallback(uint32_t uClockCurrentStep)
     }
 }
 
+ // Constants kept local for clarity and zero-cost access
+    constexpr float kInt16MaxF = 32767.0f;   // +0x7FFF
+    constexpr float kInt16MinF = -32768.0f;  // -0x8000
+
+    // Branchless clamp for float; avoids dependency on external DSP headers
+    static inline float clampf(float v, float lo, float hi) noexcept
+    {
+        return v < lo ? lo : (v > hi ? hi : v);
+    }
+
+    /**
+     * Convert normalized float sample [-1.0, +1.0] to 16-bit PCM with saturation and round-to-nearest.
+     *
+     * Why:
+     * - Clamp BEFORE scaling to prevent rounding pushing values out of int16 range.
+     * - Use lrintf for fast, correct round-to-nearest according to current FP mode.
+     * - Final integer-domain saturation is a cheap safety net for rare edge cases.
+     * - Handles non-finite inputs (NaN/Inf) by zeroing before conversion.
+     */
+    static inline int16_t FloatToPcm16(float sample) noexcept
+    {
+        // Sanitize and clamp to the legal audio range
+        const float s = std::isfinite(sample) ? clampf(sample, -1.0f, 1.0f) : 0.0f;
+
+        // Scale to 16-bit domain and round to nearest
+        const float scaled = s * kInt16MaxF;
+        long rounded       = lrintf(scaled);  // typically maps 1.0f -> 32767
+
+        // Defensive saturation in integer domain
+        if (rounded > 32767)  rounded = 32767;
+        if (rounded < -32768) rounded = -32768;
+
+        return static_cast<int16_t>(rounded);
+    }
 /**
  * @brief Main audio buffer processing function (Core 0 - Real-time critical)
  *
@@ -642,12 +653,16 @@ void fill_audio_buffer(audio_buffer_t *buffer)
         // Apply global delay effect
         //  processedOutput = processDelayEffect(finalVoiceOutput);
 
-        // Apply soft limiting to prevent clipping
-        float softLimitedOutput = daisysp::SoftLimit(finalVoiceOutput);
+        // Avoid double-limiting: compressor already shapes the bus.
+        // Use a cheap clamp at the callback boundary to keep conversion deterministic.
+        float clipped = finalVoiceOutput;
+        if (clipped > 0.999f)
+          clipped = 0.999f;
+        else if (clipped < -0.999f)
+          clipped = -0.999f;
 
-        // Output to stereo channels with gain reduction
-        // Optimization: Convert sample once for both channels since it's mono output
-        int16_t convertedSample = convertSampleToInt16(softLimitedOutput);
+        // Convert once for both channels (mono -> stereo)
+        int16_t convertedSample = FloatToPcm16(clipped);
         out[2 * i + 0] = convertedSample; // Left channel
         out[2 * i + 1] = convertedSample; // Right channel
     }
@@ -963,8 +978,8 @@ void loop1()
     static unsigned long lastLEDUpdate = 0;
     static unsigned long lastControlUpdate = 0;
 
-    const unsigned long LED_UPDATE_INTERVAL = 10;    // 10ms interval for LED updates
-    const unsigned long CONTROL_UPDATE_INTERVAL = 2; // 2ms interval for sensor polling
+    const unsigned long LED_UPDATE_INTERVAL = 20;    // 10ms interval for LED updates
+    const unsigned long CONTROL_UPDATE_INTERVAL =1; // 1ms interval for sensor polling
     //uint16_t currentTouchedButtons = touchSensor.touched();
 
     // =======================

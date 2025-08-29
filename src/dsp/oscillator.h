@@ -25,6 +25,7 @@ https://opensource.org/licenses/MIT.
      * are naive forms.
      */
     enum {
+      WAVE_CHEAP_SIN,
       WAVE_SIN,
       WAVE_TRI,
       WAVE_SAW,
@@ -54,7 +55,7 @@ https://opensource.org/licenses/MIT.
       pw_ = 0.5f;
       phase_ = 0.0f;
       phase_inc_ = CalcPhaseInc(freq_);
-      waveform_ = WAVE_SIN;
+      waveform_ = WAVE_CHEAP_SIN;
       eoc_ = true;
       eor_ = true;
     }
@@ -73,7 +74,7 @@ https://opensource.org/licenses/MIT.
     /** Sets the waveform to be synthesized by the Process() function.
      */
     inline void SetWaveform(const uint8_t wf) {
-      waveform_ = wf < WAVE_LAST ? wf : WAVE_SIN;
+      waveform_ = wf < WAVE_LAST ? wf : WAVE_CHEAP_SIN;
     }
     /** Sets the pulse width for WAVE_SQUARE and WAVE_POLYBLEP_SQUARE (range 0 -
      * 1)

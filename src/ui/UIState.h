@@ -57,6 +57,11 @@ struct UIState
 
     // --- Settings Mode State ---
     bool settingsMode = false;
+
+    // Settings sub-modes within settingsMode
+    enum class SettingsSubMode : uint8_t { PRESET_SELECTION = 0, VOICE_PARAMETER = 1 };
+    SettingsSubMode currentSubMode = SettingsSubMode::PRESET_SELECTION;
+
     uint8_t settingsMenuIndex = 0;    // 0-7 for 8 menu items
     uint8_t settingsSubMenuIndex = 0; // For preset selection
     bool inPresetSelection = false;

@@ -2,6 +2,7 @@
 
 #include "Voice.h"
 #include "../sequencer/Sequencer.h"
+#include "../dsp/compressor.h"
 #include <vector>
 #include <memory>
 #include <functional>
@@ -110,6 +111,15 @@ private:
     float sampleRate;
     float globalVolume;
 
+    // Dynamics processing
+    daisysp::Compressor compressor;
+    // To reduce CPU cost and avoid per-sample compressor state updates (which can
+    // compound artifacts), update compressor internal state every N samples and
+    // use compressor.Apply() (a single multiply) on the remaining samples.
+    // Pick a small interval (8) to preserve responsiveness while reducing load.
+    uint8_t compressorUpdateInterval = 8; // update compressor internals every 8 samples
+    uint8_t compressorUpdateCounter = 0;  // rolling counter used in realtime processing
+
     // Callbacks
     VoiceCountCallback voiceCountCallback;
     VoiceUpdateCallback voiceUpdateCallback;
@@ -197,7 +207,7 @@ public:
 
 private:
     uint8_t maxVoiceCount = 8;
-    float globalVolume = 1.0f;
+    float globalVolume = .75f;
     std::vector<std::string> voicePresets;
     std::vector<VoiceConfig> voiceConfigs;
     VoiceManager::VoiceCountCallback voiceCountCallback;

@@ -123,13 +123,13 @@ public:
    * @brief Get the current voice configuration
    * @return const VoiceConfig& Current configuration
    */
-  const VoiceConfig& getConfig() const { return config; }
+  const VoiceConfig& getConfig() const noexcept { return config; }
 
   /**
    * @brief Get mutable reference to voice configuration
    * @return VoiceConfig& Reference to voice configuration
    */
-  VoiceConfig& getConfig() { return config; }
+  VoiceConfig& getConfig() noexcept { return config; }
 
   // Audio processing
   /**
@@ -180,20 +180,20 @@ public:
    * @brief Get pointer to the voice's sequencer
    * @return Sequencer* Pointer to sequencer (nullptr if not set)
    */
-  Sequencer* getSequencer() { return sequencer; }
+  Sequencer* getSequencer() noexcept { return sequencer; }
 
   // State management
   /**
    * @brief Get reference to current voice state
    * @return VoiceState& Reference to voice state containing current parameters
    */
-  VoiceState& getState() { return state; }
+  VoiceState& getState() noexcept { return state; }
 
   /**
    * @brief Get const reference to current voice state
    * @return const VoiceState& Const reference to voice state
    */
-  const VoiceState& getState() const { return state; }
+  const VoiceState& getState() const noexcept { return state; }
 
   /**
    * @brief Set gate state for this voice
@@ -208,7 +208,7 @@ public:
    * @brief Get current gate state
    * @return bool Current gate state (true = on, false = off)
    */
-  bool getGate() const { return gate; }
+  bool getGate() const noexcept { return gate; }
 
   // Filter control
   /**
@@ -221,20 +221,20 @@ public:
    * @brief Get current filter frequency
    * @return float Current filter frequency in Hz
    */
-  float getFilterFrequency() const { return filterFrequency; }
+  float getFilterFrequency() const noexcept { return filterFrequency; }
 
   // Voice identification
   /**
    * @brief Get voice ID
    * @return uint8_t Voice identifier (0-7)
    */
-  uint8_t getId() const { return voiceId; }
+  uint8_t getId() const noexcept { return voiceId; }
 
   /**
    * @brief Check if voice is enabled
    * @return bool True if voice is enabled and will process audio
    */
-  bool isEnabled() const { return config.enabled; }
+  bool isEnabled() const noexcept { return config.enabled; }
 
   /**
    * @brief Enable or disable the voice
@@ -271,6 +271,19 @@ private:
   size_t scaleTableCount = 0;
   const uint8_t* currentScalePtr = nullptr; // Pointer to externally managed current-scale index
 
+  // Cached per-scale preprocessing to accelerate unique-degree traversal.
+  // These are populated by setScaleTable() (non-realtime) and used in
+  // calculateNoteFrequency() to replace the iterative advanceDegrees loop
+  // with constant-time arithmetic and a few indexed lookups.
+  //
+  // Layout:
+  // - scaleUniqueCounts[s]                        => number of unique degree entries for scale s
+  // - scaleIndexToRank[s * 48 + i]               => maps original scale index i (0..47) to its unique-rank (0..uniqueCount-1)
+  // - scaleUniqueIndexList[s * 48 + r]           => original scale index (0..47) of the r-th unique degree for scale s
+  std::vector<uint8_t> scaleUniqueCounts;       // size == scaleCount (populated on setScaleTable)
+  std::vector<uint8_t> scaleIndexToRank;        // size == scaleCount * 48
+  std::vector<uint8_t> scaleUniqueIndexList;    // size == scaleCount * 48 (padded)
+
   // Audio processing components
   std::vector<daisysp::Oscillator> oscillators;
   daisysp::WhiteNoise noise_;
@@ -283,6 +296,16 @@ private:
   // Voice state and control
   VoiceState state;
   float filterFrequency;
+  // Smoothed filter cutoff to avoid zipper noise when envelope modulates cutoff.
+  // filterCutoffCurrent is the per-sample smoothed cutoff (Hz).
+  // filterCutoffAlpha is the per-sample exponential smoothing coefficient (0..1).
+  float filterCutoffCurrent = 1000.0f;
+  float filterCutoffAlpha = 0.0f;
+  // Cache of last applied cutoff to avoid redundant filter.SetFreq calls in the hotpath.
+  // Initialized to -1.0f in ctor/init to guarantee first SetFreq occurs.
+  float lastAppliedFilterCutoff = -1.0f;
+  // Cached envelope value updated each frame to allow a very cheap silence short-circuit.
+  float lastEnvelopeValue = 0.0f;
   VoiceSlewParams freqSlew[3]; // For slide functionality
   volatile bool gate;
 
