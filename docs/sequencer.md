@@ -2,33 +2,71 @@
 
 ## Overview and Responsibilities
 
-The Sequencer module is the core sequencing engine of the Pico2Seq synthesizer, implementing a **polyrhythmic step sequencer** with independent parameter tracks. It provides the foundation for creating complex musical patterns where different synthesis parameters (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide) can evolve at different rates simultaneously.
+The Sequencer module is the core sequencing engine of the Pico2Seq synthesizer, implementing a **polyrhythmic step sequencer** with independent parameter tracks. It provides the foundation for creating complex musical patterns where different synthesis parameters (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide) can evolve at different rates simultaneously. The sequencer now supports **four independent sequencer instances** working in coordination with the VoiceSystem architecture.
 
 ### Key Features
 
 - **Polyrhythmic Sequencing**: Each parameter operates as an independent track with configurable step counts, enabling complex evolving patterns
-- **Real-time Parameter Recording**: Live sensor-based parameter capture during playback
-- **Thread-safe Operation**: Dual-core architecture support with proper synchronization
-- **Dual Voice Support**: Independent sequencing for layered compositions
-- **Gate-controlled Programming**: Intelligent note parameter editing based on gate states
-- **Envelope Management**: Built-in envelope triggering and note duration handling
-- **Hardware Integration**: Direct control of gate outputs and step clock signals
+- **Four Independent Sequencers**: Dedicated sequencer for each voice with synchronized stepping and polymetric capabilities
+- **Real-time Parameter Recording**: Live sensor-based parameter capture during playback with gate-controlled programming
+- **Thread-safe Operation**: Dual-core architecture support with proper synchronization for the VoiceSystem
+- **VoiceSystem Integration**: Seamless integration with centralized voice management and array-based access
+- **Gate-controlled Programming**: Intelligent note parameter editing restricted to steps with active gates
+- **Envelope Management**: Built-in envelope triggering and note duration handling with VoiceState communication
+- **Hardware Integration**: Direct control of gate outputs and step clock signals across all voices
+
+### VoiceSystem Architecture Integration
+
+The sequencer system is fully integrated with the VoiceSystem structure:
+
+```cpp
+// Four sequencer instances (one per voice)
+Sequencer seq1(1), seq2(2), seq3(3), seq4(4);
+
+// VoiceSystem provides centralized access
+uint8_t voiceId = voiceSystem.getVoiceId(voiceIndex);           // Safe voice access
+VoiceState& voiceState = voiceSystem.getVoiceState(voiceIndex); // Parameter state
+bool gateActive = voiceSystem.getGate(voiceIndex);              // Gate state
+voiceSystem.setGate(voiceIndex, true);                          // Set gate
+```
+
+This integration eliminates the previous approach of individual voice variables and provides:
+- **Centralized Access**: All voice states in one location
+- **Type Safety**: Bounds checking and consistent access patterns
+- **Scalability**: Easy extension to additional voices
+- **Simplified API**: `voiceSystem.getVoiceState(index)` instead of conditional branching
 
 ## Public Classes/Structs and Method Signatures
 
-### Sequencer Class
+### Four Sequencer Instances
 
-The main sequencer class that orchestrates all sequencing operations.
+The system now maintains four independent sequencer instances:
+
+```cpp
+// Global sequencer instances (Pico2Seq.ino)
+Sequencer seq1(1), seq2(2), seq3(3), seq4(4); // One per voice
+
+// Selection based on VoiceSystem
+Sequencer* getActiveSequencer(uint8_t voiceIndex) {
+    switch(voiceIndex) {
+        case 0: return &seq1;
+        case 1: return &seq2;
+        case 2: return &seq3;
+        case 3: return &seq4;
+        default: return nullptr;
+    }
+}
+```
+
+### Sequencer Class API (Unchanged)
 
 ```cpp
 class Sequencer {
 public:
-    // Construction
-    Sequencer();
-    Sequencer(uint8_t channel);
-    ~Sequencer() = default;
+    // Construction - now 4 instances total
+    Sequencer(uint8_t channel); // 1-4 for each voice
 
-    // Parameter Management
+    // Parameter Management (per-voice)
     void initializeParameters();
     void resetAllSteps();
     void playStepNow(uint8_t stepIdx, VoiceState* voiceState);
@@ -38,357 +76,347 @@ public:
     uint8_t getParameterStepCount(ParamId id) const;
     void setParameterStepCount(ParamId id, uint8_t steps);
 
-    // Sequencer Control
+    // Sequencer Control (synchronized across all instances)
     void start() { running = true; }
     void stop() { running = false; }
     void reset();
     void randomizeParameters();
 
-    // Note/Envelope Handling
+    // Note/Envelope Handling (VoiceSystem integrated)
     void startNote(uint8_t note, uint8_t velocity, uint16_t duration);
-    void handleNoteOff(VoiceState* voiceState);
+    void handleNoteOff(VoiceState* voiceState); // Uses VoiceSystem state
     void tickNoteDuration(VoiceState* voiceState);
     bool isNotePlaying() const;
     void setMidiNoteOffCallback(void (*callback)(uint8_t note, uint8_t channel));
 
-    // Core Sequencing Method
+    // Core Sequencing Method - VoiceSystem aware
     void advanceStep(uint8_t current_uclock_step, int mm_distance,
                     bool is_note_button_held, bool is_velocity_button_held,
                     bool is_filter_button_held, bool is_attack_button_held,
                     bool is_decay_button_held, bool is_octave_button_held,
                     int current_selected_step_for_edit, VoiceState *voiceState);
 
-    // UIState Integration
+    // UIState Integration - centralized parameter handling
     void advanceStep(uint8_t current_uclock_step, int mm_distance,
                     const UIState& uiState, VoiceState *voiceState);
-
-    // State Queries
-    uint8_t getCurrentStep() const { return currentStep; }
-    uint8_t getCurrentStepForParameter(ParamId paramId) const;
-    Step getStep(uint8_t stepIdx) const;
-    bool isRunning() const { return running; }
 };
 ```
 
-### EnvelopeController Class
+## VoiceSystem Integration Architecture
 
-Simple envelope state manager for note triggering and release.
+### Centralized Voice Management
+
+The sequencers now work seamlessly with the VoiceSystem architecture:
 
 ```cpp
-class EnvelopeController {
-public:
-    void trigger() { triggered = true; released = false; }
-    void release() { triggered = false; released = true; }
-    bool isTriggered() const { return triggered; }
-    bool isReleased() const { return released; }
+// VoiceSystem provides array-based access to all voice data
+struct VoiceSystem {
+    static const uint8_t MAX_VOICES = 4;
+
+    uint8_t voiceIds[MAX_VOICES];            // Voice identifier mapping
+    VoiceState voiceStates[MAX_VOICES];      // Synthesis parameters per voice
+    bool gates[MAX_VOICES];                  // Gate states
+    GateTimer gateTimers[MAX_VOICES];        // Gate timing management
+
+    // Safe accessor methods
+    uint8_t getVoiceId(uint8_t index) const;
+    VoiceState& getVoiceState(uint8_t index);
+    bool getGate(uint8_t index) const;
+    void setGate(uint8_t index, bool state);
+    GateTimer& getGateTimer(uint8_t index);
 };
 ```
 
-### NoteDurationTracker Class
+### Sequencer-to-VoiceSystem Data Flow
 
-Tracks note duration in sequencer pulses with automatic deactivation.
-
-```cpp
-class NoteDurationTracker {
-public:
-    void start(uint16_t duration) { counter = duration; active = true; }
-    void tick() { if (active && counter > 0) { --counter; if (counter == 0) active = false; } }
-    bool isActive() const { return active && counter > 0; }
-    void reset() { counter = 0; active = false; }
-};
+```
+Step Advance → Sequencer Parameter Lookup → VoiceState Population
+                    ↓
+          VoiceSystem Array Update → DSP Processing
+                    ↓
+          MIDI CC Output + Audio Synthesis → Hardware
 ```
 
-### ParameterManager Class
+## Four-Sequencer Initialization and Setup
 
-Thread-safe parameter management with validation and clamping.
-
-```cpp
-class ParameterManager {
-public:
-    ParameterManager();
-    void init();
-    void setStepCount(ParamId id, uint8_t steps);
-    uint8_t getStepCount(ParamId id) const;
-    float getValue(ParamId id, uint8_t stepIdx) const;
-    void setValue(ParamId id, uint8_t stepIdx, float value);
-    void randomizeParameters();
-};
-```
-
-## Key Constants and Data Structures
-
-### Timing Constants
+### Voice Manager Integration
 
 ```cpp
-namespace SequencerConstants {
-    static constexpr uint16_t PULSES_PER_QUARTER_NOTE_PPQN = 480;
-    static constexpr uint8_t PULSES_PER_SEQUENCER_STEP_TICKS = PULSES_PER_QUARTER_NOTE_PPQN / 4;
-    static constexpr uint8_t MAX_STEPS_COUNT = 64;
-    static constexpr uint8_t MIN_STEPS_COUNT = 2;
-    static constexpr uint8_t DEFAULT_STEPS_COUNT = 16;
-    static constexpr uint16_t DEFAULT_GATE_LENGTH_TICKS = PULSES_PER_SEQUENCER_STEP_TICKS / 2;
-    static constexpr uint16_t MIN_GATE_LENGTH_TICKS = 1;
-    static constexpr uint16_t MAX_GATE_LENGTH_TICKS = PULSES_PER_SEQUENCER_STEP_TICKS;
+// Initialize Voice Manager with 4 voices
+voiceManager = std::make_unique<VoiceManager>(4);
+
+// Create 4 voices with default presets
+for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++) {
+    voiceSystem.setVoiceId(i, voiceManager->addVoice(VoicePresets::getPresetConfig(uiState.voicePresetIndices[i])));
+    voiceManager->attachSequencer(voiceSystem.getVoiceId(i), sequencers[i]);
 }
 ```
 
-### Parameter Enumeration
+### Sequencer Startup Process
 
 ```cpp
-enum class ParamId : uint8_t {
-    Note,       // 0.0-21.0 (Scale step index)
-    Velocity,   // 0.0-1.0 (Voice amplitude)
-    Filter,     // 0.0-1.0 (Filter cutoff frequency)
-    Attack,     // 0.0-1.0 (Envelope attack time in seconds)
-    Decay,      // 0.0-1.0 (Envelope decay time in seconds)
-    Octave,     // 0.0-1.0 (Octave offset: 0.0=C2, 0.5=C3, 1.0=C4)
-    GateLength, // 0.001-1.0 (Gate duration as fraction of step)
-    Gate,       // boolean (Gate on/off state)
-    Slide,      // boolean (Portamento enable)
-    Count       // Total parameter count for array sizing
-};
+// Start all four sequencers when clock starts
+void onClockStart() {
+    usb_midi.sendRealTime(midi::Start);
+    seq1.start(); seq2.start(); seq3.start(); seq4.start(); // All sequencers start simultaneously
+    isClockRunning = true;
+}
+
+// Stop all sequencers when clock stops
+void onClockStop() {
+    usb_midi.sendRealTime(midi::Stop);
+    seq1.stop(); seq2.stop(); seq3.stop(); seq4.stop();   // All sequencers stop simultaneously
+    midiNoteManager.onSequencerStop();                    // Clean shutdown
+    isClockRunning = false;
+}
 ```
 
-### VoiceState Structure
+## Enhanced Main Loop Integration
 
-Contains all parameters needed by the audio synthesis engine.
-
-```cpp
-struct VoiceState {
-    float noteIndex = 0.0f;                    // Scale step index (0-21) for scale array lookup
-    float velocityLevel = 0.8f;                // Voice amplitude (0.0-1.0)
-    float filterCutoff = 0.37f;                // Filter cutoff frequency (0.0-1.0)
-    float attackTimeSeconds = 0.01f;           // Envelope attack time (0.0-1.0 seconds)
-    float decayTimeSeconds = 0.01f;            // Envelope decay time (0.0-1.0 seconds)
-    float octaveOffset = 0.0f;                 // Octave offset (0.0=C2, 0.5=C3, 1.0=C4)
-    uint16_t gateLengthTicks = SequencerConstants::DEFAULT_GATE_LENGTH_TICKS; // Gate duration in clock ticks
-    bool isGateHigh = false;                   // Voice on/off state
-    bool hasSlide = false;                     // Portamento enable flag
-    bool shouldRetrigger = false;              // Envelope restart command flag
-};
-```
-
-### Step Structure
-
-Contains all automatable parameters for a single sequencer step.
+### Four-Sequencer Step Processing
 
 ```cpp
-struct Step {
-    float noteIndex = 0.0f;                    // Scale step index (0-21)
-    float velocityLevel = 0.5f;                // Voice amplitude (0.0-1.0)
-    float filterCutoff = 0.5f;                 // Filter cutoff frequency (0.0-1.0)
-    float attackTimeSeconds = 0.04f;           // Envelope attack time (0.0-1.0 seconds)
-    float decayTimeSeconds = 0.1f;             // Envelope decay time (0.0-1.0 seconds)
-    float octaveOffset = 0.0f;                 // Octave offset (0.0=C2, 0.5=C3, 1.0=C4)
-    uint16_t gateLengthTicks = SequencerConstants::DEFAULT_GATE_LENGTH_TICKS; // Gate duration in clock ticks
-    bool isGateActive = false;                 // Step active/inactive state
-    bool hasSlide = false;                     // Portamento enable for this step
-};
-```
-
-### ParameterTrack Template
-
-Fixed-size parameter automation track with step wrapping support.
-
-```cpp
-template <uint8_t MAX_SIZE>
-struct ParameterTrack {
-    float parameterValues[MAX_SIZE];          // Parameter values for each step
-    uint8_t currentStepCount;                 // Current sequence length (2-64 steps)
-    float defaultParameterValue;              // Default value for new steps
-
-    void init(float defaultValue);
-    float getValue(uint8_t stepIndex) const;
-    void setValue(uint8_t stepIndex, float newValue);
-    void resize(uint8_t newStepCount);
-};
-```
-
-### GateTimer Structure
-
-Manages gate duration timing with automatic turn-off.
-
-```cpp
-struct GateTimer {
-    volatile bool isActive = false;                     // Timer active state
-    volatile uint16_t ticksRemaining = 0;               // Clock ticks remaining until gate off
-    volatile uint32_t totalTicksProcessed = 0;          // Debug counter for diagnostics
-
-    void start(uint16_t durationTicks) volatile;
-    void tick() volatile;
-    void stop() volatile;
-    bool isExpired() const volatile;
-};
-```
-
-## Typical Lifecycle and Usage Pattern
-
-### Initialization
-
-```cpp
-// Create sequencer instance
-Sequencer sequencer(channel);
-
-// Initialize all parameters with defaults
-sequencer.initializeParameters();
-
-// Set up MIDI callback for note-off events
-sequencer.setMidiNoteOffCallback(midiNoteOffCallback);
-```
-
-### Main Loop Integration
-
-```cpp
-// In the main loop, advance the sequencer on each step
 void loop() {
-    // Get current step from UClock
+    // Get current step from UClock (synchronized across all sequencers)
     uint8_t currentStep = uClock.getCurrentStep();
 
-    // Get sensor distance for real-time recording
+    // Get sensor distance for real-time recording (global for all sequencers)
     int distance = distanceSensor.getDistance();
+    float normalizedDistance = constrain(distance / 400.0f, 0.0f, 1.0f); // Global parameter input
 
-    // Get UI state for button presses
-    UIState uiState = uiHandler.getUIState();
+    // Get UI state for button presses and voice selection
+    const UIState& uiState = getUIState();
 
-    // Prepare voice state for audio synthesis
-    VoiceState voiceState;
+    // Process each sequencer with VoiceSystem integration
+    for (uint8_t voiceIndex = 0; voiceIndex < VoiceSystem::MAX_VOICES; voiceIndex++) {
+        // Get voice state from VoiceSystem
+        VoiceState& voiceState = voiceSystem.getVoiceState(voiceIndex);
 
-    // Advance sequencer (polyrhythmic parameter advancement)
-    sequencer.advanceStep(currentStep, distance, uiState, &voiceState);
+        // Select appropriate sequencer for this voice
+        Sequencer* activeSequencer = nullptr;
+        switch(voiceIndex) {
+            case 0: activeSequencer = &seq1; break;
+            case 1: activeSequencer = &seq2; break;
+            case 2: activeSequencer = &seq3; break;
+            case 3: activeSequencer = &seq4; break;
+        }
 
-    // Process voice state in audio synthesis engine
-    audioEngine.processVoice(voiceState);
+        if (activeSequencer) {
+            // Advance sequencer step with VoiceSystem integration
+            activeSequencer->advanceStep(currentStep, distance, uiState, &voiceState);
 
-    // Handle note duration timing
-    sequencer.tickNoteDuration(&voiceState);
+            // Update voice parameters through VoiceSystem
+            voiceManager->updateVoiceState(voiceSystem.getVoiceId(voiceIndex), voiceState);
+
+            // Handle gate timing (optional - some implementations use separate gate management)
+            if (voiceState.isGateHigh) {
+                voiceSystem.setGate(voiceIndex, true);
+                voiceSystem.getGateTimer(voiceIndex).start(voiceState.gateLengthTicks);
+            }
+
+            // MIDI output for voice 1 and 2 only (configurable)
+            if (voiceIndex < 2) {
+                uint8_t midiVoiceId = voiceIndex;
+                midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Filter, voiceState.filterCutoff);
+                midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Attack, voiceState.attackTimeSeconds);
+                midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Decay, voiceState.decayTimeSeconds);
+                midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Octave, voiceState.octaveOffset);
+            }
+        }
+    }
+
+    // Process global gate timers (VoiceSystem integration)
+    voiceSystem.tickAllGateTimers();
 }
 ```
 
-### Step Preview Mode
+### Voice Parameter Editing with Gate Control
 
 ```cpp
-// Preview a specific step without advancing the sequence
-VoiceState previewState;
-sequencer.playStepNow(stepIndex, &previewState);
-audioEngine.processVoice(previewState);
-```
+void updateParametersForStep(uint8_t stepToUpdate) {
+    // Get active sequencer based on selected voice
+    uint8_t voiceIndex = uiState.selectedVoiceIndex;
+    Sequencer* seqPtr = getActiveSequencer(voiceIndex);
+    if (!seqPtr) return;
 
-### Parameter Editing
+    // Get VoiceSystem state for this voice
+    VoiceState& voiceState = voiceSystem.getVoiceState(voiceIndex);
 
-```cpp
-// Set parameter value for a specific step
-sequencer.setStepParameterValue(ParamId::Note, stepIndex, 12.0f);
+    bool parametersWereUpdated = false;
+    const ParamButtonMapping* heldMapping = getHeldParameterButton(uiState);
 
-// Get current parameter value
-float currentValue = sequencer.getStepParameterValue(ParamId::Velocity, stepIndex);
+    if (heldMapping) {
+        // GATE-CONTROLLED NOTE PROGRAMMING: Restrict note parameter editing
+        if (heldMapping->paramId == ParamId::Note) {
+            float gateValue = seqPtr->getStepParameterValue(ParamId::Gate, stepToUpdate);
+            if (gateValue <= 0.5f) { // Gate is LOW (0.0)
+                return; // Prevent note changes on inactive steps
+            }
+        }
 
-// Toggle step gate
-sequencer.toggleStep(stepIndex);
+        float valueToSet = mapNormalizedValueToParamRange(heldMapping->paramId, normalized_mm_value);
+        seqPtr->setStepParameterValue(heldMapping->paramId, stepToUpdate, valueToSet);
+        parametersWereUpdated = true;
 
-// Set parameter track length (enables polyrhythms)
-sequencer.setParameterStepCount(ParamId::Filter, 8); // Filter changes every 8 steps
-sequencer.setParameterStepCount(ParamId::Note, 16);  // Note changes every 16 steps
-```
+        // MIDI CC output for voices 1 and 2 (real-time parameter recording)
+        if (voiceIndex < 2) {
+            uint8_t midiVoiceId = voiceIndex;
+            midiNoteManager.updateParameterCC(midiVoiceId, heldMapping->paramId, valueToSet);
+        }
+    }
 
-## Integration Points
-
-### MIDI Integration
-
-The sequencer integrates with MIDI through callback functions for note-off events:
-
-```cpp
-void midiNoteOffCallback(uint8_t note, uint8_t channel) {
-    // Handle MIDI note-off messages
-    midiManager.sendNoteOff(note, channel);
+    // Provide immediate audio feedback using VoiceSystem
+    if (parametersWereUpdated) {
+        updateActiveVoiceState(stepToUpdate, *seqPtr, voiceIndex);
+    }
 }
 ```
 
-### Voice/Audio Integration
+## Polymetric Sequencing with Four Voices
 
-The sequencer communicates with the audio synthesis engine through the VoiceState structure:
+### Independent Parameter Tracks
 
-```cpp
-// VoiceState is populated by the sequencer and consumed by audio engine
-VoiceState voiceState; // Contains note, velocity, filter, envelope, etc.
-audioEngine.processVoice(voiceState);
-```
-
-### LED Matrix Integration
-
-The sequencer provides step position information for LED matrix feedback:
+Each of the four sequencers can have different parameter step counts for complex polymetric patterns:
 
 ```cpp
-// Current global step position
-uint8_t currentStep = sequencer.getCurrentStep();
+// Voice 1: Fast note changes, slow filter modulation
+seq1.setParameterStepCount(ParamId::Note, 16);   // Notes: 16-step pattern
+seq1.setParameterStepCount(ParamId::Filter, 8);  // Filter: 8-step pattern
+seq1.setParameterStepCount(ParamId::Velocity, 4); // Velocity: 4-step pattern
 
-// Current step position for specific parameter
-uint8_t filterStep = sequencer.getCurrentStepForParameter(ParamId::Filter);
+// Voice 2: Slow note progression, fast envelope modulations
+seq2.setParameterStepCount(ParamId::Note, 8);    // Notes: 8-step pattern
+seq2.setParameterStepCount(ParamId::Attack, 16); // Attack: 16-step pattern
+seq2.setParameterStepCount(ParamId::Decay, 16);  // Decay: 16-step pattern
+
+// Voice 3: Complex gate patterns
+seq3.setParameterStepCount(ParamId::Gate, 32);   // Gating: 32-step pattern
+seq3.setParameterStepCount(ParamId::Note, 16);   // Notes: 16-step pattern
+
+// Voice 4: Minimal pattern for base layer
+seq4.setParameterStepCount(ParamId::Note, 4);    // Notes: 4-step pattern
 ```
 
-### Sensor Integration
+## VoiceSystem Routing and State Management
 
-Real-time parameter recording through distance sensors:
+### Voice State Updates
+
+The VoiceSystem provides centralized access to all voice parameters:
 
 ```cpp
-// Distance sensor input is mapped to parameter ranges
-int mm_distance = distanceSensor.getDistance(); // 0-400mm range
-// Automatically handled in advanceStep() method
+// Update voice parameters through VoiceSystem
+void updateVoiceParameters(const VoiceState& newState, uint8_t voiceIndex) {
+    if (voiceIndex >= VoiceSystem::MAX_VOICES) return;
+
+    // Direct VoiceSystem access to state
+    VoiceState& currentState = voiceSystem.getVoiceState(voiceIndex);
+    currentState = newState; // Struct assignment for efficiency
+
+    // Gate management through VoiceSystem
+    if (newState.isGateHigh && !voiceSystem.getGate(voiceIndex)) {
+        voiceSystem.setGate(voiceIndex, true);
+        voiceSystem.getGateTimer(voiceIndex).start(newState.gateLengthTicks);
+    } else if (!newState.isGateHigh) {
+        voiceSystem.setGate(voiceIndex, false);
+    }
+
+    // Update voice manager with new state
+    uint8_t voiceId = voiceSystem.getVoiceId(voiceIndex);
+    voiceManager->updateVoiceState(voiceId, currentState);
+}
 ```
 
-### UI Integration
+### Bulk Voice Operations
 
-The sequencer integrates with UI event handling for parameter editing:
+The VoiceSystem enables efficient bulk operations across all voices:
 
 ```cpp
-// Button states determine which parameters are recorded in real-time
-bool noteButtonHeld = uiState.parameterButtonHeld[static_cast<int>(ParamId::Note)];
-bool velocityButtonHeld = uiState.parameterButtonHeld[static_cast<int>(ParamId::Velocity)];
+// Stop all voices simultaneously
+voiceSystem.stopAllGates();
+
+// Set all voices to same volume
+voiceSystem.setAllVoiceVolumes(0.7f);
+
+// Process gate timers for all voices
+voiceSystem.tickAllGateTimers();
+
+// Check if any voice is active
+bool anyVoiceActive = false;
+for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++) {
+    if (voiceSystem.getGate(i)) {
+        anyVoiceActive = true;
+        break;
+    }
+}
 ```
 
-## Blocking Issues or Assumptions
+## Integration with Extended UI System
 
-### Required Global State
+### Voice-specific Parameter Editing
 
-The sequencer module has the following external dependencies:
-
-1. **Arduino Library**: Required for `pinMode()`, `digitalWrite()`, and timing functions
-2. **UClock Integration**: Depends on external clock source for step timing
-3. **Scale System**: Assumes existence of SCALE_STEPS array for note-to-frequency conversion
-4. **UIState Structure**: Requires UI state for button press detection
-5. **VoiceState Processing**: Assumes audio engine will process VoiceState structures
-
-### Hardware Dependencies
+The extended UI system supports per-voice parameter manipulation:
 
 ```cpp
-// GPIO Pin Requirements
-pinMode(10, OUTPUT);  // Voice 1 gate output
-pinMode(11, OUTPUT);  // Voice 2 gate output
-pinMode(12, OUTPUT);  // Step clock output
+// Voice parameter editing (buttons 8-15: envelope, overdrive, wavefolder, filter mode, etc.)
+void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState& state) {
+    if (voiceIndex < 0 || voiceIndex > 3) return;
+
+    uint8_t currentVoiceId = voiceSystem.getVoiceId(voiceIndex);
+    VoiceConfig* config = voiceManager->getVoiceConfig(currentVoiceId);
+
+    switch (paramIndex) {
+        case 8: // Toggle envelope per voice
+            config->hasEnvelope = !config->hasEnvelope;
+            break;
+        case 9: // Cycle filter modes per voice
+            config->filterMode = static_cast<daisysp::LadderFilter::FilterMode>(
+                (static_cast<uint8_t>(config->filterMode) + 1) % 5);
+            break;
+        // ... additional voice parameters
+    }
+
+    // Apply configuration changes
+    voiceManager->setVoiceConfig(currentVoiceId, *config);
+}
 ```
 
-### Thread Safety Considerations
+### Enhanced LED Feedback
 
-- ParameterManager uses spin locks for thread-safe access
-- GateTimer uses volatile members for interrupt-safe access
-- advanceStep() method should be called from a single thread to avoid race conditions
+The LED matrix now provides feedback for all four voices:
 
-### Memory Constraints
+```cpp
+// Display current step states for all active voices
+void updateLEDMatrixForAllVoices() {
+    for (uint8_t voiceIndex = 0; voiceIndex < VoiceSystem::MAX_VOICES; voiceIndex++) {
+        if (voiceSystem.getVoiceState(voiceIndex).isGateHigh) {
+            Sequencer* seq = getActiveSequencer(voiceIndex);
+            uint8_t currentStep = seq->getCurrentStep();
 
-- Fixed-size parameter tracks (64 steps maximum)
-- Static allocation for all data structures (no dynamic memory allocation)
-- Template-based ParameterTrack to avoid runtime memory allocation
+            // Light corresponding LED column for this voice
+            ledMatrix.setLED(voiceIndex, currentStep % 16, CRGB::White);
+        }
+    }
+}
+```
 
-### Timing Assumptions
+## Performance Optimizations for Multi-Voice Operation
 
-- Operates at 480 PPQN (Pulses Per Quarter Note)
-- Step clock pulse is 120 ticks (480/4)
-- Gate length is specified as fraction of step duration
-- All timing is based on external UClock step counter
+### Memory Layout
 
-### Parameter Constraints
+- **Static Allocation**: All sequencers use static memory with template-based parameter tracks
+- **Cache Efficiency**: VoiceSystem array access provides better memory locality
+- **Reduced Overhead**: Eliminates individual voice variable lookups and conditionals
 
-- Gate-controlled note programming: Note parameters can only be modified on steps with HIGH gates
-- Parameter value clamping: All parameter values are automatically clamped to defined ranges
-- Binary parameter handling: Gate and Slide parameters are treated as binary (0.0 or 1.0)
+### Timing Synchronization
 
-This documentation covers all aspects of the sequencer module as requested, including module purpose, public API, timing model, integration points, and any blocking issues or assumptions that developers should be aware of when working with this system.
+- **Single Clock Source**: All four sequencers advance simultaneously based on UClock
+- **Batch Processing**: Parameter updates grouped by voice for efficiency
+- **Gate Timer Optimization**: Centralized gate management reduces internal function calls
+
+### Thread Safety
+
+- **Volatile Fields**: VoiceSystem uses volatile fields for cross-core communication
+- **Race Prevention**: Sequencer advancement occurs in single thread context
+- **Atomic Operations**: Gate state changes are atomic where required
+
+This enhanced sequencer system with VoiceSystem integration provides powerful polymetric sequencing capabilities across four independent voices while maintaining real-time performance and code clarity.
