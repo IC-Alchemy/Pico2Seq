@@ -44,6 +44,8 @@ inline void Voice::recomputeDetuneMultipliers()
     // detuneMul = 2^(semitones/12) = exp2f(semitones * (1/12))
     detuneMul[i] = exp2f(config.oscDetuning[i] * kInv12);
   }
+  // Bump detune version so pitch cache will recompute
+  detuneVersion_++;
 }
 
 // Helper to compute smoothing alpha for a one-pole smoother with time constant tau (seconds):
@@ -61,6 +63,10 @@ Voice::Voice(uint8_t id, const VoiceConfig &cfg)
       gate(false),
       sequencer(nullptr)
 {
+  // Static base pitch cache starts dirty to force initial compute
+  baseFreqDirty_ = true;
+  cachedBaseFreqHz_ = 440.0f;
+  lastSentBaseFreqHz_ = -1.0f;
   // Initialize frequency lookup table once in a thread-safe manner
   initFrequencyLookupTable();
   // Initialize cached detune multipliers
@@ -96,6 +102,8 @@ Voice::Voice(uint8_t id, const VoiceConfig &cfg)
 void Voice::init(float sr)
 {
   sampleRate = sr;
+  // Changing sample rate can affect tuning in downstream modules; ensure base frequency recompute
+  baseFreqDirty_ = true;
 
   // Compute per-sample slide coefficient from time constant
   slideAlpha = makeSmoothingAlpha(slideTimeSeconds, sampleRate);
@@ -227,6 +235,8 @@ void Voice::setScaleTable(const int (*table)[48], size_t scaleCount)
   // Assign pointers first (external owner still owns memory).
   scaleTable = table;
   scaleTableCount = scaleCount;
+  // Scale/tuning data impacts static pitch mapping; mark base cache dirty.
+  baseFreqDirty_ = true;
 
   // Precompute per-scale unique-degree caches used by calculateNoteFrequency.
   // This is intentionally done outside the realtime path and may allocate/free.
@@ -294,6 +304,8 @@ void Voice::setScaleTable(const int (*table)[48], size_t scaleCount)
 void Voice::setCurrentScalePointer(const uint8_t *ptr)
 {
   currentScalePtr = ptr;
+  // Changing active scale changes static note->semitone mapping.
+  baseFreqDirty_ = true;
 }
 
 float Voice::process() noexcept
@@ -343,18 +355,13 @@ void Voice::updateFilter(float envelopeValue)
   // filterCutoffAlpha was initialized in init() (per-sample coefficient).
   filterCutoffCurrent += filterCutoffAlpha * (targetCutoff - filterCutoffCurrent);
 
-  // Thresholded SetFreq to avoid unnecessary work when cutoff changes are tiny.
-  const float cutoffChangeThreshold = 0.5f; // Hz absolute threshold
-  if (fabsf(filterCutoffCurrent - lastAppliedFilterCutoff) > cutoffChangeThreshold)
-  {
+
     filter.SetFreq(filterCutoffCurrent);
-    lastAppliedFilterCutoff = filterCutoffCurrent;
-  }
+  
 }
 
 float Voice::mixOscillators()
 {
-
   float mixedOscillators = 0.0f;
 
   // Very cheap per-voice silence short-circuit: if envelope is enabled and the cached
@@ -367,6 +374,41 @@ float Voice::mixOscillators()
   // Determine number of oscillators to process (max 3)
   const size_t oscCount = std::min(static_cast<size_t>(3), oscillators.size());
 
+  // Audio-thread commit of frequency changes:
+  // - Only when gate HIGH (no repitch during release)
+  // - Lock-free via generation counter
+  if (oscCount > 0 && state.isGateHigh)
+  {
+    const uint32_t gen = pitchGen_.load(std::memory_order_seq_cst);
+    if (!state.hasSlide && gen != appliedPitchGen_)
+    {
+      // Commit immediate frequencies (no slide)
+      for (size_t i = 0; i < oscCount; i++)
+      {
+        const float f = pitchCache_.finalFreq[i];
+        if (ShouldApplyFreq_(f, lastAppliedOscFreq_[i]))
+        {
+          oscillators[i].SetFreq(f);
+          lastAppliedOscFreq_[i] = f;
+          // Keep slew state consistent
+          freqSlew[i].currentFreq = f;
+          freqSlew[i].targetFreq  = f;
+        }
+      }
+      appliedPitchGen_ = gen;
+    }
+    else if (state.hasSlide && gen != appliedPitchGen_)
+    {
+      // On gen change, update targets; slewing occurs per-sample below
+      for (size_t i = 0; i < oscCount; i++)
+      {
+        const float f = pitchCache_.finalFreq[i];
+        freqSlew[i].targetFreq = f;
+      }
+      appliedPitchGen_ = gen;
+    }
+  }
+
   if (oscCount > 0)
   {
     // Update frequencies (slew when sliding) and process oscillators
@@ -375,7 +417,12 @@ float Voice::mixOscillators()
       if (state.hasSlide)
       {
         processFrequencySlew(i, freqSlew[i].targetFreq);
-        oscillators[i].SetFreq(freqSlew[i].currentFreq);
+        const float fcur = freqSlew[i].currentFreq;
+        if (ShouldApplyFreq_(fcur, lastAppliedOscFreq_[i]))
+        {
+          oscillators[i].SetFreq(fcur);
+          lastAppliedOscFreq_[i] = fcur;
+        }
       }
       mixedOscillators += oscillators[i].Process();
     }
@@ -391,20 +438,17 @@ float Voice::mixOscillators()
 
 void Voice::applyEffects(float &signal)
 {
-  // Apply effects chain with cheap bypass guards to avoid calling
-  // heavy Process() methods when they will produce no audible output.
-
-  // Overdrive: only process when enabled AND the configured output gain is non-zero.
-  if (config.hasOverdrive )
-  {
-    signal = overdrive.Process(signal) * config.overdriveGain;
-  }
-
-  // Wavefolder
+ 
   if (config.hasWavefolder)
   {
     signal = wavefolder.Process(signal);
   }
+  if (config.hasOverdrive )
+  {
+    signal = overdrive.Process(signal* config.overdriveGain) ;
+  }
+
+
 
   // Level adjustments removed from here; handled in finalizeOutput
 }
@@ -417,13 +461,13 @@ void Voice::processEffectsChain(float &signal)
 
 inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept
 {
-
+float preEffects =signal*envelopeValue;
     // Apply effects (pre-filter)
-  applyEffects(signal);
+    //    VCA envelope is applied pre effects so that the Wavefolder/ overdrive sounds more dynamic
+  applyEffects(preEffects);
+
   // Apply ladder filter
-  float filteredSignal = filter.Process(signal);
-
-
+  float filteredSignal = filter.Process(preEffects*state.velocityLevel);
 
   // Apply high-pass filter
   highPassFilter.Process(filteredSignal);
@@ -431,61 +475,18 @@ inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept
   // Get high-passed signal (no envelope or level applied here yet)
   float highPassedSignal = highPassFilter.High();
 
-  // Apply envelope multiplication and final output scaling (including velocity-based level)
-  float finalOutput = highPassedSignal * envelopeValue;
-  const float outputScale = config.outputLevel * state.velocityLevel;
-  finalOutput *= outputScale;
+  float finalOutput = highPassedSignal * config.outputLevel ;
+
   return finalOutput;
 }
 
 
 void Voice::updateOscillatorFrequencies()
 {
-  // Only update oscillator frequencies if the gate is high.
-  // This prevents re-pitching during the release phase of the envelope.
-  if (!state.isGateHigh)
-  {
-return;
-  }
-    // Always update frequencies based on current state so parameter changes apply immediately
-    // Calculate base frequency once and cache it (used when harmony offset is 0)
-    const float baseFreq = calculateNoteFrequency(state.noteIndex, state.octaveOffset, 0);
-
-    // Limit oscillator loop to max 3
-    const size_t oscCount = std::min(static_cast<size_t>(3), oscillators.size());
-
-    for (size_t i = 0; i < oscCount; i++)
-    {
-      // Calculate frequency for this oscillator using harmony interval
-      float harmonyFreq;
-      const int harmonyInterval = config.harmony[i];
-
-      if (harmonyInterval == 0)
-      {
-        harmonyFreq = baseFreq;
-      }
-      else
-      {
-        harmonyFreq = calculateNoteFrequency(state.noteIndex, state.octaveOffset, harmonyInterval);
-      }
-
-      // Apply semitone-based detuning using cached multiplier
-      const float targetFreq = harmonyFreq * detuneMul[i];
-
-      if (state.hasSlide)
-      {
-        // Set target for slewing
-        freqSlew[i].targetFreq = targetFreq;
-      }
-      else
-      {
-        // Set frequency directly
-        oscillators[i].SetFreq(targetFreq);
-        freqSlew[i].currentFreq = targetFreq;
-        freqSlew[i].targetFreq = targetFreq;
-      }
-    }
-  }
+  // Deprecated path for direct control-thread commits; retained for backward compatibility.
+  // New flow stages frequencies via updateFrequencyIfNeeded() and commits on audio thread.
+  updateFrequencyIfNeeded();
+}
 
 
 inline void Voice::applyEnvelopeParameters() noexcept
@@ -497,8 +498,8 @@ inline void Voice::applyEnvelopeParameters() noexcept
       daisysp::fmap(state.decayTimeSeconds, 0.002f, 0.8f, daisysp::Mapping::LOG);
   //float release = decay; // Use decay for release in this implementation
 
-  envelope.SetAttackTime(attack, 1.6f);
-  envelope.SetDecayTime(0.1f + (decay * 0.32f));
+  envelope.SetAttackTime(attack, .75f);
+  envelope.SetDecayTime(0.075f + (decay * 0.32f));
   envelope.SetReleaseTime(decay);
 }
 
@@ -565,6 +566,18 @@ inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset,
   return frequencyLookupTable[midiNote];
 }
 
+// Static base recompute: includes ONLY static contributors (note, octave/transpose,
+// scale/tuning mapping). Dynamic modulators (vibrato LFOs, envelopes, glide/portamento,
+// and bend/mod depth) are applied later and are NOT baked into cachedBaseFreqHz_.
+void Voice::recomputeBaseFreqIfDirty_()
+{
+  if (!baseFreqDirty_)
+    return;
+
+  cachedBaseFreqHz_ = calculateNoteFrequency(state.noteIndex, state.octaveOffset, 0);
+  baseFreqDirty_ = false;
+}
+
 void Voice::processFrequencySlew(uint8_t oscIndex, float targetFreq)
 {
   if (oscIndex >= 3)
@@ -577,27 +590,24 @@ void Voice::processFrequencySlew(uint8_t oscIndex, float targetFreq)
 
 void Voice::setFrequency(float frequency)
 {
-  // Always set oscillator frequencies so pitch-related changes are reflected immediately
+  // Control-thread: do not call SetFreq directly. Stage targets and cache only.
   for (uint8_t i = 0; i < config.oscillatorCount && i < oscillators.size() && i < 3; i++)
   {
-    float targetFreq;
-
-    // Apply cached semitone-based detuning multiplier
-    targetFreq = frequency * detuneMul[i];
-
+    const float targetFreq = frequency * detuneMul[i];
+    // Update slew state; audio thread will commit via mixOscillators()
     if (state.hasSlide)
     {
-      // Set target for slewing (slide functionality)
       freqSlew[i].targetFreq = targetFreq;
     }
     else
     {
-      // Set frequency directly
-      oscillators[i].SetFreq(targetFreq);
+      // Keep local state consistent but avoid SetFreq here
       freqSlew[i].currentFreq = targetFreq;
-      freqSlew[i].targetFreq = targetFreq;
+      freqSlew[i].targetFreq  = targetFreq;
     }
   }
+  // Mark staging dirty so audio thread commits on next frame
+  markPitchDirty();
 }
 
 void Voice::setSlideTime(float slideTime)
@@ -620,30 +630,160 @@ void Voice::setSlideTime(float slideTime)
     const float invTauFs = 1.0f / (slideTimeSeconds * sampleRate);
     slideAlpha = 1.0f - std::exp(-invTauFs);
   }
+  // Slide parameter affects commit behavior; mark pitch staging
+  markPitchDirty();
 }
 
 void Voice::updateParameters(const VoiceState &newState)
 {
+  // Detect static pitch changes before mutating state
+  const float  prevNote = state.noteIndex;
+  const int8_t prevOct  = state.octaveOffset;
+
   // Update voice state
   state = newState;
 
+  // Mark static base dirty when note/octave changed. Transpose/tuning reference would also
+  // set this, but those are not explicitly modeled in this class yet.
+  if (state.noteIndex != prevNote || state.octaveOffset != prevOct)
+  {
+    baseFreqDirty_ = true;
+  }
+
   // Ensure the internal gate variable used by the ADSR is synchronized with the
-  // incoming sequencer/MIDI state. Previously this was commented out which left
-  // `gate` stale and allowed audio to continue when it shouldn't.
+  // incoming sequencer/MIDI state.
   setGate(state.isGateHigh);
 
   // Calculate filter frequency from normalized filter parameter (0.0-1.0)
-  // Using exponential mapping like PicoMudrasSequencer.ino: 100Hz to 9710Hz
   filterFrequency = daisysp::fmap(state.filterCutoff, 250.0f, 8000.0f, daisysp::Mapping::EXP);
 
   // Apply envelope parameters (attack, decay/release)
   applyEnvelopeParameters();
 
-  // Update oscillator frequencies based on new note/octave/slide state
-  updateOscillatorFrequencies();
+  // Consolidated frequency recompute staging; audio-thread will commit
+  updateFrequencyIfNeeded();
 }
 
-// Voice Presets moved to src/voice/VoicePresets.cpp
+ // Voice Presets moved to src/voice/VoicePresets.cpp
+
+// -------- Pitch optimization: change detection, cache, and API --------
+// Fields watched: noteIndex, octaveOffset, harmony[0..oscCount-1], oscCount, detuneVersion_,
+// Oscillator::GetSampleRateVersion(), hasSlide, pitch bend/mod in semitones.
+// Generation-based staging: control thread recomputes cache and bumps pitchGen_;
+// audio thread commits in mixOscillators() when pitchGen_ != appliedPitchGen_.
+// SetFreq gating: ShouldApplyFreq_ uses kPitchRelEps and kPitchAbsEpsHz (≈0.017 cent minimum)
+// to cut redundant oscillator.SetFreq calls, including during slide slews.
+
+// Compare current/new state & dependencies to snapshot to decide if recompute needed.
+// Note: also watches detuneVersion_ and global Oscillator sample-rate version.
+bool Voice::pitchParamsChanged_(const VoiceState& newState) const
+{
+  const uint8_t oscCount = static_cast<uint8_t>(std::min(static_cast<size_t>(3), oscillators.size()));
+  if (pitchSnapshot_.oscCount != oscCount) return true;
+  if (pitchSnapshot_.noteIndex != newState.noteIndex) return true;
+  if (pitchSnapshot_.octaveOffset != newState.octaveOffset) return true;
+  if (pitchSnapshot_.hasSlide != newState.hasSlide) return true;
+  // Harmony
+  for (uint8_t i = 0; i < oscCount; ++i)
+  {
+    if (pitchSnapshot_.harmony[i] != config.harmony[i]) return true;
+  }
+  // Detune version
+  if (pitchSnapshot_.detuneVersion != detuneVersion_) return true;
+  // Sample rate version (from Oscillator)
+  if (pitchSnapshot_.srVersion != daisysp::Oscillator::GetSampleRateVersion()) return true;
+  // Pitch bend/mod snapshots
+  if (pitchSnapshot_.bendSemis != pitchBendSemitones_) return true;
+  if (pitchSnapshot_.modSemis  != pitchModSemitones_) return true;
+
+  return false;
+}
+
+// Recompute pitch cache using current state/config and pitch controls.
+// Writes pitchCache_ then bumps generation.
+void Voice::updatePitchCache_()
+{
+  const uint8_t oscCount = static_cast<uint8_t>(std::min(static_cast<size_t>(3), oscillators.size()));
+
+  // Ensure static base is up to date; avoids redoing static work when only dynamics change.
+  recomputeBaseFreqIfDirty_();
+  const float baseFreq = cachedBaseFreqHz_;
+
+  // Combined dynamic pitch (bend + mod) in semitones (dynamic; not cached into base)
+  const float pitchSemis = pitchBendSemitones_ + pitchModSemitones_;
+  // Use standard exp2f(2^x) for portability instead of fastpow2f
+  const float pitchMul   = (pitchSemis == 0.0f) ? 1.0f : exp2f(pitchSemis * (1.0f/12.0f));
+
+  // Fill cache: base + per-osc harmony (static) then dynamic multipliers and static detune
+  pitchCache_.baseFreq = baseFreq;
+  for (uint8_t i = 0; i < 3; ++i)
+  {
+    float hfreq = baseFreq;
+    if (i < oscCount)
+    {
+      const int h = config.harmony[i];
+      hfreq = (h == 0) ? baseFreq : calculateNoteFrequency(state.noteIndex, state.octaveOffset, h);
+      const float f = hfreq * pitchMul * detuneMul[i];
+      pitchCache_.harmonyFreq[i] = hfreq;
+      pitchCache_.finalFreq[i]   = f;
+    }
+    else
+    {
+      pitchCache_.harmonyFreq[i] = 0.0f;
+      pitchCache_.finalFreq[i]   = 0.0f;
+    }
+  }
+
+  // Update snapshot
+  pitchSnapshot_.noteIndex     = state.noteIndex;
+  pitchSnapshot_.octaveOffset  = state.octaveOffset;
+  pitchSnapshot_.oscCount      = oscCount;
+  pitchSnapshot_.hasSlide      = state.hasSlide;
+  pitchSnapshot_.detuneVersion = detuneVersion_;
+  pitchSnapshot_.srVersion     = daisysp::Oscillator::GetSampleRateVersion();
+  pitchSnapshot_.bendSemis     = pitchBendSemitones_;
+  pitchSnapshot_.modSemis      = pitchModSemitones_;
+  for (uint8_t i = 0; i < 3; ++i) { pitchSnapshot_.harmony[i] = config.harmony[i]; }
+
+  // Bump generation after fully writing cache/snapshot (seq_cst)
+  pitchGen_.fetch_add(1u, std::memory_order_seq_cst);
+}
+
+// Public API
+void Voice::setPitchBend(float semitones)
+{
+  pitchBendSemitones_ = semitones;
+  // Dynamic change; do not mark base dirty. Recompute final frequencies only.
+  markPitchDirty();
+}
+
+void Voice::setModulationDepth(float semitones)
+{
+  pitchModSemitones_ = semitones;
+  // Dynamic change; do not mark base dirty. Recompute final frequencies only.
+  markPitchDirty();
+}
+
+void Voice::markPitchDirty()
+{
+  // Force recompute now; audio thread will commit via generation counter.
+  updatePitchCache_();
+}
+
+void Voice::updateFrequencyIfNeeded()
+{
+  const bool changed = pitchParamsChanged_(state);
+  if (!changed)
+    return;
+  updatePitchCache_();
+}
+
+float Voice::getCachedFrequency(uint8_t oscIndex) const
+{
+  const uint8_t oscCount = static_cast<uint8_t>(std::min(static_cast<size_t>(3), oscillators.size()));
+  if (oscIndex >= oscCount) return 0.0f;
+  return pitchCache_.finalFreq[oscIndex];
+}
 
 void Voice::setSequencer(std::unique_ptr<Sequencer> seq)
 {

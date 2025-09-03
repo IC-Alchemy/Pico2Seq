@@ -14,6 +14,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <atomic>
+#include <cmath>
 
 /**
  * @brief Configuration structure for a voice
@@ -254,6 +256,32 @@ public:
    */
   void setSlideTime(float slideTime);
 
+  // Pitch optimization API
+  /**
+   * @brief Set pitch bend in semitones and mark pitch dirty
+   */
+  void setPitchBend(float semitones);
+
+  /**
+   * @brief Set modulation depth in semitones and mark pitch dirty
+   */
+  void setModulationDepth(float semitones);
+
+  /**
+   * @brief Force pitch cache to recompute and mark for audio-thread commit
+   */
+  void markPitchDirty();
+
+  /**
+   * @brief Consolidated recompute entry; called from control thread after state changes
+   */
+  void updateFrequencyIfNeeded();
+
+  /**
+   * @brief Read-only accessor for cached final oscillator frequency
+   */
+  float getCachedFrequency(uint8_t oscIndex) const;
+
 private:
   // Voice identification and configuration
   uint8_t voiceId;
@@ -324,6 +352,65 @@ private:
   // detuneMul[i] = 2^(oscDetuning[i] / 12)
   float detuneMul[3] = {1.0f, 1.0f, 1.0f};
 
+  // Static pitch cache (control-thread staging + audio-thread commit):
+  // - cachedBaseFreqHz_ stores base from static pitch inputs (note, octave/transpose, scale/tuning).
+  // - baseFreqDirty_ flags when base must be recomputed.
+  // - lastSentBaseFreqHz_ reserved for micro-gating comparisons.
+  // Generation-based staging:
+  // - updatePitchCache_ computes PitchCache/PitchSnapshot on the control thread and bumps pitchGen_.
+  // - mixOscillators() commits staged frequencies on the audio thread only, comparing pitchGen_ vs appliedPitchGen_.
+  // - ShouldApplyFreq_ gates redundant per-sample SetFreq calls (eps ~= 0.017 cent via kPitchRelEps).
+  float cachedBaseFreqHz_ = 440.0f;
+  bool  baseFreqDirty_    = true;
+  float lastSentBaseFreqHz_ = -1.0f;
+
+  // -------- Pitch change-detection & caching --------
+  // Staging cache computed on control thread, committed on audio thread.
+  struct PitchSnapshot {
+    float    noteIndex;
+    int8_t   octaveOffset;
+    int      harmony[3];
+    uint8_t  oscCount;
+    uint32_t detuneVersion;
+    uint32_t srVersion;
+    bool     hasSlide;
+    // Snapshotted pitch controls to detect changes
+    float    bendSemis;
+    float    modSemis;
+  };
+
+  struct PitchCache {
+    float baseFreq;
+    float harmonyFreq[3];
+    float finalFreq[3];
+  };
+
+  PitchSnapshot pitchSnapshot_ {};
+  PitchCache    pitchCache_ {};
+  float         lastAppliedOscFreq_[3] = {-1.0f, -1.0f, -1.0f};
+
+  // Generation counter: bumped after cache write; audio thread copies appliedPitchGen_
+  std::atomic<uint32_t> pitchGen_{0};
+  uint32_t              appliedPitchGen_{0};
+
+  // Detune version: incremented when detune multipliers are recomputed
+  uint32_t detuneVersion_{0};
+
+  // Additional pitch controls
+  float pitchBendSemitones_{0.0f};
+  float pitchModSemitones_{0.0f};
+
+  // Frequency change thresholding to avoid redundant SetFreq calls.
+  // kPitchRelEps ~= 1e-5 => ~0.017 cent at full-scale; combined with kPitchAbsEpsHz.
+  static constexpr float kPitchRelEps   = 1e-5f;
+  static constexpr float kPitchAbsEpsHz = 1e-5f;
+  inline static bool ShouldApplyFreq_(float f_new, float f_last) {
+    const float maxf = (f_new > f_last ? f_new : f_last);
+    const float rel  = kPitchRelEps * maxf;
+    const float thr  = (rel > kPitchAbsEpsHz ? rel : kPitchAbsEpsHz);
+    return (f_last < 0.0f) || (fabsf(f_new - f_last) > thr);
+  }
+
   // Sequencer integration
   Sequencer* sequencer;
   // Owns the sequencer when attached via unique_ptr overload
@@ -335,6 +422,12 @@ private:
    * @param signal Reference to signal to process (modified in place, -1.0 to +1.0)
    */
   void processEffectsChain(float& signal);
+
+  // Pitch recompute helpers (staging on control thread; commit on audio thread)
+  // Detects changes in note/octave/harmony/osc count/detune version/sample-rate version/slide/bend/mod.
+  bool pitchParamsChanged_(const VoiceState& newState) const;
+  // Recomputes pitchCache_ and updates pitchSnapshot_, then bumps pitchGen_ atomically.
+  void updatePitchCache_();
 
   // Private DSP stages used by process()
   /**
@@ -401,6 +494,9 @@ private:
    * architecture to prevent audio glitches during parameter changes.
    */
   float calculateNoteFrequency(float note, int8_t octaveOffset, int harmony);
+
+  // Recompute cached base frequency (static pitch only). No dynamic modulators.
+  void recomputeBaseFreqIfDirty_();
 
   /**
    * @brief Initialize frequency lookup table (called once)

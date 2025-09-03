@@ -1,8 +1,25 @@
 #include "oscillator.h"
 
-
 using namespace daisysp;
 static inline float Polyblep(float phase_inc, float t);
+
+// Define static sample-rate version counter
+std::atomic<uint32_t> Oscillator::s_srVersion{0};
+
+void Oscillator::Init(float sample_rate) {
+  sr_ = sample_rate;
+  sr_recip_ = 1.0f / sample_rate;
+  freq_ = 100.0f;
+  amp_ = 0.5f;
+  pw_ = 0.5f;
+  phase_ = 0.0f;
+  phase_inc_ = CalcPhaseInc(freq_);
+  waveform_ = WAVE_CHEAP_SIN;
+  eoc_ = true;
+  eor_ = true;
+  // Bump global sample-rate version so dependents can detect SR changes (seq_cst).
+  s_srVersion.fetch_add(1, std::memory_order_seq_cst);
+}
 
 float Oscillator::Process() {
   float out, t;

@@ -192,6 +192,18 @@ VoiceConfig *VoiceManager::getVoiceConfig(uint8_t voiceId)
  * Updates real-time voice parameters like frequency, gate, velocity
  * Used for live performance control and MIDI input handling
  *
+ * Pitch/frequency handling:
+ * - Pitch calculation, change detection, and oscillator SetFreq are gated inside Voice.
+ * - Voice::updateParameters(state) stages pitch inputs and caches frequency via updateFrequencyIfNeeded().
+ * - Actual Oscillator::SetFreq is committed on the audio thread inside Voice::process() using
+ *   ShouldApplyFreq_ gating and sample-rate version checks. See Voice.cpp for details.
+ * - VoiceManager must NOT call oscillator-level SetFreq or recompute pitch here.
+ *
+ * Optional micro-optimization:
+ * - A manager-side snapshot to skip identical static pitch updates is intentionally NOT implemented here
+ *   because it would require modifying VoiceManager headers to add per-voice fields.
+ * - We rely on Voice-side gating for correctness and efficiency.
+ *
  * @param voiceId Voice to update
  * @param state VoiceState structure containing frequency, gate, velocity, etc.
  * @return bool True if voice found and updated, false otherwise
@@ -205,7 +217,8 @@ bool VoiceManager::updateVoiceState(uint8_t voiceId, const VoiceState &state)
     if (managedVoice && managedVoice->voice)
     {
         managedVoice->voice->updateParameters(state);
-        // Verbose-level to avoid flooding unless explicitly enabled
+        // Frequency updates are consolidated inside Voice::updateParameters()
+        // which stages pitch cache and defers Oscillator::SetFreq to the audio thread.
         DBG_VERBOSE("VoiceManager: updateVoiceState id=%u note=%.1f vel=%.2f gate=%d filt=%.2f", voiceId, state.noteIndex, state.velocityLevel, state.isGateHigh ? 1 : 0, state.filterCutoff);
         notifyVoiceUpdated(voiceId, state);
         return true;
@@ -344,6 +357,10 @@ void VoiceManager::init(float sr)
  {
      float mixedOutput = 0.0f;
 
+     // Pitch/frequency commit note:
+     // - Voice handles pitch change detection and frequency caching internally (pitchParamsChanged_ + updatePitchCache_).
+     // - Any required Oscillator::SetFreq is deferred and applied inside Voice::process() on the audio thread,
+     //   guarded by ShouldApplyFreq_. Do not set oscillator frequencies from VoiceManager.
      for (auto &managedVoice : voices)
      {
          if (managedVoice->enabled && managedVoice->voice)

@@ -9,3 +9,10 @@ build/
 .kiro/steering/product.md
 .kiro/steering/structure.md
 .kiro/steering/tech.md
+.roo/rules-image-explainer/1_workflow.xml
+.roo/rules-image-explainer/2_best_practices.xml
+.roo/rules-image-explainer/3_common_patterns.xml
+.roomodes
+docs/voice-frequency-optimization.md
+benchmarks/voice_frequency_bench.cpp
+tests/voice_frequency_tests.cpp
