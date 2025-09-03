@@ -4,6 +4,53 @@
 #include <Arduino.h>
 #include "../sequencer/SequencerDefs.h"
 #include "../sensors/as5600.h" // For AS5600ParameterMode
+#include "../hardware/HardwareModuleDefs.h" // For ModuleType
+
+/**
+ * Hardware Status Structure
+ * Contains hardware module availability and fallback status for UI display
+ */
+struct HardwareStatus {
+    // Module availability status
+    bool touchMatrixAvailable = false;
+    bool distanceSensorAvailable = false;
+    bool magneticEncoderAvailable = false;
+    bool oledDisplayAvailable = false;
+    
+    // Fallback activation status
+    bool touchMatrixFallbackActive = false;
+    bool distanceSensorFallbackActive = false;
+    bool magneticEncoderFallbackActive = false;
+    bool oledDisplayFallbackActive = false;
+    
+    // Status display information
+    String statusMessage = "";
+    uint32_t lastUpdateTime = 0;
+    
+    /**
+     * Generate a summary status message for display
+     * @return formatted status string
+     */
+    String generateStatusSummary() const;
+    
+    /**
+     * Check if any modules are using fallback controls
+     * @return true if any fallback is active
+     */
+    bool hasAnyFallbacks() const;
+    
+    /**
+     * Get count of available (non-fallback) modules
+     * @return number of modules working normally
+     */
+    uint8_t getAvailableModuleCount() const;
+    
+    /**
+     * Update hardware status from HardwareRegistry
+     * @param registry Reference to hardware registry
+     */
+    void updateFromRegistry(const class HardwareRegistry& registry);
+};
 
 /**
  * @brief Centralized state management for the PicoMudrasSequencer UI.
@@ -83,6 +130,17 @@ struct UIState
 
     // --- Voice Switch State ---
     bool voiceSwitchTriggered = false; // Flag to trigger immediate OLED update for voice switching
+    
+    // --- Hardware Status ---
+    HardwareStatus hardwareStatus;
+    bool showHardwareStatus = false;  // Toggle for hardware status display mode
+    unsigned long hardwareStatusToggleTime = 0;  // Debounce for status display toggle
+    
+    /**
+     * Update hardware status from HardwareRegistry
+     * @param registry Reference to hardware registry
+     */
+    void updateHardwareStatus(const class HardwareRegistry& registry);
 };
 
 #endif // UI_STATE_H

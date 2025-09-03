@@ -75,6 +75,11 @@ OLEDDisplay display;
 bool resetStepsLightsFlag = true;
 
 // =======================
+//   HARDWARE DETECTION SYSTEM
+// =======================
+HardwareDetectionManager hardwareManager;
+
+// =======================
 //   FORWARD DECLARATIONS
 // =======================
 void fill_audio_buffer(audio_buffer_t *buffer);
@@ -807,51 +812,45 @@ void setup1()
     setupLEDMatrixFeedback();
     initLEDController();
 
-    if (!distanceSensor.begin())
-    {
-        Serial.println("[ERROR] Distance sensor initialization failed!");
-    }
-    else
-    {
-        Serial.println("Distance sensor initialized successfully");
+    // Initialize hardware detection system
+    Serial.println("Initializing hardware detection system...");
+    if (!hardwareManager.initializeSystem()) {
+        Serial.println("[ERROR] Hardware detection system initialization failed!");
+    } else {
+        Serial.println("Hardware detection system initialized successfully");
+        
+        // Perform startup detection of all modules
+        hardwareManager.performStartupDetection();
+        
+        // Update UI state with hardware status
+        uiState.updateHardwareStatus(hardwareManager.getRegistry());
+        
+        // Print hardware status report
+        String statusReport;
+        hardwareManager.generateStatusReport(statusReport);
+        Serial.println("=== Hardware Status Report ===");
+        Serial.println(statusReport);
+        Serial.println("==============================");
     }
 
-    // Initialize AS5600 magnetic encoder
-    if (!as5600Sensor.begin())
-    {
-        Serial.println("[ERROR] AS5600 magnetic encoder initialization failed!");
-    }
-    else
-    {
-        Serial.println("AS5600 magnetic encoder initialized successfully");
-
-        // Uncomment the line below to run smooth scaling validation test
-        // as5600Sensor.validateSmoothScaling();
+    // Initialize AS5600 base values with proper defaults (if encoder is available)
+    if (hardwareManager.isModuleAvailable(ModuleType::MAGNETIC_ENCODER)) {
+        initAS5600BaseValues();
     }
 
-    // Initialize AS5600 base values with proper defaults
-    initAS5600BaseValues();
-
-    if (!touchSensor.begin(0x5A))
-    {
-        Serial.println("MPR121 not found, check wiring?");
-        while (1)
-            ;
-    }
-    else
-    {
-        Serial.println("MPR121 found and initialized");
+    // Configure MPR121 if available (fallback will be handled automatically)
+    if (hardwareManager.isModuleAvailable(ModuleType::TOUCH_MATRIX)) {
         touchSensor.setAutoconfig(true);
-
-        // Configure MPR121 touch thresholds.
-        // Using the original, more conservative thresholds.
         touchSensor.setThresholds(55, 22); // touch, release thresholds
-        // Serial.println("MPR121 thresholds configured to 155/55");
+        Serial.println("MPR121 thresholds configured");
     }
 
-    // Initialize OLED display
-    display.begin();
-    Serial.println("OLED display initialized");
+    // Initialize OLED display (fallback to serial if not available)
+    if (hardwareManager.isModuleAvailable(ModuleType::OLED_DISPLAY)) {
+        Serial.println("OLED display initialized via hardware detection");
+    } else {
+        Serial.println("OLED display not available - using serial fallback");
+    }
 
     // Register OLED display as observer for voice parameter changes
     if (voiceManager)
@@ -996,20 +995,40 @@ void loop1()
         // Scan button matrix for user input
         Matrix_scan();
 
-        // Update AS5600 magnetic encoder for base parameter control
-        as5600Sensor.update();
-        updateAS5600BaseValues(uiState);
-
-        // Update distance sensor for real-time parameter recording
-        distanceSensor.update();
-        int rawDistanceValue = distanceSensor.getRawDistanceMm();
-        if (rawDistanceValue >= MIN_HEIGHT && rawDistanceValue <= MAX_HEIGHT)
-        {
-            mm = rawDistanceValue - MIN_HEIGHT;
+        // Update AS5600 magnetic encoder for base parameter control (if available)
+        if (hardwareManager.isModuleAvailable(ModuleType::MAGNETIC_ENCODER)) {
+            as5600Sensor.update();
+            updateAS5600BaseValues(uiState);
         }
-        else
-        {
-            mm = 0; // Invalid reading - use safe default
+
+        // Update distance sensor for real-time parameter recording (if available)
+        if (hardwareManager.isModuleAvailable(ModuleType::DISTANCE_SENSOR)) {
+            distanceSensor.update();
+            int rawDistanceValue = distanceSensor.getRawDistanceMm();
+            if (rawDistanceValue >= MIN_HEIGHT && rawDistanceValue <= MAX_HEIGHT)
+            {
+                mm = rawDistanceValue - MIN_HEIGHT;
+            }
+            else
+            {
+                mm = 0; // Invalid reading - use safe default
+            }
+        } else {
+            // Use fallback control if distance sensor not available
+            mm = 0; // Default value when sensor unavailable
+        }
+        
+        // Process hardware monitoring and recovery
+        hardwareManager.processScheduledRecovery();
+        
+        // Periodic hardware health checks (every 30 seconds)
+        static unsigned long lastHealthCheck = 0;
+        if (currentMillis - lastHealthCheck >= 30000) {
+            lastHealthCheck = currentMillis;
+            hardwareManager.performHealthChecks();
+            
+            // Update UI state with current hardware status
+            uiState.updateHardwareStatus(hardwareManager.getRegistry());
         }
     }
 

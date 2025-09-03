@@ -171,6 +171,12 @@ private:
    * @param voiceManager Pointer to voice manager for configuration access
    */
   void forceUpdate(const UIState& uiState, class VoiceManager* voiceManager);
+  
+  /**
+   * @brief Display hardware status information with module presence and fallback indicators
+   * @param uiState Current UI state containing hardware status
+   */
+  void displayHardwareStatus(const UIState& uiState);
 
   // Visual enhancement helper functions
   

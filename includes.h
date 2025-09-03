@@ -47,6 +47,9 @@
 // OLED Display
 #include "src/OLED/oled.h"
 
+// Hardware Detection System
+#include "src/hardware/HardwareDetectionManager.h"
+
 // Voices
 #include "src/voice/VoiceManager.h"
 #include "src/voice/Voice.h"

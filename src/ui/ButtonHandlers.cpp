@@ -236,6 +236,14 @@ void handleControlButton(int buttonId, UIState& state) {
     }
   } break;
 
+  case BUTTON_HARDWARE_STATUS:
+    // Toggle hardware status display
+    state.showHardwareStatus = !state.showHardwareStatus;
+    state.hardwareStatusToggleTime = millis();
+    Serial.print("Hardware status display ");
+    Serial.println(state.showHardwareStatus ? "ON" : "OFF");
+    break;
+
   default:
     // Unknown/unused control button
     break;

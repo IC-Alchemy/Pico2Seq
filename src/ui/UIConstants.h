@@ -24,6 +24,9 @@ constexpr uint8_t BUTTON_CHANGE_SWING_PATTERN = 29; // Cycle shuffle/swing templ
 constexpr uint8_t BUTTON_RANDOMIZE_SEQ1 = 30;
 constexpr uint8_t BUTTON_RANDOMIZE_SEQ2 = 31;
 
+// Hardware status display toggle (can be mapped to an available button)
+constexpr uint8_t BUTTON_HARDWARE_STATUS = 32;
+
 
 // Step buttons (pads) count
 constexpr uint8_t NUMBER_OF_STEP_BUTTONS = 16;

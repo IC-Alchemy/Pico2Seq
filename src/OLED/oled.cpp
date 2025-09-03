@@ -237,6 +237,15 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
   //
   // Legacy flags (inPresetSelection, inVoiceParameterMode) are still honored for
   // backward compatibility, but currentSubMode is the source of truth.
+  
+  // HIGHEST PRIORITY: Hardware Status Display Mode
+  if (uiState.showHardwareStatus)
+  {
+    displayHardwareStatus(uiState);
+    displayHardware.display();
+    return;
+  }
+  
   if (uiState.settingsMode)
   {
     const bool subPreset = (uiState.currentSubMode == UIState::SettingsSubMode::PRESET_SELECTION) || uiState.inPresetSelection; // legacy compat
@@ -963,4 +972,72 @@ void OLEDDisplay::runStartupAnimation()
   displayHardware.print("Let's play");
   displayHardware.display();
   delay(OLEDConstants::STARTUP_SETTLE_DELAY_MS);
+}
+void OLEDDisplay::displayHardwareStatus(const UIState& uiState) {
+  if (!isDisplayInitialized) {
+    return;
+  }
+
+  displayHardware.clearDisplay();
+  displayHardware.setTextSize(1);
+  displayHardware.setTextColor(SH110X_WHITE);
+
+  // Title
+  displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, OLEDConstants::TEXT_MARGIN);
+  displayHardware.setTextSize(2);
+  displayHardware.print("Hardware");
+  
+  displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 18);
+  displayHardware.setTextSize(1);
+  displayHardware.print("Status");
+
+  // Hardware status summary
+  displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 32);
+  displayHardware.print(uiState.hardwareStatus.statusMessage);
+
+  // Module status indicators with visual symbols
+  int yPos = 44;
+  const int iconX = OLEDConstants::TEXT_MARGIN;
+  const int textX = iconX + 12;
+  
+  // Touch Matrix status
+  displayHardware.setCursor(iconX, yPos);
+  if (uiState.hardwareStatus.touchMatrixAvailable) {
+    displayHardware.print(uiState.hardwareStatus.touchMatrixFallbackActive ? "F" : "O");
+  } else {
+    displayHardware.print("X");
+  }
+  displayHardware.setCursor(textX, yPos);
+  displayHardware.print("Touch");
+  
+  // Distance Sensor status
+  yPos += 8;
+  displayHardware.setCursor(iconX, yPos);
+  if (uiState.hardwareStatus.distanceSensorAvailable) {
+    displayHardware.print(uiState.hardwareStatus.distanceSensorFallbackActive ? "F" : "O");
+  } else {
+    displayHardware.print("X");
+  }
+  displayHardware.setCursor(textX, yPos);
+  displayHardware.print("Distance");
+
+  // Magnetic Encoder status  
+  displayHardware.setCursor(iconX + 64, 44);
+  if (uiState.hardwareStatus.magneticEncoderAvailable) {
+    displayHardware.print(uiState.hardwareStatus.magneticEncoderFallbackActive ? "F" : "O");
+  } else {
+    displayHardware.print("X");
+  }
+  displayHardware.setCursor(textX + 64, 44);
+  displayHardware.print("Encoder");
+  
+  // OLED Display status (always available if we're displaying this)
+  displayHardware.setCursor(iconX + 64, 52);
+  displayHardware.print("O");
+  displayHardware.setCursor(textX + 64, 52);
+  displayHardware.print("Display");
+
+  // Legend at bottom
+  displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 60);
+  displayHardware.print("O=OK F=Fallback X=Missing");
 }
