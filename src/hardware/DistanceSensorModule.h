@@ -10,6 +10,7 @@ private:
     bool connected;
     uint32_t lastHealthCheck;
     uint8_t failureCount;
+    bool fallbackActive = false;
     static constexpr uint8_t VL53L1X_I2C_ADDRESS = 0x29;
     static constexpr uint8_t MAX_FAILURE_COUNT = 3;
     static constexpr uint32_t HEALTH_CHECK_INTERVAL_MS = 30000;
@@ -26,8 +27,9 @@ public:
 
     // Module identification
     const char* getModuleName() const override;
-    uint8_t getModuleId() const override;
+    ModuleType getModuleType() const override;
     uint32_t getCapabilities() const override;
+    bool isFallbackActive() const override;
 
     // Runtime status
     bool healthCheck() override;

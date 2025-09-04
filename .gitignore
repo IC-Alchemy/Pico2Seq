@@ -16,3 +16,4 @@ build/
 docs/voice-frequency-optimization.md
 benchmarks/voice_frequency_bench.cpp
 tests/voice_frequency_tests.cpp
+.roo/rules-orchestrator/rules.md

@@ -1,9 +1,9 @@
 #include "OLEDDisplayModule.h"
 #include "HardwareModuleDefs.h"
 
-OLEDDisplayModule::OLEDDisplayModule() 
-    : display(DISPLAY_WIDTH, DISPLAY_HEIGHT, &Wire, -1), 
-      connected(false), lastHealthCheck(0), failureCount(0) {
+OLEDDisplayModule::OLEDDisplayModule()
+    : display(DISPLAY_WIDTH, DISPLAY_HEIGHT, &Wire, -1),
+      connected(false), lastHealthCheck(0), failureCount(0), fallbackActive(false) {
 }
 
 bool OLEDDisplayModule::detect() {
@@ -53,11 +53,11 @@ bool OLEDDisplayModule::isConnected() const {
 const char* OLEDDisplayModule::getModuleName() const {
     return "OLEDDisplay";
 }
-
-uint8_t OLEDDisplayModule::getModuleId() const {
-    return static_cast<uint8_t>(ModuleType::OLED_DISPLAY);
+ 
+ModuleType OLEDDisplayModule::getModuleType() const {
+    return ModuleType::OLED_DISPLAY;
 }
-
+ 
 uint32_t OLEDDisplayModule::getCapabilities() const {
     return ModuleCapabilities::VISUAL_FEEDBACK |
            ModuleCapabilities::FALLBACK_AVAILABLE;
@@ -112,13 +112,19 @@ bool OLEDDisplayModule::hasFallback() const {
 bool OLEDDisplayModule::activateFallback() {
     // Fallback activation is handled by FallbackControlManager
     // This method just confirms fallback is available
+    fallbackActive = true;
     return hasFallback();
 }
-
+ 
 bool OLEDDisplayModule::deactivateFallback() {
     // Fallback deactivation is handled by FallbackControlManager
     // This method just confirms we can return to hardware control
+    fallbackActive = false;
     return connected;
+}
+ 
+bool OLEDDisplayModule::isFallbackActive() const {
+    return fallbackActive;
 }
 
 void OLEDDisplayModule::clearDisplay() {

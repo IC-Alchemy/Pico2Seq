@@ -1,8 +1,8 @@
 #include "MagneticEncoderModule.h"
 #include "HardwareModuleDefs.h"
 
-MagneticEncoderModule::MagneticEncoderModule() 
-    : connected(false), lastHealthCheck(0), failureCount(0), lastPosition(0) {
+MagneticEncoderModule::MagneticEncoderModule()
+    : connected(false), lastHealthCheck(0), failureCount(0), lastPosition(0), fallbackActive(false) {
 }
 
 bool MagneticEncoderModule::detect() {
@@ -47,11 +47,11 @@ bool MagneticEncoderModule::isConnected() const {
 const char* MagneticEncoderModule::getModuleName() const {
     return "MagneticEncoder";
 }
-
-uint8_t MagneticEncoderModule::getModuleId() const {
-    return static_cast<uint8_t>(ModuleType::MAGNETIC_ENCODER);
+ 
+ModuleType MagneticEncoderModule::getModuleType() const {
+    return ModuleType::MAGNETIC_ENCODER;
 }
-
+ 
 uint32_t MagneticEncoderModule::getCapabilities() const {
     return ModuleCapabilities::REAL_TIME_INPUT | 
            ModuleCapabilities::PARAMETER_CONTROL |
@@ -107,13 +107,19 @@ bool MagneticEncoderModule::hasFallback() const {
 bool MagneticEncoderModule::activateFallback() {
     // Fallback activation is handled by FallbackControlManager
     // This method just confirms fallback is available
+    fallbackActive = true;
     return hasFallback();
 }
-
+ 
 bool MagneticEncoderModule::deactivateFallback() {
     // Fallback deactivation is handled by FallbackControlManager
     // This method just confirms we can return to hardware control
+    fallbackActive = false;
     return connected;
+}
+ 
+bool MagneticEncoderModule::isFallbackActive() const {
+    return fallbackActive;
 }
 
 uint16_t MagneticEncoderModule::getRawAngle() {

@@ -1,8 +1,8 @@
 #include "DistanceSensorModule.h"
 #include "HardwareModuleDefs.h"
 
-DistanceSensorModule::DistanceSensorModule() 
-    : connected(false), lastHealthCheck(0), failureCount(0) {
+DistanceSensorModule::DistanceSensorModule()
+    : connected(false), lastHealthCheck(0), failureCount(0), fallbackActive(false) {
 }
 
 bool DistanceSensorModule::detect() {
@@ -58,11 +58,11 @@ bool DistanceSensorModule::isConnected() const {
 const char* DistanceSensorModule::getModuleName() const {
     return "DistanceSensor";
 }
-
-uint8_t DistanceSensorModule::getModuleId() const {
-    return static_cast<uint8_t>(ModuleType::DISTANCE_SENSOR);
+ 
+ModuleType DistanceSensorModule::getModuleType() const {
+    return ModuleType::DISTANCE_SENSOR;
 }
-
+ 
 uint32_t DistanceSensorModule::getCapabilities() const {
     return ModuleCapabilities::REAL_TIME_INPUT | 
            ModuleCapabilities::PARAMETER_CONTROL |
@@ -129,13 +129,19 @@ bool DistanceSensorModule::hasFallback() const {
 bool DistanceSensorModule::activateFallback() {
     // Fallback activation is handled by FallbackControlManager
     // This method just confirms fallback is available
+    fallbackActive = true;
     return hasFallback();
 }
-
+ 
 bool DistanceSensorModule::deactivateFallback() {
     // Fallback deactivation is handled by FallbackControlManager
     // This method just confirms we can return to hardware control
+    fallbackActive = false;
     return connected;
+}
+ 
+bool DistanceSensorModule::isFallbackActive() const {
+    return fallbackActive;
 }
 
 uint16_t DistanceSensorModule::getDistance() {

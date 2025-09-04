@@ -1,8 +1,8 @@
 #include "TouchMatrixModule.h"
 #include "HardwareModuleDefs.h"
 
-TouchMatrixModule::TouchMatrixModule() 
-    : connected(false), lastHealthCheck(0), failureCount(0) {
+TouchMatrixModule::TouchMatrixModule()
+    : connected(false), lastHealthCheck(0), failureCount(0), fallbackActive(false) {
 }
 
 bool TouchMatrixModule::detect() {
@@ -49,11 +49,11 @@ bool TouchMatrixModule::isConnected() const {
 const char* TouchMatrixModule::getModuleName() const {
     return "TouchMatrix";
 }
-
-uint8_t TouchMatrixModule::getModuleId() const {
-    return static_cast<uint8_t>(ModuleType::TOUCH_MATRIX);
+ 
+ModuleType TouchMatrixModule::getModuleType() const {
+    return ModuleType::TOUCH_MATRIX;
 }
-
+ 
 uint32_t TouchMatrixModule::getCapabilities() const {
     return ModuleCapabilities::REAL_TIME_INPUT | 
            ModuleCapabilities::STEP_SEQUENCING |
@@ -109,13 +109,19 @@ bool TouchMatrixModule::hasFallback() const {
 bool TouchMatrixModule::activateFallback() {
     // Fallback activation is handled by FallbackControlManager
     // This method just confirms fallback is available
+    fallbackActive = true;
     return hasFallback();
 }
-
+ 
 bool TouchMatrixModule::deactivateFallback() {
     // Fallback deactivation is handled by FallbackControlManager
     // This method just confirms we can return to hardware control
+    fallbackActive = false;
     return connected;
+}
+ 
+bool TouchMatrixModule::isFallbackActive() const {
+    return fallbackActive;
 }
 
 uint16_t TouchMatrixModule::getTouchStatus() {
