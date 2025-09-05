@@ -506,63 +506,27 @@ inline void Voice::applyEnvelopeParameters() noexcept
 inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset,
                                     int harmony) noexcept
 {
-  // Clamp note to valid range
+  // Clamp input note to valid range [0, SCALE_STEPS-1]
   const int noteIndex = std::max(0, std::min(static_cast<int>(note), static_cast<int>(SCALE_STEPS - 1)));
 
-  int harmonyNoteIndex = noteIndex;
-  int scaleSemitone;
+  // Resolve semitone via direct scale lookup:
+  // scaleIndex comes from currentScalePtr if present, otherwise 0.
+  uint8_t scaleIndex = 0;
+  if (currentScalePtr)
+    scaleIndex = *currentScalePtr;
 
-  // Resolve scale step to semitone offset using injected scale table if available
-  if (scaleTable && scaleTableCount > 0 && currentScalePtr)
-  {
-    const uint8_t idx = *currentScalePtr;
-    if (idx < scaleTableCount)
-    {
-      // Use pre-calculated LUTs for harmony resolution
-      const int uniqueCount = scaleUniqueCounts[idx];
-      if (uniqueCount > 0)
-      {
-        // These are flat arrays; calculate pointer to the start of the current scale's data.
-        const auto *rankLut = &scaleIndexToRank[idx * 48];
-        const auto *uniqueIndexLut = &scaleUniqueIndexList[idx * 48];
+  // Clamp harmony application to stay within scale step bounds
+  int noteWithHarmony = noteIndex + harmony;
+  noteWithHarmony = std::max(0, std::min(noteWithHarmony, static_cast<int>(SCALE_STEPS - 1)));
 
-        // 1. Find the rank of the starting note in its scale
-        int startRank = rankLut[noteIndex];
+  // Lookup semitone directly from scale table (assumes scale[][] exists and is indexed as scale[scaleIndex][noteIndex])
+  int scaleSemitone = scale[scaleIndex][noteWithHarmony];
 
-        // 2. Add harmony offset to get the target rank
-        int targetRank = startRank + harmony;
-
-        // 3. Clamp the rank to the valid range of unique notes for the scale
-        targetRank = std::max(0, std::min(targetRank, uniqueCount - 1));
-
-        // 4. Find the index in the original scale table corresponding to the target rank
-        harmonyNoteIndex = uniqueIndexLut[targetRank];
-      }
-      // else: if uniqueCount is 0, something is wrong, but we'll just use noteIndex.
-
-      // Final semitone lookup from the scale table
-      scaleSemitone = scaleTable[idx][harmonyNoteIndex];
-    }
-    else
-    {
-      // Invalid scale index; fall back to chromatic
-      harmonyNoteIndex = std::max(0, std::min(noteIndex + harmony, static_cast<int>(SCALE_STEPS - 1)));
-      scaleSemitone = harmonyNoteIndex;
-    }
-  }
-  else
-  {
-    // No scale table; fall back to chromatic
-    harmonyNoteIndex = std::max(0, std::min(noteIndex + harmony, static_cast<int>(SCALE_STEPS - 1)));
-    scaleSemitone = harmonyNoteIndex;
-  }
-
-  // Base MIDI mapping: center around 48 (C3) then add octave offset
+  // Map to MIDI centered at 48 (C3) and apply octave offset
   int midiNote = scaleSemitone + 48 + static_cast<int>(octaveOffset);
 
-  // Clamp to valid MIDI range
+  // Clamp to valid MIDI range and return frequency
   midiNote = std::max(0, std::min(midiNote, 127));
-
   return frequencyLookupTable[midiNote];
 }
 
@@ -655,7 +619,7 @@ void Voice::updateParameters(const VoiceState &newState)
   setGate(state.isGateHigh);
 
   // Calculate filter frequency from normalized filter parameter (0.0-1.0)
-  filterFrequency = daisysp::fmap(state.filterCutoff, 250.0f, 8000.0f, daisysp::Mapping::EXP);
+  filterFrequency = daisysp::fmap(state.filterCutoff, 150.0f, 8000.0f, daisysp::Mapping::EXP);
 
   // Apply envelope parameters (attack, decay/release)
   applyEnvelopeParameters();
