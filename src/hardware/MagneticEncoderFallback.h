@@ -15,7 +15,6 @@ class Sequencer;
  * Implements button-based parameter adjustment logic and creates encoder
  * value simulation from button presses with repeat functionality.
  * 
- * Requirements: 2.1, 2.4
  */
 class MagneticEncoderFallback {
 public:

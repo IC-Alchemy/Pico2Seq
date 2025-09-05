@@ -17,7 +17,6 @@ class MidiNoteManager;
  * Implements button debouncing, event generation, and mapping from
  * button presses to touch matrix events for seamless operation.
  * 
- * Requirements: 2.1, 2.4
  */
 class TouchMatrixFallback {
 public:

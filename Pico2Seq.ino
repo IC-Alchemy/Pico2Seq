@@ -808,7 +808,7 @@ void setup1()
     Serial.print("[CORE1] Setup starting... ");
 
     randomSeed(analogRead(A0) + millis());
-    ledMatrix.begin(100);
+    ledMatrix.begin(180);
     setupLEDMatrixFeedback();
     initLEDController();
 
@@ -818,13 +818,13 @@ void setup1()
         Serial.println("[ERROR] Hardware detection system initialization failed!");
     } else {
         Serial.println("Hardware detection system initialized successfully");
-        
+
         // Perform startup detection of all modules
         hardwareManager.performStartupDetection();
-        
+
         // Update UI state with hardware status
         uiState.updateHardwareStatus(hardwareManager.getRegistry());
-        
+
         // Print hardware status report
         String statusReport;
         hardwareManager.generateStatusReport(statusReport);
@@ -835,19 +835,45 @@ void setup1()
 
     // Initialize AS5600 base values with proper defaults (if encoder is available)
     if (hardwareManager.isModuleAvailable(ModuleType::MAGNETIC_ENCODER)) {
+        // Ensure AS5600 hardware is initialized
+        if (!as5600Sensor.isConnected()) {
+            if (!as5600Sensor.begin()) {
+                Serial.println("[ERROR] AS5600 begin() failed");
+            }
+        }
         initAS5600BaseValues();
+    }
+
+    // Initialize distance sensor if available
+    if (hardwareManager.isModuleAvailable(ModuleType::DISTANCE_SENSOR)) {
+        if (!distanceSensor.isConnected()) {
+            if (!distanceSensor.begin()) {
+                Serial.println("[ERROR] Distance sensor begin() failed");
+            } else {
+                Serial.println("Distance sensor initialized");
+            }
+        }
     }
 
     // Configure MPR121 if available (fallback will be handled automatically)
     if (hardwareManager.isModuleAvailable(ModuleType::TOUCH_MATRIX)) {
-        touchSensor.setAutoconfig(true);
-        touchSensor.setThresholds(55, 22); // touch, release thresholds
-        Serial.println("MPR121 thresholds configured");
+        // Ensure the sensor is initialized before configuration
+        if (!touchSensor.begin(0x5A)) {
+            Serial.println("[ERROR] MPR121 begin() failed at 0x5A");
+        } else {
+            touchSensor.setAutoconfig(true);
+            touchSensor.setThresholds(120, 55); // touch, release thresholds
+            Serial.println("MPR121 thresholds configured");
+        }
     }
 
     // Initialize OLED display (fallback to serial if not available)
     if (hardwareManager.isModuleAvailable(ModuleType::OLED_DISPLAY)) {
-        Serial.println("OLED display initialized via hardware detection");
+        if (display.begin()) {
+            Serial.println("OLED display initialized via hardware detection");
+        } else {
+            Serial.println("[ERROR] OLED display.begin() failed - using serial fallback");
+        }
     } else {
         Serial.println("OLED display not available - using serial fallback");
     }
@@ -879,10 +905,7 @@ void setup1()
     // Use a lambda to capture the context needed by the event handler
     Matrix_setEventHandler([](const MatrixButtonEvent &evt)
                            {
-        Serial.print("Matrix event: button ");
-        Serial.print(evt.buttonIndex);
-        Serial.print(evt.type == MATRIX_BUTTON_PRESSED ? " pressed" : " released");
-        Serial.println();
+
         Sequencer* seqs[] = { &seq1, &seq2, &seq3, &seq4 };
         matrixEventHandler(evt, uiState, seqs, 4, midiNoteManager); });
 
@@ -899,7 +922,7 @@ void setup1()
     seq1.start();
     seq2.start();
 
-    Serial.println("[CORE1] Setup complete!");
+//    Serial.println("[CORE1] Setup complete!");
 }
 
 // =======================
@@ -977,7 +1000,7 @@ void loop1()
     static unsigned long lastLEDUpdate = 0;
     static unsigned long lastControlUpdate = 0;
 
-    const unsigned long LED_UPDATE_INTERVAL = 20;    // 10ms interval for LED updates
+    const unsigned long LED_UPDATE_INTERVAL = 24;    // 10ms interval for LED updates
     const unsigned long CONTROL_UPDATE_INTERVAL =1; // 1ms interval for sensor polling
     //uint16_t currentTouchedButtons = touchSensor.touched();
 
@@ -1017,16 +1040,16 @@ void loop1()
             // Use fallback control if distance sensor not available
             mm = 0; // Default value when sensor unavailable
         }
-        
+
         // Process hardware monitoring and recovery
         hardwareManager.processScheduledRecovery();
-        
+
         // Periodic hardware health checks (every 30 seconds)
         static unsigned long lastHealthCheck = 0;
         if (currentMillis - lastHealthCheck >= 30000) {
             lastHealthCheck = currentMillis;
             hardwareManager.performHealthChecks();
-            
+
             // Update UI state with current hardware status
             uiState.updateHardwareStatus(hardwareManager.getRegistry());
         }

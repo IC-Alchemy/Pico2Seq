@@ -10,7 +10,6 @@
  * Each hardware component (MPR121, VL53L1X, AS5600, etc.) implements this
  * interface to provide consistent detection, initialization, and status methods.
  * 
- * Requirements: 1.1, 4.1, 4.2
  */
 class IHardwareModule {
 public:

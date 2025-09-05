@@ -311,8 +311,7 @@ void TouchMatrixFallback::generateMatrixEvent(uint8_t buttonIndex, bool isPresse
     // Create matrix button event
     MatrixButtonEvent event;
     event.buttonIndex = mapToMatrixButton(buttonIndex);
-    event.eventType = isPressed ? MatrixButtonEvent::PRESS : MatrixButtonEvent::RELEASE;
-    event.timestamp = millis();
+    event.type = isPressed ? MATRIX_BUTTON_PRESSED : MATRIX_BUTTON_RELEASED;
     
     // Call the event callback to route the event
     eventCallback(event);

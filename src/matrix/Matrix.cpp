@@ -61,6 +61,7 @@ static void updateButtonStates(uint16_t touchBits) {
                 MatrixButtonEvent evt;
                 evt.buttonIndex = i;
                 evt.type = curr ? MATRIX_BUTTON_PRESSED : MATRIX_BUTTON_RELEASED;
+                evt.timestamp = millis();
                 eventHandler(evt);
             }
         }
@@ -105,7 +106,10 @@ void Matrix_scan() {
             if (buttonState[i]) { // If it was pressed
                 buttonState[i] = false; // Update its state to released
                 if (eventHandler) {
-                    MatrixButtonEvent evt = {i, MATRIX_BUTTON_RELEASED};
+                    MatrixButtonEvent evt;
+                    evt.buttonIndex = i;
+                    evt.type = MATRIX_BUTTON_RELEASED;
+                    evt.timestamp = millis();
                     eventHandler(evt);
                 }
             }
@@ -126,7 +130,10 @@ void Matrix_scan() {
             Serial.printf("Button %d state changed to: %s\n", i, isPressed ? "PRESSED" : "RELEASED");
 
             if (eventHandler) {
-                MatrixButtonEvent evt = {i, isPressed ? MATRIX_BUTTON_PRESSED : MATRIX_BUTTON_RELEASED};
+                MatrixButtonEvent evt;
+                evt.buttonIndex = i;
+                evt.type = isPressed ? MATRIX_BUTTON_PRESSED : MATRIX_BUTTON_RELEASED;
+                evt.timestamp = millis();
                 eventHandler(evt);
             }
 

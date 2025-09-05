@@ -16,7 +16,6 @@ class Sequencer;
  * Implements hold-and-rotate logic for parameter modification and creates
  * distance value simulation from encoder input when step button is held.
  * 
- * Requirements: 2.2, 2.4
  */
 class DistanceSensorFallback {
 public:

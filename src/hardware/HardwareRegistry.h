@@ -3,7 +3,6 @@
 #include "IHardwareModule.h"
 #include <array>
 #include <vector>
-#include <mutex>
 #include <cstdint>
 
 /**
@@ -26,15 +25,13 @@ struct ModuleStatus {
  * Provides fast lookup methods for runtime hardware queries and supports
  * atomic updates for safe access from both Core 0 and Core 1.
  * 
- * Requirements: 1.2, 1.3, 4.2
  */
 class HardwareRegistry {
 private:
     static constexpr size_t MAX_MODULES = static_cast<size_t>(ModuleType::COUNT);
-    
-    // Thread-safe storage for module status
+
+    // Storage for module status (single-core usage; no synchronization required)
     std::array<ModuleStatus, MAX_MODULES> moduleStatuses;
-    mutable std::mutex registryMutex;  // Protects cross-core access
     
 public:
     HardwareRegistry() = default;
@@ -184,6 +181,13 @@ public:
      * @return number of healthy modules
      */
     size_t getHealthyModuleCount() const;
+
+    /**
+     * Reset the registry to default-initialized state.
+     * This is a safe replacement for assignment from a temporary when
+     * copy/move operations are disabled.
+     */
+    void reset();
     
 private:
     /**
@@ -192,4 +196,5 @@ private:
      * @return true if valid
      */
     bool isValidModuleType(ModuleType moduleType) const;
+
 };

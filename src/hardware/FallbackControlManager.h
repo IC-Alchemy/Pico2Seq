@@ -88,7 +88,6 @@ struct FallbackEvent {
  * Handles activation/deactivation of fallback controls and routes input events
  * between hardware and fallback mechanisms for seamless operation.
  * 
- * Requirements: 2.1, 2.2, 2.3, 2.4
  */
 class FallbackControlManager {
 private:

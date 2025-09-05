@@ -2,145 +2,132 @@
 #define UI_STATE_H
 
 #include <Arduino.h>
-#include "../sequencer/SequencerDefs.h"
-#include "../sensors/as5600.h" // For AS5600ParameterMode
-#include "../hardware/HardwareModuleDefs.h" // For ModuleType
+
+// Project headers (grouped)
+#include "../sequencer/SequencerDefs.h"            // ParamId, SequencerConstants
+#include "../sensors/as5600.h"                    // AS5600ParameterMode
+#include "../hardware/HardwareModuleDefs.h"       // ModuleType
+#include "HardwareStatus.h"                       // HardwareStatus
 
 /**
- * Hardware Status Structure
- * Contains hardware module availability and fallback status for UI display
- */
-struct HardwareStatus {
-    // Module availability status
-    bool touchMatrixAvailable = false;
-    bool distanceSensorAvailable = false;
-    bool magneticEncoderAvailable = false;
-    bool oledDisplayAvailable = false;
-    
-    // Fallback activation status
-    bool touchMatrixFallbackActive = false;
-    bool distanceSensorFallbackActive = false;
-    bool magneticEncoderFallbackActive = false;
-    bool oledDisplayFallbackActive = false;
-    
-    // Status display information
-    String statusMessage = "";
-    uint32_t lastUpdateTime = 0;
-    
-    /**
-     * Generate a summary status message for display
-     * @return formatted status string
-     */
-    String generateStatusSummary() const;
-    
-    /**
-     * Check if any modules are using fallback controls
-     * @return true if any fallback is active
-     */
-    bool hasAnyFallbacks() const;
-    
-    /**
-     * Get count of available (non-fallback) modules
-     * @return number of modules working normally
-     */
-    uint8_t getAvailableModuleCount() const;
-    
-    /**
-     * Update hardware status from HardwareRegistry
-     * @param registry Reference to hardware registry
-     */
-    void updateFromRegistry(const class HardwareRegistry& registry);
-};
-
-/**
- * @brief Centralized state management for the PicoMudrasSequencer UI.
+ * @file UIState.h
+ * @brief Centralized UI state container for the PicoMudrasSequencer.
  *
- * This struct encapsulates all UI-related state variables, eliminating
- * global externs and improving modularity. An instance of this struct
- * is passed to UI functions, making data flow explicit and easier to manage.
+ * The UIState struct centralizes all UI-related runtime state so it can be
+ * passed explicitly to UI and handler functions, reducing globals and improving
+ * readability and testability.
  */
+
+/* Forward declarations */
+class HardwareRegistry;
+
 struct UIState
 {
-    // --- Parameter Button States ---
-    // Indexed by ParamId for direct lookup.
-    bool parameterButtonHeld[PARAM_ID_COUNT] = {false};
+    // ---------------------------------------------------------------------
+    // Compile-time constants
+    // ---------------------------------------------------------------------
+    static constexpr int NUM_RANDOMIZE = 4;
+    static constexpr int MAX_VOICES = 4;
 
-    // --- Mode States ---
+    // ---------------------------------------------------------------------
+    // Parameter button states (indexed by ParamId)
+    // ---------------------------------------------------------------------
+    bool parameterButtonHeld[PARAM_ID_COUNT] = { false };
+
+    // ---------------------------------------------------------------------
+    // Mode / selection states
+    // ---------------------------------------------------------------------
     bool delayOn = true;
     bool modGateParamSeqLengthsMode = false;
     bool slideMode = false;
-    // Selected voice index 0..3 (replaces isVoice2Mode)
+
+    // Selected voice (0..3). legacy isVoice2Mode kept for backward compatibility.
     uint8_t selectedVoiceIndex = 0;
-    bool isVoice2Mode = false; // Legacy flag (kept for compatibility in some code paths)
+    bool isVoice2Mode = false;
+
+    // Editing / UI selection
     int selectedStepForEdit = -1;
-    ParamId currentEditParameter = ParamId::Count; // Parameter being edited in toggle mode (Count = none)
+    ParamId currentEditParameter = ParamId::Count; // Count means "none"
     int currentThemeIndex = 0;
     AS5600ParameterMode currentAS5600Parameter = AS5600ParameterMode::Velocity;
 
-    // --- Timing States ---
-    unsigned long padPressTimestamps[SequencerConstants::MAX_STEPS_COUNT] = {0};
+    // ---------------------------------------------------------------------
+    // Timing / debounce state
+    // ---------------------------------------------------------------------
+    unsigned long padPressTimestamps[SequencerConstants::MAX_STEPS_COUNT] = { 0 };
+
+    // Temporary flash timers (volatile because updated from interrupts/context)
     volatile unsigned long flash23Until = 0;
     volatile unsigned long flash25Until = 0;
     volatile unsigned long flash31Until = 0;
+
+    // Button press timestamps & edge tracking
     unsigned long lastAS5600ButtonPressTime = 0;
     unsigned long voiceSwitchPressTime = 0;
     bool voiceSwitchWasPressed = false;
-
-    // --- Randomize Button States ---
-    static constexpr int NUM_RANDOMIZE = 4;
-    unsigned long randomizePressTime[NUM_RANDOMIZE] = {0};
-    bool randomizeWasPressed[NUM_RANDOMIZE] = {false};
-    bool randomizeResetTriggered[NUM_RANDOMIZE] = {false};
-
-    // --- Shuffle State ---
-    uint8_t currentShufflePatternIndex = 0;
-
-    // --- Flags ---
-    // Flag to signal the LED matrix to reset step lights.
-    bool resetStepsLightsFlag = false;
-
-    // --- Debounce for Slide Mode Toggle ---
     unsigned long lastSlideModeToggleTime = 0;
 
-    // --- Settings Mode State ---
+    // Play/stop button state
+    unsigned long playStopPressTime = 0;
+    bool playStopWasPressed = false;
+
+    // ---------------------------------------------------------------------
+    // Randomize / shuffle
+    // ---------------------------------------------------------------------
+    unsigned long randomizePressTime[NUM_RANDOMIZE] = { 0 };
+    bool randomizeWasPressed[NUM_RANDOMIZE] = { false };
+    bool randomizeResetTriggered[NUM_RANDOMIZE] = { false };
+
+    uint8_t currentShufflePatternIndex = 0;
+
+    // ---------------------------------------------------------------------
+    // Settings mode
+    // ---------------------------------------------------------------------
     bool settingsMode = false;
 
-    // Settings sub-modes within settingsMode
     enum class SettingsSubMode : uint8_t { PRESET_SELECTION = 0, VOICE_PARAMETER = 1 };
     SettingsSubMode currentSubMode = SettingsSubMode::PRESET_SELECTION;
 
     uint8_t settingsMenuIndex = 0;    // 0-7 for 8 menu items
     uint8_t settingsSubMenuIndex = 0; // For preset selection
     bool inPresetSelection = false;
-    static constexpr int MAX_VOICES = 4;
-    uint8_t voicePresetIndices[MAX_VOICES] = {4, 2, 1, 6}; // Default presets: Lead, Bass, Lead, Percussion
-    unsigned long playStopPressTime = 0;
-    bool playStopWasPressed = false;
 
-    // --- AS5600 Control Hold / Gate Seq Length Mode ---
-    // Press/hold tracking for BUTTON_AS5600_CONTROL to enable gate seq length mode while held
+    // Voice presets per voice
+    uint8_t voicePresetIndices[MAX_VOICES] = { 4, 2, 1, 6 }; // Default: Lead, Bass, Lead, Percussion
+
+    // ---------------------------------------------------------------------
+    // AS5600 / gate sequence length mode (press-and-hold)
+    // ---------------------------------------------------------------------
     unsigned long as5600ControlPressTime = 0;
     bool as5600ControlWasPressed = false;
-    bool gateSeqLengthMode = false; // When true, step buttons set Gate track length (per selected voice)
+    bool gateSeqLengthMode = false; // true => step buttons set gate length for selected voice
 
-    // --- Voice Parameter Editing State ---
+    // ---------------------------------------------------------------------
+    // Voice parameter editing
+    // ---------------------------------------------------------------------
     bool inVoiceParameterMode = false;
-    uint8_t lastVoiceParameterButton = 0;       // Track which voice parameter was last changed
-    unsigned long voiceParameterChangeTime = 0; // Timestamp of last voice parameter change
+    uint8_t lastVoiceParameterButton = 0;
+    unsigned long voiceParameterChangeTime = 0;
 
-    // --- Voice Switch State ---
-    bool voiceSwitchTriggered = false; // Flag to trigger immediate OLED update for voice switching
-    
-    // --- Hardware Status ---
+    // Immediate UI triggers
+    bool voiceSwitchTriggered = false;     // Force immediate OLED update for voice switch
+    bool resetStepsLightsFlag = false;     // Signal to reset LED matrix step lights
+
+    // ---------------------------------------------------------------------
+    // Hardware status & display
+    // ---------------------------------------------------------------------
     HardwareStatus hardwareStatus;
-    bool showHardwareStatus = false;  // Toggle for hardware status display mode
-    unsigned long hardwareStatusToggleTime = 0;  // Debounce for status display toggle
-    
+    bool showHardwareStatus = false;
+    unsigned long hardwareStatusToggleTime = 0; // debounce for toggling status display
+
+    // ---------------------------------------------------------------------
+    // Methods
+    // ---------------------------------------------------------------------
     /**
-     * Update hardware status from HardwareRegistry
-     * @param registry Reference to hardware registry
+     * Update hardwareStatus from the provided HardwareRegistry.
+     * Implementation lives in the corresponding .cpp file.
      */
-    void updateHardwareStatus(const class HardwareRegistry& registry);
+    void updateHardwareStatus(const HardwareRegistry& registry);
 };
 
 #endif // UI_STATE_H

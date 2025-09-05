@@ -2,7 +2,7 @@
 #include "../ui/UIEventHandler.h"
 #include "../matrix/Matrix.h"
 #include "../sequencer/Sequencer.h"
-#include "../midi/MidiNoteManager.h"
+#include "../midi/MidiManager.h"
 #include <Arduino.h>
 
 // Initialize the fallback control manager

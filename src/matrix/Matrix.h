@@ -25,9 +25,10 @@ typedef enum {
     MATRIX_BUTTON_RELEASED
 } MatrixButtonEventType;
 
-typedef struct {
+typedef struct MatrixButtonEvent {
     uint8_t buttonIndex;
     MatrixButtonEventType type;
+    uint32_t timestamp; // milliseconds since boot (from millis())
 } MatrixButtonEvent;
 
 void Matrix_init(Adafruit_MPR121 *sensor);
