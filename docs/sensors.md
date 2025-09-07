@@ -55,8 +55,6 @@ String formatParameterValueForDisplay(ParamId paramId, float value);
 
 #### System Management
 ```cpp
-float calculateAS5600BoundaryProximity(AS5600ParameterMode param);
-float calculateDynamicFlashSpeed(AS5600ParameterMode param);
 void resetAS5600BaseValues(UIState& uiState, bool currentVoiceOnly = true);
 void initAS5600BaseValues();
 ```

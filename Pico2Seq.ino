@@ -694,8 +694,8 @@ void setupI2SAudio(audio_format_t *audioFormat, audio_i2s_config_t *i2sConfig)
         return;
     }
 
-    // Connect audio buffer pool to I2S interface
-    if (!audio_i2s_connect(producer_pool))
+    // Connect audio buffer pool to I2S interface using 4 I2S consumer buffers
+    if (!audio_i2s_connect_extra(producer_pool, false, 4u, SAMPLES_PER_BUFFER, NULL))
     {
         g_errorState |= ERR_AUDIO;
         return;

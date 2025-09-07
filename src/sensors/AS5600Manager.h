@@ -204,29 +204,7 @@ String formatParameterValueForDisplay(ParamId paramId, float value);
 // System Management and Utility Functions
 // ======================
 
-/**
- * @brief Calculate boundary proximity factor for visual feedback
- * 
- * Determines how close a parameter value is to its minimum or maximum
- * boundary, returning a factor from 0.0 (center) to 1.0 (at boundary).
- * Used for dynamic flash speed calculation.
- * 
- * @param param The parameter type to analyze
- * @return Proximity factor (0.0 = center, 1.0 = at boundary)
- */
-float calculateAS5600BoundaryProximity(AS5600ParameterMode param);
 
-/**
- * @brief Calculate dynamic flash speed based on boundary proximity
- * 
- * Determines the appropriate flash speed multiplier based on how close
- * a parameter value is to its boundaries. Provides visual feedback that
- * increases in intensity as limits are approached.
- * 
- * @param param The parameter type to analyze
- * @return Flash speed multiplier (1.0x to 3.0x)
- */
-float calculateDynamicFlashSpeed(AS5600ParameterMode param);
 
 /**
  * @brief Reset AS5600 base values to default positions
