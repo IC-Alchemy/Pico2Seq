@@ -76,8 +76,9 @@ Voice::Voice(uint8_t id, const VoiceConfig &cfg)
   lastAppliedFilterCutoff = -1.0f;
   lastEnvelopeValue = 0.0f;
 
-  // Initialize oscillators vector
-  oscillators.resize(config.oscillatorCount);
+  // Pre-size oscillator container to a fixed maximum of 3 to avoid runtime allocations
+  oscillators.reserve(3);
+  oscillators.resize(3);
 
   // Initialize frequency slewing
   for (int i = 0; i < 3; i++)
@@ -117,8 +118,8 @@ void Voice::init(float sr)
   }
 
   // Initialize oscillators
-  for (size_t i = 0; i < oscillators.size() && i < config.oscillatorCount;
-       i++)
+  cachedOscCount_ = static_cast<uint8_t>(std::min<size_t>(3, config.oscillatorCount));
+  for (size_t i = 0; i < cachedOscCount_; i++)
   {
     oscillators[i].Init(sampleRate);
     oscillators[i].SetWaveform(config.oscWaveforms[i]);
@@ -181,50 +182,9 @@ void Voice::init(float sr)
 
 void Voice::setConfig(const VoiceConfig &cfg)
 {
-  // Update configuration without full reinitialization to avoid audio dropouts
-  const bool oscCountChanged = (cfg.oscillatorCount != config.oscillatorCount);
-  config = cfg;
-
-  // Do not resize oscillators here to avoid reallocations in the audio thread
-  // If the oscillator count changed, we defer vector resizing until a safe point
-  if (!oscCountChanged)
-  {
-    // Update oscillator params non-destructively
-    const size_t oscCount = std::min(static_cast<size_t>(3), oscillators.size());
-    for (size_t i = 0; i < oscCount; i++)
-    {
-      oscillators[i].SetWaveform(config.oscWaveforms[i]);
-      oscillators[i].SetAmp(config.oscAmplitudes[i]);
-      if (config.oscWaveforms[i] == daisysp::Oscillator::WAVE_POLYBLEP_SQUARE)
-      {
-        oscillators[i].SetPw(config.oscPulseWidth[i]);
-      }
-    }
-  }
-
-  // Update filter and high-pass parameters
-  filter.SetRes(config.filterRes);
-  filter.SetInputDrive(config.filterDrive);
-  filter.SetPassbandGain(config.filterPassbandGain);
-  filter.SetFilterMode(config.filterMode);
-  highPassFilter.SetFreq(config.highPassFreq);
-  highPassFilter.SetRes(config.highPassRes);
-
-  // Update overdrive params (module is stateless aside from drive/gain)
-  if (config.hasOverdrive)
-  {
-    overdrive.SetDrive(config.overdriveDrive);
-  }
-
-  // Wavefolder gain/offset are applied per-sample in applyEffects();
-  // update the mix target here to crossfade smoothly after a toggle
-  wavefolderMixTarget = config.hasWavefolder ? 1.0f : 0.0f;
-
-  // Envelope defaults are handled by applyEnvelopeParameters() from state,
-  // so no need to touch ADSR timings here.
-
-  // Refresh cached detune multipliers for semitone detuning
-  recomputeDetuneMultipliers();
+  // Control-thread: stage config and apply on audio thread to avoid races
+  stagedConfig_ = cfg;
+  configPending_.store(true, std::memory_order_release);
 }
 
 
@@ -315,6 +275,10 @@ float Voice::process() noexcept
     return 0.0f;
   }
 
+  // Apply any pending cross-core parameter/config changes at the audio rate.
+  applyPendingConfig_();
+  applyPendingParams_();
+
   // 1) Envelope
   float envelopeValue = computeEnvelope();
   // Cache envelope value for cheap per-voice checks in hot paths (avoids reprocessing ADSR)
@@ -355,10 +319,26 @@ void Voice::updateFilter(float envelopeValue)
   // filterCutoffAlpha was initialized in init() (per-sample coefficient).
   filterCutoffCurrent += filterCutoffAlpha * (targetCutoff - filterCutoffCurrent);
 
-
+  // Throttle SetFreq to avoid per-sample heavy work if change is tiny
+  if (filterUpdateInterval == 0)
+  {
     filter.SetFreq(filterCutoffCurrent);
-  
+    lastAppliedFilterCutoff = filterCutoffCurrent;
+  }
+  else
+  {
+    if (filterUpdateCounter == 0)
+    {
+      if (ShouldApplyFilterFreq_(filterCutoffCurrent, lastAppliedFilterCutoff))
+      {
+        filter.SetFreq(filterCutoffCurrent);
+        lastAppliedFilterCutoff = filterCutoffCurrent;
+      }
+    }
+    filterUpdateCounter = static_cast<uint8_t>((filterUpdateCounter + 1) % filterUpdateInterval);
+  }
 }
+
 
 float Voice::mixOscillators()
 {
@@ -371,8 +351,8 @@ float Voice::mixOscillators()
     return 0.0f;
   }
 
-  // Determine number of oscillators to process (max 3)
-  const size_t oscCount = std::min(static_cast<size_t>(3), oscillators.size());
+  // Determine number of oscillators to process (max 3 pre-sized)
+  const size_t oscCount = cachedOscCount_;
 
   // Audio-thread commit of frequency changes:
   // - Only when gate HIGH (no repitch during release)
@@ -438,7 +418,7 @@ float Voice::mixOscillators()
 
 void Voice::applyEffects(float &signal)
 {
- 
+
   if (config.hasWavefolder)
   {
     signal = wavefolder.Process(signal);
@@ -469,13 +449,15 @@ float preEffects =signal*envelopeValue;
   // Apply ladder filter
   float filteredSignal = filter.Process(preEffects*state.velocityLevel);
 
-  // Apply high-pass filter
-  highPassFilter.Process(filteredSignal);
+  // Apply optional high-pass filter
+  float postHpf = filteredSignal;
+  if (!hpfBypass_)
+  {
+    highPassFilter.Process(filteredSignal);
+    postHpf = highPassFilter.High();
+  }
 
-  // Get high-passed signal (no envelope or level applied here yet)
-  float highPassedSignal = highPassFilter.High();
-
-  float finalOutput = highPassedSignal * config.outputLevel ;
+  float finalOutput = postHpf * config.outputLevel ;
 
   return finalOutput;
 }
@@ -507,7 +489,7 @@ inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset,
                                     int harmony) noexcept
 {
   // Clamp input note to valid range [0, SCALE_STEPS-1]
-  const int noteIndex = std::max(0, std::min(static_cast<int>(note), static_cast<int>(SCALE_STEPS - 1)));
+  const int noteIndex =note;
 
   // Resolve semitone via direct scale lookup:
   // scaleIndex comes from currentScalePtr if present, otherwise 0.
@@ -515,9 +497,7 @@ inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset,
   if (currentScalePtr)
     scaleIndex = *currentScalePtr;
 
-  // Clamp harmony application to stay within scale step bounds
   int noteWithHarmony = noteIndex + harmony;
-  noteWithHarmony = std::max(0, std::min(noteWithHarmony, static_cast<int>(SCALE_STEPS - 1)));
 
   // Lookup semitone directly from scale table (assumes scale[][] exists and is indexed as scale[scaleIndex][noteIndex])
   int scaleSemitone = scale[scaleIndex][noteWithHarmony];
@@ -525,8 +505,6 @@ inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset,
   // Map to MIDI centered at 48 (C3) and apply octave offset
   int midiNote = scaleSemitone + 48 + static_cast<int>(octaveOffset);
 
-  // Clamp to valid MIDI range and return frequency
-  midiNote = std::max(0, std::min(midiNote, 127));
   return frequencyLookupTable[midiNote];
 }
 
@@ -600,32 +578,14 @@ void Voice::setSlideTime(float slideTime)
 
 void Voice::updateParameters(const VoiceState &newState)
 {
-  // Detect static pitch changes before mutating state
-  const float  prevNote = state.noteIndex;
-  const int8_t prevOct  = state.octaveOffset;
-
-  // Update voice state
-  state = newState;
-
-  // Mark static base dirty when note/octave changed. Transpose/tuning reference would also
-  // set this, but those are not explicitly modeled in this class yet.
-  if (state.noteIndex != prevNote || state.octaveOffset != prevOct)
+  // Control-thread: stage state and bump generation counter for audio-thread application
+  stagedState_ = newState;
+  // Base pitch may change due to note/octave. Mark dirty based on previous staged state.
+  if (stagedState_.noteIndex != state.noteIndex || stagedState_.octaveOffset != state.octaveOffset)
   {
     baseFreqDirty_ = true;
   }
-
-  // Ensure the internal gate variable used by the ADSR is synchronized with the
-  // incoming sequencer/MIDI state.
-  setGate(state.isGateHigh);
-
-  // Calculate filter frequency from normalized filter parameter (0.0-1.0)
-  filterFrequency = daisysp::fmap(state.filterCutoff, 150.0f, 8000.0f, daisysp::Mapping::EXP);
-
-  // Apply envelope parameters (attack, decay/release)
-  applyEnvelopeParameters();
-
-  // Consolidated frequency recompute staging; audio-thread will commit
-  updateFrequencyIfNeeded();
+  paramsGen_.fetch_add(1u, std::memory_order_seq_cst);
 }
 
  // Voice Presets moved to src/voice/VoicePresets.cpp
@@ -642,7 +602,7 @@ void Voice::updateParameters(const VoiceState &newState)
 // Note: also watches detuneVersion_ and global Oscillator sample-rate version.
 bool Voice::pitchParamsChanged_(const VoiceState& newState) const
 {
-  const uint8_t oscCount = static_cast<uint8_t>(std::min(static_cast<size_t>(3), oscillators.size()));
+  const uint8_t oscCount = cachedOscCount_;
   if (pitchSnapshot_.oscCount != oscCount) return true;
   if (pitchSnapshot_.noteIndex != newState.noteIndex) return true;
   if (pitchSnapshot_.octaveOffset != newState.octaveOffset) return true;
@@ -667,7 +627,7 @@ bool Voice::pitchParamsChanged_(const VoiceState& newState) const
 // Writes pitchCache_ then bumps generation.
 void Voice::updatePitchCache_()
 {
-  const uint8_t oscCount = static_cast<uint8_t>(std::min(static_cast<size_t>(3), oscillators.size()));
+  const uint8_t oscCount = cachedOscCount_;
 
   // Ensure static base is up to date; avoids redoing static work when only dynamics change.
   recomputeBaseFreqIfDirty_();
@@ -744,7 +704,7 @@ void Voice::updateFrequencyIfNeeded()
 
 float Voice::getCachedFrequency(uint8_t oscIndex) const
 {
-  const uint8_t oscCount = static_cast<uint8_t>(std::min(static_cast<size_t>(3), oscillators.size()));
+  const uint8_t oscCount = cachedOscCount_;
   if (oscIndex >= oscCount) return 0.0f;
   return pitchCache_.finalFreq[oscIndex];
 }
@@ -761,4 +721,90 @@ void Voice::setSequencer(Sequencer *seq)
   // Release any previously owned sequencer and set raw pointer (no ownership)
   sequencerOwned.reset();
   sequencer = seq;
+}
+
+
+// Apply staged VoiceState updates from control thread (UI/Sequencer)
+void Voice::applyPendingParams_() noexcept
+{
+  const uint32_t gen = paramsGen_.load(std::memory_order_seq_cst);
+  if (gen != appliedParamsGen_)
+  {
+    // Copy staged state and apply changes that require immediate DSP updates
+    state = stagedState_;
+
+    // Synchronize ADSR gate
+    setGate(state.isGateHigh);
+
+    // Recompute filter base freq from normalized param
+    filterFrequency = daisysp::fmap(state.filterCutoff, 150.0f, 8000.0f, daisysp::Mapping::EXP);
+
+    // Update envelope segment times
+    applyEnvelopeParameters();
+
+    // Stage pitch recompute; audio thread will commit oscillator freq via mixOscillators
+    updateFrequencyIfNeeded();
+
+    appliedParamsGen_ = gen;
+  }
+}
+
+// Apply staged VoiceConfig changes from control thread safely on audio thread
+void Voice::applyPendingConfig_() noexcept
+{
+  if (configPending_.load(std::memory_order_acquire))
+  {
+    config = stagedConfig_;
+
+    // Oscillator container pre-sized to 3 in ctor; only use up to config.oscillatorCount
+    cachedOscCount_ =  config.oscillatorCount;
+    for (size_t i = 0; i < cachedOscCount_; ++i)
+    {
+      // Re-init to ensure SR/version updates if needed
+      oscillators[i].Init(sampleRate);
+    }
+    // Zero-out any unused oscillators to ensure silence and deterministic state
+    for (size_t i = cachedOscCount_; i < 3; ++i)
+    {
+      oscillators[i].Init(sampleRate);
+      oscillators[i].SetAmp(0.0f);
+    }
+
+    // Update oscillator params only for active oscillators
+    for (size_t i = 0; i < cachedOscCount_; i++)
+    {
+      oscillators[i].SetWaveform(config.oscWaveforms[i]);
+      oscillators[i].SetAmp(config.oscAmplitudes[i]);
+      if (config.oscWaveforms[i] == daisysp::Oscillator::WAVE_POLYBLEP_SQUARE)
+      {
+        oscillators[i].SetPw(config.oscPulseWidth[i]);
+      }
+    }
+
+    // Update filters
+    filter.SetRes(config.filterRes);
+    filter.SetInputDrive(config.filterDrive);
+    filter.SetPassbandGain(config.filterPassbandGain);
+    filter.SetFilterMode(config.filterMode);
+
+    highPassFilter.SetFreq(config.highPassFreq);
+    highPassFilter.SetRes(config.highPassRes);
+    hpfBypass_ = (config.highPassFreq <= 20.0f && config.highPassRes <= 0.01f);
+
+    // Update effects
+    overdrive.SetDrive(config.overdriveDrive);
+    wavefolder.SetGain(config.wavefolderGain);
+    wavefolder.SetOffset(config.wavefolderOffset);
+
+    // Smoothly transition wavefolder mix if toggled
+    wavefolderMixTarget = config.hasWavefolder ? 1.0f : 0.0f;
+
+    // Detune multipliers depend on config
+    recomputeDetuneMultipliers();
+
+    // Pitch depends on harmony, etc.
+    updateFrequencyIfNeeded();
+
+    configPending_.store(false, std::memory_order_release);
+  }
 }

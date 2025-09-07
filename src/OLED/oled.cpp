@@ -103,7 +103,7 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
   // Header with current voice indicator + sub-mode banner
   displayHardware.setCursor(OLEDConstants::TEXT_MARGIN - 3, 2);
   displayHardware.print("VOICE ");
-  displayHardware.print(uiState.selectedVoiceIndex + 1);
+  displayHardware.print(uiState.selectedVoiceIndex);
   // Sub-mode indicator per new SettingsSubMode architecture
   displayHardware.setCursor(OLEDConstants::SCREEN_WIDTH - 70, 2);
   displayHardware.print("Param Mode");
@@ -274,7 +274,7 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     displayHardware.setTextSize(1);
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 24);
     displayHardware.print("Voice: ");
-    displayHardware.print(uiState.selectedVoiceIndex + 1);
+    displayHardware.print(uiState.selectedVoiceIndex);
 
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 36);
     displayHardware.print("Length: ");
@@ -306,7 +306,7 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
   if (heldParam != nullptr)
   {
     // Display parameter editing information
-    uint8_t voice = uiState.selectedVoiceIndex + 1;
+    uint8_t voice = uiState.selectedVoiceIndex; // 0-based
     const Sequencer &currentSeq = (uiState.selectedVoiceIndex == 0) ? seq1 : (uiState.selectedVoiceIndex == 1) ? seq2
                                                                          : (uiState.selectedVoiceIndex == 2)   ? seq3
                                                                                                                : seq4;
@@ -320,7 +320,7 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     if (uiState.currentEditParameter != ParamId::Count)
     {
       // Display the currently editing parameter for the selected step
-      uint8_t voice = uiState.selectedVoiceIndex + 1;
+      uint8_t voice = uiState.selectedVoiceIndex; // 0-based
       const Sequencer &currentSeq = (uiState.selectedVoiceIndex == 0) ? seq1 : (uiState.selectedVoiceIndex == 1) ? seq2
                                                                            : (uiState.selectedVoiceIndex == 2)   ? seq3
                                                                                                                  : seq4;
@@ -378,7 +378,7 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     // Raise numeric voice index by 6px while keeping horizontal alignment after label
     displayHardware.setCursor(displayHardware.getCursorX(), 25); // 35 - 6
 
-    displayHardware.print(uiState.selectedVoiceIndex + 1);
+    displayHardware.print(uiState.selectedVoiceIndex);
 
     // Beat-synced step indicators at the bottom
     const Sequencer &currentSequencerDefault = (uiState.selectedVoiceIndex == 0) ? seq1 : (uiState.selectedVoiceIndex == 1) ? seq2
@@ -514,7 +514,7 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
     // Header with voice info
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, OLEDConstants::TEXT_MARGIN);
     displayHardware.print("VOICE ");
-    displayHardware.print(uiState.settingsMenuIndex + 1);
+    displayHardware.print(uiState.settingsMenuIndex);
 
     // Draw separator line
     displayHardware.drawFastHLine(OLEDConstants::TEXT_MARGIN, OLEDConstants::HEADER_HEIGHT,
@@ -629,7 +629,7 @@ void OLEDDisplay::displayVoiceParameterInfo(const UIState &uiState, VoiceManager
   displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, OLEDConstants::TEXT_MARGIN);
   displayHardware.setTextSize(1);
   displayHardware.print("VOICE ");
-  displayHardware.print(selected + 1);
+  displayHardware.print(selected);
   displayHardware.print(" PARAMETERS");
 
   // Draw separator line
@@ -761,7 +761,7 @@ void OLEDDisplay::onVoiceParameterChanged(uint8_t voiceId, const VoiceState &sta
   {
     if (voiceId == voiceSystem.getVoiceId(i))
     {
-      displayVoiceNumber = i + 1; // Convert to 1-based
+      displayVoiceNumber = i; // 0-based index
       voiceFound = true;
       break;
     }

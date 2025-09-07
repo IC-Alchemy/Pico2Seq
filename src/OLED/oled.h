@@ -128,11 +128,11 @@ private:
    * @brief Display parameter editing information with progress bar
    * @param parameterName Name of the parameter being edited
    * @param currentValue Current parameter value (0.0-1.0 for most parameters)
-   * @param voiceNumber Voice number (1-4) for display
+   * @param voiceIndex Voice index (0-3) for display
    * @param stepIndex Current step index for the parameter
    */
-  void displayParameterInfo(const char* parameterName, float currentValue, 
-                           uint8_t voiceNumber, uint8_t stepIndex);
+  void displayParameterInfo(const char* parameterName, float currentValue,
+                           uint8_t voiceIndex, uint8_t stepIndex);
   
   /**
    * @brief Format parameter value for human-readable display

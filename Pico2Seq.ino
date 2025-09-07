@@ -1,6 +1,8 @@
 #include "includes.h"
 #include "diagnostic.h"
 #include "src/dsp/dsp.h"
+#include "RP2350.h"
+
 #include "src/voice/Voice.h"
 #include "src/utils/Debug.h"
 #include "src/scales/scales.h"
@@ -143,12 +145,10 @@ void onSync24Callback(uint32_t tick)
 }
 void muteOscillators()
 {
-
 }
 
 void unmuteOscillators()
 {
-
 }
 void onClockStart()
 {
@@ -182,7 +182,6 @@ void onClockStop()
 // =======================
 //   FUNCTION DEFINITIONS
 // =======================
-
 
 /**
  * @brief Initialize audio synthesis system and voice management
@@ -228,8 +227,8 @@ void initOscillators()
     // Note: OLED display registration occurs in setup1() after display initialization
 }
 
-// Apply voice preset to the specified voice
-void applyVoicePreset(uint8_t voiceNumber, uint8_t presetIndex)
+// Apply voice preset to the specified voice (0-based index)
+void applyVoicePreset(uint8_t voiceIndex, uint8_t presetIndex)
 {
     if (presetIndex >= VoicePresets::getPresetCount())
     {
@@ -237,22 +236,21 @@ void applyVoicePreset(uint8_t voiceNumber, uint8_t presetIndex)
         return;
     }
 
-    VoiceConfig config = VoicePresets::getPresetConfig(presetIndex);
-
-    if (voiceNumber < 1 || voiceNumber > VoiceSystem::MAX_VOICES)
+    if (voiceIndex >= VoiceSystem::MAX_VOICES)
     {
-        Serial.println("Invalid voice number");
+        Serial.println("Invalid voice index");
         return;
     }
 
-    uint8_t voiceId = voiceSystem.getVoiceId(voiceNumber - 1); // Convert 1-based to 0-based index
+    VoiceConfig config = VoicePresets::getPresetConfig(presetIndex);
+    uint8_t voiceId = voiceSystem.getVoiceId(voiceIndex);
 
     if (voiceManager->setVoiceConfig(voiceId, config))
     {
         Serial.print("Applied preset '");
         Serial.print(VoicePresets::getPresetName(presetIndex));
         Serial.print("' to Voice ");
-        Serial.println(voiceNumber);
+        Serial.println(voiceIndex); // 0-based display
     }
     else
     {
@@ -284,7 +282,7 @@ void onOutputPPQNCallback(uint32_t tick)
 
  * @param state Voice state containing normalized parameter values (0.0-1.0)
  * @param env DaisySP ADSR envelope to configure
- * @param voiceNum Voice number (1 ,2,3,4) for voice-specific parameter ranges
+ * Note: Voice index is 0..3 across the codebase.
  */
 void applyEnvelopeParameters(const VoiceState &state, daisysp::Adsr &env)
 {
@@ -358,10 +356,10 @@ void updateParametersForStep(uint8_t stepToUpdate) ///  This is the selected ste
         }
 
         // Debug print if needed
-      //  Serial.print("  -> Set ");
-     //   Serial.print(CORE_PARAMETERS[static_cast<int>(heldMapping->paramId)].name);
-       // Serial.print(" to ");
-      //  Serial.println(valueToSet);
+        //  Serial.print("  -> Set ");
+        //   Serial.print(CORE_PARAMETERS[static_cast<int>(heldMapping->paramId)].name);
+        // Serial.print(" to ");
+        //  Serial.println(valueToSet);
     }
 
     // Provide immediate audio feedback when recording parameters to current step
@@ -446,39 +444,37 @@ void updateVoiceParameters(
     // Send MIDI CC messages for parameter changes
     uint8_t midiVoiceId = isVoice2 ? 1 : 0;
 }
-// New helper to update a specific voice (1-4)
+// New helper to update a specific voice (0-based index)
 void updateVoiceParametersForVoice(
     const VoiceState &state,
-    uint8_t voiceNumber,
+    uint8_t voiceIndex,
     bool updateGate = false,
     volatile bool *gate = nullptr,
     volatile GateTimer *gateTimer = nullptr)
 {
-    // For voices 1 and 2, reuse existing gate/MIDI logic; for 3/4 skip gates
-    bool isVoice2 = (voiceNumber == 2);
+    if (voiceIndex >= VoiceSystem::MAX_VOICES)
+    {
+        return; // Invalid voice index
+    }
 
-    if (updateGate && (voiceNumber == 1 || voiceNumber == 2))
+    // For voices 0 and 1, reuse existing gate/MIDI logic; for 2/3 skip gates
+    bool isVoice2 = (voiceIndex == 1);
+
+    if (updateGate && (voiceIndex <= 1))
     {
         updateVoiceParameters(state, isVoice2, updateGate, gate, gateTimer);
         return;
     }
 
-    // Map to actual VoiceManager voice IDs
-    if (voiceNumber < 1 || voiceNumber > VoiceSystem::MAX_VOICES)
-    {
-        return; // Invalid voice number
-    }
-
-    uint8_t voiceIndex = voiceNumber - 1; // Convert 1-based to 0-based
     uint8_t voiceId = voiceSystem.getVoiceId(voiceIndex);
 
     // Push full state to voice (Voice computes frequencies internally on gate HIGH)
     voiceManager->updateVoiceState(voiceId, state);
 
-    // Send MIDI CC only for voices 1 and 2
-    if (voiceNumber == 1 || voiceNumber == 2)
+    // Send MIDI CC only for voices 0 and 1
+    if (voiceIndex <= 1)
     {
-        uint8_t midiVoiceId = (voiceNumber == 1) ? 0 : 1;
+        uint8_t midiVoiceId = voiceIndex; // 0 or 1
         midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Filter, state.filterCutoff);
         midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Attack, state.attackTimeSeconds);
         midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Decay, state.decayTimeSeconds);
@@ -502,33 +498,30 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
         return;
     }
 
-    // Determine currently selected voice (1-4)
-    uint8_t selectedIndex = uiState.selectedVoiceIndex; // 0..3
-    uint8_t voiceNumber = selectedIndex + 1;            // 1..4
+    // Determine currently selected voice (0-3)
+    uint8_t voiceIndex = uiState.selectedVoiceIndex; // 0..3
 
-    // Pick the matching VoiceState for the selected voice
-    if (voiceNumber < 1 || voiceNumber > VoiceSystem::MAX_VOICES)
+    if (voiceIndex >= VoiceSystem::MAX_VOICES)
     {
-        return; // Invalid voice number
+        return; // Invalid voice index
     }
 
-    uint8_t voiceIndex = voiceNumber - 1; // Convert 1-based to 0-based
     VoiceState *activeVoiceState = &voiceSystem.getVoiceState(voiceIndex);
 
     // Update voice state with new step parameters + AS5600 encoder modifications
     activeSeq.playStepNow(stepIndex, activeVoiceState);
 
-    // Apply AS5600 base values only for voices 1/2 (no mapping for 3/4 by design)
-    if (voiceNumber == 1 || voiceNumber == 2)
+    // Apply AS5600 base values only for voices 0/1 (no mapping for 2/3 by design)
+    if (voiceIndex <= 1)
     {
-        applyAS5600BaseValues(activeVoiceState, (voiceNumber == 2) ? 1 : 0);
+        applyAS5600BaseValues(activeVoiceState, (voiceIndex == 1) ? 1 : 0);
     }
 
     // Update synth hardware for immediate audio feedback using the per-voice function
-    updateVoiceParametersForVoice(*activeVoiceState, voiceNumber);
+    updateVoiceParametersForVoice(*activeVoiceState, voiceIndex);
 
-    //Serial.print("Applied immediate voice updates for step ");
-    //Serial.println(stepIndex);
+    // Serial.print("Applied immediate voice updates for step ");
+    // Serial.println(stepIndex);
 }
 
 //  This gets called every 16th note
@@ -540,7 +533,7 @@ void onStepCallback(uint32_t uClockCurrentStep)
     // Extend to four voices; distance sensor assigned to currently selected voice only
     VoiceState tempState1, tempState2, tempState3, tempState4;
 
-    // Route distance sensor to the currently selected voice (1..4); others disabled (-1)
+    // Route distance sensor to the currently selected voice (0..3); others disabled (-1)
     int v1Distance = (uiState.selectedVoiceIndex == 0) ? mm : -1;
     int v2Distance = (uiState.selectedVoiceIndex == 1) ? mm : -1;
     int v3Distance = (uiState.selectedVoiceIndex == 2) ? mm : -1;
@@ -554,7 +547,7 @@ void onStepCallback(uint32_t uClockCurrentStep)
     // 3. Apply AS5600 base values per voice (only velocity/filter/attack/decay are affected)
     applyAS5600BaseValues(&tempState1, 0);
     applyAS5600BaseValues(&tempState2, 1);
-    // Voices 3/4 currently share no AS5600 mapping; leave as-is
+    // Voices 2/3 currently share no AS5600 mapping; leave as-is
 
     // Apply AS5600 base values to global delay effect parameters
     applyAS5600DelayValues();
@@ -564,15 +557,15 @@ void onStepCallback(uint32_t uClockCurrentStep)
 
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++)
     {
-        if (i < 2) // Voices 0 and 1 (1-based: 1 and 2) have gate support
+        if (i < 2) // Voices 0 and 1 have gate support
         {
-            updateVoiceParametersForVoice(tempStates[i], i + 1, true,
+            updateVoiceParametersForVoice(tempStates[i], i, true,
                                           &voiceSystem.getGate(i),
                                           &voiceSystem.getGateTimer(i));
         }
-        else // Voices 2 and 3 (1-based: 3 and 4) are audio only
+        else // Voices 2 and 3 are audio only
         {
-            updateVoiceParametersForVoice(tempStates[i], i + 1, false);
+            updateVoiceParametersForVoice(tempStates[i], i, false);
         }
 
         // Store state
@@ -580,40 +573,30 @@ void onStepCallback(uint32_t uClockCurrentStep)
     }
 }
 
- // Constants kept local for clarity and zero-cost access
-    constexpr float kInt16MaxF = 32767.0f;   // +0x7FFF
-    constexpr float kInt16MinF = -32768.0f;  // -0x8000
+// Constants kept local for clarity and zero-cost access
+constexpr float kInt16MaxF = 32767.0f;  // +0x7FFF
+constexpr float kInt16MinF = -32768.0f; // -0x8000
 
-    // Branchless clamp for float; avoids dependency on external DSP headers
-    static inline float clampf(float v, float lo, float hi) noexcept
-    {
-        return v < lo ? lo : (v > hi ? hi : v);
-    }
+// Branchless clamp for float; avoids dependency on external DSP headers
+static inline float clampf(float v, float lo, float hi) noexcept
+{
+    return v < lo ? lo : (v > hi ? hi : v);
+}
 
-    /**
-     * Convert normalized float sample [-1.0, +1.0] to 16-bit PCM with saturation and round-to-nearest.
-     *
-     * Why:
-     * - Clamp BEFORE scaling to prevent rounding pushing values out of int16 range.
-     * - Use lrintf for fast, correct round-to-nearest according to current FP mode.
-     * - Final integer-domain saturation is a cheap safety net for rare edge cases.
-     * - Handles non-finite inputs (NaN/Inf) by zeroing before conversion.
-     */
-    static inline int16_t FloatToPcm16(float sample) noexcept
-    {
-        // Sanitize and clamp to the legal audio range
-        const float s = std::isfinite(sample) ? clampf(sample, -1.0f, 1.0f) : 0.0f;
+static inline int16_t FloatToPcm16(float s) noexcept
+{
+    // Optional but recommended safety clamp to handle NaN/Inf and small overs
+s = fminf(1.0f, fmaxf(-1.0f, s));
 
-        // Scale to 16-bit domain and round to nearest
-        const float scaled = s * kInt16MaxF;
-        long rounded       = lrintf(scaled);  // typically maps 1.0f -> 32767
+    // Scale so -1.0 → -32768 and +1.0 → +32767 (after saturation below)
+    const float scaled = s * 32768.0f;
 
-        // Defensive saturation in integer domain
-        if (rounded > 32767)  rounded = 32767;
-        if (rounded < -32768) rounded = -32768;
+    // Round to nearest using hardware rounding (fast on M33 with FPU)
+    const int32_t i = (int32_t)lrintf(scaled);
 
-        return static_cast<int16_t>(rounded);
-    }
+ // Saturate to int16 range [-32768, 32767] using single-cycle SSAT
+    return (int16_t)__SSAT(i, 16);
+}
 /**
  * @brief Main audio buffer processing function (Core 0 - Real-time critical)
  *
@@ -630,7 +613,6 @@ void fill_audio_buffer(audio_buffer_t *buffer)
     int N = buffer->max_sample_count;
     int16_t *out = reinterpret_cast<int16_t *>(buffer->buffer->bytes);
     float finalVoiceOutput;
-    float processedOutput;
 
     // Determine target gains based on delay state
     // float targetDelayOutputGain = uiState.delayOn ? 1.0f : 0.0f;
@@ -653,16 +635,8 @@ void fill_audio_buffer(audio_buffer_t *buffer)
         // Apply global delay effect
         //  processedOutput = processDelayEffect(finalVoiceOutput);
 
-        // Avoid double-limiting: compressor already shapes the bus.
-        // Use a cheap clamp at the callback boundary to keep conversion deterministic.
-        float clipped = finalVoiceOutput;
-        if (clipped > 0.999f)
-          clipped = 0.999f;
-        else if (clipped < -0.999f)
-          clipped = -0.999f;
-
         // Convert once for both channels (mono -> stereo)
-        int16_t convertedSample = FloatToPcm16(clipped);
+        int16_t convertedSample = FloatToPcm16(finalVoiceOutput);
         out[2 * i + 0] = convertedSample; // Left channel
         out[2 * i + 1] = convertedSample; // Right channel
     }
@@ -917,15 +891,11 @@ void setup1()
  */
 void loop()
 {
-    // Get available audio buffer from pool
     audio_buffer_t *audioBuffer = take_audio_buffer(producer_pool, true);
 
     if (audioBuffer)
     {
-        // Fill buffer with processed audio samples
         fill_audio_buffer(audioBuffer);
-
-        // Return completed buffer to I2S system
         give_audio_buffer(producer_pool, audioBuffer);
     }
 }
@@ -978,20 +948,20 @@ void loop1()
     static unsigned long lastLEDUpdate = 0;
     static unsigned long lastControlUpdate = 0;
 
-    const unsigned long LED_UPDATE_INTERVAL = 20;    // 10ms interval for LED updates
-    const unsigned long CONTROL_UPDATE_INTERVAL =1; // 1ms interval for sensor polling
-    //uint16_t currentTouchedButtons = touchSensor.touched();
+    const unsigned long LED_UPDATE_INTERVAL = 20;    // 20ms interval for LED/OLED updates
+    const unsigned long CONTROL_UPDATE_INTERVAL = 1; // 1ms interval for sensor polling
+    // uint16_t currentTouchedButtons = touchSensor.touched();
 
     // =======================
     //   SENSOR AND CONTROL INPUT PROCESSING
     // =======================
-    // Button matrix, distance sensor, and AS5600 polling (500Hz update rate)
+    // Button matrix, distance sensor, and AS5600 polling
     if ((currentMillis - lastControlUpdate >= CONTROL_UPDATE_INTERVAL))
     {
         lastControlUpdate = currentMillis;
 
-    // Check if any parameter buttons are held for real-time recording
-    bool parameterRecordingActive = isAnyParameterButtonHeld(uiState);
+        // Check if any parameter buttons are held for real-time recording
+        bool parameterRecordingActive = isAnyParameterButtonHeld(uiState);
 
         // Scan button matrix for user input
         Matrix_scan();
@@ -1011,6 +981,14 @@ void loop1()
         {
             mm = 0; // Invalid reading - use safe default
         }
+        // =======================
+        //   REAL-TIME PARAMETER RECORDING
+        // =======================
+        // Apply distance sensor values to selected step when parameter buttons are held
+        if (uiState.selectedStepForEdit != -1)
+        {
+            updateParametersForStep(uiState.selectedStepForEdit);
+        }
     }
 
     // Update LEDs and display at controlled intervals (100Hz update rate)
@@ -1018,15 +996,15 @@ void loop1()
     {
         lastLEDUpdate = currentMillis;
 
-    // =======================
-    //   DISPLAY AND LED PROCESSING
-    // =======================
-    // Handle voice switch display updates
-    if (uiState.voiceSwitchTriggered)
-    {
-        uiState.voiceSwitchTriggered = false; // Clear the trigger flag
-        display.onVoiceSwitched(uiState, voiceManager.get());
-    }
+        // =======================
+        //   DISPLAY AND LED PROCESSING
+        // =======================
+        // Handle voice switch display updates
+        if (uiState.voiceSwitchTriggered)
+        {
+            uiState.voiceSwitchTriggered = false; // Clear the trigger flag
+            display.onVoiceSwitched(uiState, voiceManager.get());
+        }
 
         // Update step sequence LEDs
         updateStepLEDs(ledMatrix, seq1, seq2, seq3, seq4, uiState, mm);
@@ -1039,14 +1017,5 @@ void loop1()
 
         // Apply LED updates to hardware
         ledMatrix.show();
-    }
-
-    // =======================
-    //   REAL-TIME PARAMETER RECORDING
-    // =======================
-    // Apply distance sensor values to selected step when parameter buttons are held
-    if (uiState.selectedStepForEdit != -1)
-    {
-        updateParametersForStep(uiState.selectedStepForEdit);
     }
 }

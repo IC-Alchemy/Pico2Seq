@@ -332,10 +332,25 @@ private:
   // Cache of last applied cutoff to avoid redundant filter.SetFreq calls in the hotpath.
   // Initialized to -1.0f in ctor/init to guarantee first SetFreq occurs.
   float lastAppliedFilterCutoff = -1.0f;
+  // Throttle expensive filter.SetFreq() updates
+  uint8_t filterUpdateInterval = 8;  // apply SetFreq at most once every 8 samples
+  uint8_t filterUpdateCounter  = 0;  // rolling counter
+  static constexpr float kFilterRelEps   = 2e-3f; // 0.2% relative change
+  static constexpr float kFilterAbsEpsHz = 1.0f;  // or at least 1 Hz change
+  inline static bool ShouldApplyFilterFreq_(float f_new, float f_last) {
+    const float maxf = (f_new > f_last ? f_new : f_last);
+    const float rel  = kFilterRelEps * maxf;
+    const float thr  = (rel > kFilterAbsEpsHz ? rel : kFilterAbsEpsHz);
+    return (f_last < 0.0f) || (fabsf(f_new - f_last) > thr);
+  }
   // Cached envelope value updated each frame to allow a very cheap silence short-circuit.
   float lastEnvelopeValue = 0.0f;
   VoiceSlewParams freqSlew[3]; // For slide functionality
   volatile bool gate;
+  // Cached active oscillator count (0..3), updated on config apply to avoid per-sample min()
+  uint8_t cachedOscCount_ = 0;
+  // Bypass flags computed on config apply to avoid unnecessary DSP work
+  bool hpfBypass_ = false;
 
   // Slide/portamento control
   // slideTimeSeconds is the exponential time constant in seconds
@@ -363,6 +378,14 @@ private:
   float cachedBaseFreqHz_ = 440.0f;
   bool  baseFreqDirty_    = true;
   float lastSentBaseFreqHz_ = -1.0f;
+
+  // -------- Parameter & config staging (lock-free cross-core) --------
+  VoiceState               stagedState_{};                 // control-thread writes
+  std::atomic<uint32_t>    paramsGen_{0};                  // bump on stagedState_ update
+  uint32_t                 appliedParamsGen_{0};           // audio-thread applied version
+
+  VoiceConfig              stagedConfig_{};                // control-thread writes
+  std::atomic<bool>        configPending_{false};          // set true when a new config is staged
 
   // -------- Pitch change-detection & caching --------
   // Staging cache computed on control thread, committed on audio thread.
@@ -423,6 +446,10 @@ private:
    */
   void processEffectsChain(float& signal);
 
+  // Cross-core application helpers (called on audio thread at start of process)
+  void applyPendingParams_() noexcept;
+  void applyPendingConfig_() noexcept;
+
   // Pitch recompute helpers (staging on control thread; commit on audio thread)
   // Detects changes in note/octave/harmony/osc count/detune version/sample-rate version/slide/bend/mod.
   bool pitchParamsChanged_(const VoiceState& newState) const;
@@ -470,7 +497,7 @@ private:
 
   /**
    * @brief Update oscillator frequencies based on current state
-   * 
+   *
    * Implements gate-controlled frequency updates to prevent audio artifacts.
    * Only updates frequencies when gate is HIGH.
    */
@@ -478,7 +505,7 @@ private:
 
   /**
    * @brief Apply envelope parameters to the ADSR envelope
-   * 
+   *
    * Updates attack, decay, sustain, and release values from voice state.
    */
   void applyEnvelopeParameters();
@@ -489,7 +516,7 @@ private:
    * @param octaveOffset Octave offset in semitones (-24 to +24)
    * @param harmony Harmony value in scale steps (-12 to +12)
    * @return float Frequency in Hz (20.0-20000.0)
-   * 
+   *
    * Uses MIDI_BASE_OFFSET (36) to center around C2. Implements gate-controlled
    * architecture to prevent audio glitches during parameter changes.
    */
@@ -500,7 +527,7 @@ private:
 
   /**
    * @brief Initialize frequency lookup table (called once)
-   * 
+   *
    * Populates static lookup table covering all MIDI notes (0-127) for
    * performance optimization, avoiding repeated mtof() calculations.
    */
@@ -510,7 +537,7 @@ private:
    * @brief Process frequency slewing for slide functionality
    * @param oscIndex Oscillator index (0-2)
    * @param targetFreq Target frequency for slewing in Hz (20.0-20000.0)
-   * 
+   *
    * Implements smooth frequency transitions using configurable slew rate
    * to create slide/portamento effects between notes.
    */

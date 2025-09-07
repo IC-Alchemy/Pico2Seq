@@ -56,7 +56,7 @@ static_assert(UIState::NUM_RANDOMIZE >= UIEventConstants::MAX_VOICES,
 extern void onClockStart();
 extern void onClockStop();
 extern void setLEDTheme(LEDTheme theme);
-extern void applyVoicePreset(uint8_t voiceNumber, uint8_t presetIndex);
+extern void applyVoicePreset(uint8_t voiceIndex, uint8_t presetIndex);
 
 // External variables that are still needed from the main file
 extern uint8_t currentScale;
@@ -604,12 +604,12 @@ static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState
   {
     const uint8_t presetIndex = static_cast<uint8_t>(evt.buttonIndex - baseButton);
 
-    // Apply to currently selected voice (1..4 for applyVoicePreset)
+    // Apply to currently selected voice (0..3 for applyVoicePreset)
     const uint8_t voiceIdx = uiState.selectedVoiceIndex;
     if (voiceIdx < UIEventConstants::MAX_VOICES)
     {
       uiState.voicePresetIndices[voiceIdx] = presetIndex;
-      applyVoicePreset(static_cast<uint8_t>(voiceIdx + 1), presetIndex);
+      applyVoicePreset(voiceIdx, presetIndex);
     }
 
     // Stay in Preset Selection mode; do not auto-switch.
@@ -639,41 +639,43 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
   // Resolve current voice configuration
   const uint8_t selectedVoiceIndex = uiState.selectedVoiceIndex;
   const uint8_t currentVoiceId = voiceSystem.getVoiceId(selectedVoiceIndex);
-  VoiceConfig *voiceConfig = voiceManager->getVoiceConfig(currentVoiceId);
-  if (!voiceConfig) return;
+  VoiceConfig *liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
+  if (!liveCfg) return;
+  // Work on a local copy to avoid mutating live config from UI thread
+  VoiceConfig voiceConfig = *liveCfg;
 
   // UI feedback bookkeeping
   uiState.inVoiceParameterMode = true; // legacy flag mirror of active sub-mode
   uiState.lastVoiceParameterButton = evt.buttonIndex;
   uiState.voiceParameterChangeTime = millis();
 
-  const uint8_t displayVoiceNumber = static_cast<uint8_t>(selectedVoiceIndex + 1);
+  const uint8_t displayVoiceNumber = selectedVoiceIndex; // 0-based
 
   switch (evt.buttonIndex)
   {
     case 8: // Toggle envelope on/off
-      voiceConfig->hasEnvelope = !voiceConfig->hasEnvelope;
+      voiceConfig.hasEnvelope = !voiceConfig.hasEnvelope;
       Serial.print("Voice "); Serial.print(displayVoiceNumber);
-      Serial.print(" envelope "); Serial.println(voiceConfig->hasEnvelope ? "ON" : "OFF");
+      Serial.print(" envelope "); Serial.println(voiceConfig.hasEnvelope ? "ON" : "OFF");
       break;
 
     case 9: // Toggle overdrive
-      voiceConfig->hasOverdrive = !voiceConfig->hasOverdrive;
+      voiceConfig.hasOverdrive = !voiceConfig.hasOverdrive;
       Serial.print("Voice "); Serial.print(displayVoiceNumber);
-      Serial.print(" overdrive "); Serial.println(voiceConfig->hasOverdrive ? "ON" : "OFF");
+      Serial.print(" overdrive "); Serial.println(voiceConfig.hasOverdrive ? "ON" : "OFF");
       break;
 
     case 10: // Toggle wavefolder
-      voiceConfig->hasWavefolder = !voiceConfig->hasWavefolder;
+      voiceConfig.hasWavefolder = !voiceConfig.hasWavefolder;
       Serial.print("Voice "); Serial.print(displayVoiceNumber);
-      Serial.print(" wavefolder "); Serial.println(voiceConfig->hasWavefolder ? "ON" : "OFF");
+      Serial.print(" wavefolder "); Serial.println(voiceConfig.hasWavefolder ? "ON" : "OFF");
       break;
 
     case 11: // Cycle filter mode
     {
-      int currentFilterMode = static_cast<int>(voiceConfig->filterMode);
+      int currentFilterMode = static_cast<int>(voiceConfig.filterMode);
       currentFilterMode = (currentFilterMode + 1) % UIEventConstants::FILTER_MODE_COUNT;
-      voiceConfig->filterMode = static_cast<daisysp::LadderFilter::FilterMode>(currentFilterMode);
+      voiceConfig.filterMode = static_cast<daisysp::LadderFilter::FilterMode>(currentFilterMode);
 
       const char *filterModeNames[] = {"LP12", "LP24", "LP36", "BP12", "BP24"};
       Serial.print("Voice "); Serial.print(displayVoiceNumber);
@@ -683,13 +685,13 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
 
     case 12: // Step filter resonance
     {
-      float currentResonance = voiceConfig->filterRes;
+      float currentResonance = voiceConfig.filterRes;
       currentResonance += UIEventConstants::FILTER_RESONANCE_STEP;
       if (currentResonance > UIEventConstants::FILTER_RESONANCE_MAX)
       {
         currentResonance = UIEventConstants::FILTER_RESONANCE_MIN;
       }
-      voiceConfig->filterRes = currentResonance;
+      voiceConfig.filterRes = currentResonance;
       // Serial.print("Voice "); Serial.print(displayVoiceNumber);
       // Serial.print(" filter resonance: "); Serial.println(currentResonance, 2);
     }
@@ -730,7 +732,7 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
   }
 
   // Apply updated configuration back to voice manager
-  voiceManager->setVoiceConfig(currentVoiceId, *voiceConfig);
+  voiceManager->setVoiceConfig(currentVoiceId, voiceConfig);
 }
 /**
  * @brief Poll for long press detection on randomize buttons
@@ -853,7 +855,7 @@ static void handleVoiceSwitch(const MatrixButtonEvent &evt, UIState &uiState, Mi
   uiState.voiceSwitchTriggered = true;                                                    // Set flag for immediate OLED update
 
   //Serial.print("Switched to Voice ");
-//  Serial.println(uiState.selectedVoiceIndex + 1);
+//  Serial.println(uiState.selectedVoiceIndex);
 }
 
 static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount)

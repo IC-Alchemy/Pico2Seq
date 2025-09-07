@@ -7,7 +7,7 @@
 #include "VoicePresets.h"
 
 /**
- * Constructor for VoiceManager
+ * @brief Constructor for VoiceManager
  * Initializes voice management system with specified maximum voice capacity
  *
  * @param maxVoices Maximum number of simultaneous voices this manager can handle
@@ -15,15 +15,15 @@
  * Pre-allocates vector capacity to avoid runtime allocations on embedded systems
  */
 VoiceManager::VoiceManager(uint8_t maxVoices)
-    : maxVoiceCount(maxVoices), nextVoiceId(1), sampleRate(48000.0f), globalVolume(1.0f)
+    : maxVoiceCount(maxVoices), nextVoiceId(1), sampleRate(48000.0f), globalVolume(.9f)
 {
     voices.reserve(maxVoiceCount);
 
     // Initialize compressor with default settings for a tight, punchy mix
     compressor.Init(sampleRate);
-    compressor.SetThreshold(-25.0f);
-    compressor.SetRatio(3.0f);
-    compressor.SetAttack(0.040f);  // 50 ms
+    compressor.SetThreshold(-16.0f);
+    compressor.SetRatio(1.5f);
+    compressor.SetAttack(0.050f);  // 50 ms
     compressor.SetRelease(0.002f); // 1 ms
     compressor.AutoMakeup(true);
 
@@ -328,7 +328,7 @@ void VoiceManager::init(float sr)
     // Reinitialize compressor for new sample rate and reapply settings
     compressor.Init(sampleRate);
     compressor.SetThreshold(-15.0f);
-    compressor.SetRatio(6.0f);
+    compressor.SetRatio(2.0f);
     compressor.SetAttack(0.002f);  // 2 ms
     compressor.SetRelease(0.200f); // 200 ms
     compressor.AutoMakeup(true);
@@ -370,6 +370,9 @@ void VoiceManager::init(float sr)
          }
      }
 
+
+     return mixedOutput * .3f;
+/*    
      // Efficient compressor usage:
      // - Update compressor internal state (envelope/gain) every compressorUpdateInterval samples
      //   by calling Process(). That updates the internal gain_.
@@ -398,7 +401,9 @@ void VoiceManager::init(float sr)
      }
 
      // Final global volume and hard clamp to safe output range
-     return std::clamp(compressed * globalVolume, -1.0f, 1.0f);
+     return compressed * globalVolume;
+*/
+
  }
 
 /**

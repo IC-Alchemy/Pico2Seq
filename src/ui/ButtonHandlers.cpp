@@ -96,43 +96,45 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState& state) 
 
   uint8_t currentVoiceId = voiceSystem.getVoiceId(voiceIndex);
 
-  VoiceConfig* config = voiceManager->getVoiceConfig(currentVoiceId);
-  if (!config)
+  VoiceConfig* liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
+  if (!liveCfg)
     return;
+  // Work on a local copy to avoid mutating live config from UI thread
+  VoiceConfig config = *liveCfg;
 
   // Set UI state for voice parameter mode feedback
   state.inVoiceParameterMode     = true;
   state.lastVoiceParameterButton = paramIndex;
   state.voiceParameterChangeTime = millis();
 
-  uint8_t displayVoiceNumber = static_cast<uint8_t>(voiceIndex + 1);
+  uint8_t displayVoiceNumber = static_cast<uint8_t>(voiceIndex); // 0-based
 
   switch (paramIndex) {
   case 8: // Toggle hasEnvelope per voice
-    config->hasEnvelope = !config->hasEnvelope;
+    config.hasEnvelope = !config.hasEnvelope;
     Serial.print("Voice ");
     Serial.print(displayVoiceNumber);
     Serial.print(" envelope ");
-    Serial.println(config->hasEnvelope ? "ON" : "OFF");
+    Serial.println(config.hasEnvelope ? "ON" : "OFF");
     break;
   case 9: // Toggle hasOverdrive
-    config->hasOverdrive = !config->hasOverdrive;
+    config.hasOverdrive = !config.hasOverdrive;
     Serial.print("Voice ");
     Serial.print(displayVoiceNumber);
     Serial.print(" overdrive ");
-    Serial.println(config->hasOverdrive ? "ON" : "OFF");
+    Serial.println(config.hasOverdrive ? "ON" : "OFF");
     break;
   case 10: // Toggle hasWavefolder
-    config->hasWavefolder = !config->hasWavefolder;
+    config.hasWavefolder = !config.hasWavefolder;
     Serial.print("Voice ");
     Serial.print(displayVoiceNumber);
     Serial.print(" wavefolder ");
-    Serial.println(config->hasWavefolder ? "ON" : "OFF");
+    Serial.println(config.hasWavefolder ? "ON" : "OFF");
     break;
   case 11: { // Cycle through filterMode
-    int currentMode    = static_cast<int>(config->filterMode);
+    int currentMode    = static_cast<int>(config.filterMode);
     currentMode        = (currentMode + 1) % 5; // 5 filter modes
-    config->filterMode = static_cast<daisysp::LadderFilter::FilterMode>(currentMode);
+    config.filterMode = static_cast<daisysp::LadderFilter::FilterMode>(currentMode);
 
     const char* filterNames[] = {"LP12", "LP24", "LP36", "BP12", "BP24"};
     Serial.print("Voice ");
@@ -141,11 +143,11 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState& state) 
     Serial.println(filterNames[currentMode]);
   } break;
   case 12: { // Cycle through filter resonance amounts
-    float currentResonance = config->filterRes;
+    float currentResonance = config.filterRes;
     currentResonance += 0.1f;
     if (currentResonance > 1.0f)
       currentResonance = 0.0f;
-    config->filterRes = currentResonance;
+    config.filterRes = currentResonance;
 
     Serial.print("Voice ");
     Serial.print(displayVoiceNumber);
@@ -162,7 +164,7 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState& state) 
   }
 
   // Apply the updated configuration to the voice to persist changes
-  voiceManager->setVoiceConfig(currentVoiceId, *config);
+  voiceManager->setVoiceConfig(currentVoiceId, config);
 }
 
 // Handle generic control buttons by button id
