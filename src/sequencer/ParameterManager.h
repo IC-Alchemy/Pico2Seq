@@ -7,7 +7,8 @@
 /**
  * @brief Manages all parameter tracks for a sequencer, providing thread-safe access.
  */
-class ParameterManager {
+class ParameterManager
+{
 public:
     ParameterManager(); // Constructor to initialize the spin lock
 
@@ -26,7 +27,7 @@ public:
 
 private:
     ParameterTrack<SequencerConstants::MAX_STEPS_COUNT> _tracks[static_cast<size_t>(ParamId::Count)];
-    mutable spin_lock_t* _lock; // mutable because const methods (like getValue) need to acquire the lock
+    mutable spin_lock_t *_lock; // mutable because const methods (like getValue) need to acquire the lock
 };
 
 #endif // PARAMETER_MANAGER_H

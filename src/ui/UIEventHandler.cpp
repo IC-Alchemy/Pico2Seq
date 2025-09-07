@@ -19,7 +19,7 @@
 namespace UIEventConstants
 {
   // Voice system constants
-  static constexpr uint8_t MAX_VOICES = 4;
+  static constexpr uint8_t MAX_VOICES = 4; // Number of voices supported by the hardware - used for LED feedback and settings menu navigation (4 voices)
   static constexpr uint8_t VOICE_1_INDEX = 0;
   static constexpr uint8_t VOICE_2_INDEX = 1;
   static constexpr uint8_t VOICE_3_INDEX = 2;
@@ -405,8 +405,10 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
     if (currentActiveSequencerPtr)
     {
       uint8_t requested = static_cast<uint8_t>(evt.buttonIndex + 1); // 1..16
-      if (requested < 2) requested = 2;
-      if (requested > 16) requested = 16;
+      if (requested < 2)
+        requested = 2;
+      if (requested > 16)
+        requested = 16;
       currentActiveSequencerPtr->setParameterStepCount(ParamId::Gate, requested);
       // Optional UI feedback flags
       uiState.resetStepsLightsFlag = true;
@@ -427,12 +429,12 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
    */
   if (uiState.settingsMode && evt.type == MATRIX_BUTTON_PRESSED)
   {
-    // Buttons 0-3 always select voice index (0..3)
-    if (evt.buttonIndex < UIEventConstants::SETTINGS_MENU_VOICE_COUNT)
+    // Buttons 0-3 always select voice index (0..3) - used for both voice selection and voice parameter navigation (0-3)
+    if (evt.buttonIndex < UIEventConstants::MAX_VOICES)
     {
       uiState.selectedVoiceIndex = evt.buttonIndex;
       uiState.isVoice2Mode = (uiState.selectedVoiceIndex == UIEventConstants::VOICE_2_INDEX); // legacy compat
-      uiState.settingsMenuIndex = evt.buttonIndex; // used by OLED/LED menus
+      uiState.settingsMenuIndex = evt.buttonIndex;                                            // used by OLED/LED menus
       return true;
     }
 
@@ -562,7 +564,6 @@ static void handleAS5600ParameterControl(UIState &uiState)
       static_cast<uint8_t>(AS5600ParameterMode::COUNT));
 
   uiState.lastAS5600ButtonPressTime = millis();
-
 }
 
 // =======================
@@ -580,8 +581,8 @@ static void toggleSettingsSubMode(UIState &uiState)
       (uiState.currentSubMode == Sub::PRESET_SELECTION) ? Sub::VOICE_PARAMETER : Sub::PRESET_SELECTION;
 
   // Legacy flags kept in sync for existing renderers/logic
-  uiState.inPresetSelection     = (uiState.currentSubMode == Sub::PRESET_SELECTION);
-  uiState.inVoiceParameterMode  = (uiState.currentSubMode == Sub::VOICE_PARAMETER);
+  uiState.inPresetSelection = (uiState.currentSubMode == Sub::PRESET_SELECTION);
+  uiState.inVoiceParameterMode = (uiState.currentSubMode == Sub::VOICE_PARAMETER);
 }
 
 /**
@@ -592,7 +593,8 @@ static void toggleSettingsSubMode(UIState &uiState)
  */
 static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState)
 {
-  if (evt.type != MATRIX_BUTTON_PRESSED) return;
+  if (evt.type != MATRIX_BUTTON_PRESSED)
+    return;
 
   const uint8_t baseButton = 8;
   const uint8_t presetCount = VoicePresets::getPresetCount();
@@ -613,7 +615,7 @@ static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState
     }
 
     // Stay in Preset Selection mode; do not auto-switch.
-    uiState.inPresetSelection    = true;  // legacy flag mirror
+    uiState.inPresetSelection = true;     // legacy flag mirror
     uiState.inVoiceParameterMode = false; // legacy flag mirror
   }
 }
@@ -626,7 +628,8 @@ static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState
  */
 static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState, VoiceManager *voiceManager)
 {
-  if (evt.type != MATRIX_BUTTON_PRESSED) return;
+  if (evt.type != MATRIX_BUTTON_PRESSED)
+    return;
 
   // Only respond to parameter button range 8..24; active range 8..15 as defined today
   if (evt.buttonIndex < UIEventConstants::VOICE_PARAM_BUTTON_MIN ||
@@ -640,7 +643,8 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
   const uint8_t selectedVoiceIndex = uiState.selectedVoiceIndex;
   const uint8_t currentVoiceId = voiceSystem.getVoiceId(selectedVoiceIndex);
   VoiceConfig *liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
-  if (!liveCfg) return;
+  if (!liveCfg)
+    return;
   // Work on a local copy to avoid mutating live config from UI thread
   VoiceConfig voiceConfig = *liveCfg;
 
@@ -653,82 +657,107 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
 
   switch (evt.buttonIndex)
   {
-    case 8: // Toggle envelope on/off
-      voiceConfig.hasEnvelope = !voiceConfig.hasEnvelope;
-      Serial.print("Voice "); Serial.print(displayVoiceNumber);
-      Serial.print(" envelope "); Serial.println(voiceConfig.hasEnvelope ? "ON" : "OFF");
-      break;
-
-    case 9: // Toggle overdrive
-      voiceConfig.hasOverdrive = !voiceConfig.hasOverdrive;
-      Serial.print("Voice "); Serial.print(displayVoiceNumber);
-      Serial.print(" overdrive "); Serial.println(voiceConfig.hasOverdrive ? "ON" : "OFF");
-      break;
-
-    case 10: // Toggle wavefolder
-      voiceConfig.hasWavefolder = !voiceConfig.hasWavefolder;
-      Serial.print("Voice "); Serial.print(displayVoiceNumber);
-      Serial.print(" wavefolder "); Serial.println(voiceConfig.hasWavefolder ? "ON" : "OFF");
-      break;
-
-    case 11: // Cycle filter mode
-    {
-      int currentFilterMode = static_cast<int>(voiceConfig.filterMode);
-      currentFilterMode = (currentFilterMode + 1) % UIEventConstants::FILTER_MODE_COUNT;
-      voiceConfig.filterMode = static_cast<daisysp::LadderFilter::FilterMode>(currentFilterMode);
-
-      const char *filterModeNames[] = {"LP12", "LP24", "LP36", "BP12", "BP24"};
-      Serial.print("Voice "); Serial.print(displayVoiceNumber);
-      Serial.print(" filter mode: "); Serial.println(filterModeNames[currentFilterMode]);
-    }
+  case 8: // Toggle envelope on/off
+    voiceConfig.hasEnvelope = !voiceConfig.hasEnvelope;
+    Serial.print("Voice ");
+    Serial.print(displayVoiceNumber);
+    Serial.print(" envelope ");
+    Serial.println(voiceConfig.hasEnvelope ? "ON" : "OFF");
     break;
 
-    case 12: // Step filter resonance
-    {
-      float currentResonance = voiceConfig.filterRes;
-      currentResonance += UIEventConstants::FILTER_RESONANCE_STEP;
-      if (currentResonance > UIEventConstants::FILTER_RESONANCE_MAX)
-      {
-        currentResonance = UIEventConstants::FILTER_RESONANCE_MIN;
-      }
-      voiceConfig.filterRes = currentResonance;
-      // Serial.print("Voice "); Serial.print(displayVoiceNumber);
-      // Serial.print(" filter resonance: "); Serial.println(currentResonance, 2);
-    }
+  case 9: // Toggle overdrive
+    voiceConfig.hasOverdrive = !voiceConfig.hasOverdrive;
+    Serial.print("Voice ");
+    Serial.print(displayVoiceNumber);
+    Serial.print(" overdrive ");
+    Serial.println(voiceConfig.hasOverdrive ? "ON" : "OFF");
     break;
 
-    case 13: // Set delay time to dotted quarter
-    {
-      float currentTempo = uClock.getTempo();
-      if (currentTempo < 1.0f) currentTempo = 1.0f;
-      const float dottedQuarterMs = 90000.0f / currentTempo; // 1.5 * (60000/BPM)
-      delayTarget = dottedQuarterMs * 48.0f; // 48kHz -> 48 samples/ms
-      // Serial.print("Delay time set to dotted quarter: "); Serial.println(dottedQuarterMs, 2);
-    }
+  case 10: // Toggle wavefolder
+    voiceConfig.hasWavefolder = !voiceConfig.hasWavefolder;
+    Serial.print("Voice ");
+    Serial.print(displayVoiceNumber);
+    Serial.print(" wavefolder ");
+    Serial.println(voiceConfig.hasWavefolder ? "ON" : "OFF");
     break;
 
-    case 14: // Tempo -5 with floor at 55
-    {
-      float currentTempo = uClock.getTempo();
-      uClock.setTempo(currentTempo - 5);
-      if (currentTempo < 55) { uClock.setTempo(55); }
-    }
-    break;
+  case 11: // Cycle filter mode
+  {
+    int currentFilterMode = static_cast<int>(voiceConfig.filterMode);
+    currentFilterMode = (currentFilterMode + 1) % UIEventConstants::FILTER_MODE_COUNT;
+    voiceConfig.filterMode = static_cast<daisysp::LadderFilter::FilterMode>(currentFilterMode);
 
-    case 15: // Tempo +5 with ceiling at 160
-    {
-      float currentTempo = uClock.getTempo();
-      uClock.setTempo(currentTempo + 5);
-      if (currentTempo > 160) { uClock.setTempo(160); }
-    }
-    break;
+    const char *filterModeNames[] = {"LP12", "LP24", "LP36", "BP12", "BP24"};
+    Serial.print("Voice ");
+    Serial.print(displayVoiceNumber);
+    Serial.print(" filter mode: ");
+    Serial.println(filterModeNames[currentFilterMode]);
+  }
+  break;
 
-    default:
-      // Buttons 16-24 reserved (ignored)
-      Serial.print("Voice parameter button ");
-      Serial.print(evt.buttonIndex);
-      Serial.println(" - reserved");
-      break;
+  case 12: // Step filter resonance
+  {
+    float currentResonance = voiceConfig.filterRes;
+    currentResonance += UIEventConstants::FILTER_RESONANCE_STEP;
+    if (currentResonance > UIEventConstants::FILTER_RESONANCE_MAX)
+    {
+      currentResonance = UIEventConstants::FILTER_RESONANCE_MIN;
+    }
+    voiceConfig.filterRes = currentResonance;
+    // Serial.print("Voice "); Serial.print(displayVoiceNumber);
+    // Serial.print(" filter resonance: "); Serial.println(currentResonance, 2);
+  }
+  break;
+
+  case 13: // Set delay time to dotted quarter
+  {
+    float currentTempo = uClock.getTempo();
+    if (currentTempo < 1.0f)
+      currentTempo = 1.0f;
+    const float dottedQuarterMs = 90000.0f / currentTempo; // 1.5 * (60000/BPM)
+    delayTarget = dottedQuarterMs * 48.0f;                 // 48kHz -> 48 samples/ms
+    // Serial.print("Delay time set to dotted quarter: "); Serial.println(dottedQuarterMs, 2);
+  }
+  break;
+
+  case 14: // Tempo -5 with floor at 55
+  {
+    float currentTempo = uClock.getTempo();
+    uClock.setTempo(currentTempo - 5);
+    if (currentTempo < 45)
+    {
+      uClock.setTempo(45);
+    }
+  }
+  break;
+
+  case 15: // Tempo +5 with ceiling at 160
+  {
+    float currentTempo = uClock.getTempo();
+    uClock.setTempo(currentTempo + 5);
+    if (currentTempo > 200)
+    {
+      uClock.setTempo(200);
+    }
+  }
+  break;
+  case 16:
+  {
+    voiceConfig.wavefolderOffset += 0.25f;
+    if (voiceConfig.wavefolderOffset > 5.0f)
+
+    {
+      voiceConfig.wavefolderOffset = 0.0f;
+    }
+  }
+  break;
+
+  default:
+    // Buttons 16-24 reserved (ignored)
+    Serial.print("Voice parameter button ");
+    Serial.print(evt.buttonIndex);
+    Serial.println(" - reserved");
+    break;
   }
 
   // Apply updated configuration back to voice manager
@@ -770,7 +799,6 @@ void pollUIHeldButtons(UIState &uiState, Sequencer *const *sequencers, size_t se
           targetSequencer->resetAllSteps();
           uiState.resetStepsLightsFlag = true;
           uiState.randomizeResetTriggered[voiceIndex] = true;
-
         }
       }
     }
@@ -797,8 +825,7 @@ void pollUIHeldButtons(UIState &uiState, Sequencer *const *sequencers, size_t se
   else if (!uiState.as5600ControlWasPressed && uiState.gateSeqLengthMode)
   {
     uiState.gateSeqLengthMode = false;
-          uiState.selectedStepForEdit = -1;
-
+    uiState.selectedStepForEdit = -1;
   }
 }
 
@@ -854,8 +881,8 @@ static void handleVoiceSwitch(const MatrixButtonEvent &evt, UIState &uiState, Mi
   uiState.selectedStepForEdit = -1;                                                       // Clear step editing when switching voices
   uiState.voiceSwitchTriggered = true;                                                    // Set flag for immediate OLED update
 
-  //Serial.print("Switched to Voice ");
-//  Serial.println(uiState.selectedVoiceIndex);
+  // Serial.print("Switched to Voice ");
+  //  Serial.println(uiState.selectedVoiceIndex);
 }
 
 static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount)
@@ -878,7 +905,6 @@ static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, 
 
     // Apply the new slide value to the step
     currentActiveSequencer.setStepParameterValue(ParamId::Slide, evt.buttonIndex, newSlideValue);
-
   }
   else
   {

@@ -66,7 +66,6 @@ bool OLEDDisplay::begin()
   return true;
 }
 
-
 void OLEDDisplay::clear()
 {
   if (!isDisplayInitialized)
@@ -78,13 +77,11 @@ void OLEDDisplay::clear()
   displayHardware.display();
 }
 
-
 void OLEDDisplay::setVoiceManager(VoiceManager *voiceManager)
 {
   voiceManagerReference = voiceManager;
   Serial.println("OLED: Voice manager reference set");
 }
-
 
 void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceManager *voiceManager)
 {
@@ -97,8 +94,8 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
   displayHardware.setTextSize(1);
   displayHardware.setTextColor(SH110X_WHITE);
 
-// Draw professional border
- displayHardware.drawRect(0, 0, OLEDConstants::SCREEN_WIDTH, OLEDConstants::SCREEN_HEIGHT, SH110X_WHITE);
+  // Draw professional border
+  displayHardware.drawRect(0, 0, OLEDConstants::SCREEN_WIDTH, OLEDConstants::SCREEN_HEIGHT, SH110X_WHITE);
 
   // Header with current voice indicator + sub-mode banner
   displayHardware.setCursor(OLEDConstants::TEXT_MARGIN - 3, 2);
@@ -185,8 +182,6 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
     default:
       break;
     }
-
-
   }
 
   displayHardware.display();
@@ -228,7 +223,6 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
   displayHardware.setTextSize(1);
   displayHardware.setTextColor(SH110X_WHITE);
 
-
   // Priority-based display logic with SettingsSubMode handling
   //
   // New sub-mode architecture (UIState::SettingsSubMode):
@@ -239,8 +233,8 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
   // backward compatibility, but currentSubMode is the source of truth.
   if (uiState.settingsMode)
   {
-    const bool subPreset = (uiState.currentSubMode == UIState::SettingsSubMode::PRESET_SELECTION) || uiState.inPresetSelection; // legacy compat
-    const bool subParam  = (uiState.currentSubMode == UIState::SettingsSubMode::VOICE_PARAMETER)  || uiState.inVoiceParameterMode; // legacy compat
+    const bool subPreset = (uiState.currentSubMode == UIState::SettingsSubMode::PRESET_SELECTION) || uiState.inPresetSelection;  // legacy compat
+    const bool subParam = (uiState.currentSubMode == UIState::SettingsSubMode::VOICE_PARAMETER) || uiState.inVoiceParameterMode; // legacy compat
 
     if (subParam && voiceManager)
     {
@@ -261,8 +255,8 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
   {
     // Determine current sequencer and its gate length
     const Sequencer &currentSeq = (uiState.selectedVoiceIndex == 0) ? seq1 : (uiState.selectedVoiceIndex == 1) ? seq2
-                                                                             : (uiState.selectedVoiceIndex == 2)   ? seq3
-                                                                                                                   : seq4;
+                                                                         : (uiState.selectedVoiceIndex == 2)   ? seq3
+                                                                                                               : seq4;
     const uint8_t gateLen = currentSeq.getParameterStepCount(ParamId::Gate);
 
     // Header
@@ -299,7 +293,6 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     displayHardware.display();
     return;
   }
-
 
   const ParamButtonMapping *heldParam = getHeldParameterButton(uiState);
 
@@ -508,8 +501,7 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
   if (uiState.inPresetSelection)
   {
     // Enhanced preset selection with cycling interface
-    int currentPresetIndex = (uiState.settingsMenuIndex < UIState::MAX_VOICES) ?
-                            uiState.voicePresetIndices[uiState.settingsMenuIndex] : 0;
+    int currentPresetIndex = (uiState.settingsMenuIndex < UIState::MAX_VOICES) ? uiState.voicePresetIndices[uiState.settingsMenuIndex] : 0;
 
     // Header with voice info
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, OLEDConstants::TEXT_MARGIN);
@@ -589,9 +581,7 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
 
       // Current preset name for each voice
       displayHardware.setCursor(12, yPosition);
-      const char *presetName = (voiceIndex < UIState::MAX_VOICES) ?
-                            VoicePresets::getPresetName(uiState.voicePresetIndices[voiceIndex]) :
-                            "Unknown";
+      const char *presetName = (voiceIndex < UIState::MAX_VOICES) ? VoicePresets::getPresetName(uiState.voicePresetIndices[voiceIndex]) : "Unknown";
       displayHardware.print(presetName);
     }
 
@@ -614,7 +604,7 @@ void OLEDDisplay::displayVoiceParameterInfo(const UIState &uiState, VoiceManager
   // Get current voice configuration
   uint8_t selected = uiState.selectedVoiceIndex;
   uint8_t currentVoiceId = (selected == 0) ? leadVoiceId : (selected == 1) ? bassVoiceId
-                                                       : voiceSystem.getVoiceId(selected);
+                                                                           : voiceSystem.getVoiceId(selected);
   VoiceConfig *config = voiceManager->getVoiceConfig(currentVoiceId);
 
   if (!config)
@@ -720,7 +710,7 @@ void OLEDDisplay::forceUpdate(const UIState &uiState, VoiceManager *voiceManager
   if (uiState.settingsMode)
   {
     const bool subPreset = (uiState.currentSubMode == UIState::SettingsSubMode::PRESET_SELECTION) || uiState.inPresetSelection;
-    const bool subParam  = (uiState.currentSubMode == UIState::SettingsSubMode::VOICE_PARAMETER)  || uiState.inVoiceParameterMode;
+    const bool subParam = (uiState.currentSubMode == UIState::SettingsSubMode::VOICE_PARAMETER) || uiState.inVoiceParameterMode;
 
     if (subParam && voiceManager)
     {
@@ -732,8 +722,6 @@ void OLEDDisplay::forceUpdate(const UIState &uiState, VoiceManager *voiceManager
     }
     displayHardware.display();
   }
-
-
 }
 
 void OLEDDisplay::onVoiceParameterChanged(uint8_t voiceId, const VoiceState &state)
@@ -798,14 +786,6 @@ void OLEDDisplay::onVoiceParameterChanged(uint8_t voiceId, const VoiceState &sta
 
 
       */
-  // Force immediate display update if we have the voice manager
-  // This will trigger the display to show the current parameter states
-  if (voiceManagerReference)
-  {
-    Serial.println("OLED: Triggering immediate display refresh");
-    // Note: The actual display update will be handled by the main loop
-    // calling forceUpdate() with the current UIState
-  }
 }
 
 void OLEDDisplay::onVoiceSwitched(const UIState &uiState, VoiceManager *voiceManager)
@@ -829,7 +809,7 @@ void OLEDDisplay::onVoiceSwitched(const UIState &uiState, VoiceManager *voiceMan
   if (uiState.settingsMode)
   {
     const bool subPreset = (uiState.currentSubMode == UIState::SettingsSubMode::PRESET_SELECTION) || uiState.inPresetSelection;
-    const bool subParam  = (uiState.currentSubMode == UIState::SettingsSubMode::VOICE_PARAMETER)  || uiState.inVoiceParameterMode;
+    const bool subParam = (uiState.currentSubMode == UIState::SettingsSubMode::VOICE_PARAMETER) || uiState.inVoiceParameterMode;
 
     if (subParam && voiceManager)
     {
@@ -841,8 +821,6 @@ void OLEDDisplay::onVoiceSwitched(const UIState &uiState, VoiceManager *voiceMan
     }
     displayHardware.display();
   }
-
-
 }
 
 void OLEDDisplay::onVoiceSwitched(uint8_t newVoiceId)

@@ -95,9 +95,6 @@ struct VoiceSystem
         return (voiceIndex < 2) ? gateTimers[voiceIndex] : dummy;
     }
 
-
-
-
     void stopAllGates()
     {
         for (uint8_t i = 0; i < 2; i++)

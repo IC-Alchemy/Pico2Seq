@@ -10,12 +10,22 @@
  * Manages envelope trigger/release states for note events.
  * Uses stack allocation for embedded performance.
  */
-class EnvelopeController {
+class EnvelopeController
+{
 public:
-    void trigger() { triggered = true; released = false; }
-    void release() { triggered = false; released = true; }
+    void trigger()
+    {
+        triggered = true;
+        released = false;
+    }
+    void release()
+    {
+        triggered = false;
+        released = true;
+    }
     bool isTriggered() const { return triggered; }
     bool isReleased() const { return released; }
+
 private:
     bool triggered = false;
     bool released = true;
@@ -27,12 +37,30 @@ private:
  * Tracks note duration in sequencer pulses for precise gate timing.
  * Automatically deactivates when duration expires.
  */
-class NoteDurationTracker {
+class NoteDurationTracker
+{
 public:
-    void start(uint16_t duration) { counter = duration; active = true; }
-    void tick() { if (active && counter > 0) { --counter; if (counter == 0) active = false; } }
+    void start(uint16_t duration)
+    {
+        counter = duration;
+        active = true;
+    }
+    void tick()
+    {
+        if (active && counter > 0)
+        {
+            --counter;
+            if (counter == 0)
+                active = false;
+        }
+    }
     bool isActive() const { return active && counter > 0; }
-    void reset() { counter = 0; active = false; }
+    void reset()
+    {
+        counter = 0;
+        active = false;
+    }
+
 private:
     uint16_t counter = 0;
     bool active = false;
@@ -52,7 +80,8 @@ private:
  * - Thread-safe operation for dual-core architecture
  * - Dual voice support for layered compositions
  */
-class Sequencer {
+class Sequencer
+{
 public:
     Sequencer();
     Sequencer(uint8_t channel);
@@ -68,7 +97,7 @@ public:
      * @param stepIdx Step index to play (0-63)
      * @param voiceState Output voice state structure
      */
-    void playStepNow(uint8_t stepIdx,  VoiceState* voiceState);
+    void playStepNow(uint8_t stepIdx, VoiceState *voiceState);
 
     /**
      * @brief Toggle gate parameter for a specific step
@@ -89,8 +118,8 @@ public:
     void randomizeParameters();
     // Note/Envelope handling
     void startNote(uint8_t note, uint8_t velocity, uint16_t duration);
-    void handleNoteOff( VoiceState* voiceState);
-    void tickNoteDuration( VoiceState* voiceState);
+    void handleNoteOff(VoiceState *voiceState);
+    void tickNoteDuration(VoiceState *voiceState);
     bool isNotePlaying() const;
 
     // MIDI callback function pointers for note-off events
@@ -126,7 +155,7 @@ public:
                      bool is_filter_button_held, bool is_attack_button_held,
                      bool is_decay_button_held, bool is_octave_button_held,
                      int current_selected_step_for_edit,
-                      VoiceState *voiceState);
+                     VoiceState *voiceState);
 
     /**
      * @brief Advance sequencer by one step using UIState for button states
@@ -138,10 +167,10 @@ public:
      * @param mm_distance Distance sensor reading (0-400mm range)
      * @param uiState UI state containing button states and selected step
      * @param voiceState Output voice state structure for audio synthesis
-  
+
      */
     void advanceStep(uint8_t current_uclock_step, int mm_distance,
-                     const UIState& uiState, VoiceState *voiceState);
+                     const UIState &uiState, VoiceState *voiceState);
 
     uint8_t getCurrentStep() const { return currentStep; }
 
@@ -151,7 +180,6 @@ public:
      * @return Current step index for the parameter (0 to stepCount-1)
      */
     uint8_t getCurrentStepForParameter(ParamId paramId) const;
-
 
     // Get step data
     Step getStep(uint8_t stepIdx) const;
@@ -170,7 +198,7 @@ private:
     ParameterManager parameterManager;
     EnvelopeController envelope;
     bool running;
-    uint8_t currentStep; // Global step counter (used for Gate parameter timing)
+    uint8_t currentStep;                                              // Global step counter (used for Gate parameter timing)
     uint8_t currentStepPerParam[static_cast<size_t>(ParamId::Count)]; // Independent step counters for each parameter
     int8_t lastNote;
     int8_t currentNote;
@@ -179,9 +207,8 @@ private:
     NoteDurationTracker noteDuration;
     bool previousStepHadSlide; // Track if previous step had slide enabled
 
-
     // Internal methods
-    void processStep(uint8_t stepIdx,  VoiceState* voiceState);
+    void processStep(uint8_t stepIdx, VoiceState *voiceState);
 };
 
 #endif // SEQUENCER_H

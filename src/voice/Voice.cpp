@@ -187,8 +187,6 @@ void Voice::setConfig(const VoiceConfig &cfg)
   configPending_.store(true, std::memory_order_release);
 }
 
-
-
 // Injected scale-data setters (defined out-of-line)
 void Voice::setScaleTable(const int (*table)[48], size_t scaleCount)
 {
@@ -339,7 +337,6 @@ void Voice::updateFilter(float envelopeValue)
   }
 }
 
-
 float Voice::mixOscillators()
 {
   float mixedOscillators = 0.0f;
@@ -372,7 +369,7 @@ float Voice::mixOscillators()
           lastAppliedOscFreq_[i] = f;
           // Keep slew state consistent
           freqSlew[i].currentFreq = f;
-          freqSlew[i].targetFreq  = f;
+          freqSlew[i].targetFreq = f;
         }
       }
       appliedPitchGen_ = gen;
@@ -423,12 +420,10 @@ void Voice::applyEffects(float &signal)
   {
     signal = wavefolder.Process(signal);
   }
-  if (config.hasOverdrive )
+  if (config.hasOverdrive)
   {
-    signal = overdrive.Process(signal* config.overdriveGain) ;
+    signal = overdrive.Process(signal * config.overdriveGain);
   }
-
-
 
   // Level adjustments removed from here; handled in finalizeOutput
 }
@@ -441,13 +436,13 @@ void Voice::processEffectsChain(float &signal)
 
 inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept
 {
-float preEffects =signal*envelopeValue;
-    // Apply effects (pre-filter)
-    //    VCA envelope is applied pre effects so that the Wavefolder/ overdrive sounds more dynamic
+  float preEffects = signal * envelopeValue;
+  // Apply effects (pre-filter)
+  //    VCA envelope is applied pre effects so that the Wavefolder/ overdrive sounds more dynamic
   applyEffects(preEffects);
 
   // Apply ladder filter
-  float filteredSignal = filter.Process(preEffects*state.velocityLevel);
+  float filteredSignal = filter.Process(preEffects * state.velocityLevel);
 
   // Apply optional high-pass filter
   float postHpf = filteredSignal;
@@ -457,11 +452,10 @@ float preEffects =signal*envelopeValue;
     postHpf = highPassFilter.High();
   }
 
-  float finalOutput = postHpf * config.outputLevel ;
+  float finalOutput = postHpf * config.outputLevel;
 
   return finalOutput;
 }
-
 
 void Voice::updateOscillatorFrequencies()
 {
@@ -470,7 +464,6 @@ void Voice::updateOscillatorFrequencies()
   updateFrequencyIfNeeded();
 }
 
-
 inline void Voice::applyEnvelopeParameters() noexcept
 {
   // Map normalized parameters to appropriate ranges
@@ -478,7 +471,7 @@ inline void Voice::applyEnvelopeParameters() noexcept
       daisysp::fmap(state.attackTimeSeconds, 0.002f, 0.75f, daisysp::Mapping::LINEAR);
   float decay =
       daisysp::fmap(state.decayTimeSeconds, 0.002f, 0.8f, daisysp::Mapping::LOG);
-  //float release = decay; // Use decay for release in this implementation
+  // float release = decay; // Use decay for release in this implementation
 
   envelope.SetAttackTime(attack, .75f);
   envelope.SetDecayTime(0.075f + (decay * 0.32f));
@@ -486,10 +479,10 @@ inline void Voice::applyEnvelopeParameters() noexcept
 }
 
 inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset,
-                                    int harmony) noexcept
+                                           int harmony) noexcept
 {
   // Clamp input note to valid range [0, SCALE_STEPS-1]
-  const int noteIndex =note;
+  const int noteIndex = note;
 
   // Resolve semitone via direct scale lookup:
   // scaleIndex comes from currentScalePtr if present, otherwise 0.
@@ -545,7 +538,7 @@ void Voice::setFrequency(float frequency)
     {
       // Keep local state consistent but avoid SetFreq here
       freqSlew[i].currentFreq = targetFreq;
-      freqSlew[i].targetFreq  = targetFreq;
+      freqSlew[i].targetFreq = targetFreq;
     }
   }
   // Mark staging dirty so audio thread commits on next frame
@@ -588,7 +581,7 @@ void Voice::updateParameters(const VoiceState &newState)
   paramsGen_.fetch_add(1u, std::memory_order_seq_cst);
 }
 
- // Voice Presets moved to src/voice/VoicePresets.cpp
+// Voice Presets moved to src/voice/VoicePresets.cpp
 
 // -------- Pitch optimization: change detection, cache, and API --------
 // Fields watched: noteIndex, octaveOffset, harmony[0..oscCount-1], oscCount, detuneVersion_,
@@ -600,25 +593,34 @@ void Voice::updateParameters(const VoiceState &newState)
 
 // Compare current/new state & dependencies to snapshot to decide if recompute needed.
 // Note: also watches detuneVersion_ and global Oscillator sample-rate version.
-bool Voice::pitchParamsChanged_(const VoiceState& newState) const
+bool Voice::pitchParamsChanged_(const VoiceState &newState) const
 {
   const uint8_t oscCount = cachedOscCount_;
-  if (pitchSnapshot_.oscCount != oscCount) return true;
-  if (pitchSnapshot_.noteIndex != newState.noteIndex) return true;
-  if (pitchSnapshot_.octaveOffset != newState.octaveOffset) return true;
-  if (pitchSnapshot_.hasSlide != newState.hasSlide) return true;
+  if (pitchSnapshot_.oscCount != oscCount)
+    return true;
+  if (pitchSnapshot_.noteIndex != newState.noteIndex)
+    return true;
+  if (pitchSnapshot_.octaveOffset != newState.octaveOffset)
+    return true;
+  if (pitchSnapshot_.hasSlide != newState.hasSlide)
+    return true;
   // Harmony
   for (uint8_t i = 0; i < oscCount; ++i)
   {
-    if (pitchSnapshot_.harmony[i] != config.harmony[i]) return true;
+    if (pitchSnapshot_.harmony[i] != config.harmony[i])
+      return true;
   }
   // Detune version
-  if (pitchSnapshot_.detuneVersion != detuneVersion_) return true;
+  if (pitchSnapshot_.detuneVersion != detuneVersion_)
+    return true;
   // Sample rate version (from Oscillator)
-  if (pitchSnapshot_.srVersion != daisysp::Oscillator::GetSampleRateVersion()) return true;
+  if (pitchSnapshot_.srVersion != daisysp::Oscillator::GetSampleRateVersion())
+    return true;
   // Pitch bend/mod snapshots
-  if (pitchSnapshot_.bendSemis != pitchBendSemitones_) return true;
-  if (pitchSnapshot_.modSemis  != pitchModSemitones_) return true;
+  if (pitchSnapshot_.bendSemis != pitchBendSemitones_)
+    return true;
+  if (pitchSnapshot_.modSemis != pitchModSemitones_)
+    return true;
 
   return false;
 }
@@ -636,7 +638,7 @@ void Voice::updatePitchCache_()
   // Combined dynamic pitch (bend + mod) in semitones (dynamic; not cached into base)
   const float pitchSemis = pitchBendSemitones_ + pitchModSemitones_;
   // Use standard exp2f(2^x) for portability instead of fastpow2f
-  const float pitchMul   = (pitchSemis == 0.0f) ? 1.0f : exp2f(pitchSemis * (1.0f/12.0f));
+  const float pitchMul = (pitchSemis == 0.0f) ? 1.0f : exp2f(pitchSemis * (1.0f / 12.0f));
 
   // Fill cache: base + per-osc harmony (static) then dynamic multipliers and static detune
   pitchCache_.baseFreq = baseFreq;
@@ -649,25 +651,28 @@ void Voice::updatePitchCache_()
       hfreq = (h == 0) ? baseFreq : calculateNoteFrequency(state.noteIndex, state.octaveOffset, h);
       const float f = hfreq * pitchMul * detuneMul[i];
       pitchCache_.harmonyFreq[i] = hfreq;
-      pitchCache_.finalFreq[i]   = f;
+      pitchCache_.finalFreq[i] = f;
     }
     else
     {
       pitchCache_.harmonyFreq[i] = 0.0f;
-      pitchCache_.finalFreq[i]   = 0.0f;
+      pitchCache_.finalFreq[i] = 0.0f;
     }
   }
 
   // Update snapshot
-  pitchSnapshot_.noteIndex     = state.noteIndex;
-  pitchSnapshot_.octaveOffset  = state.octaveOffset;
-  pitchSnapshot_.oscCount      = oscCount;
-  pitchSnapshot_.hasSlide      = state.hasSlide;
+  pitchSnapshot_.noteIndex = state.noteIndex;
+  pitchSnapshot_.octaveOffset = state.octaveOffset;
+  pitchSnapshot_.oscCount = oscCount;
+  pitchSnapshot_.hasSlide = state.hasSlide;
   pitchSnapshot_.detuneVersion = detuneVersion_;
-  pitchSnapshot_.srVersion     = daisysp::Oscillator::GetSampleRateVersion();
-  pitchSnapshot_.bendSemis     = pitchBendSemitones_;
-  pitchSnapshot_.modSemis      = pitchModSemitones_;
-  for (uint8_t i = 0; i < 3; ++i) { pitchSnapshot_.harmony[i] = config.harmony[i]; }
+  pitchSnapshot_.srVersion = daisysp::Oscillator::GetSampleRateVersion();
+  pitchSnapshot_.bendSemis = pitchBendSemitones_;
+  pitchSnapshot_.modSemis = pitchModSemitones_;
+  for (uint8_t i = 0; i < 3; ++i)
+  {
+    pitchSnapshot_.harmony[i] = config.harmony[i];
+  }
 
   // Bump generation after fully writing cache/snapshot (seq_cst)
   pitchGen_.fetch_add(1u, std::memory_order_seq_cst);
@@ -705,7 +710,8 @@ void Voice::updateFrequencyIfNeeded()
 float Voice::getCachedFrequency(uint8_t oscIndex) const
 {
   const uint8_t oscCount = cachedOscCount_;
-  if (oscIndex >= oscCount) return 0.0f;
+  if (oscIndex >= oscCount)
+    return 0.0f;
   return pitchCache_.finalFreq[oscIndex];
 }
 
@@ -722,7 +728,6 @@ void Voice::setSequencer(Sequencer *seq)
   sequencerOwned.reset();
   sequencer = seq;
 }
-
 
 // Apply staged VoiceState updates from control thread (UI/Sequencer)
 void Voice::applyPendingParams_() noexcept
@@ -757,7 +762,7 @@ void Voice::applyPendingConfig_() noexcept
     config = stagedConfig_;
 
     // Oscillator container pre-sized to 3 in ctor; only use up to config.oscillatorCount
-    cachedOscCount_ =  config.oscillatorCount;
+    cachedOscCount_ = config.oscillatorCount;
     for (size_t i = 0; i < cachedOscCount_; ++i)
     {
       // Re-init to ensure SR/version updates if needed

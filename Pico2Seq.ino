@@ -586,7 +586,7 @@ static inline float clampf(float v, float lo, float hi) noexcept
 static inline int16_t FloatToPcm16(float s) noexcept
 {
     // Optional but recommended safety clamp to handle NaN/Inf and small overs
-s = fminf(1.0f, fmaxf(-1.0f, s));
+    s = fminf(1.0f, fmaxf(-1.0f, s));
 
     // Scale so -1.0 → -32768 and +1.0 → +32767 (after saturation below)
     const float scaled = s * 32768.0f;
@@ -594,7 +594,7 @@ s = fminf(1.0f, fmaxf(-1.0f, s));
     // Round to nearest using hardware rounding (fast on M33 with FPU)
     const int32_t i = (int32_t)lrintf(scaled);
 
- // Saturate to int16 range [-32768, 32767] using single-cycle SSAT
+    // Saturate to int16 range [-32768, 32767] using single-cycle SSAT
     return (int16_t)__SSAT(i, 16);
 }
 /**

@@ -13,38 +13,42 @@
 #include <uClock.h>
 
 // External flags and helpers used by UI
-extern bool                          isClockRunning;
-extern Sequencer                     seq1, seq2, seq3, seq4;
-extern void                          onClockStart();
-extern void                          onClockStop();
-extern uint8_t                       currentScale;
+extern bool isClockRunning;
+extern Sequencer seq1, seq2, seq3, seq4;
+extern void onClockStart();
+extern void onClockStop();
+extern uint8_t currentScale;
 extern std::unique_ptr<VoiceManager> voiceManager;
-extern VoiceSystem                   voiceSystem;
+extern VoiceSystem voiceSystem;
 
 // Begin tracking a randomize press for a voice index [0..3]
-void beginRandomizePress(int voiceIndex, UIState& state) {
+void beginRandomizePress(int voiceIndex, UIState &state)
+{
   if (voiceIndex < 0 || voiceIndex >= UIState::NUM_RANDOMIZE)
     return;
-  state.randomizePressTime[voiceIndex]  = millis();
+  state.randomizePressTime[voiceIndex] = millis();
   state.randomizeWasPressed[voiceIndex] = true;
 }
 
 // End tracking for a randomize press and clear flags
-void endRandomizePress(int voiceIndex, UIState& state) {
+void endRandomizePress(int voiceIndex, UIState &state)
+{
   if (voiceIndex < 0 || voiceIndex >= UIState::NUM_RANDOMIZE)
     return;
-  state.randomizeWasPressed[voiceIndex]     = false;
+  state.randomizeWasPressed[voiceIndex] = false;
   state.randomizeResetTriggered[voiceIndex] = false;
 }
 
 // Handle randomize button behavior for a single voice
-void handleRandomizeButton(int voiceIndex, UIState& state) {
+void handleRandomizeButton(int voiceIndex, UIState &state)
+{
   if (voiceIndex < 0 || voiceIndex >= UIState::NUM_RANDOMIZE)
     return;
 
   // Get the appropriate sequencer
-  Sequencer* seq = nullptr;
-  switch (voiceIndex) {
+  Sequencer *seq = nullptr;
+  switch (voiceIndex)
+  {
   case 0:
     seq = &seq1;
     break;
@@ -63,7 +67,8 @@ void handleRandomizeButton(int voiceIndex, UIState& state) {
 
   // Calculate press duration and branch accordingly
   unsigned long heldTime = millis() - state.randomizePressTime[voiceIndex];
-  if (!isLongPress(heldTime)) {
+  if (!isLongPress(heldTime))
+  {
     // Short press: randomize parameters
     seq->randomizeParameters();
     //   Serial.print("Seq ");
@@ -74,11 +79,12 @@ void handleRandomizeButton(int voiceIndex, UIState& state) {
   // Reset state and UI flashes common to all randomize buttons
   endRandomizePress(voiceIndex, state);
   state.selectedStepForEdit = -1;
-  state.flash31Until        = millis() + CONTROL_LED_FLASH_DURATION_MS;
+  state.flash31Until = millis() + CONTROL_LED_FLASH_DURATION_MS;
 }
 
 // Helper to cycle AS5600 parameter selection and report
-static void cycleAS5600Parameter(UIState& uiState) {
+static void cycleAS5600Parameter(UIState &uiState)
+{
   uiState.currentAS5600Parameter = static_cast<AS5600ParameterMode>(
       (static_cast<uint8_t>(uiState.currentAS5600Parameter) + 1) %
       static_cast<uint8_t>(AS5600ParameterMode::COUNT));
@@ -88,7 +94,8 @@ static void cycleAS5600Parameter(UIState& uiState) {
 
 // Handle parameter button for a specific voice and parameter index
 // paramIndex is the matrix button index (e.g., 8..24) for voice parameter toggles
-void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState& state) {
+void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)
+{
   if (!voiceManager)
     return;
   if (voiceIndex < 0 || voiceIndex > 3)
@@ -96,20 +103,21 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState& state) 
 
   uint8_t currentVoiceId = voiceSystem.getVoiceId(voiceIndex);
 
-  VoiceConfig* liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
+  VoiceConfig *liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
   if (!liveCfg)
     return;
   // Work on a local copy to avoid mutating live config from UI thread
   VoiceConfig config = *liveCfg;
 
   // Set UI state for voice parameter mode feedback
-  state.inVoiceParameterMode     = true;
+  state.inVoiceParameterMode = true;
   state.lastVoiceParameterButton = paramIndex;
   state.voiceParameterChangeTime = millis();
 
   uint8_t displayVoiceNumber = static_cast<uint8_t>(voiceIndex); // 0-based
 
-  switch (paramIndex) {
+  switch (paramIndex)
+  {
   case 8: // Toggle hasEnvelope per voice
     config.hasEnvelope = !config.hasEnvelope;
     Serial.print("Voice ");
@@ -131,18 +139,21 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState& state) 
     Serial.print(" wavefolder ");
     Serial.println(config.hasWavefolder ? "ON" : "OFF");
     break;
-  case 11: { // Cycle through filterMode
-    int currentMode    = static_cast<int>(config.filterMode);
-    currentMode        = (currentMode + 1) % 5; // 5 filter modes
+  case 11:
+  { // Cycle through filterMode
+    int currentMode = static_cast<int>(config.filterMode);
+    currentMode = (currentMode + 1) % 5; // 5 filter modes
     config.filterMode = static_cast<daisysp::LadderFilter::FilterMode>(currentMode);
 
-    const char* filterNames[] = {"LP12", "LP24", "LP36", "BP12", "BP24"};
+    const char *filterNames[] = {"LP12", "LP24", "LP36", "BP12", "BP24"};
     Serial.print("Voice ");
     Serial.print(displayVoiceNumber);
     Serial.print(" filter mode: ");
     Serial.println(filterNames[currentMode]);
-  } break;
-  case 12: { // Cycle through filter resonance amounts
+  }
+  break;
+  case 12:
+  { // Cycle through filter resonance amounts
     float currentResonance = config.filterRes;
     currentResonance += 0.1f;
     if (currentResonance > 1.0f)
@@ -153,7 +164,8 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState& state) 
     Serial.print(displayVoiceNumber);
     Serial.print(" filter resonance: ");
     Serial.println(currentResonance, 2);
-  } break;
+  }
+  break;
 
   default:
     // Buttons 15-24 reserved for future voice parameters
@@ -168,11 +180,13 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState& state) 
 }
 
 // Handle generic control buttons by button id
-void handleControlButton(int buttonId, UIState& state) {
-  switch (buttonId) {
+void handleControlButton(int buttonId, UIState &state)
+{
+  switch (buttonId)
+  {
   case BUTTON_SLIDE_MODE:
-    state.slideMode            = !state.slideMode;
-    state.selectedStepForEdit  = -1;
+    state.slideMode = !state.slideMode;
+    state.selectedStepForEdit = -1;
     state.currentEditParameter = ParamId::Count; // Clear edit parameter
     Serial.print("Slide mode ");
     Serial.println(state.slideMode ? "ON" : "OFF");
@@ -183,17 +197,20 @@ void handleControlButton(int buttonId, UIState& state) {
     break;
 
   case BUTTON_PLAY_STOP:
-    if (isClockRunning) {
+    if (isClockRunning)
+    {
       onClockStop();
       // Enter settings mode when stopping
       state.settingsMode = true;
-              state.inPresetSelection = true;
-
-    } else {
+      state.inPresetSelection = true;
+    }
+    else
+    {
       onClockStart();
       // Exit settings mode if active
-      if (state.settingsMode) {
-        state.settingsMode      = false;
+      if (state.settingsMode)
+      {
+        state.settingsMode = false;
         state.inPresetSelection = false;
         state.selectedStepForEdit = -1;
       }
@@ -215,28 +232,32 @@ void handleControlButton(int buttonId, UIState& state) {
     setLEDTheme(static_cast<LEDTheme>(state.currentThemeIndex));
     break;
 
-  case BUTTON_CHANGE_SWING_PATTERN: {
-    state.currentShufflePatternIndex       = (state.currentShufflePatternIndex + 1) % NUM_SHUFFLE_TEMPLATES;
-    const ShuffleTemplate& currentTemplate = shuffleTemplates[state.currentShufflePatternIndex];
+  case BUTTON_CHANGE_SWING_PATTERN:
+  {
+    state.currentShufflePatternIndex = (state.currentShufflePatternIndex + 1) % NUM_SHUFFLE_TEMPLATES;
+    const ShuffleTemplate &currentTemplate = shuffleTemplates[state.currentShufflePatternIndex];
     // Apply shuffle template to uClock
-    uClock.setShuffleTemplate(const_cast<int8_t*>(currentTemplate.ticks), SHUFFLE_TEMPLATE_SIZE);
+    uClock.setShuffleTemplate(const_cast<int8_t *>(currentTemplate.ticks), SHUFFLE_TEMPLATE_SIZE);
     uClock.setShuffle(state.currentShufflePatternIndex > 0); // Enable shuffle if not "No Shuffle"
 
     // Serial.print("Shuffle pattern changed to index ");
     // Serial.print(state.currentShufflePatternIndex);
     // Serial.print(": ");
     // Serial.println(currentTemplate.name);
-  } break;
+  }
+  break;
 
   case BUTTON_TOGGLE_DELAY:
 
   {
-    state.delayOn      = !state.delayOn;
+    state.delayOn = !state.delayOn;
     state.flash23Until = millis() + CONTROL_LED_FLASH_DURATION_MS;
-    if (state.delayOn) {
+    if (state.delayOn)
+    {
       state.currentAS5600Parameter = AS5600ParameterMode::DelayTime;
     }
-  } break;
+  }
+  break;
 
   default:
     // Unknown/unused control button

@@ -15,7 +15,7 @@
  * Pre-allocates vector capacity to avoid runtime allocations on embedded systems
  */
 VoiceManager::VoiceManager(uint8_t maxVoices)
-    : maxVoiceCount(maxVoices), nextVoiceId(1), sampleRate(48000.0f), globalVolume(.9f)
+    : maxVoiceCount(maxVoices), nextVoiceId(1), sampleRate(48000.0f), globalVolume(.8f)
 {
     voices.reserve(maxVoiceCount);
 
@@ -24,7 +24,7 @@ VoiceManager::VoiceManager(uint8_t maxVoices)
     compressor.SetThreshold(-16.0f);
     compressor.SetRatio(1.5f);
     compressor.SetAttack(0.050f);  // 50 ms
-    compressor.SetRelease(0.002f); // 1 ms
+    compressor.SetRelease(0.012f); // 1 ms
     compressor.AutoMakeup(true);
 
     DBG_INFO("VoiceManager: constructed maxVoices=%u", maxVoices);
@@ -330,7 +330,7 @@ void VoiceManager::init(float sr)
     compressor.SetThreshold(-15.0f);
     compressor.SetRatio(2.0f);
     compressor.SetAttack(0.002f);  // 2 ms
-    compressor.SetRelease(0.200f); // 200 ms
+    compressor.SetRelease(0.050f); // 200 ms
     compressor.AutoMakeup(true);
 
     DBG_INFO("VoiceManager: init sampleRate=%.1f", sr);
@@ -353,58 +353,56 @@ void VoiceManager::init(float sr)
  * Finally applies global volume scaling before returning
  * Optimized for embedded systems with minimal branching
  */
- float VoiceManager::processAllVoices() noexcept
- {
-     float mixedOutput = 0.0f;
+float VoiceManager::processAllVoices() noexcept
+{
+    float mixedOutput = 0.0f;
 
-     // Pitch/frequency commit note:
-     // - Voice handles pitch change detection and frequency caching internally (pitchParamsChanged_ + updatePitchCache_).
-     // - Any required Oscillator::SetFreq is deferred and applied inside Voice::process() on the audio thread,
-     //   guarded by ShouldApplyFreq_. Do not set oscillator frequencies from VoiceManager.
-     for (auto &managedVoice : voices)
-     {
-         if (managedVoice->enabled && managedVoice->voice)
+    // Pitch/frequency commit note:
+    // - Voice handles pitch change detection and frequency caching internally (pitchParamsChanged_ + updatePitchCache_).
+    // - Any required Oscillator::SetFreq is deferred and applied inside Voice::process() on the audio thread,
+    //   guarded by ShouldApplyFreq_. Do not set oscillator frequencies from VoiceManager.
+    for (auto &managedVoice : voices)
+    {
+        if (managedVoice->enabled && managedVoice->voice)
+        {
+            float voiceOutput = managedVoice->voice->process();
+            mixedOutput += voiceOutput * managedVoice->mixLevel;
+        }
+    }
+
+    return mixedOutput * globalVolume;
+    /*
+         // Efficient compressor usage:
+         // - Update compressor internal state (envelope/gain) every compressorUpdateInterval samples
+         //   by calling Process(). That updates the internal gain_.
+         // - On intermediate samples call Apply(), which is a single multiply by the current gain.
+         float compressed = mixedOutput;
+         if (compressorUpdateInterval == 0)
          {
-             float voiceOutput = managedVoice->voice->process();
-             mixedOutput += voiceOutput * managedVoice->mixLevel;
-         }
-     }
-
-
-     return mixedOutput * .3f;
-/*    
-     // Efficient compressor usage:
-     // - Update compressor internal state (envelope/gain) every compressorUpdateInterval samples
-     //   by calling Process(). That updates the internal gain_.
-     // - On intermediate samples call Apply(), which is a single multiply by the current gain.
-     float compressed = mixedOutput;
-     if (compressorUpdateInterval == 0)
-     {
-         // Defensive: if interval disabled, update every sample (legacy behavior)
-         compressed = compressor.Process(mixedOutput);
-     }
-     else
-     {
-         if (compressorUpdateCounter == 0)
-         {
-             // Update compressor internals (more expensive) once every interval
+             // Defensive: if interval disabled, update every sample (legacy behavior)
              compressed = compressor.Process(mixedOutput);
          }
          else
          {
-             // Apply current gain (cheap)
-             compressed = compressor.Apply(mixedOutput);
+             if (compressorUpdateCounter == 0)
+             {
+                 // Update compressor internals (more expensive) once every interval
+                 compressed = compressor.Process(mixedOutput);
+             }
+             else
+             {
+                 // Apply current gain (cheap)
+                 compressed = compressor.Apply(mixedOutput);
+             }
+
+             // Increment and wrap the counter
+             compressorUpdateCounter = (compressorUpdateCounter + 1) % compressorUpdateInterval;
          }
 
-         // Increment and wrap the counter
-         compressorUpdateCounter = (compressorUpdateCounter + 1) % compressorUpdateInterval;
-     }
-
-     // Final global volume and hard clamp to safe output range
-     return compressed * globalVolume;
-*/
-
- }
+         // Final global volume and hard clamp to safe output range
+         return compressed * globalVolume;
+    */
+}
 
 /**
  * Processes a single voice and returns its output
@@ -502,8 +500,6 @@ std::vector<uint8_t> VoiceManager::getActiveVoiceIds() const
 
     return activeIds;
 }
-
-
 
 /**
  * Returns list of all available voice preset names
@@ -665,9 +661,6 @@ void VoiceManager::notifyVoiceUpdated(uint8_t voiceId, const VoiceState &state)
     // Verbose-only to avoid spamming the serial port during playback
     DBG_VERBOSE("VoiceManager: notifyUpdate id=%u note=%.1f vel=%.2f gate=%d", voiceId, state.noteIndex, state.velocityLevel, state.isGateHigh ? 1 : 0);
 }
-
-
-
 
 /**
  * Sets the portamento (slide) time for frequency changes
