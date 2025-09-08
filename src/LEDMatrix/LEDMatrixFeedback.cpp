@@ -18,9 +18,9 @@
  * animated effects. Uses smoothed color blending for professional appearance.
  */
 
-// LED matrix layout constants
-static constexpr int LED_MATRIX_BOTTOM_HALF_OFFSET = LEDConstants::BOTTOM_HALF_OFFSET;
-static constexpr uint8_t SEQ_STEPS = 16;
+// LED matrix layout helpers
+static inline int voiceRowBaseIndex(uint8_t voiceIndex) { return voiceIndex * LEDMatrix::WIDTH; }
+static constexpr uint8_t SEQ_STEPS = LEDMatrix::WIDTH; // visualize one row width (16 on 16x16)
 // Smoothed color buffer for smooth LED transitions
 CRGB smoothedTargetColorBuffer[LEDConstants::MATRIX_TOTAL_LEDS];
 
@@ -57,7 +57,7 @@ CRGB current_COLOR_RANDOMIZE_FLASH;
 CRGB current_COLOR_RANDOMIZE_IDLE;
 
 const LEDThemeColors ALL_THEMES[] = {
-    {CRGB(0, 188, 0), CRGB(0, 22, 5), CRGB(188, 94, 0), CRGB(0, 12, 12), CRGB(0, 8, 8),
+    {CRGB(0, 188, 0), CRGB(0, 8, 2), CRGB(188, 94, 0), CRGB(0, 5, 5), CRGB(0, 8, 8),
      CRGB(0, 0, 94), CRGB(0, 0, 12), CRGB(0, 0, 12), CRGB(128, 94, 0), CRGB(32, 24, 0),
      CRGB(94, 0, 94), CRGB(12, 0, 12), CRGB(0, 94, 188), CRGB(0, 24, 48), CRGB(188, 64, 0),
      CRGB(48, 16, 0), CRGB(128, 0, 0), CRGB(32, 0, 0), CRGB(0, 128, 64), CRGB(0, 32, 16),
@@ -72,9 +72,9 @@ const LEDThemeColors ALL_THEMES[] = {
     // DARK_NOCTIS theme - deep charcoal with cool blue/cyan accents
     {
         CRGB(20, 90, 140),   // gateOnV1 - cool cyan-blue (visible on dark)
-        CRGB(6, 6, 8),       // gateOffV1 - near-black
+        CRGB(3, 3, 4),       // gateOffV1 - near-black
         CRGB(40, 55, 160),   // gateOnV2 - desaturated light blue accent
-        CRGB(8, 4, 10),      // gateOffV2 - very dark maroon-ish
+        CRGB(4, 1, 5),      // gateOffV2 - very dark maroon-ish
         CRGB(24, 48, 80),    // playheadAccent - deep navy accent
         CRGB(18, 30, 50),    // idleBreathingBlue - muted navy
         CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
@@ -105,9 +105,9 @@ const LEDThemeColors ALL_THEMES[] = {
     {
         // DARK_EMBER theme - deep charcoal with warm amber ember accents
         CRGB(200, 120, 60),  // gateOnV1 - ember orange
-        CRGB(8, 9, 4),       // gateOffV1 - near-black
+        CRGB(3, 5, 3),       // gateOffV1 - near-black
         CRGB(255, 180, 110), // gateOnV2 - warm amber highlight
-        CRGB(10, 6, 5),      // gateOffV2 - deep dark
+        CRGB(2, 6, 4),      // gateOffV2 - deep dark
         CRGB(40, 24, 18),    // playheadAccent - dark warm accent
         CRGB(28, 22, 20),    // idleBreathingBlue - warm slate for breathing (amber-tinted)
         CRGB(10, 8, 8),      // editModeDimBlueV1 - very dark warm slate
@@ -139,9 +139,9 @@ const LEDThemeColors ALL_THEMES[] = {
     {
         // MODERN theme - muted, high-legibility palette with warm accent
         CRGB(48, 177, 111),  // gateOnV1 - soft teal
-        CRGB(3, 8, 10),      // gateOffV1 - muted dark teal
+        CRGB(1, 4, 5),      // gateOffV1 - muted dark teal
         CRGB(222, 130, 66),  // gateOnV2 - warm coral accent
-        CRGB(15, 6, 5),      // gateOffV2 - deep muted maroon
+        CRGB(9, 3, 2),      // gateOffV2 - deep muted maroon
         CRGB(20, 24, 66),    // playheadAccent base dark (will be brightened when added)
         CRGB(60, 84, 110),   // idleBreathingBlue - slate blue for breathing
         CRGB(12, 16, 20),    // editModeDimBlueV1 - dim slate
@@ -172,9 +172,9 @@ const LEDThemeColors ALL_THEMES[] = {
     {
         // BLUE theme - high-contrast cool blues and cyan accents
         CRGB(40, 122, 188),  // gateOnV1 - vivid cyan-blue
-        CRGB(6, 8, 12),      // gateOffV1 - almost black
+        CRGB(2, 4, 7),      // gateOffV1 - almost black
         CRGB(120, 100, 200), // gateOnV2 - soft sky blue
-        CRGB(8, 6, 10),      // gateOffV2 - deep charcoal
+        CRGB(3, 3, 5),      // gateOffV2 - deep charcoal
         CRGB(32, 99, 12),    // playheadAccent - strong blue accent
         CRGB(16, 36, 80),    // idleBreathingBlue - deep ocean blue
         CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
@@ -198,30 +198,30 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(120, 200, 240), // modParamModeActive - bright aqua
         CRGB(16, 18, 18),    // modParamModeInactive
         CRGB(160, 200, 240), // modGateModeActive - cool highlight
-        CRGB(18, 16, 14),    // modGateModeInactive
+        CRGB(9, 7, 6),    // modGateModeInactive
         CRGB(255, 240, 220), // randomizeFlash - bright neutral flash
         CRGB(12, 12, 14)     // randomizeIdle - dark subtle tone
     },
     {
         // GREEN theme - lush greens with clean high-contrast accents
         CRGB(40, 150, 80),   // gateOnV1 - vivid green
-        CRGB(2, 8, 12),      // gateOffV1 - near-black green tint
+        CRGB(21,4, 6),      // gateOffV1 - near-black green tint
         CRGB(39, 180, 122),  // gateOnV2 - pale mint accent
-        CRGB(1, 12, 6),      // gateOffV2 - deep dark
-        CRGB(0, 110, 60),    // playheadAccent - strong forest accent
+        CRGB(0, 6, 3),      // gateOffV2 - deep dark
+        CRGB(0, 55, 60),    // playheadAccent - strong forest accent
         CRGB(18, 44, 28),    // idleBreathingBlue - deep forest for breathing
-        CRGB(8, 12, 10),     // editModeDimBlueV1 - very dark green slate
-        CRGB(12, 16, 14),    // editModeDimBlueV2
+        CRGB(3, 12, 5),     // editModeDimBlueV1 - very dark green slate
+        CRGB(12, 8, 7),    // editModeDimBlueV2
         CRGB(200, 240, 200), // modNoteActive - pale green
         CRGB(22, 26, 22),    // modNoteInactive
         CRGB(180, 230, 200), // modVelocityActive - soft mint
         CRGB(24, 30, 26),    // modVelocityInactive
         CRGB(140, 180, 160), // modFilterActive - muted green-teal
-        CRGB(20, 18, 20),    // modFilterInactive
+        CRGB(10, 18, 20),    // modFilterInactive
         CRGB(200, 180, 140), // modDecayActive - subtle warm contrast
         CRGB(22, 20, 18),    // modDecayInactive
         CRGB(140, 200, 120), // modAttackActive - bright sage
-        CRGB(18, 20, 16),    // modAttackInactive
+        CRGB(8, 20, 8),    // modAttackInactive
         CRGB(220, 180, 200), // modOctaveActive - soft rose accent
         CRGB(20, 12, 12),    // modOctaveInactive
         CRGB(160, 220, 180), // modSlideActive - minty slide accent
@@ -268,7 +268,7 @@ CRGB getParameterColor(ParamId param, uint8_t intensity)
 void addPolyrhythmicOverlay(
     LEDMatrix &ledMatrix,
     const Sequencer &sequencer,
-    bool isSecondVoiceInPair,
+    uint8_t targetRow,
     uint8_t overlayIntensity = LEDConstants::POLYRHYTHM_INTENSITY)
 {
     // Only add overlay if sequencer is actively running
@@ -278,7 +278,7 @@ void addPolyrhythmicOverlay(
     }
 
     // Calculate base offset for voice positioning in matrix
-    const int voiceBaseOffset = isSecondVoiceInPair ? LED_MATRIX_BOTTOM_HALF_OFFSET : LEDConstants::TOP_HALF_OFFSET;
+    const int voiceBaseOffset = voiceRowBaseIndex(targetRow);
 
     // Parameter overlay configuration for polyrhythmic visualization
     struct PolyrhythmicParameterOverlay
@@ -307,16 +307,14 @@ void addPolyrhythmicOverlay(
 
             // Calculate LED matrix position
             const int ledLinearIndex = voiceBaseOffset + currentParameterStep;
-            CRGB currentLEDColor = ledMatrix.getLeds()[ledLinearIndex];
+            CRGB currentLEDColor = ledMatrix.getLED(currentParameterStep, targetRow);
 
             // Blend overlay color with existing LED color
             currentLEDColor += overlayParameters[paramIndex].overlayColor;
 
-            // Convert linear index to matrix coordinates
-            const int xCoordinate = currentParameterStep % LEDMatrix::WIDTH;
-            const int yCoordinate = (currentParameterStep / LEDMatrix::WIDTH) +
-                                    (isSecondVoiceInPair ? LEDConstants::VOICE_PAIR_SEPARATION + 1 : 0);
-
+            // Convert to matrix coordinates: overlay on the target voice row
+            const int xCoordinate = currentParameterStep;
+            const int yCoordinate = targetRow;
             ledMatrix.setLED(xCoordinate, yCoordinate, currentLEDColor);
         }
     }
@@ -364,10 +362,7 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState)
     const LEDThemeColors *activeThemeColors = getActiveThemeColors();
 
     // Clear all LEDs first
-    for (int i = 0; i < LEDMatrix::WIDTH * LEDMatrix::HEIGHT; ++i)
-    {
-        ledMatrix.getLeds()[i] = CRGB::Black;
-    }
+    ledMatrix.clear();
 
     if (uiState.inPresetSelection)
     {
@@ -540,8 +535,11 @@ static void renderVoicePair(
     const Sequencer &firstVoiceSequencer,
     const Sequencer &secondVoiceSequencer,
     const LEDThemeColors *themeColors,
-    int matrixBaseOffset)
+    uint8_t topRowY,
+    uint8_t bottomRowY)
 {
+    const int topRowBase = voiceRowBaseIndex(topRowY);
+    const int bottomRowBase = voiceRowBaseIndex(bottomRowY);
     // Validate sequencer gate step counts
     const uint8_t firstVoiceGateStepCount = firstVoiceSequencer.getParameterStepCount(ParamId::Gate);
     const uint8_t secondVoiceGateStepCount = secondVoiceSequencer.getParameterStepCount(ParamId::Gate);
@@ -580,10 +578,10 @@ static void renderVoicePair(
             firstVoiceColor += themeColors->playheadAccent;
         }
 
-        // Apply smoothed color blending for top row
-        const int topRowLEDIndex = matrixBaseOffset + stepIndex;
+        // Apply smoothed color blending for top row (voice row mapping)
+        const int topRowLEDIndex = topRowBase + stepIndex;
         nblend(smoothedTargetColorBuffer[topRowLEDIndex], firstVoiceColor, TARGET_SMOOTHING_BLEND_AMOUNT);
-        nblend(ledMatrix.getLeds()[topRowLEDIndex], smoothedTargetColorBuffer[topRowLEDIndex],
+        nblend(ledMatrix.pixelAt(stepIndex, topRowY), smoothedTargetColorBuffer[topRowLEDIndex],
                LEDConstants::STANDARD_BLEND_AMOUNT);
 
         // === Second Voice (Bottom Row) Processing ===
@@ -606,10 +604,10 @@ static void renderVoicePair(
             secondVoiceColor += themeColors->playheadAccent;
         }
 
-        // Apply smoothed color blending for bottom row
-        const int bottomRowLEDIndex = matrixBaseOffset + LED_MATRIX_BOTTOM_HALF_OFFSET + stepIndex;
+        // Apply smoothed color blending for bottom row (voice row mapping)
+        const int bottomRowLEDIndex = bottomRowBase + stepIndex;
         nblend(smoothedTargetColorBuffer[bottomRowLEDIndex], secondVoiceColor, TARGET_SMOOTHING_BLEND_AMOUNT);
-        nblend(ledMatrix.getLeds()[bottomRowLEDIndex], smoothedTargetColorBuffer[bottomRowLEDIndex],
+        nblend(ledMatrix.pixelAt(stepIndex, bottomRowY), smoothedTargetColorBuffer[bottomRowLEDIndex],
                LEDConstants::STANDARD_BLEND_AMOUNT);
     }
 }
@@ -634,12 +632,12 @@ void updateGateLEDs(
 
             // Blend target color into smoothed buffer for smooth transitions
             nblend(smoothedTargetColorBuffer[step], currentTarget, TARGET_SMOOTHING_BLEND_AMOUNT);
-            nblend(ledMatrix.getLeds()[step], smoothedTargetColorBuffer[step], 222);
+            nblend(ledMatrix.pixelAt(step, 0), smoothedTargetColorBuffer[step], 222);
 
-            // bottom half - fixed offset calculation
-            int ledIndex = LED_MATRIX_BOTTOM_HALF_OFFSET + step; // Bottom half of 8x8 matrix
+            // bottom row: voice 2 on row 1 in 32x32
+            int ledIndex = voiceRowBaseIndex(1) + step;
             nblend(smoothedTargetColorBuffer[ledIndex], currentTarget, TARGET_SMOOTHING_BLEND_AMOUNT);
-            nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex], 222);
+            nblend(ledMatrix.pixelAt(step, 1), smoothedTargetColorBuffer[ledIndex], 222);
         }
     }
     else
@@ -669,7 +667,7 @@ void updateGateLEDs(
 
             // Blend to smoothed buffer and then to the actual LED for smooth transitions
             nblend(smoothedTargetColorBuffer[step], targetColor1, TARGET_SMOOTHING_BLEND_AMOUNT);
-            nblend(ledMatrix.getLeds()[step], smoothedTargetColorBuffer[step], 166);
+            nblend(ledMatrix.pixelAt(step, 0), smoothedTargetColorBuffer[step], 166);
 
             // --- Voice 2 (seq2) ---
             const Step &s2 = seq2.getStep(step);
@@ -687,9 +685,9 @@ void updateGateLEDs(
                 targetColor2 += activeThemeColors->playheadAccent;
             }
 
-            int ledIndex = LED_MATRIX_BOTTOM_HALF_OFFSET + step; // Fixed offset for bottom half
+            int ledIndex = voiceRowBaseIndex(1) + step; // Voice 2 row index
             nblend(smoothedTargetColorBuffer[ledIndex], targetColor2, TARGET_SMOOTHING_BLEND_AMOUNT);
-            nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex], 166);
+            nblend(ledMatrix.pixelAt(step, 1), smoothedTargetColorBuffer[ledIndex], 166);
         }
     }
 }
@@ -742,10 +740,10 @@ void updateStepLEDs(
                                                                                                                 : &seq4;
         const Sequencer &activeSeq = *seqPtr;
 
-        const bool isSecondInPair = (uiState.selectedVoiceIndex % 2) == 1;
-        const int baseOffset = isSecondInPair ? LED_MATRIX_BOTTOM_HALF_OFFSET : 0; // fixed offset for bottom row
-        const CRGB withinColorBase = isSecondInPair ? getActiveThemeColors()->gateOnV2
-                                                    : getActiveThemeColors()->gateOnV1;
+        const uint8_t voiceRow = uiState.selectedVoiceIndex; // voices 0..3 map to rows 0..3
+        const int baseOffset = voiceRowBaseIndex(voiceRow);
+        const CRGB withinColorBase = (voiceRow == 0 || voiceRow == 2) ? getActiveThemeColors()->gateOnV1
+                                                                       : getActiveThemeColors()->gateOnV2;
 
         // Simple blink state
         static bool blinkState = false;
@@ -760,11 +758,16 @@ void updateStepLEDs(
         const uint8_t gateLen = activeSeq.getParameterStepCount(ParamId::Gate);
 
         // Dim the other row fully to focus on the selected voice
-        for (int step = 0; step < LEDConstants::MAX_STEP_BUTTONS; ++step)
+        // Dim the other voice rows (all except selected)
+        for (uint8_t otherVoice = 0; otherVoice < 4; ++otherVoice)
         {
-            const int otherIndex = (isSecondInPair ? 0 : LED_MATRIX_BOTTOM_HALF_OFFSET) + step;
-            nblend(smoothedTargetColorBuffer[otherIndex], CRGB::Black, LEDConstants::TARGET_SMOOTHING_BLEND_AMOUNT);
-            nblend(ledMatrix.getLeds()[otherIndex], smoothedTargetColorBuffer[otherIndex], LEDConstants::DIM_BLEND_AMOUNT);
+            if (otherVoice == voiceRow) continue;
+            for (int step = 0; step < LEDConstants::MAX_STEP_BUTTONS; ++step)
+            {
+                const int idx = voiceRowBaseIndex(otherVoice) + step;
+                nblend(smoothedTargetColorBuffer[idx], CRGB::Black, LEDConstants::TARGET_SMOOTHING_BLEND_AMOUNT);
+                nblend(ledMatrix.pixelAt(step, otherVoice), smoothedTargetColorBuffer[idx], LEDConstants::DIM_BLEND_AMOUNT);
+            }
         }
 
         // Paint selected row with blinking up-to-length visualization
@@ -782,7 +785,7 @@ void updateStepLEDs(
             }
             const int ledIndex = baseOffset + step;
             nblend(smoothedTargetColorBuffer[ledIndex], target, LEDConstants::TARGET_SMOOTHING_BLEND_AMOUNT);
-            nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex], LEDConstants::STANDARD_BLEND_AMOUNT);
+            nblend(ledMatrix.pixelAt(step, voiceRow), smoothedTargetColorBuffer[ledIndex], LEDConstants::STANDARD_BLEND_AMOUNT);
         }
 
         return;
@@ -795,6 +798,7 @@ void updateStepLEDs(
                                                                           : (uiState.selectedVoiceIndex == 2)   ? &seq3
                                                                                                                 : &seq4;
         const Sequencer &activeSeq = *seqPtr;
+        const uint8_t voiceRow = uiState.selectedVoiceIndex;
         uint8_t slidePlayhead = activeSeq.getCurrentStepForParameter(ParamId::Slide);
         uint8_t slideLength = activeSeq.getParameterStepCount(ParamId::Slide);
 
@@ -826,12 +830,7 @@ void updateStepLEDs(
             }
 
             int x = step % LEDMatrix::WIDTH;
-            int y = step / LEDMatrix::WIDTH;
-            // Place on top/bottom half based on voice within pair (0/1 top, 2/3 page uses same rows)
-            if ((uiState.selectedVoiceIndex % 2) == 1)
-            {
-                y += 3; // second voice in pair uses lower band
-            }
+            int y = voiceRow; // Map voice to its fixed row 0..3
             ledMatrix.setLED(x, y, color);
         }
         return;
@@ -850,22 +849,15 @@ void updateStepLEDs(
         uint8_t paramPlayhead = activeSeqRef.getCurrentStepForParameter(activeParamIdForLength);
 
         // Dim the non-selected row (top or bottom) in the current page
-        bool isSecondInPair = (uiState.selectedVoiceIndex % 2) == 1;
-        for (int step = 0; step < SEQ_STEPS; ++step)
+        const uint8_t selectedRow = uiState.selectedVoiceIndex;
+        for (uint8_t row = 0; row < 4; ++row)
         {
-            int topIndex = step;
-            int bottomIndex = LED_MATRIX_BOTTOM_HALF_OFFSET + step; // Fixed offset for 8x8 matrix
-            if (!isSecondInPair)
+            if (row == selectedRow) continue;
+            for (int step = 0; step < SEQ_STEPS; ++step)
             {
-                // Selected voice is top row; dim bottom
-                nblend(smoothedTargetColorBuffer[bottomIndex], CRGB::Black, TARGET_SMOOTHING_BLEND_AMOUNT);
-                nblend(ledMatrix.getLeds()[bottomIndex], smoothedTargetColorBuffer[bottomIndex], 32);
-            }
-            else
-            {
-                // Selected voice is bottom row; dim top
-                nblend(smoothedTargetColorBuffer[topIndex], CRGB::Black, TARGET_SMOOTHING_BLEND_AMOUNT);
-                nblend(ledMatrix.getLeds()[topIndex], smoothedTargetColorBuffer[topIndex], 32);
+                const int idx = voiceRowBaseIndex(row) + step;
+                nblend(smoothedTargetColorBuffer[idx], CRGB::Black, TARGET_SMOOTHING_BLEND_AMOUNT);
+                nblend(ledMatrix.pixelAt(step, row), smoothedTargetColorBuffer[idx], 32);
             }
         }
 
@@ -882,17 +874,17 @@ void updateStepLEDs(
                 else
                 {
                     // Use V1 tint for top row, V2 tint for bottom row
-                    targetColor = isSecondInPair ? activeThemeColors->editModeDimBlueV2
-                                                 : activeThemeColors->editModeDimBlueV1;
+                    targetColor = (selectedRow % 2 == 1) ? activeThemeColors->editModeDimBlueV2
+                                     : activeThemeColors->editModeDimBlueV1;
                 }
             }
             else
             {
                 targetColor = CRGB::Black;
             }
-            int ledIndex = (isSecondInPair ? LED_MATRIX_BOTTOM_HALF_OFFSET : 0) + step; // Fixed offset
+            int ledIndex = voiceRowBaseIndex(selectedRow) + step;
             nblend(smoothedTargetColorBuffer[ledIndex], targetColor, TARGET_SMOOTHING_BLEND_AMOUNT);
-            nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex], isSecondInPair ? 122 : 64);
+            nblend(ledMatrix.pixelAt(step, selectedRow), smoothedTargetColorBuffer[ledIndex], (selectedRow % 2 == 1) ? 122 : 64);
         }
 
         return;
@@ -904,69 +896,76 @@ void updateStepLEDs(
         uint8_t paramPlayhead = activeSeqRef.getCurrentStepForParameter(activeParamIdForLength);
 
         // Paint only the selected row's within-length area
-        bool isSecondInPair = (uiState.selectedVoiceIndex % 2) == 1;
+        const uint8_t selectedRow = uiState.selectedVoiceIndex;
         for (int step = 0; step < currentLength; ++step)
         {
             CRGB targetColor = (step == paramPlayhead && activeSeqRef.isRunning())
                                    ? getParameterColor(activeParamIdForLength, 180)
-                                   : (isSecondInPair ? activeThemeColors->editModeDimBlueV2
-                                                     : activeThemeColors->editModeDimBlueV1);
-            int ledIndex = (isSecondInPair ? LED_MATRIX_BOTTOM_HALF_OFFSET : 0) + step; // Fixed offset
+                                   : ((selectedRow % 2 == 1) ? activeThemeColors->editModeDimBlueV2
+                                                             : activeThemeColors->editModeDimBlueV1);
+            int ledIndex = voiceRowBaseIndex(selectedRow) + step;
             nblend(smoothedTargetColorBuffer[ledIndex], targetColor, TARGET_SMOOTHING_BLEND_AMOUNT);
-            nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex], isSecondInPair ? 200 : 60);
+            nblend(ledMatrix.pixelAt(step, selectedRow), smoothedTargetColorBuffer[ledIndex], (selectedRow % 2 == 1) ? 200 : 60);
         }
 
         // Dim the other row's within-length area
         for (int step = 0; step < currentLength; ++step)
         {
-            int otherIndex = (isSecondInPair ? 0 : LED_MATRIX_BOTTOM_HALF_OFFSET) + step; // Fixed offset
-            nblend(smoothedTargetColorBuffer[otherIndex], CRGB::Black, TARGET_SMOOTHING_BLEND_AMOUNT);
-            nblend(ledMatrix.getLeds()[otherIndex], smoothedTargetColorBuffer[otherIndex], 150);
+            for (uint8_t otherRow = 0; otherRow < 4; ++otherRow)
+            {
+                if (otherRow == selectedRow) continue;
+                int otherIndex = voiceRowBaseIndex(otherRow) + step;
+                nblend(smoothedTargetColorBuffer[otherIndex], CRGB::Black, TARGET_SMOOTHING_BLEND_AMOUNT);
+                nblend(ledMatrix.pixelAt(step, otherRow), smoothedTargetColorBuffer[otherIndex], 150);
+            }
         }
     }
     else
     {
-        // Determine which voice pair to display based on selectedVoiceIndex
-        bool showFirstPair = (uiState.selectedVoiceIndex < 2);
-        bool secondInPair = (uiState.selectedVoiceIndex % 2) == 1;
         const LEDThemeColors *theme = getActiveThemeColors();
 
-        // Clear first to avoid ghosting when switching pages
-        for (int i = 0; i < LEDMatrix::WIDTH * LEDMatrix::HEIGHT; ++i)
+        // Clear first to avoid ghosting
+        for (int i = 0; i < LEDConstants::MATRIX_TOTAL_LEDS; ++i)
         {
             nblend(smoothedTargetColorBuffer[i], CRGB::Black, TARGET_SMOOTHING_BLEND_AMOUNT);
-            nblend(ledMatrix.getLeds()[i], smoothedTargetColorBuffer[i], 64);
+            nblend(ledMatrix.pixelAt(i % LEDMatrix::WIDTH, i / LEDMatrix::WIDTH), smoothedTargetColorBuffer[i], 64);
         }
 
-        // Render either voices 1/2 (page 1) or 3/4 (page 2)
-        if (showFirstPair)
-        {
-            renderVoicePair(ledMatrix, seq1, seq2, theme, 0);
-        }
-        else
-        {
-            renderVoicePair(ledMatrix, seq3, seq4, theme, 0);
-        }
+        // Render all four voices on rows 0..3
+        renderVoicePair(ledMatrix, seq1, seq2, theme, 0, 1);
+        renderVoicePair(ledMatrix, seq3, seq4, theme, 2, 3);
 
-        // Polyrhythmic overlays for the visible pair only
-        if (showFirstPair)
-        {
-            addPolyrhythmicOverlay(ledMatrix, seq1, false, 32);
-            addPolyrhythmicOverlay(ledMatrix, seq2, true, 32);
-        }
-        else
-        {
-            addPolyrhythmicOverlay(ledMatrix, seq3, false, 32);
-            addPolyrhythmicOverlay(ledMatrix, seq4, true, 32);
-        }
+        // Polyrhythmic overlays for all four rows
+        addPolyrhythmicOverlay(ledMatrix, seq1, 0, 32);
+        addPolyrhythmicOverlay(ledMatrix, seq2, 1, 32);
+        addPolyrhythmicOverlay(ledMatrix, seq3, 2, 32);
+        addPolyrhythmicOverlay(ledMatrix, seq4, 3, 32);
 
         // Highlight selected step if editing
         if (uiState.selectedStepForEdit >= 0 && uiState.selectedStepForEdit < SEQ_STEPS)
         {
-            int ledIndex = uiState.selectedVoiceIndex % 2 == 1 ? (LED_MATRIX_BOTTOM_HALF_OFFSET + uiState.selectedStepForEdit) : uiState.selectedStepForEdit; // Fixed offset
+            int ledIndex = voiceRowBaseIndex(uiState.selectedVoiceIndex) + uiState.selectedStepForEdit;
 
             static bool blinkState = false;
             static uint32_t lastBlinkTime = 0;
+        // Creative overlays: timeline ticks (row 5) and global playhead (row 4)
+        const uint8_t playheadX = seq1.getCurrentStepForParameter(ParamId::Gate) % SEQ_STEPS;
+        for (int step = 0; step < SEQ_STEPS; ++step)
+        {
+            // Quarter-note ticks every 4 steps on row 5
+            if ((step % 4) == 0)
+            {
+                ledMatrix.setLED(step, 5, theme->defaultInactive);
+            }
+            // Clear the rest of the timeline row to black to avoid ghosting
+            else
+            {
+                ledMatrix.setLED(step, 5, LEDColors::BLACK);
+            }
+        }
+        // Global playhead indicator on row 4
+        ledMatrix.setLED(playheadX, 4, theme->playheadAccent);
+
             uint32_t currentTime = millis();
             if (currentTime - lastBlinkTime > 500)
             {
@@ -976,7 +975,7 @@ void updateStepLEDs(
 
             CRGB highlightColor = blinkState ? CRGB::White : CRGB::Black;
             nblend(smoothedTargetColorBuffer[ledIndex], highlightColor, TARGET_SMOOTHING_BLEND_AMOUNT);
-            nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex], 100);
+            nblend(ledMatrix.pixelAt(uiState.selectedStepForEdit, uiState.selectedVoiceIndex), smoothedTargetColorBuffer[ledIndex], 100);
         }
     }
 }

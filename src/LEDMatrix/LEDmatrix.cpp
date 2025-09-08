@@ -1,8 +1,8 @@
 #include "ledMatrix.h"
 
 /**
- * @brief LEDMatrix implementation for 8x8 WS2812B matrix
- * 
+ * @brief LEDMatrix implementation for 16x16 WS2812B matrix
+ *
  * Provides hardware abstraction and consistent color management
  * for the LED matrix display system.
  */
@@ -30,9 +30,10 @@ void LEDMatrix::setLED(int x, int y, const CRGB& color) {
     return;
   }
   
-  // Convert 2D coordinates to linear array index
-  const int linearIndex = x + (y * WIDTH);
-  ledArray[linearIndex] = color;
+  // Map to hardware index for TOP+LEFT+COLUMNS+ZIGZAG
+  int base = x * HEIGHT;
+  const int idx = ((x & 1) == 0) ? (base + y) : (base + (HEIGHT - 1 - y));
+  ledArray[idx] = color;
 }
 
 void LEDMatrix::setAll(const CRGB& color) {
@@ -55,4 +56,20 @@ void LEDMatrix::clear() {
 CRGB* LEDMatrix::getLeds() {
   // Provide direct access to LED array for advanced operations
   return ledArray;
+}
+
+CRGB LEDMatrix::getLED(int x, int y) const {
+  // Bounds safety: return black for out-of-range coordinates
+  if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) {
+    return CRGB::Black;
+  }
+  int idx = indexForXY(x, y);
+  return ledArray[idx];
+}
+
+CRGB& LEDMatrix::pixelAt(int x, int y) {
+  // Return direct reference to internal pixel for fast in-place updates.
+  // Caller is expected to provide valid coordinates; keep this fast for blending.
+  int idx = indexForXY(x, y);
+  return ledArray[idx];
 }

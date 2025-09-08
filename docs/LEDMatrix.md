@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `src/LEDMatrix` folder contains the LED matrix display system for the PicoMudrasSequencer. This module provides comprehensive visual feedback through an 8x8 WS2812B LED matrix, including sequencer state visualization, parameter editing feedback, and user interface indicators.
+The `src/LEDMatrix` folder contains the LED matrix display system for the PicoMudrasSequencer. This module provides comprehensive visual feedback through a 32x32 WS2812B LED matrix, including sequencer state visualization, parameter editing feedback, and user interface indicators.
 
 ## Key Components
 
@@ -10,7 +10,7 @@ The `src/LEDMatrix` folder contains the LED matrix display system for the PicoMu
 Centralized constants for LED matrix configuration and visual parameters.
 
 **Hardware Configuration:**
-- Matrix dimensions: 8x8 (64 total LEDs)
+- Matrix dimensions: 32x32 (1024 total LEDs)
 - Data pin: GPIO 1
 - Default brightness: 120
 
@@ -29,7 +29,7 @@ Centralized constants for LED matrix configuration and visual parameters.
 - Full: 200, High: 180, Medium: 128, Low: 64, Dim: 32, Subtle: 16
 
 ### 2. LEDMatrix Class (ledMatrix.h)
-Core hardware abstraction layer for the 8x8 WS2812B LED matrix.
+Core hardware abstraction layer for the 32x32 WS2812B LED matrix.
 
 **Key Methods:**
 - `LEDMatrix()` - Constructor initializes to black
@@ -67,11 +67,19 @@ Comprehensive visual feedback system for sequencer state and UI modes.
 - **Settings Menu**: Navigation and preset selection display
 - **Voice Parameters**: Parameter button highlighting and feedback
 
+**32x32 Layout:**
+
+- Rows 1–4 show voices 1–4 respectively (0-based rows 0..3)
+- Each voice row displays up to 32 steps across the 32 columns
+- Remaining rows are available for creative overlays (polyrhythm indicators, effects, meters)
+
 **Color Themes:**
+
 - DEFAULT, OCEANIC, VOLCANIC, FOREST, NEON
 - MODERN, DARK_NOCTIS, DARK_EMBER, BLUE, GREEN
 
 **Key Functions:**
+
 - `setupLEDMatrixFeedback()` - Initialize feedback system
 - `updateStepLEDs()` - Main LED update function
 - `updateSettingsModeLEDs()` - Settings menu display
@@ -108,7 +116,7 @@ ledMatrix.show();
 
 ## File Structure
 
-```
+```text
 src/LEDMatrix/
 ├── LEDConstants.h          # Constants and configuration
 ├── LEDController.cpp       # Control LED implementation
@@ -121,10 +129,18 @@ src/LEDMatrix/
 
 ## Hardware Requirements
 
-- 8x8 WS2812B LED matrix (64 individual LEDs)
+- 32x32 WS2812B LED matrix (1024 individual LEDs)
 - Data connection to GPIO pin 1
 - 5V power supply capable of supporting LED current draw
 - FastLED library compatible with target microcontroller
+
+### Wiring and Power Notes for 32x32
+
+- Data: connect microcontroller GPIO 1 to DIN of the first LED panel; keep ground common
+- Clock: not used for WS2812B (single-wire protocol)
+- Power: 5V capable of at least 10–20A peak for full-brightness white (worst case). In practice, cap brightness or limit current
+- Inject 5V at multiple points around the panel to avoid voltage drop; use thick wire and fuse the feed
+- Set LEDConstants::DEFAULT_BRIGHTNESS conservatively to avoid brown-outs; adjust as needed
 
 ## Performance Considerations
 

@@ -850,7 +850,7 @@ void OLEDDisplay::drawStepIndicators(const Sequencer &sequencer, int yPosition)
   {
     stepCount = LEDConstants::MAX_STEP_BUTTONS; // Default to 16 steps
   }
-  stepCount = min(stepCount, static_cast<uint8_t>(32)); // Limit to display width
+  stepCount = min(stepCount, static_cast<uint8_t>(16)); // Limit to display width
 
   const uint8_t currentStepIndex = sequencer.getCurrentStep();
   const int leftMargin = 4;

@@ -27,24 +27,27 @@
 
 namespace ControlLEDIndices
 {
-  // Parameter button LED positions (buttons 16-22 mapped to matrix positions)
-  static constexpr int NOTE_LED_INDEX = 48;
-  static constexpr int VELOCITY_LED_INDEX = 49;
-  static constexpr int FILTER_LED_INDEX = 50;
-  static constexpr int ATTACK_LED_INDEX = 51;
-  static constexpr int DECAY_LED_INDEX = 52;
-  static constexpr int OCTAVE_LED_INDEX = 53;
-  static constexpr int SLIDE_LED_INDEX = 54;
+  // Matrix index helper for 32x32
+  constexpr int idx(int x, int y) { return y * LEDConstants::MATRIX_WIDTH + x; }
 
-  // Delay parameter LED positions (AS5600 encoder control)
-  static constexpr int DELAY_TIME_LED_INDEX = 40;     // Matrix position (0,6)
-  static constexpr int DELAY_FEEDBACK_LED_INDEX = 41; // Matrix position (0,7)
+  // Parameter button LED positions (placed on row 8, columns 0..6)
+  static constexpr int NOTE_LED_INDEX     = idx(0, 8);
+  static constexpr int VELOCITY_LED_INDEX = idx(1, 8);
+  static constexpr int FILTER_LED_INDEX   = idx(2, 8);
+  static constexpr int ATTACK_LED_INDEX   = idx(3, 8);
+  static constexpr int DECAY_LED_INDEX    = idx(4, 8);
+  static constexpr int OCTAVE_LED_INDEX   = idx(5, 8);
+  static constexpr int SLIDE_LED_INDEX    = idx(6, 8);
 
-  // Mode indicator LED positions
-  static constexpr int VOICE1_LED_INDEX = 56;
-  static constexpr int VOICE2_LED_INDEX = 57;
-  static constexpr int DELAY_TOGGLE_LED_INDEX = 59; // Delay effect on/off indicator
-  static constexpr int RANDOMIZE_LED_INDEX = 64;
+  // Delay parameter LED positions (row 9)
+  static constexpr int DELAY_TIME_LED_INDEX     = idx(0, 9);
+  static constexpr int DELAY_FEEDBACK_LED_INDEX = idx(1, 9);
+
+  // Mode indicator LED positions (row 10)
+  static constexpr int VOICE1_LED_INDEX      = idx(0, 10);
+  static constexpr int VOICE2_LED_INDEX      = idx(1, 10);
+  static constexpr int DELAY_TOGGLE_LED_INDEX = idx(3, 10); // Delay effect on/off indicator
+  static constexpr int RANDOMIZE_LED_INDEX     = idx(4, 10);
 }
 
 // External function declarations for sensor and theme access

@@ -12,11 +12,11 @@
 
 namespace LEDConstants {
   // LED Matrix Hardware Configuration
-  static constexpr uint8_t MATRIX_WIDTH = 8;
-  static constexpr uint8_t MATRIX_HEIGHT = 8;
+  static constexpr uint8_t MATRIX_WIDTH = 16;   // 16x16 physical panel
+  static constexpr uint8_t MATRIX_HEIGHT = 16;
   static constexpr uint8_t MATRIX_DATA_PIN = 1;
-  static constexpr uint8_t MATRIX_TOTAL_LEDS = MATRIX_WIDTH * MATRIX_HEIGHT;
-  static constexpr uint8_t DEFAULT_BRIGHTNESS = 120;
+  static constexpr uint16_t MATRIX_TOTAL_LEDS = static_cast<uint16_t>(MATRIX_WIDTH) * static_cast<uint16_t>(MATRIX_HEIGHT);
+  static constexpr uint8_t DEFAULT_BRIGHTNESS = 200;
 
   // LED Animation Timing Constants
   static constexpr float PULSE_FREQUENCY = 0.006f;
@@ -44,9 +44,9 @@ namespace LEDConstants {
 
   // LED Matrix Layout Constants
   static constexpr uint8_t TOP_HALF_OFFSET = 0;
-  static constexpr uint8_t BOTTOM_HALF_OFFSET = 24;  // Row 4 start for 8x8 matrix
-  static constexpr uint8_t VOICE_PAIR_SEPARATION = 3;  // Rows between voice pairs
-  static constexpr uint8_t MAX_STEP_BUTTONS = 16;
+  static constexpr uint8_t BOTTOM_HALF_OFFSET = 16;  // Row 2 start for 16x16 matrix
+  static constexpr uint8_t VOICE_PAIR_SEPARATION = 2;  // Rows between voice pairs (used for overlays)
+  static constexpr uint8_t MAX_STEP_BUTTONS = 16;      // Visible steps per row on 16x16
 
   // Polyrhythmic Overlay Constants
   static constexpr uint8_t POLYRHYTHM_INTENSITY = 32;

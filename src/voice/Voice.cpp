@@ -463,7 +463,9 @@ void Voice::updateOscillatorFrequencies()
   // New flow stages frequencies via updateFrequencyIfNeeded() and commits on audio thread.
   updateFrequencyIfNeeded();
 }
+  
 
+//  envelope parameters should only change when gate is high, otherwise long decay envelopes are cut short
 inline void Voice::applyEnvelopeParameters() noexcept
 {
   // Map normalized parameters to appropriate ranges
@@ -744,8 +746,12 @@ void Voice::applyPendingParams_() noexcept
     // Recompute filter base freq from normalized param
     filterFrequency = daisysp::fmap(state.filterCutoff, 150.0f, 8000.0f, daisysp::Mapping::EXP);
 
-    // Update envelope segment times
-    applyEnvelopeParameters();
+    // Update envelope segment times only when gate is high; changing ADSR while
+    // gate is low can abruptly cut long release/decay tails.
+    if (state.isGateHigh)
+    {
+      applyEnvelopeParameters();
+    }
 
     // Stage pitch recompute; audio thread will commit oscillator freq via mixOscillators
     updateFrequencyIfNeeded();
