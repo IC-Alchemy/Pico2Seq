@@ -355,53 +355,44 @@ void VoiceManager::init(float sr)
  */
 float VoiceManager::processAllVoices() noexcept
 {
-    float mixedOutput = 0.0f;
+    // Accumulator
+    float sum = 0.0f;
 
-    // Pitch/frequency commit note:
-    // - Voice handles pitch change detection and frequency caching internally (pitchParamsChanged_ + updatePitchCache_).
-    // - Any required Oscillator::SetFreq is deferred and applied inside Voice::process() on the audio thread,
-    //   guarded by ShouldApplyFreq_. Do not set oscillator frequencies from VoiceManager.
-    for (auto &managedVoice : voices)
+    // Cache frequently read globals for better codegen
+    const float localGlobalVolume = globalVolume;
+
+    // Iterate voices with minimal branching and cached pointer
+    for (const auto &mvPtr : voices)
     {
-        if (managedVoice->enabled && managedVoice->voice)
-        {
-            float voiceOutput = managedVoice->voice->process();
-            mixedOutput += voiceOutput * managedVoice->mixLevel;
-        }
+        const ManagedVoice *mv = mvPtr.get();
+        if (!mv || !mv->enabled || mv->voice == nullptr)
+            continue;
+
+        const float v = mv->voice->process();
+        sum += v * mv->mixLevel;
     }
 
-    return mixedOutput * globalVolume;
-    /*
-         // Efficient compressor usage:
-         // - Update compressor internal state (envelope/gain) every compressorUpdateInterval samples
-         //   by calling Process(). That updates the internal gain_.
-         // - On intermediate samples call Apply(), which is a single multiply by the current gain.
-         float compressed = mixedOutput;
-         if (compressorUpdateInterval == 0)
-         {
-             // Defensive: if interval disabled, update every sample (legacy behavior)
-             compressed = compressor.Process(mixedOutput);
-         }
-         else
-         {
-             if (compressorUpdateCounter == 0)
-             {
-                 // Update compressor internals (more expensive) once every interval
-                 compressed = compressor.Process(mixedOutput);
-             }
-             else
-             {
-                 // Apply current gain (cheap)
-                 compressed = compressor.Apply(mixedOutput);
-             }
-
-             // Increment and wrap the counter
-             compressorUpdateCounter = (compressorUpdateCounter + 1) % compressorUpdateInterval;
-         }
-
-         // Final global volume and hard clamp to safe output range
-         return compressed * globalVolume;
-    */
+    // Compressor fast-path: update expensive state every N samples, apply cheap multiply between updates.
+    if (compressorUpdateInterval == 0)
+    {
+        // Legacy behavior: update every sample
+        float compressed = compressor.Process(sum);
+        return compressed * localGlobalVolume;
+    }
+    else
+    {
+        float compressed;
+        if (compressorUpdateCounter == 0)
+        {
+            compressed = compressor.Process(sum);
+        }
+        else
+        {
+            compressed = compressor.Apply(sum);
+        }
+        compressorUpdateCounter = static_cast<uint8_t>((compressorUpdateCounter + 1) % compressorUpdateInterval);
+        return compressed * localGlobalVolume;
+    }
 }
 
 /**

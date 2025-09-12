@@ -109,13 +109,6 @@ void Voice::init(float sr)
   // Compute per-sample slide coefficient from time constant
   slideAlpha = makeSmoothingAlpha(slideTimeSeconds, sampleRate);
 
-  // Initialize wavefolder wet/dry smoothing (about 5ms time constant)
-  {
-    const float tau = 0.005f; // seconds
-    wavefolderMixAlpha = makeSmoothingAlpha(tau, sampleRate);
-    wavefolderMixTarget = config.hasWavefolder ? 1.0f : 0.0f;
-    wavefolderMix = wavefolderMixTarget; // start with no transition
-  }
 
   // Initialize oscillators
   cachedOscCount_ = static_cast<uint8_t>(std::min<size_t>(3, config.oscillatorCount));
@@ -150,14 +143,8 @@ void Voice::init(float sr)
   highPassFilter.SetRes(config.highPassRes);
   // Initialize filter cutoff smoothing state (reduces zipper noise from abrupt SetFreq calls).
   // Use a short time-constant (4 ms) to remain responsive while smoothing envelope-modulation.
-  filterCutoffCurrent = filterFrequency;
-  {
-    const float tau = 0.004f; // seconds
-    filterCutoffAlpha = makeSmoothingAlpha(tau, sampleRate);
-  }
 
   // Initialize runtime caches used by optimizations
-  lastAppliedFilterCutoff = -1.0f;
   lastEnvelopeValue = 0.0f;
 
   // Initialize envelope
@@ -268,30 +255,35 @@ void Voice::setCurrentScalePointer(const uint8_t *ptr)
 
 float Voice::process() noexcept
 {
-  if (!config.enabled)
-  {
-    return 0.0f;
-  }
+    // Quick-disable check (cheap)
+    if (!config.enabled)
+        return 0.0f;
 
-  // Apply any pending cross-core parameter/config changes at the audio rate.
-  applyPendingConfig_();
-  applyPendingParams_();
+    // Apply any pending cross-core parameter/config changes at the audio rate.
+    applyPendingConfig_();
+    applyPendingParams_();
 
-  // 1) Envelope
-  float envelopeValue = computeEnvelope();
-  // Cache envelope value for cheap per-voice checks in hot paths (avoids reprocessing ADSR)
-  lastEnvelopeValue = envelopeValue;
+    // Cache frequently-read config/state locally to reduce memory indirection in the hot path.
+    const VoiceConfig &cfg = config;        // small, encourages register use
+    const bool hasEnvelope = cfg.hasEnvelope;
 
-  // 2) Filter cutoff update (uses envelope)
-  updateFilter(envelopeValue);
+    // 1) Envelope
+    float envelopeValue = computeEnvelope();
+    // Cache envelope value for cheap per-voice checks in hot paths (avoids reprocessing ADSR)
+    lastEnvelopeValue = envelopeValue;
 
-  // 3) Oscillator/engine mixing (+ slide updates)
-  float mixed = mixOscillators();
+    // 2) Filter cutoff update (uses envelope)
+    updateFilter(envelopeValue);
 
-  // 4) Effects and gain shaping pre-filter
+    // 3) Oscillator/engine mixing (+ slide updates)
+    // Note: mixOscillators() contains its own early-silence short-circuit so it's cheap to call.
+    float mixed = mixOscillators();
 
-  // 5) Filter processing, HPF, and final scaling
-  return finalizeOutput(mixed, envelopeValue);
+    // 4) Effects and gain shaping pre-filter
+    // (applyEffects is called from finalizeOutput; we avoid redundant checks here.)
+
+    // 5) Filter processing, HPF, and final scaling
+    return finalizeOutput(mixed, envelopeValue);
 }
 
 float Voice::computeEnvelope()
@@ -310,122 +302,127 @@ float Voice::computeEnvelope()
 
 void Voice::updateFilter(float envelopeValue)
 {
-  // Compute the intended (instantaneous) cutoff target using previous logic
-  const float targetCutoff = (filterFrequency * envelopeValue) + (filterFrequency * 0.1f);
+    // Compute the intended (instantaneous) cutoff target using previous logic.
+    // NOTE: At this stage filterFrequency is static (not driven by sensors). If sensor-driven
+    // control is reintroduced later, ensure proper throttling/validation here to avoid zipper noise.
+    const float targetCutoff = (filterFrequency * envelopeValue) + (filterFrequency * 0.1f);
 
-  // Exponential smoothing to prevent zipper noise when targetCutoff jumps.
-  // filterCutoffAlpha was initialized in init() (per-sample coefficient).
-  filterCutoffCurrent += filterCutoffAlpha * (targetCutoff - filterCutoffCurrent);
+    // Exponential smoothing to prevent zipper noise when targetCutoff jumps.
+    // filterCutoffAlpha was initialized in init() (per-sample coefficient).
+    filterCutoffCurrent += filterCutoffAlpha * (targetCutoff - filterCutoffCurrent);
 
-  // Throttle SetFreq to avoid per-sample heavy work if change is tiny
-  if (filterUpdateInterval == 0)
-  {
-    filter.SetFreq(filterCutoffCurrent);
-    lastAppliedFilterCutoff = filterCutoffCurrent;
-  }
-  else
-  {
-    if (filterUpdateCounter == 0)
+    // Throttle SetFreq to avoid per-sample heavy work if change is tiny.
+    if (filterUpdateInterval == 0)
     {
-      if (ShouldApplyFilterFreq_(filterCutoffCurrent, lastAppliedFilterCutoff))
-      {
         filter.SetFreq(filterCutoffCurrent);
         lastAppliedFilterCutoff = filterCutoffCurrent;
-      }
     }
-    filterUpdateCounter = static_cast<uint8_t>((filterUpdateCounter + 1) % filterUpdateInterval);
-  }
+    else
+    {
+        if (filterUpdateCounter == 0)
+        {
+            if (ShouldApplyFilterFreq_(filterCutoffCurrent, lastAppliedFilterCutoff))
+            {
+                filter.SetFreq(filterCutoffCurrent);
+                lastAppliedFilterCutoff = filterCutoffCurrent;
+            }
+        }
+        filterUpdateCounter = static_cast<uint8_t>((filterUpdateCounter + 1) % filterUpdateInterval);
+    }
 }
 
-float Voice::mixOscillators()
+float Voice::mixOscillators() noexcept
 {
-  float mixedOscillators = 0.0f;
+    float mixedOscillators = 0.0f;
 
-  // Very cheap per-voice silence short-circuit: if envelope is enabled and the cached
-  // envelope value is effectively zero, skip oscillator/noise processing entirely.
-  if (config.hasEnvelope && lastEnvelopeValue <= 0.0005f)
-  {
-    return 0.0f;
-  }
+    // Fast silence path: if an envelope exists and is effectively zero, skip voice work.
+    // Use a constexpr threshold to encourage constant propagation.
+    constexpr float kEnvelopeSilenceThreshold = 0.0005f;
+    if (config.hasEnvelope && lastEnvelopeValue <= kEnvelopeSilenceThreshold)
+        return 0.0f;
 
-  // Determine number of oscillators to process (max 3 pre-sized)
-  const size_t oscCount = cachedOscCount_;
+    // Cache locals to reduce memory indirection in the hot loop.
+    const size_t oscCount = cachedOscCount_;
+    const bool gateHigh = state.isGateHigh;
+    const bool hasSlide = state.hasSlide;
 
-  // Audio-thread commit of frequency changes:
-  // - Only when gate HIGH (no repitch during release)
-  // - Lock-free via generation counter
-  if (oscCount > 0 && state.isGateHigh)
-  {
-    const uint32_t gen = pitchGen_.load(std::memory_order_seq_cst);
-    if (!state.hasSlide && gen != appliedPitchGen_)
+    // Cache arrays/pointers where possible.
+    auto *oscArr = oscillators.data();
+    auto *slewArr = freqSlew;
+    auto *lastAppliedArr = lastAppliedOscFreq_;
+    auto *pitchFinal = pitchCache_.finalFreq;
+
+    // Commit frequency changes on generation change (only when gate is high).
+    if (oscCount > 0 && gateHigh)
     {
-      // Commit immediate frequencies (no slide)
-      for (size_t i = 0; i < oscCount; i++)
-      {
-        const float f = pitchCache_.finalFreq[i];
-        if (ShouldApplyFreq_(f, lastAppliedOscFreq_[i]))
+        const uint32_t gen = pitchGen_.load(std::memory_order_seq_cst);
+        if (!hasSlide && gen != appliedPitchGen_)
         {
-          oscillators[i].SetFreq(f);
-          lastAppliedOscFreq_[i] = f;
-          // Keep slew state consistent
-          freqSlew[i].currentFreq = f;
-          freqSlew[i].targetFreq = f;
+            // Immediate commit: set oscillator freqs and synchronize slew state.
+            for (size_t i = 0; i < oscCount; ++i)
+            {
+                const float f = pitchFinal[i];
+                if (ShouldApplyFreq_(f, lastAppliedArr[i]))
+                {
+                    oscArr[i].SetFreq(f);
+                    lastAppliedArr[i] = f;
+                    slewArr[i].currentFreq = f;
+                    slewArr[i].targetFreq = f;
+                }
+            }
+            appliedPitchGen_ = gen;
         }
-      }
-      appliedPitchGen_ = gen;
-    }
-    else if (state.hasSlide && gen != appliedPitchGen_)
-    {
-      // On gen change, update targets; slewing occurs per-sample below
-      for (size_t i = 0; i < oscCount; i++)
-      {
-        const float f = pitchCache_.finalFreq[i];
-        freqSlew[i].targetFreq = f;
-      }
-      appliedPitchGen_ = gen;
-    }
-  }
-
-  if (oscCount > 0)
-  {
-    // Update frequencies (slew when sliding) and process oscillators
-    for (size_t i = 0; i < oscCount; i++)
-    {
-      if (state.hasSlide)
-      {
-        processFrequencySlew(i, freqSlew[i].targetFreq);
-        const float fcur = freqSlew[i].currentFreq;
-        if (ShouldApplyFreq_(fcur, lastAppliedOscFreq_[i]))
+        else if (hasSlide && gen != appliedPitchGen_)
         {
-          oscillators[i].SetFreq(fcur);
-          lastAppliedOscFreq_[i] = fcur;
+            // Update targets only; per-sample slew will move currentFreq toward targetFreq.
+            for (size_t i = 0; i < oscCount; ++i)
+            {
+                const float f = pitchFinal[i];
+                slewArr[i].targetFreq = f;
+            }
+            appliedPitchGen_ = gen;
         }
-      }
-      mixedOscillators += oscillators[i].Process();
     }
-  }
-  else
-  {
-    // Special case for percussion voices (no oscillators, only noise)
-    mixedOscillators = noise_.Process();
-  }
 
-  return mixedOscillators;
+    if (oscCount > 0)
+    {
+        // Per-sample frequency update and oscillator processing.
+        for (size_t i = 0; i < oscCount; ++i)
+        {
+            if (hasSlide)
+            {
+                processFrequencySlew(static_cast<int>(i), slewArr[i].targetFreq);
+                const float fcur = slewArr[i].currentFreq;
+                if (ShouldApplyFreq_(fcur, lastAppliedArr[i]))
+                {
+                    oscArr[i].SetFreq(fcur);
+                    lastAppliedArr[i] = fcur;
+                }
+            }
+            mixedOscillators += oscArr[i].Process();
+        }
+    }
+    else
+    {
+        // Percussion / noise-only voice path.
+        mixedOscillators = noise_.Process();
+    }
+
+    return mixedOscillators;
 }
 
-void Voice::applyEffects(float &signal)
+void Voice::applyEffects(float &signal) noexcept
 {
+    // Fast-path: avoid extra branching when no effects are enabled.
+    if (!config.hasWavefolder && !config.hasOverdrive)
+        return;
 
-  if (config.hasWavefolder)
-  {
-    signal = wavefolder.Process(signal);
-  }
-  if (config.hasOverdrive)
-  {
-    signal = overdrive.Process(signal * config.overdriveGain);
-  }
+    if (config.hasWavefolder)
+        signal = wavefolder.Process(signal);
+    if (config.hasOverdrive)
+        signal = overdrive.Process(signal * config.overdriveGain);
 
-  // Level adjustments removed from here; handled in finalizeOutput
+    // Level adjustments removed from here; handled in finalizeOutput
 }
 
 // Provide a wrapper to maintain API compatibility
