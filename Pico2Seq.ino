@@ -2,12 +2,23 @@
 #include "diagnostic.h"
 #include "src/dsp/dsp.h"
 #include "RP2350.h"
-
+ 
 #include "src/voice/Voice.h"
 #include "src/utils/Debug.h"
 #include "src/scales/scales.h"
 #include "src/voice/VoicePresets.h"
 #include "src/voice/VoiceSystem.h"
+ 
+// TEST ONLY: Global guard to disable Moog ladder filter across modules (reversible)
+#ifndef P2S_DISABLE_MOOG_LADDER_FILTER
+#define P2S_DISABLE_MOOG_LADDER_FILTER 1
+#endif
+ 
+// PROFILING: configuration -- adjust CPU freq if needed
+#define PROFILING_CPU_FREQ_HZ 225000000u // adjust if target clock different
+#define PROFILING_GPIO_PIN 0 // optional oscilloscope toggle pin
+#define PROFILING_TOGGLE_GPIO // Uncomment to enable GPIO toggle on PROFILING_GPIO_PIN
+ 
 
 // =======================
 //   GLOBAL VARIABLES
@@ -29,9 +40,9 @@ Adafruit_MPR121 touchSensor = Adafruit_MPR121();
 //   AUDIO SYSTEM CONSTANTS
 // =======================
 constexpr float SAMPLE_RATE = 48000.0f;
-constexpr size_t MAX_DELAY_SAMPLES = static_cast<size_t>(SAMPLE_RATE * 1.8f);
-constexpr int NUM_AUDIO_BUFFERS = 3;
-constexpr int SAMPLES_PER_BUFFER = 256;
+constexpr size_t MAX_DELAY_SAMPLES = static_cast<size_t>(SAMPLE_RATE * 1.f);
+constexpr int NUM_AUDIO_BUFFERS = 4;
+constexpr int SAMPLES_PER_BUFFER = 512;
 constexpr float INT16_MAX_AS_FLOAT = 32767.0f;
 constexpr float INT16_MIN_AS_FLOAT = -32768.0f;
 constexpr float OSC_DETUNE_FACTOR = 0.001f;
@@ -227,36 +238,62 @@ void initOscillators()
     // Note: OLED display registration occurs in setup1() after display initialization
 }
 
-// Apply voice preset to the specified voice (0-based index)
-void applyVoicePreset(uint8_t voiceIndex, uint8_t presetIndex)
-{
-    if (presetIndex >= VoicePresets::getPresetCount())
-    {
-        Serial.println("Invalid preset index");
-        return;
-    }
+ // Apply voice preset to the specified voice (0-based index)
+ void applyVoicePreset(uint8_t voiceIndex, uint8_t presetIndex)
+ {
+     if (presetIndex >= VoicePresets::getPresetCount())
+     {
+         Serial.println("applyVoicePreset: invalid presetIndex");
+         return;
+     }
+     if (voiceIndex >= VoiceSystem::MAX_VOICES)
+     {
+         Serial.println("applyVoicePreset: invalid voiceIndex");
+         return;
+     }
 
-    if (voiceIndex >= VoiceSystem::MAX_VOICES)
-    {
-        Serial.println("Invalid voice index");
-        return;
-    }
+     if (!voiceManager)
+     {
+         Serial.println("applyVoicePreset: VoiceManager not initialized");
+         return;
+     }
 
-    VoiceConfig config = VoicePresets::getPresetConfig(presetIndex);
-    uint8_t voiceId = voiceSystem.getVoiceId(voiceIndex);
+     VoiceConfig config = VoicePresets::getPresetConfig(presetIndex);
+     uint8_t voiceId = voiceSystem.getVoiceId(voiceIndex);
 
-    if (voiceManager->setVoiceConfig(voiceId, config))
-    {
-        Serial.print("Applied preset '");
-        Serial.print(VoicePresets::getPresetName(presetIndex));
-        Serial.print("' to Voice ");
-        Serial.println(voiceIndex); // 0-based display
-    }
-    else
-    {
-        Serial.println("Failed to apply voice preset");
-    }
-}
+     Serial.print("applyVoicePreset: uiIdx=");
+     Serial.print(voiceIndex);
+     Serial.print(" -> voiceId=");
+     Serial.println(voiceId);
+
+     if (voiceId == 0)
+     {
+         Serial.println("applyVoicePreset: warning - resolved voiceId == 0 (possible invalid). Current mapping:");
+         for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i)
+         {
+             Serial.print("  uiIdx=");
+             Serial.print(i);
+             Serial.print(" id=");
+             Serial.println(voiceSystem.getVoiceId(i));
+         }
+     }
+
+     if (voiceManager->setVoiceConfig(voiceId, config))
+     {
+         Serial.print("Applied preset '");
+         Serial.print(VoicePresets::getPresetName(presetIndex));
+         Serial.print("' to UI voice ");
+         Serial.print(voiceIndex);
+         Serial.print(" (voiceId=");
+         Serial.print(voiceId);
+         Serial.println(")");
+     }
+     else
+     {
+         Serial.print("applyVoicePreset: failed to setVoiceConfig for voiceId=");
+         Serial.println(voiceId);
+     }
+ }
 
 // Long press detection is now handled by ButtonManager module
 // isVoice2Mode is now managed by ButtonManager module
@@ -626,6 +663,11 @@ void fill_audio_buffer(audio_buffer_t *buffer)
     // Set delay time once per buffer for efficiency
     //  del1.SetDelay(currentDelay);
 
+    // Defer Voice pending updates to outside the per-sample loop per docs/Audio-Hot-Path-Optimization-Guide.md
+#if !P2S_DEFER_UPDATES_ON_UI_THREAD
+    voiceManager->serviceDeferredVoiceUpdates();
+#endif
+
     // Process each sample in the buffer
     for (int i = 0; i < N; ++i)
     {
@@ -722,6 +764,13 @@ void setup()
 {
     delay(100); // Allow system stabilization
 
+#ifdef PROFILING_TOGGLE_GPIO
+    // PROFILING: initialize GPIO for scope toggle (non-realtime setup)
+    gpio_init(PROFILING_GPIO_PIN);               // PROFILING:
+    gpio_set_dir(PROFILING_GPIO_PIN, GPIO_OUT);  // PROFILING:
+    gpio_put(PROFILING_GPIO_PIN, 0);             // PROFILING: ensure low initially
+#endif
+ 
     // Initialize audio synthesis system
     initOscillators();
 
@@ -892,13 +941,26 @@ void setup1()
 void loop()
 {
     audio_buffer_t *audioBuffer = take_audio_buffer(producer_pool, true);
-
+ 
     if (audioBuffer)
     {
-        fill_audio_buffer(audioBuffer);
+        // PROFILING: optional GPIO toggle for oscilloscope timing verification
+        #ifdef PROFILING_TOGGLE_GPIO
+        gpio_put(PROFILING_GPIO_PIN, 1); // PROFILING: toggle high before measured region
+        #endif
+ 
+        fill_audio_buffer(audioBuffer);      // existing call (measured)
+ 
+        #ifdef PROFILING_TOGGLE_GPIO
+        gpio_put(PROFILING_GPIO_PIN, 0); // PROFILING: toggle low after measured region
+        #endif      
+ 
         give_audio_buffer(producer_pool, audioBuffer);
+ 
+        
+        }
     }
-}
+
 
 // =======================
 //   CORE 1 MAIN LOOP (UI, MIDI, SENSORS)

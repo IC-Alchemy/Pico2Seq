@@ -6,6 +6,11 @@
 #include "../scales/scales.h" // Use centralized SCALES_COUNT / SCALE_STEPS
 #include "VoicePresets.h"
 
+// TEST ONLY: Moog ladder filter bypass for this TU (reversible)
+#ifndef P2S_DISABLE_MOOG_LADDER_FILTER
+#define P2S_DISABLE_MOOG_LADDER_FILTER 1
+#endif
+
 // Constants
 static constexpr float FREQ_SLEW_RATE = 0.00035f; // Slide speed
 static constexpr float BASE_FREQ =
@@ -143,6 +148,8 @@ void Voice::init(float sr)
   highPassFilter.SetRes(config.highPassRes);
   // Initialize filter cutoff smoothing state (reduces zipper noise from abrupt SetFreq calls).
   // Use a short time-constant (4 ms) to remain responsive while smoothing envelope-modulation.
+  filterCutoffAlpha = makeSmoothingAlpha(0.004f, sampleRate);
+  filterCutoffCurrent = filterFrequency;
 
   // Initialize runtime caches used by optimizations
   lastEnvelopeValue = 0.0f;
@@ -167,12 +174,6 @@ void Voice::init(float sr)
   recomputeDetuneMultipliers();
 }
 
-void Voice::setConfig(const VoiceConfig &cfg)
-{
-  // Control-thread: stage config and apply on audio thread to avoid races
-  stagedConfig_ = cfg;
-  configPending_.store(true, std::memory_order_release);
-}
 
 // Injected scale-data setters (defined out-of-line)
 void Voice::setScaleTable(const int (*table)[48], size_t scaleCount)
@@ -253,16 +254,16 @@ void Voice::setCurrentScalePointer(const uint8_t *ptr)
   baseFreqDirty_ = true;
 }
 
+// process 
+
 float Voice::process() noexcept
 {
     // Quick-disable check (cheap)
     if (!config.enabled)
         return 0.0f;
 
-    // Apply any pending cross-core parameter/config changes at the audio rate.
-    applyPendingConfig_();
-    applyPendingParams_();
-
+    // Pending cross-core updates are applied once per buffer at a render boundary.
+    // See docs/Audio-Hot-Path-Optimization-Guide.md and callsite in fill_audio_buffer().
     // Cache frequently-read config/state locally to reduce memory indirection in the hot path.
     const VoiceConfig &cfg = config;        // small, encourages register use
     const bool hasEnvelope = cfg.hasEnvelope;
@@ -303,13 +304,18 @@ float Voice::computeEnvelope()
 void Voice::updateFilter(float envelopeValue)
 {
     // Compute the intended (instantaneous) cutoff target using previous logic.
-    // NOTE: At this stage filterFrequency is static (not driven by sensors). If sensor-driven
-    // control is reintroduced later, ensure proper throttling/validation here to avoid zipper noise.
+
     const float targetCutoff = (filterFrequency * envelopeValue) + (filterFrequency * 0.1f);
 
     // Exponential smoothing to prevent zipper noise when targetCutoff jumps.
     // filterCutoffAlpha was initialized in init() (per-sample coefficient).
     filterCutoffCurrent += filterCutoffAlpha * (targetCutoff - filterCutoffCurrent);
+
+#if defined(P2S_DISABLE_MOOG_LADDER_FILTER)
+    // TEST: Ladder disabled -> maintain smoothed state, skip SetFreq calls entirely
+    lastAppliedFilterCutoff = filterCutoffCurrent;
+    return;
+#endif
 
     // Throttle SetFreq to avoid per-sample heavy work if change is tiny.
     if (filterUpdateInterval == 0)
@@ -433,13 +439,16 @@ void Voice::processEffectsChain(float &signal)
 
 inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept
 {
-  float preEffects = signal * envelopeValue;
+  float preEffects = signal * envelopeValue* state.velocityLevel;
   // Apply effects (pre-filter)
   //    VCA envelope is applied pre effects so that the Wavefolder/ overdrive sounds more dynamic
   applyEffects(preEffects);
 
-  // Apply ladder filter
-  float filteredSignal = filter.Process(preEffects * state.velocityLevel);
+  // Apply ladder filter (TEST bypass when disabled)
+  float filteredSignal = preEffects;
+#if !defined(P2S_DISABLE_MOOG_LADDER_FILTER)
+  filteredSignal = filter.Process(preEffects);
+#endif
 
   // Apply optional high-pass filter
   float postHpf = filteredSignal;
@@ -473,7 +482,7 @@ inline void Voice::applyEnvelopeParameters() noexcept
   // float release = decay; // Use decay for release in this implementation
 
   envelope.SetAttackTime(attack, .75f);
-  envelope.SetDecayTime(0.075f + (decay * 0.32f));
+  //envelope.SetDecayTime(0.075f + (decay * 0.32f));
   envelope.SetReleaseTime(decay);
 }
 
@@ -728,91 +737,3 @@ void Voice::setSequencer(Sequencer *seq)
   sequencer = seq;
 }
 
-// Apply staged VoiceState updates from control thread (UI/Sequencer)
-void Voice::applyPendingParams_() noexcept
-{
-  const uint32_t gen = paramsGen_.load(std::memory_order_seq_cst);
-  if (gen != appliedParamsGen_)
-  {
-    // Copy staged state and apply changes that require immediate DSP updates
-    state = stagedState_;
-
-    // Synchronize ADSR gate
-    setGate(state.isGateHigh);
-
-    // Recompute filter base freq from normalized param
-    filterFrequency = daisysp::fmap(state.filterCutoff, 150.0f, 8000.0f, daisysp::Mapping::EXP);
-
-    // Update envelope segment times only when gate is high; changing ADSR while
-    // gate is low can abruptly cut long release/decay tails.
-    if (state.isGateHigh)
-    {
-      applyEnvelopeParameters();
-    }
-
-    // Stage pitch recompute; audio thread will commit oscillator freq via mixOscillators
-    updateFrequencyIfNeeded();
-
-    appliedParamsGen_ = gen;
-  }
-}
-
-// Apply staged VoiceConfig changes from control thread safely on audio thread
-void Voice::applyPendingConfig_() noexcept
-{
-  if (configPending_.load(std::memory_order_acquire))
-  {
-    config = stagedConfig_;
-
-    // Oscillator container pre-sized to 3 in ctor; only use up to config.oscillatorCount
-    cachedOscCount_ = config.oscillatorCount;
-    for (size_t i = 0; i < cachedOscCount_; ++i)
-    {
-      // Re-init to ensure SR/version updates if needed
-      oscillators[i].Init(sampleRate);
-    }
-    // Zero-out any unused oscillators to ensure silence and deterministic state
-    for (size_t i = cachedOscCount_; i < 3; ++i)
-    {
-      oscillators[i].Init(sampleRate);
-      oscillators[i].SetAmp(0.0f);
-    }
-
-    // Update oscillator params only for active oscillators
-    for (size_t i = 0; i < cachedOscCount_; i++)
-    {
-      oscillators[i].SetWaveform(config.oscWaveforms[i]);
-      oscillators[i].SetAmp(config.oscAmplitudes[i]);
-      if (config.oscWaveforms[i] == daisysp::Oscillator::WAVE_POLYBLEP_SQUARE)
-      {
-        oscillators[i].SetPw(config.oscPulseWidth[i]);
-      }
-    }
-
-    // Update filters
-    filter.SetRes(config.filterRes);
-    filter.SetInputDrive(config.filterDrive);
-    filter.SetPassbandGain(config.filterPassbandGain);
-    filter.SetFilterMode(config.filterMode);
-
-    highPassFilter.SetFreq(config.highPassFreq);
-    highPassFilter.SetRes(config.highPassRes);
-    hpfBypass_ = (config.highPassFreq <= 20.0f && config.highPassRes <= 0.01f);
-
-    // Update effects
-    overdrive.SetDrive(config.overdriveDrive);
-    wavefolder.SetGain(config.wavefolderGain);
-    wavefolder.SetOffset(config.wavefolderOffset);
-
-    // Smoothly transition wavefolder mix if toggled
-    wavefolderMixTarget = config.hasWavefolder ? 1.0f : 0.0f;
-
-    // Detune multipliers depend on config
-    recomputeDetuneMultipliers();
-
-    // Pitch depends on harmony, etc.
-    updateFrequencyIfNeeded();
-
-    configPending_.store(false, std::memory_order_release);
-  }
-}

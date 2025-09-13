@@ -1,10 +1,16 @@
 #include "VoiceManager.h"
 #include <algorithm>
 #include <cstring>
+#include <string>
 #include "../utils/Debug.h"
 #include "../scales/scales.h" // Inject scale data into voices
 #include "Voice.h"
 #include "VoicePresets.h"
+
+// TEST ONLY: Global guard to disable Moog ladder filter in this TU (reversible)
+#ifndef P2S_DISABLE_MOOG_LADDER_FILTER
+#define P2S_DISABLE_MOOG_LADDER_FILTER 1
+#endif
 
 /**
  * @brief Constructor for VoiceManager
@@ -124,49 +130,7 @@ void VoiceManager::removeAllVoices()
     notifyVoiceCountChanged();
 }
 
-/**
- * Updates a voice's configuration with new settings
- * Applies new oscillator, filter, and envelope parameters to an existing voice
- *
- * @param voiceId Target voice to reconfigure
- * @param config New VoiceConfig structure with updated parameters
- * @return bool True if voice found and updated, false if voice ID not found
- *
- * Immediately applies new configuration to the voice's DSP components
- */
-bool VoiceManager::setVoiceConfig(uint8_t voiceId, const VoiceConfig &config)
-{
-    ManagedVoice *managedVoice = findVoice(voiceId);
-    if (managedVoice && managedVoice->voice)
-    {
-        managedVoice->voice->setConfig(config);
-        DBG_INFO("VoiceManager: setVoiceConfig id=%u", voiceId);
-        return true;
-    }
-    DBG_WARN("VoiceManager: setVoiceConfig failed id=%u not found", voiceId);
-    return false;
-}
 
-/**
- * Applies a preset configuration to an existing voice
- * Looks up preset by name and applies its configuration to specified voice
- *
- * @param voiceId Target voice to apply preset to
- * @param presetName Name of preset to apply (see getAvailablePresets())
- * @return bool True if voice found and preset applied, false otherwise
- *
- * Convenience wrapper around setVoiceConfig() using preset system
- */
-bool VoiceManager::setVoicePreset(uint8_t voiceId, const std::string &presetName)
-{
-    VoiceConfig config = getPresetConfig(presetName);
-    bool ok = setVoiceConfig(voiceId, config);
-    if (ok)
-    {
-        DBG_INFO("VoiceManager: setVoicePreset id=%u preset=%s", voiceId, presetName.c_str());
-    }
-    return ok;
-}
 
 /**
  * Retrieves the current configuration of a voice
@@ -343,16 +307,7 @@ void VoiceManager::init(float sr)
     }
 }
 
-/**
- * Processes all enabled voices and returns mixed output
- * Core audio processing function called every sample frame
- *
- * @return float Mixed audio output from all enabled voices (-1.0 to 1.0 range)
- *
- * Processes each enabled voice, applies individual mix levels, sums together
- * Finally applies global volume scaling before returning
- * Optimized for embedded systems with minimal branching
- */
+
 float VoiceManager::processAllVoices() noexcept
 {
     // Accumulator

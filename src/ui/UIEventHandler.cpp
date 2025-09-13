@@ -11,6 +11,7 @@
 #include "ButtonHandlers.h"
 #include "UIConstants.h"
 #include <uClock.h>
+#include "../OLED/oled.h"
 
 // =======================
 //   UI EVENT CONSTANTS
@@ -318,30 +319,31 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
 static bool handleParameterButtonEvent(const MatrixButtonEvent &evt,
                                        UIState &uiState)
 {
-  // Block parameter button handling when in slide mode to avoid conflicts
-  if (uiState.slideMode)
+  // Block parameter button handling when in slide mode or in settings mode to avoid conflicts
+  // Settings mode uses step buttons for menu navigation; parameter handling must not preempt it.
+  if (uiState.slideMode || uiState.settingsMode)
   {
     return false;
   }
-
+ 
   // Search through parameter button mappings to find a match
   for (size_t mappingIndex = 0; mappingIndex < PARAM_BUTTON_MAPPINGS_SIZE; ++mappingIndex)
   {
     const auto &currentMapping = PARAM_BUTTON_MAPPINGS[mappingIndex];
-
+ 
     // Check if this button event matches a parameter button
     if (evt.buttonIndex == currentMapping.buttonIndex)
     {
       // Update parameter button held state based on press/release
       bool isButtonPressed = (evt.type == MATRIX_BUTTON_PRESSED);
       uiState.parameterButtonHeld[static_cast<int>(currentMapping.paramId)] = isButtonPressed;
-
+ 
       // Automatically select AS5600 parameter for real-time control (except Note parameter)
       if (isButtonPressed && currentMapping.paramId != ParamId::Note)
       {
         autoSelectAS5600Parameter(currentMapping.paramId, uiState);
       }
-
+ 
       // Handle parameter editing in step edit mode
       if (isButtonPressed && uiState.selectedStepForEdit >= 0)
       {
@@ -630,24 +632,44 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
 {
   if (evt.type != MATRIX_BUTTON_PRESSED)
     return;
-
+ 
+  // Debug: log entry to help trace unresponsive behavior
+  Serial.print("handleVoiceParameter entry btn=");
+  Serial.print(evt.buttonIndex);
+  Serial.print(" type=");
+  Serial.println(evt.type);
+ 
   // Only respond to parameter button range 8..24; active range 8..15 as defined today
   if (evt.buttonIndex < UIEventConstants::VOICE_PARAM_BUTTON_MIN ||
-      evt.buttonIndex > UIEventConstants::VOICE_PARAM_BUTTON_MAX ||
-      voiceManager == nullptr)
+      evt.buttonIndex > UIEventConstants::VOICE_PARAM_BUTTON_MAX)
   {
+    Serial.print("handleVoiceParameter: button out of range: ");
+    Serial.println(evt.buttonIndex);
     return;
   }
-
+ 
+  if (voiceManager == nullptr)
+  {
+    Serial.println("handleVoiceParameter: voiceManager is NULL");
+    return;
+  }
+ 
   // Resolve current voice configuration
   const uint8_t selectedVoiceIndex = uiState.selectedVoiceIndex;
+  Serial.print("handleVoiceParameter: selectedVoiceIndex=");
+  Serial.println(selectedVoiceIndex);
   const uint8_t currentVoiceId = voiceSystem.getVoiceId(selectedVoiceIndex);
+  Serial.print("handleVoiceParameter: currentVoiceId=");
+  Serial.println(currentVoiceId);
   VoiceConfig *liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
   if (!liveCfg)
+  {
+    Serial.println("handleVoiceParameter: liveCfg is NULL");
     return;
+  }
   // Work on a local copy to avoid mutating live config from UI thread
   VoiceConfig voiceConfig = *liveCfg;
-
+ 
   // UI feedback bookkeeping
   uiState.inVoiceParameterMode = true; // legacy flag mirror of active sub-mode
   uiState.lastVoiceParameterButton = evt.buttonIndex;
@@ -759,9 +781,16 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
     Serial.println(" - reserved");
     break;
   }
-
+ 
   // Apply updated configuration back to voice manager
-  voiceManager->setVoiceConfig(currentVoiceId, voiceConfig);
+  bool ok = voiceManager->setVoiceConfig(currentVoiceId, voiceConfig);
+  Serial.print("handleVoiceParameter: setVoiceConfig result=");
+  Serial.println(ok ? 1 : 0);
+  if (ok && voiceManager)
+  {
+    // Refresh OLED via public API so UI reflects changes made in settings mode.
+    oledDisplay.update(uiState, seq1, seq2, seq3, seq4, voiceManager);
+  }
 }
 /**
  * @brief Poll for long press detection on randomize buttons

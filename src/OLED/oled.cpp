@@ -942,3 +942,6 @@ void OLEDDisplay::runStartupAnimation()
   displayHardware.display();
   delay(OLEDConstants::STARTUP_SETTLE_DELAY_MS);
 }
+
+// Global OLED display instance (definition for extern in oled.h)
+OLEDDisplay oledDisplay;

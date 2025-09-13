@@ -76,7 +76,7 @@ namespace VoicePresets
         config.defaultDecay = 0.1f;
         config.defaultSustain = 0.5f;
         config.defaultRelease = 0.1f;
-        config.outputLevel = 0.5f;
+        config.outputLevel = 0.25f;
       }
 
       // Bass
@@ -106,7 +106,7 @@ namespace VoicePresets
         config.defaultDecay = 0.3f;
         config.defaultSustain = 0.55f;
         config.defaultRelease = 0.2f;
-        config.outputLevel = .95f;
+        config.outputLevel = .35f;
       }
 
       // Lead
@@ -127,7 +127,7 @@ namespace VoicePresets
         config.filterDrive = 3.f;
         config.filterPassbandGain = 0.23f;
         config.highPassFreq = 160.0f;
-        config.filterMode = daisysp::LadderFilter::FilterMode::LP12;
+        config.filterMode = daisysp::LadderFilter::FilterMode::LP24;
         config.hasOverdrive = false;
         config.hasWavefolder = false;
         config.overdriveGain = 0.7f;
@@ -138,7 +138,7 @@ namespace VoicePresets
         config.defaultDecay = 0.2f;
         config.defaultSustain = 0.5f;
         config.defaultRelease = 0.15f;
-        config.outputLevel = 0.5f;
+        config.outputLevel = 0.25f;
       }
 
       // Square
@@ -166,7 +166,7 @@ namespace VoicePresets
         config.defaultDecay = 0.2f;
         config.defaultSustain = 0.0f;
         config.defaultRelease = 0.15f;
-        config.outputLevel = .5f;
+        config.outputLevel = .25f;
       }
 
       // Pad
@@ -200,7 +200,7 @@ namespace VoicePresets
         config.defaultDecay = 0.2f;
         config.defaultSustain = 0.5f;
         config.defaultRelease = .5f; // Long release
-        config.outputLevel = 0.5f;  // Lower level for pad
+        config.outputLevel = 0.25f;  // Lower level for pad
       }
 
       // Percussion
@@ -226,7 +226,7 @@ namespace VoicePresets
         config.defaultDecay = 0.08f;
         config.defaultSustain = 0.0f;
         config.defaultRelease = 0.07f;
-        config.outputLevel = 0.5f;
+        config.outputLevel = 0.3f;
       }
 
       return p;

@@ -140,11 +140,6 @@ public:
    */
   float process();
 
-  /**
-   * @brief Update voice parameters from sequencer state
-   * @param newState New voice state from sequencer containing note, velocity, filter, envelope parameters
-   */
-  void updateParameters(const VoiceState &newState);
 
   // Sequencer integration
   /**
@@ -451,9 +446,6 @@ private:
    */
   void processEffectsChain(float &signal);
 
-  // Cross-core application helpers (called on audio thread at start of process)
-  void applyPendingParams_() noexcept;
-  void applyPendingConfig_() noexcept;
 
   // Pitch recompute helpers (staging on control thread; commit on audio thread)
   // Detects changes in note/octave/harmony/osc count/detune version/sample-rate version/slide/bend/mod.

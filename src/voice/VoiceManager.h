@@ -52,6 +52,8 @@ public:
     // Audio Processing
     void init(float sampleRate);
     float processAllVoices();
+    // Deferred per-buffer service hook to apply cross-core Voice updates
+    void serviceDeferredVoiceUpdates() noexcept;
     float processVoice(uint8_t voiceId);
 
     // Voice Control

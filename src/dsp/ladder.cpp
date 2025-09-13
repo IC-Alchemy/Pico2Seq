@@ -1,3 +1,7 @@
+// TEST ONLY: Disable Moog Ladder Filter (Huovilainen) for profiling/diagnostics
+// Define guard here so this TU bypasses expensive processing. Remove or comment to revert.
+#define P2S_DISABLE_MOOG_LADDER_FILTER 1
+
 /* Ported from Audio Library for Teensy, Ladder Filter
  * Copyright (c) 2021, Richard van Hoesel
  * Copyright (c) 2024, Infrasonic Audio LLC
@@ -71,6 +75,10 @@ void LadderFilter::Init(float sample_rate)
 
 float LadderFilter::Process(float in)
 {
+#if defined(P2S_DISABLE_MOOG_LADDER_FILTER)
+    // TEST: Ladder disabled -> passthrough
+    return in;
+#endif
     float input  = in * drive_;
     float total  = 0.0f;
     float interp = 0.0f;
@@ -97,6 +105,10 @@ float LadderFilter::Process(float in)
 __attribute__((optimize("unroll-loops"))) void
 LadderFilter::ProcessBlock(float* buf, size_t size)
 {
+#if defined(P2S_DISABLE_MOOG_LADDER_FILTER)
+    // TEST: Ladder disabled -> in-place passthrough (no processing)
+    return;
+#endif
     for(size_t i = 0; i < size; i++)
     {
         buf[i] = Process(buf[i]);
@@ -105,12 +117,22 @@ LadderFilter::ProcessBlock(float* buf, size_t size)
 
 void LadderFilter::SetFreq(float freq)
 {
+#if defined(P2S_DISABLE_MOOG_LADDER_FILTER)
+    // TEST: Ladder disabled -> store and exit
+    Fbase_ = freq;
+    return;
+#endif
     Fbase_ = freq;
     compute_coeffs(freq);
 }
 
 void LadderFilter::SetRes(float res)
 {
+#if defined(P2S_DISABLE_MOOG_LADDER_FILTER)
+    // TEST: Ladder disabled -> clamp to zero effect
+    K_ = 0.0f;
+    return;
+#endif
     // maps resonance = 0->1 to K = 0 -> 4
     res = daisysp::fclamp(res, 0.0f, kMaxResonance);
     K_  = 4.0f * res;
@@ -118,12 +140,23 @@ void LadderFilter::SetRes(float res)
 
 void LadderFilter::SetPassbandGain(float pbg)
 {
+#if defined(P2S_DISABLE_MOOG_LADDER_FILTER)
+    // TEST: Ladder disabled -> keep for reference only
+    pbg_ = pbg;
+    return;
+#endif
     pbg_ = daisysp::fclamp(pbg, 0.0f, 0.5f);
     SetInputDrive(drive_);
 }
 
 void LadderFilter::SetInputDrive(float odrv)
 {
+#if defined(P2S_DISABLE_MOOG_LADDER_FILTER)
+    // TEST: Ladder disabled -> neutral drive
+    drive_ = 1.0f;
+    drive_scaled_ = 1.0f;
+    return;
+#endif
     drive_ = daisysp::fmax(odrv, 0.0f);
     if(drive_ > 1.0f)
     {
@@ -149,6 +182,10 @@ float LadderFilter::LPF(float s, int i)
 
 void LadderFilter::compute_coeffs(float freq)
 {
+#if defined(P2S_DISABLE_MOOG_LADDER_FILTER)
+    // TEST: Ladder disabled -> skip heavy coeffs
+    return;
+#endif
     freq      = daisysp::fclamp(freq, 5.0f, sample_rate_ * 0.425f);
     float wc  = freq * 2.0f * PI_F * sr_int_recip_;
     float wc2 = wc * wc;
