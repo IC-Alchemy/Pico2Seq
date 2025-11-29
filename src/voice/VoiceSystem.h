@@ -39,6 +39,24 @@ struct VoiceSystem
     {
         return (voiceIndex < MAX_VOICES) ? voiceIds[voiceIndex] : 0;
     }
+    
+    /**
+     * @brief Helper: map a UI voice index (zero-based) to the internal voiceId.
+     *
+     * Use this helper from UI/event code when converting a selected voice index
+     * into the internal voiceId used by VoiceManager. Returns -1 when the UI
+     * index is out of range or when no voiceId is assigned at that index.
+     *
+     * @param uiIndex UI voice index (expected 0..MAX_VOICES-1)
+     * @return int16_t internal voiceId (>=0) or -1 for invalid/unassigned
+     */
+    inline int16_t getVoiceIdFromUIIndex(int uiIndex) const
+    {
+        if (uiIndex < 0 || static_cast<uint8_t>(uiIndex) >= MAX_VOICES)
+            return -1;
+        uint8_t v = voiceIds[static_cast<uint8_t>(uiIndex)];
+        return (v == 0) ? -1 : static_cast<int16_t>(v);
+    }
 
     /**
      * @brief Set voice ID by index

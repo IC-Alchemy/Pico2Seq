@@ -18,7 +18,7 @@ public:
   static constexpr uint8_t WIDTH = LEDConstants::MATRIX_WIDTH;
   static constexpr uint8_t HEIGHT = LEDConstants::MATRIX_HEIGHT;
   static constexpr uint8_t DATA_PIN = LEDConstants::MATRIX_DATA_PIN;
-  static constexpr uint8_t TOTAL_LEDS = LEDConstants::MATRIX_TOTAL_LEDS;
+  static constexpr uint32_t TOTAL_LEDS = LEDConstants::MATRIX_TOTAL_LEDS;
 
   /**
    * @brief Constructor - initializes LED array to black

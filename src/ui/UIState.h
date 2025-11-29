@@ -24,6 +24,9 @@ struct UIState
     bool slideMode = false;
     // Selected voice index 0..3 (replaces isVoice2Mode)
     uint8_t selectedVoiceIndex = 0;
+    // Whether a voice has been explicitly selected via Buttons 0..3.
+    // When false, preset-assignment buttons will be ignored until a voice is selected.
+    bool voiceSelected = false;
     bool isVoice2Mode = false; // Legacy flag (kept for compatibility in some code paths)
     int selectedStepForEdit = -1;
     ParamId currentEditParameter = ParamId::Count; // Parameter being edited in toggle mode (Count = none)

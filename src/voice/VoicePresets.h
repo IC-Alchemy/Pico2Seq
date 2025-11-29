@@ -17,4 +17,9 @@ namespace VoicePresets {
   const char* getPresetName(uint8_t presetIndex) noexcept;
   const VoiceConfig& getPresetConfig(uint8_t presetIndex) noexcept;
   uint8_t getPresetCount() noexcept;
+  
+  // Per-voice applied preset management (uiIndex = 0..3)
+  void applyPresetToVoice(uint8_t uiIndex, uint8_t presetIndex);
+  void setAppliedPresetForVoice(uint8_t uiIndex, int8_t presetIndex);
+  int8_t getAppliedPresetForVoice(uint8_t uiIndex) noexcept;
 }

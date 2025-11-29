@@ -52,11 +52,12 @@ namespace UIEventConstants
 static_assert(UIState::NUM_RANDOMIZE >= UIEventConstants::MAX_VOICES,
               "UI expects 4 randomize buttons; update UIState::NUM_RANDOMIZE or adjust handlers.");
 
-// External function declarations that the UI calls
-extern void onClockStart();
-extern void onClockStop();
-extern void setLEDTheme(LEDTheme theme);
-extern void applyVoicePreset(uint8_t voiceNumber, uint8_t presetIndex);
+ // External function declarations that the UI calls
+ extern void onClockStart();
+ extern void onClockStop();
+ extern void setLEDTheme(LEDTheme theme);
+ // applyVoicePreset now accepts a zero-based voice index (0..3)
+ extern void applyVoicePreset(uint8_t voiceIndex, uint8_t presetIndex);
 
 // External variables that are still needed from the main file
 extern uint8_t currentScale;
@@ -431,6 +432,7 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
     if (evt.buttonIndex < UIEventConstants::SETTINGS_MENU_VOICE_COUNT)
     {
       uiState.selectedVoiceIndex = evt.buttonIndex;
+      uiState.voiceSelected = true; // mark that a voice has been explicitly chosen
       uiState.isVoice2Mode = (uiState.selectedVoiceIndex == UIEventConstants::VOICE_2_INDEX); // legacy compat
       uiState.settingsMenuIndex = evt.buttonIndex; // used by OLED/LED menus
       return true;
@@ -599,24 +601,31 @@ static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState
   const uint8_t maxAllowedButton = 14; // limit per spec (buttons 8-14)
   const uint8_t maxButtonByPreset = static_cast<uint8_t>(baseButton + (presetCount ? presetCount - 1 : 0));
   const uint8_t maxButton = (maxButtonByPreset < maxAllowedButton) ? maxButtonByPreset : maxAllowedButton;
+if (evt.buttonIndex >= baseButton && evt.buttonIndex <= maxButton)
+{
+  const uint8_t presetIndex = static_cast<uint8_t>(evt.buttonIndex - baseButton);
 
-  if (evt.buttonIndex >= baseButton && evt.buttonIndex <= maxButton)
+  // Apply to currently selected voice (0..3). Require an explicit voice selection first.
+  if (!uiState.voiceSelected)
   {
-    const uint8_t presetIndex = static_cast<uint8_t>(evt.buttonIndex - baseButton);
-
-    // Apply to currently selected voice (1..4 for applyVoicePreset)
+    Serial.println("No voice selected - press Buttons 0..3 to select a voice before assigning a preset");
+  }
+  else
+  {
     const uint8_t voiceIdx = uiState.selectedVoiceIndex;
     if (voiceIdx < UIEventConstants::MAX_VOICES)
     {
       uiState.voicePresetIndices[voiceIdx] = presetIndex;
-      applyVoicePreset(static_cast<uint8_t>(voiceIdx + 1), presetIndex);
+      VoicePresets::applyPresetToVoice(voiceIdx, presetIndex);
     }
-
-    // Stay in Preset Selection mode; do not auto-switch.
-    uiState.inPresetSelection    = true;  // legacy flag mirror
-    uiState.inVoiceParameterMode = false; // legacy flag mirror
   }
+
+  // Stay in Preset Selection mode; do not auto-switch.
+  uiState.inPresetSelection    = true;  // legacy flag mirror
+  uiState.inVoiceParameterMode = false; // legacy flag mirror
 }
+  }
+
 
 /**
  * Handle Voice Parameter sub-mode.
@@ -647,7 +656,7 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
   uiState.lastVoiceParameterButton = evt.buttonIndex;
   uiState.voiceParameterChangeTime = millis();
 
-  const uint8_t displayVoiceNumber = static_cast<uint8_t>(selectedVoiceIndex + 1);
+  const uint8_t displayVoiceNumber = static_cast<uint8_t>(selectedVoiceIndex);
 
   switch (evt.buttonIndex)
   {
@@ -848,6 +857,7 @@ static void handleVoiceSwitch(const MatrixButtonEvent &evt, UIState &uiState, Mi
 
   // Cycle to next voice (0-3, wrapping around)
   uiState.selectedVoiceIndex = (uiState.selectedVoiceIndex + 1) % UIEventConstants::MAX_VOICES;
+  uiState.voiceSelected = true;                                                           // mark explicit selection when cycled
   uiState.isVoice2Mode = (uiState.selectedVoiceIndex == UIEventConstants::VOICE_2_INDEX); // Legacy compatibility
   uiState.selectedStepForEdit = -1;                                                       // Clear step editing when switching voices
   uiState.voiceSwitchTriggered = true;                                                    // Set flag for immediate OLED update

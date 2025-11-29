@@ -363,7 +363,8 @@ void VoiceManager::init(float sr)
      //   guarded by ShouldApplyFreq_. Do not set oscillator frequencies from VoiceManager.
      for (auto &managedVoice : voices)
      {
-         if (managedVoice->enabled && managedVoice->voice)
+         // Voice pointer is always valid after construction, no need for null check
+         if (managedVoice->enabled)
          {
              float voiceOutput = managedVoice->voice->process();
              mixedOutput += voiceOutput * managedVoice->mixLevel;

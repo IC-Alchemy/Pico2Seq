@@ -116,9 +116,10 @@ private:
     // To reduce CPU cost and avoid per-sample compressor state updates (which can
     // compound artifacts), update compressor internal state every N samples and
     // use compressor.Apply() (a single multiply) on the remaining samples.
-    // Pick a small interval (8) to preserve responsiveness while reducing load.
-    uint8_t compressorUpdateInterval = 8; // update compressor internals every 8 samples
-    uint8_t compressorUpdateCounter = 0;  // rolling counter used in realtime processing
+    // Interval of 16 samples (333µs @ 48kHz) balances responsiveness with CPU efficiency.
+    // Increase to 32 for more CPU savings if compressor artifacts are acceptable.
+    uint8_t compressorUpdateInterval = 16; // update compressor internals every 16 samples
+    uint8_t compressorUpdateCounter = 0;   // rolling counter used in realtime processing
 
     // Callbacks
     VoiceCountCallback voiceCountCallback;

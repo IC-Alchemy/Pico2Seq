@@ -1,5 +1,7 @@
 #include "VoicePresets.h"
 #include <array>
+#include <Arduino.h> // for Serial
+#include "../voice/VoiceSystem.h"
 
 namespace VoicePresets
 {
@@ -275,5 +277,66 @@ namespace VoicePresets
   }
 
   uint8_t getPresetCount() noexcept { return VOICE_PRESET_COUNT; }
-
+  
+  // Per-voice applied preset indices: -1 = none
+  extern std::unique_ptr<VoiceManager> voiceManager;
+  extern VoiceSystem voiceSystem;
+  
+  static int8_t appliedPresetIndexForVoice[VoiceSystem::MAX_VOICES] = { -1, -1, -1, -1 };
+  
+  void setAppliedPresetForVoice(uint8_t uiIndex, int8_t presetIndex)
+  {
+    if (uiIndex >= VoiceSystem::MAX_VOICES) return;
+    appliedPresetIndexForVoice[uiIndex] = presetIndex;
+  }
+  
+  int8_t getAppliedPresetForVoice(uint8_t uiIndex) noexcept
+  {
+    if (uiIndex >= VoiceSystem::MAX_VOICES) return -1;
+    return appliedPresetIndexForVoice[uiIndex];
+  }
+  
+  void applyPresetToVoice(uint8_t uiIndex, uint8_t presetIndex)
+  {
+    if (uiIndex >= VoiceSystem::MAX_VOICES)
+    {
+      Serial.println("VoicePreset: invalid uiIndex");
+      return;
+    }
+    if (presetIndex >= getPresetCount())
+    {
+      Serial.println("VoicePreset: invalid presetIndex");
+      return;
+    }
+  
+    const VoiceConfig &cfg = getPresetConfig(presetIndex);
+    uint8_t voiceId = voiceSystem.getVoiceId(uiIndex);
+    if (voiceId == 0)
+    {
+      // No voice assigned at that UI index
+      Serial.print("VoicePreset: no voiceId assigned for UI index ");
+      Serial.println(uiIndex);
+      return;
+    }
+  
+    if (!voiceManager)
+    {
+      Serial.println("VoicePreset: no voiceManager available");
+      return;
+    }
+  
+    if (voiceManager->setVoiceConfig(voiceId, cfg))
+    {
+      setAppliedPresetForVoice(uiIndex, static_cast<int8_t>(presetIndex));
+      Serial.print("Applied preset '");
+      Serial.print(getPresetName(presetIndex));
+      Serial.print("' to voice UI index ");
+      Serial.println(uiIndex);
+    }
+    else
+    {
+      Serial.println("VoicePreset: failed to apply preset via VoiceManager");
+    }
+  }
+  
 } // namespace VoicePresets

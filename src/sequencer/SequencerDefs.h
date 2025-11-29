@@ -22,7 +22,7 @@ namespace SequencerConstants {
   
   // Gate timing constants
   static constexpr uint16_t DEFAULT_GATE_LENGTH_TICKS = PULSES_PER_SEQUENCER_STEP_TICKS / 2;
-  static constexpr uint16_t MIN_GATE_LENGTH_TICKS = 1;
+  static constexpr uint16_t MIN_GATE_LENGTH_TICKS = 4;
   static constexpr uint16_t MAX_GATE_LENGTH_TICKS = PULSES_PER_SEQUENCER_STEP_TICKS;
 }
 

@@ -7,24 +7,39 @@
 
 // External mode state variables
 extern bool slideMode;
+
 // --- Constants for real-time parameter editing ---
 constexpr float MAX_SENSOR_DISTANCE_MM = 1400.0f;
-constexpr float MAX_NOTE_PARAM_RANGE = 24.0f;  // e.g., for mapping sensor to a 2-octave range for note param
-constexpr float OCTAVE_LOW_THRESHOLD = .15f; // Threshold for mapping float to -1 octave
-constexpr float OCTAVE_HIGH_THRESHOLD = .4f; // Threshold for mapping float to +1 octave
+constexpr float MAX_NOTE_PARAM_RANGE = 24.0f;  // Mapping sensor to a 2-octave range for note param
+constexpr float OCTAVE_LOW_THRESHOLD = 0.15f;  // Threshold for mapping float to -1 octave
+constexpr float OCTAVE_HIGH_THRESHOLD = 0.4f;  // Threshold for mapping float to +1 octave
+constexpr int8_t OCTAVE_OFFSET_DOWN = -12;     // One octave down in semitones
+constexpr int8_t OCTAVE_OFFSET_UP = 12;        // One octave up in semitones
+constexpr int8_t OCTAVE_OFFSET_NONE = 0;       // No octave offset
+
+// GPIO pin assignments for sequencer outputs
+constexpr uint8_t GPIO_GATE_OUTPUT_VOICE_1 = 10;  // Voice 0/1 gate output (channel 1 logical)
+constexpr uint8_t GPIO_GATE_OUTPUT_VOICE_2 = 11;  // Voice 0/1 gate output (channel 2 logical)
+constexpr uint8_t GPIO_STEP_CLOCK_OUTPUT = 12;    // Step clock output pulse
+
+/**
+ * @brief Map normalized octave value to semitone offset
+ * @param octaveValue Normalized value (0.0-1.0) from sequencer parameter
+ * @return Semitone offset: -12 (down), 0 (none), or +12 (up)
+ */
 int8_t mapFloatToOctaveOffset(float octaveValue)
 {
     if (octaveValue < OCTAVE_LOW_THRESHOLD)
     {
-        return -12;
+        return OCTAVE_OFFSET_DOWN;
     }
     else if (octaveValue > OCTAVE_HIGH_THRESHOLD)
     {
-        return 12;
+        return OCTAVE_OFFSET_UP;
     }
     else
     {
-        return 0;
+        return OCTAVE_OFFSET_NONE;
     }
 }
 
@@ -55,52 +70,40 @@ float mapNormalizedValueToParamRange(ParamId id, float normalizedValue)
     return minVal + normalizedValue * (maxVal - minVal);
 }
 
-Sequencer::Sequencer()
-    : running(false), currentStep(0), lastNote(-1), currentNote(-1), noteDurationCounter(0), channel(0), parameterManager(), previousStepHadSlide(false) // Initialize parameterManager explicitly
-      ,
-      envelope() // Initialize envelope explicitly
-      ,
-      noteDuration() // Initialize noteDuration explicitly
+// Common initialization logic extracted to reduce duplication
+void Sequencer::commonInit()
 {
     // Initialize all per-parameter step counters to 0
     for (size_t i = 0; i < static_cast<size_t>(ParamId::Count); ++i)
     {
         currentStepPerParam[i] = 0;
     }
-    
+
     // Initialize GPIO pins for gate outputs and step clock
-    pinMode(10, OUTPUT);  // Voice 1 gate output
-    pinMode(11, OUTPUT);  // Voice 2 gate output
-    pinMode(12, OUTPUT);  // Step clock output
-    digitalWrite(10, LOW);
-    digitalWrite(11, LOW);
-    digitalWrite(12, LOW);
-    
+    pinMode(GPIO_GATE_OUTPUT_VOICE_1, OUTPUT);
+    pinMode(GPIO_GATE_OUTPUT_VOICE_2, OUTPUT);
+    pinMode(GPIO_STEP_CLOCK_OUTPUT, OUTPUT);
+    digitalWrite(GPIO_GATE_OUTPUT_VOICE_1, LOW);
+    digitalWrite(GPIO_GATE_OUTPUT_VOICE_2, LOW);
+    digitalWrite(GPIO_STEP_CLOCK_OUTPUT, LOW);
+
     initializeParameters();
 }
 
-Sequencer::Sequencer(uint8_t channel)
-    : running(false), currentStep(0), lastNote(-1), currentNote(-1), noteDurationCounter(0), channel(channel), parameterManager(), previousStepHadSlide(false) // Initialize parameterManager explicitly
-      ,
-      envelope() // Initialize envelope explicitly
-      ,
-      noteDuration() // Initialize noteDuration explicitly
+Sequencer::Sequencer()
+    : running(false), currentStep(0), lastNote(-1), currentNote(-1),
+      noteDurationCounter(0), channel(0), parameterManager(),
+      previousStepHadSlide(false), envelope(), noteDuration()
 {
-    // Initialize all per-parameter step counters to 0
-    for (size_t i = 0; i < static_cast<size_t>(ParamId::Count); ++i)
-    {
-        currentStepPerParam[i] = 0;
-    }
-    
-    // Initialize GPIO pins for gate outputs and step clock
-    pinMode(10, OUTPUT);  // Voice 1 gate output
-    pinMode(11, OUTPUT);  // Voice 2 gate output
-    pinMode(12, OUTPUT);  // Step clock output
-    digitalWrite(10, LOW);
-    digitalWrite(11, LOW);
-    digitalWrite(12, LOW);
-    
-    initializeParameters();
+    commonInit();
+}
+
+Sequencer::Sequencer(uint8_t channel)
+    : running(false), currentStep(0), lastNote(-1), currentNote(-1),
+      noteDurationCounter(0), channel(channel), parameterManager(),
+      previousStepHadSlide(false), envelope(), noteDuration()
+{
+    commonInit();
 }
 
 bool Sequencer::isNotePlaying() const
@@ -203,10 +206,10 @@ void Sequencer::advanceStep(uint8_t current_uclock_step, int mm_distance,
         return;
     }
 
-    // Output step clock pulse on pin 12 (with swing timing from uClock)
+    // Output step clock pulse (with swing timing from uClock)
     // This triggers on every step regardless of gate state
-    digitalWrite(12, HIGH);
-    digitalWrite(12, LOW);
+    digitalWrite(GPIO_STEP_CLOCK_OUTPUT, HIGH);
+    digitalWrite(GPIO_STEP_CLOCK_OUTPUT, LOW);
 
     // Use the Gate parameter's step count to determine the main sequence length
     uint8_t sequenceLength = getParameterStepCount(ParamId::Gate);
@@ -372,11 +375,11 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
         // Calculate the final note value
         int finalNote = noteVal + octaveOffset;
      // Output gate signal based on channel
-             if (channel == 1) {
-                 digitalWrite(10, HIGH);  // Voice 1 gate output
-             } else if (channel == 2) {
-                 digitalWrite(11, HIGH);  // Voice 2 gate output
-             }
+          if (channel == 1) {
+              digitalWrite(10, HIGH);  // Voice 0/1 gate output (channel 1 logical)
+          } else if (channel == 2) {
+              digitalWrite(11, HIGH);  // Voice 0/1 gate output (channel 2 logical)
+          }
             
         // If the step's gate is on, decide whether to start a new note or slide to it.
         if (!slideVal)
@@ -401,10 +404,10 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
     }
     else
     {     if (channel == 1) {
-                 digitalWrite(10, LOW);  // Voice 1 gate output
-             } else if (channel == 2) {
-                 digitalWrite(11, LOW);  // Voice 2 gate output
-             }
+                  digitalWrite(10, LOW);  // Voice 0/1 gate output (channel 1 logical)
+              } else if (channel == 2) {
+                  digitalWrite(11, LOW);  // Voice 0/1 gate output (channel 2 logical)
+              }
         // The gate is off for this step. Only turn off the note if the previous step didn't have slide enabled.
         // This allows slide steps to sustain the envelope even when followed by gate-off steps.
         if (!previousStepHadSlide)
@@ -464,11 +467,11 @@ void Sequencer::handleNoteOff( VoiceState* voiceState)
         // Ensure hardware gate outputs are forced low when a note is turned off.
         if (channel == 1)
         {
-            digitalWrite(10, LOW); // Voice 1 gate output
+            digitalWrite(10, LOW); // Voice 0/1 gate output (channel 1 logical)
         }
         else if (channel == 2)
         {
-            digitalWrite(11, LOW); // Voice 2 gate output
+            digitalWrite(11, LOW); // Voice 0/1 gate output (channel 2 logical)
         }
         
         currentNote = -1;

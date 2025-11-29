@@ -16,3 +16,12 @@ build/
 docs/voice-frequency-optimization.md
 benchmarks/voice_frequency_bench.cpp
 tests/voice_frequency_tests.cpp
+docs/code_quality_improvements.md
+docs/refactoring_summary.md
+docs/release_notes_zero_based_voice_indexing.md
+docs/sensors.md
+docs/zero_based_voice_indexing.md
+.roo/rules-ask/AGENTS.md
+.roo/rules-code/AGENTS.md
+.roo/rules-debug/AGENTS.md
+.roo/rules-orchestrator/rules.md

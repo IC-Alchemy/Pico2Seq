@@ -57,22 +57,7 @@ CRGB current_COLOR_RANDOMIZE_FLASH;
 CRGB current_COLOR_RANDOMIZE_IDLE;
 
 const LEDThemeColors ALL_THEMES[] = {
-    {
-        CRGB(0, 188, 0), CRGB(0, 22, 5), CRGB(188, 94, 0), CRGB(0, 12, 12), CRGB(0, 8, 8),
-        CRGB(0, 0, 94), CRGB(0, 0, 12), CRGB(0, 0, 12), CRGB(128, 94, 0), CRGB(32, 24, 0),
-        CRGB(94, 0, 94), CRGB(12, 0, 12), CRGB(0, 94, 188), CRGB(0, 24, 48), CRGB(188, 64, 0),
-        CRGB(48, 16, 0), CRGB(128, 0, 0), CRGB(32, 0, 0), CRGB(0, 128, 64), CRGB(0, 32, 16),
-        CRGB(188, 0, 188), CRGB(48, 0, 48), CRGB(64, 64, 128), CRGB(16, 16, 32), CRGB(128, 64, 0),
-        CRGB(32, 16, 0), CRGB(94, 0, 64), CRGB(24, 0, 16), CRGB(64, 94, 94), CRGB(16, 24, 24)
-    },
-    {
-        CRGB(0, 90, 188), CRGB(0, 12, 24), CRGB(12, 156, 122), CRGB(0, 4, 12), CRGB(0, 18, 12),
-        CRGB(0, 48, 144), CRGB(0, 5, 17), CRGB(0, 12, 17), CRGB(0, 144, 188), CRGB(0, 15, 22),
-        CRGB(64, 144, 188), CRGB(13, 29, 38), CRGB(94, 0, 188), CRGB(11, 0, 24), CRGB(188, 144, 0),
-        CRGB(38, 29, 0), CRGB(144, 188, 94), CRGB(29, 38, 19), CRGB(188, 0, 94), CRGB(17, 0, 11),
-        CRGB(144, 0, 188), CRGB(29, 0, 38), CRGB(48, 144, 144), CRGB(10, 29, 29), CRGB(0, 166, 188),
-        CRGB(0, 33, 38), CRGB(144, 0, 188), CRGB(15, 0, 22), CRGB(0, 188, 166), CRGB(0, 22, 15)
-    },
+  
    // DARK_NOCTIS theme - deep charcoal with cool blue/cyan accents
       {  CRGB(20, 90, 140),   // gateOnV1 - cool cyan-blue (visible on dark)
         CRGB(6, 6, 8),       // gateOffV1 - near-black
@@ -173,6 +158,70 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(40, 44, 46)     // randomizeIdle - subtle gray idle tone
     },
     {
+        // BLUE theme - high-contrast cool blues and cyan accents
+        CRGB(40, 122, 66),  // gateOnV1 - vivid cyan-blue
+        CRGB(6, 8, 12),      // gateOffV1 - almost black
+        CRGB(10, 66,200), // gateOnV2 - soft sky blue
+        CRGB(2, 12, 2),      // gateOffV2 - deep charcoal
+        CRGB(22, 77, 77),   // playheadAccent - strong blue accent
+        CRGB(16, 36, 80),    // idleBreathingBlue - deep ocean blue
+        CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
+        CRGB(12, 16, 20),    // editModeDimBlueV2
+        CRGB(140, 190, 220), // modNoteActive - pale blue
+        CRGB(20, 24, 28),    // modNoteInactive
+        CRGB(180, 210, 230), // modVelocityActive - light cyan
+        CRGB(24, 28, 32),    // modVelocityInactive
+        CRGB(120, 140, 200), // modFilterActive - muted indigo
+        CRGB(20, 18, 24),    // modFilterInactive
+        CRGB(200, 160, 120), // modDecayActive - warm contrast (subtle)
+        CRGB(22, 20, 16),    // modDecayInactive
+        CRGB(120, 180, 140), // modAttackActive - cool sage
+        CRGB(18, 22, 16),    // modAttackInactive
+        CRGB(220, 140, 200), // modOctaveActive - soft magenta accent
+        CRGB(20, 12, 16),    // modOctaveInactive
+        CRGB(160, 210, 230), // modSlideActive - cyan slide accent
+        CRGB(18, 24, 26),    // modSlideInactive
+        CRGB(220, 230, 240), // defaultActive - light gray-blue
+        CRGB(14, 14, 18),    // defaultInactive - near black
+        CRGB(120, 200, 240), // modParamModeActive - bright aqua
+        CRGB(16, 18, 18),    // modParamModeInactive
+        CRGB(160, 200, 240), // modGateModeActive - cool highlight
+        CRGB(18, 16, 14),    // modGateModeInactive
+        CRGB(255, 240, 220), // randomizeFlash - bright neutral flash
+        CRGB(12, 12, 14)     // randomizeIdle - dark subtle tone
+    }, {
+        // BLUE theme - high-contrast cool blues and cyan accents
+        CRGB(40, 122, 188),  // gateOnV1 - vivid cyan-blue
+        CRGB(6, 8, 12),      // gateOffV1 - almost black
+        CRGB(120, 100,200), // gateOnV2 - soft sky blue
+        CRGB(8, 6, 10),      // gateOffV2 - deep charcoal
+        CRGB(32, 99, 12),   // playheadAccent - strong blue accent
+        CRGB(16, 36, 80),    // idleBreathingBlue - deep ocean blue
+        CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
+        CRGB(12, 16, 20),    // editModeDimBlueV2
+        CRGB(140, 190, 220), // modNoteActive - pale blue
+        CRGB(20, 24, 28),    // modNoteInactive
+        CRGB(180, 210, 230), // modVelocityActive - light cyan
+        CRGB(24, 28, 32),    // modVelocityInactive
+        CRGB(120, 140, 200), // modFilterActive - muted indigo
+        CRGB(20, 18, 24),    // modFilterInactive
+        CRGB(200, 160, 120), // modDecayActive - warm contrast (subtle)
+        CRGB(22, 20, 16),    // modDecayInactive
+        CRGB(120, 180, 140), // modAttackActive - cool sage
+        CRGB(18, 22, 16),    // modAttackInactive
+        CRGB(220, 140, 200), // modOctaveActive - soft magenta accent
+        CRGB(20, 12, 16),    // modOctaveInactive
+        CRGB(160, 210, 230), // modSlideActive - cyan slide accent
+        CRGB(18, 24, 26),    // modSlideInactive
+        CRGB(220, 230, 240), // defaultActive - light gray-blue
+        CRGB(14, 14, 18),    // defaultInactive - near black
+        CRGB(120, 200, 240), // modParamModeActive - bright aqua
+        CRGB(16, 18, 18),    // modParamModeInactive
+        CRGB(160, 200, 240), // modGateModeActive - cool highlight
+        CRGB(18, 16, 14),    // modGateModeInactive
+        CRGB(255, 240, 220), // randomizeFlash - bright neutral flash
+        CRGB(12, 12, 14)     // randomizeIdle - dark subtle tone
+    }, {
         // BLUE theme - high-contrast cool blues and cyan accents
         CRGB(40, 122, 188),  // gateOnV1 - vivid cyan-blue
         CRGB(6, 8, 12),      // gateOffV1 - almost black
@@ -347,7 +396,7 @@ void setupLEDMatrixFeedback() {
  * @brief Updates LED matrix to show settings mode interface
  *
  * Displays menu options and preset selections using step LEDs:
- * - Main menu: Shows Voice 1 and Voice 2 options (steps 0-1)
+ * - Main menu: Shows Voice 0 and Voice 1 options (steps 0-1)
  * - Preset selection: Shows available presets (steps 0-5 for 6 presets)
  * - Uses different colors to indicate current selection and available options
  */
@@ -397,17 +446,17 @@ void updateSettingsModeLEDs(LEDMatrix& ledMatrix, const UIState& uiState) {
 
         // Show which voice is being configured in bottom row
         if (uiState.settingsMenuIndex == 0) {
-            // Voice 1 indicator
+            // Voice 0 indicator
             ledMatrix.setLED(0, 7, activeThemeColors->gateOnV1);
-        } else {
-            // Voice 2 indicator
+          } else {
+            // Voice 1 indicator
             ledMatrix.setLED(1, 7, activeThemeColors->gateOnV2);
-        }
+          }
 
     } else {
-        // Main settings menu - show Voice 1 and Voice 2 options
+        // Main settings menu - show Voice 0 and Voice 1 options
 
-        // Voice 1 option (step 0)
+        // Voice 0 option (step 0)
         CRGB voice1Color = (uiState.settingsMenuIndex == 0) ?
             activeThemeColors->gateOnV1 : activeThemeColors->gateOffV1;
         if (uiState.settingsMenuIndex == 0) {
@@ -420,7 +469,7 @@ void updateSettingsModeLEDs(LEDMatrix& ledMatrix, const UIState& uiState) {
         }
         ledMatrix.setLED(0, 0, voice1Color);
 
-        // Voice 2 option (step 1)
+        // Voice 1 option (step 1)
         CRGB voice2Color = (uiState.settingsMenuIndex == 1) ?
             activeThemeColors->gateOnV2 : activeThemeColors->gateOffV2;
         if (uiState.settingsMenuIndex == 1) {

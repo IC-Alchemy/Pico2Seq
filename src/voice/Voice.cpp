@@ -349,15 +349,21 @@ float Voice::computeEnvelope()
 void Voice::updateFilter(float envelopeValue)
 {
   // Compute the intended (instantaneous) cutoff target using previous logic
-  const float targetCutoff = (filterFrequency * envelopeValue) + (filterFrequency * 0.1f);
+  // Factored to avoid redundant multiplication: f*(env + 0.1) instead of f*env + f*0.1
+  const float targetCutoff = filterFrequency * (envelopeValue + 0.1f);
 
   // Exponential smoothing to prevent zipper noise when targetCutoff jumps.
   // filterCutoffAlpha was initialized in init() (per-sample coefficient).
   filterCutoffCurrent += filterCutoffAlpha * (targetCutoff - filterCutoffCurrent);
 
-
+  // Only call SetFreq if the change is audible (>0.5 Hz threshold)
+  // This avoids redundant filter coefficient recalculations
+  constexpr float kFilterFreqEps = 0.5f;
+  if (fabsf(filterCutoffCurrent - lastAppliedFilterCutoff) > kFilterFreqEps)
+  {
     filter.SetFreq(filterCutoffCurrent);
-  
+    lastAppliedFilterCutoff = filterCutoffCurrent;
+  }
 }
 
 float Voice::mixOscillators()
@@ -411,10 +417,11 @@ float Voice::mixOscillators()
 
   if (oscCount > 0)
   {
-    // Update frequencies (slew when sliding) and process oscillators
-    for (size_t i = 0; i < oscCount; i++)
+    // Hoist slide branch outside loop to reduce per-sample branching
+    if (state.hasSlide)
     {
-      if (state.hasSlide)
+      // Slide path: update slew and apply frequencies
+      for (size_t i = 0; i < oscCount; i++)
       {
         processFrequencySlew(i, freqSlew[i].targetFreq);
         const float fcur = freqSlew[i].currentFreq;
@@ -423,8 +430,16 @@ float Voice::mixOscillators()
           oscillators[i].SetFreq(fcur);
           lastAppliedOscFreq_[i] = fcur;
         }
+        mixedOscillators += oscillators[i].Process();
       }
-      mixedOscillators += oscillators[i].Process();
+    }
+    else
+    {
+      // No-slide path: just process oscillators (frequencies already committed)
+      for (size_t i = 0; i < oscCount; i++)
+      {
+        mixedOscillators += oscillators[i].Process();
+      }
     }
   }
   else

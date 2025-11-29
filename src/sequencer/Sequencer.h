@@ -160,13 +160,14 @@ public:
     bool isRunning() const { return running; }
 
 private:
+    // Common initialization logic shared by constructors
+    void commonInit();
+
     void (*midiNoteOffCallback)(uint8_t note, uint8_t channel) = nullptr;
 
     // Envelope methods
     void triggerEnvelope();
     void releaseEnvelope();
-
-private:
     ParameterManager parameterManager;
     EnvelopeController envelope;
     bool running;

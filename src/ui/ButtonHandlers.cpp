@@ -37,29 +37,30 @@ void endRandomizePress(int voiceIndex, UIState& state) {
   state.randomizeResetTriggered[voiceIndex] = false;
 }
 
+/**
+ * @brief Get sequencer pointer by voice index
+ * @param voiceIndex Voice index (0-3)
+ * @return Pointer to sequencer or nullptr if invalid index
+ */
+static Sequencer* getSequencerByVoiceIndex(int voiceIndex) {
+  switch (voiceIndex) {
+  case 0: return &seq1;
+  case 1: return &seq2;
+  case 2: return &seq3;
+  case 3: return &seq4;
+  default: return nullptr;
+  }
+}
+
 // Handle randomize button behavior for a single voice
 void handleRandomizeButton(int voiceIndex, UIState& state) {
   if (voiceIndex < 0 || voiceIndex >= UIState::NUM_RANDOMIZE)
     return;
 
   // Get the appropriate sequencer
-  Sequencer* seq = nullptr;
-  switch (voiceIndex) {
-  case 0:
-    seq = &seq1;
-    break;
-  case 1:
-    seq = &seq2;
-    break;
-  case 2:
-    seq = &seq3;
-    break;
-  case 3:
-    seq = &seq4;
-    break;
-  default:
+  Sequencer* seq = getSequencerByVoiceIndex(voiceIndex);
+  if (!seq)
     return;
-  }
 
   // Calculate press duration and branch accordingly
   unsigned long heldTime = millis() - state.randomizePressTime[voiceIndex];
@@ -105,7 +106,7 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState& state) 
   state.lastVoiceParameterButton = paramIndex;
   state.voiceParameterChangeTime = millis();
 
-  uint8_t displayVoiceNumber = static_cast<uint8_t>(voiceIndex + 1);
+  uint8_t displayVoiceNumber = static_cast<uint8_t>(voiceIndex);
 
   switch (paramIndex) {
   case 8: // Toggle hasEnvelope per voice

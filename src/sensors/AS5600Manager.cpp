@@ -501,8 +501,10 @@ void applyAS5600BaseValues(VoiceState *voiceState, uint8_t voiceId)
     return;
   }
 
-  // Select the correct base values based on voice ID (0 = voice1, 1 = voice2)
-  const AS5600BaseValues *baseValues = (voiceId == 1) ? (const AS5600BaseValues *)&as5600BaseValuesVoice2 : (const AS5600BaseValues *)&as5600BaseValuesVoice1;
+  // Select base values by pairing voices: 0/2 -> voice1 base; 1/3 -> voice2 base
+  const AS5600BaseValues *baseValues = (voiceId % 2 == 1)
+                                         ? (const AS5600BaseValues *)&as5600BaseValuesVoice2
+                                         : (const AS5600BaseValues *)&as5600BaseValuesVoice1;
 
   // Apply "Shift and Scale" for each parameter.
   // This maps the sequencer value into the dynamic range set by the AS5600 offset.
