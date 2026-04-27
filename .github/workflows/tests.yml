@@ -24,4 +24,4 @@ jobs:
         run: cmake --build build --parallel
 
       - name: Run tests
-        run: ./build/tests/pico2seq_tests --reporter console
+        run: ctest --test-dir build --output-on-failure

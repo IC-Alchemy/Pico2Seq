@@ -20,6 +20,15 @@ static VoiceConfig defaultConfig() {
     return cfg;
 }
 
+// Shared scale index — address must remain valid for the lifetime of the voice.
+static uint8_t s_scaleIdx = 0;
+
+static void initVoiceWithScale(Voice& v, float sampleRate = 48000.0f) {
+    v.setScaleTable(scale, SCALES_COUNT);
+    v.setCurrentScalePointer(&s_scaleIdx);
+    v.init(sampleRate);
+}
+
 // ─── Construction & Initialization ───────────────────────────────────────────
 
 TEST_CASE("Voice constructs without crash", "[voice]") {
@@ -74,12 +83,7 @@ TEST_CASE("Voice filter frequency can be set and read back", "[voice]") {
 
 TEST_CASE("Voice accepts scale table injection without crash", "[voice]") {
     Voice v(0, defaultConfig());
-    v.setScaleTable(scale, SCALES_COUNT);
-
-    uint8_t scaleIdx = 0;
-    v.setCurrentScalePointer(&scaleIdx);
-
-    REQUIRE_NOTHROW(v.init(48000.0f));
+    REQUIRE_NOTHROW(initVoiceWithScale(v));
 }
 
 TEST_CASE("Voice scale injection enables chromatic fallback when nullptr", "[voice]") {
@@ -93,10 +97,7 @@ TEST_CASE("Voice scale injection enables chromatic fallback when nullptr", "[voi
 
 TEST_CASE("Voice process() returns finite float when gate is on", "[voice]") {
     Voice v(0, defaultConfig());
-    v.setScaleTable(scale, SCALES_COUNT);
-    uint8_t scaleIdx = 0;
-    v.setCurrentScalePointer(&scaleIdx);
-    v.init(48000.0f);
+    initVoiceWithScale(v);
     v.setGate(true);
 
     for (int i = 0; i < 64; ++i) {
@@ -113,21 +114,14 @@ TEST_CASE("Voice process() returns zero or near-zero when gate is off and envelo
     cfg.defaultRelease = 0.001f;
 
     Voice v(0, cfg);
-    v.setScaleTable(scale, SCALES_COUNT);
-    uint8_t scaleIdx = 0;
-    v.setCurrentScalePointer(&scaleIdx);
-    v.init(48000.0f);
+    initVoiceWithScale(v);
 
-    // Brief gate on, then off
     v.setGate(true);
     for (int i = 0; i < 50; ++i) v.process();
     v.setGate(false);
-
-    // Let envelope fully decay
     for (int i = 0; i < 2000; ++i) v.process();
 
-    float tail = v.process();
-    REQUIRE(std::abs(tail) < 0.01f);
+    REQUIRE(std::abs(v.process()) < 0.01f);
 }
 
 // ─── updateParameters ────────────────────────────────────────────────────────
@@ -149,6 +143,6 @@ TEST_CASE("updateParameters updates state velocity", "[voice]") {
     vs.shouldRetrigger = false;
 
     v.updateParameters(vs);
-    v.process(); // apply staged parameters
+    v.process();
     REQUIRE_THAT(v.getState().velocityLevel, WithinAbs(0.42f, 0.001f));
 }

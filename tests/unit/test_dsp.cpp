@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <cmath>
 
 #include "dsp/adsr.h"
 #include "dsp/oscillator.h"
@@ -9,6 +10,8 @@
 #include "dsp/wavefolder.h"
 
 using namespace Catch::Matchers;
+
+static constexpr float kPi = 3.141592653589793f;
 
 // ─── ADSR ────────────────────────────────────────────────────────────────────
 
@@ -111,9 +114,7 @@ TEST_CASE("Oscillator output stays within amplitude bounds", "[oscillator]") {
     osc.SetWaveform(daisysp::Oscillator::WAVE_POLYBLEP_SAW);
 
     for (int i = 0; i < 2000; ++i) {
-        float s = osc.Process();
-        REQUIRE(s >= -1.0f);
-        REQUIRE(s <= 1.0f);
+        REQUIRE(std::abs(osc.Process()) <= 1.0f);
     }
 }
 
@@ -155,7 +156,7 @@ TEST_CASE("Ladder filter attenuates above cutoff in LP24 mode", "[ladder]") {
     float sum_sq = 0.0f;
     const int N = 2048;
     for (int i = 0; i < N; ++i) {
-        float s = std::sin(2.0f * 3.14159f * hf * i / sr);
+        float s = std::sin(2.0f * kPi * hf * i / sr);
         float out = filt.Process(s);
         if (i > 512) sum_sq += out * out; // skip transient
     }
