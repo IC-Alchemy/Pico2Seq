@@ -138,7 +138,7 @@ public:
    * @brief Process one sample of audio
    * @return float Processed audio sample (-1.0 to +1.0 range)
    */
-  float process();
+  float process() noexcept;
 
   /**
    * @brief Update voice parameters from sequencer state
@@ -498,7 +498,7 @@ private:
    * @param envelopeValue Envelope amplitude (0.0-1.0)
    * @return float Final output signal (-1.0 to +1.0)
    */
-  float finalizeOutput(float signal, float envelopeValue);
+  float finalizeOutput(float signal, float envelopeValue) noexcept;
 
   /**
    * @brief Update oscillator frequencies based on current state
@@ -513,7 +513,7 @@ private:
    *
    * Updates attack, decay, sustain, and release values from voice state.
    */
-  void applyEnvelopeParameters();
+  void applyEnvelopeParameters() noexcept;
 
   /**
    * @brief Calculate frequency for a given note with octave offset
@@ -525,7 +525,7 @@ private:
    * Uses MIDI_BASE_OFFSET (36) to center around C2. Implements gate-controlled
    * architecture to prevent audio glitches during parameter changes.
    */
-  float calculateNoteFrequency(float note, int8_t octaveOffset, int harmony);
+  float calculateNoteFrequency(float note, int8_t octaveOffset, int harmony) noexcept;
 
   // Recompute cached base frequency (static pitch only). No dynamic modulators.
   void recomputeBaseFreqIfDirty_();
@@ -536,7 +536,7 @@ private:
    * Populates static lookup table covering all MIDI notes (0-127) for
    * performance optimization, avoiding repeated mtof() calculations.
    */
-  static void initFrequencyLookupTable();
+  static void initFrequencyLookupTable() noexcept;
 
   /**
    * @brief Process frequency slewing for slide functionality
