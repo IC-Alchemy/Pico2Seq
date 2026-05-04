@@ -1,17 +1,19 @@
 # Matrix Module Documentation
 
-## Overview
+Thirty-two touch points. Four rows. Eight columns.
 
-The `src/matrix` folder contains the button matrix scanning and event handling system for the PicoMudrasSequencer. This module provides a robust interface for a 32-button (4×8) grid using the Adafruit MPR121 capacitive touch sensor, with built-in debouncing and event dispatch capabilities.
+The `src/matrix` folder contains the capacitive button matrix scanner for Pico2Seq. It reads a 4 x 8 grid through the Adafruit MPR121, tracks state, debounces transitions, and dispatches press/release events to the UI layer.
 
-## Key Components
+## Components
 
-### 1. Matrix.h - Interface Definition
+### `Matrix.h`
 
-**Constants:**
-- `MATRIX_BUTTON_COUNT = 32` - Total number of buttons in the 4×8 matrix
+Constants:
 
-**Data Types:**
+- `MATRIX_BUTTON_COUNT = 32`: total buttons in the 4 x 8 matrix.
+
+Data types:
+
 ```cpp
 typedef struct {
     uint8_t rowInput;    // MPR121 electrode for row
@@ -29,49 +31,43 @@ typedef struct {
 } MatrixButtonEvent;
 ```
 
-**Pin Mapping:**
-- Row inputs: Electrodes 0, 1, 2, 3
-- Column inputs: Electrodes 4, 5, 6, 7, 8, 9, 10, 11
+Pin mapping:
 
-### 2. Matrix.cpp - Implementation
+- Row inputs: electrodes `0, 1, 2, 3`.
+- Column inputs: electrodes `4, 5, 6, 7, 8, 9, 10, 11`.
 
-**Core Functions:**
-- `Matrix_init(Adafruit_MPR121*)` - Initialize with MPR121 sensor
-- `Matrix_scan()` - Poll for button state changes (call in main loop)
-- `Matrix_getButtonState(uint8_t)` - Query current button state
-- `Matrix_setEventHandler(func)` - Set general event handler
-- `Matrix_setRisingEdgeHandler(func)` - Set press-only handler
-- `Matrix_printState()` - Debug output of all button states
+### `Matrix.cpp`
 
-**Key Features:**
-- **Debouncing**: Automatic state change detection with reliable debouncing
-- **Event Dispatch**: Supports both press/release and press-only callbacks
-- **State Tracking**: Maintains current state for all 32 buttons
-- **Early Exit**: Optimized scanning with early termination for performance
-- **Bounds Checking**: Safe access with index validation
+Core functions:
 
-**Button Mapping:**
-- Linear indexing: 0-31 corresponds to rows 0-3, columns 0-7
-- Physical layout: Button at row R, column C = index (R × 8 + C)
-- MPR121 integration: Uses electrode touch bits for reliable detection
+- `Matrix_init(Adafruit_MPR121*)`: initialize with the MPR121 sensor.
+- `Matrix_scan()`: poll for state changes. Call from the main loop.
+- `Matrix_getButtonState(uint8_t)`: query a button by index.
+- `Matrix_setEventHandler(func)`: set a press/release event handler.
+- `Matrix_setRisingEdgeHandler(func)`: set a press-only handler.
+- `Matrix_printState()`: print all button states for debug.
 
-### 3. README.md - Module Documentation
+Behavior:
 
-Provides comprehensive module documentation including:
-- Feature overview and dependencies
-- Complete API reference with examples
-- Integration guidelines for main loop usage
-- Related module connections (LEDMatrix, Sequencer)
+- Debounces state changes.
+- Tracks all 32 button states.
+- Emits press and release events.
+- Supports a press-only rising-edge handler.
+- Exits early when no electrodes are touched.
+- Bounds-checks button indices.
+
+### `README.md`
+
+The module README carries the fuller local API reference, examples, and links to related modules such as LEDMatrix and Sequencer.
 
 ## Dependencies
 
-- **Adafruit MPR121**: Library for I2C capacitive touch sensor interface
-- **Arduino.h**: Standard Arduino framework
-- **OneButton.h**: Button debouncing utilities (referenced but not directly used)
+- Adafruit MPR121 for I2C capacitive touch sensing.
+- Arduino.h for the Arduino framework.
+- OneButton.h is referenced, though not directly used by the matrix scanner.
 
-## Usage Pattern
+## Basic Setup
 
-### Basic Setup
 ```cpp
 #include <Adafruit_MPR121.h>
 #include "Matrix.h"
@@ -91,7 +87,8 @@ void loop() {
 }
 ```
 
-### Event Handling
+## Event Handling
+
 ```cpp
 // General event handler (press and release)
 Matrix_setEventHandler([](const MatrixButtonEvent &evt) {
@@ -108,7 +105,8 @@ Matrix_setRisingEdgeHandler([](uint8_t buttonIndex) {
 });
 ```
 
-### State Query
+## State Query
+
 ```cpp
 // Check specific button state
 if (Matrix_getButtonState(15)) {  // Button at row 1, column 7
@@ -116,19 +114,18 @@ if (Matrix_getButtonState(15)) {  // Button at row 1, column 7
 }
 
 // Debug output
-Matrix_printState();  // Print 4×8 grid of button states
+Matrix_printState();  // Print 4 x 8 grid of button states
 ```
 
-## Hardware Integration
+## Hardware Layout
 
-### MPR121 Sensor
-- **I2C Address**: 0x5A (default)
-- **Electrodes**: 12 total (0-11)
-- **Touch Detection**: Capacitive sensing with configurable thresholds
-- **Update Rate**: Polled in main loop via `Matrix_scan()`
+- I2C address: `0x5A` by default.
+- MPR121 electrodes: `0..11`.
+- Rows use electrodes `0..3`.
+- Columns use electrodes `4..11`.
+- `Matrix_scan()` is polled from the main loop.
 
-### Button Matrix Layout
-```
+```text
 Electrode Layout:
     Columns (4-11):   0   1   2   3   4   5   6   7
 Rows (0-3):      0 [0] [1] [2] [3] [4] [5] [6] [7]
@@ -137,39 +134,35 @@ Rows (0-3):      0 [0] [1] [2] [3] [4] [5] [6] [7]
                  3 [24][25][26][27][28][29][30][31]
 ```
 
-## Performance Characteristics
+Linear index formula:
 
-- **Low Latency**: Immediate response to touch events
-- **Efficient Scanning**: Early exit optimization when no electrodes touched
-- **Minimal Memory**: Static arrays for state tracking
-- **Debounced Output**: Reliable state changes without false triggers
+```text
+buttonIndex = row * 8 + column
+```
 
 ## Integration Points
 
-- **LEDMatrix Module**: Visual feedback for button presses
-- **Sequencer Module**: Step parameter control and pattern editing
-- **UI System**: Button state queries for interface logic
-- **Main Loop**: Requires regular `Matrix_scan()` calls for responsiveness
+- LEDMatrix uses matrix events for visual feedback.
+- Sequencer uses matrix input for step editing and parameter control.
+- UI code reads button state for mode logic.
+- The main loop must call `Matrix_scan()` often enough to keep touch response clean.
 
 ## File Structure
 
-```
+```text
 src/matrix/
-├── Matrix.cpp          # Implementation with scanning logic
-├── Matrix.h            # Interface definitions and API
-└── README.md           # Module documentation and examples
+|-- Matrix.cpp          # Implementation with scanning logic
+|-- Matrix.h            # Interface definitions and API
+`-- README.md           # Module documentation and examples
 ```
 
 ## Error Handling
 
-- **Sensor Validation**: Null pointer checks for MPR121 instance
-- **Bounds Checking**: Index validation for button state queries
-- **Debug Output**: Serial logging for initialization and state changes
-- **Graceful Degradation**: Safe returns when sensor unavailable
+- Null MPR121 pointers are checked.
+- Button index reads are bounds-checked.
+- Serial debug output is available for initialization and state changes.
+- Calls return safely if the sensor is unavailable.
 
 ## Development Notes
 
-- **Self-Contained**: Can be reused in other projects with compatible hardware
-- **Extensible**: Event handler pattern allows flexible integration
-- **Well-Documented**: Comprehensive code comments and API documentation
-- **Tested**: Debug functions for hardware validation and troubleshooting
+Keep this module small. It should know how to scan the touch grid and report events. It should not know what a button means musically. That belongs in the UI and sequencer layers.

@@ -1,92 +1,83 @@
-# Voice Module Documentation
+# Voice Module
 
-## Overview
+Four voices, held close to the metal.
+Each one is a small synth voice with its own state, preset, sequencer link, and place in the mix.
 
-The voice module provides a comprehensive synthesizer voice system with multi-oscillator support, filtering, effects processing, and preset management. It is designed for embedded systems (specifically the Raspberry Pi Pico) and integrates with the sequencer and MIDI systems.
+This document describes the voice module used by Pico2Seq. It covers `Voice`, `VoiceManager`, `VoiceSystem`, presets, scale-aware pitch, and the migration away from scattered per-voice globals.
 
-### Architecture Components
+## Module Shape
 
-The voice system consists of several key components:
+The voice module is built from a few fixed parts:
 
-- **`Voice`**: Individual synthesizer voice with oscillators, filter, envelope, and effects
-- **`VoiceManager`**: Manages multiple voices with allocation, deallocation, and unified audio processing
-- **`VoiceSystem`**: Centralized struct that consolidates voice IDs, states, gates, and timers into arrays for efficient management
-- **`VoicePresets`**: Factory system for common synthesizer voice configurations
-- **Supporting Classes**: `VoiceManagerBuilder`, `VoiceFactory` for easy setup and configuration
+- `Voice` - one synthesizer voice with oscillators, filter, envelope, effects, slide, and scale mapping.
+- `VoiceManager` - owns voices, applies configs, attaches sequencers, and mixes active voice output.
+- `VoiceSystem` - stores the project-level voice IDs, voice states, and gate timers in arrays.
+- `VoicePresets` - returns the built-in voice configurations and applies them to a selected voice.
+- `VoiceManagerBuilder` and `VoiceFactory` - setup helpers for common voice-manager layouts.
 
-### VoiceSystem Architecture
+The project currently uses `VoiceSystem::MAX_VOICES == 4`.
 
-The `VoiceSystem` struct provides a centralized approach to managing multiple voices, replacing individual voice variables with arrays for better maintainability and scalability:
+## VoiceSystem
+
+`VoiceSystem` is the shared index map. It replaced separate globals like `voice1Id`, `voice2Id`, `voiceState1`, and `GATE1`.
+
+The main voice data is four-wide. Gate state and gate timers are two-wide because the special sequencer gate path only applies to voices `0` and `1`.
 
 ```cpp
 struct VoiceSystem {
-    static const uint8_t MAX_VOICES = 4;
-    
-    uint8_t voiceIds[MAX_VOICES];
+    static constexpr uint8_t MAX_VOICES = 4;
+
+    uint8_t voiceIds[MAX_VOICES] = {0, 0, 0, 0};
     VoiceState voiceStates[MAX_VOICES];
-    bool gates[MAX_VOICES];
-    GateTimer gateTimers[MAX_VOICES];
-    
-    // Getter methods for safe access
-    uint8_t getVoiceId(uint8_t index) const;
-    VoiceState& getVoiceState(uint8_t index);
-    const VoiceState& getVoiceState(uint8_t index) const;
-    bool getGate(uint8_t index) const;
-    void setGate(uint8_t index, bool state);
-    GateTimer& getGateTimer(uint8_t index);
-    
-    // Helper functions for common operations
-    void muteAllVoices();
-    void unmuteAllVoices();
-    void setAllVoiceVolumes(float volume);
+
+    // Gate states and timers are only used for voices 0 and 1.
+    volatile bool gates[2] = {false, false};
+    GateTimer gateTimers[2];
+
+    uint8_t getVoiceId(uint8_t voiceIndex) const;
+    inline int16_t getVoiceIdFromUIIndex(int uiIndex) const;
+    void setVoiceId(uint8_t voiceIndex, uint8_t voiceId);
+
+    VoiceState& getVoiceState(uint8_t voiceIndex);
+    const VoiceState& getVoiceState(uint8_t voiceIndex) const;
+
+    volatile bool& getGate(uint8_t voiceIndex);
+    GateTimer& getGateTimer(uint8_t voiceIndex);
+
     void stopAllGates();
     void tickAllGateTimers();
 };
 ```
 
-This architecture provides:
-- **Centralized Management**: All voice-related data in one structure
-- **Array-based Access**: Eliminates repetitive code with loop-based operations
-- **Type Safety**: Bounds checking and consistent access patterns
-- **Scalability**: Easy to change voice count by modifying MAX_VOICES constant
-- **Helper Functions**: Common operations like muting all voices or stopping all gates
+Rules:
 
-### UIState Integration
+- Voice indices are zero-based: `0..3`.
+- `voiceIds[]` stores IDs returned by `VoiceManager::addVoice(...)`.
+- Do not assume `voiceId == voiceIndex`.
+- `getVoiceIdFromUIIndex(...)` returns `-1` for invalid or unassigned UI indices.
+- Gate access is valid only for voices `0` and `1`; invalid gate access returns a dummy reference.
 
-The UI system has been updated to work seamlessly with the VoiceSystem architecture:
+## UIState Integration
+
+`UIState` stores selected voice and preset data with the same zero-based voice index.
 
 ```cpp
 struct UIState {
     // Voice preset management using arrays
     static const uint8_t MAX_VOICES = 4;
     uint8_t voicePresetIndices[MAX_VOICES];
-    
+
     // Other UI state variables...
     uint8_t selectedVoiceIndex;
     // ...
 };
 ```
 
-Key improvements:
-- **Array-based Preset Management**: `voicePresetIndices[MAX_VOICES]` replaces individual `voice1PresetIndex`, `voice2PresetIndex`, etc.
-- **Consistent Indexing**: All voice-related UI operations use the same indexing scheme
-- **Simplified Access**: `uiState.voicePresetIndices[voiceIndex]` instead of conditional selection
-- **Scalable Design**: Adding more voices requires only changing the MAX_VOICES constant
+The settings UI uses `selectedVoiceIndex` for sequencer selection, preset assignment, OLED output, and LED feedback. Preset assignment also checks `voiceSelected` so a preset button does not silently modify the wrong voice.
 
-### Key Features
+## VoiceConfig
 
-- **Multi-oscillator synthesis**: Up to 3 oscillators per voice with independent waveforms, amplitudes, detuning, and harmony
-- **Advanced filtering**: 24dB ladder filter with multiple modes, plus high-pass filtering
-- **Effects processing**: Overdrive and wavefolder effects
-- **Envelope control**: ADSR envelope with configurable attack, decay, sustain, release
-- **Frequency sliding**: Smooth portamento/glide effects between notes
-- **Scale integration**: Support for different musical scales with chromatic fallback
-- **Preset system**: 7 predefined voice types (Analog, Digital, Bass, Lead, Square, Pad, Percussion)
-- **Memory efficient**: Designed for embedded systems with limited RAM
-
-## Public Classes and APIs
-
-### VoiceConfig Structure
+`VoiceConfig` is the patch. It defines oscillator count, waveforms, filter settings, effect flags, envelope times, and output level.
 
 ```cpp
 struct VoiceConfig {
@@ -127,7 +118,9 @@ struct VoiceConfig {
 };
 ```
 
-### Voice Class
+## Voice API
+
+`Voice` owns the DSP state for one configured voice. It processes audio one sample at a time and receives real-time updates through `VoiceState`.
 
 ```cpp
 class Voice {
@@ -178,7 +171,9 @@ public:
 };
 ```
 
-### VoiceManager Class
+## VoiceManager API
+
+`VoiceManager` owns the active voices and provides the main control surface for configuration, sequencing, and mixing.
 
 ```cpp
 class VoiceManager {
@@ -245,7 +240,7 @@ public:
 };
 ```
 
-### VoiceManagerBuilder Class
+## Setup Helpers
 
 ```cpp
 class VoiceManagerBuilder {
@@ -260,8 +255,6 @@ public:
     std::unique_ptr<VoiceManager> build();
 };
 ```
-
-### VoiceFactory Class
 
 ```cpp
 class VoiceFactory {
@@ -282,21 +275,17 @@ public:
 };
 ```
 
-## Preset System
+## Presets
 
-### Available Presets
+The built-in preset set has seven entries:
 
-The system includes 7 predefined voice presets:
-
-1. **Analog**: Classic analog synthesizer sound with 3 detuned saw waves, wavefolder distortion
-2. **Digital**: Clean digital sound with single saw oscillator, subtle wavefolder
-3. **Bass**: Deep bass sound with saw and triangle oscillators, octave detuning
-4. **Lead**: Bright lead sound with saw and square oscillators, 12th detuning
-5. **Square**: Classic square wave sound with PWM capability
-6. **Pad**: Atmospheric pad sound with 3 harmonically rich oscillators
-7. **Percussion**: Percussive sound with sine waves and fast envelope
-
-### Preset Loading and Application
+1. `Analog` - three detuned saw waves, wavefolder, 24 dB low-pass filter.
+2. `Digital` - one saw oscillator, subtle wavefolder, fast envelope.
+3. `Bass` - saw plus triangle with one oscillator an octave down.
+4. `Lead` - saw plus square with 12 semitone detuning.
+5. `Square` - single square wave with pulse width control.
+6. `Pad` - three saw oscillators with harmony intervals.
+7. `Percussion` - sine-based voice with fast attack and decay.
 
 ```cpp
 // Load preset by name
@@ -313,85 +302,55 @@ VoiceConfig config = VoiceManager::getPresetConfig("lead");
 std::vector<std::string> presets = VoiceManager::getAvailablePresets();
 ```
 
-### Preset Configuration Details
+Preset details:
 
-#### Analog Preset
-- 3 oscillators: All saw waves with slight detuning (0.0, +0.045, -0.04 semitones)
-- Wavefolder distortion with gain 5.5, offset 1.3
-- Filter: 24dB lowpass, resonance 0.33, drive 3.1
-- Envelope: Attack 0.04s, Decay 0.14s, Sustain 0.45, Release 0.1s
+- Analog: three saw oscillators, detune `0.0`, `+0.045`, `-0.04` semitones; wavefolder gain `5.5`, offset `1.3`; LP24 resonance `0.33`, drive `3.1`; envelope `0.04 / 0.14 / 0.45 / 0.1`.
+- Digital: one saw oscillator; wavefolder gain `3.0`; LP24 resonance `0.2`, drive `1.5`; envelope `0.015 / 0.1 / 0.1 / 0.1`.
+- Bass: saw plus triangle, second oscillator at `-12` semitones; LP24 resonance `0.33`, drive `2.5`; envelope `0.01 / 0.3 / 0.4 / 0.2`.
+- Lead: saw plus square, square at `+12` semitones, pulse width `0.3`; LP24 resonance `0.23`, drive `3.0`; envelope `0.02 / 0.2 / 0.35 / 0.15`.
+- Square: one square oscillator, pulse width `0.255`; LP24 resonance `0.55`, drive `2.8`; envelope `0.02 / 0.2 / 0.0 / 0.15`.
+- Pad: three saw oscillators with harmony `0`, `+4`, `+9`; LP12 resonance `0.1`, drive `1.0`; envelope `0.5 / 0.2 / 0.5 / 0.5`.
+- Percussion: three sine oscillators, detune `0`, `+7`, `-5`; LP24 resonance `0.4`, drive `2.3`; envelope `0.005 / 0.08 / 0.0 / 0.07`.
 
-#### Digital Preset
-- 1 oscillator: Saw wave
-- Wavefolder with gain 3.0
-- Filter: 24dB lowpass, resonance 0.2, drive 1.5
-- Envelope: Attack 0.015s, Decay 0.1s, Sustain 0.1, Release 0.1s
+## Parameter Ranges
 
-#### Bass Preset
-- 2 oscillators: Saw + Triangle, with -12 semitone detuning on second oscillator
-- Filter: 24dB lowpass, resonance 0.33, drive 2.5
-- Envelope: Attack 0.01s, Decay 0.3s, Sustain 0.4, Release 0.2s
+Oscillator:
 
-#### Lead Preset
-- 2 oscillators: Saw + Square with 12 semitone detuning
-- Square wave pulse width: 0.3
-- Filter: 24dB lowpass, resonance 0.23, drive 3.0
-- Envelope: Attack 0.02s, Decay 0.2s, Sustain 0.35, Release 0.15s
+- Amplitude: `0.0..1.0`
+- Detuning: `-12.0..+12.0` semitones
+- Pulse width: `0.0..1.0`
+- Harmony: `-12..+12` scale steps
 
-#### Square Preset
-- 1 oscillator: Square wave with pulse width 0.255
-- Filter: 24dB lowpass, resonance 0.55, drive 2.8
-- Envelope: Attack 0.02s, Decay 0.2s, Sustain 0.0, Release 0.15s
+Filter:
 
-#### Pad Preset
-- 3 oscillators: All saw waves with harmony (0, +4, +9 semitones)
-- Filter: 12dB lowpass, resonance 0.1, drive 1.0
-- Envelope: Attack 0.5s, Decay 0.2s, Sustain 0.5, Release 0.5s
+- Cutoff: `250.0..8000.0` Hz from normalized input
+- Resonance: `0.0..1.0`
+- Drive: `0.0..10.0`
+- Passband gain: `0.0..1.0`
+- High-pass frequency: `20.0..20000.0` Hz
+- High-pass resonance: `0.0..1.0`
 
-#### Percussion Preset
-- 3 oscillators: All sine waves with detuning (+0, +7, -5 semitones)
-- Filter: 24dB lowpass, resonance 0.4, drive 2.3
-- Envelope: Attack 0.005s, Decay 0.08s, Sustain 0.0, Release 0.07s
+Envelope:
 
-## Parameter Ranges and Units
+- Attack: `0.002..0.75` seconds
+- Decay: `0.002..0.8` seconds
+- Sustain: `0.0..1.0`
+- Release: `0.001..10.0` seconds
 
-### Oscillator Parameters
-- **Amplitude**: 0.0 to 1.0 (linear)
-- **Detuning**: -12.0 to +12.0 semitones
-- **Pulse Width**: 0.0 to 1.0 (square/pulse waves only)
-- **Harmony**: -12 to +12 scale steps
+Effects and mix:
 
-### Filter Parameters
-- **Cutoff Frequency**: 250.0 to 8000.0 Hz (mapped from 0.0-1.0 normalized input)
-- **Resonance**: 0.0 to 1.0
-- **Drive**: 0.0 to 10.0
-- **Passband Gain**: 0.0 to 1.0
-- **High-pass Frequency**: 20.0 to 20000.0 Hz
-- **High-pass Resonance**: 0.0 to 1.0
+- Overdrive gain: `0.0..2.0`
+- Overdrive drive: `0.0..1.0`
+- Wavefolder gain: `0.0..10.0`
+- Wavefolder offset: `0.0..5.0`
+- Output level: `0.0..1.0`
+- Slide time: `0.0..10.0` seconds
+- Voice mix: `0.0..1.0`
+- Global volume: `0.0..1.0`
 
-### Envelope Parameters
-- **Attack Time**: 0.002 to 0.75 seconds
-- **Decay Time**: 0.002 to 0.8 seconds
-- **Sustain Level**: 0.0 to 1.0
-- **Release Time**: 0.001 to 10.0 seconds
+## VoiceState
 
-### Effects Parameters
-- **Overdrive Gain**: 0.0 to 2.0
-- **Overdrive Drive**: 0.0 to 1.0
-- **Wavefolder Gain**: 0.0 to 10.0
-- **Wavefolder Offset**: 0.0 to 5.0
-
-### Voice Control Parameters
-- **Output Level**: 0.0 to 1.0
-- **Slide Time**: 0.0 to 10.0 seconds
-- **Voice Mix**: 0.0 to 1.0
-- **Global Volume**: 0.0 to 1.0
-
-## MIDI and Sequencer Integration
-
-### Voice State Structure
-
-The voice receives real-time updates through the `VoiceState` structure:
+Real-time note and modulation data arrives through `VoiceState`.
 
 ```cpp
 struct VoiceState {
@@ -408,31 +367,16 @@ struct VoiceState {
 };
 ```
 
-### Sequencer Integration
+MIDI-style values are mapped into this structure:
 
-Each voice can be attached to a sequencer for automated playback:
+- Notes become scale-aware `noteIndex` values.
+- Velocity maps to `0.0..1.0`.
+- Gate events drive envelope state.
+- Controller changes map to filter and envelope parameters.
 
-```cpp
-// Create and attach sequencer
-auto sequencer = std::make_unique<Sequencer>();
-voiceManager.attachSequencer(voiceId, std::move(sequencer));
+## Scale Integration
 
-// Or attach existing sequencer
-voiceManager.attachSequencer(voiceId, existingSequencerPtr);
-```
-
-### MIDI Integration
-
-The voice system expects MIDI-style control through the `VoiceState` structure:
-
-- **Note numbers**: Converted to frequency using scale-aware mapping
-- **Velocity**: 0-127 MIDI velocity mapped to 0.0-1.0
-- **Gate events**: Note on/off triggers envelope
-- **Controller changes**: Map to filter cutoff, envelope parameters
-
-### Scale Integration
-
-The voice system supports multiple musical scales:
+`Voice` can use an injected scale table. If no table is injected, it falls back to chromatic mapping.
 
 ```cpp
 // Inject scale data
@@ -444,11 +388,7 @@ extern uint8_t currentScale;
 voice.setCurrentScalePointer(&currentScale);
 ```
 
-Scale steps (0-47) are mapped to semitone offsets. If no scale is injected, the system falls back to chromatic mapping.
-
 ## Usage Examples
-
-### Basic Voice Usage
 
 ```cpp
 #include "Voice.h"
@@ -468,8 +408,6 @@ voiceManager.init(48000.0f);
 float output = voiceManager.processAllVoices();
 ```
 
-### Voice Configuration
-
 ```cpp
 // Create custom voice configuration
 VoiceConfig customConfig;
@@ -485,8 +423,6 @@ customConfig.hasWavefolder = true;
 uint8_t voiceId = voiceManager.addVoice(customConfig);
 ```
 
-### Real-time Parameter Control
-
 ```cpp
 // Create voice state for real-time control
 VoiceState state;
@@ -500,8 +436,6 @@ state.octaveOffset = 0;            // No octave shift
 // Update voice parameters
 voiceManager.updateVoiceState(voiceId, state);
 ```
-
-### Builder Pattern Usage
 
 ```cpp
 // Create voice manager using builder pattern
@@ -518,8 +452,6 @@ auto dualSetup = VoiceFactory::createDualVoiceSetup();
 auto polySetup = VoiceFactory::createPolyphonicSetup();
 ```
 
-### Sequencer Integration
-
 ```cpp
 // Create sequencer and attach to voice
 auto sequencer = std::make_unique<Sequencer>();
@@ -533,8 +465,6 @@ if (seq) {
     // seq->setPatternLength(16);
 }
 ```
-
-### Individual Voice Processing
 
 ```cpp
 // Process individual voice (for solo monitoring or effects)
@@ -550,8 +480,6 @@ voiceManager.enableVoice(voiceId, true);
 voiceManager.disableVoice(voiceId);
 ```
 
-### Memory Management
-
 ```cpp
 // Check memory usage
 size_t memoryUsed = voiceManager.getMemoryUsage();
@@ -566,13 +494,10 @@ voiceManager.removeVoice(voiceId);
 voiceManager.removeAllVoices();
 ```
 
-## System Refactoring and Migration
+## Migration From Individual Variables
 
-### Migration from Individual Variables to VoiceSystem
+Before:
 
-The voice system has undergone a significant architectural refactoring to improve maintainability and scalability. The migration involved:
-
-#### Before (Individual Variables)
 ```cpp
 // Old approach - individual variables for each voice
 extern uint8_t voice1Id, voice2Id, voice3Id, voice4Id;
@@ -589,7 +514,8 @@ struct UIState {
 };
 ```
 
-#### After (VoiceSystem Architecture)
+After:
+
 ```cpp
 // New approach - centralized VoiceSystem
 extern VoiceSystem voiceSystem;
@@ -600,32 +526,8 @@ struct UIState {
 };
 ```
 
-### Benefits of the Refactoring
+Access changed from branching to indexed lookup:
 
-1. **Reduced Code Duplication**: Eliminated repetitive code patterns across multiple files
-2. **Improved Maintainability**: Changes to voice management logic only need to be made in one place
-3. **Enhanced Consistency**: All voice operations follow the same access patterns
-4. **Better Scalability**: Adding or removing voices requires minimal code changes
-5. **Cleaner Architecture**: Centralized voice management reduces coupling between modules
-6. **Loop-based Operations**: Common operations like muting all voices can be implemented with simple loops
-7. **Type Safety**: Array bounds checking and consistent data types
-
-### Files Updated During Refactoring
-
-The following files were updated to use the new VoiceSystem architecture:
-
-- **`src/voice/VoiceSystem.h`**: New centralized voice management structure
-- **`src/ui/UIState.h`**: Updated to use voice preset arrays
-- **`src/midi/MidiManager.cpp/.h`**: Refactored to use VoiceSystem for MIDI handling
-- **`src/ui/ButtonHandlers.cpp`**: Updated voice ID access patterns
-- **`src/ui/UIEventHandler.cpp`**: Centralized voice ID retrieval
-- **`src/OLED/oled.cpp`**: Updated display logic to use VoiceSystem
-- **`src/LEDMatrix/LEDMatrixFeedback.cpp`**: Updated LED feedback for voice states
-- **`Pico2Seq.ino`**: Main loop updated to use VoiceSystem helper functions
-
-### Usage Examples with New Architecture
-
-#### Voice Access
 ```cpp
 // Old way - conditional selection
 uint8_t currentVoiceId;
@@ -637,7 +539,6 @@ else if (selectedVoice == 1) currentVoiceId = voice2Id;
 uint8_t currentVoiceId = voiceSystem.getVoiceId(selectedVoice);
 ```
 
-#### Voice State Management
 ```cpp
 // Old way - individual variable updates
 if (voiceIndex == 0) voiceState1 = newState;
@@ -648,7 +549,6 @@ else if (voiceIndex == 1) voiceState2 = newState;
 voiceSystem.getVoiceState(voiceIndex) = newState;
 ```
 
-#### Bulk Operations
 ```cpp
 // Old way - manual loops
 for (int i = 0; i < 4; i++) {
@@ -658,67 +558,53 @@ for (int i = 0; i < 4; i++) {
 }
 
 // New way - helper functions
-voiceSystem.muteAllVoices();
+voiceSystem.stopAllGates();
 ```
 
-## Blocking Issues Discovered
+Files involved in this architecture:
 
-### 1. Missing Dependencies
+- `src/voice/VoiceSystem.h`
+- `src/ui/UIState.h`
+- `src/midi/MidiManager.cpp` and `src/midi/MidiManager.h`
+- `src/ui/ButtonHandlers.cpp`
+- `src/ui/UIEventHandler.cpp`
+- `src/OLED/oled.cpp`
+- `src/LEDMatrix/LEDMatrixFeedback.cpp`
+- `Pico2Seq.ino`
 
-The voice system depends on several external components that need to be verified:
+## Integration Notes
 
-- **DaisySP library**: Required for oscillators, filters, envelope, and effects
-  - `daisysp::Oscillator`
-  - `daisysp::LadderFilter`
-  - `daisysp::Svf`
-  - `daisysp::Adsr`
-  - `daisysp::Overdrive`
-  - `daisysp::Wavefolder`
-  - `daisysp::WhiteNoise`
-  - `daisysp::mtof()` and `fmap()` functions
+- DSP is vendored under `src/dsp/` and uses DaisySP-style classes and functions.
+- Scale arrays are injected into `Voice`; chromatic fallback is used when scale data is absent.
+- Debug output depends on the project debug macros.
+- Audio processing is real-time. Avoid heap allocation and blocking work in the audio path.
+- Audio and UI run on separate cores in the sketch. Keep cross-core state changes explicit and synchronized.
+- Four voices are allocated, but the gate timer arrays are intentionally limited to voices `0` and `1`.
 
-- **Scale data**: The system references external scale arrays:
-  - `extern int scale[SCALES_COUNT][48]`
-  - `extern uint8_t currentScale`
-  - `extern const int SCALES_COUNT`
-  - `extern const int SCALE_STEPS`
+## Gate Sequence Length Mode
 
-- **VoiceState structure**: Defined in `SequencerDefs.h` but not shown in voice module
+Gate Sequence Length Mode sets the selected voice's Gate track length from `2..16` steps.
 
-### 2. Global Variable Coupling
+Activation:
 
-The voice system reduces but doesn't eliminate global dependencies:
+- Hold the AS5600 control button to enter the mode.
+- Release the button to exit.
+- Toggling slide mode also exits.
 
-- Scale data injection requires external management
-- Falls back to chromatic mapping if scale injection fails
-- Debug system uses `DBG_INFO`, `DBG_WARN`, `DBG_VERBOSE` macros
+Controls:
 
-### 3. Resource Constraints
+- While held, press any step button `1..16` to set the Gate sequence length for the selected voice.
+- Values are clamped to `2..16`.
 
-For embedded systems (Raspberry Pi Pico):
+Feedback:
 
-- **Memory usage**: Each voice requires significant RAM for DSP components
-- **CPU usage**: Real-time audio processing with multiple voices may strain RP2040
-- **Static allocation**: Pre-allocated lookup tables and preset storage
+- The LED matrix blinks the selected voice row up to the current Gate length.
+- The non-selected voice row is dimmed.
+- Changing length triggers `uiState.resetStepsLightsFlag`.
+- OLED shows `Gate Len Mode`, selected voice, current length, and a proportional bar.
 
-### 4. Integration Points
+Implementation anchors:
 
-The system integrates with:
-- **Sequencer system**: For rhythmic playback and pattern generation
-- **MIDI system**: For external control and note input
-- **UI system**: For parameter control and voice management
-- **Audio system**: For final output processing
-
-### 5. Thread Safety
-
-- Static frequency lookup table is initialized once (thread-safe)
-- Preset storage uses static initialization (thread-safe)
-- Voice manager operations should be synchronized in multi-threaded environments
-
-## Recommendations
-
-1. **Verify DaisySP Integration**: Ensure all DaisySP components are properly included and initialized
-2. **Scale System Integration**: Confirm scale data arrays are properly defined and accessible
-3. **Memory Profiling**: Monitor RAM usage with multiple voices on target hardware
-4. **Performance Testing**: Verify real-time audio processing performance with maximum voice count
-5. **Error Handling**: Add proper error handling for missing presets and invalid configurations
+- UI handling: `src/ui/UIEventHandler.cpp`
+- LED rendering: `src/LEDMatrix/LEDMatrixFeedback.cpp`
+- OLED rendering: `src/OLED/oled.cpp`

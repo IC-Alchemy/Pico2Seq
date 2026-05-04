@@ -2,12 +2,15 @@
 
 ## Overview
 
-The `src/LEDMatrix` folder contains the LED matrix display system for the PicoMudrasSequencer. This module provides comprehensive visual feedback through an 8x8 WS2812B LED matrix, including sequencer state visualization, parameter editing feedback, and user interface indicators.
+The grid speaks in light.
+
+`src/LEDMatrix` drives the 8x8 WS2812B matrix for Pico2Seq. It shows step gates, playhead movement, parameter edits, settings feedback, voice state, and sensor-linked control feedback. The hardware surface is simple: 64 addressable LEDs on GPIO 1, driven through FastLED.
 
 ## Key Components
 
 ### 1. LEDConstants.h
-Centralized constants for LED matrix configuration and visual parameters.
+
+Central LED matrix constants live here. Keep hardware numbers and timing values in one place.
 
 **Hardware Configuration:**
 - Matrix dimensions: 8x8 (64 total LEDs)
@@ -29,7 +32,8 @@ Centralized constants for LED matrix configuration and visual parameters.
 - Full: 200, High: 180, Medium: 128, Low: 64, Dim: 32, Subtle: 16
 
 ### 2. LEDMatrix Class (ledMatrix.h)
-Core hardware abstraction layer for the 8x8 WS2812B LED matrix.
+
+The hardware wrapper for the 8x8 WS2812B matrix.
 
 **Key Methods:**
 - `LEDMatrix()` - Constructor initializes to black
@@ -41,7 +45,8 @@ Core hardware abstraction layer for the 8x8 WS2812B LED matrix.
 - `getLeds()` - Direct access to LED array (advanced use)
 
 ### 3. LEDController (LEDController.h)
-Manages all control LED functionality for user interface elements.
+
+The control LED layer. It maps UI state to visible indicators.
 
 **Control LED Positions:**
 - Parameter buttons: Note, Velocity, Filter, Attack, Decay, Octave, Slide
@@ -49,8 +54,8 @@ Manages all control LED functionality for user interface elements.
 - Mode indicators: Voice 1-4 (VoiceSystem integration), Delay toggle, Randomize
 
 **VoiceSystem Integration:**
-- Updated to support up to 4 voices through centralized VoiceSystem
-- Voice indicators now use `voiceSystem.getVoiceId(index)` for consistent voice identification
+- Supports up to 4 voices through the centralized VoiceSystem
+- Voice indicators use `voiceSystem.getVoiceId(index)` for consistent voice identification
 - Preset feedback uses `uiState.voicePresetIndices[voiceIndex]` for array-based access
 
 **Key Functions:**
@@ -58,7 +63,8 @@ Manages all control LED functionality for user interface elements.
 - `updateControlLEDs()` - Update all control LEDs based on UI state
 
 ### 4. LEDMatrixFeedback (LEDMatrixFeedback.h)
-Comprehensive visual feedback system for sequencer state and UI modes.
+
+The feedback layer. It decides what the matrix should say during play, edit, and settings states.
 
 **Display Modes:**
 - **Idle Mode**: Breathing animation when sequencers stopped
@@ -110,13 +116,13 @@ ledMatrix.show();
 
 ```
 src/LEDMatrix/
-├── LEDConstants.h          # Constants and configuration
-├── LEDController.cpp       # Control LED implementation
-├── LEDController.h         # Control LED interface
-├── LEDmatrix.cpp           # LEDMatrix class implementation
-├── ledMatrix.h             # LEDMatrix class interface
-├── LEDMatrixFeedback.cpp   # Feedback system implementation
-└── LEDMatrixFeedback.h     # Feedback system interface
+|-- LEDConstants.h          # Constants and configuration
+|-- LEDController.cpp       # Control LED implementation
+|-- LEDController.h         # Control LED interface
+|-- LEDmatrix.cpp           # LEDMatrix class implementation
+|-- ledMatrix.h             # LEDMatrix class interface
+|-- LEDMatrixFeedback.cpp   # Feedback system implementation
+`-- LEDMatrixFeedback.h     # Feedback system interface
 ```
 
 ## Hardware Requirements
@@ -126,12 +132,18 @@ src/LEDMatrix/
 - 5V power supply capable of supporting LED current draw
 - FastLED library compatible with target microcontroller
 
-## Performance Considerations
+## Wiring Note
 
-- LED updates should be batched to minimize `show()` calls
-- Color blending uses optimized algorithms for smooth transitions
-- Direct array access available for performance-critical operations
-- Theme switching is immediate but may cause brief visual artifacts
+- LED data is documented on GP1.
+- The touch matrix documentation also lists GP1 as one of the row electrodes.
+- Check the hardware revision before changing pin definitions or wiring both surfaces.
+
+## Performance Notes
+
+- Batch LED writes and keep `show()` calls deliberate.
+- Color blending uses optimized algorithms for smooth transitions.
+- Direct array access is available for timing-sensitive work.
+- Theme switching is immediate and may create brief visual artifacts.
 
 ## Integration Points
 

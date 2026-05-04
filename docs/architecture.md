@@ -1,209 +1,183 @@
 # Pico2Seq Architecture
 
-This document gives a high-level overview of modules, data flow, and key responsibilities to make the codebase easier to navigate.
+Gesture first. Clock underneath.
 
-## Top-Level
-- Pico2Seq.ino — Arduino entry point. Initializes hardware, systems, and main loop with dual-core architecture support.
-- includes.h — Central aggregator of library and project headers (Arduino-friendly `src/...` includes).
-- docs/ — Documentation.
-- src/ — Source modules grouped by domain.
+Pico2Seq is Arduino firmware for a Raspberry Pi Pico2 / RP2350 synth sequencer. It runs four sequencers, four voices, USB MIDI, an OLED, an LED matrix, a capacitive touch matrix, an AS5600 magnetic encoder, and a VL53L1X time-of-flight distance sensor.
 
-## Modules (src/)
+The shape is practical. Audio stays on Core 0. UI and control work stay on Core 1. Shared state is small and explicit.
 
-### Core System Modules
-- **audio/**: I2S configuration, audio callback wiring for Pico2, real-time audio processing
-  - `audio.h`, `audio_i2s.h`, `audio.cpp` — Core audio interface and I2S management (@48kHz)
-  - `buffer.h` — Audio buffer management for reliable audio streaming
-  - `sample_conversion.h` — Audio format conversion utilities
+## Top Level
 
-### Sequencer System
-- **sequencer/**: Multi-parameter step sequencer with polymetric sequencing support
-  - `Sequencer.h/.cpp` — Main sequencer class with 16-step pattern storage per parameter (4 independent sequencers)
-  - `SequencerDefs.h` — Parameter definitions, timing constants, and step structures
-  - `ParameterManager.h/.cpp` — Thread-safe parameter management and validation
-  - `ShuffleTemplates.h` — Shuffle pattern templates for rhythmic variation
+- `Pico2Seq.ino` - Arduino sketch entry point, dual-core setup, audio loop, UI loop, sequencer callback wiring.
+- `includes.h` - Arduino-friendly header aggregator for project modules.
+- `diagnostic.h` - global diagnostic flags and error bits.
+- `src/` - firmware modules grouped by domain.
+- `docs/` - subsystem notes and contributor context.
 
-### Voice Synthesis System
-- **voice/**: Multi-voice synthesizer with DSP processing and preset management
-  - `Voice.h/.cpp`, `VoiceManager.h/.cpp` — Voice synthesis and management systems
-  - `VoiceSystem.h` — Centralized voice state management (4 voices max with array-based access)
-  - `VoicePresets.h/.cpp` — Factory system for synthesizer voice configurations (7 preset types)
+## Module Map
 
-### Digital Signal Processing
-- **dsp/**: Audio effects and signal processing algorithms
-  - ADSR envelope, ladder filter, overdrive, wavefolder, delay line implementations
-  - Local fork of DaisySP optimized for embedded use
+### Audio
 
-### User Interface System
-- **ui/**: Complete UI management system for matrix buttons and controls
-  - `UIState.h` — Central UI state structure (replaces global variables with structured array management)
-  - `UIEventHandler.h/.cpp` — Event-driven UI processing and button handling
-  - `ButtonHandlers.h/.cpp` — Specialized button behavior implementations (randomize, parameter cycling)
-  - `ButtonManager.h/.cpp` — Button state tracking and press event management
-  - `UIConstants.h` — UI constants and button mappings
+`src/audio/` owns I2S setup, Pico audio buffers, and the audio callback path.
 
-### Hardware Interface
-- **matrix/**: 4×8 capacitive touch matrix scanning system with debounced input processing (32 buttons total)
-- **LEDMatrix/**: 8×8 LED matrix display system with theme-based visual feedback for step states and parameter values
-- **OLED/**: 128×64 SH1106G display for detailed parameter visualization and settings navigation
-- **midi/**: USB MIDI communication with multi-voice note transmission and continuous controller (CC) support
-- **sensors/**: Multi-sensor control system with AS5600 encoder and VL53L1X distance sensor
+- `audio.h`, `audio_i2s.h`, `audio.cpp` - I2S and audio interface plumbing.
+- `buffer.h` - audio buffer helpers.
+- `sample_conversion.h` - sample conversion utilities.
 
-### Utilities and Helpers
-- **scales/**: Musical scale definitions with 13 built-in configurations and note conversion tables
-- **utils/**: Common utilities and helper functions
-- **diagnostic.h**: Debugging and diagnostic utilities
+Runtime constants in `Pico2Seq.ino`:
 
-## VoiceSystem Architecture
+- `SAMPLE_RATE = 48000.0f`
+- `SAMPLES_PER_BUFFER = 256`
+- `NUM_AUDIO_BUFFERS = 3`
+- `audio_buffer_pool_t *producer_pool`
 
-The VoiceSystem represents a significant architectural improvement that centralizes voice management:
+### DSP
 
-### Key Design Principles
-- **Centralization**: All voice-related data consolidated in one structure
-- **Array-based Access**: Replaces individual `voice1Id`, `voice2Id` variables with `voiceIds[MAX_VOICES]`
-- **Type Safety**: Bounds checking and consistent data access patterns
-- **Scalability**: Easy to modify voice count by changing `MAX_VOICES` constant (currently 4)
-- **Encapsulation**: Safe accessor methods prevent direct array access
+`src/dsp/` contains the local DSP code. It includes DaisySP-derived pieces adapted for this firmware.
+
+Do not replace this folder with DaisyDuino or upstream DaisySP without checking the local API. The voice code depends on the vendored headers.
+
+### Sequencer
+
+`src/sequencer/` owns step data, parameter tracks, timing constants, and polymetric behavior.
+
+- `Sequencer.h/.cpp` - main sequencer class.
+- `SequencerDefs.h` - parameter ids, timing constants, `VoiceState`, `Step`, and `GateTimer`.
+- `ParameterManager.h/.cpp` - parameter validation and management.
+- `ShuffleTemplates.h` - shuffle timing templates.
+
+Important constants:
+
+- `SequencerConstants::MAX_STEPS_COUNT = 64`
+- `SequencerConstants::DEFAULT_STEPS_COUNT = 16`
+- `SequencerConstants::PULSES_PER_QUARTER_NOTE_PPQN = 480`
+- `ParamId` order must match `CORE_PARAMETERS`.
+
+### Voice
+
+`src/voice/` owns voice state, voice rendering, voice lifecycle, and factory presets.
+
+- `VoiceSystem.h` - central four-voice state container.
+- `VoiceManager.h/.cpp` - voice lifecycle and `processAllVoices()`.
+- `Voice.h/.cpp` - individual voice configuration and rendering.
+- `VoicePresets.h/.cpp` - seven factory voice configurations.
+
+`VoiceSystem::MAX_VOICES` is 4. Current gate arrays cover voices 0 and 1 only.
 
 ```cpp
-struct VoiceSystem {
-    static const uint8_t MAX_VOICES = 4;
+struct VoiceSystem
+{
+    static constexpr uint8_t MAX_VOICES = 4;
 
-    // Core voice data arrays
-    uint8_t voiceIds[MAX_VOICES];
+    uint8_t voiceIds[MAX_VOICES] = {0, 0, 0, 0};
     VoiceState voiceStates[MAX_VOICES];
-    bool gates[MAX_VOICES];
-    GateTimer gateTimers[MAX_VOICES];
 
-    // Safe accessor methods
-    VoiceState& getVoiceState(uint8_t index);
-    void setGate(uint8_t index, bool state);
-    bool getGate(uint8_t index) const;
-    GateTimer& getGateTimer(uint8_t index);
+    volatile bool gates[2] = {false, false};
+    GateTimer gateTimers[2];
+
+    uint8_t getVoiceId(uint8_t voiceIndex) const;
+    int16_t getVoiceIdFromUIIndex(int uiIndex) const;
+    void setVoiceId(uint8_t voiceIndex, uint8_t voiceId);
+    VoiceState &getVoiceState(uint8_t voiceIndex);
+    volatile bool &getGate(uint8_t voiceIndex);
+    GateTimer &getGateTimer(uint8_t voiceIndex);
+    void stopAllGates();
+    void tickAllGateTimers();
 };
 ```
 
-### Benefits Over Legacy System
-1. **Reduced Code Duplication**: Eliminates switch/case statements for voice selection
-2. **Improved Performance**: Loop-based operations replace conditional branching
-3. **Enhanced Safety**: Bounds checking prevents array access violations
-4. **Better Organization**: All voice data in one location simplifies debugging
-5. **Future Extensibility**: Easy to add features across all voices consistently
+UI voice numbers are 1 through 4. Internal indexes are zero-based. Voice ids from `VoiceManager` are a separate mapping. Convert deliberately.
 
-## Data Flow Architecture
+### UI
 
+`src/ui/` owns UI state and event routing.
+
+- `UIState.h` - central UI state structure.
+- `UIEventHandler.h/.cpp` - matrix event routing and mode handling.
+- `ButtonManager.h/.cpp` - button state and timing.
+- `ButtonHandlers.h/.cpp` - button actions.
+- `UIConstants.h` - button mappings and UI constants.
+
+The UI writes sequencer parameters through handlers. Note edits are ignored when the selected step's Gate parameter is low. Check `updateParametersForStep()` before changing edit behavior.
+
+### Hardware Interfaces
+
+- `src/matrix/` - 4x8 capacitive touch matrix through MPR121.
+- `src/LEDMatrix/` - 8x8 WS2812B feedback through FastLED.
+- `src/OLED/` - 128x64 SH1106G display rendering.
+- `src/midi/` - USB MIDI note and CC support.
+- `src/sensors/` - AS5600 magnetic encoder and VL53L1X distance sensor.
+- `src/scales/` - 13 built-in scale tables and helpers.
+- `src/utils/` - debug and utility code.
+
+## Runtime Flow
+
+```text
+Touch matrix / AS5600 / VL53L1X / MIDI
+  -> UIState and event handlers
+  -> four Sequencer instances
+  -> VoiceState snapshots
+  -> VoiceSystem and VoiceManager
+  -> DSP voice rendering
+  -> I2S audio output at 48 kHz
+
+Sequencer state also feeds:
+  -> USB MIDI notes and CC
+  -> OLED parameter display
+  -> LED matrix step and mode feedback
 ```
-User Input (Matrix/Sensors/MIDI)
-         ↓ (UIEventHandler)
-    Central UIState Management
-         ↓ (Real-time updates)
-      4x Independent Sequencers
-         ↓ (Polymetric stepping)
-      VoiceSystem (Dual-core sync)
-         ↓ (Parameter mapping)
-    VoiceManager/Voice DSP Chain
-         ↓ (Real-time synthesis)
-      I2S Audio Output @48kHz
-         ↓ (Parallel processing)
-    MIDI CC/MIDI Note Output
-```
 
-### Detailed Processing Chain
+## Core Split
 
-#### 1. Input Processing
-- **Matrix Buttons**: Step editing, parameter selection, mode switching (4×8 capacitive grid)
-- **AS5600 Encoder**: Real-time parameter modulation with velocity-sensitive scaling
-- **VL53L1X Distance**: Hands-free parameter control (74-1400mm range)
-- **MIDI Input**: Future expansion capability
+Core 0 handles audio.
 
-#### 2. UI State Management
-- **Centralized State**: All UI variables now in `UIState` struct vs global variables
-- **Parameter Mapping**: Button presses mapped to voice parameters, sequencer controls
-- **Mode Management**: Settings mode, gate length mode, step editing modes
-- **State Synchronization**: Safe inter-core communication using volatile variables
+- `setup()` initializes voices, global delay state, I2S format, and audio buffers.
+- `loop()` takes an audio buffer, fills it, and returns it to the I2S system.
+- `fill_audio_buffer()` calls `voiceManager->processAllVoices()` for each sample and writes mono-to-stereo 16-bit PCM.
 
-#### 3. Sequencer Processing
-- **4 Independent Sequencers**: One per voice with fully configurable parameter tracks
-- **Polymetric Operation**: Each parameter can have different step counts (Note:16, Filter:8, etc.)
-- **Real-time Recording**: Live sensor parameter capture during playback
-- **Gate-controlled Programming**: Parameter editing restricted to active step gates
+Core 1 handles control.
 
-#### 4. Voice Synthesis Chain
-- **VoiceSystem Coordination**: Centralized voice state management and access
-- **VoiceManager Integration**: Manages voice lifecycle and DSP configuration
-- **DSP Processing**: Multi-oscillator synthesis with effects (filter, overdrive, wavefolder)
-- **Parameter Interpolation**: Smooth transitions between sequencer steps
+- `setup1()` initializes MIDI, sensors, matrix, OLED, LED matrix, uClock, and event handlers.
+- `loop1()` reads MIDI, processes pending PPQN ticks, scans controls, updates display/LEDs, and records selected step parameters.
 
-#### 5. Output Processing
-- **I2S Audio**: Real-time audio output @48kHz with hardware optimization
-- **MIDI Communication**: USB MIDI note transmission and CC parameter output
-- **Visual Feedback**: OLED display shows parameters, LED matrix shows step states
+Keep blocking work out of Core 0. Avoid heap allocation in the audio path. Treat Core 1 writes to audio-facing state as timing-sensitive.
 
-## Key Architectural Decisions
+## Sequencer Callback
 
-### Multi-core Architecture
-- **Core 0**: Audio synthesis and I2S output (real-time critical)
-- **Core 1**: UI processing, sensor reading, LED/OLED updates
-- **Synchronization**: Volatile variables and careful interrupt handling
-- **Performance**: Isolates real-time audio from UI processing
+`onStepCallback()` is the main timing bridge from uClock into the four sequencers.
 
-### UIState Centralization
-- **Eliminated Globals**: 25+ global UI variables replaced with structured `UIState`
-- **Thread Safety**: Single responsibility for state mutations
-- **Data Flow**: Clear parameter flow from input → UIState → sequencer → voice
-- **Extensibility**: Easy addition of new UI modes and parameters
+The current order matters:
 
-### Polymetric Sequencing
-- **Independent Track Lengths**: Each parameter can have different step counts
-- **Complex Patterns**: Enables rhythmic diversity (e.g., note every 2 steps, filter every 8)
-- **Memory Efficient**: Template-based `ParameterTrack` with static allocation
-- **Real-time Capable**: O(1) access time for all parameter lookups
+1. Store the current uClock step.
+2. Advance all four sequencers into temporary `VoiceState` values.
+3. Apply AS5600 base values and delay values.
+4. Update synth state and store the resulting voice states.
 
-### Sensor Integration
-- **AS5600 Encoder**: Velocity-sensitive parameter control with 12-bit resolution
-- **VL53L1X Distance**: Instant parameter feedback via proximity sensing
-- **Range Optimization**: Parameter values intelligently mapped to musical ranges
-- **Debouncing**: Hardware and software filtering prevent erratic behavior
+Voice 0 and voice 1 also run gate timer and MIDI note handling. Voice 2 and voice 3 update synth state without that gate/MIDI branch.
 
-### VoiceSystem Benefits
-1. **Code Clarity**: Reference `voiceSystem.getVoiceState(voiceIndex)` instead of individual variables
-2. **Maintenance**: Changes to voice count are contained in one struct definition
-3. **Testing**: Easier unit testing with centralized access pattern
-4. **Performance**: Reduced function call overhead and improved cache locality
+## Hardware Map
 
-## Gate Sequence Length Mode (UI → Sequencer → LED/OLED)
+- I2S audio: GP15 data, GP16 BCK, GP17 LRCK.
+- Touch matrix: GP0-GP3 rows, GP4-GP11 columns.
+- LED matrix data: GP1.
+- I2C bus: GP12 SDA, GP13 SCL.
+- OLED address: `0x3C`.
+- AS5600 address: `0x36`.
+- VL53L1X address: `0x29`.
 
-- **Activation**: Long-hold the AS5600 control button enters Gate Sequence Length Mode; release to exit
-- **Behavior**: Step buttons (1–16) set the Gate track length for the currently selected voice via VoiceSystem integration
-- **LED Feedback**: LEDMatrixFeedback renders blinking band up to current length on selected voice row
-- **OLED Feedback**: OLED display shows "Gate Len Mode", selected voice, length, and bar graph visualization
+The docs currently list GP1 for both a touch matrix row and WS2812B LED data. Check the active hardware revision before changing pins.
 
-## Performance Characteristics
+## Known Edges
 
-### Real-time Constraints
-- **Audio Processing**: Pure audio synthesis runs isolated on Core 0
-- **I2S Performance**: Hardware-optimized 48kHz output with minimal jitter
-- **Parameter Interpolation**: Smooth parameter changes prevent zipper noise
-- **Memory Layout**: Static allocation eliminates heap fragmentation
+- There is no configured automated test runner.
+- `build/` is generated output.
+- The root docs have referenced `.clang-format` and `.editorconfig`, but those files are not present in the current root.
+- `src/test/TestHarness.h` exists, but it is not wired into CI or a host test command.
 
-### Dual-core Synchronization
-- **Data Consistency**: Volatile variables for cross-core communication
-- **Race Prevention**: Careful state management prevents corruption
-- **Timing Coordination**: Hardware timers coordinate sequencer stepping
+## Next Improvements
 
-### Hardware Optimizations
-- **LED Matrix**: Direct GPIO control with efficient update algorithms
-- **OLED Display**: Cached rendering with selective update regions
-- **Sensor Reading**: Non-blocking I2C operations with timeout protection
-
-## Next Improvements (Roadmap)
-- Introduce an `AppContext` structure to further centralize all global state management
-- Promote public headers to an `include/` directory with project-wide `#include` standardization
-- Add comprehensive unit tests for sequencer logic and voice management
-- Implement CI pipeline with clang-format, clang-tidy, and cppcheck validation
-- Add performance profiling tools for real-time optimization analysis
-
-## Coding Style
-- `.clang-format` (LLVM base, 2-space indent) and `.editorconfig` enforce consistent style and EOLs
-- `diagnostic.h` provides structured logging and debugging utilities
-- Static analysis tools integrated into development workflow
+- Introduce an `AppContext` only if it reduces global-state coupling without hiding real-time boundaries.
+- Add a narrow host-buildable test target for pure sequencer logic.
+- Expand gate timer handling beyond voices 0 and 1 if voices 2 and 3 need the same MIDI/gate behavior.
+- Reconcile the GP1 documentation conflict with the current hardware revision.
+- Add a repeatable formatting/static-analysis command before documenting it as required.

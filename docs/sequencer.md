@@ -1,23 +1,25 @@
 # Sequencer Module Documentation
 
-## Overview and Responsibilities
+Four voices move from one clock.
 
-The Sequencer module is the core sequencing engine of the Pico2Seq synthesizer, implementing a **polyrhythmic step sequencer** with independent parameter tracks. It provides the foundation for creating complex musical patterns where different synthesis parameters (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide) can evolve at different rates simultaneously. The sequencer now supports **four independent sequencer instances** working in coordination with the VoiceSystem architecture.
+The Sequencer module is the step engine for Pico2Seq. It runs four independent sequencer instances against the shared VoiceSystem. Each voice can carry its own parameter tracks for Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, and Slide. Those tracks can use different step counts, so a pattern can turn slowly in one place and quickly in another.
 
-### Key Features
+The important rule is simple. Notes are only edited when the step Gate is HIGH. If Gate is LOW, note programming is ignored.
 
-- **Polyrhythmic Sequencing**: Each parameter operates as an independent track with configurable step counts, enabling complex evolving patterns
-- **Four Independent Sequencers**: Dedicated sequencer for each voice with synchronized stepping and polymetric capabilities
-- **Real-time Parameter Recording**: Live sensor-based parameter capture during playback with gate-controlled programming
-- **Thread-safe Operation**: Dual-core architecture support with proper synchronization for the VoiceSystem
-- **VoiceSystem Integration**: Seamless integration with centralized voice management and array-based access
-- **Gate-controlled Programming**: Intelligent note parameter editing restricted to steps with active gates
-- **Envelope Management**: Built-in envelope triggering and note duration handling with VoiceState communication
-- **Hardware Integration**: Direct control of gate outputs and step clock signals across all voices
+## Responsibilities
 
-### VoiceSystem Architecture Integration
+- Polyrhythmic sequencing for per-parameter step counts.
+- Four independent sequencers, one per voice.
+- Real-time sensor recording during playback.
+- Gate-controlled note programming.
+- Envelope triggering and note duration handling.
+- VoiceSystem state updates through array-based access.
+- MIDI CC output for voices 1 and 2 where configured.
+- Hardware gate and step-clock output support.
 
-The sequencer system is fully integrated with the VoiceSystem structure:
+## VoiceSystem Integration
+
+The sequencers work through the VoiceSystem. Voice state, gate state, and voice IDs live in one place.
 
 ```cpp
 // Four sequencer instances (one per voice)
@@ -30,17 +32,16 @@ bool gateActive = voiceSystem.getGate(voiceIndex);              // Gate state
 voiceSystem.setGate(voiceIndex, true);                          // Set gate
 ```
 
-This integration eliminates the previous approach of individual voice variables and provides:
-- **Centralized Access**: All voice states in one location
-- **Type Safety**: Bounds checking and consistent access patterns
-- **Scalability**: Easy extension to additional voices
-- **Simplified API**: `voiceSystem.getVoiceState(index)` instead of conditional branching
+This keeps the old scattered voice variables out of the hot path.
 
-## Public Classes/Structs and Method Signatures
+- Centralized access: all voice states are addressed from VoiceSystem.
+- Bounds-aware access: callers use the VoiceSystem API instead of ad-hoc indexing.
+- Scalable shape: the code is organized around `VoiceSystem::MAX_VOICES`.
+- Clearer callsites: `voiceSystem.getVoiceState(index)` replaces branch-heavy lookup.
 
-### Four Sequencer Instances
+## Sequencer Instances
 
-The system now maintains four independent sequencer instances:
+The firmware keeps four global sequencers. Each one belongs to one voice channel.
 
 ```cpp
 // Global sequencer instances (Pico2Seq.ino)
@@ -58,7 +59,9 @@ Sequencer* getActiveSequencer(uint8_t voiceIndex) {
 }
 ```
 
-### Sequencer Class API (Unchanged)
+## Sequencer Class API
+
+The public API stays centered on parameter tracks, note timing, and step advance.
 
 ```cpp
 class Sequencer {
@@ -102,11 +105,7 @@ public:
 };
 ```
 
-## VoiceSystem Integration Architecture
-
-### Centralized Voice Management
-
-The sequencers now work seamlessly with the VoiceSystem architecture:
+## VoiceSystem Shape
 
 ```cpp
 // VoiceSystem provides array-based access to all voice data
@@ -127,19 +126,19 @@ struct VoiceSystem {
 };
 ```
 
-### Sequencer-to-VoiceSystem Data Flow
+Data moves in this order:
 
+```text
+Step Advance -> Sequencer Parameter Lookup -> VoiceState Population
+                    |
+          VoiceSystem Array Update -> DSP Processing
+                    |
+          MIDI CC Output + Audio Synthesis -> Hardware
 ```
-Step Advance → Sequencer Parameter Lookup → VoiceState Population
-                    ↓
-          VoiceSystem Array Update → DSP Processing
-                    ↓
-          MIDI CC Output + Audio Synthesis → Hardware
-```
 
-## Four-Sequencer Initialization and Setup
+## Setup
 
-### Voice Manager Integration
+The VoiceManager is initialized with four voices. Each VoiceSystem slot receives an internal voice ID. Each ID is attached to its sequencer.
 
 ```cpp
 // Initialize Voice Manager with 4 voices
@@ -152,7 +151,7 @@ for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++) {
 }
 ```
 
-### Sequencer Startup Process
+Clock start and stop act on all four sequencers together.
 
 ```cpp
 // Start all four sequencers when clock starts
@@ -171,9 +170,9 @@ void onClockStop() {
 }
 ```
 
-## Enhanced Main Loop Integration
+## Main Loop Pattern
 
-### Four-Sequencer Step Processing
+The loop reads clock, distance, UI state, and then advances each voice. MIDI voice IDs for the playback path are zero-based for the first two MIDI voices.
 
 ```cpp
 void loop() {
@@ -230,7 +229,11 @@ void loop() {
 }
 ```
 
-### Voice Parameter Editing with Gate Control
+## Gate-Controlled Programming
+
+This is the behavior to protect.
+
+When a Note parameter is being edited, the code checks the step Gate first. A Gate value of `0.0` or anything `<= 0.5f` means LOW. The edit returns without changing the note.
 
 ```cpp
 void updateParametersForStep(uint8_t stepToUpdate) {
@@ -272,11 +275,9 @@ void updateParametersForStep(uint8_t stepToUpdate) {
 }
 ```
 
-## Polymetric Sequencing with Four Voices
+## Polymetric Examples
 
-### Independent Parameter Tracks
-
-Each of the four sequencers can have different parameter step counts for complex polymetric patterns:
+Each voice can use different step counts per parameter.
 
 ```cpp
 // Voice 1: Fast note changes, slow filter modulation
@@ -297,11 +298,9 @@ seq3.setParameterStepCount(ParamId::Note, 16);   // Notes: 16-step pattern
 seq4.setParameterStepCount(ParamId::Note, 4);    // Notes: 4-step pattern
 ```
 
-## VoiceSystem Routing and State Management
+## Voice State Updates
 
-### Voice State Updates
-
-The VoiceSystem provides centralized access to all voice parameters:
+Voice updates use the VoiceSystem slot, then the internal VoiceManager ID.
 
 ```cpp
 // Update voice parameters through VoiceSystem
@@ -326,9 +325,7 @@ void updateVoiceParameters(const VoiceState& newState, uint8_t voiceIndex) {
 }
 ```
 
-### Bulk Voice Operations
-
-The VoiceSystem enables efficient bulk operations across all voices:
+Bulk operations follow the same array shape.
 
 ```cpp
 // Stop all voices simultaneously
@@ -350,11 +347,9 @@ for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++) {
 }
 ```
 
-## Integration with Extended UI System
+## UI Integration
 
-### Voice-specific Parameter Editing
-
-The extended UI system supports per-voice parameter manipulation:
+Voice parameter buttons edit per-voice configuration through the internal voice ID.
 
 ```cpp
 // Voice parameter editing (buttons 8-15: envelope, overdrive, wavefolder, filter mode, etc.)
@@ -380,9 +375,7 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState& state) 
 }
 ```
 
-### Enhanced LED Feedback
-
-The LED matrix now provides feedback for all four voices:
+The LED matrix can show active voice steps from the same VoiceSystem state.
 
 ```cpp
 // Display current step states for all active voices
@@ -399,24 +392,13 @@ void updateLEDMatrixForAllVoices() {
 }
 ```
 
-## Performance Optimizations for Multi-Voice Operation
+## Performance Notes
 
-### Memory Layout
+- Static allocation keeps sequencer memory predictable.
+- VoiceSystem arrays keep voice state close together.
+- One clock source advances all four sequencers.
+- Gate timers are centralized.
+- Sequencer advancement stays in one thread context.
+- Cross-core audio/UI state still needs careful synchronization.
 
-- **Static Allocation**: All sequencers use static memory with template-based parameter tracks
-- **Cache Efficiency**: VoiceSystem array access provides better memory locality
-- **Reduced Overhead**: Eliminates individual voice variable lookups and conditionals
-
-### Timing Synchronization
-
-- **Single Clock Source**: All four sequencers advance simultaneously based on UClock
-- **Batch Processing**: Parameter updates grouped by voice for efficiency
-- **Gate Timer Optimization**: Centralized gate management reduces internal function calls
-
-### Thread Safety
-
-- **Volatile Fields**: VoiceSystem uses volatile fields for cross-core communication
-- **Race Prevention**: Sequencer advancement occurs in single thread context
-- **Atomic Operations**: Gate state changes are atomic where required
-
-This enhanced sequencer system with VoiceSystem integration provides powerful polymetric sequencing capabilities across four independent voices while maintaining real-time performance and code clarity.
+Keep the timing order plain. Advance sequencers. Apply AS5600 base values. Apply AS5600 delay values. Update synth state and store it.

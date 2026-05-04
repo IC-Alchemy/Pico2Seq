@@ -2,7 +2,9 @@
 
 ## Overview
 
-The `src/midi` folder contains the MIDI communication system for the PicoMudrasSequencer. This module handles MIDI note events, continuous controller (CC) messages, and USB MIDI interface management. It provides both note-on/note-off functionality and real-time parameter control via MIDI CC messages.
+The patch leaves the box as voltage and returns as MIDI.
+
+`src/midi` handles MIDI note events, continuous controller (CC) messages, and the USB MIDI interface for Pico2Seq. It sends note-on and note-off events, tracks monophonic notes per voice, and mirrors parameter movement as MIDI CC messages on channel 1.
 
 ## Key Components
 
@@ -14,7 +16,7 @@ The `src/midi` folder contains the MIDI communication system for the PicoMudrasS
 - Voice 3: CC79-82 (Octave=79, Decay=80, Attack=81, Filter=82)
 - Voice 4: CC83-86 (Octave=83, Decay=84, Attack=85, Filter=86)
 
-**Note:** The system now supports up to 4 voices through the VoiceSystem architecture, with CC mappings extended accordingly.
+The VoiceSystem architecture supports up to 4 voices. The CC map follows that shape.
 
 **Transmission Settings:**
 - Minimum interval: 10ms between CC transmissions
@@ -29,10 +31,10 @@ The `src/midi` folder contains the MIDI communication system for the PicoMudrasS
 ### 2. MidiManager.h - Core MIDI Interface
 
 **MidiNoteManager Class:**
-- Handles multi-voice MIDI note tracking through VoiceSystem integration
-- Manages monophonic behavior per voice (up to 4 voices)
+- Tracks MIDI notes through VoiceSystem integration
+- Maintains monophonic behavior per voice, up to 4 voices
 - Synchronizes note events with gate timing
-- Uses centralized VoiceSystem for voice state management
+- Uses centralized VoiceSystem state
 
 **Key Data Structures:**
 
@@ -71,16 +73,19 @@ struct CCParameterState {
 ## MIDI Note Management
 
 ### Monophonic Behavior
-- Each voice supports only one active note
-- New notes automatically terminate previous notes
-- Proper note-off/on pairing maintained
+
+- Each voice supports only one active note.
+- A new note ends the previous note for that voice.
+- Note-off/on pairing is maintained.
 
 ### Gate Synchronization
-- Notes can be tied to gate timing
-- Automatic note-off when gate expires
-- Configurable gate durations per note
+
+- Notes can follow gate timing.
+- Gate expiration sends automatic note-off.
+- Gate duration is configurable per note.
 
 ### Timing Control
+
 ```cpp
 void updateTiming(uint16_t currentTick) {
     // Check all voices for expired gates using VoiceSystem
@@ -94,7 +99,7 @@ void updateTiming(uint16_t currentTick) {
 
 ### VoiceSystem Integration
 
-The MIDI system now integrates with the centralized VoiceSystem architecture:
+MIDI state is routed through the centralized VoiceSystem:
 
 ```cpp
 // Access voice states through VoiceSystem
@@ -111,17 +116,20 @@ voiceSystem.stopAllGates();  // All notes off
 ## MIDI CC System
 
 ### Parameter Mapping
-- **Filter**: CC74 (Voice 1), CC78 (Voice 2)
-- **Attack**: CC73 (Voice 1), CC77 (Voice 2)
-- **Decay**: CC72 (Voice 1), CC76 (Voice 2)
-- **Octave**: CC71 (Voice 1), CC75 (Voice 2)
+
+- **Filter**: CC74 (Voice 1), CC78 (Voice 2), CC82 (Voice 3), CC86 (Voice 4)
+- **Attack**: CC73 (Voice 1), CC77 (Voice 2), CC81 (Voice 3), CC85 (Voice 4)
+- **Decay**: CC72 (Voice 1), CC76 (Voice 2), CC80 (Voice 3), CC84 (Voice 4)
+- **Octave**: CC71 (Voice 1), CC75 (Voice 2), CC79 (Voice 3), CC83 (Voice 4)
 
 ### Change Detection
-- Prevents MIDI spam with intelligent filtering
-- Only transmits when values change significantly
-- Rate limiting to respect minimum intervals
+
+- Sends CC only when values change enough to matter.
+- Rate limiting keeps transmissions at the configured minimum interval.
+- Filtering protects the USB MIDI stream from parameter chatter.
 
 ### Value Processing
+
 ```cpp
 void sendCCIfChanged(uint8_t voiceId, ParamId paramId, float value) {
     // Clamp to valid range
@@ -148,6 +156,7 @@ void sendCCIfChanged(uint8_t voiceId, ParamId paramId, float value) {
 ## Usage Examples
 
 ### Basic Note Control
+
 ```cpp
 // Play note on Voice 1
 midiNoteManager.noteOn(0, 60, 100, 1, 480);  // C4, velocity 100, 480 ticks
@@ -162,6 +171,7 @@ if (midiNoteManager.isNoteActive(1)) {
 ```
 
 ### Parameter CC Updates
+
 ```cpp
 // Update filter cutoff for Voice 1
 midiNoteManager.updateParameterCC(0, ParamId::Filter, 0.75f);
@@ -171,6 +181,7 @@ midiNoteManager.updateParameterCC(1, ParamId::Attack, 0.3f);
 ```
 
 ### Emergency Control
+
 ```cpp
 // Stop all notes immediately
 midiNoteManager.emergencyStop();
@@ -182,12 +193,14 @@ midiNoteManager.allNotesOff();
 ## Hardware Integration
 
 ### USB MIDI Interface
+
 - **Library**: Adafruit TinyUSB
 - **Interface**: `midi::MidiInterface<midi::SerialMIDI<Adafruit_USBD_MIDI>>`
 - **Channel**: Fixed to MIDI channel 1
 - **Buffer**: Automatic USB transmission queue
 
 ### Pico Hardware
+
 - **USB Port**: Native USB with TinyUSB stack
 - **Real-time**: Interrupt-driven MIDI transmission
 - **Thread Safety**: Multi-core compatible design
@@ -217,18 +230,17 @@ midiNoteManager.allNotesOff();
 
 ```
 src/midi/
-├── MidiCCConfig.h          # CC configuration constants
-├── MidiManager.cpp         # Implementation with note management
-├── MidiManager.h           # Interface and data structures
-└── README.md              # Module overview and usage
+|-- MidiCCConfig.h          # CC configuration constants
+|-- MidiManager.cpp         # Implementation with note management
+|-- MidiManager.h           # Interface and data structures
+`-- README.md               # Module overview and usage
 ```
 
 ## Development Notes
 
-- **Modular Design**: Extracted from main .ino for better organization
-- **Comprehensive Comments**: Extensive inline documentation
-- **Legacy Compatibility**: Maintains existing API while adding features
-- **Extensible Architecture**: Easy to add new CC parameters or voices
+- The MIDI code was extracted from the main `.ino` file for clearer ownership.
+- The public API keeps existing call sites working.
+- CC and voice handling can be extended without moving MIDI logic back into the sketch.
 
 ## Troubleshooting
 

@@ -1,62 +1,59 @@
 # Scales Module Documentation
 
-## Overview
+A scale is a map from gesture to pitch.
 
-The `src/scales` folder contains the musical scale system for the PicoMudrasSequencer. This module provides comprehensive scale definitions, note-to-MIDI conversion tables, and scale selection management for the step sequencer.
+The `src/scales` folder contains the musical scale tables for Pico2Seq. The sequencer stores step values. The scale module turns those values into semitone offsets, then MIDI notes.
 
-## Key Components
+## Data Shape
 
-### 1. Scale Data Structure
+Constants:
 
-**Constants:**
-- `SCALES_COUNT = 13` - Total number of available scales
-- `SCALE_STEPS = 48` - Number of semitone entries per scale (4 octaves)
+- `SCALES_COUNT = 13`: number of available scales.
+- `SCALE_STEPS = 48`: number of entries per scale.
 
-**Global Variables:**
-- `scale[13][48]` - 2D array of semitone values for each scale
-- `scaleNames[13]` - Human-readable names for each scale
-- `currentScale` - Currently selected scale index (0-12)
+Globals:
 
-### 2. Available Scales
+- `scale[13][48]`: semitone table for every scale.
+- `scaleNames[13]`: display names.
+- `currentScale`: selected scale index, `0..12`.
 
-**Diatonic Scales:**
-- **Ionian Major** (0): Standard major scale (1-2-3-4-5-6-7)
-- **Dorian** (1): Minor with raised 6th (1-2-b3-4-5-6-b7)
-- **Phrygian** (2): Minor with lowered 2nd (1-b2-b3-4-5-b6-b7)
-- **Lydian** (3): Major with raised 4th (1-2-3-#4-5-6-7)
-- **Mixolydian** (4): Major with lowered 7th (1-2-3-4-5-6-b7)
-- **Aeolian Minor** (5): Natural minor (1-2-b3-4-5-b6-b7)
-- **Locrian** (6): Diminished scale (1-b2-b3-4-b5-b6-b7)
+## Available Scales
 
-**Exotic Scales:**
-- **Pentatonic Minor** (7): 5-note minor pentatonic (1-b3-4-5-b7)
-- **Phrygian Dominant** (8): Spanish/Phrygian dominant (1-b2-3-4-5-b6-b7)
-- **Lydian Dominant** (9): Acoustic scale (1-2-3-#4-5-6-b7)
-- **Harmonic Minor** (10): Harmonic minor (1-2-b3-4-5-b6-7)
+Diatonic scales:
 
-**Special Scales:**
-- **Wholetone** (11): All whole steps (1-2-3-4-5-6)
-- **Chromatic** (12): All 12 semitones (1-b2-2-b3-3-4-b5-5-b6-6-b7)
+- Ionian Major `(0)`: major scale, `1-2-3-4-5-6-7`.
+- Dorian `(1)`: minor with raised 6th, `1-2-b3-4-5-6-b7`.
+- Phrygian `(2)`: minor with lowered 2nd, `1-b2-b3-4-5-b6-b7`.
+- Lydian `(3)`: major with raised 4th, `1-2-3-#4-5-6-7`.
+- Mixolydian `(4)`: major with lowered 7th, `1-2-3-4-5-6-b7`.
+- Aeolian Minor `(5)`: natural minor, `1-2-b3-4-5-b6-b7`.
+- Locrian `(6)`: diminished mode, `1-b2-b3-4-b5-b6-b7`.
 
-## Scale Data Format
+Other scales:
 
-### Semitone Mapping
+- Pentatonic Minor `(7)`: five-note minor pentatonic, `1-b3-4-5-b7`.
+- Phrygian Dominant `(8)`: `1-b2-3-4-5-b6-b7`.
+- Lydian Dominant `(9)`: `1-2-3-#4-5-6-b7`.
+- Harmonic Minor `(10)`: `1-2-b3-4-5-b6-7`.
+- Wholetone `(11)`: whole-step movement, `1-2-3-4-5-6`.
+- Chromatic `(12)`: all 12 semitones, `1-b2-2-b3-3-4-b5-5-b6-6-b7`.
 
-Each scale is defined as an array of 48 semitone values:
-- Range: 0-72 semitones (6 octaves total)
-- Resolution: 1 semitone per step
-- Coverage: 4 octaves of musical range
+## Semitone Table Format
 
-**Example - Ionian Major:**
+Each scale is stored as 48 semitone values. The table reaches from `0` to `72` semitones. The last entries can clamp to the top value.
+
+Example, Ionian Major:
+
 ```cpp
 {0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24, 26,
  28, 29, 31, 33, 35, 36, 38, 40, 41, 43, 45, 47, 48, 50, 52, 53,
  55, 57, 59, 60, 62, 64, 66, 67, 69, 71, 72, 72, 72, 72, 72, 72}
 ```
 
-### Note Calculation
+## MIDI Note Conversion
 
-**MIDI Note Conversion:**
+The base is C2, MIDI note `36`.
+
 ```cpp
 // Convert step value to MIDI note
 int midiNote = scale[currentScale][stepValue] + 36;  // C2 base
@@ -64,14 +61,14 @@ int midiNote = scale[currentScale][stepValue] + 36;  // C2 base
 // Result: MIDI notes 36-108 (C2 to C8)
 ```
 
-**Octave Range:**
-- Base octave: C2 (MIDI note 36)
-- Available range: C2 to C8 (6 octaves)
-- Extended range: Fills remaining steps with C8
+Facts to preserve:
 
-## Usage Examples
+- Step value input range is `0..47`.
+- Scale index range is `0..12`.
+- Base note is C2, MIDI `36`.
+- Resulting documented range is C2 to C8, MIDI `36..108`.
 
-### Basic Scale Access
+## Basic Access
 
 ```cpp
 // Get current scale name
@@ -84,7 +81,7 @@ int semitones = scale[currentScale][12];
 int midiNote = semitones + 36;  // C2 base
 ```
 
-### Scale Selection
+## Scale Selection
 
 ```cpp
 // Change to Dorian scale
@@ -97,7 +94,7 @@ currentScale = 7;
 currentScale = (currentScale + 1) % SCALES_COUNT;
 ```
 
-### Integration with Sequencer
+## Sequencer Integration
 
 ```cpp
 // In sequencer step processing
@@ -107,110 +104,63 @@ int midiNote = semitones + 36;
 sendMidiNoteOn(midiNote, velocity, channel);
 ```
 
-## Scale Characteristics
+## Musical Notes
 
-### Modal Relationships
+The firmware does not judge the scale. It just keeps the table fast and predictable.
 
-**Major Scale Modes:**
-- Ionian (Major): Bright, stable
-- Dorian: Jazzy, minor with raised 6th
-- Phrygian: Spanish, lowered 2nd
-- Lydian: Dreamy, raised 4th
-- Mixolydian: Bluesy, lowered 7th
-- Aeolian: Natural minor, melancholic
-- Locrian: Unstable, diminished
-
-**Advanced Scales:**
-- Phrygian Dominant: Middle Eastern, Spanish flamenco
-- Lydian Dominant: Modern jazz, acoustic guitar
-- Harmonic Minor: Classical, dramatic
-- Pentatonic Minor: Blues, folk, rock
-
-### Musical Applications
-
-**Genre Suitability:**
-- **Pop/Rock**: Ionian, Aeolian, Mixolydian, Pentatonic
-- **Jazz**: Dorian, Lydian, Lydian Dominant
-- **Classical**: Ionian, Aeolian, Harmonic Minor
-- **World Music**: Phrygian, Phrygian Dominant
-- **Ambient**: Lydian, Wholetone
-
-**Creative Uses:**
-- Chromatic: Experimental, atonal compositions
-- Wholetone: Dreamy, impressionistic textures
-- Pentatonic: Melodic simplicity, accessibility
+- Ionian, Aeolian, Mixolydian, and Pentatonic fit common pop and rock use.
+- Dorian, Lydian, and Lydian Dominant are useful for jazz-leaning material.
+- Ionian, Aeolian, and Harmonic Minor cover common classical tonal colors.
+- Phrygian and Phrygian Dominant carry stronger regional color.
+- Lydian and Wholetone are useful for ambient or floating patterns.
+- Chromatic gives every semitone and leaves the musical choice to the player.
 
 ## Architecture Notes
 
-### Design Principles
-
-1. **Centralized Constants**: All scale dimensions defined as constants
-2. **Modular Access**: Global variables for UI/sequencer, dependency injection for synthesis
-3. **Performance Optimized**: Pre-calculated semitone arrays for fast lookup
-4. **Extensible Design**: Easy addition of new scales
-
-### Memory Considerations
-
-**Static Arrays:**
-- Scale data: 13 scales × 48 steps × 2 bytes = 1248 bytes
-- Scale names: 13 pointers + string storage
-- Total footprint: Minimal for embedded system
-
-**Runtime Performance:**
-- O(1) lookup time for any scale/step combination
-- No dynamic memory allocation
-- Suitable for real-time audio applications
-
-## Integration Points
-
-- **Sequencer Module**: Uses scale tables for note conversion
-- **Voice Module**: Receives scale references via dependency injection
-- **UI Module**: Displays current scale name and handles scale selection
-- **MIDI Module**: Converts scale steps to MIDI note numbers
+- The scale tables are precomputed for constant-time lookup.
+- No dynamic allocation is used.
+- Scale data is static: `13 x 48 x 2 bytes = 1248 bytes`, plus names.
+- UI code displays `scaleNames[currentScale]`.
+- Sequencer code uses `scale[currentScale][stepValue]`.
+- MIDI code receives the final note number after adding the C2 offset.
 
 ## File Structure
 
-```
+```text
 src/scales/
-├── scales.cpp          # Scale definitions and data arrays
-└── scales.h            # Interface definitions and constants
+|-- scales.cpp          # Scale definitions and data arrays
+`-- scales.h            # Interface definitions and constants
 ```
 
-## Development Guidelines
+## Adding a Scale
 
-### Adding New Scales
+Add the semitone table:
 
-1. **Define Scale Intervals:**
-   ```cpp
-   // Example: New custom scale
-   {0, 3, 5, 7, 10, 12, 15, 17, 19, 22, 24, 27, 29, 31, 34, 36,
-    39, 41, 43, 46, 48, 51, 53, 55, 58, 60, 63, 65, 67, 70, 72, 72,
-    72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72}
-   ```
+```cpp
+// Example: New custom scale
+{0, 3, 5, 7, 10, 12, 15, 17, 19, 22, 24, 27, 29, 31, 34, 36,
+ 39, 41, 43, 46, 48, 51, 53, 55, 58, 60, 63, 65, 67, 70, 72, 72,
+ 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72}
+```
 
-2. **Add Scale Name:**
-   ```cpp
-   const char* scaleNames[SCALES_COUNT] = {
-       // ... existing names ...
-       "Custom Scale"
-   };
-   ```
+Add the name:
 
-3. **Update Constants:**
-   ```cpp
-   constexpr size_t SCALES_COUNT = 14;  // Increment count
-   ```
+```cpp
+const char* scaleNames[SCALES_COUNT] = {
+    // ... existing names ...
+    "Custom Scale"
+};
+```
 
-### Best Practices
+Update the count:
 
-- **Test Scale Ranges**: Verify all 48 steps produce valid musical intervals
-- **Consider Musicality**: Ensure scales have reasonable voice leading
-- **Document Intent**: Add comments explaining scale character and use cases
-- **Maintain Consistency**: Follow existing formatting and naming conventions
+```cpp
+constexpr size_t SCALES_COUNT = 14;  // Increment count
+```
 
-## Troubleshooting
+Then verify:
 
-- **Invalid Notes**: Check step value bounds (0-47)
-- **Scale Index Errors**: Verify currentScale is within valid range (0-12)
-- **MIDI Range Issues**: Ensure final MIDI notes are within 0-127 range
-- **Memory Issues**: Confirm sufficient RAM for scale data arrays
+- All 48 steps return valid semitone values.
+- `currentScale` remains in range.
+- Final MIDI notes remain within `0..127`.
+- The scale name appears correctly in the UI.

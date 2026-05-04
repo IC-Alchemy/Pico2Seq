@@ -2,7 +2,9 @@
 
 ## Overview
 
-The `src/OLED` folder contains the display system for the PicoMudrasSequencer, providing comprehensive visual feedback through a 128×64 SH1106G OLED display. The module handles parameter editing, settings navigation, voice configuration, and real-time status display.
+The small screen is the bench note in the instrument.
+
+`src/OLED` drives the 128x64 SH1106G OLED display for Pico2Seq. It renders parameter edits, settings navigation, voice configuration, and live status. The display sits on the I2C bus at address `0x3C`.
 
 ## Key Components
 
@@ -58,7 +60,7 @@ The `src/OLED` folder contains the display system for the PicoMudrasSequencer, p
 **Visual Enhancements:**
 - Progress bars for continuous parameters
 - Step indicators with beat synchronization
-- Border animations for professional appearance
+- Border animations
 - Startup sequence with wipe and bounce effects
 
 ## Parameter Display System
@@ -86,7 +88,7 @@ The `src/OLED` folder contains the display system for the PicoMudrasSequencer, p
 **Physical Interface:**
 - I2C communication protocol
 - Default address: 0x3C
-- Resolution: 128×64 pixels
+- Resolution: 128x64 pixels
 - White monochrome display
 
 **Electrical Requirements:**
@@ -94,7 +96,13 @@ The `src/OLED` folder contains the display system for the PicoMudrasSequencer, p
 - I2C bus integration
 - Reset pin configuration
 
-### Performance Optimizations
+### I2C Bus
+
+- SDA: GP12
+- SCL: GP13
+- OLED address: `0x3C`
+
+### Performance Notes
 
 **Rendering Strategy:**
 - Single display clear per frame
@@ -141,7 +149,7 @@ The `src/OLED` folder contains the display system for the PicoMudrasSequencer, p
 
 ### VoiceSystem Integration
 
-The OLED display system has been updated to work with the new VoiceSystem architecture:
+The OLED display reads voice state through the centralized VoiceSystem architecture.
 
 **Voice Display Updates:**
 - Voice ID retrieval through `voiceSystem.getVoiceId(selectedVoiceIndex)`
@@ -201,9 +209,9 @@ displaySettingsMenu(uiState);
 
 ### Initialization Failure
 
-- Graceful degradation if display hardware unavailable
-- Serial error logging for debugging
-- Safe return from all methods when uninitialized
+- Degrades safely if display hardware is unavailable.
+- Logs serial errors for debugging.
+- Returns safely from display methods when uninitialized.
 
 ### Parameter Validation
 
@@ -215,18 +223,18 @@ displaySettingsMenu(uiState);
 
 ```
 src/OLED/
-├── oled.cpp          # Display implementation with rendering logic
-└── oled.h            # Interface definitions and observer pattern
+|-- oled.cpp          # Display implementation with rendering logic
+`-- oled.h            # Interface definitions and observer pattern
 ```
 
 ## Development Notes
 
 ### Design Principles
 
-1. **Deterministic Rendering**: Clear priority hierarchy prevents display conflicts
-2. **Low Overhead**: Minimal heap usage and efficient drawing operations
-3. **Embedded-Friendly**: Non-blocking operations suitable for real-time systems
-4. **Maintainable**: Clear separation of concerns and helper functions
+1. Deterministic rendering: clear priority hierarchy prevents display conflicts.
+2. Low overhead: minimal heap usage and efficient drawing operations.
+3. Embedded-friendly: non-blocking operations fit the real-time system.
+4. Maintainable: helper functions keep rendering concerns separated.
 
 ### Performance Characteristics
 
