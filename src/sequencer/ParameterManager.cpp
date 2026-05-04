@@ -1,15 +1,10 @@
 #include "ParameterManager.h"
 
-#include "../sensors/AS5600Manager.h" // For MAX_DELAY_SAMPLES extern declaration
-#include "../sensors/as5600.h"        // For AS5600ParameterMode
-
 #include <algorithm> // For std::max, std::min
 #include <chrono>    // For std::chrono::high_resolution_clock (for seeding)
 #include <cmath>     // For roundf
 #include <cstdint>   // For uint32_t
 #include <variant>   // For std::visit
-
-// AS5600 parameter bounds management functions moved to src/sensors/AS5600Manager.cpp
 
 // Helper function to safely get float from ParameterValueType variant
 // This function is internal to ParameterManager.cpp

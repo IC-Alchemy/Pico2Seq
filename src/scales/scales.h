@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 
-// Centralized scale size constants — use these everywhere instead of hard-coded literals.
+// Centralized scale size constants - use these everywhere instead of hard-coded literals.
 // This makes it safe to change the number of scales or the number of steps per scale.
 constexpr size_t SCALES_COUNT = 13;   // Number of distinct scale definitions
 constexpr size_t SCALE_STEPS  = 48;   // Number of step-to-semitone entries per scale

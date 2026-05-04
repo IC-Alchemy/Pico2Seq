@@ -1,6 +1,7 @@
 #ifndef SEQUENCER_DEFS_H
 #define SEQUENCER_DEFS_H
 
+#include <cstddef>
 #include <stdint.h>
 #include <variant> // Required for std::variant
 
@@ -57,61 +58,17 @@ enum class ParamId : uint8_t {
 constexpr uint8_t PARAM_ID_COUNT = static_cast<uint8_t>(ParamId::Count);
 
 /**
- * @brief AS5600 magnetic encoder parameter cycling modes
- * 
- * Defines which parameter the AS5600 encoder controls in real-time.
- * Moved from UIEventHandler.h to break circular dependency.
+ * @brief Hardware-agnostic parameter recording input.
+ *
+ * A board adapter can map any control source to this shape: buttons, encoders,
+ * potentiometers, touch surfaces, sensors, MIDI CC, serial commands, or another
+ * host link. The sequencer only needs to know which parameter is held and the
+ * normalized value to record.
  */
-enum class AS5600ParameterMode : uint8_t {
-  Velocity = 0,     // Voice amplitude control
-  Filter = 1,       // Filter cutoff control
-  Attack = 2,       // Envelope attack time control
-  Decay = 3,        // Envelope decay time control
-  Note = 4,         // Note/pitch control
-  DelayTime = 5,    // Global delay time control
-  DelayFeedback = 6, // Global delay feedback control
-  SlideTime = 7,    // Portamento/slide time control
-  COUNT = 8         // Total mode count
-};
-
-/**
- * @brief AS5600 encoder base parameter values for bidirectional control
- * 
- * Stores base values for each parameter that can be controlled by the AS5600
- * magnetic encoder. Supports bidirectional control by maintaining center points.
- */
-struct AS5600BaseValues {
-  float velocity = 0.0f;        // Base velocity (0.0-1.0)
-  float filter = 0.0f;          // Base filter cutoff (0.0-1.0)
-  float attack = 0.0f;          // Base attack time (0.0-1.0 seconds)
-  float decay = 0.0f;           // Base decay time (0.0-1.0 seconds)
-  float delayTime = 0.0f;       // Delay time offset for global delay
-  float delayFeedback = 0.0f;   // Delay feedback offset for global delay
-  float slideTime = 0.0f;       // Slide time in seconds for voice glide
-};
-
-/**
- * @brief Voice-specific AS5600 base values
- * 
- * Inherits from AS5600BaseValues with no additional members.
- * Delay parameters are inherited from base class.
- */
-struct AS5600BaseValuesVoice1 : public AS5600BaseValues {
-  // No additional members - delay parameters are inherited from base class
-};
-/**
- * @brief Step parameter edit button state tracking
- * 
- * Tracks which parameter edit buttons are currently pressed for step editing.
- * Used by the UI system to determine which parameter to modify when editing steps.
- */
-struct StepEditButtons {
-  bool note;      // Note parameter edit button state
-  bool velocity;  // Velocity parameter edit button state
-  bool filter;    // Filter parameter edit button state
-  bool attack;    // Attack parameter edit button state
-  bool decay;     // Decay parameter edit button state
-  bool octave;    // Octave parameter edit button state
+struct ParameterInputState {
+  bool held[static_cast<size_t>(ParamId::Count)] = {};
+  float normalizedValue = -1.0f;
+  int selectedStepForEdit = -1;
 };
 
 /**
@@ -221,10 +178,10 @@ constexpr ParameterDefinition CORE_PARAMETERS[] = {
 };
 
 /**
- * @brief Voice synthesis parameters for audio output
+ * @brief Sequencer output state for one track
  * 
- * Contains all parameters needed by the audio synthesis engine for a single voice.
- * This struct is passed from the sequencer to the audio processing system.
+ * Contains the current values produced by the sequencer. A project can route
+ * this state to MIDI, CV/gate, a synth engine, lights, or another backend.
  * Variable names include unit indicators and clear purpose descriptions.
  * 
  * Member Ranges:
