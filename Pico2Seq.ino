@@ -224,7 +224,7 @@ void initOscillators()
     // Initialize Voice Manager with maximum 4 concurrent voices
     voiceManager = std::make_unique<VoiceManager>(4);
 
-    // Create voices 1-4 using presets from UIState defaults
+    // Create 4 voices using presets from UIState defaults
     const uint8_t *presetIndices = uiState.voicePresetIndices;
     Sequencer *sequencers[] = {&seq1, &seq2, &seq3, &seq4};
 
@@ -234,7 +234,6 @@ void initOscillators()
         voiceManager->attachSequencer(voiceSystem.getVoiceId(i), sequencers[i]);
     }
 
-    // Note: OLED display registration occurs in setup1() after display initialization
 }
 /*
  * Apply voice preset to the specified voice index (zero-based).
@@ -275,14 +274,13 @@ void applyVoicePreset(uint8_t voiceIndex, uint8_t presetIndex)
 }
 
 
-// Long press detection is now handled by ButtonManager module
-// isVoice2Mode is now managed by ButtonManager module
+
 int currentThemeIndex = static_cast<int>(LEDTheme::DEFAULT); // Global variable for current theme
 
 /**
  * @brief PPQN output callback for timing synchronization
  * @param tick Current PPQN tick count
- * @note Keep minimal - runs in interrupt context
+ * @note Don't do anything here - runs in interrupt context
  */
 void onOutputPPQNCallback(uint32_t tick)
 {
@@ -418,38 +416,36 @@ void updateVoiceParameters(
 }
 
 
-// New helper to update a specific voice (1-4)
+// New helper to update a specific voice index (0-3)
 void updateVoiceParametersForVoice(
     const VoiceState &state,
-    uint8_t voiceNumber,
+    uint8_t voiceIndex,
     bool updateGate = false,
     volatile bool *gate = nullptr,
     volatile GateTimer *gateTimer = nullptr)
 {
-    // For voices 1 and 2, reuse existing gate/MIDI logic; for 3/4 skip gates
-    bool isVoice2 = (voiceNumber == 2);
+    // For voice indices 0 and 1, reuse existing gate/MIDI logic; for 2/3 skip gates
+    bool isVoice2 = (voiceIndex == 1);
 
-    if (updateGate && (voiceNumber == 1 || voiceNumber == 2))
+    if (updateGate && voiceIndex < 2)
     {
         updateVoiceParameters(state, isVoice2, updateGate, gate, gateTimer);
         return;
     }
 
-    // Map to actual VoiceManager voice IDs
-    if (voiceNumber < 1 || voiceNumber > VoiceSystem::MAX_VOICES)
+    // Validate the zero-based voice index before updating VoiceManager state
+    if (voiceIndex >= VoiceSystem::MAX_VOICES)
     {
-        return; // Invalid voice number
+        return; // Invalid voice index
     }
-
-    uint8_t voiceIndex = voiceNumber - 1; // Convert 1-based to 0-based
 
     // Push full state to voice (Voice computes frequencies internally on gate HIGH)
     updateVoiceManagerState(voiceIndex, state);
 
-    // Send MIDI CC only for voices 1 and 2
-    if (voiceNumber == 1 || voiceNumber == 2)
+    // Send MIDI CC only for voice indices 0 and 1
+    if (voiceIndex < 2)
     {
-        uint8_t midiVoiceId = (voiceNumber == 1) ? 0 : 1;
+        uint8_t midiVoiceId = voiceIndex;
         sendVoiceParameterMidiCCs(midiVoiceId, state);
     }
 
@@ -469,30 +465,25 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
         return;
     }
 
-    // Determine currently selected voice (1-4)
-    uint8_t selectedIndex = uiState.selectedVoiceIndex; // 0..3
-    uint8_t voiceNumber = selectedIndex + 1;            // 1..4
+    // Determine currently selected voice index (0-3)
+    uint8_t voiceIndex = uiState.selectedVoiceIndex;
 
-    // Pick the matching VoiceState for the selected voice
-    if (voiceNumber < 1 || voiceNumber > VoiceSystem::MAX_VOICES)
+    // Pick the matching VoiceState for the selected voice index
+    if (voiceIndex >= VoiceSystem::MAX_VOICES)
     {
-        return; // Invalid voice number
+        return; // Invalid voice index
     }
 
-    uint8_t voiceIndex = voiceNumber - 1; // Convert 1-based to 0-based
     VoiceState *activeVoiceState = &voiceSystem.getVoiceState(voiceIndex);
 
     // Update voice state with new step parameters + AS5600 encoder modifications
     activeSeq.playStepNow(stepIndex, activeVoiceState);
 
-    // Apply AS5600 base values for all voices (map 1&3 -> base set 1, 2&4 -> base set 2)
-    applyAS5600BaseValues(activeVoiceState, voiceNumber - 1);
+
+    applyAS5600BaseValues(activeVoiceState, voiceIndex);
 
     // Update synth hardware for immediate audio feedback using the per-voice function
-    updateVoiceParametersForVoice(*activeVoiceState, voiceNumber);
-
-    //Serial.print("Applied immediate voice updates for step ");
-    //Serial.println(stepIndex);
+    updateVoiceParametersForVoice(*activeVoiceState, voiceIndex);
 }
 // --- Update Parameters for Step Editing ---
 void updateParametersForStep(uint8_t stepToUpdate) ///  This is the selected step for edit function
@@ -534,9 +525,8 @@ void updateParametersForStep(uint8_t stepToUpdate) ///  This is the selected ste
         activeSeq.setStepParameterValue(heldMapping->paramId, stepToUpdate, valueToSet);
         parametersWereUpdated = true;
 
-        // Send immediate MIDI CC for real-time parameter recording (voices 1/2 only)
-        uint8_t midiVoiceId = (uiState.selectedVoiceIndex == 0) ? 0 : (uiState.selectedVoiceIndex == 1) ? 1
-                                                                                                        : 255;
+        // Send immediate MIDI CC for real-time parameter recording (voice indices 0/1 only)
+        uint8_t midiVoiceId = (uiState.selectedVoiceIndex < 2) ? uiState.selectedVoiceIndex : 255;
         if (midiVoiceId != 255)
         {
             midiNoteManager.updateParameterCC(midiVoiceId, heldMapping->paramId, valueToSet);
@@ -584,13 +574,13 @@ void updateSynthAndStoreVoiceState(uint8_t voiceIndex, VoiceState &state)
 {
     if (voiceIndex < 2)
     {
-        updateVoiceParametersForVoice(state, voiceIndex + 1, true,
+        updateVoiceParametersForVoice(state, voiceIndex, true,
                                       &voiceSystem.getGate(voiceIndex),
                                       &voiceSystem.getGateTimer(voiceIndex));
     }
     else
     {
-        updateVoiceParametersForVoice(state, voiceIndex + 1, false);
+        updateVoiceParametersForVoice(state, voiceIndex, false);
     }
 
     voiceSystem.getVoiceState(voiceIndex) = state;
