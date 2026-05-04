@@ -253,7 +253,7 @@ extern AS5600Sensor as5600Sensor;
 
 
 extern float delayTarget;
-extern float feedbackAmmount;
+extern float feedbackAmount;
 
 extern const size_t MAX_DELAY_SAMPLES;
 

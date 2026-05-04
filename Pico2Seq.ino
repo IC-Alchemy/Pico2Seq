@@ -323,6 +323,77 @@ float calculateFilterFrequency(const float filterValue)
     return daisysp::fmap(filterValue, 100.0f, 8010.0f, daisysp::Mapping::EXP);
 }
 
+uint8_t getVoiceIndexFromGateRole(bool isVoice2)
+{
+    return isVoice2 ? 1 : 0;
+}
+
+int calculateMidiNoteForState(const VoiceState &state)
+{
+    uint8_t noteIndex = static_cast<uint8_t>(std::max(0.0f, std::min(state.noteIndex, static_cast<float>(SCALE_STEPS - 1))));
+    return scale[currentScale][noteIndex] + MIDI_BASE_NOTE_OFFSET + static_cast<int>(state.octaveOffset);
+}
+
+void startOrRetriggerMidiGate(
+    const VoiceState &state,
+    uint8_t midiVoiceId,
+    int midiNote,
+    volatile bool *gate)
+{
+    if (!(*gate))
+    {
+        *gate = true;
+        int clampedMidiNote = std::max(MIDI_NOTE_MIN, std::min(midiNote, MIDI_NOTE_MAX));
+        midiNoteManager.noteOn(midiVoiceId, static_cast<int8_t>(clampedMidiNote),
+                               static_cast<uint8_t>(state.velocityLevel * 127), 1, state.gateLengthTicks);
+        return;
+    }
+
+    int8_t currentActiveNote = midiNoteManager.getActiveNote(midiVoiceId);
+    if (currentActiveNote != midiNote)
+    {
+        midiNoteManager.noteOn(midiVoiceId, static_cast<int8_t>(midiNote),
+                               static_cast<uint8_t>(state.velocityLevel * 127), 1, state.gateLengthTicks);
+    }
+    *gate = true;
+}
+
+void updateGateAndMidiState(
+    const VoiceState &state,
+    bool isVoice2,
+    volatile bool *gate,
+    volatile GateTimer *gateTimer)
+{
+    uint8_t midiVoiceId = getVoiceIndexFromGateRole(isVoice2);
+
+    if (state.isGateHigh)
+    {
+        int midiNote = calculateMidiNoteForState(state);
+        gateTimer->start(state.gateLengthTicks);
+        startOrRetriggerMidiGate(state, midiVoiceId, midiNote, gate);
+        midiNoteManager.setGateState(midiVoiceId, true, state.gateLengthTicks);
+        return;
+    }
+
+    gateTimer->stop();
+    *gate = false;
+    midiNoteManager.setGateState(midiVoiceId, false);
+}
+
+void updateVoiceManagerState(uint8_t voiceIndex, const VoiceState &state)
+{
+    uint8_t voiceId = voiceSystem.getVoiceId(voiceIndex);
+    voiceManager->updateVoiceState(voiceId, state);
+}
+
+void sendVoiceParameterMidiCCs(uint8_t midiVoiceId, const VoiceState &state)
+{
+    midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Filter, state.filterCutoff);
+    midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Attack, state.attackTimeSeconds);
+    midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Decay, state.decayTimeSeconds);
+    midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Octave, state.octaveOffset);
+}
+
 
 void updateVoiceParameters(
     const VoiceState &state,
@@ -334,59 +405,8 @@ void updateVoiceParameters(
     // Handle gate timing and MIDI note events (sequencer playback mode only)
     if (updateGate && gate && gateTimer)
     {
-        uint8_t voiceId = isVoice2 ? 1 : 0;
-
-        if (state.isGateHigh)
-        {
-            // Calculate MIDI note to match audio synthesis approach
-            uint8_t noteIndex = static_cast<uint8_t>(std::max(0.0f, std::min(state.noteIndex, static_cast<float>(SCALE_STEPS - 1))));
-            int midiNote = scale[currentScale][noteIndex] + MIDI_BASE_NOTE_OFFSET + static_cast<int>(state.octaveOffset);
-
-            // Always restart the gate timer for gated steps to ensure proper timing
-            gateTimer->start(state.gateLengthTicks);
-
-            // Only send MIDI note-on when gate transitions from off to on
-            if (!(*gate))
-            {
-                *gate = true;
-
-                // Clamp MIDI note to valid range
-                int clampedMidiNote = std::max(MIDI_NOTE_MIN, std::min(midiNote, MIDI_NOTE_MAX));
-
-                // Use MidiNoteManager for proper note lifecycle management
-                midiNoteManager.noteOn(voiceId, static_cast<int8_t>(clampedMidiNote),
-                                       static_cast<uint8_t>(state.velocityLevel * 127), 1, state.gateLengthTicks);
-            }
-            else
-            {
-                // Gate is already on - check if note changed and handle retrigger
-                int8_t currentActiveNote = midiNoteManager.getActiveNote(voiceId);
-                if (currentActiveNote != midiNote)
-                {
-                    // Note changed during gate - retrigger with new note
-                    midiNoteManager.noteOn(voiceId, static_cast<int8_t>(midiNote),
-                                           static_cast<uint8_t>(state.velocityLevel * 127), 1, state.gateLengthTicks);
-                }
-                *gate = true;
-            }
-
-            // Update MidiNoteManager gate state
-            midiNoteManager.setGateState(voiceId, true, state.gateLengthTicks);
-        }
-        else
-        {
-            // Step has no gate - turn off immediately
-            gateTimer->stop();
-            *gate = false;
-
-            // Use MidiNoteManager for proper note-off handling
-            midiNoteManager.setGateState(voiceId, false);
-        }
+        updateGateAndMidiState(state, isVoice2, gate, gateTimer);
     }
-
-    // OPTIMIZATION: Calculate voice ID once and consolidate all voice updates
-    uint8_t voiceIndex = isVoice2 ? 1 : 0;
-    uint8_t voiceId = voiceSystem.getVoiceId(voiceIndex);
 
     // GATE-CONTROLLED FREQUENCY UPDATES: Only update frequency when gate is HIGH
     // This prevents new frequencies from being sent when gate is LOW, allowing
@@ -394,10 +414,7 @@ void updateVoiceParameters(
     // Frequency will be updated inside Voice::updateParameters() when gate is HIGH
 
     // Update all voice parameters through VoiceManager in single call
-    voiceManager->updateVoiceState(voiceId, state);
-
-    // Send MIDI CC messages for parameter changes
-    uint8_t midiVoiceId = isVoice2 ? 1 : 0;
+    updateVoiceManagerState(getVoiceIndexFromGateRole(isVoice2), state);
 }
 
 
@@ -425,19 +442,15 @@ void updateVoiceParametersForVoice(
     }
 
     uint8_t voiceIndex = voiceNumber - 1; // Convert 1-based to 0-based
-    uint8_t voiceId = voiceSystem.getVoiceId(voiceIndex);
 
     // Push full state to voice (Voice computes frequencies internally on gate HIGH)
-    voiceManager->updateVoiceState(voiceId, state);
+    updateVoiceManagerState(voiceIndex, state);
 
     // Send MIDI CC only for voices 1 and 2
     if (voiceNumber == 1 || voiceNumber == 2)
     {
         uint8_t midiVoiceId = (voiceNumber == 1) ? 0 : 1;
-        midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Filter, state.filterCutoff);
-        midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Attack, state.attackTimeSeconds);
-        midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Decay, state.decayTimeSeconds);
-        midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Octave, state.octaveOffset);
+        sendVoiceParameterMidiCCs(midiVoiceId, state);
     }
 
     // Voice separation verified - distance sensor now voice-specific
@@ -544,54 +557,62 @@ void updateParametersForStep(uint8_t stepToUpdate) ///  This is the selected ste
 }
 
 
+int getDistanceForVoice(uint8_t voiceIndex)
+{
+    return (uiState.selectedVoiceIndex == voiceIndex) ? sensorDistanceMm : -1;
+}
+
+void advanceSequencersForStep(uint32_t uClockCurrentStep, VoiceState *voiceStates)
+{
+    seq1.advanceStep(uClockCurrentStep, getDistanceForVoice(0), uiState, &voiceStates[0]);
+    seq2.advanceStep(uClockCurrentStep, getDistanceForVoice(1), uiState, &voiceStates[1]);
+    seq3.advanceStep(uClockCurrentStep, getDistanceForVoice(2), uiState, &voiceStates[2]);
+    seq4.advanceStep(uClockCurrentStep, getDistanceForVoice(3), uiState, &voiceStates[3]);
+}
+
+void applyAS5600ValuesToStepStates(VoiceState *voiceStates)
+{
+    for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++)
+    {
+        applyAS5600BaseValues(&voiceStates[i], i);
+    }
+
+    applyAS5600DelayValues();
+}
+
+void updateSynthAndStoreVoiceState(uint8_t voiceIndex, VoiceState &state)
+{
+    if (voiceIndex < 2)
+    {
+        updateVoiceParametersForVoice(state, voiceIndex + 1, true,
+                                      &voiceSystem.getGate(voiceIndex),
+                                      &voiceSystem.getGateTimer(voiceIndex));
+    }
+    else
+    {
+        updateVoiceParametersForVoice(state, voiceIndex + 1, false);
+    }
+
+    voiceSystem.getVoiceState(voiceIndex) = state;
+}
+
+void updateSynthAndStoreVoiceStates(VoiceState *voiceStates)
+{
+    for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++)
+    {
+        updateSynthAndStoreVoiceState(i, voiceStates[i]);
+    }
+}
+
 //  This gets called every 16th note
 void onStepCallback(uint32_t uClockCurrentStep)
 {
     currentSequencerStep = static_cast<uint8_t>(uClockCurrentStep); // Raw uClock step, sequencers handle their own modulo
 
-    // 2. Advance sequencers and get their new state into local temporary variables.
-    // Extend to four voices; distance sensor assigned to currently selected voice only
-    VoiceState tempState1, tempState2, tempState3, tempState4;
-
-    // Route distance sensor to the currently selected voice (1..4); others disabled (-1)
-    int v1Distance = (uiState.selectedVoiceIndex == 0) ? sensorDistanceMm : -1;
-    int v2Distance = (uiState.selectedVoiceIndex == 1) ? sensorDistanceMm : -1;
-    int v3Distance = (uiState.selectedVoiceIndex == 2) ? sensorDistanceMm : -1;
-    int v4Distance = (uiState.selectedVoiceIndex == 3) ? sensorDistanceMm : -1;
-
-    seq1.advanceStep(uClockCurrentStep, v1Distance, uiState, &tempState1);
-    seq2.advanceStep(uClockCurrentStep, v2Distance, uiState, &tempState2);
-    seq3.advanceStep(uClockCurrentStep, v3Distance, uiState, &tempState3);
-    seq4.advanceStep(uClockCurrentStep, v4Distance, uiState, &tempState4);
-
-    // 3. Apply AS5600 base values per voice (all four voices)
-    applyAS5600BaseValues(&tempState1, 0);
-    applyAS5600BaseValues(&tempState2, 1);
-    applyAS5600BaseValues(&tempState3, 2);
-    applyAS5600BaseValues(&tempState4, 3);
-
-    // Apply AS5600 base values to global delay effect parameters
-    applyAS5600DelayValues();
-
-    // 4. Update synth hardware (voices 1/2 with gates + MIDI; 3/4 audio only)
-    VoiceState tempStates[] = {tempState1, tempState2, tempState3, tempState4};
-
-    for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++)
-    {
-        if (i < 2) // Voices 0 and 1 (1-based: 1 and 2) have gate support
-        {
-            updateVoiceParametersForVoice(tempStates[i], i + 1, true,
-                                          &voiceSystem.getGate(i),
-                                          &voiceSystem.getGateTimer(i));
-        }
-        else // Voices 2 and 3 (1-based: 3 and 4) are audio only
-        {
-            updateVoiceParametersForVoice(tempStates[i], i + 1, false);
-        }
-
-        // Store state
-        voiceSystem.getVoiceState(i) = tempStates[i];
-    }
+    VoiceState tempStates[VoiceSystem::MAX_VOICES];
+    advanceSequencersForStep(uClockCurrentStep, tempStates);
+    applyAS5600ValuesToStepStates(tempStates);
+    updateSynthAndStoreVoiceStates(tempStates);
 }
 
  // Constants kept local for clarity and zero-cost access
@@ -918,29 +939,18 @@ void loop()
     }
 }
 
-// =======================
-//   CORE 1 MAIN LOOP (UI, MIDI, SENSORS)
-// =======================
-/**
- * @brief Core 1 main loop - User interface and control processing
- *
- * Handles all non-audio processing including MIDI I/O, sensor reading,
- * button matrix scanning, LED updates, and display rendering.
- *
- * @note Dual-core architecture: Audio processing handled on Core 0
- */
-void loop1()
+void processMidiIO()
 {
-    // Process MIDI input/output
     usb_midi.read();
+}
 
-    unsigned long currentMillis = millis();
+void pollHeldUIButtons()
+{
     pollUIHeldButtons(uiState, seq1, seq2);
+}
 
-    // =======================
-    //   TIMING AND SEQUENCER PROCESSING
-    // =======================
-    // Process all pending PPQN ticks
+void processPendingPpqnTicks()
+{
     static uint16_t globalTickCounter = 0; // Global tick counter for MidiNoteManager
 
     while (ppqnTicksPending > 0)
@@ -959,6 +969,83 @@ void loop1()
         // Process gate timers - now synchronized with MidiNoteManager
         voiceSystem.tickAllGateTimers();
     }
+}
+
+void pollControlsAndSensors()
+{
+    // Preserve existing held-parameter check timing even though the value is not used here.
+    bool parameterRecordingActive = isAnyParameterButtonHeld(uiState);
+    (void)parameterRecordingActive;
+
+    // Scan button matrix for user input
+    Matrix_scan();
+
+    // Update AS5600 magnetic encoder for base parameter control
+    as5600Sensor.update();
+    updateAS5600BaseValues(uiState);
+
+    // Update distance sensor for real-time parameter recording
+    distanceSensor.update();
+    int rawDistanceValue = distanceSensor.getRawDistanceMm();
+    if (rawDistanceValue >= MIN_HEIGHT && rawDistanceValue <= MAX_HEIGHT)
+    {
+        sensorDistanceMm = rawDistanceValue - MIN_HEIGHT;
+    }
+    else
+    {
+        sensorDistanceMm = 0; // Invalid reading - use safe default
+    }
+}
+
+void updateDisplayAndLEDs()
+{
+    // Handle voice switch display updates
+    if (uiState.voiceSwitchTriggered)
+    {
+        uiState.voiceSwitchTriggered = false; // Clear the trigger flag
+        display.onVoiceSwitched(uiState, voiceManager.get());
+    }
+
+    // Update step sequence LEDs
+    updateStepLEDs(ledMatrix, seq1, seq2, seq3, seq4, uiState, sensorDistanceMm);
+
+    // Update OLED display
+    display.update(uiState, seq1, seq2, seq3, seq4, voiceManager.get());
+
+    // Update control parameter LEDs
+    updateControlLEDs(ledMatrix, uiState);
+
+    // Apply LED updates to hardware
+    ledMatrix.show();
+}
+
+void recordSelectedStepParameters()
+{
+    // Apply distance sensor values to selected step when parameter buttons are held
+    if (uiState.selectedStepForEdit != -1)
+    {
+        updateParametersForStep(uiState.selectedStepForEdit);
+    }
+}
+
+// =======================
+//   CORE 1 MAIN LOOP (UI, MIDI, SENSORS)
+// =======================
+/**
+ * @brief Core 1 main loop - User interface and control processing
+ *
+ * Handles all non-audio processing including MIDI I/O, sensor reading,
+ * button matrix scanning, LED updates, and display rendering.
+ *
+ * @note Dual-core architecture: Audio processing handled on Core 0
+ */
+void loop1()
+{
+    processMidiIO();
+
+    unsigned long currentMillis = millis();
+    pollHeldUIButtons();
+    processPendingPpqnTicks();
 
     // =======================
     //   UI UPDATE TIMING CONTROL
@@ -973,64 +1060,18 @@ void loop1()
     if ((currentMillis - lastControlUpdate >= CONTROL_UPDATE_INTERVAL_MS))
     {
         lastControlUpdate = currentMillis;
-
-    // Check if any parameter buttons are held for real-time recording
-    bool parameterRecordingActive = isAnyParameterButtonHeld(uiState);
-
-        // Scan button matrix for user input
-        Matrix_scan();
-
-        // Update AS5600 magnetic encoder for base parameter control
-        as5600Sensor.update();
-        updateAS5600BaseValues(uiState);
-
-        // Update distance sensor for real-time parameter recording
-        distanceSensor.update();
-        int rawDistanceValue = distanceSensor.getRawDistanceMm();
-        if (rawDistanceValue >= MIN_HEIGHT && rawDistanceValue <= MAX_HEIGHT)
-        {
-            sensorDistanceMm = rawDistanceValue - MIN_HEIGHT;
-        }
-        else
-        {
-            sensorDistanceMm = 0; // Invalid reading - use safe default
-        }
+        pollControlsAndSensors();
     }
 
     // Update LEDs and display at controlled intervals (50Hz update rate)
     if (currentMillis - lastLEDUpdate >= LED_UPDATE_INTERVAL_MS)
     {
         lastLEDUpdate = currentMillis;
-
-    // =======================
-    //   DISPLAY AND LED PROCESSING
-    // =======================
-    // Handle voice switch display updates
-    if (uiState.voiceSwitchTriggered)
-    {
-        uiState.voiceSwitchTriggered = false; // Clear the trigger flag
-        display.onVoiceSwitched(uiState, voiceManager.get());
-    }
-
-        // Update step sequence LEDs
-        updateStepLEDs(ledMatrix, seq1, seq2, seq3, seq4, uiState, sensorDistanceMm);
-
-        // Update OLED display
-        display.update(uiState, seq1, seq2, seq3, seq4, voiceManager.get());
-
-        // Update control parameter LEDs
-        updateControlLEDs(ledMatrix, uiState);
-
-        // Apply LED updates to hardware
-        ledMatrix.show();
+        updateDisplayAndLEDs();
     }
 
     // =======================
     //   REAL-TIME PARAMETER RECORDING
     // =======================
-    // Apply distance sensor values to selected step when parameter buttons are held
-    if (uiState.selectedStepForEdit != -1)
-    {
-        updateParametersForStep(uiState.selectedStepForEdit);
-    }
+    recordSelectedStepParameters();
 }

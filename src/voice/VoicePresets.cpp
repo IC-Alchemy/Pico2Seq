@@ -3,6 +3,9 @@
 #include <Arduino.h> // for Serial
 #include "../voice/VoiceSystem.h"
 
+extern std::unique_ptr<VoiceManager> voiceManager;
+extern VoiceSystem voiceSystem;
+
 namespace VoicePresets
 {
 
@@ -279,9 +282,6 @@ namespace VoicePresets
   uint8_t getPresetCount() noexcept { return VOICE_PRESET_COUNT; }
   
   // Per-voice applied preset indices: -1 = none
-  extern std::unique_ptr<VoiceManager> voiceManager;
-  extern VoiceSystem voiceSystem;
-  
   static int8_t appliedPresetIndexForVoice[VoiceSystem::MAX_VOICES] = { -1, -1, -1, -1 };
   
   void setAppliedPresetForVoice(uint8_t uiIndex, int8_t presetIndex)

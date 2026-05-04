@@ -533,7 +533,7 @@ void applyAS5600DelayValues()
   delayTarget = baseValues->delayTime;
 
   // Apply delay feedback directly (already clamped to 0.0-1.0 range in updateAS5600BaseValues)
-  feedbackAmmount = baseValues->delayFeedback;
+  feedbackAmount = baseValues->delayFeedback;
 }
 
 // ----------------------
