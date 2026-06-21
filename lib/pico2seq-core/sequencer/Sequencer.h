@@ -2,7 +2,6 @@
 #define SEQUENCER_H
 #include "SequencerDefs.h"
 #include "ParameterManager.h"
-#include "../ui/UIState.h"
 
 /**
  * @brief Simple envelope controller for ADSR triggering
@@ -156,21 +155,6 @@ public:
                      bool is_decay_button_held, bool is_octave_button_held,
                      int current_selected_step_for_edit,
                      VoiceState *voiceState);
-
-    /**
-     * @brief Advance sequencer by one step using UIState for button states
-     *
-     * This overload extracts button states from UIState and calls the main advanceStep method.
-     * Provides a cleaner interface when UIState is available.
-     *
-     * @param current_uclock_step Global step counter from UClock
-     * @param mm_distance Distance sensor reading (0-400mm range)
-     * @param uiState UI state containing button states and selected step
-     * @param voiceState Output voice state structure for audio synthesis
-
-     */
-    void advanceStep(uint8_t current_uclock_step, int mm_distance,
-                     const UIState &uiState, VoiceState *voiceState);
 
     uint8_t getCurrentStep() const { return currentStep; }
 

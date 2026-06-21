@@ -1,7 +1,8 @@
 #ifndef SCALES_H
 #define SCALES_H
 
-#include <Arduino.h>
+#include <cstddef>
+#include <cstdint>
 
 // Centralized scale size constants — use these everywhere instead of hard-coded literals.
 // This makes it safe to change the number of scales or the number of steps per scale.

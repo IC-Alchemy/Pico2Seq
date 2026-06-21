@@ -1,8 +1,8 @@
 #include "UIEventHandler.h"
 #include "../midi/MidiManager.h"
-#include "../scales/scales.h"
-#include "../sequencer/Sequencer.h"
-#include "../sequencer/ShuffleTemplates.h"
+#include "../../lib/pico2seq-core/scales/scales.h"
+#include "../../lib/pico2seq-core/sequencer/Sequencer.h"
+#include "../../lib/pico2seq-core/sequencer/ShuffleTemplates.h"
 #include "../voice/Voice.h"
 #include "../voice/VoiceManager.h"
 #include "../voice/VoicePresets.h"
@@ -960,4 +960,18 @@ static void handleOtherControlButtons(const MatrixButtonEvent &evt, UIState &uiS
       handleControlButton(evt.buttonIndex, uiState);
     }
   }
+}
+
+void advanceSequencerStep(Sequencer &seq, uint8_t current_uclock_step, int mm_distance,
+                          const UIState &uiState, VoiceState *voiceState)
+{
+  seq.advanceStep(current_uclock_step, mm_distance,
+                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Note)],
+                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Velocity)],
+                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Filter)],
+                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Attack)],
+                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Decay)],
+                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Octave)],
+                  uiState.selectedStepForEdit,
+                  voiceState);
 }

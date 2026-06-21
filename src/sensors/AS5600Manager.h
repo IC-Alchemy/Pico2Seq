@@ -3,7 +3,7 @@
 
 #include "as5600.h"
 #include "SensorConstants.h"
-#include "../sequencer/SequencerDefs.h"
+#include "../../lib/pico2seq-core/sequencer/SequencerDefs.h"
 #include "../dsp/oscillator.h"
 #include "../ui/UIState.h"
 

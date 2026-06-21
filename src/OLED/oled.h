@@ -6,8 +6,8 @@
 #include <Adafruit_SH110X.h>
 #include "../ui/UIState.h"
 #include "../ui/ButtonManager.h"
-#include "../sequencer/Sequencer.h"
-#include "../sequencer/SequencerDefs.h"
+#include "../../lib/pico2seq-core/sequencer/Sequencer.h"
+#include "../../lib/pico2seq-core/sequencer/SequencerDefs.h"
 #include "../LEDMatrix/LEDConstants.h"
 
 /**

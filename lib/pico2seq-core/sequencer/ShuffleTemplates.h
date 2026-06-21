@@ -1,7 +1,7 @@
 #ifndef SHUFFLE_TEMPLATES_H
 #define SHUFFLE_TEMPLATES_H
 
-#include <Arduino.h>
+#include <cstdint>
 
 const int NUM_SHUFFLE_TEMPLATES = 16;
 const int SHUFFLE_TEMPLATE_SIZE = 16; // Explicitly define template size

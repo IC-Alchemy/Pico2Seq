@@ -1,7 +1,7 @@
 #include "MidiManager.h"
-#include "../scales/scales.h" // ADD THIS LINE
-#include "../sequencer/Sequencer.h"
-#include "../sequencer/SequencerDefs.h" // For VoiceState and GateTimer definitions
+#include "../../lib/pico2seq-core/scales/scales.h" // ADD THIS LINE
+#include "../../lib/pico2seq-core/sequencer/Sequencer.h"
+#include "../../lib/pico2seq-core/sequencer/SequencerDefs.h" // For VoiceState and GateTimer definitions
 #include "../voice/VoiceSystem.h"       // Added to provide complete type for VoiceSystem usage
 #include <algorithm>                    // For std::max, std::min, std::abs
 #include <cmath>                        // For mathematical functions

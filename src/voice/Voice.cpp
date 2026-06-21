@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <mutex>
-#include "../scales/scales.h" // Use centralized SCALES_COUNT / SCALE_STEPS
+#include "../../lib/pico2seq-core/scales/scales.h" // Use centralized SCALES_COUNT / SCALE_STEPS
 #include "VoicePresets.h"
 
 // Constants

@@ -1,8 +1,5 @@
 #include "ParameterManager.h"
 
-#include "../sensors/AS5600Manager.h" // For MAX_DELAY_SAMPLES extern declaration
-#include "../sensors/as5600.h"        // For AS5600ParameterMode
-
 #include <algorithm> // For std::max, std::min
 #include <chrono>    // For std::chrono::high_resolution_clock (for seeding)
 #include <cmath>     // For roundf
@@ -66,12 +63,6 @@ namespace
     return min + (r % (max - min + 1));
   }
 } // namespace
-
-ParameterManager::ParameterManager()
-{
-  // Initialize the spin lock in the constructor
-  _lock = spin_lock_init(spin_lock_claim_unused(true)); // Claim a unique lock number
-}
 
 void ParameterManager::init()
 {

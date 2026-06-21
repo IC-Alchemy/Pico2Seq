@@ -300,21 +300,6 @@ void Sequencer::advanceStep(uint8_t current_uclock_step, int mm_distance,
     // with the new values by processStep() above, providing immediate real-time feedback
 }
 
-void Sequencer::advanceStep(uint8_t current_uclock_step, int mm_distance,
-                            const UIState &uiState, VoiceState *voiceState)
-{
-    // Extract button states from UIState and call the main advanceStep method
-    advanceStep(current_uclock_step, mm_distance,
-                uiState.parameterButtonHeld[static_cast<int>(ParamId::Note)],
-                uiState.parameterButtonHeld[static_cast<int>(ParamId::Velocity)],
-                uiState.parameterButtonHeld[static_cast<int>(ParamId::Filter)],
-                uiState.parameterButtonHeld[static_cast<int>(ParamId::Attack)],
-                uiState.parameterButtonHeld[static_cast<int>(ParamId::Decay)],
-                uiState.parameterButtonHeld[static_cast<int>(ParamId::Octave)],
-                uiState.selectedStepForEdit,
-                voiceState);
-}
-
 void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
 {
     // This method supports two modes:

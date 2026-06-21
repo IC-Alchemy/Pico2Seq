@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../sequencer/SequencerDefs.h"
+#include "../../lib/pico2seq-core/sequencer/SequencerDefs.h"
 #include <stdint.h>
 #include "VoiceManager.h"
 

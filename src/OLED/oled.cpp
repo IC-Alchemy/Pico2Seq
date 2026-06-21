@@ -3,9 +3,9 @@
 #include "../voice/VoicePresets.h"
 #include "../voice/VoiceSystem.h" // Added for complete VoiceSystem type
 #include "../../includes.h"
-#include "../sequencer/SequencerDefs.h"
-#include "../sequencer/ShuffleTemplates.h"
-#include "../scales/scales.h"
+#include "../../lib/pico2seq-core/sequencer/SequencerDefs.h"
+#include "../../lib/pico2seq-core/sequencer/ShuffleTemplates.h"
+#include "../../lib/pico2seq-core/scales/scales.h"
 #include "../ui/ButtonManager.h"
 #include <cstring> // For strcmp, strlen
 #include <Arduino.h>

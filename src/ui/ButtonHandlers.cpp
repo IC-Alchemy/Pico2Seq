@@ -1,9 +1,9 @@
 #include "ButtonHandlers.h"
 
 #include "../LEDMatrix/LEDMatrixFeedback.h"
-#include "../scales/scales.h"
-#include "../sequencer/Sequencer.h"
-#include "../sequencer/ShuffleTemplates.h"
+#include "../../lib/pico2seq-core/scales/scales.h"
+#include "../../lib/pico2seq-core/sequencer/Sequencer.h"
+#include "../../lib/pico2seq-core/sequencer/ShuffleTemplates.h"
 #include "../voice/VoiceManager.h"
 #include "../voice/VoiceSystem.h"
 #include "ButtonManager.h"

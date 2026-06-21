@@ -5,7 +5,7 @@
 
 #include "src/voice/Voice.h"
 #include "src/utils/Debug.h"
-#include "src/scales/scales.h"
+#include "lib/pico2seq-core/scales/scales.h"
 #include "src/voice/VoicePresets.h"
 #include "src/voice/VoiceSystem.h"
 
@@ -539,10 +539,10 @@ void onStepCallback(uint32_t uClockCurrentStep)
     int v3Distance = (uiState.selectedVoiceIndex == 2) ? mm : -1;
     int v4Distance = (uiState.selectedVoiceIndex == 3) ? mm : -1;
 
-    seq1.advanceStep(uClockCurrentStep, v1Distance, uiState, &tempState1);
-    seq2.advanceStep(uClockCurrentStep, v2Distance, uiState, &tempState2);
-    seq3.advanceStep(uClockCurrentStep, v3Distance, uiState, &tempState3);
-    seq4.advanceStep(uClockCurrentStep, v4Distance, uiState, &tempState4);
+    advanceSequencerStep(seq1, uClockCurrentStep, v1Distance, uiState, &tempState1);
+    advanceSequencerStep(seq2, uClockCurrentStep, v2Distance, uiState, &tempState2);
+    advanceSequencerStep(seq3, uClockCurrentStep, v3Distance, uiState, &tempState3);
+    advanceSequencerStep(seq4, uClockCurrentStep, v4Distance, uiState, &tempState4);
 
     // 3. Apply AS5600 base values per voice (only velocity/filter/attack/decay are affected)
     applyAS5600BaseValues(&tempState1, 0);

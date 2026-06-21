@@ -7,8 +7,8 @@
 #include "../dsp/overdrive.h"
 #include "../dsp/wavefolder.h"
 #include "../dsp/whitenoise.h"
-#include "../sequencer/Sequencer.h"
-#include "../sequencer/SequencerDefs.h"
+#include "../../lib/pico2seq-core/sequencer/Sequencer.h"
+#include "../../lib/pico2seq-core/sequencer/SequencerDefs.h"
 #include <vector>
 #include <memory>
 

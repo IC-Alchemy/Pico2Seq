@@ -11,6 +11,7 @@ FetchContent_MakeAvailable(Catch2)
 
 set(STUB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/stubs)
 set(SRC_DIR  ${PROJECT_SOURCE_DIR}/src)
+set(LIB_DIR  ${PROJECT_SOURCE_DIR}/lib/pico2seq-core)
 
 add_executable(pico2seq_tests
   unit/test_helpers.cpp
@@ -30,11 +31,11 @@ add_executable(pico2seq_tests
   ${SRC_DIR}/dsp/tremolo.cpp
 
   # Scale data
-  ${SRC_DIR}/scales/scales.cpp
+  ${LIB_DIR}/scales/scales.cpp
 
   # Sequencer logic
-  ${SRC_DIR}/sequencer/ParameterManager.cpp
-  ${SRC_DIR}/sequencer/Sequencer.cpp
+  ${LIB_DIR}/sequencer/ParameterManager.cpp
+  ${LIB_DIR}/sequencer/Sequencer.cpp
 
   # Voice synthesis
   ${SRC_DIR}/voice/Voice.cpp
@@ -46,6 +47,7 @@ target_include_directories(pico2seq_tests PRIVATE
   ${STUB_DIR}
   ${PROJECT_SOURCE_DIR}
   ${SRC_DIR}
+  ${LIB_DIR}
 )
 
 target_link_libraries(pico2seq_tests PRIVATE Catch2::Catch2WithMain)

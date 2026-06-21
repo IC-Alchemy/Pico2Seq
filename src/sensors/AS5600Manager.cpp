@@ -1,7 +1,7 @@
 #include "AS5600Manager.h"
 #include <Arduino.h>
-#include "../sequencer/SequencerDefs.h"
-#include "../sequencer/Sequencer.h"
+#include "../../lib/pico2seq-core/sequencer/SequencerDefs.h"
+#include "../../lib/pico2seq-core/sequencer/Sequencer.h"
 #include "../ui/UIState.h"
 #include "as5600.h"
 #include <algorithm>

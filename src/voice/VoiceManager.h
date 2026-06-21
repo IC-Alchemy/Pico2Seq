@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Voice.h"
-#include "../sequencer/Sequencer.h"
+#include "../../lib/pico2seq-core/sequencer/Sequencer.h"
 #include "../dsp/compressor.h"
 #include <vector>
 #include <memory>
