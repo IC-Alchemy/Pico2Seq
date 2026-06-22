@@ -2,17 +2,18 @@
 #define UI_STATE_H
 
 #include <Arduino.h>
-#include "../sequencer/SequencerDefs.h"
+#include "../../lib/pico2seq-core/sequencer/SequencerDefs.h"
 #include "../sensors/as5600.h" // For AS5600ParameterMode
 
 /**
  * @brief Centralized state management for the PicoMudrasSequencer UI.
- * 
+ *
  * This struct encapsulates all UI-related state variables, eliminating
  * global externs and improving modularity. An instance of this struct
  * is passed to UI functions, making data flow explicit and easier to manage.
  */
-struct UIState {
+struct UIState
+{
     // --- Parameter Button States ---
     // Indexed by ParamId for direct lookup.
     bool parameterButtonHeld[PARAM_ID_COUNT] = {false};
@@ -44,8 +45,6 @@ struct UIState {
     bool randomizeWasPressed[NUM_RANDOMIZE] = {false};
     bool randomizeResetTriggered[NUM_RANDOMIZE] = {false};
 
-
-
     // --- Shuffle State ---
     uint8_t currentShufflePatternIndex = 0;
 
@@ -53,28 +52,37 @@ struct UIState {
     // Flag to signal the LED matrix to reset step lights.
     bool resetStepsLightsFlag = false;
 
-   // --- Debounce for Slide Mode Toggle ---
-   unsigned long lastSlideModeToggleTime = 0;
+    // --- Debounce for Slide Mode Toggle ---
+    unsigned long lastSlideModeToggleTime = 0;
 
-   // --- Settings Mode State ---
-   bool settingsMode = false;
-   uint8_t settingsMenuIndex = 0;      // 0-7 for 8 menu items
-   uint8_t settingsSubMenuIndex = 0;   // For preset selection
-   bool inPresetSelection = false;
-   uint8_t voice1PresetIndex = 3;      // Default to Lead Voice
-   uint8_t voice2PresetIndex = 2;      // Default to Bass Voice 
-   uint8_t voice3PresetIndex = 1;      // Default to Lead Voice
-   uint8_t voice4PresetIndex = 5;      //Default to Percussion Voice
-   unsigned long playStopPressTime = 0;
-   bool playStopWasPressed = false;
-   
-   // --- Voice Parameter Editing State ---
-   bool inVoiceParameterMode = false;
-   uint8_t lastVoiceParameterButton = 0;  // Track which voice parameter was last changed
-   unsigned long voiceParameterChangeTime = 0;  // Timestamp of last voice parameter change
-   
-   // --- Voice Switch State ---
-   bool voiceSwitchTriggered = false;  // Flag to trigger immediate OLED update for voice switching
+    // --- Settings Mode State ---
+    bool settingsMode = false;
+
+    // Settings sub-modes within settingsMode
+    enum class SettingsSubMode : uint8_t { PRESET_SELECTION = 0, VOICE_PARAMETER = 1 };
+    SettingsSubMode currentSubMode = SettingsSubMode::PRESET_SELECTION;
+
+    uint8_t settingsMenuIndex = 0;    // 0-7 for 8 menu items
+    uint8_t settingsSubMenuIndex = 0; // For preset selection
+    bool inPresetSelection = false;
+    static constexpr int MAX_VOICES = 4;
+    uint8_t voicePresetIndices[MAX_VOICES] = {4, 2, 1, 6}; // Default presets: Lead, Bass, Lead, Percussion
+    unsigned long playStopPressTime = 0;
+    bool playStopWasPressed = false;
+
+    // --- AS5600 Control Hold / Gate Seq Length Mode ---
+    // Press/hold tracking for BUTTON_AS5600_CONTROL to enable gate seq length mode while held
+    unsigned long as5600ControlPressTime = 0;
+    bool as5600ControlWasPressed = false;
+    bool gateSeqLengthMode = false; // When true, step buttons set Gate track length (per selected voice)
+
+    // --- Voice Parameter Editing State ---
+    bool inVoiceParameterMode = false;
+    uint8_t lastVoiceParameterButton = 0;       // Track which voice parameter was last changed
+    unsigned long voiceParameterChangeTime = 0; // Timestamp of last voice parameter change
+
+    // --- Voice Switch State ---
+    bool voiceSwitchTriggered = false; // Flag to trigger immediate OLED update for voice switching
 };
 
 #endif // UI_STATE_H

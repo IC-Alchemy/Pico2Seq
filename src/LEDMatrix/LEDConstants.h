@@ -40,7 +40,7 @@ namespace LEDConstants {
   static constexpr uint8_t MEDIUM_BRIGHTNESS = 128;
   static constexpr uint8_t LOW_BRIGHTNESS = 64;
   static constexpr uint8_t DIM_BRIGHTNESS = 32;
-  static constexpr uint8_t SUBTLE_BRIGHTNESS = 16;
+  static constexpr uint8_t SUBTLE_BRIGHTNESS = 12;
 
   // LED Matrix Layout Constants
   static constexpr uint8_t TOP_HALF_OFFSET = 0;

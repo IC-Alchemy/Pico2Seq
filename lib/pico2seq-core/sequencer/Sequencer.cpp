@@ -9,9 +9,9 @@
 extern bool slideMode;
 // --- Constants for real-time parameter editing ---
 constexpr float MAX_SENSOR_DISTANCE_MM = 1400.0f;
-constexpr float MAX_NOTE_PARAM_RANGE = 24.0f;  // e.g., for mapping sensor to a 2-octave range for note param
-constexpr float OCTAVE_LOW_THRESHOLD = .15f; // Threshold for mapping float to -1 octave
-constexpr float OCTAVE_HIGH_THRESHOLD = .4f; // Threshold for mapping float to +1 octave
+constexpr float MAX_NOTE_PARAM_RANGE = 24.0f; // e.g., for mapping sensor to a 2-octave range for note param
+constexpr float OCTAVE_LOW_THRESHOLD = .15f;  // Threshold for mapping float to -1 octave
+constexpr float OCTAVE_HIGH_THRESHOLD = .4f;  // Threshold for mapping float to +1 octave
 int8_t mapFloatToOctaveOffset(float octaveValue)
 {
     if (octaveValue < OCTAVE_LOW_THRESHOLD)
@@ -40,9 +40,12 @@ float mapNormalizedValueToParamRange(ParamId id, float normalizedValue)
             [](auto &&arg) -> float
             {
                 using T = std::decay_t<decltype(arg)>;
-                if constexpr (std::is_same_v<T, float>) return arg;
-                if constexpr (std::is_same_v<T, int>) return static_cast<float>(arg);
-                if constexpr (std::is_same_v<T, bool>) return arg ? 1.0f : 0.0f;
+                if constexpr (std::is_same_v<T, float>)
+                    return arg;
+                if constexpr (std::is_same_v<T, int>)
+                    return static_cast<float>(arg);
+                if constexpr (std::is_same_v<T, bool>)
+                    return arg ? 1.0f : 0.0f;
                 return 0.0f; // Fallback
             },
             v);
@@ -67,15 +70,15 @@ Sequencer::Sequencer()
     {
         currentStepPerParam[i] = 0;
     }
-    
+
     // Initialize GPIO pins for gate outputs and step clock
-    pinMode(10, OUTPUT);  // Voice 1 gate output
-    pinMode(11, OUTPUT);  // Voice 2 gate output
-    pinMode(12, OUTPUT);  // Step clock output
+    pinMode(10, OUTPUT); // Voice 1 gate output
+    pinMode(11, OUTPUT); // Voice 2 gate output
+    pinMode(12, OUTPUT); // Step clock output
     digitalWrite(10, LOW);
     digitalWrite(11, LOW);
     digitalWrite(12, LOW);
-    
+
     initializeParameters();
 }
 
@@ -91,15 +94,15 @@ Sequencer::Sequencer(uint8_t channel)
     {
         currentStepPerParam[i] = 0;
     }
-    
+
     // Initialize GPIO pins for gate outputs and step clock
-    pinMode(10, OUTPUT);  // Voice 1 gate output
-    pinMode(11, OUTPUT);  // Voice 2 gate output
-    pinMode(12, OUTPUT);  // Step clock output
+    pinMode(10, OUTPUT); // Voice 1 gate output
+    pinMode(11, OUTPUT); // Voice 2 gate output
+    pinMode(12, OUTPUT); // Step clock output
     digitalWrite(10, LOW);
     digitalWrite(11, LOW);
     digitalWrite(12, LOW);
-    
+
     initializeParameters();
 }
 
@@ -160,7 +163,7 @@ void Sequencer::reset()
     }
     running = false;
     previousStepHadSlide = false; // Reset slide state tracking
-    handleNoteOff(nullptr); // Pass nullptr as no voice state to update
+    handleNoteOff(nullptr);       // Pass nullptr as no voice state to update
 }
 
 uint8_t Sequencer::getCurrentStepForParameter(ParamId paramId) const
@@ -178,9 +181,12 @@ void Sequencer::resetAllSteps()
             [](auto &&arg) -> float
             {
                 using T = std::decay_t<decltype(arg)>;
-                if constexpr (std::is_same_v<T, float>) return arg;
-                if constexpr (std::is_same_v<T, int>) return static_cast<float>(arg);
-                if constexpr (std::is_same_v<T, bool>) return arg ? 1.0f : 0.0f;
+                if constexpr (std::is_same_v<T, float>)
+                    return arg;
+                if constexpr (std::is_same_v<T, int>)
+                    return static_cast<float>(arg);
+                if constexpr (std::is_same_v<T, bool>)
+                    return arg ? 1.0f : 0.0f;
                 return 0.0f; // Fallback
             },
             CORE_PARAMETERS[i].defaultValue);
@@ -196,7 +202,7 @@ void Sequencer::advanceStep(uint8_t current_uclock_step, int mm_distance,
                             bool is_filter_button_held, bool is_attack_button_held,
                             bool is_decay_button_held, bool is_octave_button_held,
                             int current_selected_step_for_edit,
-                             VoiceState *voiceState)
+                            VoiceState *voiceState)
 {
     if (!running)
     {
@@ -236,9 +242,6 @@ void Sequencer::advanceStep(uint8_t current_uclock_step, int mm_distance,
             currentStepPerParam[i] = 0; // Fallback if no step count is set
         }
     }
-
-    // Track if any parameters were recorded during this step
-    bool parametersRecorded = false;
 
     // Handle real-time parameter recording first
     // Disable distance sensor control when in edit mode (selectedStepForEdit >= 0)
@@ -280,8 +283,6 @@ void Sequencer::advanceStep(uint8_t current_uclock_step, int mm_distance,
                     }
                 }
 
-                parametersRecorded = true;
-
                 // For all other parameters, scale the normalized value to the parameter's range
                 float value = mapNormalizedValueToParamRange(pb.id, normalizedDistance);
                 // Use the parameter's own current step index for recording
@@ -299,21 +300,6 @@ void Sequencer::advanceStep(uint8_t current_uclock_step, int mm_distance,
     // with the new values by processStep() above, providing immediate real-time feedback
 }
 
-void Sequencer::advanceStep(uint8_t current_uclock_step, int mm_distance,
-                            const UIState& uiState, VoiceState *voiceState)
-{
-    // Extract button states from UIState and call the main advanceStep method
-    advanceStep(current_uclock_step, mm_distance,
-                uiState.parameterButtonHeld[static_cast<int>(ParamId::Note)],
-                uiState.parameterButtonHeld[static_cast<int>(ParamId::Velocity)],
-                uiState.parameterButtonHeld[static_cast<int>(ParamId::Filter)],
-                uiState.parameterButtonHeld[static_cast<int>(ParamId::Attack)],
-                uiState.parameterButtonHeld[static_cast<int>(ParamId::Decay)],
-                uiState.parameterButtonHeld[static_cast<int>(ParamId::Octave)],
-                uiState.selectedStepForEdit,
-                voiceState);
-}
-
 void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
 {
     // This method supports two modes:
@@ -328,25 +314,25 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
 
     // Get parameter values using appropriate step indices
     float gateOn = getStepParameterValue(ParamId::Gate,
-        usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Gate)] : stepIdx);
+                                         usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Gate)] : stepIdx);
 
     // Always get parameter values for modulation parameters
     float filterVal = getStepParameterValue(ParamId::Filter,
-        usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Filter)] : stepIdx);
+                                            usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Filter)] : stepIdx);
     float attackVal = getStepParameterValue(ParamId::Attack,
-        usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Attack)] : stepIdx);
+                                            usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Attack)] : stepIdx);
     float decayVal = getStepParameterValue(ParamId::Decay,
-        usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Decay)] : stepIdx);
+                                           usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Decay)] : stepIdx);
 
     // Get note-related parameters
     uint8_t noteStepIdx = usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Note)] : stepIdx;
     float noteVal = getStepParameterValue(ParamId::Note, noteStepIdx);
     float velocityVal = getStepParameterValue(ParamId::Velocity,
-        usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Velocity)] : stepIdx);
+                                              usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Velocity)] : stepIdx);
     float octaveFloat = getStepParameterValue(ParamId::Octave,
-        usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Octave)] : stepIdx);
+                                              usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Octave)] : stepIdx);
     float slideVal = getStepParameterValue(ParamId::Slide,
-        usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Slide)] : stepIdx);
+                                           usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Slide)] : stepIdx);
 
     // DEBUG: Trace parameter retrieval
     /*
@@ -361,18 +347,24 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
     Serial.println();
     */
     float gateLengthProportion = getStepParameterValue(ParamId::GateLength,
-        usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::GateLength)] : stepIdx);
-
-
+                                                       usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::GateLength)] : stepIdx);
 
     const uint16_t noteDurationTicks = static_cast<uint16_t>(std::max(1.0f, gateLengthProportion * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS));
     const int8_t octaveOffset = mapFloatToOctaveOffset(octaveFloat);
-
 
     if (gateOn)
     {
         // Calculate the final note value
         int finalNote = noteVal + octaveOffset;
+        // Output gate signal based on channel
+        if (channel == 1)
+        {
+            digitalWrite(10, HIGH); // Voice 1 gate output
+        }
+        else if (channel == 2)
+        {
+            digitalWrite(11, HIGH); // Voice 2 gate output
+        }
 
         // If the step's gate is on, decide whether to start a new note or slide to it.
         if (!slideVal)
@@ -383,14 +375,6 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
                 voiceState->shouldRetrigger = true;
             }
 
-            // Trigger note with velocity scaled to MIDI range (0-127)
-            // Output gate signal based on channel
-             if (channel == 1) {
-                 digitalWrite(10, HIGH);  // Voice 1 gate output
-             } else if (channel == 2) {
-                 digitalWrite(11, HIGH);  // Voice 2 gate output
-             }
-            
             startNote(static_cast<uint8_t>(finalNote), static_cast<uint8_t>(velocityVal * 127.0f),
                       noteDurationTicks);
         }
@@ -403,11 +387,15 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
         }
     }
     else
-    {     if (channel == 1) {
-                 digitalWrite(10, LOW);  // Voice 1 gate output
-             } else if (channel == 2) {
-                 digitalWrite(11, LOW);  // Voice 2 gate output
-             }
+    {
+        if (channel == 1)
+        {
+            digitalWrite(10, LOW); // Voice 1 gate output
+        }
+        else if (channel == 2)
+        {
+            digitalWrite(11, LOW); // Voice 2 gate output
+        }
         // The gate is off for this step. Only turn off the note if the previous step didn't have slide enabled.
         // This allows slide steps to sustain the envelope even when followed by gate-off steps.
         if (!previousStepHadSlide)
@@ -454,7 +442,7 @@ void Sequencer::startNote(uint8_t note, uint8_t velocity, uint16_t duration)
     triggerEnvelope();
 }
 
-void Sequencer::handleNoteOff( VoiceState* voiceState)
+void Sequencer::handleNoteOff(VoiceState *voiceState)
 {
     if (currentNote >= 0)
     {
@@ -473,7 +461,7 @@ void Sequencer::handleNoteOff( VoiceState* voiceState)
         {
             digitalWrite(11, LOW); // Voice 2 gate output
         }
-        
+
         currentNote = -1;
         releaseEnvelope();
         noteDuration.reset();
@@ -487,7 +475,7 @@ void Sequencer::handleNoteOff( VoiceState* voiceState)
     }
 }
 
-void Sequencer::tickNoteDuration( VoiceState* voiceState)
+void Sequencer::tickNoteDuration(VoiceState *voiceState)
 {
     if (noteDuration.isActive())
     {
@@ -535,15 +523,11 @@ Step Sequencer::getStep(uint8_t stepIdx) const
 void Sequencer::randomizeParameters()
 {
     parameterManager.randomizeParameters();
-    for (size_t i = 0; i < 16; ++i){
-setStepParameterValue(ParamId::Octave, i, 0.0f);
-setStepParameterValue(ParamId::Attack, i, 0.001f);
-setStepParameterValue(ParamId::Decay, i, 0.12f);
-
-
+    for (size_t i = 0; i < 16; ++i)
+    {
+        setStepParameterValue(ParamId::Octave, i, 0.0f);
     }
-   // setParameterStepCount(ParamId::Octave, random(2,8));
-    
+    // setParameterStepCount(ParamId::Octave, random(2,8));
 }
 
 void Sequencer::triggerEnvelope()

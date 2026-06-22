@@ -13,16 +13,16 @@ class MidiNoteManager;
 
 // Handle Randomize button for a given voice index (0..3)
 // Maintains short-press randomize and long-press reset behavior
-void handleRandomizeButton(int voiceIndex, UIState& state);
+void handleRandomizeButton(int voiceIndex, UIState &state);
 
 // Handle parameter button for a specific voice and parameter index
-void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState& state);
+void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state);
 
 // Handle generic control buttons by button id
-void handleControlButton(int buttonId, UIState& state);
+void handleControlButton(int buttonId, UIState &state);
 
 // Button state utility helpers
-void beginRandomizePress(int voiceIndex, UIState& state);
-void endRandomizePress(int voiceIndex, UIState& state);
+void beginRandomizePress(int voiceIndex, UIState &state);
+void endRandomizePress(int voiceIndex, UIState &state);
 
 #endif // BUTTON_HANDLERS_H

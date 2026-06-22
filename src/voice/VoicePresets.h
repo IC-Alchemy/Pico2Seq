@@ -5,16 +5,16 @@
 
 namespace VoicePresets {
   // Factory functions for common synthesizer voice types
-  VoiceConfig getAnalogVoice();
-  VoiceConfig getDigitalVoice();
-  VoiceConfig getBassVoice();
-  VoiceConfig getLeadVoice();
-  VoiceConfig getSquareVoice();
-  VoiceConfig getPadVoice();
-  VoiceConfig getPercussionVoice();
+  const VoiceConfig& getAnalogVoice() noexcept;
+  const VoiceConfig& getDigitalVoice() noexcept;
+  const VoiceConfig& getBassVoice() noexcept;
+  const VoiceConfig& getLeadVoice() noexcept;
+  const VoiceConfig& getSquareVoice() noexcept;
+  const VoiceConfig& getPadVoice() noexcept;
+  const VoiceConfig& getPercussionVoice() noexcept;
 
   // Preset utilities
-  const char* getPresetName(uint8_t presetIndex);
-  VoiceConfig getPresetConfig(uint8_t presetIndex);
-  uint8_t getPresetCount();
+  const char* getPresetName(uint8_t presetIndex) noexcept;
+  const VoiceConfig& getPresetConfig(uint8_t presetIndex) noexcept;
+  uint8_t getPresetCount() noexcept;
 }

@@ -4,12 +4,12 @@
 DistanceSensor distanceSensor;
 
 DistanceSensor::DistanceSensor()
-  : lastMeasurementTimeMs(0)
-  , currentDistanceMm(SensorConstants::DistanceSensor::INVALID_DISTANCE_MM)
-  , sensorConnected(false) {
+    : lastMeasurementTimeMs(0), currentDistanceMm(SensorConstants::DistanceSensor::INVALID_DISTANCE_MM), sensorConnected(false)
+{
 }
 
-bool DistanceSensor::begin() {
+bool DistanceSensor::begin()
+{
   // Initialize I2C communication with standard settings
   Wire.begin();
   delay(SensorConstants::DistanceSensor::I2C_STABILIZATION_DELAY_MS);
@@ -19,7 +19,8 @@ bool DistanceSensor::begin() {
 
   // Initialize sensor with error checking
   VL53L1_Error initStatus = vl53l1xSensor.initSensor();
-  if (initStatus != VL53L1_ERROR_NONE) {
+  if (initStatus != VL53L1_ERROR_NONE)
+  {
     Serial.print("VL53L1X sensor initialization failed with error: ");
     Serial.println(initStatus);
     sensorConnected = false;
@@ -28,32 +29,34 @@ bool DistanceSensor::begin() {
 
   // Configure sensor for medium-range distance measurement
   VL53L1_Error configStatus = vl53l1xSensor.setDistanceMode(VL53L1_DISTANCEMODE_MEDIUM);
-  if (configStatus != VL53L1_ERROR_NONE) {
+  if (configStatus != VL53L1_ERROR_NONE)
+  {
     sensorConnected = false;
     return false;
   }
 
   // Set timing budget for measurement accuracy vs speed balance
   configStatus = vl53l1xSensor.setMeasurementTimingBudgetMicroSeconds(
-    SensorConstants::DistanceSensor::TIMING_BUDGET_MICROSECONDS
-  );
-  if (configStatus != VL53L1_ERROR_NONE) {
+      SensorConstants::DistanceSensor::TIMING_BUDGET_MICROSECONDS);
+  if (configStatus != VL53L1_ERROR_NONE)
+  {
     sensorConnected = false;
     return false;
   }
 
   // Configure inter-measurement period for continuous operation
   configStatus = vl53l1xSensor.setInterMeasurementPeriodMilliSeconds(
-    SensorConstants::DistanceSensor::INTER_MEASUREMENT_PERIOD_MS
-  );
-  if (configStatus != VL53L1_ERROR_NONE) {
+      SensorConstants::DistanceSensor::INTER_MEASUREMENT_PERIOD_MS);
+  if (configStatus != VL53L1_ERROR_NONE)
+  {
     sensorConnected = false;
     return false;
   }
 
   // Start continuous measurement mode
   configStatus = vl53l1xSensor.clearInterruptAndStartMeasurement();
-  if (configStatus != VL53L1_ERROR_NONE) {
+  if (configStatus != VL53L1_ERROR_NONE)
+  {
     sensorConnected = false;
     return false;
   }
@@ -63,15 +66,18 @@ bool DistanceSensor::begin() {
   return true;
 }
 
-void DistanceSensor::update() {
-  if (!sensorConnected) {
+void DistanceSensor::update()
+{
+  if (!sensorConnected)
+  {
     return;
   }
 
   unsigned long currentTimeMs = millis();
 
   // Rate-limit updates to prevent excessive I2C communication
-  if (currentTimeMs - lastMeasurementTimeMs < SensorConstants::DistanceSensor::READ_INTERVAL_MS) {
+  if (currentTimeMs - lastMeasurementTimeMs < SensorConstants::DistanceSensor::READ_INTERVAL_MS)
+  {
     return;
   }
   lastMeasurementTimeMs = currentTimeMs;
@@ -81,21 +87,25 @@ void DistanceSensor::update() {
   VL53L1_Error dataReadyStatus = VL53L1_ERROR_NONE;
 
   // Wait for measurement data with timeout protection
-  while ((millis() - measurementStartTimeMs) < SensorConstants::DistanceSensor::MEASUREMENT_TIMEOUT_MS) {
+  while ((millis() - measurementStartTimeMs) < SensorConstants::DistanceSensor::MEASUREMENT_TIMEOUT_MS)
+  {
     dataReadyStatus = vl53l1xSensor.waitMeasurementDataReady();
-    if (dataReadyStatus == VL53L1_ERROR_NONE) {
+    if (dataReadyStatus == VL53L1_ERROR_NONE)
+    {
       break; // Measurement data is ready
     }
   }
 
   // Skip this reading cycle if timeout occurred
-  if (dataReadyStatus != VL53L1_ERROR_NONE) {
+  if (dataReadyStatus != VL53L1_ERROR_NONE)
+  {
     return;
   }
 
   // Retrieve measurement data from sensor
   VL53L1_Error measurementStatus = vl53l1xSensor.getRangingMeasurementData();
-  if (measurementStatus != VL53L1_ERROR_NONE) {
+  if (measurementStatus != VL53L1_ERROR_NONE)
+  {
     return;
   }
 
@@ -106,15 +116,18 @@ void DistanceSensor::update() {
   currentDistanceMm = vl53l1xSensor.measurementData.RangeMilliMeter;
 }
 
-int DistanceSensor::getRawDistanceMm() const {
+int DistanceSensor::getRawDistanceMm() const
+{
   return currentDistanceMm;
 }
 
-bool DistanceSensor::isConnected() const {
+bool DistanceSensor::isConnected() const
+{
   return sensorConnected;
 }
 
 // Backward compatibility function for legacy code integration
-void updateDistanceSensor() {
+void updateDistanceSensor()
+{
   distanceSensor.update();
 }

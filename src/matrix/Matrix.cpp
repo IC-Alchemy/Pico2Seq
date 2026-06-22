@@ -21,11 +21,14 @@ static void (*eventHandler)(const MatrixButtonEvent &) = nullptr;
 static void (*risingEdgeHandler)(uint8_t buttonIndex) = nullptr;
 
 // Sets up the mapping between linear button indices and matrix row/column inputs.
-static void setupMatrixMapping() {
+static void setupMatrixMapping()
+{
     uint8_t idx = 0;
     // Iterate through each row and column to populate the matrixButtons array.
-    for (uint8_t row = 0; row < 4; ++row) {
-        for (uint8_t col = 0; col < 8; ++col) {
+    for (uint8_t row = 0; row < 4; ++row)
+    {
+        for (uint8_t col = 0; col < 8; ++col)
+        {
             // Assign the corresponding MPR121 input pins for the current row and column.
             matrixButtons[idx].rowInput = MATRIX_ROW_INPUTS[row];
             matrixButtons[idx].colInput = MATRIX_COL_INPUTS[col];
@@ -37,7 +40,8 @@ static void setupMatrixMapping() {
 // Scans a single matrix button to determine its state based on the touch bits from the MPR121.
 // A button is considered pressed if both its row and column inputs are touched.
 
-static bool scanMatrixButton(const MatrixButton &btn, uint16_t touchBits) {
+static bool scanMatrixButton(const MatrixButton &btn, uint16_t touchBits)
+{
     return (touchBits & (1 << btn.rowInput)) &&
            (touchBits & (1 << btn.colInput));
 }
@@ -45,19 +49,24 @@ static bool scanMatrixButton(const MatrixButton &btn, uint16_t touchBits) {
 // Updates the state of all buttons based on the latest touch bits from the sensor.
 // It also triggers event handlers if a button's state changes.
 
-static void updateButtonStates(uint16_t touchBits) {
-    for (uint8_t i = 0; i < MATRIX_BUTTON_COUNT; ++i) {
-        bool prev = buttonState[i]; // Get the previous state of the button.
+static void updateButtonStates(uint16_t touchBits)
+{
+    for (uint8_t i = 0; i < MATRIX_BUTTON_COUNT; ++i)
+    {
+        bool prev = buttonState[i];                                // Get the previous state of the button.
         bool curr = scanMatrixButton(matrixButtons[i], touchBits); // Get the current state.
         // Check if the button state has changed.
-        if (curr != prev) {
+        if (curr != prev)
+        {
             buttonState[i] = curr; // Update the button state.
             // If the button is now pressed and a rising edge handler is set, call it.
-            if (curr && risingEdgeHandler) {
+            if (curr && risingEdgeHandler)
+            {
                 risingEdgeHandler(i);
             }
             // If a generic event handler is set, call it with the button event details.
-            if (eventHandler) {
+            if (eventHandler)
+            {
                 MatrixButtonEvent evt;
                 evt.buttonIndex = i;
                 evt.type = curr ? MATRIX_BUTTON_PRESSED : MATRIX_BUTTON_RELEASED;
@@ -71,26 +80,31 @@ static void updateButtonStates(uint16_t touchBits) {
 // Assigns the MPR121 sensor instance and sets up the button mapping.
 // Initializes all button states to false (not pressed).
 // Tip: Add error handling to check if the sensor initialization was successful before proceeding.
-void Matrix_init(Adafruit_MPR121 *sensor) {
+void Matrix_init(Adafruit_MPR121 *sensor)
+{
     Serial.println("Matrix_init called");
     mpr121 = sensor;
     setupMatrixMapping();
     memset(buttonState, 0, sizeof(buttonState));
     eventHandler = nullptr; // Initialize event handlers to null.
     risingEdgeHandler = nullptr;
-    
-    if (mpr121) {
+
+    if (mpr121)
+    {
         Serial.println("MPR121 pointer is valid in Matrix_init");
-    } else {
+    }
+    else
+    {
         Serial.println("ERROR: MPR121 pointer is NULL in Matrix_init!");
     }
 }
 
 // Scans the matrix for button presses and updates the button states.
 
-
-void Matrix_scan() {
-    if (!mpr121) {
+void Matrix_scan()
+{
+    if (!mpr121)
+    {
         // This check is important, but let's not flood the serial port.
         // A single message at init should be enough.
         return;
@@ -99,12 +113,16 @@ void Matrix_scan() {
     uint16_t touchBits = mpr121->touched();
 
     // If no electrodes are touched, no buttons can be pressed. Exit early.
-    if (touchBits == 0) {
+    if (touchBits == 0)
+    {
         // Check if any button was previously pressed and needs a release event.
-        for (uint8_t i = 0; i < MATRIX_BUTTON_COUNT; ++i) {
-            if (buttonState[i]) { // If it was pressed
+        for (uint8_t i = 0; i < MATRIX_BUTTON_COUNT; ++i)
+        {
+            if (buttonState[i])
+            {                           // If it was pressed
                 buttonState[i] = false; // Update its state to released
-                if (eventHandler) {
+                if (eventHandler)
+                {
                     MatrixButtonEvent evt = {i, MATRIX_BUTTON_RELEASED};
                     eventHandler(evt);
                 }
@@ -115,22 +133,26 @@ void Matrix_scan() {
 
     // If we get here, at least one electrode is touched.
     // Let's check the state of all buttons.
-    for (uint8_t i = 0; i < MATRIX_BUTTON_COUNT; ++i) {
+    for (uint8_t i = 0; i < MATRIX_BUTTON_COUNT; ++i)
+    {
         bool isPressed = scanMatrixButton(matrixButtons[i], touchBits);
         bool wasPressed = buttonState[i];
 
-        if (isPressed != wasPressed) {
+        if (isPressed != wasPressed)
+        {
             buttonState[i] = isPressed;
 
             // Optional: Add a single, clear debug message for state changes.
             Serial.printf("Button %d state changed to: %s\n", i, isPressed ? "PRESSED" : "RELEASED");
 
-            if (eventHandler) {
+            if (eventHandler)
+            {
                 MatrixButtonEvent evt = {i, isPressed ? MATRIX_BUTTON_PRESSED : MATRIX_BUTTON_RELEASED};
                 eventHandler(evt);
             }
 
-            if (isPressed && risingEdgeHandler) {
+            if (isPressed && risingEdgeHandler)
+            {
                 risingEdgeHandler(i);
             }
         }
@@ -139,27 +161,33 @@ void Matrix_scan() {
 
 // Gets the current state of a specific button by its index.
 // Returns true if pressed, false otherwise.
-bool Matrix_getButtonState(uint8_t idx) {
+bool Matrix_getButtonState(uint8_t idx)
+{
     if (idx >= MATRIX_BUTTON_COUNT) // Bounds checking.
         return false;
     return buttonState[idx];
 }
 
 // Sets the function to be called when any button event (pressed or released) occurs.
-void Matrix_setEventHandler(void (*handler)(const MatrixButtonEvent &)) {
+void Matrix_setEventHandler(void (*handler)(const MatrixButtonEvent &))
+{
     eventHandler = handler;
 }
 
 // Sets the function to be called when a button is pressed (rising edge).
-void Matrix_setRisingEdgeHandler(void (*handler)(uint8_t buttonIndex)) {
+void Matrix_setRisingEdgeHandler(void (*handler)(uint8_t buttonIndex))
+{
     risingEdgeHandler = handler;
 }
 
 // Prints the current state of the entire button matrix to the Serial console for debugging.
-void Matrix_printState() {
+void Matrix_printState()
+{
     Serial.println("Button Matrix State (1=pressed, 0=not pressed):");
-    for (uint8_t row = 0; row < 4; ++row) {
-        for (uint8_t col = 0; col < 8; ++col) {
+    for (uint8_t row = 0; row < 4; ++row)
+    {
+        for (uint8_t col = 0; col < 8; ++col)
+        {
             uint8_t idx = row * 8 + col;
             Serial.print(buttonState[idx] ? "1 " : "0 ");
         }
