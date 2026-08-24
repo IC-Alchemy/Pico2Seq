@@ -9,9 +9,10 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Catch2)
 
-set(STUB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/stubs)
-set(SRC_DIR  ${PROJECT_SOURCE_DIR}/src)
-set(LIB_DIR  ${PROJECT_SOURCE_DIR}/lib/pico2seq-core)
+set(STUB_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/stubs)
+set(SRC_DIR   ${PROJECT_SOURCE_DIR}/src)
+set(LIB_DIR   ${PROJECT_SOURCE_DIR}/lib/pico2seq-core)
+set(RPDSP_DIR ${PROJECT_SOURCE_DIR}/lib/rpdsp/src)
 
 add_executable(pico2seq_tests
   unit/test_helpers.cpp
@@ -48,6 +49,7 @@ target_include_directories(pico2seq_tests PRIVATE
   ${PROJECT_SOURCE_DIR}
   ${SRC_DIR}
   ${LIB_DIR}
+  ${RPDSP_DIR}
 )
 
 target_link_libraries(pico2seq_tests PRIVATE Catch2::Catch2WithMain)

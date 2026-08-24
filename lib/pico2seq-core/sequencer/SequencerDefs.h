@@ -120,84 +120,32 @@ struct StepEditButtons
   bool octave;   // Octave parameter edit button state
 };
 
-/**
- * @brief Fixed-size parameter automation track
- *
- * Template class for storing parameter values across sequencer steps.
- * Handles step wrapping and dynamic sequence length changes.
- * Variable names include clear purpose descriptions.
- *
- * @tparam MAX_SIZE Maximum number of steps (typically SequencerConstants::MAX_STEPS_COUNT)
- */
+// Fixed-size parameter automation track, now sourced from rpdsp instead of
+// being defined locally -- see lib/rpdsp/src/rpdsp/parameter_track.h.
+//
+// Behavior is preserved with two deliberate exceptions vs. the original
+// float-only ParameterTrack<MAX_SIZE> struct that used to live here:
+//   1. init(defaultValue) alone no longer implies "start at
+//      SequencerConstants::DEFAULT_STEPS_COUNT steps" -- the rpdsp version
+//      defaults its second (stepCount) argument to MaxSteps. Call sites that
+//      relied on the old hardcoded 16-step default (ParameterManager::init)
+//      now pass CORE_PARAMETERS[i].defaultSteps explicitly instead.
+//   2. resize() now clamps out-of-range requests into [1, MaxSteps] instead
+//      of silently no-op'ing when newStepCount is outside
+//      [MIN_STEPS_COUNT, MAX_SIZE]. This matches the always-clamp convention
+//      rpdsp already uses in GatePattern/RhythmGateSequencer. In practice all
+//      existing call sites already pass validated in-range values, so this
+//      only changes behavior for out-of-range inputs that weren't hit before.
+//
+// Included via a relative path (not <rpdsp/parameter_track.h>) because the
+// Arduino firmware build has no --library/-I wiring for lib/ subfolders --
+// it resolves lib/pico2seq-core's own includes the same way (see
+// Pico2Seq.ino and src/voice/Voice.h), relying on quoted-include relative
+// resolution instead of a configured include path.
+#include "../../rpdsp/src/rpdsp/parameter_track.h"
+
 template <uint8_t MAX_SIZE>
-struct ParameterTrack
-{
-  float parameterValues[MAX_SIZE]; // Parameter values for each step
-  uint8_t currentStepCount;        // Current sequence length (2-64 steps)
-  float defaultParameterValue;     // Default value for new steps
-
-  /**
-   * @brief Initialize track with default values
-   * @param defaultValue Default parameter value for all steps
-   */
-  void init(float defaultValue)
-  {
-    defaultParameterValue = defaultValue;
-    currentStepCount = SequencerConstants::DEFAULT_STEPS_COUNT;
-    for (uint8_t i = 0; i < MAX_SIZE; ++i)
-    {
-      parameterValues[i] = defaultValue;
-    }
-  }
-
-  /**
-   * @brief Get parameter value for any step index
-   * @param stepIndex Step index (handles wrapping automatically)
-   * @return Parameter value at the specified step
-   */
-  float getValue(uint8_t stepIndex) const
-  {
-    if (currentStepCount == 0)
-    {
-      return defaultParameterValue; // Prevent division by zero
-    }
-    return parameterValues[stepIndex % currentStepCount];
-  }
-
-  /**
-   * @brief Set parameter value for a specific step
-   * @param stepIndex Step index (handles wrapping automatically)
-   * @param newValue New parameter value
-   */
-  void setValue(uint8_t stepIndex, float newValue)
-  {
-    if (currentStepCount == 0)
-    {
-      return; // Prevent division by zero
-    }
-    parameterValues[stepIndex % currentStepCount] = newValue;
-  }
-
-  /**
-   * @brief Resize track to new step count
-   * @param newStepCount New sequence length (MIN_STEPS_COUNT to MAX_SIZE)
-   */
-  void resize(uint8_t newStepCount)
-  {
-    if (newStepCount >= SequencerConstants::MIN_STEPS_COUNT && newStepCount <= MAX_SIZE)
-    {
-      // Preserve existing values
-      if (newStepCount > currentStepCount)
-      {
-        for (uint8_t i = currentStepCount; i < newStepCount; ++i)
-        {
-          parameterValues[i] = defaultParameterValue;
-        }
-      }
-      currentStepCount = newStepCount;
-    }
-  }
-};
+using ParameterTrack = rpdsp::ParameterTrack<float, MAX_SIZE>;
 
 // Define the variant type for parameter values that can be int, float, or bool
 using ParameterValueType = std::variant<int, float, bool>;

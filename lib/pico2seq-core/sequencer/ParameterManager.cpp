@@ -68,8 +68,12 @@ void ParameterManager::init()
 {
   for (size_t i = 0; i < static_cast<size_t>(ParamId::Count); ++i)
   {
-    // Initialize each track with its default value from CORE_PARAMETERS
-    _tracks[i].init(getFloatFromParameterValueType(CORE_PARAMETERS[i].defaultValue));
+    // Initialize each track with its default value and step count from
+    // CORE_PARAMETERS. The step count must be passed explicitly now --
+    // rpdsp::ParameterTrack::init() defaults to MaxSteps (64), not the old
+    // hardcoded SequencerConstants::DEFAULT_STEPS_COUNT (16).
+    _tracks[i].init(getFloatFromParameterValueType(CORE_PARAMETERS[i].defaultValue),
+                     CORE_PARAMETERS[i].defaultSteps);
   }
 }
 
@@ -80,7 +84,7 @@ void ParameterManager::setStepCount(ParamId id, uint8_t steps)
 
 uint8_t ParameterManager::getStepCount(ParamId id) const
 {
-  uint8_t count = _tracks[static_cast<size_t>(id)].currentStepCount;
+  uint8_t count = _tracks[static_cast<size_t>(id)].stepCount();
   return count;
 }
 
@@ -124,7 +128,7 @@ void ParameterManager::randomizeParameters()
     // Ensure Slide parameter track always uses maximum length (extents-safe)
     if (paramId == ParamId::Slide)
     {
-      _tracks[i].currentStepCount = SequencerConstants::MAX_STEPS_COUNT;
+      _tracks[i].resize(SequencerConstants::MAX_STEPS_COUNT);
     }
 
     const auto &def = CORE_PARAMETERS[i];
@@ -132,7 +136,7 @@ void ParameterManager::randomizeParameters()
     const float maxVal = getFloatFromParameterValueType(def.maxValue);
 
     auto &track = _tracks[i];
-    const uint8_t steps = track.currentStepCount;
+    const uint8_t steps = track.stepCount();
 
     // Safety: bounds check on step count
     if (steps == 0 || steps > SequencerConstants::MAX_STEPS_COUNT)

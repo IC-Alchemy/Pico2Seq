@@ -1,0 +1,17 @@
+# Syntax Coloring Map For VL53L1X / DistanceSensor
+
+# Datatypes (KEYWORD1)
+DistanceSensor	KEYWORD1
+DistanceMode	KEYWORD1
+
+# Methods and Functions (KEYWORD2)
+begin	KEYWORD2
+update	KEYWORD2
+getRawDistanceMm	KEYWORD2
+isConnected	KEYWORD2
+getConfig	KEYWORD2
+
+# Constants (LITERAL1)
+Short	LITERAL1
+Medium	LITERAL1
+Long	LITERAL1
