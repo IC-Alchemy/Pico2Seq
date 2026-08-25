@@ -16,20 +16,11 @@ set(RPDSP_DIR ${PROJECT_SOURCE_DIR}/lib/rpdsp/src)
 
 add_executable(pico2seq_tests
   unit/test_helpers.cpp
-  unit/test_dsp.cpp
+  unit/test_rpdsp_additions.cpp
   unit/test_scales.cpp
   unit/test_sequencer.cpp
   unit/test_voice.cpp
-
-  # DSP sources (no hardware deps)
-  ${SRC_DIR}/dsp/adsr.cpp
-  ${SRC_DIR}/dsp/oscillator.cpp
-  ${SRC_DIR}/dsp/ladder.cpp
-  ${SRC_DIR}/dsp/svf.cpp
-  ${SRC_DIR}/dsp/overdrive.cpp
-  ${SRC_DIR}/dsp/wavefolder.cpp
-  ${SRC_DIR}/dsp/dcblock.cpp
-  ${SRC_DIR}/dsp/tremolo.cpp
+  unit/test_voiceoscillator.cpp
 
   # Scale data
   ${LIB_DIR}/scales/scales.cpp
@@ -38,7 +29,7 @@ add_executable(pico2seq_tests
   ${LIB_DIR}/sequencer/ParameterManager.cpp
   ${LIB_DIR}/sequencer/Sequencer.cpp
 
-  # Voice synthesis
+  # Voice synthesis (DSP comes from header-only lib/rpdsp)
   ${SRC_DIR}/voice/Voice.cpp
   ${SRC_DIR}/voice/VoicePresets.cpp
 )

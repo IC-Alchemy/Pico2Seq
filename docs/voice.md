@@ -92,7 +92,7 @@ Key improvements:
 struct VoiceConfig {
     // Oscillator configuration
     uint8_t oscillatorCount = 3;           // Number of oscillators (1-3)
-    uint8_t oscWaveforms[3] = {...};       // Waveform types (DaisySP constants)
+    uint8_t oscWaveforms[3] = {...};       // Waveform types (WAVE_* ids from VoiceOscillator.h)
     float oscAmplitudes[3] = {0.5f, 0.5f, 0.5f};  // Oscillator amplitudes (0.0-1.0)
     float oscDetuning[3] = {0.0f, 0.0f, 0.0f};    // Detuning in semitones (-12.0 to +12.0)
     float oscPulseWidth[3] = {0.5f, 0.5f, 0.5f};  // Pulse width for square waves (0.0-1.0)
@@ -100,9 +100,9 @@ struct VoiceConfig {
 
     // Filter settings
     float filterRes = 0.2f;                // Filter resonance (0.0-1.0)
-    float filterDrive = 1.8f;              // Filter drive amount (0.0-10.0)
-    float filterPassbandGain = 0.23f;      // Passband gain compensation (0.0-1.0)
-    daisysp::LadderFilter::FilterMode filterMode = daisysp::LadderFilter::FilterMode::LP24;
+    float filterDrive = 1.8f;              // Filter drive amount (0.0-4.0)
+    float filterPassbandGain = 0.23f;      // Passband gain compensation (0.0-0.5)
+    rpdsp::LadderFilter::Mode filterMode = rpdsp::LadderFilter::Mode::LP24;
     float highPassFreq = 80.0f;            // High-pass cutoff frequency in Hz (20.0-20000.0)
     float highPassRes = 0.1f;              // High-pass resonance (0.0-1.0)
 
@@ -474,8 +474,8 @@ float output = voiceManager.processAllVoices();
 // Create custom voice configuration
 VoiceConfig customConfig;
 customConfig.oscillatorCount = 2;
-customConfig.oscWaveforms[0] = daisysp::Oscillator::WAVE_POLYBLEP_SAW;
-customConfig.oscWaveforms[1] = daisysp::Oscillator::WAVE_POLYBLEP_SQUARE;
+customConfig.oscWaveforms[0] = WAVE_BSP_SAW;
+customConfig.oscWaveforms[1] = WAVE_BSP_SQUARE;
 customConfig.oscAmplitudes[0] = 0.7f;
 customConfig.oscAmplitudes[1] = 0.3f;
 customConfig.filterRes = 0.4f;
@@ -667,15 +667,15 @@ voiceSystem.muteAllVoices();
 
 The voice system depends on several external components that need to be verified:
 
-- **DaisySP library**: Required for oscillators, filters, envelope, and effects
-  - `daisysp::Oscillator`
-  - `daisysp::LadderFilter`
-  - `daisysp::Svf`
-  - `daisysp::Adsr`
-  - `daisysp::Overdrive`
-  - `daisysp::Wavefolder`
-  - `daisysp::WhiteNoise`
-  - `daisysp::mtof()` and `fmap()` functions
+- **rpdsp library** (vendored at `lib/rpdsp/`): Required for oscillators, filters, envelope, and effects
+  - `rpdsp::SecondOrderBSplineSawOscillator` / `SecondOrderBSplinePulseOscillator` (via `VoiceOscillator`)
+  - `rpdsp::LadderFilter`
+  - `rpdsp::StateVariableFilter`
+  - `rpdsp::ADSR`
+  - `rpdsp::Waveshaper` (overdrive)
+  - `rpdsp::Wavefolder`
+  - `rpdsp::NoiseOscillator`
+  - `rpdsp::midiNoteToHz()` and `rpdsp::fmap()` functions
 
 - **Scale data**: The system references external scale arrays:
   - `extern int scale[SCALES_COUNT][48]`
@@ -717,7 +717,7 @@ The system integrates with:
 
 ## Recommendations
 
-1. **Verify DaisySP Integration**: Ensure all DaisySP components are properly included and initialized
+1. **Verify rpdsp Integration**: Ensure all rpdsp components are properly included and initialized
 2. **Scale System Integration**: Confirm scale data arrays are properly defined and accessible
 3. **Memory Profiling**: Monitor RAM usage with multiple voices on target hardware
 4. **Performance Testing**: Verify real-time audio processing performance with maximum voice count

@@ -45,7 +45,8 @@ Here is what that audit found for Pico2Seq:
 
 | Module | Files | Reason |
 |--------|-------|--------|
-| `src/dsp/` | `adsr`, `ladder`, `svf`, `oscillator`, `overdrive`, `wavefolder`, ... | Only `<stdint.h>`, `<cmath>` — pure math |
+| `lib/rpdsp/` | header-only DSP library (`oscillator`, `ladder`, `filter`, `envelope`, `effects`, `wavefolder`, `DSPFunctions`, ...) | Only `<cmath>`/`<array>` — pure math |
+| `src/voice/VoiceOscillator.h` | waveform-id → rpdsp oscillator class dispatch | Header-only, pure math |
 | `src/sequencer/SequencerDefs.h` | constants, enums, `ParameterTrack<N>` template | Only `<stdint.h>`, `<variant>` |
 
 These compile on any C++17 host without modification.
@@ -276,17 +277,17 @@ That last point is important: test the *behaviour*, not just that the code doesn
 
 ```cpp
 TEST_CASE("Ladder filter attenuates above cutoff in LP24 mode", "[ladder]") {
-    daisysp::LadderFilter filt;
-    filt.Init(48000.0f);
-    filt.SetFreq(200.0f);  // cutoff at 200 Hz
-    filt.SetFilterMode(daisysp::LadderFilter::FilterMode::LP24);
+    rpdsp::LadderFilter filt;
+    filt.prepare(48000.0f);
+    filt.setFreq(200.0f);  // cutoff at 200 Hz
+    filt.setMode(rpdsp::LadderFilter::Mode::LP24);
 
     float sum_sq = 0.0f;
     const int N = 2048;
     for (int i = 0; i < N; ++i) {
         // Feed an 8 kHz signal — well above the 200 Hz cutoff
         float s = std::sin(2.0f * 3.14159f * 8000.0f * i / 48000.0f);
-        float out = filt.Process(s);
+        float out = filt.process(s);
         if (i > 512) sum_sq += out * out;  // skip filter transient
     }
     float rms = std::sqrt(sum_sq / (N - 512));
@@ -482,8 +483,7 @@ These modules currently have no tests and would benefit from them:
 |--------|-------------|
 | `src/voice/VoiceManager.cpp` | `addVoice()`, `processAllVoices()`, preset application |
 | `src/sequencer/Sequencer.cpp` — `advanceStep()` | Polyrhythmic step advancement with mock button states |
-| `src/dsp/tremolo.cpp` | Output modulation depth, frequency tracking |
-| `src/dsp/compressor.cpp` | Gain reduction on loud signals |
+| `lib/rpdsp` `Compressor` (used by VoiceManager, currently bypassed) | Gain reduction on loud signals |
 | `src/voice/VoicePresets.cpp` | Preset parameter ranges stay valid |
 
 ---
