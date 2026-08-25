@@ -11,8 +11,11 @@
 // which then makes the nested <rpdsp/...> headers resolvable.
 
 #pragma once
+#include "rpdsp/DSPFunctions.h"
 #include "rpdsp/algorithm.h"
+#include "rpdsp/analog_adsr.h"
 #include "rpdsp/analysis.h"
+#include "rpdsp/bbd_delay.h"
 #include "rpdsp/clock_tracker.h"
 #include "rpdsp/config.h"
 #include "rpdsp/control_surface.h"
@@ -21,6 +24,7 @@
 #include "rpdsp/effects.h"
 #include "rpdsp/envelope.h"
 #include "rpdsp/filter.h"
+#include "rpdsp/frequency_shifter.h"
 #include "rpdsp/gate_pattern.h"
 #include "rpdsp/hardware_interpolator.h"
 #include "rpdsp/hypersaw.h"
@@ -34,5 +38,7 @@
 #include "rpdsp/realtime.h"
 #include "rpdsp/rhythm_sequencer.h"
 #include "rpdsp/scale_table.h"
+#include "rpdsp/tape_delay.h"
 #include "rpdsp/voice.h"
+#include "rpdsp/wavefolder.h"
 #include "rpdsp/waveguide.h"
