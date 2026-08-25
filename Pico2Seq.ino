@@ -1,11 +1,11 @@
 #include "includes.h"
 #include "diagnostic.h"
-#include "src/dsp/dsp.h"
+#include "lib/rpdsp/src/rpdsp/delay_line.h"
 #include "RP2350.h"
 
 #include "src/voice/Voice.h"
 #include "src/utils/Debug.h"
-#include "src/scales/scales.h"
+#include "lib/pico2seq-core/scales/scales.h"
 #include "src/voice/VoicePresets.h"
 #include "src/voice/VoiceSystem.h"
 
@@ -45,8 +45,8 @@ std::unique_ptr<VoiceManager> voiceManager;
 VoiceSystem voiceSystem; // Consolidated voice system
 
 // Global Audio Effects (shared between voices)
-daisysp::Svf delLowPass;
-daisysp::DelayLine<float, MAX_DELAY_SAMPLES> del1;
+rpdsp::StateVariableFilter delLowPass;
+rpdsp::DelayLine<MAX_DELAY_SAMPLES> del1;
 float feedbackGain1 = 0.65f;
 float currentDelayOutputGain = 0.0f; // For smooth delay output fade
 float currentFeedbackGain = 0.0f;    // For smooth delay feedback fade
@@ -84,8 +84,6 @@ void initOscillators();
 
 void updateParametersForStep(uint8_t stepToUpdate);
 void onStepCallback(uint32_t uClockCurrentStep);
-void applyEnvelopeParameters(const VoiceState &state, daisysp::Adsr &env);
-float calculateFilterFrequency(float filterValue);
 void setupI2SAudio(audio_format_t *audioFormat, audio_i2s_config_t *i2sConfig);
 void setup();
 void setup1();
@@ -193,20 +191,18 @@ void onClockStop()
  */
 void initOscillators()
 {
-    // Initialize global delay effect low-pass filter
-    delLowPass.Init(SAMPLE_RATE);
-    delLowPass.SetFreq(1340.0f); // Delay low-pass filter frequency
-    delLowPass.SetRes(0.19f);    // Filter resonance
-    delLowPass.SetDrive(0.95f);  // Filter drive amount
+    // Initialize global delay effect low-pass filter.
+    // (rpdsp's SVF has no drive parameter; the old Svf drive is not carried over.)
+    delLowPass.prepare(SAMPLE_RATE);
+    delLowPass.setCutoff(1340.0f);  // Delay low-pass filter frequency
+    delLowPass.setResonance(0.19f); // Filter resonance
 
     // Initialize delay line
-    del1.Init();
-    del1.Reset(); // Clear any garbage in delay buffer
+    del1.reset(); // Clear any garbage in delay buffer
 
     // Set initial delay time (500ms)
     const float delayMs = 667.0f;
     size_t delaySamples = static_cast<size_t>(delayMs * SAMPLE_RATE * 0.001f);
-    del1.SetDelay(delaySamples);
 
     // Initialize delay target to match initial delay
     delayTarget = static_cast<float>(delaySamples);
@@ -277,35 +273,9 @@ void onOutputPPQNCallback(uint32_t tick)
 // =======================
 //   HELPER FUNCTIONS FOR VOICE PARAMETER CALCULATIONS
 // =======================
-
-/**
-
- * @param state Voice state containing normalized parameter values (0.0-1.0)
- * @param env DaisySP ADSR envelope to configure
- * Note: Voice index is 0..3 across the codebase.
- */
-void applyEnvelopeParameters(const VoiceState &state, daisysp::Adsr &env)
-{
-    float attack, release;
-
-    attack = daisysp::fmap(state.attackTimeSeconds, 0.005f, 0.75f, daisysp::Mapping::LINEAR);
-    release = daisysp::fmap(state.decayTimeSeconds, 0.001f, .8f, daisysp::Mapping::LINEAR);
-
-    env.SetDecayTime(.085f + (release * 0.35f));
-    env.SetAttackTime(attack);
-    env.SetReleaseTime(release);
-}
-
-/**
- * Calculate filter cutoff frequency with exponential scaling.
- * Range: 100Hz to 5710Hz provides musical filter sweep from bass to presence
- * @param filterValue Normalized filter value (0.0-1.0) from sequencer
- * @return Filter frequency in Hz
- */
-float calculateFilterFrequency(float filterValue)
-{
-    return daisysp::fmap(filterValue, 100.0f, 8010.0f, daisysp::Mapping::EXP);
-}
+// (Legacy applyEnvelopeParameters/calculateFilterFrequency helpers were removed:
+//  Voice::applyEnvelopeParameters() now owns ADSR mapping, and filter mapping
+//  lives in Voice::applyPendingParams_. Neither had any remaining call sites.)
 
 // --- Update Parameters for Step Editing ---
 void updateParametersForStep(uint8_t stepToUpdate) ///  This is the selected step for edit function
@@ -539,10 +509,10 @@ void onStepCallback(uint32_t uClockCurrentStep)
     int v3Distance = (uiState.selectedVoiceIndex == 2) ? mm : -1;
     int v4Distance = (uiState.selectedVoiceIndex == 3) ? mm : -1;
 
-    seq1.advanceStep(uClockCurrentStep, v1Distance, uiState, &tempState1);
-    seq2.advanceStep(uClockCurrentStep, v2Distance, uiState, &tempState2);
-    seq3.advanceStep(uClockCurrentStep, v3Distance, uiState, &tempState3);
-    seq4.advanceStep(uClockCurrentStep, v4Distance, uiState, &tempState4);
+    advanceSequencerStep(seq1, uClockCurrentStep, v1Distance, uiState, &tempState1);
+    advanceSequencerStep(seq2, uClockCurrentStep, v2Distance, uiState, &tempState2);
+    advanceSequencerStep(seq3, uClockCurrentStep, v3Distance, uiState, &tempState3);
+    advanceSequencerStep(seq4, uClockCurrentStep, v4Distance, uiState, &tempState4);
 
     // 3. Apply AS5600 base values per voice (only velocity/filter/attack/decay are affected)
     applyAS5600BaseValues(&tempState1, 0);
@@ -658,17 +628,16 @@ void fill_audio_buffer(audio_buffer_t *buffer)
 float processDelayEffect(float inputSignal)
 {
     // Read current delay output
-    float delayOutput = del1.Read();
+    float delayOutput = del1.readLinear(currentDelay);
 
     // Calculate feedback signal with current gain
     float feedbackSignal = delayOutput * currentFeedbackGain;
 
     // Apply low-pass filtering to feedback to prevent harsh artifacts
-    delLowPass.Process(feedbackSignal);
-    float filteredFeedback = delLowPass.Low();
+    float filteredFeedback = delLowPass.process(feedbackSignal).lowpass;
 
     // Write to delay line: dry input + filtered feedback (clamped at 75%)
-    del1.Write(inputSignal + (filteredFeedback * 0.75f));
+    del1.push(inputSignal + (filteredFeedback * 0.75f));
 
     // Mix dry and wet signals based on current delay output gain
     return inputSignal + (delayOutput * currentDelayOutputGain);

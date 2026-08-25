@@ -36,7 +36,6 @@ A powerful 4-voice polyphonic step sequencer for the Raspberry Pi Pico2 microcon
 ├── includes.h                # Library and header aggregator
 ├── src/
 │   ├── audio/                # I2S audio interface and buffering
-│   ├── dsp/                  # DSP building blocks (local DaisySP fork)
 │   ├── sequencer/            # 4-channel polymetric step sequencing
 │   ├── voice/                # VoiceSystem and synthesizer voices
 │   │   ├── VoiceSystem.h     # Central voice management (4 voices max)
@@ -93,7 +92,7 @@ A powerful 4-voice polyphonic step sequencer for the Raspberry Pi Pico2 microcon
 
 3. **Install Dependencies:**
    - All required libraries are standard Arduino libraries
-   - The project includes modified DaisySP files in `src/dsp/` (no external Daisy installation needed)
+   - All DSP comes from the vendored `lib/rpdsp/` header-only library (no DaisySP needed)
 
 4. **Compile and Upload:**
    - Verify the project compiles without errors
@@ -228,8 +227,8 @@ The system achieves sub-millisecond response times through:
 3. Test with different voice configurations
 
 **Custom Oscillators:**
-1. Implement oscillator class in `src/dsp/`
-2. Add waveform to `VoiceConfig` structure
+1. Add the oscillator class under `lib/rpdsp/src/rpdsp/`
+2. Add a waveform id + variant entry in `src/voice/VoiceOscillator.h`
 3. Update DSP processing in `Voice.cpp`
 
 ## Documentation

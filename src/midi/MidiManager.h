@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <MIDI.h>
 #include <Adafruit_TinyUSB.h>
-#include "../sequencer/SequencerDefs.h" // For VoiceState and GateTimer definitions
+#include "../../lib/pico2seq-core/sequencer/SequencerDefs.h" // For VoiceState and GateTimer definitions
 #include "MidiCCConfig.h"               // MIDI CC configuration constants
 
 // =======================

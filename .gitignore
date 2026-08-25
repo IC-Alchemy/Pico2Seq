@@ -22,3 +22,4 @@ build_test/
 .roo/rules-debug/AGENTS.md
 .roo/rules-orchestrator/rules.md
 AGENTS.md
+.zcode/

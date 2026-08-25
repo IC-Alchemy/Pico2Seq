@@ -1,12 +1,11 @@
 #include "AS5600Manager.h"
 #include <Arduino.h>
-#include "../sequencer/SequencerDefs.h"
-#include "../sequencer/Sequencer.h"
+#include "../../lib/pico2seq-core/sequencer/SequencerDefs.h"
+#include "../../lib/pico2seq-core/sequencer/Sequencer.h"
 #include "../ui/UIState.h"
 #include "as5600.h"
 #include <algorithm>
 #include <cmath>
-#include "../dsp/oscillator.h"
 #include "../voice/VoiceManager.h"
 
 // =======================
@@ -374,11 +373,11 @@ String formatParameterValueForDisplay(ParamId paramId, float value)
 
   case ParamId::Filter:
   {
-    int filterFrequencyHz = daisysp::fmap(
+    int filterFrequencyHz = rpdsp::fmap(
         value,
         SensorConstants::System::FILTER_FREQUENCY_MIN_HZ,
         SensorConstants::System::FILTER_FREQUENCY_MAX_HZ,
-        daisysp::Mapping::EXP);
+        rpdsp::Mapping::EXP);
     return String(filterFrequencyHz) + "Hz";
   }
 

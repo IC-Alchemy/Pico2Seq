@@ -1,9 +1,9 @@
 #include "ButtonHandlers.h"
 
 #include "../LEDMatrix/LEDMatrixFeedback.h"
-#include "../scales/scales.h"
-#include "../sequencer/Sequencer.h"
-#include "../sequencer/ShuffleTemplates.h"
+#include "../../lib/pico2seq-core/scales/scales.h"
+#include "../../lib/pico2seq-core/sequencer/Sequencer.h"
+#include "../../lib/pico2seq-core/sequencer/ShuffleTemplates.h"
 #include "../voice/VoiceManager.h"
 #include "../voice/VoiceSystem.h"
 #include "ButtonManager.h"
@@ -140,16 +140,23 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)
     Serial.println(config.hasWavefolder ? "ON" : "OFF");
     break;
   case 11:
-  { // Cycle through filterMode
-    int currentMode = static_cast<int>(config.filterMode);
-    currentMode = (currentMode + 1) % 5; // 5 filter modes
-    config.filterMode = static_cast<daisysp::LadderFilter::FilterMode>(currentMode);
+  { // Cycle through the shared filter-mode table (names and modes stay in sync)
+    int currentIndex = 0;
+    for (int i = 0; i < voiceui::kFilterModeCount; ++i)
+    {
+      if (config.filterMode == voiceui::kFilterModes[i])
+      {
+        currentIndex = i;
+        break;
+      }
+    }
+    const int nextIndex = (currentIndex + 1) % voiceui::kFilterModeCount;
+    config.filterMode = voiceui::kFilterModes[nextIndex];
 
-    const char *filterNames[] = {"LP12", "LP24", "LP36", "BP12", "BP24"};
     Serial.print("Voice ");
     Serial.print(displayVoiceNumber);
     Serial.print(" filter mode: ");
-    Serial.println(filterNames[currentMode]);
+    Serial.println(voiceui::kFilterModeNames[nextIndex]);
   }
   break;
   case 12:

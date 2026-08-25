@@ -1,8 +1,8 @@
 #pragma once
 
 #include "Voice.h"
-#include "../sequencer/Sequencer.h"
-#include "../dsp/compressor.h"
+#include "../../lib/pico2seq-core/sequencer/Sequencer.h"
+#include "../../lib/rpdsp/src/rpdsp/dynamics.h"
 #include <vector>
 #include <memory>
 #include <functional>
@@ -51,7 +51,7 @@ public:
 
     // Audio Processing
     void init(float sampleRate);
-    float processAllVoices();
+    float processAllVoices() noexcept;
     float processVoice(uint8_t voiceId);
 
     // Voice Control
@@ -111,14 +111,9 @@ private:
     float sampleRate;
     float globalVolume;
 
-    // Dynamics processing
-    daisysp::Compressor compressor;
-    // To reduce CPU cost and avoid per-sample compressor state updates (which can
-    // compound artifacts), update compressor internal state every N samples and
-    // use compressor.Apply() (a single multiply) on the remaining samples.
-    // Pick a small interval (8) to preserve responsiveness while reducing load.
-    uint8_t compressorUpdateInterval = 8; // update compressor internals every 8 samples
-    uint8_t compressorUpdateCounter = 0;  // rolling counter used in realtime processing
+    // Dynamics processing (configured but currently bypassed in the mix path;
+    // see processAllVoices())
+    rpdsp::Compressor compressor;
 
     // Callbacks
     VoiceCountCallback voiceCountCallback;
