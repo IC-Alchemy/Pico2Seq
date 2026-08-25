@@ -19,13 +19,14 @@ VoiceManager::VoiceManager(uint8_t maxVoices)
 {
     voices.reserve(maxVoiceCount);
 
-    // Initialize compressor with default settings for a tight, punchy mix
-    compressor.Init(sampleRate);
-    compressor.SetThreshold(-16.0f);
-    compressor.SetRatio(1.5f);
-    compressor.SetAttack(0.050f);  // 50 ms
-    compressor.SetRelease(0.012f); // 1 ms
-    compressor.AutoMakeup(true);
+    // Initialize compressor with default settings for a tight, punchy mix.
+    // rpdsp's compressor takes explicit makeup gain instead of auto-makeup;
+    // the values below approximate the old AutoMakeup(true) behavior.
+    compressor.prepare(sampleRate);
+    compressor.setThresholdDb(-16.0f);
+    compressor.setRatio(1.5f);
+    compressor.setAttackRelease(50.0f, 12.0f);  // attack ms, release ms
+    compressor.setMakeupGainDb(5.0f);
 
     DBG_INFO("VoiceManager: constructed maxVoices=%u", maxVoices);
 }
@@ -326,12 +327,11 @@ void VoiceManager::init(float sr)
     sampleRate = sr;
 
     // Reinitialize compressor for new sample rate and reapply settings
-    compressor.Init(sampleRate);
-    compressor.SetThreshold(-15.0f);
-    compressor.SetRatio(2.0f);
-    compressor.SetAttack(0.002f);  // 2 ms
-    compressor.SetRelease(0.050f); // 200 ms
-    compressor.AutoMakeup(true);
+    compressor.prepare(sampleRate);
+    compressor.setThresholdDb(-15.0f);
+    compressor.setRatio(2.0f);
+    compressor.setAttackRelease(2.0f, 50.0f);   // attack ms, release ms
+    compressor.setMakeupGainDb(7.0f);
 
     DBG_INFO("VoiceManager: init sampleRate=%.1f", sr);
     for (auto &managedVoice : voices)
@@ -372,32 +372,11 @@ float VoiceManager::processAllVoices() noexcept
 
     return mixedOutput * globalVolume;
     /*
-         // Efficient compressor usage:
-         // - Update compressor internal state (envelope/gain) every compressorUpdateInterval samples
-         //   by calling Process(). That updates the internal gain_.
-         // - On intermediate samples call Apply(), which is a single multiply by the current gain.
-         float compressed = mixedOutput;
-         if (compressorUpdateInterval == 0)
-         {
-             // Defensive: if interval disabled, update every sample (legacy behavior)
-             compressed = compressor.Process(mixedOutput);
-         }
-         else
-         {
-             if (compressorUpdateCounter == 0)
-             {
-                 // Update compressor internals (more expensive) once every interval
-                 compressed = compressor.Process(mixedOutput);
-             }
-             else
-             {
-                 // Apply current gain (cheap)
-                 compressed = compressor.Apply(mixedOutput);
-             }
-
-             // Increment and wrap the counter
-             compressorUpdateCounter = (compressorUpdateCounter + 1) % compressorUpdateInterval;
-         }
+         // Master-bus compression (currently disabled, matching the pre-rpdsp
+         // behavior). If enabled, call rpdsp::Compressor::process() per sample
+         // on the master mix — its dB-domain detection costs two libm
+         // transcendentals per sample, which is fine for a single bus instance.
+         float compressed = compressor.process(mixedOutput);
 
          // Final global volume and hard clamp to safe output range
          return compressed * globalVolume;
