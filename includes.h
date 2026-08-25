@@ -10,17 +10,10 @@
 #include <Adafruit_SH110X.h>
 
 
-// Audio and DSP
+// Audio and DSP (voice DSP comes from lib/rpdsp via src/voice/Voice.h)
 #include "src/audio/audio.h"
 #include "src/audio/audio_i2s.h"
-#include "src/dsp/adsr.h"
-#include "src/dsp/ladder.h"
-#include "src/dsp/svf.h"
-#include "src/dsp/oscillator.h"
-#include "src/dsp/delayline.h"
 #include "lib/pico2seq-core/scales/scales.h"
-#include "src/dsp/wavefolder.h"
-#include "src/dsp/overdrive.h"
 
 // Matrix and Sequencer
 #include "src/matrix/Matrix.h"

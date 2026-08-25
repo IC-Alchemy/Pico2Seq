@@ -459,7 +459,7 @@ String OLEDDisplay::formatParameterValue(ParamId paramId, float value)
 
   case ParamId::Filter:
   {
-    int filterFreq = daisysp::fmap(value, 100.0f, 6710.0f, daisysp::Mapping::EXP);
+    int filterFreq = rpdsp::fmap(value, 100.0f, 6710.0f, rpdsp::Mapping::EXP);
     return String((int)(filterFreq)) + "Hz";
   }
 

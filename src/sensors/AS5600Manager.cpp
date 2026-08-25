@@ -6,7 +6,6 @@
 #include "as5600.h"
 #include <algorithm>
 #include <cmath>
-#include "../dsp/oscillator.h"
 #include "../voice/VoiceManager.h"
 
 // =======================
@@ -374,11 +373,11 @@ String formatParameterValueForDisplay(ParamId paramId, float value)
 
   case ParamId::Filter:
   {
-    int filterFrequencyHz = daisysp::fmap(
+    int filterFrequencyHz = rpdsp::fmap(
         value,
         SensorConstants::System::FILTER_FREQUENCY_MIN_HZ,
         SensorConstants::System::FILTER_FREQUENCY_MAX_HZ,
-        daisysp::Mapping::EXP);
+        rpdsp::Mapping::EXP);
     return String(filterFrequencyHz) + "Hz";
   }
 

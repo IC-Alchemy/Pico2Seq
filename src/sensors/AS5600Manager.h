@@ -4,15 +4,12 @@
 #include "as5600.h"
 #include "SensorConstants.h"
 #include "../../lib/pico2seq-core/sequencer/SequencerDefs.h"
-#include "../dsp/oscillator.h"
+#include "../../lib/rpdsp/src/rpdsp/algorithm.h" // fmap/Mapping for filter Hz display
 #include "../ui/UIState.h"
 
 // Forward declarations
 class AS5600Sensor;
 struct VoiceState;
-namespace daisysp {
-  class Oscillator;
-}
 
 /**
  * @brief Flash speed zones for dynamic boundary proximity feedback

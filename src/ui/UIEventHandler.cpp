@@ -42,8 +42,7 @@ namespace UIEventConstants
   static constexpr uint8_t VOICE_PARAM_BUTTON_MIN = 8;
   static constexpr uint8_t VOICE_PARAM_BUTTON_MAX = 24;
 
-  // Filter mode cycling constants
-  static constexpr int FILTER_MODE_COUNT = 5;
+  // Filter mode cycling constants (mode list lives in voiceui::kFilterModes)
   static constexpr float FILTER_RESONANCE_STEP = 0.025f;
   static constexpr float FILTER_RESONANCE_MAX = 1.0f;
   static constexpr float FILTER_RESONANCE_MIN = 0.0f;
@@ -683,15 +682,23 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
 
   case 11: // Cycle filter mode
   {
-    int currentFilterMode = static_cast<int>(voiceConfig.filterMode);
-    currentFilterMode = (currentFilterMode + 1) % UIEventConstants::FILTER_MODE_COUNT;
-    voiceConfig.filterMode = static_cast<daisysp::LadderFilter::FilterMode>(currentFilterMode);
+    // Cycle through the shared filter-mode table (names and modes stay in sync)
+    int currentIndex = 0;
+    for (int i = 0; i < voiceui::kFilterModeCount; ++i)
+    {
+      if (voiceConfig.filterMode == voiceui::kFilterModes[i])
+      {
+        currentIndex = i;
+        break;
+      }
+    }
+    const int nextIndex = (currentIndex + 1) % voiceui::kFilterModeCount;
+    voiceConfig.filterMode = voiceui::kFilterModes[nextIndex];
 
-    const char *filterModeNames[] = {"LP12", "LP24", "LP36", "BP12", "BP24"};
     Serial.print("Voice ");
     Serial.print(displayVoiceNumber);
     Serial.print(" filter mode: ");
-    Serial.println(filterModeNames[currentFilterMode]);
+    Serial.println(voiceui::kFilterModeNames[nextIndex]);
   }
   break;
 
