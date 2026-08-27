@@ -93,7 +93,7 @@ A powerful 4-voice polyphonic step sequencer for the Raspberry Pi Pico2 microcon
 
 3. **Install Dependencies:**
    - All required libraries are standard Arduino libraries
-   - The project includes modified DaisySP files in `src/dsp/` (no external Daisy installation needed)
+
 
 4. **Compile and Upload:**
    - Verify the project compiles without errors
@@ -205,7 +205,7 @@ struct VoiceSystem {
 
 **Core 1 (UI):**
 - Touch matrix scanning and debouncing
-- Sensor input processing (AS5600, VL53L1X)
+- Sensor input processing (TMAG5273, VL53L1X)
 - OLED and LED matrix updates
 - UI state management and button handling
 
@@ -226,11 +226,6 @@ The system achieves sub-millisecond response times through:
 1. Define new preset configuration in `VoicePresets.cpp`
 2. Update preset count and enum in `VoicePresets.h`
 3. Test with different voice configurations
-
-**Custom Oscillators:**
-1. Implement oscillator class in `src/dsp/`
-2. Add waveform to `VoiceConfig` structure
-3. Update DSP processing in `Voice.cpp`
 
 ## Documentation
 
