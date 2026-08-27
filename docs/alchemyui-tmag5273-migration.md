@@ -82,14 +82,14 @@ as the AS5600 (its CORDIC angle engine is described as working "on an on-axis ro
 `getMagnitude()` stays constant through a turn) — worth confirming against the Velocity Encoder
 board's own documentation/silkscreen rather than assuming.
 
-## 2. The one design decision everything else hangs on: 32 buttons → 20 buttons
+## 2. Decided: 32 buttons → 20 buttons via consolidation into existing modes
 
 The current UI has 32 distinct button *functions*. AlchemyUI's hardware ceiling is 20 logical
-buttons. This is not a driver-swap problem — it's a UI redesign that has to happen before or
-during Phase 2, and the answer changes how much of `ButtonHandlers.cpp` / `UIEventHandler.cpp`
-gets rewritten. A straight 1:1 port is not possible.
+buttons. **Decision (confirmed with the user): consolidate the five orphaned functions into
+existing modes rather than hunting for new physical slots or gestures.** A straight 1:1 port was
+never possible; this is the chosen resolution.
 
-Direct matches (no decision needed):
+Direct matches (unchanged from mpr121 today):
 
 | Current (mpr121, index) | AlchemyUI (`Btn`) |
 |---|---|
@@ -98,16 +98,23 @@ Direct matches (no decision needed):
 | Voice switch (24) | `Voice` |
 | Scale change (27) | `Scale` |
 | Swing/shuffle pattern (29) | `Shuffle` |
-| Step pads (0–15, 16 of them) | `Step1`–`Step8` (8 of them) + `Page` to flip banks |
+| Step pads (0–15, 16 of them) | `Step1`–`Step8` (8 of them), short-press `Page` flips the bank |
 
-No slot exists for these five, and each needs a decision: slide-mode toggle (22), delay on/off
-(23), the dedicated encoder-target-cycle button (25 — note `autoSelectAS5600Parameter` already
-auto-selects the target whenever a param button is held, so the *dedicated* cycle button may be
-closer to a convenience than a hard requirement), LED theme change (28), and the second randomize
-button (30/31 currently cover 4 voices two-at-a-time via a "page" flag; with only one `Random`
-slot, "randomize the currently-selected voice" is both simpler and arguably better than the
-current scheme). §5 below lays out a proposed consolidation; it is a proposal, not a decision —
-see §6.
+The five functions with no direct slot, and where each lands:
+
+| Orphaned function (old index) | New home |
+|---|---|
+| Slide-mode toggle (22) | New Settings-mode menu item (Settings is already a stopped-state, step-pad-navigated menu — see Phase 2 notes below) |
+| Delay on/off (23) | New Settings-mode menu item |
+| LED theme change (28) | New Settings-mode menu item |
+| Dedicated encoder-target-cycle button (25) | Dropped as a dedicated slot. `autoSelectEncoderParameter` (renamed from `autoSelectAS5600Parameter`, §5) already auto-selects the encoder's target whenever a Note/Velocity/Filter/Attack/Decay button is held — that mechanism becomes the *only* way to change the target, which covers every case except Octave/Slide/DelayTime. Flagging this as the one real behavior loss: today's dedicated cycle button can reach all 7 targets (incl. Octave, DelayTime, SlideTime); auto-select alone can only reach 5. Worth a bench sanity-check once Phase 2 lands — if Octave/DelayTime/SlideTime turn out to matter in practice, `Btn::Page` long-press is the natural fallback slot. |
+| Gate-sequence-length mode entry (was: long-press on old button 25) | Proposed: long-press `Btn::Page` (otherwise only used for the short-press step-bank flip, so a long-press is free) |
+| Randomize, paged across 2 buttons for 4 voices (30/31) | Single `Btn::Random`: short press randomizes the *currently selected* voice (`uiState.selectedVoiceIndex`), long press resets it — same short/long behavior as today, just retargeted at whichever voice is selected instead of a fixed pair |
+
+The exact step-pad layout of the new Settings-mode menu items (slide/delay/theme) is an
+implementation-time detail, not a blocking design question — Settings mode already has an
+8-item menu (`settingsMenuIndex`) and a sub-mode split (`PRESET_SELECTION` / `VOICE_PARAMETER`),
+so these three just need slots in that existing structure.
 
 ## 3. Second design decision: event model (bigger effort lever than it looks)
 
@@ -125,20 +132,16 @@ and mode-dependent reinterpretation of the same index (§1). There are two hones
   detection in `ButtonManager`/`UIEventHandler`. Cleaner end state, touches the most files, largest
   chance of introducing a behavior regression in logic nobody has re-tested (no test coverage here,
   see §1) since so much of it is being rewritten at once.
-- **B — adapter shim (recommended for the first pass).** Each `loop1()` tick, diff every
+- **B — adapter shim. Decided: adopting this for the first pass.** Each `loop1()` tick, diff every
   `AlchemyPanel` button's `pressEdge()`/`releaseTap()` against its previous state and synthesize the
   *existing* `MatrixButtonEvent{buttonIndex, type}` calls into the *unchanged*
-  `matrixEventHandler()`. This confines the new-hardware integration to one small new file
-  (e.g. `src/ui/AlchemyInputAdapter.cpp`) that maps each `Btn` to a chosen synthetic 0–31 index,
-  and leaves ~1500 lines of already-working, mode-aware logic untouched. The cost: it's a slightly
-  impedance-mismatched design (AlchemyUI's native long-press support goes unused, since the
-  existing timestamp-based detection already does that job), and the 32→20 mapping decision (§2)
-  still has to be made — the adapter just makes it "which `Btn` produces which synthetic index"
-  instead of "rewrite three files."
-
-Recommendation: **B for the initial migration**, A as a deliberate follow-up cleanup once the
-hardware path is proven on the bench. This is a recommendation, not something I've assumed — it's
-one of the questions below.
+  `matrixEventHandler()`. This confines the new-hardware integration to one small new file,
+  `src/ui/AlchemyInputAdapter.cpp`, that maps each `Btn` to a chosen synthetic 0–31 index per the
+  §2 table, and leaves ~1500 lines of already-working, mode-aware logic untouched. The cost: it's
+  a slightly impedance-mismatched design (AlchemyUI's native long-press support goes unused, since
+  the existing timestamp-based detection already does that job) — accepted as worthwhile for a
+  lower-risk first cut. Option A stays on the table as a deliberate follow-up cleanup once the
+  hardware path is proven on the bench (Phase 0), not part of this pass.
 
 ## 4. Phase 0 — bench checks (do before writing Phase 2 code)
 
@@ -176,29 +179,55 @@ rewriting logic.
 - `docs/sensors.md`, `README.md` (hardware list + wiring table), `AGENTS.md`/`CLAUDE.md`: update
   AS5600 → TMAG5273 (address 0x36 → 0x22, note the shared-bus clock requirement from §4.2).
 
-**Naming decision (see §6):** every identifier above keeps the literal string "AS5600"
-(`AS5600ParameterMode`, `AS5600BaseValues`, `AS5600Manager`, `applyAS5600BaseValues`,
-`as5600ControlPressTime`, ...) even after the sensor underneath is a TMAG5273. That's not a bug —
-it's a scope choice: renaming ~15 files' worth of identifiers to something sensor-neutral is a
-larger, purely-cosmetic diff on top of the functional swap above, and it's your call whether to
-do it now or later.
+**Naming decision: rename now, as part of this same change.** Every `AS5600`-prefixed identifier
+gets renamed to a sensor-neutral equivalent so the code doesn't keep saying "AS5600" once the
+sensor underneath is a TMAG5273. `Encoder` is the chosen replacement prefix (matches `MagEncoder`'s
+own vocabulary). This is a straightforward, mechanical, but wide-reaching rename — do it as one
+dedicated commit, separate from the functional sensor-swap commit, so a regression is easy to
+bisect. Full table:
+
+| Old identifier | New identifier | Where |
+|---|---|---|
+| `AS5600ParameterMode` (enum) | `EncoderParameterMode` | `SequencerDefs.h` |
+| `AS5600BaseValues` / `AS5600BaseValuesVoice1` (structs) | `EncoderBaseValues` / `EncoderBaseValuesVoice1` | `SequencerDefs.h` |
+| `src/sensors/AS5600Manager.cpp/h` | `src/sensors/EncoderManager.cpp/h` | file rename |
+| `as5600Sensor` (global `AS5600Sensor`) | `magEncoder` (global `MagEncoder`, per Phase 1 above) | `Pico2Seq.ino` |
+| `as5600BaseValuesVoice1` / `as5600BaseValuesVoice2` | `encoderBaseValuesVoice1` / `encoderBaseValuesVoice2` | `EncoderManager.cpp` |
+| `applyIncrementToParameter` | unchanged (already sensor-neutral) | `EncoderManager.cpp/h` |
+| `updateAS5600BaseValues` / `updateAS5600StepParameterValues` | `updateEncoderBaseValues` / `updateEncoderStepParameterValues` | `EncoderManager.cpp/h` |
+| `applyAS5600BaseValues` / `applyAS5600DelayValues` / `applyAS5600SlideTimeValues` | `applyEncoderBaseValues` / `applyEncoderDelayValues` / `applyEncoderSlideTimeValues` | `EncoderManager.cpp/h` |
+| `getAS5600BaseValueRange` / `clampAS5600BaseValue` | `getEncoderBaseValueRange` / `clampEncoderBaseValue` | `EncoderManager.cpp/h` |
+| `convertAS5600ParameterToParamId` | `convertEncoderParameterToParamId` | `EncoderManager.cpp/h` |
+| `resetAS5600BaseValues` / `initAS5600BaseValues` | `resetEncoderBaseValues` / `initEncoderBaseValues` | `EncoderManager.cpp/h` |
+| `getAS5600ParameterValue` | `getEncoderParameterValue` | `EncoderManager.cpp` |
+| `BUTTON_AS5600_CONTROL` | `BUTTON_ENCODER_CONTROL` | `UIConstants.h` |
+| `uiState.currentAS5600Parameter` | `uiState.currentEncoderParameter` | `UIState.h` |
+| `uiState.lastAS5600ButtonPressTime` | `uiState.lastEncoderButtonPressTime` | `UIState.h` |
+| `uiState.as5600ControlPressTime` / `as5600ControlWasPressed` | `uiState.encoderControlPressTime` / `encoderControlWasPressed` | `UIState.h` |
+| `handleAS5600ControlButton` / `cycleAS5600Parameter` / `autoSelectAS5600Parameter` / `handleAS5600ParameterControl` | `handleEncoderControlButton` / `cycleEncoderParameter` / `autoSelectEncoderParameter` / `handleEncoderParameterControl` | `ButtonHandlers.cpp`, `UIEventHandler.cpp` |
+
+`SensorConstants::MagneticEncoder` (the namespace of range/threshold constants in
+`SensorConstants.h`) is left as-is — it's already sensor-neutral and doesn't mention AS5600.
 
 ## 6. Phase 2 — button matrix swap (mpr121 → AlchemyUI), higher risk, do second
 
-Gated on Phase 0.1 (which tiles actually respond) and on the two decisions in §2/§3 being made.
-Sketch of the work once those are decided:
+Gated only on Phase 0.1 now (which tiles actually respond on the bench) — the design decisions
+that used to block this (§2, §3) are settled. Sketch of the work:
 
 - Remove `Adafruit_MPR121 touchSensor`, its `#include <Adafruit_MPR121.h>`, `touchSensor.begin(0x5A)`
   + threshold config, `Matrix_init`/`Matrix_scan`/`Matrix_setEventHandler` calls from `Pico2Seq.ino`.
 - Add `AlchemyPanel panel;`, `panel.begin(Wire, /*bankB=*/nullptr or &Wire1, millis())` in `setup1()`
   (bank B only needed if the rig actually uses two Qwiic buses — confirm during Phase 0.1),
-  `panel.update(millis())` replacing `Matrix_scan()` in `loop1()`.
-- Implement whichever of §3's Option A or B was chosen. If B: write the small adapter that
-  produces `MatrixButtonEvent`s from `TileButton` edges using the §2 mapping table.
-- If A: rewrite `ButtonHandlers.cpp`/`UIEventHandler.cpp`/`ButtonManager.cpp` against `Btn` and
-  `TileButton` directly, including re-deriving the mode-reuse behavior enumerated in §1 (settings
-  mode, voice-parameter mode, slide mode, gate-seq-length mode all currently reinterpret the same
-  raw indices contextually — that behavior needs to be preserved deliberately, not lost by omission).
+  `panel.update(millis())` replacing `Matrix_scan()` in `loop1()`. Also add the
+  `Wire.setClock(400000)` call from §4.2, ahead of `panel.begin()`.
+- Write `src/ui/AlchemyInputAdapter.cpp` (§3, Option B): each `loop1()` tick, for every `Btn` in
+  the §2 mapping table, compare `panel.button(Btn::X).pressEdge()`/`.releaseTap()` against last
+  tick's state and call the existing `matrixEventHandler()` with a synthesized
+  `MatrixButtonEvent{syntheticIndex, PRESSED/RELEASED}` — `ButtonHandlers.cpp`,
+  `UIEventHandler.cpp`, and `ButtonManager.cpp` stay untouched apart from the renames in §5 and
+  the retargeted `Random`/gate-seq-length/Settings-menu logic from §2.
+- Wire the three new Settings-mode menu items (slide/delay/theme, per §2) and the `Btn::Page`
+  long-press → gate-seq-length-mode entry into the existing Settings/`ButtonHandlers` logic.
 - `LEDMatrixFeedback.cpp`/`UIState.h`: fields like `flash23Until`/`flash25Until`/`flash31Until` are
   named after old button indices but drive on-screen indicators on the *separate* 8×8 WS2812 LED
   grid (confirmed via README: touch matrix and LED matrix are listed as two distinct pieces of
@@ -223,14 +252,20 @@ Sketch of the work once those are decided:
   compile + flash + hands-on test on the real hardware. I can't do that step; the bench checks in
   §4 are the closest substitute available before that point.
 
-## 8. Open decisions before implementation starts
+## 8. Decisions log
 
-1. **Button consolidation (§2).** Confirm or redirect the proposed mapping — specifically what
-   happens to slide-toggle, delay-toggle, the dedicated encoder-cycle button, theme-change, and
-   the voice-paged randomize scheme.
-2. **Event-model approach (§3).** Adapter shim (B, recommended for pass one) vs. native rewrite (A).
-3. **Naming scope (§5).** Keep `AS5600`-prefixed identifiers as-is (minimal diff) or rename to
-   sensor-neutral names as part of this same change.
-4. **Phase 0 bench results.** How many of the 5 AlchemyUI tiles are physically present and running
-   confirmed-working firmware today — this may itself force a scoped-down first cut of §2's mapping
-   if, e.g., only the slider+button tile answers right now.
+| Decision | Outcome |
+|---|---|
+| Button consolidation (§2) | Consolidate into existing modes: slide/delay/theme → new Settings-mode menu items; encoder-cycle → drops to auto-select-only (one known capability gap: Octave/DelayTime/SlideTime targets become unreachable without a dedicated button — flagged in §2 for a bench sanity-check); randomize → single button, retargeted at the currently-selected voice |
+| Event-model approach (§3) | Adapter shim (Option B) for this pass — `AlchemyInputAdapter.cpp` synthesizes the existing `MatrixButtonEvent` calls; native rewrite (Option A) deferred to a later cleanup |
+| Naming scope (§5) | Rename now, in the same change — full `AS5600` → `Encoder` identifier table in §5 |
+
+## 9. Still open — resolve on the bench, not on paper
+
+**Phase 0 bench results.** How many of the 5 AlchemyUI tiles are physically present and running
+confirmed-working firmware today. This is the one item in this whole plan I can't resolve by
+reading source — it needs the standalone `AlchemyPanelTest`-style sketch from §4.1 run against the
+real hardware. If it turns out only the slider+button tile answers right now, Phase 2's `Step1-8`/
+`Note..Octave` pad-side buttons won't be testable yet even though the software side is done —
+worth running this check *before* writing Phase 2 code, not after, so the mapping in §2 can be
+scoped down deliberately if needed rather than discovered broken during bring-up.
