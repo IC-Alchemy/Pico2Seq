@@ -14,9 +14,9 @@ namespace VoicePresets
       {
         VoiceConfig &config = p[0];
         config.oscillatorCount = 3;
-        config.oscWaveforms[0] = daisysp::Oscillator::WAVE_POLYBLEP_SAW;
-        config.oscWaveforms[1] = daisysp::Oscillator::WAVE_POLYBLEP_SAW;
-        config.oscWaveforms[2] = daisysp::Oscillator::WAVE_POLYBLEP_SAW;
+        config.oscWaveforms[0] = WAVE_BSP_SAW;
+        config.oscWaveforms[1] = WAVE_BSP_SAW;
+        config.oscWaveforms[2] = WAVE_BSP_SAW;
         config.oscAmplitudes[0] = .5f;
         config.oscAmplitudes[1] = .25f;
         config.oscAmplitudes[2] = .25f;
@@ -29,7 +29,7 @@ namespace VoicePresets
 
         config.filterRes = 0.33f;
         config.filterDrive = 3.1f;
-        config.filterMode = daisysp::LadderFilter::FilterMode::LP24;
+        config.filterMode = rpdsp::LadderFilter::Mode::LP24;
         config.filterPassbandGain = 0.23f;
         config.highPassFreq = 150.0f;
 
@@ -51,8 +51,9 @@ namespace VoicePresets
       {
         VoiceConfig &config = p[1];
         config.oscillatorCount = 2;
-        config.oscWaveforms[0] = daisysp::Oscillator::WAVE_POLYBLEP_SQUARE;
-        config.oscWaveforms[1] = daisysp::Oscillator::WAVE_POLYBLEP_TRI;
+        config.oscWaveforms[0] = WAVE_BSP_SQUARE;
+        config.oscWaveforms[1] = // Naive triangle: continuous waveform, band-limited enough without splines
+        WAVE_TRI;
 
         config.oscAmplitudes[0] = .75f;
         config.oscAmplitudes[1] = 1.f;
@@ -65,7 +66,7 @@ namespace VoicePresets
         config.filterPassbandGain = 0.25f;
         config.highPassFreq = 111.0f;
         config.highPassRes = 0.15f;
-        config.filterMode = daisysp::LadderFilter::FilterMode::LP12; // Low-pass filter
+        config.filterMode = rpdsp::LadderFilter::Mode::LP12; // Low-pass filter
 
         config.hasOverdrive = false;
         config.hasWavefolder = false;
@@ -83,8 +84,9 @@ namespace VoicePresets
       {
         VoiceConfig &config = p[2];
         config.oscillatorCount = 2;
-        config.oscWaveforms[0] = daisysp::Oscillator::WAVE_CHEAP_SIN;
-        config.oscWaveforms[1] = daisysp::Oscillator::WAVE_POLYBLEP_TRI;
+        config.oscWaveforms[0] = WAVE_SIN;
+        config.oscWaveforms[1] = // Naive triangle: continuous waveform, band-limited enough without splines
+        WAVE_TRI;
         config.oscAmplitudes[0] = 1.f;
         config.oscAmplitudes[1] = 1.f;
         config.oscDetuning[0] = -12.0f;
@@ -96,7 +98,7 @@ namespace VoicePresets
         config.filterDrive = 2.f;
         config.filterPassbandGain = 0.12f;
         config.highPassFreq = 85.0f; // Lower for bass
-        config.filterMode = daisysp::LadderFilter::FilterMode::LP12;
+        config.filterMode = rpdsp::LadderFilter::Mode::LP12;
         config.hasWavefolder = false;
         config.hasOverdrive = false;
         config.overdriveGain = 0.95f;
@@ -113,8 +115,8 @@ namespace VoicePresets
       {
         VoiceConfig &config = p[3];
         config.oscillatorCount = 2;
-        config.oscWaveforms[0] = daisysp::Oscillator::WAVE_POLYBLEP_SAW;
-        config.oscWaveforms[1] = daisysp::Oscillator::WAVE_POLYBLEP_SAW;
+        config.oscWaveforms[0] = WAVE_BSP_SAW;
+        config.oscWaveforms[1] = WAVE_BSP_SAW;
         config.oscAmplitudes[0] = .6f;
         config.oscAmplitudes[1] = .4f;
         config.oscDetuning[0] = 0.0f;
@@ -127,7 +129,7 @@ namespace VoicePresets
         config.filterDrive = 3.f;
         config.filterPassbandGain = 0.23f;
         config.highPassFreq = 160.0f;
-        config.filterMode = daisysp::LadderFilter::FilterMode::LP12;
+        config.filterMode = rpdsp::LadderFilter::Mode::LP12;
         config.hasOverdrive = false;
         config.hasWavefolder = false;
         config.overdriveGain = 0.7f;
@@ -145,7 +147,7 @@ namespace VoicePresets
       {
         VoiceConfig &config = p[4];
         config.oscillatorCount = 1;
-        config.oscWaveforms[0] = daisysp::Oscillator::WAVE_POLYBLEP_SQUARE;
+        config.oscWaveforms[0] = WAVE_BSP_SQUARE;
         config.oscAmplitudes[0] = 1.f;
         config.harmony[0] = 0; // Root note
         config.oscPulseWidth[0] = 0.2f;
@@ -154,7 +156,7 @@ namespace VoicePresets
         config.filterDrive = 3.3f;
         config.filterPassbandGain = 0.33f;
         config.highPassFreq = 150.0f;
-        config.filterMode = daisysp::LadderFilter::FilterMode::LP24;
+        config.filterMode = rpdsp::LadderFilter::Mode::LP24;
         config.hasOverdrive = false;
         config.hasWavefolder = false;
         config.overdriveGain = 0.75f;
@@ -173,9 +175,9 @@ namespace VoicePresets
       {
         VoiceConfig &config = p[5];
         config.oscillatorCount = 3;
-        config.oscWaveforms[0] = daisysp::Oscillator::WAVE_POLYBLEP_SAW;
-        config.oscWaveforms[1] = daisysp::Oscillator::WAVE_POLYBLEP_SAW;
-        config.oscWaveforms[2] = daisysp::Oscillator::WAVE_POLYBLEP_SAW;
+        config.oscWaveforms[0] = WAVE_BSP_SAW;
+        config.oscWaveforms[1] = WAVE_BSP_SAW;
+        config.oscWaveforms[2] = WAVE_BSP_SAW;
         config.oscAmplitudes[0] = 0.33f;
         config.oscAmplitudes[1] = 0.33f;
         config.oscAmplitudes[2] = 0.33f;
@@ -188,7 +190,7 @@ namespace VoicePresets
         config.filterPassbandGain = 0.23f;
         config.highPassFreq = 140.0f;
         config.highPassRes = 0.08f;
-        config.filterMode = daisysp::LadderFilter::FilterMode::LP12;
+        config.filterMode = rpdsp::LadderFilter::Mode::LP12;
 
         config.hasOverdrive = false;
         config.hasWavefolder = false;
@@ -207,14 +209,14 @@ namespace VoicePresets
       {
         VoiceConfig &config = p[6];
         config.oscillatorCount = 0;                       // No oscillators, only noise
-        config.oscWaveforms[0] = VoiceConfig::WAVE_NOISE; // Use noise for percussive texture
+        config.oscWaveforms[0] = WAVE_NOISE;             // Use noise for percussive texture
         config.oscAmplitudes[0] = 1.f;
 
         config.filterRes = 0.4f;
         config.filterDrive = 2.3f;
         config.filterPassbandGain = 0.33f;
         config.highPassFreq = 200.0f;
-        config.filterMode = daisysp::LadderFilter::FilterMode::LP24;
+        config.filterMode = rpdsp::LadderFilter::Mode::LP24;
 
         config.hasOverdrive = false; 
         config.overdriveGain = 0.45f;

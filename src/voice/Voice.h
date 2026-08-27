@@ -1,14 +1,14 @@
 #pragma once
 
-#include "../dsp/oscillator.h"
-#include "../dsp/ladder.h"
-#include "../dsp/svf.h"
-#include "../dsp/adsr.h"
-#include "../dsp/overdrive.h"
-#include "../dsp/wavefolder.h"
-#include "../dsp/whitenoise.h"
-#include "../sequencer/Sequencer.h"
-#include "../sequencer/SequencerDefs.h"
+#include "VoiceOscillator.h"
+#include "../../lib/rpdsp/src/rpdsp/ladder.h"
+#include "../../lib/rpdsp/src/rpdsp/filter.h"
+#include "../../lib/rpdsp/src/rpdsp/envelope.h"
+#include "../../lib/rpdsp/src/rpdsp/effects.h"
+#include "../../lib/rpdsp/src/rpdsp/wavefolder.h"
+#include "../../lib/pico2seq-core/sequencer/Sequencer.h"
+#include "../../lib/pico2seq-core/sequencer/SequencerDefs.h"
+#include <array>
 #include <vector>
 #include <memory>
 
@@ -25,25 +25,22 @@
  */
 struct VoiceConfig
 {
-  // Custom waveform constants
-  static constexpr uint8_t WAVE_NOISE = 255; // Custom noise waveform identifier
-
   // Oscillator configuration
   uint8_t oscillatorCount = 3; // Number of oscillators (1-3)
-  uint8_t oscWaveforms[3] = {  // Waveform types for each oscillator (DaisySP waveform constants)
-      daisysp::Oscillator::WAVE_POLYBLEP_SAW,
-      daisysp::Oscillator::WAVE_POLYBLEP_SAW,
-      daisysp::Oscillator::WAVE_POLYBLEP_SAW};
+  uint8_t oscWaveforms[3] = {  // Waveform types for each oscillator (WAVE_* ids from VoiceOscillator.h)
+      WAVE_BSP_SAW,
+      WAVE_BSP_SAW,
+      WAVE_BSP_SAW};
   float oscAmplitudes[3] = {0.5f, 0.5f, 0.5f}; // Oscillator amplitudes (0.0-1.0)
   float oscDetuning[3] = {0.0f, 0.0f, 0.0f};   // Detuning in semitones (-12.0 to +12.0)
   float oscPulseWidth[3] = {0.5f, 0.5f, 0.5f}; // Pulse width for square/pulse waves (0.0-1.0)
   int harmony[3] = {0, 0, 0};                  // Harmony intervals in scale steps (-12 to +12)
 
   // Filter settings
-  float filterRes = 0.2f;                                                                 // Filter resonance (0.0-1.0)
-  float filterDrive = 1.8f;                                                               // Filter drive amount (0.0-10.0)
-  float filterPassbandGain = 0.23f;                                                       // Passband gain compensation (0.0-1.0)
-  daisysp::LadderFilter::FilterMode filterMode = daisysp::LadderFilter::FilterMode::LP24; // Filter mode
+  float filterRes = 0.2f;            // Filter resonance (0.0-1.0)
+  float filterDrive = 1.8f;          // Filter drive amount (0.0-4.0)
+  float filterPassbandGain = 0.23f;  // Passband gain compensation (0.0-0.5)
+  rpdsp::LadderFilter::Mode filterMode = rpdsp::LadderFilter::Mode::LP24; // Filter mode
 
   // High-pass filter settings
   float highPassFreq = 80.0f; // High-pass cutoff frequency in Hz (20.0-20000.0)
@@ -68,6 +65,19 @@ struct VoiceConfig
   float outputLevel = 0.6f; // Voice output level (0.0-1.0)
   bool enabled = true;      // Voice enabled state
 };
+
+// Filter modes exposed to the UI, in cycle order, with matching display names.
+// Cycling code must use these tables together so labels and enum values can
+// never disagree (the old UI hardcoded a name list that mismatched the enum).
+namespace voiceui {
+inline constexpr rpdsp::LadderFilter::Mode kFilterModes[] = {
+    rpdsp::LadderFilter::Mode::LP24, rpdsp::LadderFilter::Mode::LP12,
+    rpdsp::LadderFilter::Mode::BP24, rpdsp::LadderFilter::Mode::BP12,
+    rpdsp::LadderFilter::Mode::HP24, rpdsp::LadderFilter::Mode::HP12};
+inline constexpr const char *kFilterModeNames[] = {"LP24", "LP12", "BP24",
+                                                   "BP12", "HP24", "HP12"};
+inline constexpr int kFilterModeCount = 6;
+} // namespace voiceui
 
 /**
  * @brief Frequency slewing parameters for smooth slide transitions
@@ -314,13 +324,16 @@ private:
   std::vector<uint8_t> scaleUniqueIndexList; // size == scaleCount * 48 (padded)
 
   // Audio processing components
-  std::vector<daisysp::Oscillator> oscillators;
-  daisysp::WhiteNoise noise_;
-  daisysp::LadderFilter filter;
-  daisysp::Svf highPassFilter;
-  daisysp::Adsr envelope;
-  daisysp::Overdrive overdrive;
-  daisysp::Wavefolder wavefolder;
+  std::array<VoiceOscillator, 3> oscillators;
+  rpdsp::NoiseOscillator noise_;
+  rpdsp::LadderFilter filter;
+  rpdsp::StateVariableFilter highPassFilter;
+  rpdsp::ADSR envelope;
+  rpdsp::Waveshaper overdrive;
+  rpdsp::Wavefolder wavefolder;
+
+  // Gate edge tracking for the event-style ADSR (noteOn on rise, noteOff on fall)
+  bool gateHighPrev_ = false;
 
   // Voice state and control
   VoiceState state;
@@ -398,7 +411,6 @@ private:
     int harmony[3];
     uint8_t oscCount;
     uint32_t detuneVersion;
-    uint32_t srVersion;
     bool hasSlide;
     // Snapshotted pitch controls to detect changes
     float bendSemis;

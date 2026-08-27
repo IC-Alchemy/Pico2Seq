@@ -23,7 +23,7 @@ TEST_CASE("ParameterTrack setValue and getValue round-trip", "[paramtrack]") {
 TEST_CASE("ParameterTrack wraps step index at currentStepCount", "[paramtrack]") {
     ParameterTrack<16> track;
     track.init(0.0f);
-    track.currentStepCount = 4;
+    track.resize(4);
     track.setValue(0, 1.0f);
     // Step 4 should wrap to step 0
     REQUIRE(track.getValue(4) == 1.0f);
@@ -32,9 +32,9 @@ TEST_CASE("ParameterTrack wraps step index at currentStepCount", "[paramtrack]")
 TEST_CASE("ParameterTrack resize extends with default values", "[paramtrack]") {
     ParameterTrack<16> track;
     track.init(0.2f);
-    track.currentStepCount = 4;
+    track.resize(4);
     track.resize(8);
-    REQUIRE(track.currentStepCount == 8);
+    REQUIRE(track.stepCount() == 8);
     for (uint8_t i = 4; i < 8; ++i) {
         REQUIRE(track.getValue(i) == 0.2f);
     }

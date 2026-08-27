@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <stddef.h>
 #include "../matrix/Matrix.h"
-#include "../sequencer/SequencerDefs.h"
+#include "../../lib/pico2seq-core/sequencer/SequencerDefs.h"
 #include "../sensors/as5600.h"
 #include "../LEDMatrix/LEDMatrixFeedback.h"
 #include "ButtonManager.h"
@@ -58,5 +58,16 @@ void pollUIHeldButtons(UIState &uiState, Sequencer &seq1, Sequencer &seq2,
 // Compatibility overloads for matrixEventHandler (will forward to consolidated handler)
 void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState, Sequencer &seq1, Sequencer &seq2, MidiNoteManager &midiNoteManager);
 void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState, Sequencer &seq1, Sequencer &seq2, Sequencer &seq3, Sequencer &seq4, MidiNoteManager &midiNoteManager);
+
+/**
+ * @brief Firmware-side bridge that unpacks UIState button/edit-step fields and
+ *        forwards them to Sequencer::advanceStep's primitive-argument overload.
+ *
+ * Sequencer (lib/pico2seq-core) no longer depends on UIState so it stays
+ * reusable outside this firmware; this adapter keeps call sites in
+ * Pico2Seq.ino unchanged.
+ */
+void advanceSequencerStep(Sequencer &seq, uint8_t current_uclock_step, int mm_distance,
+                          const UIState &uiState, VoiceState *voiceState);
 
 #endif // UI_EVENT_HANDLER_H

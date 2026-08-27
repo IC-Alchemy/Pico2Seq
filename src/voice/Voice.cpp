@@ -1,9 +1,9 @@
 #include "Voice.h"
-#include "../dsp/dsp.h"
+#include "../../lib/rpdsp/src/rpdsp/algorithm.h"
 #include <algorithm>
 #include <cmath>
 #include <mutex>
-#include "../scales/scales.h" // Use centralized SCALES_COUNT / SCALE_STEPS
+#include "../../lib/pico2seq-core/scales/scales.h" // Use centralized SCALES_COUNT / SCALE_STEPS
 #include "VoicePresets.h"
 
 // Constants
@@ -26,10 +26,10 @@ inline void Voice::initFrequencyLookupTable() noexcept
 {
   std::call_once(g_freqTableOnce, []() noexcept
                  {
-    // Use daisysp::mtof once per MIDI note value
+    // Use rpdsp::midiNoteToHz once per MIDI note value
     for (int midi = 0; midi < 128; ++midi)
     {
-      frequencyLookupTable[midi] = daisysp::mtof(static_cast<float>(midi));
+      frequencyLookupTable[midi] = rpdsp::midiNoteToHz(static_cast<float>(midi));
     } });
 }
 
@@ -76,9 +76,7 @@ Voice::Voice(uint8_t id, const VoiceConfig &cfg)
   lastAppliedFilterCutoff = -1.0f;
   lastEnvelopeValue = 0.0f;
 
-  // Pre-size oscillator container to a fixed maximum of 3 to avoid runtime allocations
-  oscillators.reserve(3);
-  oscillators.resize(3);
+  // Oscillator slots are fixed-size members; nothing to allocate.
 
   // Initialize frequency slewing
   for (int i = 0; i < 3; i++)
@@ -121,34 +119,28 @@ void Voice::init(float sr)
   cachedOscCount_ = static_cast<uint8_t>(std::min<size_t>(3, config.oscillatorCount));
   for (size_t i = 0; i < cachedOscCount_; i++)
   {
-    oscillators[i].Init(sampleRate);
-    oscillators[i].SetWaveform(config.oscWaveforms[i]);
-    oscillators[i].SetAmp(config.oscAmplitudes[i]);
-
-    // Set pulse width for square/pulse waves
-    if (config.oscWaveforms[i] == daisysp::Oscillator::WAVE_POLYBLEP_SQUARE)
-    {
-      oscillators[i].SetPw(config.oscPulseWidth[i]);
-    }
+    oscillators[i].prepare(sampleRate);
+    oscillators[i].setWaveform(config.oscWaveforms[i]);
+    // Ignored by non-pulse waveforms; keeps square/pulse pulse width in sync
+    oscillators[i].setPulseWidth(config.oscPulseWidth[i]);
   }
 
-  // Initialize noise generator
-  noise_.Init();
-  noise_.SetSeed(1);
-  noise_.SetAmp(1.0f);
+  // Initialize noise generator (distinct seed per voice so percussion voices differ)
+  noise_.reseed(0x12345678u + static_cast<uint32_t>(voiceId) + 1u);
 
   // Initialize filter
-  filter.Init(sampleRate);
-  filter.SetFreq(filterFrequency);
-  filter.SetRes(config.filterRes);
-  filter.SetInputDrive(config.filterDrive);
-  filter.SetPassbandGain(config.filterPassbandGain);
-  filter.SetFilterMode(config.filterMode);
+  filter.prepare(sampleRate);
+  filter.setFreq(filterFrequency);
+  filter.setRes(config.filterRes);
+  filter.setInputDrive(config.filterDrive);
+  filter.setPassbandGain(config.filterPassbandGain);
+  filter.setMode(config.filterMode);
   // Initialize high-pass filter
-  highPassFilter.Init(sampleRate);
-  highPassFilter.SetFreq(config.highPassFreq);
-  highPassFilter.SetRes(config.highPassRes);
-  // Initialize filter cutoff smoothing state (reduces zipper noise from abrupt SetFreq calls).
+  highPassFilter.prepare(sampleRate);
+  highPassFilter.setCutoff(config.highPassFreq);
+  highPassFilter.setResonance(config.highPassRes);
+  hpfBypass_ = (config.highPassFreq <= 20.0f && config.highPassRes <= 0.01f);
+  // Initialize filter cutoff smoothing state (reduces zipper noise from abrupt setFreq calls).
   // Use a short time-constant (4 ms) to remain responsive while smoothing envelope-modulation.
   filterCutoffCurrent = filterFrequency;
   {
@@ -161,20 +153,20 @@ void Voice::init(float sr)
   lastEnvelopeValue = 0.0f;
 
   // Initialize envelope
-  envelope.Init(sampleRate);
-  envelope.SetAttackTime(config.defaultAttack);
-  envelope.SetDecayTime(config.defaultDecay);
-  envelope.SetSustainLevel(config.defaultSustain);
-  envelope.SetReleaseTime(config.defaultRelease);
+  envelope.prepare(sampleRate);
+  envelope.setAttack(config.defaultAttack);
+  envelope.setDecay(config.defaultDecay);
+  envelope.setSustain(config.defaultSustain);
+  envelope.setRelease(config.defaultRelease);
+  gateHighPrev_ = false;
 
   // Initialize effects
-  overdrive.Init();
-  overdrive.SetDrive(config.overdriveDrive);
+  overdrive.setDrive(1.0f + (config.overdriveDrive * 3.0f)); // map 0-1 drive to 1-4
+  overdrive.setOutputGain(1.0f);
 
   // Always initialize wavefolder so it's safe to process even when toggled at runtime
-  wavefolder.Init();
-  wavefolder.SetGain(config.wavefolderGain);
-  wavefolder.SetOffset(config.wavefolderOffset);
+  wavefolder.setGain(config.wavefolderGain);
+  wavefolder.setOffset(config.wavefolderOffset);
 
   // Update detune multipliers in case config changed before init
   recomputeDetuneMultipliers();
@@ -296,16 +288,38 @@ float Voice::process() noexcept
 
 float Voice::computeEnvelope()
 {
-  // Handle envelope retrigger
-  if (state.shouldRetrigger)
+  // Track gate edges for the event-style ADSR (noteOn on rise, noteOff on fall)
+  const bool gateHigh = gate;
+  const bool rising = gateHigh && !gateHighPrev_;
+  const bool falling = !gateHigh && gateHighPrev_;
+  gateHighPrev_ = gateHigh;
+
+  if (!config.hasEnvelope)
   {
-    envelope.Retrigger(false);
-    state.shouldRetrigger = false;
+    return 1.0f;
   }
 
-  // Process envelope (or bypass)
-  float envelopeValue = config.hasEnvelope ? envelope.Process(gate) : 1.0f;
-  return envelopeValue;
+  // Retrigger restarts the attack from zero, matching the old soft-retrigger
+  // behavior while gated. Consumed even when ungated so a stale flag cannot
+  // arm a surprise attack later.
+  if (state.shouldRetrigger)
+  {
+    state.shouldRetrigger = false;
+    if (gateHigh)
+    {
+      envelope.noteOn();
+    }
+  }
+  else if (rising)
+  {
+    envelope.noteOn();
+  }
+  else if (falling)
+  {
+    envelope.noteOff();
+  }
+
+  return envelope.process();
 }
 
 void Voice::updateFilter(float envelopeValue)
@@ -317,10 +331,11 @@ void Voice::updateFilter(float envelopeValue)
   // filterCutoffAlpha was initialized in init() (per-sample coefficient).
   filterCutoffCurrent += filterCutoffAlpha * (targetCutoff - filterCutoffCurrent);
 
-  // Throttle SetFreq to avoid per-sample heavy work if change is tiny
+  // Throttle setFreq to avoid per-sample work if change is tiny (setFreq is
+  // polynomial in rpdsp, but the throttle also caps coefficient churn)
   if (filterUpdateInterval == 0)
   {
-    filter.SetFreq(filterCutoffCurrent);
+    filter.setFreq(filterCutoffCurrent);
     lastAppliedFilterCutoff = filterCutoffCurrent;
   }
   else
@@ -329,7 +344,7 @@ void Voice::updateFilter(float envelopeValue)
     {
       if (ShouldApplyFilterFreq_(filterCutoffCurrent, lastAppliedFilterCutoff))
       {
-        filter.SetFreq(filterCutoffCurrent);
+        filter.setFreq(filterCutoffCurrent);
         lastAppliedFilterCutoff = filterCutoffCurrent;
       }
     }
@@ -365,7 +380,7 @@ float Voice::mixOscillators()
         const float f = pitchCache_.finalFreq[i];
         if (ShouldApplyFreq_(f, lastAppliedOscFreq_[i]))
         {
-          oscillators[i].SetFreq(f);
+          oscillators[i].setFreq(f);
           lastAppliedOscFreq_[i] = f;
           // Keep slew state consistent
           freqSlew[i].currentFreq = f;
@@ -388,7 +403,8 @@ float Voice::mixOscillators()
 
   if (oscCount > 0)
   {
-    // Update frequencies (slew when sliding) and process oscillators
+    // Update frequencies (slew when sliding) and process oscillators.
+    // rpdsp oscillators have no amp parameter, so oscAmplitudes[] scales at mix time.
     for (size_t i = 0; i < oscCount; i++)
     {
       if (state.hasSlide)
@@ -397,17 +413,17 @@ float Voice::mixOscillators()
         const float fcur = freqSlew[i].currentFreq;
         if (ShouldApplyFreq_(fcur, lastAppliedOscFreq_[i]))
         {
-          oscillators[i].SetFreq(fcur);
+          oscillators[i].setFreq(fcur);
           lastAppliedOscFreq_[i] = fcur;
         }
       }
-      mixedOscillators += oscillators[i].Process();
+      mixedOscillators += oscillators[i].process() * config.oscAmplitudes[i];
     }
   }
   else
   {
     // Special case for percussion voices (no oscillators, only noise)
-    mixedOscillators = noise_.Process();
+    mixedOscillators = noise_.process();
   }
 
   return mixedOscillators;
@@ -418,11 +434,11 @@ void Voice::applyEffects(float &signal)
 
   if (config.hasWavefolder)
   {
-    signal = wavefolder.Process(signal);
+    signal = wavefolder.process(signal);
   }
   if (config.hasOverdrive)
   {
-    signal = overdrive.Process(signal * config.overdriveGain);
+    signal = overdrive.process(signal * config.overdriveGain);
   }
 
   // Level adjustments removed from here; handled in finalizeOutput
@@ -442,14 +458,13 @@ inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept
   applyEffects(preEffects);
 
   // Apply ladder filter
-  float filteredSignal = filter.Process(preEffects * state.velocityLevel);
+  float filteredSignal = filter.process(preEffects * state.velocityLevel);
 
   // Apply optional high-pass filter
   float postHpf = filteredSignal;
   if (!hpfBypass_)
   {
-    highPassFilter.Process(filteredSignal);
-    postHpf = highPassFilter.High();
+    postHpf = highPassFilter.process(filteredSignal).highpass;
   }
 
   float finalOutput = postHpf * config.outputLevel;
@@ -468,14 +483,14 @@ inline void Voice::applyEnvelopeParameters() noexcept
 {
   // Map normalized parameters to appropriate ranges
   float attack =
-      daisysp::fmap(state.attackTimeSeconds, 0.002f, 0.75f, daisysp::Mapping::LINEAR);
+      rpdsp::fmap(state.attackTimeSeconds, 0.002f, 0.75f, rpdsp::Mapping::LINEAR);
   float decay =
-      daisysp::fmap(state.decayTimeSeconds, 0.002f, 0.8f, daisysp::Mapping::LOG);
+      rpdsp::fmap(state.decayTimeSeconds, 0.002f, 0.8f, rpdsp::Mapping::LOG);
   // float release = decay; // Use decay for release in this implementation
 
-  envelope.SetAttackTime(attack, .75f);
-  envelope.SetDecayTime(0.075f + (decay * 0.32f));
-  envelope.SetReleaseTime(decay);
+  envelope.setAttack(attack);
+  envelope.setDecay(0.075f + (decay * 0.32f));
+  envelope.setRelease(decay);
 }
 
 inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset,
@@ -525,8 +540,8 @@ void Voice::processFrequencySlew(uint8_t oscIndex, float targetFreq)
 
 void Voice::setFrequency(float frequency)
 {
-  // Control-thread: do not call SetFreq directly. Stage targets and cache only.
-  for (uint8_t i = 0; i < config.oscillatorCount && i < oscillators.size() && i < 3; i++)
+  // Control-thread: do not call setFreq directly. Stage targets and cache only.
+  for (uint8_t i = 0; i < config.oscillatorCount && i < 3; i++)
   {
     const float targetFreq = frequency * detuneMul[i];
     // Update slew state; audio thread will commit via mixOscillators()
@@ -585,14 +600,14 @@ void Voice::updateParameters(const VoiceState &newState)
 
 // -------- Pitch optimization: change detection, cache, and API --------
 // Fields watched: noteIndex, octaveOffset, harmony[0..oscCount-1], oscCount, detuneVersion_,
-// Oscillator::GetSampleRateVersion(), hasSlide, pitch bend/mod in semitones.
+// hasSlide, pitch bend/mod in semitones.
 // Generation-based staging: control thread recomputes cache and bumps pitchGen_;
 // audio thread commits in mixOscillators() when pitchGen_ != appliedPitchGen_.
-// SetFreq gating: ShouldApplyFreq_ uses kPitchRelEps and kPitchAbsEpsHz (≈0.017 cent minimum)
-// to cut redundant oscillator.SetFreq calls, including during slide slews.
+// setFreq gating: ShouldApplyFreq_ uses kPitchRelEps and kPitchAbsEpsHz (≈0.017 cent minimum)
+// to cut redundant oscillator.setFreq calls, including during slide slews.
 
 // Compare current/new state & dependencies to snapshot to decide if recompute needed.
-// Note: also watches detuneVersion_ and global Oscillator sample-rate version.
+// Note: also watches detuneVersion_.
 bool Voice::pitchParamsChanged_(const VoiceState &newState) const
 {
   const uint8_t oscCount = cachedOscCount_;
@@ -612,9 +627,6 @@ bool Voice::pitchParamsChanged_(const VoiceState &newState) const
   }
   // Detune version
   if (pitchSnapshot_.detuneVersion != detuneVersion_)
-    return true;
-  // Sample rate version (from Oscillator)
-  if (pitchSnapshot_.srVersion != daisysp::Oscillator::GetSampleRateVersion())
     return true;
   // Pitch bend/mod snapshots
   if (pitchSnapshot_.bendSemis != pitchBendSemitones_)
@@ -666,7 +678,6 @@ void Voice::updatePitchCache_()
   pitchSnapshot_.oscCount = oscCount;
   pitchSnapshot_.hasSlide = state.hasSlide;
   pitchSnapshot_.detuneVersion = detuneVersion_;
-  pitchSnapshot_.srVersion = daisysp::Oscillator::GetSampleRateVersion();
   pitchSnapshot_.bendSemis = pitchBendSemitones_;
   pitchSnapshot_.modSemis = pitchModSemitones_;
   for (uint8_t i = 0; i < 3; ++i)
@@ -742,7 +753,7 @@ void Voice::applyPendingParams_() noexcept
     setGate(state.isGateHigh);
 
     // Recompute filter base freq from normalized param
-    filterFrequency = daisysp::fmap(state.filterCutoff, 150.0f, 8000.0f, daisysp::Mapping::EXP);
+    filterFrequency = rpdsp::fmap(state.filterCutoff, 150.0f, 8000.0f, rpdsp::Mapping::EXP);
 
     // Update envelope segment times
     applyEnvelopeParameters();
@@ -761,45 +772,33 @@ void Voice::applyPendingConfig_() noexcept
   {
     config = stagedConfig_;
 
-    // Oscillator container pre-sized to 3 in ctor; only use up to config.oscillatorCount
-    cachedOscCount_ = config.oscillatorCount;
-    for (size_t i = 0; i < cachedOscCount_; ++i)
+    // Oscillator slots are fixed-size; only the first cachedOscCount_ are processed
+    cachedOscCount_ = static_cast<uint8_t>(std::min<size_t>(3, config.oscillatorCount));
+    for (size_t i = 0; i < 3; ++i)
     {
-      // Re-init to ensure SR/version updates if needed
-      oscillators[i].Init(sampleRate);
-    }
-    // Zero-out any unused oscillators to ensure silence and deterministic state
-    for (size_t i = cachedOscCount_; i < 3; ++i)
-    {
-      oscillators[i].Init(sampleRate);
-      oscillators[i].SetAmp(0.0f);
-    }
-
-    // Update oscillator params only for active oscillators
-    for (size_t i = 0; i < cachedOscCount_; i++)
-    {
-      oscillators[i].SetWaveform(config.oscWaveforms[i]);
-      oscillators[i].SetAmp(config.oscAmplitudes[i]);
-      if (config.oscWaveforms[i] == daisysp::Oscillator::WAVE_POLYBLEP_SQUARE)
+      oscillators[i].prepare(sampleRate);
+      if (i < cachedOscCount_)
       {
-        oscillators[i].SetPw(config.oscPulseWidth[i]);
+        oscillators[i].setWaveform(config.oscWaveforms[i]);
+        // Ignored by non-pulse waveforms
+        oscillators[i].setPulseWidth(config.oscPulseWidth[i]);
       }
     }
 
     // Update filters
-    filter.SetRes(config.filterRes);
-    filter.SetInputDrive(config.filterDrive);
-    filter.SetPassbandGain(config.filterPassbandGain);
-    filter.SetFilterMode(config.filterMode);
+    filter.setRes(config.filterRes);
+    filter.setInputDrive(config.filterDrive);
+    filter.setPassbandGain(config.filterPassbandGain);
+    filter.setMode(config.filterMode);
 
-    highPassFilter.SetFreq(config.highPassFreq);
-    highPassFilter.SetRes(config.highPassRes);
+    highPassFilter.setCutoff(config.highPassFreq);
+    highPassFilter.setResonance(config.highPassRes);
     hpfBypass_ = (config.highPassFreq <= 20.0f && config.highPassRes <= 0.01f);
 
     // Update effects
-    overdrive.SetDrive(config.overdriveDrive);
-    wavefolder.SetGain(config.wavefolderGain);
-    wavefolder.SetOffset(config.wavefolderOffset);
+    overdrive.setDrive(1.0f + (config.overdriveDrive * 3.0f)); // map 0-1 drive to 1-4
+    wavefolder.setGain(config.wavefolderGain);
+    wavefolder.setOffset(config.wavefolderOffset);
 
     // Smoothly transition wavefolder mix if toggled
     wavefolderMixTarget = config.hasWavefolder ? 1.0f : 0.0f;

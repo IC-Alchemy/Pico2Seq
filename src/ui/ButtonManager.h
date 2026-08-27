@@ -2,7 +2,7 @@
 #define BUTTON_MANAGER_H
 
 #include <Arduino.h>
-#include "../sequencer/SequencerDefs.h"
+#include "../../lib/pico2seq-core/sequencer/SequencerDefs.h"
 #include "UIState.h" // Include the new state header
 
 /**

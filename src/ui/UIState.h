@@ -2,7 +2,7 @@
 #define UI_STATE_H
 
 #include <Arduino.h>
-#include "../sequencer/SequencerDefs.h"
+#include "../../lib/pico2seq-core/sequencer/SequencerDefs.h"
 #include "../sensors/as5600.h" // For AS5600ParameterMode
 
 /**

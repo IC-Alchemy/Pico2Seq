@@ -15,6 +15,16 @@ Two build systems coexist and never touch each other:
 - **CMake** builds *only* the host-side unit test suite in `tests/`. It cannot build or flash
   the firmware itself.
 
+`lib/pico2seq-core/` holds the sequencer (`Sequencer`, `ParameterManager`, `SequencerDefs.h`,
+`ShuffleTemplates.h`) and `scales/` (scale tables). Both are plain, portable C++ with no
+Arduino/RP2040 dependency — they're deliberately kept reusable in other projects. Don't add
+`#include <Arduino.h>`, UI-layer (`UIState`), or hardware-glue includes back into this folder;
+firmware code that needs to bridge sequencer output to UI types (see
+`advanceSequencerStep()` in `src/ui/UIEventHandler.h/.cpp`) belongs in `src/`, not here.
+One known remaining wart: `Sequencer.cpp` calls `digitalWrite()` directly for hardware gate
+pins (10/11/12) — that's an Arduino dependency baked into otherwise-portable logic, not yet
+factored out.
+
 ## Commands
 
 ### Run the unit test suite (the only thing you can actually build/run from a CLI)
@@ -63,8 +73,9 @@ real header paths exactly — a stub for `pico/sync.h` must live at `tests/stubs
 
 What's tested vs. not, per `tests/CMakeLists.txt`:
 - **Tested** (compiled into `pico2seq_tests`): `src/dsp/*` (adsr, oscillator, ladder, svf,
-  overdrive, wavefolder, dcblock, tremolo), `src/scales/scales.cpp`,
-  `src/sequencer/{ParameterManager,Sequencer}.cpp`, `src/voice/{Voice,VoicePresets}.cpp`.
+  overdrive, wavefolder, dcblock, tremolo), `lib/pico2seq-core/scales/scales.cpp`,
+  `lib/pico2seq-core/sequencer/{ParameterManager,Sequencer}.cpp`,
+  `src/voice/{Voice,VoicePresets}.cpp`.
 - **Not tested, by design** (hardware-bound glue — keep logic out of these):
   `src/audio/` (PIO/DMA/I2S), `src/LEDMatrix/` (WS2812B GPIO/DMA), `src/OLED/` (I2C display),
   `src/midi/` (TinyUSB stack).

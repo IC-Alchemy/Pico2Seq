@@ -9,34 +9,27 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Catch2)
 
-set(STUB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/stubs)
-set(SRC_DIR  ${PROJECT_SOURCE_DIR}/src)
+set(STUB_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/stubs)
+set(SRC_DIR   ${PROJECT_SOURCE_DIR}/src)
+set(LIB_DIR   ${PROJECT_SOURCE_DIR}/lib/pico2seq-core)
+set(RPDSP_DIR ${PROJECT_SOURCE_DIR}/lib/rpdsp/src)
 
 add_executable(pico2seq_tests
   unit/test_helpers.cpp
-  unit/test_dsp.cpp
+  unit/test_rpdsp_additions.cpp
   unit/test_scales.cpp
   unit/test_sequencer.cpp
   unit/test_voice.cpp
-
-  # DSP sources (no hardware deps)
-  ${SRC_DIR}/dsp/adsr.cpp
-  ${SRC_DIR}/dsp/oscillator.cpp
-  ${SRC_DIR}/dsp/ladder.cpp
-  ${SRC_DIR}/dsp/svf.cpp
-  ${SRC_DIR}/dsp/overdrive.cpp
-  ${SRC_DIR}/dsp/wavefolder.cpp
-  ${SRC_DIR}/dsp/dcblock.cpp
-  ${SRC_DIR}/dsp/tremolo.cpp
+  unit/test_voiceoscillator.cpp
 
   # Scale data
-  ${SRC_DIR}/scales/scales.cpp
+  ${LIB_DIR}/scales/scales.cpp
 
   # Sequencer logic
-  ${SRC_DIR}/sequencer/ParameterManager.cpp
-  ${SRC_DIR}/sequencer/Sequencer.cpp
+  ${LIB_DIR}/sequencer/ParameterManager.cpp
+  ${LIB_DIR}/sequencer/Sequencer.cpp
 
-  # Voice synthesis
+  # Voice synthesis (DSP comes from header-only lib/rpdsp)
   ${SRC_DIR}/voice/Voice.cpp
   ${SRC_DIR}/voice/VoicePresets.cpp
 )
@@ -46,6 +39,8 @@ target_include_directories(pico2seq_tests PRIVATE
   ${STUB_DIR}
   ${PROJECT_SOURCE_DIR}
   ${SRC_DIR}
+  ${LIB_DIR}
+  ${RPDSP_DIR}
 )
 
 target_link_libraries(pico2seq_tests PRIVATE Catch2::Catch2WithMain)

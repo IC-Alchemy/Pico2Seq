@@ -30,9 +30,9 @@ This document gives a high-level overview of modules, data flow, and key respons
   - `VoicePresets.h/.cpp` — Factory system for synthesizer voice configurations (7 preset types)
 
 ### Digital Signal Processing
-- **dsp/**: Audio effects and signal processing algorithms
-  - ADSR envelope, ladder filter, overdrive, wavefolder, delay line implementations
-  - Local fork of DaisySP optimized for embedded use
+- **lib/rpdsp/**: Header-only DSP library (vendored from the Pico-DSP-Garden project)
+  - ADSR envelope, ladder filter, waveshaper, wavefolder, oscillators, delay lines, and more
+  - Reached from the voice code through `src/voice/VoiceOscillator.h` (waveform-id dispatch)
 
 ### User Interface System
 - **ui/**: Complete UI management system for matrix buttons and controls

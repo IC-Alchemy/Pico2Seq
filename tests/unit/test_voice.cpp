@@ -10,7 +10,7 @@ using namespace Catch::Matchers;
 static VoiceConfig defaultConfig() {
     VoiceConfig cfg;
     cfg.oscillatorCount = 1;
-    cfg.oscWaveforms[0] = daisysp::Oscillator::WAVE_SIN;
+    cfg.oscWaveforms[0] = WAVE_SIN;
     cfg.oscAmplitudes[0] = 1.0f;
     cfg.oscDetuning[0] = 0.0f;
     cfg.hasOverdrive = false;
