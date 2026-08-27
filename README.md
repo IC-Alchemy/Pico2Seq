@@ -34,9 +34,15 @@ A powerful 4-voice polyphonic step sequencer for the Raspberry Pi Pico2 microcon
 ```
 ├── Pico2Seq.ino              # Main Arduino sketch (dual-core setup)
 ├── includes.h                # Library and header aggregator
+├── .gitmodules               # Git submodule configuration
+├── lib/
+│   ├── pico2seq-core/        # Portable core sequencer and scale logic
+│   ├── rpdsp/                # Submodule: IC-Alchemy/RPDSP (header-only DSP)
+│   ├── VelocityEncoder/      # Submodule: IC-Alchemy/VelocityEncoder (TMAG5273 & AS5600 driver)
+│   ├── AS5600/               # AS5600 magnetic encoder driver
+│   └── VL53L1X/              # Non-blocking VL53L1X TOF driver
 ├── src/
 │   ├── audio/                # I2S audio interface and buffering
-│   ├── sequencer/            # 4-channel polymetric step sequencing
 │   ├── voice/                # VoiceSystem and synthesizer voices
 │   │   ├── VoiceSystem.h     # Central voice management (4 voices max)
 │   │   ├── VoicePresets.h    # 7 predefined voice configurations
@@ -45,12 +51,13 @@ A powerful 4-voice polyphonic step sequencer for the Raspberry Pi Pico2 microcon
 │   │   ├── ButtonHandlers.h  # Specialized button event processing
 │   │   └── UIState.h         # Centralized UI state (array-based)
 │   ├── matrix/               # 4×8 capacitive touch matrix scanning
-│   ├── sensors/              # AS5600 encoder and VL53L1X distance sensor
+│   ├── sensors/              # Sensor management (encoder and TOF distance)
 │   ├── midi/                 # USB MIDI input/output and CC handling
 │   ├── LEDMatrix/            # 8×8 LED visual feedback system
 │   ├── OLED/                 # Display system for parameter visualization
-│   └── scales/               # 13 musical scale definitions
+│   └── AlchemyUI/            # Modular I2C UI controller driver
 ├── docs/                     # Comprehensive documentation
+├── tests/                    # Host-side CMake unit test suite
 └── diagnostic.h             # Debugging and diagnostic utilities
 ```
 
@@ -63,7 +70,7 @@ A powerful 4-voice polyphonic step sequencer for the Raspberry Pi Pico2 microcon
 - I2S-compatible audio codec/DAC (e.g., PCM5102A, PT8211)
 - MPR121 capacitive touch sensor (4×8 button matrix)
 - OLED display (128×64 SH1106G)
-- AS5600 magnetic encoder (with magnet)
+- AS5600 / TMAG5273 magnetic encoder
 - VL53L1X time-of-flight distance sensor
 - WS2812B LED matrix (8×8, 64 LEDs)
 
@@ -78,11 +85,12 @@ A powerful 4-voice polyphonic step sequencer for the Raspberry Pi Pico2 microcon
 
 ### Installation
 
-1. **Clone the repository:**
+1. **Clone the repository with submodules:**
    ```bash
-   git clone https://github.com/your-username/Pico2Seq.git
+   git clone --recurse-submodules https://github.com/IC-Alchemy/Pico2Seq.git
    cd Pico2Seq
    ```
+   *(If already cloned without `--recurse-submodules`, run `git submodule update --init --recursive`)*
 
 2. **Open in Arduino IDE:**
    - Launch Arduino IDE

@@ -38,7 +38,7 @@ values, bounds/clamping, and OLED-string formatting. `UIState.h`, `ButtonHandler
 `UIEventHandler.cpp`, `oled.cpp`, and `LEDMatrixFeedback.cpp` all consume these types directly.
 This is a data-model dependency, not just a driver call.
 
-**{confirmed}** `src/AlchemyUI/` and `src/VelocityEncoder/` already exist in the repo, fully
+**{confirmed}** `src/AlchemyUI/` and `lib/VelocityEncoder/` (submodule) already exist in the repo, fully
 written and documented, but `git status` shows both as untracked (`??`), and a repo-wide grep
 found **zero** references to either outside their own folders — not in `includes.h`, not in
 `Pico2Seq.ino`, nowhere. They are vendored and ready, but completely unwired.
@@ -162,7 +162,7 @@ This is the safer half: `MagEncoder`'s call surface is a near-exact match for wh
 rewriting logic.
 
 - `includes.h`: drop `#include "src/sensors/as5600.h"`, add
-  `#include "src/VelocityEncoder/src/MagEncoder.h"`.
+  `#include "lib/VelocityEncoder/src/MagEncoder.h"`.
 - `Pico2Seq.ino`: replace the global `AS5600Sensor as5600Sensor;` with
   `MagEncoder magEncoder(MagEncoder::Sensor::TMAG5273);` (default `i2cAddress = 0` already
   resolves to `TMAG5273::ADDRESS_B = 0x22`, matching the Velocity Encoder board). In `setup1()`,

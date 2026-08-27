@@ -72,8 +72,10 @@ code with **no hardware dependencies**, using header stubs in `tests/stubs/` (e.
 real header paths exactly — a stub for `pico/sync.h` must live at `tests/stubs/pico/sync.h`.
 
 What's tested vs. not, per `tests/CMakeLists.txt`:
-- **Tested** (compiled into `pico2seq_tests`): `src/dsp/*` (adsr, oscillator, ladder, svf,
-  overdrive, wavefolder, dcblock, tremolo), `lib/pico2seq-core/scales/scales.cpp`,
+- **Tested** (compiled into `pico2seq_tests`): `lib/rpdsp/` additions via
+  `tests/unit/test_rpdsp_additions.cpp` (wavefolder, fmap/Mapping, Waveshaper, vendored
+  DSPFunctions smoke tests), `src/voice/VoiceOscillator.h` via `test_voiceoscillator.cpp`,
+  `lib/pico2seq-core/scales/scales.cpp`,
   `lib/pico2seq-core/sequencer/{ParameterManager,Sequencer}.cpp`,
   `src/voice/{Voice,VoicePresets}.cpp`.
 - **Not tested, by design** (hardware-bound glue — keep logic out of these):
@@ -91,7 +93,7 @@ When adding a new module to be tested:
 
 Untested modules that would benefit from coverage (per `docs/testing.md`):
 `VoiceManager.cpp` (`addVoice`, `processAllVoices`, preset application), `Sequencer::advanceStep`
-polyrhythmic behavior, `dsp/tremolo.cpp`, `dsp/compressor.cpp`, `VoicePresets.cpp` range validation.
+polyrhythmic behavior, `VoicePresets.cpp` range validation.
 
 Two real gotchas documented in `docs/testing.md`, worth knowing before you write voice tests:
 - `Voice::updateParameters()` stages changes into `stagedState_`; they only take effect after the
@@ -164,9 +166,13 @@ is what makes "Note track at 16 steps, Filter track at 8 steps" possible on the 
   mismatches; the host GCC used for tests does not (see `docs/testing.md` step 7 for the
   `Voice.h`/`Voice.cpp` bug this caught). If you add a method with `noexcept` in the `.cpp`,
   the header declaration needs it too, or the test build breaks.
-- **DSP code under `src/dsp/` is a local, embedded-optimized fork of DaisySP**, not the
-  upstream library — check existing files for conventions before adding a new processor rather
-  than pulling in DaisySP fresh.
+- **All DSP lives in `lib/rpdsp/`** (header-only, namespace `rpdsp`, tracked as a
+  Git submodule from `IC-Alchemy/RPDSP` — the old `src/dsp/` DaisySP fork was fully removed). Voice DSP
+  classes are reached through `src/voice/VoiceOscillator.h` (waveform-id → class dispatch)
+  and `Voice.h`. Check existing rpdsp headers for the `prepare()/reset()/process()`
+  conventions before adding a new processor rather than pulling in DaisySP fresh.
+- **External modules (`lib/rpdsp/` and `lib/VelocityEncoder/`) are Git submodules.** When cloning,
+  use `git clone --recurse-submodules` or run `git submodule update --init --recursive`.
 - Project naming history: some older sub-READMEs (`src/matrix/README.md`, `src/midi/README.md`)
   still say "Mudras Sequencer"/"PicoMudrasSequencer" from before the project was renamed to
   Pico2Seq, and reference a `PROGRAMMERS_MANUAL.md` that no longer exists. Don't treat those as

@@ -1,0 +1,6 @@
+[submodule "lib/rpdsp"]
+	path = lib/rpdsp
+	url = https://github.com/IC-Alchemy/RPDSP.git
+[submodule "lib/VelocityEncoder"]
+	path = lib/VelocityEncoder
+	url = https://github.com/IC-Alchemy/VelocityEncoder.git
