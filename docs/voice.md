@@ -667,7 +667,7 @@ voiceSystem.muteAllVoices();
 
 The voice system depends on several external components that need to be verified:
 
-- **rpdsp library** (vendored at `lib/rpdsp/`): Required for oscillators, filters, envelope, and effects
+- **rpdsp library** (vendored at `src/rpdsp/`): Required for oscillators, filters, envelope, and effects
   - `rpdsp::SecondOrderBSplineSawOscillator` / `SecondOrderBSplinePulseOscillator` (via `VoiceOscillator`)
   - `rpdsp::LadderFilter`
   - `rpdsp::StateVariableFilter`

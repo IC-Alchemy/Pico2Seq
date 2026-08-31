@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../lib/rpdsp/src/rpdsp/oscillator.h"
+#include "../rpdsp/src/rpdsp/oscillator.h"
 
 #include <cstdint>
 #include <type_traits>

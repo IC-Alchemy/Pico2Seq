@@ -1,13 +1,13 @@
 #pragma once
 
 #include "VoiceOscillator.h"
-#include "../../lib/rpdsp/src/rpdsp/ladder.h"
-#include "../../lib/rpdsp/src/rpdsp/filter.h"
-#include "../../lib/rpdsp/src/rpdsp/envelope.h"
-#include "../../lib/rpdsp/src/rpdsp/effects.h"
-#include "../../lib/rpdsp/src/rpdsp/wavefolder.h"
-#include "../../lib/pico2seq-core/sequencer/Sequencer.h"
-#include "../../lib/pico2seq-core/sequencer/SequencerDefs.h"
+#include "../rpdsp/src/rpdsp/ladder.h"
+#include "../rpdsp/src/rpdsp/filter.h"
+#include "../rpdsp/src/rpdsp/envelope.h"
+#include "../rpdsp/src/rpdsp/effects.h"
+#include "../rpdsp/src/rpdsp/wavefolder.h"
+#include "../pico2seq-core/sequencer/Sequencer.h"
+#include "../pico2seq-core/sequencer/SequencerDefs.h"
 #include <array>
 #include <vector>
 #include <memory>

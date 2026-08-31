@@ -10,15 +10,15 @@
 #include <Adafruit_SH110X.h>
 
 
-// Audio and DSP (voice DSP comes from lib/rpdsp via src/voice/Voice.h)
+// Audio and DSP (voice DSP comes from src/rpdsp via src/voice/Voice.h)
 #include "src/audio/audio.h"
 #include "src/audio/audio_i2s.h"
-#include "lib/pico2seq-core/scales/scales.h"
+#include "src/pico2seq-core/scales/scales.h"
 
 // Matrix and Sequencer
 #include "src/matrix/Matrix.h"
-#include "lib/pico2seq-core/sequencer/Sequencer.h"
-#include "lib/pico2seq-core/sequencer/SequencerDefs.h"
+#include "src/pico2seq-core/sequencer/Sequencer.h"
+#include "src/pico2seq-core/sequencer/SequencerDefs.h"
 
 // LED Matrix
 #include "src/LEDMatrix/ledMatrix.h"
@@ -44,7 +44,7 @@
 #include "src/voice/VoiceManager.h"
 #include "src/voice/Voice.h"
 #include "src/voice/VoiceSystem.h"
-#include "lib/pico2seq-core/sequencer/Sequencer.h"
+#include "src/pico2seq-core/sequencer/Sequencer.h"
 
 // Standard libraries
 #include <Wire.h>

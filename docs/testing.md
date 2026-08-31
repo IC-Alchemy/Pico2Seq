@@ -45,7 +45,7 @@ Here is what that audit found for Pico2Seq:
 
 | Module | Files | Reason |
 |--------|-------|--------|
-| `lib/rpdsp/` | header-only DSP library (`oscillator`, `ladder`, `filter`, `envelope`, `effects`, `wavefolder`, `DSPFunctions`, ...) | Only `<cmath>`/`<array>` — pure math |
+| `src/rpdsp/` | header-only DSP library (`oscillator`, `ladder`, `filter`, `envelope`, `effects`, `wavefolder`, `DSPFunctions`, ...) | Only `<cmath>`/`<array>` — pure math |
 | `src/voice/VoiceOscillator.h` | waveform-id → rpdsp oscillator class dispatch | Header-only, pure math |
 | `src/sequencer/SequencerDefs.h` | constants, enums, `ParameterTrack<N>` template | Only `<stdint.h>`, `<variant>` |
 
@@ -483,7 +483,7 @@ These modules currently have no tests and would benefit from them:
 |--------|-------------|
 | `src/voice/VoiceManager.cpp` | `addVoice()`, `processAllVoices()`, preset application |
 | `src/sequencer/Sequencer.cpp` — `advanceStep()` | Polyrhythmic step advancement with mock button states |
-| `lib/rpdsp` `Compressor` (used by VoiceManager, currently bypassed) | Gain reduction on loud signals |
+| `src/rpdsp` `Compressor` (used by VoiceManager, currently bypassed) | Gain reduction on loud signals |
 | `src/voice/VoicePresets.cpp` | Preset parameter ranges stay valid |
 
 ---

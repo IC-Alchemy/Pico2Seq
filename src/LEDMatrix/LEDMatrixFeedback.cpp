@@ -5,7 +5,7 @@
 
 #include "ledMatrix.h"
 #include "LEDConstants.h"
-#include "../../lib/pico2seq-core/sequencer/Sequencer.h"
+#include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../ui/UIEventHandler.h"
 #include "../ui/ButtonManager.h"
 #include "../utils/Debug.h"

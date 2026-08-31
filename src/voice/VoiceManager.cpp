@@ -2,7 +2,7 @@
 #include <algorithm>
 #include <cstring>
 #include "../utils/Debug.h"
-#include "../../lib/pico2seq-core/scales/scales.h" // Inject scale data into voices
+#include "../pico2seq-core/scales/scales.h" // Inject scale data into voices
 #include "Voice.h"
 #include "VoicePresets.h"
 

@@ -35,14 +35,13 @@ A powerful 4-voice polyphonic step sequencer for the Raspberry Pi Pico2 microcon
 ├── Pico2Seq.ino              # Main Arduino sketch (dual-core setup)
 ├── includes.h                # Library and header aggregator
 ├── .gitmodules               # Git submodule configuration
-├── lib/
+├── src/
+│   ├── audio/                # I2S audio interface and buffering
 │   ├── pico2seq-core/        # Portable core sequencer and scale logic
 │   ├── rpdsp/                # Submodule: IC-Alchemy/RPDSP (header-only DSP)
 │   ├── VelocityEncoder/      # Submodule: IC-Alchemy/VelocityEncoder (TMAG5273 & AS5600 driver)
 │   ├── AS5600/               # AS5600 magnetic encoder driver
-│   └── VL53L1X/              # Non-blocking VL53L1X TOF driver
-├── src/
-│   ├── audio/                # I2S audio interface and buffering
+│   ├── VL53L1X/              # Non-blocking VL53L1X TOF driver
 │   ├── voice/                # VoiceSystem and synthesizer voices
 │   │   ├── VoiceSystem.h     # Central voice management (4 voices max)
 │   │   ├── VoicePresets.h    # 7 predefined voice configurations
@@ -235,7 +234,7 @@ The system achieves sub-millisecond response times through:
 3. Test with different voice configurations
 
 **Custom Oscillators:**
-1. Add the oscillator class under `lib/rpdsp/src/rpdsp/`
+1. Add the oscillator class under `src/rpdsp/src/rpdsp/`
 2. Add a waveform id + variant entry in `src/voice/VoiceOscillator.h`
 3. Update DSP processing in `Voice.cpp`
 

@@ -3,8 +3,8 @@
 
 #include "as5600.h"
 #include "SensorConstants.h"
-#include "../../lib/pico2seq-core/sequencer/SequencerDefs.h"
-#include "../../lib/rpdsp/src/rpdsp/algorithm.h" // fmap/Mapping for filter Hz display
+#include "../pico2seq-core/sequencer/SequencerDefs.h"
+#include "../rpdsp/src/rpdsp/algorithm.h" // fmap/Mapping for filter Hz display
 #include "../ui/UIState.h"
 
 // Forward declarations

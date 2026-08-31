@@ -1,9 +1,9 @@
 #include "Voice.h"
-#include "../../lib/rpdsp/src/rpdsp/algorithm.h"
+#include "../rpdsp/src/rpdsp/algorithm.h"
 #include <algorithm>
 #include <cmath>
 #include <mutex>
-#include "../../lib/pico2seq-core/scales/scales.h" // Use centralized SCALES_COUNT / SCALE_STEPS
+#include "../pico2seq-core/scales/scales.h" // Use centralized SCALES_COUNT / SCALE_STEPS
 #include "VoicePresets.h"
 
 // Constants

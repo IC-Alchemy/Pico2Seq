@@ -1,8 +1,8 @@
 #pragma once
 
 #include "Voice.h"
-#include "../../lib/pico2seq-core/sequencer/Sequencer.h"
-#include "../../lib/rpdsp/src/rpdsp/dynamics.h"
+#include "../pico2seq-core/sequencer/Sequencer.h"
+#include "../rpdsp/src/rpdsp/dynamics.h"
 #include <vector>
 #include <memory>
 #include <functional>

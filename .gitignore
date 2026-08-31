@@ -7,3 +7,4 @@ build_test/
 
 AGENTS.md
 .zcode/*
+.vscode/settings.json

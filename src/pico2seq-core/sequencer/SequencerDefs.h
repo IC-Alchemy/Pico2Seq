@@ -121,7 +121,7 @@ struct StepEditButtons
 };
 
 // Fixed-size parameter automation track, now sourced from rpdsp instead of
-// being defined locally -- see lib/rpdsp/src/rpdsp/parameter_track.h.
+// being defined locally -- see src/rpdsp/src/rpdsp/parameter_track.h.
 //
 // Behavior is preserved with two deliberate exceptions vs. the original
 // float-only ParameterTrack<MAX_SIZE> struct that used to live here:
@@ -138,8 +138,8 @@ struct StepEditButtons
 //      only changes behavior for out-of-range inputs that weren't hit before.
 //
 // Included via a relative path (not <rpdsp/parameter_track.h>) because the
-// Arduino firmware build has no --library/-I wiring for lib/ subfolders --
-// it resolves lib/pico2seq-core's own includes the same way (see
+// Arduino firmware build has no dedicated -I wiring for bundled modules --
+// it resolves src/pico2seq-core's own includes the same way (see
 // Pico2Seq.ino and src/voice/Voice.h), relying on quoted-include relative
 // resolution instead of a configured include path.
 #include "../../rpdsp/src/rpdsp/parameter_track.h"

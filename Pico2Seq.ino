@@ -1,11 +1,11 @@
 #include "includes.h"
 #include "diagnostic.h"
-#include "lib/rpdsp/src/rpdsp/delay_line.h"
+#include "src/rpdsp/src/rpdsp/delay_line.h"
 #include "RP2350.h"
 
 #include "src/voice/Voice.h"
 #include "src/utils/Debug.h"
-#include "lib/pico2seq-core/scales/scales.h"
+#include "src/pico2seq-core/scales/scales.h"
 #include "src/voice/VoicePresets.h"
 #include "src/voice/VoiceSystem.h"
 
@@ -415,7 +415,7 @@ void updateVoiceParameters(
     uint8_t midiVoiceId = isVoice2 ? 1 : 0;
 }
 // New helper to update a specific voice (0-based index)
-void updateVoiceParametersForVoice(
+void updateVoiceMIDI(
     const VoiceState &state,
     uint8_t voiceIndex,
     bool updateGate = false,
@@ -488,7 +488,7 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
     }
 
     // Update synth hardware for immediate audio feedback using the per-voice function
-    updateVoiceParametersForVoice(*activeVoiceState, voiceIndex);
+    updateVoiceMIDI(*activeVoiceState, voiceIndex);
 
     // Serial.print("Applied immediate voice updates for step ");
     // Serial.println(stepIndex);
@@ -529,13 +529,13 @@ void onStepCallback(uint32_t uClockCurrentStep)
     {
         if (i < 2) // Voices 0 and 1 have gate support
         {
-            updateVoiceParametersForVoice(tempStates[i], i, true,
+            updateVoiceMIDI(tempStates[i], i, true,
                                           &voiceSystem.getGate(i),
                                           &voiceSystem.getGateTimer(i));
         }
         else // Voices 2 and 3 are audio only
         {
-            updateVoiceParametersForVoice(tempStates[i], i, false);
+            updateVoiceMIDI(tempStates[i], i, false);
         }
 
         // Store state

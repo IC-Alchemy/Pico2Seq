@@ -11,8 +11,8 @@ FetchContent_MakeAvailable(Catch2)
 
 set(STUB_DIR  ${CMAKE_CURRENT_SOURCE_DIR}/stubs)
 set(SRC_DIR   ${PROJECT_SOURCE_DIR}/src)
-set(LIB_DIR   ${PROJECT_SOURCE_DIR}/lib/pico2seq-core)
-set(RPDSP_DIR ${PROJECT_SOURCE_DIR}/lib/rpdsp/src)
+set(CORE_DIR  ${SRC_DIR}/pico2seq-core)
+set(RPDSP_DIR ${SRC_DIR}/rpdsp/src)
 
 add_executable(pico2seq_tests
   unit/test_helpers.cpp
@@ -23,13 +23,13 @@ add_executable(pico2seq_tests
   unit/test_voiceoscillator.cpp
 
   # Scale data
-  ${LIB_DIR}/scales/scales.cpp
+  ${CORE_DIR}/scales/scales.cpp
 
   # Sequencer logic
-  ${LIB_DIR}/sequencer/ParameterManager.cpp
-  ${LIB_DIR}/sequencer/Sequencer.cpp
+  ${CORE_DIR}/sequencer/ParameterManager.cpp
+  ${CORE_DIR}/sequencer/Sequencer.cpp
 
-  # Voice synthesis (DSP comes from header-only lib/rpdsp)
+  # Voice synthesis (DSP comes from header-only src/rpdsp)
   ${SRC_DIR}/voice/Voice.cpp
   ${SRC_DIR}/voice/VoicePresets.cpp
 )
@@ -39,7 +39,7 @@ target_include_directories(pico2seq_tests PRIVATE
   ${STUB_DIR}
   ${PROJECT_SOURCE_DIR}
   ${SRC_DIR}
-  ${LIB_DIR}
+  ${CORE_DIR}
   ${RPDSP_DIR}
 )
 

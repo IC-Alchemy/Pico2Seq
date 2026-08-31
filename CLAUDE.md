@@ -15,7 +15,7 @@ Two build systems coexist and never touch each other:
 - **CMake** builds *only* the host-side unit test suite in `tests/`. It cannot build or flash
   the firmware itself.
 
-`lib/pico2seq-core/` holds the sequencer (`Sequencer`, `ParameterManager`, `SequencerDefs.h`,
+`src/pico2seq-core/` holds the sequencer (`Sequencer`, `ParameterManager`, `SequencerDefs.h`,
 `ShuffleTemplates.h`) and `scales/` (scale tables). Both are plain, portable C++ with no
 Arduino/RP2040 dependency — they're deliberately kept reusable in other projects. Don't add
 `#include <Arduino.h>`, UI-layer (`UIState`), or hardware-glue includes back into this folder;
@@ -72,11 +72,11 @@ code with **no hardware dependencies**, using header stubs in `tests/stubs/` (e.
 real header paths exactly — a stub for `pico/sync.h` must live at `tests/stubs/pico/sync.h`.
 
 What's tested vs. not, per `tests/CMakeLists.txt`:
-- **Tested** (compiled into `pico2seq_tests`): `lib/rpdsp/` additions via
+- **Tested** (compiled into `pico2seq_tests`): `src/rpdsp/` additions via
   `tests/unit/test_rpdsp_additions.cpp` (wavefolder, fmap/Mapping, Waveshaper, vendored
   DSPFunctions smoke tests), `src/voice/VoiceOscillator.h` via `test_voiceoscillator.cpp`,
-  `lib/pico2seq-core/scales/scales.cpp`,
-  `lib/pico2seq-core/sequencer/{ParameterManager,Sequencer}.cpp`,
+  `src/pico2seq-core/scales/scales.cpp`,
+  `src/pico2seq-core/sequencer/{ParameterManager,Sequencer}.cpp`,
   `src/voice/{Voice,VoicePresets}.cpp`.
 - **Not tested, by design** (hardware-bound glue — keep logic out of these):
   `src/audio/` (PIO/DMA/I2S), `src/LEDMatrix/` (WS2812B GPIO/DMA), `src/OLED/` (I2C display),
@@ -166,12 +166,12 @@ is what makes "Note track at 16 steps, Filter track at 8 steps" possible on the 
   mismatches; the host GCC used for tests does not (see `docs/testing.md` step 7 for the
   `Voice.h`/`Voice.cpp` bug this caught). If you add a method with `noexcept` in the `.cpp`,
   the header declaration needs it too, or the test build breaks.
-- **All DSP lives in `lib/rpdsp/`** (header-only, namespace `rpdsp`, tracked as a
+- **All DSP lives in `src/rpdsp/`** (header-only, namespace `rpdsp`, tracked as a
   Git submodule from `IC-Alchemy/RPDSP` — the old `src/dsp/` DaisySP fork was fully removed). Voice DSP
   classes are reached through `src/voice/VoiceOscillator.h` (waveform-id → class dispatch)
   and `Voice.h`. Check existing rpdsp headers for the `prepare()/reset()/process()`
   conventions before adding a new processor rather than pulling in DaisySP fresh.
-- **External modules (`lib/rpdsp/` and `lib/VelocityEncoder/`) are Git submodules.** When cloning,
+- **External modules (`src/rpdsp/` and `src/VelocityEncoder/`) are Git submodules.** When cloning,
   use `git clone --recurse-submodules` or run `git submodule update --init --recursive`.
 - Project naming history: some older sub-READMEs (`src/matrix/README.md`, `src/midi/README.md`)
   still say "Mudras Sequencer"/"PicoMudrasSequencer" from before the project was renamed to

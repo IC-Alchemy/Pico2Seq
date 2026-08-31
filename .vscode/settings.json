@@ -4,5 +4,6 @@
         "memory": "cpp",
         "semaphore": "cpp",
         "stop_token": "cpp"
-    }
+    },
+    "telemetry.feedback.enabled": false
 }
