@@ -760,6 +760,12 @@ void setup1()
 
     Serial.print("[CORE1] Setup starting... ");
 
+    // Pin the main I2C bus (OLED, MPR121, TMAG5273, VL53L1X) before any
+    // sensor/display begin() runs.
+    Wire.setSDA(PIN_WIRE_SDA);
+    Wire.setSCL(PIN_WIRE_SCL);
+    Wire.begin();
+
     randomSeed(analogRead(A0) + millis());
     ledMatrix.begin(100);
     setupLEDMatrixFeedback();

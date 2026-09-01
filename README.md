@@ -116,25 +116,28 @@ A powerful 4-voice polyphonic step sequencer for the Raspberry Pi Pico2 microcon
 - GP16 → DAC BCK (I2S bit clock)
 - GP17 → DAC LRCK (I2S word clock)
 
-**Touch Matrix:**
-- GP0, GP1, GP2, GP3 → MPR121 electrodes 0-3 (rows)
-- GP4, GP5, GP6, GP7, GP8, GP9, GP10, GP11  electrodes 4-11 (columns)
+**Touch Matrix (MPR121, I2C on Wire):**
+- I2C (Wire): GP4 (SDA), GP5 (SCL)
+- Address: 0x5A (default)
+- All 12 electrodes wired as the 4×8 touch grid — 32 dedicated step pads
+  (bank = electrode index / 16, step = index % 16; see docs/matrix.md)
 
 **OLED Display:**
-- I2C: GP12 (SDA), GP13 (SCL)
+- I2C (Wire): GP4 (SDA), GP5 (SCL)
 - Address: 0x3C (default)
 
 **Alchemy Tiles (param/utility buttons + faders):**
-- Wire1: GP8 (SDA), GP9 (SCL), 400 kHz — *proposed pins, confirm against the actual panel wiring at the bench*
+- Wire1 (I2C1): GP14 (SDA), GP15 (SCL), 400 kHz
+- ⚠️ GP15 is also the I2S DAC data pin (`PICO_AUDIO_I2S_DATA_PIN` in `Pico2Seq.ino`) — resolve this collision before power-up (move the DAC data pin or the tile bank)
 - SliderModule addresses 0x08–0x0A, ButtonModule8 addresses 0x0B–0x0D
 - GP7 → mode strap switch to GND (LOW = Param mode, HIGH = Utility mode; if the polarity is inverted on the bench, flip `ControlSurface::kModeParamLevel` in `src/ui/ControlSurfaceLogic.h`)
 
 **TMAG5273 Magnetic Encoder (Velocity Encoder board):**
-- I2C: GP12 (SDA), GP13 (SCL)
+- I2C (Wire): GP4 (SDA), GP5 (SCL)
 - Address: 0x22 (TMAG5273B default)
 
 **VL53L1X Distance Sensor:**
-- I2C: GP12 (SDA), GP13 (SCL)
+- I2C (Wire): GP4 (SDA), GP5 (SCL)
 - Address: 0x29 (default)
 
 **LED Matrix:**

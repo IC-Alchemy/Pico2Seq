@@ -29,8 +29,9 @@ time (voice pair 1+2 or 3+4).
 | SliderModule + ButtonModule8 | **Wire1**, dedicated bank, 400 kHz | param/utility buttons, voice select, faders |
 | GP7 | `INPUT_PULLUP`, switch to GND | mode select: **LOW = Param mode, HIGH = Utility mode** (constant `kModeParamLevel`, flippable) |
 
-Wire1 pins are named constants in `includes.h` (proposed SDA=GP8, SCL=GP9,
-avoiding gate pins 10–12). **Bench item:** confirm against actual panel wiring.
+Wire1 pins are named constants in `includes.h` (confirmed SDA=GP14, SCL=GP15;
+main Wire bus is SDA=GP4, SCL=GP5). **Bench item:** GP15 is also the I2S DAC
+data pin (`PICO_AUDIO_I2S_DATA_PIN`) — resolve that collision before power-up.
 
 ## Mode system
 
@@ -198,7 +199,7 @@ root `README.md` panel description.
 
 ## Bench verification items
 
-1. Wire1 pin constants vs. actual panel wiring.
+1. ~~Wire1 pin constants vs. actual panel wiring.~~ Resolved 2026-09-01: SDA=GP14, SCL=GP15. New open item: GP15 collides with the I2S DAC data pin (`PICO_AUDIO_I2S_DATA_PIN`) — one of the two must move.
 2. GP7 polarity in practice (flip `kModeParamLevel` if inverted).
 3. Voice 3/4 LED existence on the panel (else OLED-only voice feedback).
 4. Fader taper/deadband feel; adjust deadband constant.

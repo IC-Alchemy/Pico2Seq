@@ -48,7 +48,7 @@ This document gives a high-level overview of modules, data flow, and key respons
   - `UIConstants.h` — UI constants and button mappings
 
 ### Alchemy Tile Control Surface
-- **AlchemyUI/**: Vendored hub-side library for the Alchemy Modular UI I2C tiles (protocol v2, register map, adaptive reads, TileButton edge state). `ButtonMap.h` maps logical buttons onto the 2-tile rig: a **SliderModule** (4 faders + 4 buttons = Voice 1–4 selects) and a **ButtonModule8** (8 buttons = 7 parameter buttons + Shift, or 6 utility buttons + Shift depending on the GP7 mode strap). Tiles sit on a dedicated **Wire1** bank at 400 kHz (pins in `includes.h`); the MPR121 matrix is 32 dedicated step pads (two voices at a time via pad banks).
+- **AlchemyUI/**: Vendored hub-side library for the Alchemy Modular UI I2C tiles (protocol v2, register map, adaptive reads, TileButton edge state). `ButtonMap.h` maps logical buttons onto the 2-tile rig: a **SliderModule** (4 faders + 4 buttons = Voice 1–4 selects) and a **ButtonModule8** (8 buttons = 7 parameter buttons + Shift, or 6 utility buttons + Shift depending on the GP7 mode strap). Tiles sit on a dedicated **Wire1** bank at 400 kHz (SDA=GP14, SCL=GP15; the shared OLED/sensor bus is Wire on SDA=GP4, SCL=GP5 — pins in `includes.h`); the MPR121 matrix is 32 dedicated step pads (two voices at a time via pad banks).
 
 ### Hardware Interface
 - **matrix/**: 4×8 capacitive touch matrix scanning system with debounced input processing — all 32 MPR121 indices are dedicated **step pads** since the Alchemy tile migration; pad presses resolve to (voice, step) via `ControlSurface::PadBank` (selected voice 1/2 → pads address voices 1+2; voice 3/4 → voices 3+4)

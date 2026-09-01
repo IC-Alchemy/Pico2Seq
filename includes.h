@@ -39,13 +39,17 @@
 #include "src/ui/AlchemyControlBridge.h"
 
 // =======================
-//   ALCHEMY TILE CONTROL SURFACE PINS
+//   I2C BUS PINS
 // =======================
-// SliderModule + ButtonModule8 live on a dedicated Wire1 bank at 400 kHz.
-// Proposed pins avoid the gate pins 10-12 — confirm against the actual panel
-// wiring at the bench (design doc, bench item 1).
-constexpr uint8_t PIN_ALCHEMY_WIRE1_SDA = 8;
-constexpr uint8_t PIN_ALCHEMY_WIRE1_SCL = 9;
+// Main bus (Wire, I2C0): OLED, MPR121, TMAG5273, VL53L1X.
+constexpr uint8_t PIN_WIRE_SDA = 4;
+constexpr uint8_t PIN_WIRE_SCL = 5;
+// Tile bank (Wire1, I2C1) at 400 kHz: SliderModule + ButtonModule8.
+// WARNING: GP15 is also PICO_AUDIO_I2S_DATA_PIN in Pico2Seq.ino (I2S DAC
+// data). A GPIO can drive only one peripheral function at a time — resolve
+// this collision (move the DAC data pin or these pins) before bench power-up.
+constexpr uint8_t PIN_ALCHEMY_WIRE1_SDA = 14;
+constexpr uint8_t PIN_ALCHEMY_WIRE1_SCL = 15;
 // GP7 strap switch to GND: LOW = Param mode, HIGH = Utility mode. If the
 // bench polarity is inverted, flip ControlSurface::kModeParamLevel in
 // src/ui/ControlSurfaceLogic.h instead.
