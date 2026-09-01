@@ -26,8 +26,8 @@ Sequencer seq1(1), seq2(2), seq3(3), seq4(4);
 // VoiceSystem provides centralized access
 uint8_t voiceId = voiceSystem.getVoiceId(voiceIndex);           // Safe voice access
 VoiceState& voiceState = voiceSystem.getVoiceState(voiceIndex); // Parameter state
-bool gateActive = voiceSystem.getGate(voiceIndex);              // Gate state
-voiceSystem.setGate(voiceIndex, true);                          // Set gate
+bool gateActive = voiceSystem.getGate(voiceIndex);              // Gate state (voices 0-1)
+voiceSystem.getGate(voiceIndex) = true;                         // Set gate (write through reference)
 ```
 
 This integration eliminates the previous approach of individual voice variables and provides:
@@ -111,19 +111,19 @@ The sequencers now work seamlessly with the VoiceSystem architecture:
 ```cpp
 // VoiceSystem provides array-based access to all voice data
 struct VoiceSystem {
-    static const uint8_t MAX_VOICES = 4;
+    static constexpr uint8_t MAX_VOICES = 4;
 
     uint8_t voiceIds[MAX_VOICES];            // Voice identifier mapping
     VoiceState voiceStates[MAX_VOICES];      // Synthesis parameters per voice
-    bool gates[MAX_VOICES];                  // Gate states
-    GateTimer gateTimers[MAX_VOICES];        // Gate timing management
+    volatile bool gates[2];                  // Gate states (voices 0-1 only)
+    GateTimer gateTimers[2];                 // Gate timing (voices 0-1 only)
 
     // Safe accessor methods
     uint8_t getVoiceId(uint8_t index) const;
+    void setVoiceId(uint8_t index, uint8_t voiceId);
     VoiceState& getVoiceState(uint8_t index);
-    bool getGate(uint8_t index) const;
-    void setGate(uint8_t index, bool state);
-    GateTimer& getGateTimer(uint8_t index);
+    volatile bool& getGate(uint8_t index);   // voices 0-1; dummy ref otherwise
+    GateTimer& getGateTimer(uint8_t index);  // voices 0-1; dummy ref otherwise
 };
 ```
 
@@ -181,7 +181,7 @@ void loop() {
     uint8_t currentStep = uClock.getCurrentStep();
 
     // Get sensor distance for real-time recording (global for all sequencers)
-    int distance = distanceSensor.getDistance();
+    int distance = distanceSensor.getRawDistanceMm();
     float normalizedDistance = constrain(distance / 400.0f, 0.0f, 1.0f); // Global parameter input
 
     // Get UI state for button presses and voice selection
@@ -208,9 +208,9 @@ void loop() {
             // Update voice parameters through VoiceSystem
             voiceManager->updateVoiceState(voiceSystem.getVoiceId(voiceIndex), voiceState);
 
-            // Handle gate timing (optional - some implementations use separate gate management)
-            if (voiceState.isGateHigh) {
-                voiceSystem.setGate(voiceIndex, true);
+            // Handle gate timing (voices 0-1 have hardware gates; 2-3 are audio-only)
+            if (voiceState.isGateHigh && voiceIndex < 2) {
+                voiceSystem.getGate(voiceIndex) = true;
                 voiceSystem.getGateTimer(voiceIndex).start(voiceState.gateLengthTicks);
             }
 
@@ -312,12 +312,12 @@ void updateVoiceParameters(const VoiceState& newState, uint8_t voiceIndex) {
     VoiceState& currentState = voiceSystem.getVoiceState(voiceIndex);
     currentState = newState; // Struct assignment for efficiency
 
-    // Gate management through VoiceSystem
-    if (newState.isGateHigh && !voiceSystem.getGate(voiceIndex)) {
-        voiceSystem.setGate(voiceIndex, true);
+    // Gate management through VoiceSystem (gates exist for voices 0-1)
+    if (newState.isGateHigh && !(voiceSystem.getGate(voiceIndex)) && voiceIndex < 2) {
+        voiceSystem.getGate(voiceIndex) = true;
         voiceSystem.getGateTimer(voiceIndex).start(newState.gateLengthTicks);
-    } else if (!newState.isGateHigh) {
-        voiceSystem.setGate(voiceIndex, false);
+    } else if (!newState.isGateHigh && voiceIndex < 2) {
+        voiceSystem.getGate(voiceIndex) = false;
     }
 
     // Update voice manager with new state
@@ -331,18 +331,15 @@ void updateVoiceParameters(const VoiceState& newState, uint8_t voiceIndex) {
 The VoiceSystem enables efficient bulk operations across all voices:
 
 ```cpp
-// Stop all voices simultaneously
+// Stop all voices simultaneously (gated voices 0-1)
 voiceSystem.stopAllGates();
 
-// Set all voices to same volume
-voiceSystem.setAllVoiceVolumes(0.7f);
-
-// Process gate timers for all voices
+// Process gate timers for all voices (gated voices 0-1)
 voiceSystem.tickAllGateTimers();
 
-// Check if any voice is active
+// Check if any gated voice is active
 bool anyVoiceActive = false;
-for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++) {
+for (uint8_t i = 0; i < 2; i++) {
     if (voiceSystem.getGate(i)) {
         anyVoiceActive = true;
         break;
@@ -357,26 +354,34 @@ for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++) {
 The extended UI system supports per-voice parameter manipulation:
 
 ```cpp
-// Voice parameter editing (buttons 8-15: envelope, overdrive, wavefolder, filter mode, etc.)
+// Voice parameter editing (buttons 8-12: envelope, overdrive, wavefolder, filter mode, resonance)
 void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState& state) {
     if (voiceIndex < 0 || voiceIndex > 3) return;
 
     uint8_t currentVoiceId = voiceSystem.getVoiceId(voiceIndex);
-    VoiceConfig* config = voiceManager->getVoiceConfig(currentVoiceId);
+    VoiceConfig config = *voiceManager->getVoiceConfig(currentVoiceId);
 
     switch (paramIndex) {
-        case 8: // Toggle envelope per voice
-            config->hasEnvelope = !config->hasEnvelope;
+        case 8:  // Toggle envelope per voice
+            config.hasEnvelope = !config.hasEnvelope;
             break;
-        case 9: // Cycle filter modes per voice
-            config->filterMode = static_cast<daisysp::LadderFilter::FilterMode>(
-                (static_cast<uint8_t>(config->filterMode) + 1) % 5);
+        case 9:  // Toggle overdrive per voice
+            config.hasOverdrive = !config.hasOverdrive;
             break;
-        // ... additional voice parameters
+        case 10: // Toggle wavefolder per voice
+            config.hasWavefolder = !config.hasWavefolder;
+            break;
+        case 11: // Cycle filter modes via the shared voiceui mode table
+                 // (rpdsp::LadderFilter::Mode; names and modes stay in sync)
+            // ... advances config.filterMode by one, wrapping at kFilterModeCount
+            break;
+        case 12: // Cycle filter resonance in +0.1 steps
+            // ... config.filterRes
+            break;
     }
 
     // Apply configuration changes
-    voiceManager->setVoiceConfig(currentVoiceId, *config);
+    voiceManager->setVoiceConfig(currentVoiceId, config);
 }
 ```
 

@@ -729,9 +729,9 @@ void updateStepLEDs(
         return;
     }
 
-    const ParamButtonMapping *heldMapping = getHeldParameterButton(uiState);
-    bool anyParamForLengthHeld = (heldMapping != nullptr);
-    ParamId activeParamIdForLength = anyParamForLengthHeld ? heldMapping->paramId : ParamId::Count;
+    const ParamId heldParamIdForLength = getHeldParameterParamId(uiState);
+    bool anyParamForLengthHeld = (heldParamIdForLength != ParamId::Count);
+    ParamId activeParamIdForLength = anyParamForLengthHeld ? heldParamIdForLength : ParamId::Count;
 
     // Gate sequence length mode visualization: blink LEDs up to current gate length for selected voice
     if (uiState.gateSeqLengthMode)

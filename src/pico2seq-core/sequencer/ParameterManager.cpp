@@ -6,7 +6,7 @@
 #include <cstdint>   // For uint32_t
 #include <variant>   // For std::visit
 
-// AS5600 parameter bounds management functions moved to src/sensors/AS5600Manager.cpp
+// Encoder parameter bounds management functions moved to src/sensors/EncoderManager.cpp
 
 // Helper function to safely get float from ParameterValueType variant
 // This function is internal to ParameterManager.cpp

@@ -1,8 +1,8 @@
 #include "LEDController.h"
-#include "../sensors/as5600.h"
+#include "../VelocityEncoder/src/MagEncoder.h"
 
 // External sensor instance
-extern AS5600Sensor as5600Sensor;
+extern MagEncoder magEncoder;
 
 void initLEDController() {
   // Currently no initialization required
@@ -17,19 +17,19 @@ void updateControlLEDs(LEDMatrix& ledMatrix, const UIState& uiState) {
   const uint8_t pulseValue = LEDConstants::PULSE_BASE_BRIGHTNESS + 
     (sinf(currentTimeMs * LEDConstants::PULSE_FREQUENCY) * LEDConstants::PULSE_AMPLITUDE);
 
-  // Check if AS5600 encoder is controlling a parameter
-  const bool isAS5600ParameterSelected = (uiState.currentAS5600Parameter != AS5600ParameterMode::COUNT);
+  // Check if magnetic encoder is controlling a parameter
+  const bool isEncoderParameterSelected = (uiState.currentEncoderParameter != EncoderParameterMode::COUNT);
 
-  // Lambda to check if a button index corresponds to current AS5600 parameter
-  auto isCurrentAS5600Button = [&](int buttonIndex) -> bool {
-    switch (uiState.currentAS5600Parameter) {
-      case AS5600ParameterMode::Velocity: 
+  // Lambda to check if a button index corresponds to current encoder parameter
+  auto isCurrentEncoderButton = [&](int buttonIndex) -> bool {
+    switch (uiState.currentEncoderParameter) {
+      case EncoderParameterMode::Velocity: 
         return buttonIndex == ControlLEDIndices::VELOCITY_LED_INDEX;
-      case AS5600ParameterMode::Filter:   
+      case EncoderParameterMode::Filter:   
         return buttonIndex == ControlLEDIndices::FILTER_LED_INDEX;
-      case AS5600ParameterMode::Attack:   
+      case EncoderParameterMode::Attack:   
         return buttonIndex == ControlLEDIndices::ATTACK_LED_INDEX;
-      case AS5600ParameterMode::Decay:    
+      case EncoderParameterMode::Decay:    
         return buttonIndex == ControlLEDIndices::DECAY_LED_INDEX;
       default: 
         return false;
@@ -87,10 +87,10 @@ void updateControlLEDs(LEDMatrix& ledMatrix, const UIState& uiState) {
     if (isParameterHeld) {
       // Parameter is actively held - show pulsing active color
       ledColor = createPulsedColor(activeThemeColors->*(paramConfig.activeColorPtr));
-    } else if (isAS5600ParameterSelected && as5600Sensor.isConnected() && 
-               isCurrentAS5600Button(paramConfig.ledIndex)) {
-      // AS5600 encoder is controlling this parameter - show value-based fading
-      const float currentParameterValue = getAS5600ParameterValue();
+    } else if (isEncoderParameterSelected && magEncoder.isConnected() && 
+               isCurrentEncoderButton(paramConfig.ledIndex)) {
+      // magnetic encoder is controlling this parameter - show value-based fading
+      const float currentParameterValue = getEncoderParameterValue();
       ledColor = createParameterValueColor(activeThemeColors->*(paramConfig.activeColorPtr), 
                                           currentParameterValue);
     } else {
@@ -101,22 +101,22 @@ void updateControlLEDs(LEDMatrix& ledMatrix, const UIState& uiState) {
     setLEDByLinearIndex(paramConfig.ledIndex, ledColor);
   }
 
-  // Update delay parameter LEDs (AS5600 encoder controlled)
+  // Update delay parameter LEDs (magnetic encoder controlled)
   CRGB delayTimeLEDColor = LEDColors::DELAY_TIME_BASE;
   CRGB delayFeedbackLEDColor = LEDColors::DELAY_FEEDBACK_BASE;
 
-  if (as5600Sensor.isConnected()) {
-    const float currentParameterValue = getAS5600ParameterValue();
+  if (magEncoder.isConnected()) {
+    const float currentParameterValue = getEncoderParameterValue();
     
-    switch (uiState.currentAS5600Parameter) {
-      case AS5600ParameterMode::DelayTime:
+    switch (uiState.currentEncoderParameter) {
+      case EncoderParameterMode::DelayTime:
         delayTimeLEDColor = createParameterValueColor(LEDColors::DELAY_INDICATOR, currentParameterValue);
         break;
-      case AS5600ParameterMode::DelayFeedback:
+      case EncoderParameterMode::DelayFeedback:
         delayFeedbackLEDColor = createParameterValueColor(LEDColors::DELAY_INDICATOR, currentParameterValue);
         break;
       default:
-        // No AS5600 parameter selected - use base colors
+        // No encoder parameter selected - use base colors
         break;
     }
   }
@@ -124,14 +124,18 @@ void updateControlLEDs(LEDMatrix& ledMatrix, const UIState& uiState) {
   setLEDByLinearIndex(ControlLEDIndices::DELAY_TIME_LED_INDEX, delayTimeLEDColor);
   setLEDByLinearIndex(ControlLEDIndices::DELAY_FEEDBACK_LED_INDEX, delayFeedbackLEDColor);
 
-  // Update voice selection indicator LEDs
-  const CRGB voice1LEDColor = uiState.isVoice2Mode ? 
-    LEDColors::BLACK : activeThemeColors->defaultActive;
-  const CRGB voice2LEDColor = uiState.isVoice2Mode ? 
-    activeThemeColors->defaultInactive : LEDColors::BLACK;
+  // Voice selection indicators: the two panel LEDs serve all four voices by
+  // following the selected voice pair (1+2 or 3+4). The selected voice's LED
+  // is bright, its pair partner's dim. (If the bench panel turns out to have
+  // dedicated V3/V4 LEDs, this is the place to split them out.)
+  const bool selectedIsFirstInPair = (uiState.selectedVoiceIndex % 2) == 0;
+  const CRGB selectedVoiceLEDColor = activeThemeColors->defaultActive;
+  const CRGB partnerVoiceLEDColor = activeThemeColors->defaultInactive;
 
-  setLEDByLinearIndex(ControlLEDIndices::VOICE1_LED_INDEX, voice1LEDColor);
-  setLEDByLinearIndex(ControlLEDIndices::VOICE2_LED_INDEX, voice2LEDColor);
+  setLEDByLinearIndex(ControlLEDIndices::VOICE1_LED_INDEX,
+                      selectedIsFirstInPair ? selectedVoiceLEDColor : partnerVoiceLEDColor);
+  setLEDByLinearIndex(ControlLEDIndices::VOICE2_LED_INDEX,
+                      selectedIsFirstInPair ? partnerVoiceLEDColor : selectedVoiceLEDColor);
 
   // Update delay toggle LED with flash timing
   CRGB delayToggleLEDColor;

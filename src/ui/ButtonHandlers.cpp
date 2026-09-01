@@ -82,14 +82,14 @@ void handleRandomizeButton(int voiceIndex, UIState &state)
   state.flash31Until = millis() + CONTROL_LED_FLASH_DURATION_MS;
 }
 
-// Helper to cycle AS5600 parameter selection and report
-static void cycleAS5600Parameter(UIState &uiState)
+// Helper to cycle encoder parameter selection and report
+static void cycleEncoderParameter(UIState &uiState)
 {
-  uiState.currentAS5600Parameter = static_cast<AS5600ParameterMode>(
-      (static_cast<uint8_t>(uiState.currentAS5600Parameter) + 1) %
-      static_cast<uint8_t>(AS5600ParameterMode::COUNT));
+  uiState.currentEncoderParameter = static_cast<EncoderParameterMode>(
+      (static_cast<uint8_t>(uiState.currentEncoderParameter) + 1) %
+      static_cast<uint8_t>(EncoderParameterMode::COUNT));
 
-  uiState.lastAS5600ButtonPressTime = millis();
+  uiState.lastEncoderButtonPressTime = millis();
 }
 
 // Handle parameter button for a specific voice and parameter index
@@ -199,8 +199,8 @@ void handleControlButton(int buttonId, UIState &state)
     Serial.println(state.slideMode ? "ON" : "OFF");
     break;
 
-  case BUTTON_AS5600_CONTROL:
-    cycleAS5600Parameter(state);
+  case BUTTON_ENCODER_CONTROL:
+    cycleEncoderParameter(state);
     break;
 
   case BUTTON_PLAY_STOP:
@@ -261,7 +261,7 @@ void handleControlButton(int buttonId, UIState &state)
     state.flash23Until = millis() + CONTROL_LED_FLASH_DURATION_MS;
     if (state.delayOn)
     {
-      state.currentAS5600Parameter = AS5600ParameterMode::DelayTime;
+      state.currentEncoderParameter = EncoderParameterMode::DelayTime;
     }
   }
   break;

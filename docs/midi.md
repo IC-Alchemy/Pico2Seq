@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `src/midi` folder contains the MIDI communication system for the PicoMudrasSequencer. This module handles MIDI note events, continuous controller (CC) messages, and USB MIDI interface management. It provides both note-on/note-off functionality and real-time parameter control via MIDI CC messages.
+The `src/midi` folder contains the MIDI communication system for the Pico2Seq. This module handles MIDI note events, continuous controller (CC) messages, and USB MIDI interface management. It provides both note-on/note-off functionality and real-time parameter control via MIDI CC messages.
 
 ## Key Components
 
@@ -11,10 +11,8 @@ The `src/midi` folder contains the MIDI communication system for the PicoMudrasS
 **CC Number Mapping:**
 - Voice 1: CC71-74 (Octave=71, Decay=72, Attack=73, Filter=74)
 - Voice 2: CC75-78 (Octave=75, Decay=76, Attack=77, Filter=78)
-- Voice 3: CC79-82 (Octave=79, Decay=80, Attack=81, Filter=82)
-- Voice 4: CC83-86 (Octave=83, Decay=84, Attack=85, Filter=86)
 
-**Note:** The system now supports up to 4 voices through the VoiceSystem architecture, with CC mappings extended accordingly.
+**Note:** `updateParameterCC()` only supports voices 1 and 2 (voiceId ≤ 1); voices 3 and 4 are audio-only with no CC output. Only Filter, Attack, Decay, and Octave are transmitted as CC.
 
 **Transmission Settings:**
 - Minimum interval: 10ms between CC transmissions
@@ -83,11 +81,15 @@ struct CCParameterState {
 ### Timing Control
 ```cpp
 void updateTiming(uint16_t currentTick) {
-    // Check all voices for expired gates using VoiceSystem
-    for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++) {
-        if (voiceSystem.getGateTimer(i).isExpired()) {
-            processNoteOff(i);
-        }
+    // Trackers cover the two MIDI-capable voices (0-1);
+    // voices 2-3 are audio-only and never emit MIDI notes
+    voice1Tracker.currentTick = currentTick;
+    voice2Tracker.currentTick = currentTick;
+    if (voice1Tracker.isGateExpired() && voice1Tracker.isNoteActive()) {
+        processNoteOff(0);
+    }
+    if (voice2Tracker.isGateExpired() && voice2Tracker.isNoteActive()) {
+        processNoteOff(1);
     }
 }
 ```
@@ -100,9 +102,9 @@ The MIDI system now integrates with the centralized VoiceSystem architecture:
 // Access voice states through VoiceSystem
 VoiceState& voiceState = voiceSystem.getVoiceState(voiceIndex);
 
-// Gate management through VoiceSystem
-voiceSystem.setGate(voiceIndex, true);  // Note on
-voiceSystem.setGate(voiceIndex, false); // Note off
+// Gate management through VoiceSystem (gates exist for voices 0-1)
+voiceSystem.getGate(voiceIndex) = true;   // Note on
+voiceSystem.getGate(voiceIndex) = false;  // Note off
 
 // Bulk operations for all voices
 voiceSystem.stopAllGates();  // All notes off
@@ -241,5 +243,7 @@ src/midi/
 
 - **Multi-Channel Support**: Expand beyond channel 1
 - **NRPN Support**: Add NRPN parameter control
-- **MIDI Clock**: Add tempo synchronization
+- **CC for Voices 3/4**: Extend CC mappings beyond the current two-voice support
 - **Sysex Messages**: Add system exclusive support
+
+(Note: MIDI Clock output already exists — `usb_midi.sendRealTime(midi::Clock/Start/Stop)` from the uClock callbacks in `Pico2Seq.ino`.)

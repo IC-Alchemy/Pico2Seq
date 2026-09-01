@@ -38,7 +38,7 @@
 
 class AlchemyTiles {
  public:
-  static constexpr int kMaxTiles = 5;  // 1 slider + 4 button tiles
+  static constexpr int kMaxTiles = 5;  // 1 slider + up to 4 button tiles
   static constexpr std::uint32_t kPollIntervalMs = 4;  // ~250 Hz tier B
   static constexpr std::uint32_t kReprobeIntervalMs = 1000;
   static constexpr std::uint8_t kOfflineAfterBusErrors = 4;

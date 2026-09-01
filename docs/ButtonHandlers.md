@@ -4,6 +4,74 @@
 
 The `ButtonHandlers` module provides specialized button event handling for the Pico2Seq UI system. This module was extracted from the main `UIEventHandler` to improve code organization and maintainability by encapsulating button-specific logic into focused, reusable functions.
 
+Since the **Alchemy tile migration** (see
+`docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`),
+the physical parameter/utility buttons no longer live on the MPR121 matrix —
+all 32 matrix indices are dedicated step pads, and the buttons moved to two
+Alchemy Modular UI tiles on Wire1:
+
+- **SliderModule** (slot 0): 4 faders + 4 buttons — the buttons are direct
+  **Voice 1–4 selects** in both modes.
+- **ButtonModule8** (slot 1): 8 buttons — the 7 parameter buttons plus a
+  **Shift** button (Param mode), or 6 utility buttons plus Shift (Utility mode).
+- A **GP7 strap switch** selects the tile function set: LOW = Param mode,
+  HIGH = Utility mode (software-debounced 20 ms; on a flip all holds/latches
+  clear, a control LED flashes and the OLED shows a PARAM/UTIL banner).
+
+The tile → firmware translation lives in `src/ui/AlchemyControlBridge.*`
+(glue) and `src/ui/ControlSurfaceLogic.*` (pure, unit-tested: mode
+stabilization, pad-bank resolution, Shift latching, fader mapping). The
+matrix event path and the bridge both funnel into the *same* handler code
+documented below.
+
+### Alchemy tile semantics
+
+**Param mode (GP7 low)** — ButtonModule8 bits 0–7:
+
+| Bit | Function | Behavior |
+|---|---|---|
+| 0 | Note | hold-to-arm; step presses program notes |
+| 1 | Velocity | hold-to-arm + encoder auto-select |
+| 2 | Filter | hold-to-arm + encoder auto-select |
+| 3 | Attack | hold-to-arm + encoder auto-select |
+| 4 | Decay | hold-to-arm + encoder auto-select |
+| 5 | Octave | hold-to-arm + encoder auto-select |
+| 6 | Slide | toggles slide mode (clears conflicting modes) |
+| 7 | Shift | modifier (see below) |
+
+**Utility mode (GP7 high)** — ButtonModule8 bits 0–7:
+
+| Bit | Function |
+|---|---|
+| 0 | Play/Stop (long-press while stopped opens settings) |
+| 1 | Delay on/off toggle |
+| 2 | Scale cycle |
+| 3 | Swing template cycle |
+| 4 | Theme cycle |
+| 5 | Encoder-control target cycle (hold = gate-seq-length mode) |
+| 6 | Randomize selected voice (long-press = reset) |
+| 7 | Shift (modifier) |
+
+**Shift modifier (both modes):**
+- Shift + param tap: latch/unlatch that parameter (at most one latch;
+  latching another moves it; latched params read as held without a finger).
+- Shift + step pad: clear that step (gate off + params reset) on the pad's
+  own voice.
+- Shift + Voice1..4 (slider buttons): Play/Stop, Randomize selected voice,
+  Scale cycle, Delay toggle.
+
+**Faders** — Param mode: Filter, Attack, Decay, Velocity for the selected
+voice (record into the step in edit via the shared recording path when the
+matching param is armed). Utility mode: Tempo (uClock), Swing amount,
+Delay mix, Gate length (selected voice). ~8-count deadband, send on change.
+
+**Step pads (all 32 matrix indices):** `bank = index / 16`,
+`step = index % 16`; selected voice 1/2 → banks are voices 1/2, selected
+voice 3/4 → banks are voices 3/4. Every pad action (gate toggle, long-press
+step edit, param-hold programming, gate-seq-length entry, slide-mode
+toggling) resolves through this bank mapping instead of assuming the single
+selected voice.
+
 ## Key Components
 
 ### ButtonHandlers.h - Interface Definition
@@ -81,7 +149,7 @@ Handles global control buttons that affect system-wide functionality. Implements
 | Button ID | Function | Description |
 |-----------|-----------|-----------|
 | `BUTTON_SLIDE_MODE` | Toggle slide/portamento mode | Enables/disables note transition smoothing |
-| `BUTTON_AS5600_CONTROL` | Cycle AS5600 parameter | Rotates through available parameter controls |
+| `BUTTON_ENCODER_CONTROL` | Cycle encoder parameter | Rotates through available parameter controls |
 | `BUTTON_PLAY_STOP` | Play/stop toggle | Controls sequencer playback state |
 | `BUTTON_CHANGE_SCALE` | Scale selection | Cycles through available musical scales |
 | `BUTTON_CHANGE_THEME` | LED theme cycling | Changes visual feedback color schemes |
@@ -100,23 +168,28 @@ Button state tracking utilities for randomize button press/release events. Manag
 
 ## Integration Points
 
-### UIEventHandler Integration
+### UIEventHandler / AlchemyControlBridge Integration
 
-ButtonHandlers functions are called from `UIEventHandler.cpp` when matrix button events are detected:
+The matrix path handles only step pads now; parameter/utility buttons arrive
+from `AlchemyControlBridge`, and both share the same entry points:
 
 ```cpp
-// In UIEventHandler.cpp
-if (matrixButtonEvent.type == MATRIX_BUTTON_PRESSED) {
-    int buttonId = calculateButtonId(matrixButtonEvent);
-    if (isRandomizeButton(buttonId)) {
-        handleRandomizeButton(voiceIndex, uiState);
-    } else if (isVoiceParameter(buttonId)) {
-        handleVoiceParameterButton(voiceIndex, buttonId, uiState);
-    } else if (isControlButton(buttonId)) {
-        handleControlButton(buttonId, uiState);
-    }
-}
+// From loop1()'s 1 ms control slice (Pico2Seq.ino):
+Matrix_scan();  // 32 step pads -> matrixEventHandler -> handleStepButtonEvent
+alchemyBridge.update(currentMillis, uiState, bridgeSequencers, 4, midiNoteManager);
+
+// Inside AlchemyControlBridge, tile edges call the shared handlers:
+handleParameterButtonById(paramId, pressed, uiState);   // param buttons
+handleSlideModePress(uiState);                          // Slide tile button
+handleControlButton(BUTTON_PLAY_STOP, uiState);         // utility buttons
+beginRandomizePress(v, uiState); handleRandomizeButton(v, uiState);
+selectVoice(uiState, midiNoteManager, v);               // Voice1..4 buttons
+clearSequencerStep(seq, step);                          // Shift + pad
 ```
+
+Long-press detection for tile randomize (reset) and the encoder-control hold
+(gate-seq-length mode) is promoted by `pollUIHeldButtons()`, which runs every
+`loop1()` pass exactly as before.
 
 ### VoiceSystem Integration
 
@@ -233,12 +306,17 @@ The modular design allows easy addition of new button types:
 
 ```
 src/ui/
-├── ButtonHandlers.cpp      # Implementation of button handling logic
-├── ButtonHandlers.h        # Interface definitions and function declarations
-├── UIEventHandler.cpp      # Matrix event detection and ButtonHandlers integration
-├── UIEventHandler.h        # UI event processing interface
-├── UIConstants.h           # Button ID definitions and mappings
-└── UIState.h              # State management structure
+├── AlchemyControlBridge.cpp  # Alchemy tile -> firmware UI glue (Core 1)
+├── AlchemyControlBridge.h
+├── ControlSurfaceLogic.cpp   # Pure decision logic (unit-tested)
+├── ControlSurfaceLogic.h
+├── ButtonHandlers.cpp        # Implementation of button handling logic
+├── ButtonHandlers.h          # Interface definitions and function declarations
+├── ButtonManager.cpp         # ParamId-keyed param name/hold helpers
+├── UIEventHandler.cpp        # Matrix step-pad events + shared entry points
+├── UIEventHandler.h          # UI event processing interface
+├── UIConstants.h             # Button ID definitions and mappings
+└── UIState.h                 # State management structure
 ```
 
 ## Performance Considerations

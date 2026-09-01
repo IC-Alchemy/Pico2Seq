@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `src/OLED` folder contains the display system for the PicoMudrasSequencer, providing comprehensive visual feedback through a 128×64 SH1106G OLED display. The module handles parameter editing, settings navigation, voice configuration, and real-time status display.
+The `src/OLED` folder contains the display system for the Pico2Seq, providing comprehensive visual feedback through a 128×64 SH1106G OLED display. The module handles parameter editing, settings navigation, voice configuration, and real-time status display.
 
 ## Key Components
 

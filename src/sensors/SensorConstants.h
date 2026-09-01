@@ -7,7 +7,7 @@
  *
  * This file contains all sensor-related constants including timing parameters,
  * calibration values, hardware addresses, and parameter ranges for both
- * VL53L1X distance sensor and AS5600 magnetic encoder.
+ * VL53L1X distance sensor and TMAG5273 magnetic encoder.
  */
 
 namespace SensorConstants
@@ -27,7 +27,6 @@ namespace SensorConstants
     static constexpr unsigned long READ_INTERVAL_MS = 20;
     static constexpr unsigned long TIMING_BUDGET_MICROSECONDS = 20000; // 20ms timing budget
     static constexpr unsigned long INTER_MEASUREMENT_PERIOD_MS = 24;   // 24ms between measurements
-    static constexpr unsigned long MEASUREMENT_TIMEOUT_MS = 5;         // 5ms timeout to avoid blocking LEDs
 
     // Distance measurement ranges (in millimeters)
     static constexpr int MAX_DISTANCE_HEIGHT_MM = 1400; // Maximum useful distance
@@ -36,7 +35,7 @@ namespace SensorConstants
   }
 
   // ======================
-  // AS5600 Magnetic Encoder Constants
+  // Magnetic Encoder Constants
   // ======================
 
   namespace MagneticEncoder
@@ -47,7 +46,7 @@ namespace SensorConstants
     static constexpr float NOTE_PARAMETER_MAX = 21.0f; // Scale array indices (0-21)
 
     // Delay parameter ranges
-    static constexpr float DELAY_TIME_MIN_SAMPLES = 120.0f; // 10ms minimum delay at 48kHz
+    static constexpr float DELAY_TIME_MIN_SAMPLES = 120.0f; // 2.5ms minimum delay at 48kHz (120 samples)
     static constexpr float DELAY_FEEDBACK_MAX = 0.91f;      // Maximum 91% feedback to prevent excessive feedback
 
     // Increment sensitivity and thresholds
@@ -87,8 +86,10 @@ namespace SensorConstants
     static constexpr unsigned long SENSOR_UPDATE_INTERVAL_MS = 1; // 1ms sensor update rate
 
     // Parameter mapping constants
-    static constexpr int FILTER_FREQUENCY_MIN_HZ = 100;
-    static constexpr int FILTER_FREQUENCY_MAX_HZ = 9710;
+    // Display range for filter cutoff; must match the DSP mapping in Voice.cpp
+    // (rpdsp::fmap(state.filterCutoff, 150.0f, 8000.0f, EXP))
+    static constexpr int FILTER_FREQUENCY_MIN_HZ = 150;
+    static constexpr int FILTER_FREQUENCY_MAX_HZ = 8000;
   }
 }
 

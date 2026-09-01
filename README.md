@@ -17,7 +17,7 @@ A powerful 4-voice polyphonic step sequencer for the Raspberry Pi Pico2 microcon
 
 ### Intuitive Controls
 - **32-Button Touch Matrix**: Capacitive touch interface for step editing and parameter control
-- **Real-time Sensors**: AS5600 magnetic encoder for velocity-sensitive parameter adjustment
+- **Real-time Sensors**: TMAG5273 magnetic encoder (Velocity Encoder board) for velocity-sensitive parameter adjustment
 - **Distance Control**: VL53L1X TOF sensor for hands-free parameter modulation (74-1400mm range)
 - **Visual Feedback**: OLED display for parameter visualization and settings navigation
 - **LED Matrix**: 8×8 WS2812B display for step sequencing feedback
@@ -40,21 +40,22 @@ A powerful 4-voice polyphonic step sequencer for the Raspberry Pi Pico2 microcon
 │   ├── pico2seq-core/        # Portable core sequencer and scale logic
 │   ├── rpdsp/                # Submodule: IC-Alchemy/RPDSP (header-only DSP)
 │   ├── VelocityEncoder/      # Submodule: IC-Alchemy/VelocityEncoder (TMAG5273 & AS5600 driver)
-│   ├── AS5600/               # AS5600 magnetic encoder driver
 │   ├── VL53L1X/              # Non-blocking VL53L1X TOF driver
 │   ├── voice/                # VoiceSystem and synthesizer voices
 │   │   ├── VoiceSystem.h     # Central voice management (4 voices max)
 │   │   ├── VoicePresets.h    # 7 predefined voice configurations
 │   │   └── VoiceManager.h    # Voice lifecycle and audio processing
-│   ├── ui/                   # UI state management and button handling
+│   ├── ui/                   # UI state management, step-pad handling, and Alchemy tile bridge
 │   │   ├── ButtonHandlers.h  # Specialized button event processing
+│   │   ├── ControlSurfaceLogic.h  # Pure tile-surface decision logic (unit-tested)
+│   │   ├── AlchemyControlBridge.h # Alchemy tile panel -> firmware UI glue
 │   │   └── UIState.h         # Centralized UI state (array-based)
-│   ├── matrix/               # 4×8 capacitive touch matrix scanning
+│   ├── matrix/               # 4×8 capacitive touch matrix — 32 dedicated step pads
 │   ├── sensors/              # Sensor management (encoder and TOF distance)
 │   ├── midi/                 # USB MIDI input/output and CC handling
 │   ├── LEDMatrix/            # 8×8 LED visual feedback system
 │   ├── OLED/                 # Display system for parameter visualization
-│   └── AlchemyUI/            # Modular I2C UI controller driver
+│   └── AlchemyUI/            # Vendored Alchemy Modular UI tile library (protocol, TileButton, ButtonMap)
 ├── docs/                     # Comprehensive documentation
 ├── tests/                    # Host-side CMake unit test suite
 └── diagnostic.h             # Debugging and diagnostic utilities
@@ -67,9 +68,11 @@ A powerful 4-voice polyphonic step sequencer for the Raspberry Pi Pico2 microcon
 **Hardware:**
 - Raspberry Pi Pico2 (RP2350) microcontroller
 - I2S-compatible audio codec/DAC (e.g., PCM5102A, PT8211)
-- MPR121 capacitive touch sensor (4×8 button matrix)
+- MPR121 capacitive touch sensor (4×8 grid, wired as 32 dedicated step pads)
+- Alchemy Modular UI tiles: SliderModule (4 faders + 4 buttons) and ButtonModule8 (8 buttons) on a dedicated Wire1 bank
+- GP7 strap switch (mode select: LOW = Param mode, HIGH = Utility mode)
 - OLED display (128×64 SH1106G)
-- AS5600 / TMAG5273 magnetic encoder
+- Velocity Encoder board (TMAG5273 magnetic encoder)
 - VL53L1X time-of-flight distance sensor
 - WS2812B LED matrix (8×8, 64 LEDs)
 
@@ -77,10 +80,10 @@ A powerful 4-voice polyphonic step sequencer for the Raspberry Pi Pico2 microcon
 - Arduino IDE with RP2040/RP2350 board support
 - Required Arduino libraries:
   - Adafruit_MPR121
+  - Adafruit_VL53L1X
   - Adafruit_SH110X
   - Adafruit_TinyUSB
   - FastLED
-  - Melopero_VL53L1X
 
 ### Installation
 
@@ -121,9 +124,14 @@ A powerful 4-voice polyphonic step sequencer for the Raspberry Pi Pico2 microcon
 - I2C: GP12 (SDA), GP13 (SCL)
 - Address: 0x3C (default)
 
-**AS5600 Encoder:**
+**Alchemy Tiles (param/utility buttons + faders):**
+- Wire1: GP8 (SDA), GP9 (SCL), 400 kHz — *proposed pins, confirm against the actual panel wiring at the bench*
+- SliderModule addresses 0x08–0x0A, ButtonModule8 addresses 0x0B–0x0D
+- GP7 → mode strap switch to GND (LOW = Param mode, HIGH = Utility mode; if the polarity is inverted on the bench, flip `ControlSurface::kModeParamLevel` in `src/ui/ControlSurfaceLogic.h`)
+
+**TMAG5273 Magnetic Encoder (Velocity Encoder board):**
 - I2C: GP12 (SDA), GP13 (SCL)
-- Address: 0x36 (fixed)
+- Address: 0x22 (TMAG5273B default)
 
 **VL53L1X Distance Sensor:**
 - I2C: GP12 (SDA), GP13 (SCL)
@@ -137,10 +145,12 @@ A powerful 4-voice polyphonic step sequencer for the Raspberry Pi Pico2 microcon
 ### Basic Operation
 
 1. **Power on the device** - All four voices initialize with default presets
-2. **Start playback** - Press the play/stop button to begin sequencing
-3. **Edit steps** - Touch matrix buttons set gate states and navigate through patterns
-4. **Adjust parameters** - Use magnetic encoder to modify current parameter (LED feedback shows selection)
-5. **Real-time recording** - Hold parameter buttons while moving sensor for live capture
+2. **Start playback** - Press Play/Stop (Utility mode tile button, or Shift+Voice1) to begin sequencing
+3. **Edit steps** - The 32 touch pads set gate states on their own voice's steps (pads address two voices at a time: voice 1+2 or 3+4, depending on the selected voice); long-press enters step edit
+4. **Select a voice** - SliderModule Voice 1–4 buttons (direct select, both modes)
+5. **Adjust parameters** - Use magnetic encoder to modify current parameter (LED feedback shows selection)
+6. **Real-time recording** - Hold (or Shift+tap to latch) a parameter button, touch a step to enter edit, then move the sensor or the matching fader for live capture
+7. **Switch function sets** - Flip the GP7 mode strap between Param (parameter buttons + Filter/Attack/Decay/Velocity faders) and Utility (transport/scale/swing/theme + Tempo/Swing/Delay/GateLength faders); the OLED flashes a PARAM/UTIL banner on change
 
 ### Voice System
 
@@ -160,10 +170,10 @@ voiceSystem.setAllVoiceVolumes(0.8f);
 
 ### Parameter Control
 
-**Per-Step Editing:**
-- Hold note button, touch step buttons to set pitches
-- Hold velocity button, touch steps to set dynamics
-- Hold filter/attack/decay buttons for advanced envelope control
+**Per-Step Editing (Param mode tiles):**
+- Hold the Note tile button, touch step pads (on the pad's own voice) to set pitches
+- Hold Velocity, touch steps to set dynamics — or Shift+tap a param button to latch it hands-free
+- Hold Filter/Attack/Decay buttons for advanced envelope control; the matching fader records into the step in edit
 
 **Real-time Modulation:**
 - Move hand over VL53L1X sensor for hands-free control of all parameters
@@ -210,7 +220,8 @@ struct VoiceSystem {
 - Time-critical operations only
 
 **Core 1 (UI):**
-- Touch matrix scanning and debouncing
+- Touch pad scanning and debouncing (32 step pads)
+- Alchemy tile polling (param/utility buttons, voice selects, faders, GP7 mode strap)
 - Sensor input processing (TMAG5273, VL53L1X)
 - OLED and LED matrix updates
 - UI state management and button handling
@@ -248,7 +259,7 @@ Comprehensive documentation is available in the `docs/` directory:
 - `matrix.md` - Touch matrix operation and button mapping
 - `midi.md` - MIDI I/O and continuous controller support
 - `oled.md` - Display system and parameter visualization
-- `sensors.md` - AS5600 encoder and VL53L1X distance sensor integration
+- `sensors.md` - TMAG5273 magnetic encoder and VL53L1X distance sensor integration
 - `ButtonHandlers.md` - Button event handling and UI state management
 
 ## License

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `src/LEDMatrix` folder contains the LED matrix display system for the PicoMudrasSequencer. This module provides comprehensive visual feedback through an 8x8 WS2812B LED matrix, including sequencer state visualization, parameter editing feedback, and user interface indicators.
+The `src/LEDMatrix` folder contains the LED matrix display system for the Pico2Seq. This module provides comprehensive visual feedback through an 8x8 WS2812B LED matrix, including sequencer state visualization, parameter editing feedback, and user interface indicators.
 
 ## Key Components
 
@@ -26,7 +26,7 @@ Centralized constants for LED matrix configuration and visual parameters.
 - Polyrhythmic overlay colors
 
 **Brightness Levels:**
-- Full: 200, High: 180, Medium: 128, Low: 64, Dim: 32, Subtle: 16
+- Full: 200, High: 180, Medium: 128, Low: 64, Dim: 32, Subtle: 12
 
 ### 2. LEDMatrix Class (ledMatrix.h)
 Core hardware abstraction layer for the 8x8 WS2812B LED matrix.
@@ -45,8 +45,9 @@ Manages all control LED functionality for user interface elements.
 
 **Control LED Positions:**
 - Parameter buttons: Note, Velocity, Filter, Attack, Decay, Octave, Slide
-- Delay parameters: Time, Feedback (AS5600 encoder control)
-- Mode indicators: Voice 1-4 (VoiceSystem integration), Delay toggle, Randomize
+- Delay parameters: Time, Feedback (magnetic encoder control)
+- Mode indicators: Voice 1/2 selection LEDs, Delay toggle, Randomize confirmation
+  (Note: with 4 voices, only the two hardware voice LEDs exist today — voice indication still keys off the legacy `isVoice2Mode` flag rather than the full `selectedVoiceIndex` 0–3 range)
 
 **VoiceSystem Integration:**
 - Updated to support up to 4 voices through centralized VoiceSystem
@@ -138,5 +139,5 @@ src/LEDMatrix/
 - **UI System**: Receives state updates from UIState
 - **Sequencer**: Visualizes sequencer gate and playhead states
 - **Voice System**: Shows voice parameter feedback and selection
-- **Sensor System**: AS5600 encoder parameter visualization
+- **Sensor System**: Magnetic encoder parameter visualization
 - **Settings**: Theme selection and configuration feedback

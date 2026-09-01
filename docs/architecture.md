@@ -5,8 +5,10 @@ This document gives a high-level overview of modules, data flow, and key respons
 ## Top-Level
 - Pico2Seq.ino — Arduino entry point. Initializes hardware, systems, and main loop with dual-core architecture support.
 - includes.h — Central aggregator of library and project headers (Arduino-friendly `src/...` includes).
+- diagnostic.h — Structured logging and diagnostic macros.
 - docs/ — Documentation.
 - src/ — Source modules grouped by domain.
+- vendor/ — Standalone library packaging outside the firmware build tree (see "Staged / Not Yet Wired").
 
 ## Modules (src/)
 
@@ -17,11 +19,12 @@ This document gives a high-level overview of modules, data flow, and key respons
   - `sample_conversion.h` — Audio format conversion utilities
 
 ### Sequencer System
-- **sequencer/**: Multi-parameter step sequencer with polymetric sequencing support
-  - `Sequencer.h/.cpp` — Main sequencer class with 16-step pattern storage per parameter (4 independent sequencers)
-  - `SequencerDefs.h` — Parameter definitions, timing constants, and step structures
-  - `ParameterManager.h/.cpp` — Thread-safe parameter management and validation
-  - `ShuffleTemplates.h` — Shuffle pattern templates for rhythmic variation
+- **pico2seq-core/**: Portable sequencer/scale core with **no Arduino or hardware dependencies** (kept reusable in other projects; don't add UI or hardware includes here)
+  - `sequencer/Sequencer.h/.cpp` — Main sequencer class with per-parameter pattern storage (up to 64 steps per track, default 16; 4 independent sequencers)
+  - `sequencer/SequencerDefs.h` — Parameter definitions, timing constants, and step structures
+  - `sequencer/ParameterManager.h/.cpp` — Thread-safe parameter management and validation
+  - `sequencer/ShuffleTemplates.h` — Shuffle pattern templates for rhythmic variation
+  - `scales/scales.h/.cpp` — Musical scale tables (13 built-in scales)
 
 ### Voice Synthesis System
 - **voice/**: Multi-voice synthesizer with DSP processing and preset management
@@ -30,29 +33,40 @@ This document gives a high-level overview of modules, data flow, and key respons
   - `VoicePresets.h/.cpp` — Factory system for synthesizer voice configurations (7 preset types)
 
 ### Digital Signal Processing
-- **rpdsp/**: Header-only DSP library (vendored from the Pico-DSP-Garden project)
+- **rpdsp/**: Header-only DSP library, tracked as a **Git submodule** from `IC-Alchemy/RPDSP` (clone with `--recurse-submodules`)
   - ADSR envelope, ladder filter, waveshaper, wavefolder, oscillators, delay lines, and more
   - Reached from the voice code through `src/voice/VoiceOscillator.h` (waveform-id dispatch)
 
 ### User Interface System
-- **ui/**: Complete UI management system for matrix buttons and controls
-  - `UIState.h` — Central UI state structure (replaces global variables with structured array management)
-  - `UIEventHandler.h/.cpp` — Event-driven UI processing and button handling
+- **ui/**: Complete UI management system for step pads, tiles, and controls
+  - `UIState.h` — Central UI state structure (replaces global variables with structured array management; also holds the Alchemy mode/Shift/latch state)
+  - `UIEventHandler.h/.cpp` — Matrix step-pad event processing (all 32 indices are pads, resolved through the bank mapping) plus the shared entry points the tile bridge calls
+  - `ControlSurfaceLogic.h/.cpp` — Pure, unit-tested decision logic for the Alchemy tile surface: `ModeStabilizer` (GP7 debounce), `PadBank` (pad→voice/step), `ShiftLatch` (Shift-keyed param holds), `FaderMap` (mode+channel→target, deadband)
+  - `AlchemyControlBridge.h/.cpp` — Glue owning the `AlchemyPanel`: polls the tiles each control pass and translates edges/fader moves into calls to the existing handlers (no logic of its own; not unit-tested)
   - `ButtonHandlers.h/.cpp` — Specialized button behavior implementations (randomize, parameter cycling)
-  - `ButtonManager.h/.cpp` — Button state tracking and press event management
+  - `ButtonManager.h/.cpp` — Parameter hold state helpers keyed by `ParamId` (`paramName`/`paramIdFromName`)
   - `UIConstants.h` — UI constants and button mappings
 
+### Alchemy Tile Control Surface
+- **AlchemyUI/**: Vendored hub-side library for the Alchemy Modular UI I2C tiles (protocol v2, register map, adaptive reads, TileButton edge state). `ButtonMap.h` maps logical buttons onto the 2-tile rig: a **SliderModule** (4 faders + 4 buttons = Voice 1–4 selects) and a **ButtonModule8** (8 buttons = 7 parameter buttons + Shift, or 6 utility buttons + Shift depending on the GP7 mode strap). Tiles sit on a dedicated **Wire1** bank at 400 kHz (pins in `includes.h`); the MPR121 matrix is 32 dedicated step pads (two voices at a time via pad banks).
+
 ### Hardware Interface
-- **matrix/**: 4×8 capacitive touch matrix scanning system with debounced input processing (32 buttons total)
+- **matrix/**: 4×8 capacitive touch matrix scanning system with debounced input processing — all 32 MPR121 indices are dedicated **step pads** since the Alchemy tile migration; pad presses resolve to (voice, step) via `ControlSurface::PadBank` (selected voice 1/2 → pads address voices 1+2; voice 3/4 → voices 3+4)
 - **LEDMatrix/**: 8×8 LED matrix display system with theme-based visual feedback for step states and parameter values
 - **OLED/**: 128×64 SH1106G display for detailed parameter visualization and settings navigation
 - **midi/**: USB MIDI communication with multi-voice note transmission and continuous controller (CC) support
-- **sensors/**: Multi-sensor control system with AS5600 encoder and VL53L1X distance sensor
+- **sensors/**: Multi-sensor control system with TMAG5273 magnetic encoder and VL53L1X distance sensor
+  - `EncoderManager.h/.cpp` — High-level encoder parameter management (base values, ranges, step editing) plus the global `magEncoder` instance
+  - `DistanceSensor.h/.cpp` — Non-blocking VL53L1X driver built on Adafruit_VL53L1X
+  - `SensorConstants.h` — All sensor timing, address, and range constants
+- **VelocityEncoder/**: Git submodule (`IC-Alchemy/VelocityEncoder`) providing the `MagEncoder` driver — one API wrapping either a TI TMAG5273 or an AMS AS5600; Pico2Seq uses the TMAG5273 on the Velocity Encoder board (I2C 0x22)
 
 ### Utilities and Helpers
-- **scales/**: Musical scale definitions with 13 built-in configurations and note conversion tables
-- **utils/**: Common utilities and helper functions
-- **diagnostic.h**: Debugging and diagnostic utilities
+- **utils/**: `Debug.h/.cpp` — common debug helpers
+- **diagnostic.h** (repo root): Structured logging (`DBG_INFO` etc.) and diagnostic utilities
+
+### Staged / Not Yet Wired
+- **vendor/ (repo root)**: Standalone library packaging outside the firmware build tree — currently `vendor/VL53L1X`, an IC-Alchemy non-blocking VL53L1X wrapper library (the same driver design as `src/sensors/DistanceSensor`).
 
 ## VoiceSystem Architecture
 
@@ -72,13 +86,12 @@ struct VoiceSystem {
     // Core voice data arrays
     uint8_t voiceIds[MAX_VOICES];
     VoiceState voiceStates[MAX_VOICES];
-    bool gates[MAX_VOICES];
-    GateTimer gateTimers[MAX_VOICES];
+    volatile bool gates[2];   // voices 0-1 only
+    GateTimer gateTimers[2];  // voices 0-1 only
 
     // Safe accessor methods
     VoiceState& getVoiceState(uint8_t index);
-    void setGate(uint8_t index, bool state);
-    bool getGate(uint8_t index) const;
+    volatile bool& getGate(uint8_t index);  // write through the reference
     GateTimer& getGateTimer(uint8_t index);
 };
 ```
@@ -93,8 +106,8 @@ struct VoiceSystem {
 ## Data Flow Architecture
 
 ```
-User Input (Matrix/Sensors/MIDI)
-         ↓ (UIEventHandler)
+User Input (Step Pads / Alchemy Tiles / Sensors / MIDI)
+         ↓ (UIEventHandler + AlchemyControlBridge)
     Central UIState Management
          ↓ (Real-time updates)
       4x Independent Sequencers
@@ -111,8 +124,13 @@ User Input (Matrix/Sensors/MIDI)
 ### Detailed Processing Chain
 
 #### 1. Input Processing
-- **Matrix Buttons**: Step editing, parameter selection, mode switching (4×8 capacitive grid)
-- **AS5600 Encoder**: Real-time parameter modulation with velocity-sensitive scaling
+- **Step Pads (MPR121, 32)**: All matrix indices are pads; each press resolves
+  through the pad-bank mapping to (voice, step) — gate toggling, long-press
+  step edit, param-hold programming, Shift+pad clear
+- **Alchemy Tiles (Wire1)**: Parameter/utility buttons + Voice 1–4 selects +
+  faders, selected per mode by the GP7 strap (LOW = Param, HIGH = Utility);
+  `AlchemyControlBridge` feeds the same handler code the old matrix buttons used
+- **TMAG5273 Encoder**: Real-time parameter modulation with velocity-sensitive scaling
 - **VL53L1X Distance**: Hands-free parameter control (74-1400mm range)
 - **MIDI Input**: Future expansion capability
 
@@ -160,7 +178,7 @@ User Input (Matrix/Sensors/MIDI)
 - **Real-time Capable**: O(1) access time for all parameter lookups
 
 ### Sensor Integration
-- **AS5600 Encoder**: Velocity-sensitive parameter control with 12-bit resolution
+- **TMAG5273 Encoder**: Velocity-sensitive parameter control with 1/16-degree resolution
 - **VL53L1X Distance**: Instant parameter feedback via proximity sensing
 - **Range Optimization**: Parameter values intelligently mapped to musical ranges
 - **Debouncing**: Hardware and software filtering prevent erratic behavior
@@ -173,8 +191,8 @@ User Input (Matrix/Sensors/MIDI)
 
 ## Gate Sequence Length Mode (UI → Sequencer → LED/OLED)
 
-- **Activation**: Long-hold the AS5600 control button enters Gate Sequence Length Mode; release to exit
-- **Behavior**: Step buttons (1–16) set the Gate track length for the currently selected voice via VoiceSystem integration
+- **Activation**: Long-hold the encoder control tile button (Utility mode, bit 5) enters Gate Sequence Length Mode; release to exit
+- **Behavior**: Step pads (1–16) set the Gate track length of the pressed pad's own voice via the bank mapping
 - **LED Feedback**: LEDMatrixFeedback renders blinking band up to current length on selected voice row
 - **OLED Feedback**: OLED display shows "Gate Len Mode", selected voice, length, and bar graph visualization
 
@@ -194,7 +212,7 @@ User Input (Matrix/Sensors/MIDI)
 ### Hardware Optimizations
 - **LED Matrix**: Direct GPIO control with efficient update algorithms
 - **OLED Display**: Cached rendering with selective update regions
-- **Sensor Reading**: Non-blocking I2C operations with timeout protection
+- **Sensor Reading**: Non-blocking I2C operations with one data-ready poll per update
 
 ## Next Improvements (Roadmap)
 - Introduce an `AppContext` structure to further centralize all global state management

@@ -1,26 +1,61 @@
 #include "ButtonManager.h"
 
+#include <cstring> // For strcmp in paramIdFromName
+
 // =======================
-//   BUTTON MAPPING ARRAY
+//   PARAMETER NAME HELPERS
 // =======================
 
 /**
- * @brief Parameter button mappings from physical button indices to parameter IDs
+ * @brief Display names for the parameter buttons, keyed by ParamId.
  *
- * Maps the physical button matrix indices (16-22) to their corresponding
- * parameter functions. These buttons allow real-time parameter control
- * and step programming when held while pressing step buttons.
+ * Parameter buttons live on the Alchemy ButtonModule8 tile (Shift-keyed,
+ * mode-dependent) rather than at fixed matrix indices, so the only mapping
+ * that remains is ParamId -> display name. Array order matches ParamId.
  */
-const ParamButtonMapping PARAM_BUTTON_MAPPINGS[] = {
-    {16, ParamId::Note, "Note"},
-    {17, ParamId::Velocity, "Velocity"},
-    {18, ParamId::Filter, "Filter"},
-    {19, ParamId::Attack, "Attack"},
-    {20, ParamId::Decay, "Decay"},
-    {21, ParamId::Octave, "Octave"},
-    {22, ParamId::Slide, "Slide"}};
+const char *paramName(ParamId paramId)
+{
+  switch (paramId)
+  {
+  case ParamId::Note:
+    return "Note";
+  case ParamId::Velocity:
+    return "Velocity";
+  case ParamId::Filter:
+    return "Filter";
+  case ParamId::Attack:
+    return "Attack";
+  case ParamId::Decay:
+    return "Decay";
+  case ParamId::Octave:
+    return "Octave";
+  case ParamId::GateLength:
+    return "GateLength";
+  case ParamId::Gate:
+    return "Gate";
+  case ParamId::Slide:
+    return "Slide";
+  default:
+    return "Unknown";
+  }
+}
 
-const size_t PARAM_BUTTON_MAPPINGS_SIZE = sizeof(PARAM_BUTTON_MAPPINGS) / sizeof(PARAM_BUTTON_MAPPINGS[0]);
+ParamId paramIdFromName(const char *name)
+{
+  if (name == nullptr)
+  {
+    return ParamId::Count;
+  }
+  for (uint8_t i = 0; i < PARAM_ID_COUNT; ++i)
+  {
+    const ParamId paramId = static_cast<ParamId>(i);
+    if (strcmp(paramName(paramId), name) == 0)
+    {
+      return paramId;
+    }
+  }
+  return ParamId::Count;
+}
 
 // =======================
 //   FUNCTION IMPLEMENTATIONS
@@ -62,7 +97,7 @@ void initButtonManager(UIState &uiState)
   uiState.flash31Until = 0;
 
   // Reset button press timing states
-  uiState.lastAS5600ButtonPressTime = 0;
+  uiState.lastEncoderButtonPressTime = 0;
   uiState.voiceSwitchPressTime = 0;
   uiState.voiceSwitchWasPressed = false;
   uiState.resetStepsLightsFlag = false;
@@ -95,9 +130,9 @@ bool isLongPress(unsigned long pressDurationMs)
  */
 bool isAnyParameterButtonHeld(const UIState &uiState)
 {
-  for (size_t mappingIndex = 0; mappingIndex < PARAM_BUTTON_MAPPINGS_SIZE; ++mappingIndex)
+  for (uint8_t paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
   {
-    ParamId currentParamId = PARAM_BUTTON_MAPPINGS[mappingIndex].paramId;
+    const ParamId currentParamId = static_cast<ParamId>(paramIndex);
 
     // Skip Slide parameter button if currently in slide mode to avoid conflicts
     if (currentParamId == ParamId::Slide && uiState.slideMode)
@@ -105,7 +140,7 @@ bool isAnyParameterButtonHeld(const UIState &uiState)
       continue;
     }
 
-    if (uiState.parameterButtonHeld[static_cast<int>(currentParamId)])
+    if (uiState.parameterButtonHeld[paramIndex])
     {
       return true;
     }
@@ -114,31 +149,31 @@ bool isAnyParameterButtonHeld(const UIState &uiState)
 }
 
 /**
- * @brief Get the mapping for the currently held parameter button
+ * @brief Get the ParamId of the currently held parameter button
  *
- * Returns a pointer to the parameter button mapping that is currently being held.
- * This allows the UI to determine which parameter is being controlled when
- * step buttons are pressed for parameter editing.
+ * Scans the held states in ParamId order and returns the first held
+ * parameter. This allows the UI to determine which parameter is being
+ * controlled when step buttons are pressed for parameter editing.
  *
  * @param uiState Const reference to the central UI state object
- * @return Pointer to the held parameter mapping, or nullptr if none held
+ * @return The held parameter's ParamId, or ParamId::Count if none held
  */
-const ParamButtonMapping *getHeldParameterButton(const UIState &uiState)
+ParamId getHeldParameterParamId(const UIState &uiState)
 {
-  for (size_t mappingIndex = 0; mappingIndex < PARAM_BUTTON_MAPPINGS_SIZE; ++mappingIndex)
+  for (uint8_t paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
   {
-    const auto &currentMapping = PARAM_BUTTON_MAPPINGS[mappingIndex];
+    const ParamId currentParamId = static_cast<ParamId>(paramIndex);
 
     // Skip Slide parameter button if currently in slide mode to avoid conflicts
-    if (currentMapping.paramId == ParamId::Slide && uiState.slideMode)
+    if (currentParamId == ParamId::Slide && uiState.slideMode)
     {
       continue;
     }
 
-    if (uiState.parameterButtonHeld[static_cast<int>(currentMapping.paramId)])
+    if (uiState.parameterButtonHeld[paramIndex])
     {
-      return &currentMapping;
+      return currentParamId;
     }
   }
-  return nullptr;
+  return ParamId::Count;
 }

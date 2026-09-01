@@ -4,7 +4,6 @@
 #include <Arduino.h>
 #include <FastLED.h>
 #include "../ui/UIState.h"
-#include "../sensors/as5600.h"
 #include "ledMatrix.h"
 #include "LEDMatrixFeedback.h"
 #include "LEDConstants.h"
@@ -13,7 +12,7 @@
  * @brief LED Controller for PicoMudrasSequencer Control LEDs
  *
  * Manages all control LED functionality including parameter button feedback,
- * mode indicators, voice selection, and AS5600 encoder visual feedback.
+ * mode indicators, voice selection, and magnetic encoder visual feedback.
  * Consolidates LED control logic while maintaining real-time performance
  * and consistent visual feedback patterns.
  *
@@ -22,7 +21,7 @@
  * - Delay effect parameter LEDs (Time, Feedback)
  * - Voice selection indicators (Voice 1/2)
  * - Mode indicators (Delay toggle, Randomize)
- * - AS5600 encoder parameter value visualization
+ * - Magnetic encoder parameter value visualization
  */
 
 namespace ControlLEDIndices
@@ -36,19 +35,19 @@ namespace ControlLEDIndices
   static constexpr int OCTAVE_LED_INDEX = 53;
   static constexpr int SLIDE_LED_INDEX = 54;
 
-  // Delay parameter LED positions (AS5600 encoder control)
+  // Delay parameter LED positions (magnetic encoder control)
   static constexpr int DELAY_TIME_LED_INDEX = 40;     // Matrix position (0,6)
   static constexpr int DELAY_FEEDBACK_LED_INDEX = 41; // Matrix position (0,7)
 
   // Mode indicator LED positions
   static constexpr int VOICE1_LED_INDEX = 56;
   static constexpr int VOICE2_LED_INDEX = 57;
+  static constexpr int RANDOMIZE_LED_INDEX = 58; // Randomize confirmation (buttons 30/31); row 7 control cluster
   static constexpr int DELAY_TOGGLE_LED_INDEX = 59; // Delay effect on/off indicator
-  static constexpr int RANDOMIZE_LED_INDEX = 64;
 }
 
 // External function declarations for sensor and theme access
-extern float getAS5600ParameterValue();
+extern float getEncoderParameterValue();
 extern const LEDThemeColors *getActiveThemeColors();
 
 /**
@@ -62,9 +61,9 @@ void initLEDController();
 /**
  * @brief Update all control LEDs based on current UI state
  *
- * Updates parameter button LEDs, mode indicators, and AS5600 encoder feedback
+ * Updates parameter button LEDs, mode indicators, and magnetic encoder feedback
  * based on the current UI state. Handles pulsing animations for active parameters,
- * AS5600 parameter value visualization, and mode indicator states.
+ * encoder parameter value visualization, and mode indicator states.
  *
  * @param ledMatrix Reference to the LED matrix for output
  * @param uiState Const reference to the central UI state object containing

@@ -59,12 +59,12 @@ enum class ParamId : uint8_t
 constexpr uint8_t PARAM_ID_COUNT = static_cast<uint8_t>(ParamId::Count);
 
 /**
- * @brief AS5600 magnetic encoder parameter cycling modes
+ * @brief Magnetic encoder parameter cycling modes
  *
- * Defines which parameter the AS5600 encoder controls in real-time.
+ * Defines which parameter the magnetic encoder controls in real-time.
  * Moved from UIEventHandler.h to break circular dependency.
  */
-enum class AS5600ParameterMode : uint8_t
+enum class EncoderParameterMode : uint8_t
 {
   Velocity = 0,      // Voice amplitude control
   Filter = 1,        // Filter cutoff control
@@ -78,12 +78,12 @@ enum class AS5600ParameterMode : uint8_t
 };
 
 /**
- * @brief AS5600 encoder base parameter values for bidirectional control
+ * @brief Magnetic encoder base parameter values for bidirectional control
  *
- * Stores base values for each parameter that can be controlled by the AS5600
+ * Stores base values for each parameter that can be controlled by the
  * magnetic encoder. Supports bidirectional control by maintaining center points.
  */
-struct AS5600BaseValues
+struct EncoderBaseValues
 {
   float velocity = 0.0f;      // Base velocity (0.0-1.0)
   float filter = 0.0f;        // Base filter cutoff (0.0-1.0)
@@ -95,12 +95,12 @@ struct AS5600BaseValues
 };
 
 /**
- * @brief Voice-specific AS5600 base values
+ * @brief Voice-specific encoder base values
  *
- * Inherits from AS5600BaseValues with no additional members.
+ * Inherits from EncoderBaseValues with no additional members.
  * Delay parameters are inherited from base class.
  */
-struct AS5600BaseValuesVoice1 : public AS5600BaseValues
+struct EncoderBaseValuesVoice1 : public EncoderBaseValues
 {
   // No additional members - delay parameters are inherited from base class
 };

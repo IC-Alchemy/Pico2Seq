@@ -2,8 +2,7 @@
 #define UI_STATE_H
 
 #include <Arduino.h>
-#include "../pico2seq-core/sequencer/SequencerDefs.h"
-#include "../sensors/as5600.h" // For AS5600ParameterMode
+#include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
 
 /**
  * @brief Centralized state management for the PicoMudrasSequencer UI.
@@ -28,14 +27,14 @@ struct UIState
     int selectedStepForEdit = -1;
     ParamId currentEditParameter = ParamId::Count; // Parameter being edited in toggle mode (Count = none)
     int currentThemeIndex = 0;
-    AS5600ParameterMode currentAS5600Parameter = AS5600ParameterMode::Velocity;
+    EncoderParameterMode currentEncoderParameter = EncoderParameterMode::Velocity;
 
     // --- Timing States ---
     unsigned long padPressTimestamps[SequencerConstants::MAX_STEPS_COUNT] = {0};
     volatile unsigned long flash23Until = 0;
     volatile unsigned long flash25Until = 0;
     volatile unsigned long flash31Until = 0;
-    unsigned long lastAS5600ButtonPressTime = 0;
+    unsigned long lastEncoderButtonPressTime = 0;
     unsigned long voiceSwitchPressTime = 0;
     bool voiceSwitchWasPressed = false;
 
@@ -70,10 +69,10 @@ struct UIState
     unsigned long playStopPressTime = 0;
     bool playStopWasPressed = false;
 
-    // --- AS5600 Control Hold / Gate Seq Length Mode ---
-    // Press/hold tracking for BUTTON_AS5600_CONTROL to enable gate seq length mode while held
-    unsigned long as5600ControlPressTime = 0;
-    bool as5600ControlWasPressed = false;
+    // --- Encoder Control Hold / Gate Seq Length Mode ---
+    // Press/hold tracking for BUTTON_ENCODER_CONTROL to enable gate seq length mode while held
+    unsigned long encoderControlPressTime = 0;
+    bool encoderControlWasPressed = false;
     bool gateSeqLengthMode = false; // When true, step buttons set Gate track length (per selected voice)
 
     // --- Voice Parameter Editing State ---
@@ -83,6 +82,18 @@ struct UIState
 
     // --- Voice Switch State ---
     bool voiceSwitchTriggered = false; // Flag to trigger immediate OLED update for voice switching
+
+    // --- Alchemy Tile Control Surface State ---
+    // Tile function set selected by the GP7 strap switch. The physical
+    // ButtonModule8 carries the parameter set in Param mode and the
+    // transport/utility set in Utility mode; AlchemyControlBridge owns the
+    // translation and is the only writer of these fields.
+    enum class AlchemyMode : uint8_t { Param = 0, Utility = 1 };
+    AlchemyMode alchemyMode = AlchemyMode::Param;
+    bool shiftHeld = false;       // Shift tile button level (works in both modes)
+    int8_t latchedParameter = -1; // Shift-latched param (ParamId) or -1 = none
+    // While set, the OLED shows the PARAM/UTIL banner after a mode flip.
+    volatile unsigned long alchemyModeBannerUntil = 0;
 };
 
 #endif // UI_STATE_H

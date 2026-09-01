@@ -24,27 +24,24 @@ namespace UITimingConstants
 }
 
 // =======================
-//   BUTTON MAPPING STRUCTURES
+//   PARAMETER NAME HELPERS
 // =======================
 
 /**
- * @brief Complete button mapping with index, parameter, and name.
- * The held state is now managed in UIState, not via a pointer.
+ * Parameter buttons are keyed by ParamId everywhere (the physical buttons
+ * live on the Alchemy ButtonModule8 tile, not at matrix indices anymore).
+ * These helpers provide the display name and the reverse lookup so OLED
+ * rendering can round-trip ParamId <-> name.
  */
-struct ParamButtonMapping
-{
-  uint8_t buttonIndex;
-  ParamId paramId;
-  const char *name;
-};
 
-// =======================
-//   BUTTON MAPPING ARRAY
-// =======================
+/** Display name for a parameter ("Note", "Velocity", ...). */
+const char *paramName(ParamId paramId);
 
-// Complete parameter button mappings
-extern const ParamButtonMapping PARAM_BUTTON_MAPPINGS[];
-extern const size_t PARAM_BUTTON_MAPPINGS_SIZE;
+/**
+ * @brief Reverse lookup from a display name (see paramName) to its ParamId.
+ * @return The matching ParamId, or ParamId::Count when the name is unknown.
+ */
+ParamId paramIdFromName(const char *name);
 
 // =======================
 //   FUNCTION DECLARATIONS
@@ -71,10 +68,10 @@ bool isLongPress(unsigned long pressDurationMs);
 bool isAnyParameterButtonHeld(const UIState &uiState);
 
 /**
- * @brief Get the mapping for the currently held parameter button.
+ * @brief Get the ParamId of the currently held parameter button.
  * @param uiState Const reference to the central UI state object.
- * @return Pointer to the held parameter mapping, or nullptr if none held.
+ * @return The held parameter's ParamId, or ParamId::Count if none held.
  */
-const ParamButtonMapping *getHeldParameterButton(const UIState &uiState);
+ParamId getHeldParameterParamId(const UIState &uiState);
 
 #endif // BUTTON_MANAGER_H

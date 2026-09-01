@@ -21,6 +21,7 @@ add_executable(pico2seq_tests
   unit/test_sequencer.cpp
   unit/test_voice.cpp
   unit/test_voiceoscillator.cpp
+  unit/test_control_surface_logic.cpp
 
   # Scale data
   ${CORE_DIR}/scales/scales.cpp
@@ -32,6 +33,9 @@ add_executable(pico2seq_tests
   # Voice synthesis (DSP comes from header-only src/rpdsp)
   ${SRC_DIR}/voice/Voice.cpp
   ${SRC_DIR}/voice/VoicePresets.cpp
+
+  # Alchemy tile control surface decision logic (pure C++)
+  ${SRC_DIR}/ui/ControlSurfaceLogic.cpp
 )
 
 # Stub headers must come first so they shadow Arduino.h / Wire.h / pico/sync.h

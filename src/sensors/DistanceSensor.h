@@ -2,7 +2,7 @@
 #define DISTANCE_SENSOR_H
 
 #include <Arduino.h>
-#include <Melopero_VL53L1X.h>
+#include <Adafruit_VL53L1X.h>
 #include <Wire.h>
 #include "SensorConstants.h"
 
@@ -19,7 +19,7 @@
  * processing on Core 0.
  *
  * @note This class is designed for Core 1 operation (UI/sensor processing)
- * @warning Measurement timeouts are limited to 5ms to prevent LED blocking
+ * @warning Each update performs one data-ready check and never waits for a sample
  */
 class DistanceSensor
 {
@@ -45,11 +45,11 @@ public:
   bool begin();
 
   /**
-   * @brief Non-blocking sensor update with timeout protection
+   * @brief Non-blocking sensor update
    *
-   * Polls the sensor for new distance measurements with a 5ms timeout to
-   * prevent blocking LED matrix updates. Updates are limited to 20ms intervals
-   * to balance responsiveness with system performance.
+   * Polls the sensor for new distance measurements once, without waiting for
+   * the next sample. Updates are limited to 20ms intervals to balance
+   * responsiveness with system performance.
    *
    * @note Call this function regularly from Core 1 main loop
    * @warning Do not call from Core 0 (audio processing core)
@@ -77,7 +77,7 @@ public:
 
 private:
   // Hardware interface
-  Melopero_VL53L1X vl53l1xSensor;
+  Adafruit_VL53L1X vl53l1xSensor;
 
   // Timing control for non-blocking updates
   unsigned long lastMeasurementTimeMs;

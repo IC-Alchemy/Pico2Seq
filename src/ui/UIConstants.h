@@ -12,9 +12,9 @@
 // =======================
 // Primary control buttons for performance and navigation
 constexpr uint8_t BUTTON_SLIDE_MODE = 22;           // Toggle slide edit mode
-constexpr uint8_t BUTTON_TOGGLE_DELAY = 23;         // Toggle delay effect and set AS5600 to delay param
+constexpr uint8_t BUTTON_TOGGLE_DELAY = 23;         // Toggle delay effect and set encoder to delay param
 constexpr uint8_t BUTTON_VOICE_SWITCH = 24;         // Cycle selected voice 1..4
-constexpr uint8_t BUTTON_AS5600_CONTROL = 25;       // Cycle AS5600 control target
+constexpr uint8_t BUTTON_ENCODER_CONTROL = 25;      // Cycle magnetic encoder control target
 constexpr uint8_t BUTTON_PLAY_STOP = 26;            // Start/stop transport; long-press opens settings when stopped
 constexpr uint8_t BUTTON_CHANGE_SCALE = 27;         // Cycle musical scale
 constexpr uint8_t BUTTON_CHANGE_THEME = 28;         // Cycle LED theme
@@ -25,7 +25,12 @@ constexpr uint8_t BUTTON_RANDOMIZE_SEQ1 = 30;
 constexpr uint8_t BUTTON_RANDOMIZE_SEQ2 = 31;
 
 
-// Step buttons (pads) count
+// Step pads (MPR121) count — all 32 indices are step pads since the Alchemy
+// tile migration; param/utility buttons live on the tiles now.
+constexpr uint8_t NUMBER_OF_STEP_PADS = 32;
+
+// Per-voice step count (steps per sequencer track; each voice owns
+// NUMBER_OF_STEP_BUTTONS steps inside the 32-pad bank layout)
 constexpr uint8_t NUMBER_OF_STEP_BUTTONS = 16;
 
 // =======================
@@ -33,7 +38,7 @@ constexpr uint8_t NUMBER_OF_STEP_BUTTONS = 16;
 // =======================
 // Long press threshold comes from ButtonManager to keep a single source
 // Additional UI-related timing windows below
-constexpr unsigned long AS5600_DOUBLE_PRESS_WINDOW_MS = 300;       // ms: window for double press on AS5600 control
+constexpr unsigned long ENCODER_DOUBLE_PRESS_WINDOW_MS = 300;      // ms: window for double press on encoder control
 constexpr unsigned long CONTROL_LED_FLASH_DURATION_MS = 250;       // ms: brief confirmation flash for control actions
 constexpr unsigned long VOICE_PARAMETER_DISPLAY_TIMEOUT_MS = 2000; // ms: how long to show voice parameter changes
 constexpr unsigned long SETTINGS_MODE_TIMEOUT_MS = 30000;          // ms: auto-exit settings mode after inactivity

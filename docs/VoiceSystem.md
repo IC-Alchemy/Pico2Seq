@@ -10,26 +10,26 @@ The VoiceSystem is a centralized architecture for managing multiple synthesizer 
 
 ```cpp
 struct VoiceSystem {
-    static const uint8_t MAX_VOICES = 4;
-    
+    static constexpr uint8_t MAX_VOICES = 4;
+
     // Core voice data arrays
     uint8_t voiceIds[MAX_VOICES];
     VoiceState voiceStates[MAX_VOICES];
-    bool gates[MAX_VOICES];
-    GateTimer gateTimers[MAX_VOICES];
-    
+
+    // Gates/timers exist only for voices 0-1 (the two voices with hardware
+    // gate pins and MIDI support); voices 2-3 are audio-only
+    volatile bool gates[2];
+    GateTimer gateTimers[2];
+
     // Safe accessor methods
     uint8_t getVoiceId(uint8_t index) const;
+    void setVoiceId(uint8_t index, uint8_t voiceId);
     VoiceState& getVoiceState(uint8_t index);
     const VoiceState& getVoiceState(uint8_t index) const;
-    bool getGate(uint8_t index) const;
-    void setGate(uint8_t index, bool state);
+    volatile bool& getGate(uint8_t index);
     GateTimer& getGateTimer(uint8_t index);
-    
+
     // Helper functions for common operations
-    void muteAllVoices();
-    void unmuteAllVoices();
-    void setAllVoiceVolumes(float volume);
     void stopAllGates();
     void tickAllGateTimers();
 };
@@ -42,7 +42,7 @@ struct VoiceSystem {
 3. **Type Safety**: Bounds checking and consistent data types
 4. **Scalability**: Easy to modify voice count by changing MAX_VOICES
 5. **Encapsulation**: Safe accessor methods prevent direct array access
-6. **Helper Functions**: Common operations implemented as reusable methods
+6. **Hardware Reality**: Gate/timer arrays cover only the two gated voices (0-1); bounds-checked accessors return a dummy for out-of-range indices
 
 ## Migration from Legacy System
 
@@ -87,48 +87,39 @@ uint8_t getCurrentVoiceId(uint8_t voiceIndex) {
 
 ### Accessor Methods
 
-#### `getVoiceId(uint8_t index)`
-Returns the voice ID for the specified voice index.
+#### `getVoiceId(uint8_t index)` / `setVoiceId(uint8_t index, uint8_t voiceId)`
+Gets or sets the voice ID for the specified voice index.
 - **Parameters**: `index` - Voice index (0 to MAX_VOICES-1)
-- **Returns**: `uint8_t` - Voice ID
+- **Returns**: `uint8_t` - Voice ID (0 if invalid index on get)
 - **Safety**: Bounds checking included
 
 #### `getVoiceState(uint8_t index)`
 Returns a reference to the voice state for the specified voice.
 - **Parameters**: `index` - Voice index (0 to MAX_VOICES-1)
-- **Returns**: `VoiceState&` - Reference to voice state
+- **Returns**: `VoiceState&` - Reference to voice state (index 0 for invalid indices)
 - **Usage**: For reading and modifying voice parameters
 
-#### `getGate(uint8_t index)` / `setGate(uint8_t index, bool state)`
-Gets or sets the gate state for a specific voice.
-- **Parameters**: `index` - Voice index, `state` - Gate state (true/false)
-- **Usage**: For note on/off control
+#### `getGate(uint8_t index)`
+Returns a reference to the gate state for a specific voice.
+- **Parameters**: `index` - Voice index (0-1; gates only exist for the two hardware-gated voices)
+- **Returns**: `volatile bool&` - Reference to gate state (static dummy for indices ≥ 2)
+- **Usage**: For note on/off control; write through the reference (there is no `setGate`)
 
 #### `getGateTimer(uint8_t index)`
 Returns a reference to the gate timer for the specified voice.
-- **Parameters**: `index` - Voice index (0 to MAX_VOICES-1)
-- **Returns**: `GateTimer&` - Reference to gate timer
+- **Parameters**: `index` - Voice index (0-1; timers only exist for the two hardware-gated voices)
+- **Returns**: `GateTimer&` - Reference to gate timer (static dummy for indices ≥ 2)
 - **Usage**: For timing-based gate control
 
 ### Helper Functions
 
-#### `muteAllVoices()` / `unmuteAllVoices()`
-Mutes or unmutes all voices simultaneously.
-- **Usage**: Global volume control, panic functions
-- **Implementation**: Loops through all voices and sets volume to 0.0f or restores previous levels
-
-#### `setAllVoiceVolumes(float volume)`
-Sets the same volume level for all voices.
-- **Parameters**: `volume` - Volume level (0.0f to 1.0f)
-- **Usage**: Global volume adjustment
-
 #### `stopAllGates()`
-Stops all gate timers and resets gate states.
+Stops all gate timers and clears gate states (voices 0-1).
 - **Usage**: All notes off, panic button functionality
-- **Implementation**: Loops through all voices and resets gate timers
+- **Implementation**: Loops through the two gated voices and resets gate timers
 
 #### `tickAllGateTimers()`
-Advances all gate timers by one tick.
+Advances all gate timers by one tick and clears expired gates.
 - **Usage**: Called from main timing loop
 - **Implementation**: Efficient loop-based timer advancement
 
@@ -162,11 +153,11 @@ void handleMidiNoteOn(uint8_t note, uint8_t velocity, uint8_t voiceIndex) {
     VoiceState& state = voiceSystem.getVoiceState(voiceIndex);
     state.noteIndex = note;
     state.velocityLevel = velocity / 127.0f;
-    voiceSystem.setGate(voiceIndex, true);
+    voiceSystem.getGate(voiceIndex) = true;  // write through the reference
 }
 
 void handleMidiNoteOff(uint8_t voiceIndex) {
-    voiceSystem.setGate(voiceIndex, false);
+    voiceSystem.getGate(voiceIndex) = false;
 }
 ```
 
@@ -214,19 +205,13 @@ VoiceState& state = voiceSystem.getVoiceState(0);  // Get first voice state
 // Modify voice parameters
 state.noteIndex = 24.0f;  // Set note
 state.velocityLevel = 0.8f;  // Set velocity
-voiceSystem.setGate(0, true);  // Turn on gate
+voiceSystem.getGate(0) = true;  // Turn on gate (voices 0-1 only)
 ```
 
 ### Bulk Operations
 
 ```cpp
-// Mute all voices for silence
-voiceSystem.muteAllVoices();
-
-// Set all voices to same volume
-voiceSystem.setAllVoiceVolumes(0.7f);
-
-// Stop all playing notes
+// Stop all playing notes (gated voices 0-1)
 voiceSystem.stopAllGates();
 
 // Advance all gate timers (called from main loop)
@@ -244,7 +229,9 @@ for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++) {
     if (sequencer.isStepActive(i)) {
         state.noteIndex = sequencer.getStepNote(i);
         state.velocityLevel = sequencer.getStepVelocity(i);
-        voiceSystem.setGate(i, true);
+        if (i < 2) {
+            voiceSystem.getGate(i) = true;  // only voices 0-1 have gates
+        }
     }
 }
 ```
@@ -298,7 +285,7 @@ The VoiceSystem architecture represents a significant improvement in the Pico2Se
 Gate Sequence Length Mode allows quick adjustment of the per-voice Gate track length (2–16 steps). The sequencer uses the Gate track length as the primary sequence loop length while supporting polymetric lengths for other parameters.
 
 ### Activation & Exit
-- Hold the AS5600 control button to enter the mode.
+- Hold the encoder control button to enter the mode.
 - Release the button to exit the mode.
 - Toggling slide mode also exits the mode.
 
@@ -319,6 +306,6 @@ Gate Sequence Length Mode allows quick adjustment of the per-voice Gate track le
   - A horizontal bar filling proportionally up to 16 steps
 
 ### Implementation Notes
-- UI handling occurs in `src/ui/UIEventHandler.cpp` (AS5600 long-hold detection and step press mapping to `Sequencer::setParameterStepCount(ParamId::Gate, ...)`).
+- UI handling occurs in `src/ui/UIEventHandler.cpp` (encoder-control long-hold detection and step press mapping to `Sequencer::setParameterStepCount(ParamId::Gate, ...)`).
 - LED rendering occurs in `src/LEDMatrix/LEDMatrixFeedback.cpp` with a distinct branch when `uiState.gateSeqLengthMode` is true.
 - OLED rendering occurs in `src/OLED/oled.cpp` and takes precedence over default views when the mode is active.

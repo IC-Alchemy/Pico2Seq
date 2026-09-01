@@ -1,9 +1,8 @@
-#include "AS5600Manager.h"
+#include "EncoderManager.h"
 #include <Arduino.h>
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../ui/UIState.h"
-#include "as5600.h"
 #include <algorithm>
 #include <cmath>
 #include "../voice/VoiceManager.h"
@@ -18,19 +17,20 @@ extern UIState uiState;
 extern std::unique_ptr<VoiceManager> voiceManager;
 
 // =======================
-//   AS5600 GLOBAL VARIABLES
+//   MAGNETIC ENCODER GLOBALS
 // =======================
 
-// AS5600 global variables moved from main file
-// Note: currentAS5600Parameter is now accessed via uiState.currentAS5600Parameter
+// The magnetic encoder driver: a TMAG5273 on the Velocity Encoder board
+// (I2C address 0x22, the TMAG5273B default).
+MagEncoder magEncoder(MagEncoder::Sensor::TMAG5273);
 
-unsigned long lastAS5600ButtonPress = 0;
+// Note: currentEncoderParameter is accessed via uiState.currentEncoderParameter
 
-// Definitions for AS5600 base value globals (previously declared as extern).
+// Definitions for encoder base value globals (previously declared as extern).
 // Centralize the definitions here so other translation units can reference them
 // via extern declarations if necessary (but header externs have been removed).
-AS5600BaseValuesVoice1 as5600BaseValuesVoice1;
-AS5600BaseValues as5600BaseValuesVoice2;
+EncoderBaseValuesVoice1 encoderBaseValuesVoice1;
+EncoderBaseValues encoderBaseValuesVoice2;
 
 // Flash speed zones configuration for dynamic boundary proximity feedback
 const FlashSpeedConfig FLASH_SPEED_ZONES[] = {
@@ -45,30 +45,30 @@ const FlashSpeedConfig FLASH_SPEED_ZONES[] = {
      SensorConstants::MagneticEncoder::CRITICAL_ZONE_END}};
 
 // =======================
-//   AS5600 PARAMETER BOUNDS MANAGEMENT
+//   ENCODER PARAMETER BOUNDS MANAGEMENT
 // =======================
 
-float getParameterMinValue(AS5600ParameterMode param)
+float getParameterMinValue(EncoderParameterMode param)
 {
   // Return the minimum valid value for each parameter type
   switch (param)
   {
-  case AS5600ParameterMode::Velocity:
-  case AS5600ParameterMode::Filter:
-  case AS5600ParameterMode::Attack:
-  case AS5600ParameterMode::Decay:
+  case EncoderParameterMode::Velocity:
+  case EncoderParameterMode::Filter:
+  case EncoderParameterMode::Attack:
+  case EncoderParameterMode::Decay:
     return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE;
 
-  case AS5600ParameterMode::Note:
+  case EncoderParameterMode::Note:
     return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE; // Scale array indices (0-21)
 
-  case AS5600ParameterMode::DelayTime:
-    return SensorConstants::MagneticEncoder::DELAY_TIME_MIN_SAMPLES; // 10ms minimum delay at 48kHz
+  case EncoderParameterMode::DelayTime:
+    return SensorConstants::MagneticEncoder::DELAY_TIME_MIN_SAMPLES; // 2.5ms minimum delay at 48kHz
 
-  case AS5600ParameterMode::DelayFeedback:
+  case EncoderParameterMode::DelayFeedback:
     return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE;
 
-  case AS5600ParameterMode::SlideTime:
+  case EncoderParameterMode::SlideTime:
     return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE; // Minimum slide time (instant)
 
   default:
@@ -76,27 +76,27 @@ float getParameterMinValue(AS5600ParameterMode param)
   }
 }
 
-float getParameterMaxValue(AS5600ParameterMode param)
+float getParameterMaxValue(EncoderParameterMode param)
 {
   // Return the maximum valid value for each parameter type
   switch (param)
   {
-  case AS5600ParameterMode::Velocity:
-  case AS5600ParameterMode::Filter:
-  case AS5600ParameterMode::Attack:
-  case AS5600ParameterMode::Decay:
+  case EncoderParameterMode::Velocity:
+  case EncoderParameterMode::Filter:
+  case EncoderParameterMode::Attack:
+  case EncoderParameterMode::Decay:
     return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
 
-  case AS5600ParameterMode::Note:
+  case EncoderParameterMode::Note:
     return SensorConstants::MagneticEncoder::NOTE_PARAMETER_MAX; // Scale array indices (0-21)
 
-  case AS5600ParameterMode::DelayTime:
-    return MAX_DELAY_SAMPLES * 0.85f; // Maximum delay in samples (1.8 seconds)
+  case EncoderParameterMode::DelayTime:
+    return MAX_DELAY_SAMPLES * 0.85f; // 85% of the 1.8s delay line (~1.53s at 48kHz)
 
-  case AS5600ParameterMode::DelayFeedback:
+  case EncoderParameterMode::DelayFeedback:
     return SensorConstants::MagneticEncoder::DELAY_FEEDBACK_MAX; // Maximum 91% feedback to prevent excessive feedback
 
-  case AS5600ParameterMode::SlideTime:
+  case EncoderParameterMode::SlideTime:
     return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE; // Maximum slide time
 
   default:
@@ -104,13 +104,13 @@ float getParameterMaxValue(AS5600ParameterMode param)
   }
 }
 
-float getAS5600BaseValueRange(AS5600ParameterMode param)
+float getEncoderBaseValueRange(EncoderParameterMode param)
 {
   // Calculate the full parameter range
   float fullParameterRange = getParameterMaxValue(param) - getParameterMinValue(param);
 
   // Delay parameters use full range without restrictions
-  if (param == AS5600ParameterMode::DelayTime || param == AS5600ParameterMode::DelayFeedback || param == AS5600ParameterMode::SlideTime)
+  if (param == EncoderParameterMode::DelayTime || param == EncoderParameterMode::DelayFeedback || param == EncoderParameterMode::SlideTime)
   {
     return fullParameterRange; // Full range for delay parameters
   }
@@ -119,15 +119,15 @@ float getAS5600BaseValueRange(AS5600ParameterMode param)
   return fullParameterRange * SensorConstants::MagneticEncoder::PARAMETER_RANGE_SCALE_FACTOR;
 }
 
-float clampAS5600BaseValue(AS5600ParameterMode param, float value)
+float clampEncoderBaseValue(EncoderParameterMode param, float value)
 {
-  // Clamp AS5600 base values to their allowed bidirectional range
-  float maxAllowedRange = getAS5600BaseValueRange(param);
+  // Clamp encoder base values to their allowed bidirectional range
+  float maxAllowedRange = getEncoderBaseValueRange(param);
   return std::max(-maxAllowedRange, std::min(value, maxAllowedRange));
 }
-void updateAS5600BaseValues(UIState &uiState)
+void updateEncoderBaseValues(UIState &uiState)
 {
-  if (!as5600Sensor.isConnected())
+  if (!magEncoder.isConnected())
   {
     return;
   }
@@ -135,19 +135,22 @@ void updateAS5600BaseValues(UIState &uiState)
   // Check if we're in edit mode for a specific step
   if (uiState.selectedStepForEdit >= 0)
   {
-    updateAS5600StepParameterValues(uiState);
+    updateEncoderStepParameterValues(uiState);
     return;
   }
 
-  // Get current AS5600 base values for the active voice
-  AS5600BaseValues *activeVoiceBaseValues = uiState.isVoice2Mode
-                                                ? (AS5600BaseValues *)&as5600BaseValuesVoice2
-                                                : (AS5600BaseValues *)&as5600BaseValuesVoice1;
+  // Get current encoder base values for the active voice
+  EncoderBaseValues *activeVoiceBaseValues = uiState.isVoice2Mode
+                                                ? (EncoderBaseValues *)&encoderBaseValuesVoice2
+                                                : (EncoderBaseValues *)&encoderBaseValuesVoice1;
 
-  // Calculate bidirectional velocity-sensitive parameter increment
-  float parameterMinValue = getParameterMinValue(uiState.currentAS5600Parameter);
-  float parameterMaxValue = getParameterMaxValue(uiState.currentAS5600Parameter);
-  float parameterIncrement = as5600Sensor.getParameterIncrement(
+  // Calculate bidirectional velocity-sensitive parameter increment.
+  // takeParameterIncrement drains the pending-tick accumulator filled once per
+  // sensor read; the const getParameterIncrement() would re-report the same
+  // delta on every ~1ms call between 5ms sensor reads (applied ~5x).
+  float parameterMinValue = getParameterMinValue(uiState.currentEncoderParameter);
+  float parameterMaxValue = getParameterMaxValue(uiState.currentEncoderParameter);
+  float parameterIncrement = magEncoder.takeParameterIncrement(
       parameterMinValue - parameterMaxValue,
       parameterMaxValue - parameterMinValue,
       3);
@@ -159,12 +162,12 @@ void updateAS5600BaseValues(UIState &uiState)
   }
 
   // Apply increment to the appropriate parameter with boundary checking
-  applyIncrementToParameter(activeVoiceBaseValues, uiState.currentAS5600Parameter, parameterIncrement);
+  applyIncrementToParameter(activeVoiceBaseValues, uiState.currentEncoderParameter, parameterIncrement);
 }
 
-void updateAS5600StepParameterValues(UIState &uiState)
+void updateEncoderStepParameterValues(UIState &uiState)
 {
-  if (!as5600Sensor.isConnected() ||
+  if (!magEncoder.isConnected() ||
       uiState.selectedStepForEdit < 0 ||
       uiState.currentEditParameter == ParamId::Count)
   {
@@ -189,7 +192,8 @@ void updateAS5600StepParameterValues(UIState &uiState)
   float parameterMaxValue = getParameterMaxValueForParamId(targetParameterId);
 
   // Get velocity-sensitive increment with full range scaling
-  float parameterIncrement = as5600Sensor.getParameterIncrement(
+  // (consuming getter: drains the per-read tick accumulator exactly once)
+  float parameterIncrement = magEncoder.takeParameterIncrement(
       parameterMinValue - parameterMaxValue,
       parameterMaxValue - parameterMinValue,
       3);
@@ -217,7 +221,7 @@ void updateAS5600StepParameterValues(UIState &uiState)
 
   /*
   // Debug output for parameter changes
-  Serial.print("AS5600 Edit Mode - Step ");
+  Serial.print("Encoder Edit Mode - Step ");
   Serial.print(editStepIndex);
   Serial.print(", Parameter: ");
   Serial.print(CORE_PARAMETERS[static_cast<int>(targetParameterId)].name);
@@ -229,32 +233,32 @@ void updateAS5600StepParameterValues(UIState &uiState)
   */
 }
 
-void applyIncrementToParameter(AS5600BaseValues *baseValues, AS5600ParameterMode param, float increment)
+void applyIncrementToParameter(EncoderBaseValues *baseValues, EncoderParameterMode param, float increment)
 {
   float *targetParameterValue = nullptr;
 
   // Select the appropriate parameter to modify
   switch (param)
   {
-  case AS5600ParameterMode::Velocity:
+  case EncoderParameterMode::Velocity:
     targetParameterValue = &baseValues->velocity;
     break;
-  case AS5600ParameterMode::Filter:
+  case EncoderParameterMode::Filter:
     targetParameterValue = &baseValues->filter;
     break;
-  case AS5600ParameterMode::Attack:
+  case EncoderParameterMode::Attack:
     targetParameterValue = &baseValues->attack;
     break;
-  case AS5600ParameterMode::Decay:
+  case EncoderParameterMode::Decay:
     targetParameterValue = &baseValues->decay;
     break;
-  case AS5600ParameterMode::DelayTime:
+  case EncoderParameterMode::DelayTime:
     targetParameterValue = &baseValues->delayTime;
     break;
-  case AS5600ParameterMode::DelayFeedback:
+  case EncoderParameterMode::DelayFeedback:
     targetParameterValue = &baseValues->delayFeedback;
     break;
-  case AS5600ParameterMode::SlideTime:
+  case EncoderParameterMode::SlideTime:
     targetParameterValue = &baseValues->slideTime;
     break;
   default:
@@ -268,13 +272,12 @@ void applyIncrementToParameter(AS5600BaseValues *baseValues, AS5600ParameterMode
 
   // Calculate new value with increment applied
   float newParameterValue = *targetParameterValue + increment;
-  float previousValue = *targetParameterValue;
 
   // Apply appropriate clamping based on parameter type
-  if (param <= AS5600ParameterMode::Decay)
+  if (param <= EncoderParameterMode::Decay)
   {
     // Bidirectional parameters (voice parameters) use symmetric range
-    float maxAllowedRange = getAS5600BaseValueRange(param);
+    float maxAllowedRange = getEncoderBaseValueRange(param);
     *targetParameterValue = std::max(-maxAllowedRange, std::min(newParameterValue, maxAllowedRange));
   }
   else
@@ -287,9 +290,9 @@ void applyIncrementToParameter(AS5600BaseValues *baseValues, AS5600ParameterMode
 
   // Debug output for delay parameter changes (uncomment for debugging)
   /*
-  if (param == AS5600ParameterMode::DelayTime || param == AS5600ParameterMode::DelayFeedback) {
-    Serial.print("AS5600 ");
-    Serial.print(param == AS5600ParameterMode::DelayTime ? "DelayTime" : "DelayFeedback");
+  if (param == EncoderParameterMode::DelayTime || param == EncoderParameterMode::DelayFeedback) {
+    Serial.print("Encoder ");
+    Serial.print(param == EncoderParameterMode::DelayTime ? "DelayTime" : "DelayFeedback");
     Serial.print(" changed from ");
     Serial.print(previousValue, 3);
     Serial.print(" to ");
@@ -303,22 +306,22 @@ void applyIncrementToParameter(AS5600BaseValues *baseValues, AS5600ParameterMode
 
 // --- Helper Functions for Step Parameter Editing ---
 
-// Convert AS5600ParameterMode to ParamId for step editing
-ParamId convertAS5600ParameterToParamId(AS5600ParameterMode as5600Param)
+// Convert EncoderParameterMode to ParamId for step editing
+ParamId convertEncoderParameterToParamId(EncoderParameterMode encoderParam)
 {
-  switch (as5600Param)
+  switch (encoderParam)
   {
-  case AS5600ParameterMode::Velocity:
+  case EncoderParameterMode::Velocity:
     return ParamId::Velocity;
-  case AS5600ParameterMode::Filter:
+  case EncoderParameterMode::Filter:
     return ParamId::Filter;
-  case AS5600ParameterMode::Attack:
+  case EncoderParameterMode::Attack:
     return ParamId::Attack;
-  case AS5600ParameterMode::Decay:
+  case EncoderParameterMode::Decay:
     return ParamId::Decay;
-  case AS5600ParameterMode::Note:
+  case EncoderParameterMode::Note:
     return ParamId::Note;
-  case AS5600ParameterMode::SlideTime:
+  case EncoderParameterMode::SlideTime:
     return ParamId::Count; // SlideTime is not a step parameter
   default:
     return ParamId::Count; // Invalid for step editing
@@ -391,45 +394,45 @@ String formatParameterValueForDisplay(ParamId paramId, float value)
 }
 
 // Helper function for the "Shift and Scale" mapping.
-// This function takes a sequencer value (0.0-1.0) and an AS5600 offset
+// This function takes a sequencer value (0.0-1.0) and an encoder offset
 // (a bipolar value, e.g., -0.6 to 0.6) and combines them intelligently.
-float shiftAndScale(float seqValue, float as5600Offset)
+float shiftAndScale(float seqValue, float encoderOffset)
 {
   float finalValue;
-  if (as5600Offset >= 0.0f)
+  if (encoderOffset >= 0.0f)
   {
-    // When the AS5600 offset is positive, it sets the minimum value,
+    // When the encoder offset is positive, it sets the minimum value,
     // and the sequencer value is scaled to fit the remaining range up to 1.0.
-    finalValue = as5600Offset + (seqValue * (1.0f - as5600Offset));
+    finalValue = encoderOffset + (seqValue * (1.0f - encoderOffset));
   }
   else
   {
-    // When the AS5600 offset is negative, it reduces the maximum value,
+    // When the encoder offset is negative, it reduces the maximum value,
     // and the sequencer value is scaled to fit the range from 0.0 up to that new maximum.
-    finalValue = seqValue * (1.0f + as5600Offset);
+    finalValue = seqValue * (1.0f + encoderOffset);
   }
   // Clamp the result to ensure it remains within the valid [0.0, 1.0] range.
   return std::max(0.0f, std::min(finalValue, 1.0f));
 }
 
 /**
- * Apply AS5600 magnetic encoder base values to voice parameters.
+ * Apply magnetic encoder base values to voice parameters.
  * Implements a "Shift and Scale" mapping to combine encoder and sequencer values.
  * This avoids "dead zones" by scaling the sequencer's output within the range
  * defined by the encoder's offset.
  * */
-void applyAS5600BaseValues(VoiceState *voiceState, uint8_t voiceId)
+void applyEncoderBaseValues(VoiceState *voiceState, uint8_t voiceId)
 {
-  if (!as5600Sensor.isConnected() || !voiceState)
+  if (!magEncoder.isConnected() || !voiceState)
   {
     return;
   }
 
   // Select the correct base values based on voice ID (0 = voice1, 1 = voice2)
-  const AS5600BaseValues *baseValues = (voiceId == 1) ? (const AS5600BaseValues *)&as5600BaseValuesVoice2 : (const AS5600BaseValues *)&as5600BaseValuesVoice1;
+  const EncoderBaseValues *baseValues = (voiceId == 1) ? (const EncoderBaseValues *)&encoderBaseValuesVoice2 : (const EncoderBaseValues *)&encoderBaseValuesVoice1;
 
   // Apply "Shift and Scale" for each parameter.
-  // This maps the sequencer value into the dynamic range set by the AS5600 offset.
+  // This maps the sequencer value into the dynamic range set by the encoder offset.
   voiceState->velocityLevel = shiftAndScale(voiceState->velocityLevel, baseValues->velocity);
   voiceState->filterCutoff = shiftAndScale(voiceState->filterCutoff, baseValues->filter);
   voiceState->attackTimeSeconds = shiftAndScale(voiceState->attackTimeSeconds, baseValues->attack);
@@ -437,65 +440,51 @@ void applyAS5600BaseValues(VoiceState *voiceState, uint8_t voiceId)
 }
 
 /**
- * Apply AS5600 magnetic encoder values to global delay effect parameters.
+ * Apply magnetic encoder values to global delay effect parameters.
  * Direct parameter control: delay parameters use full range without restrictions.
  * Thread-safe communication for Core0 audio processing.
  */
-void applyAS5600DelayValues()
+void applyEncoderDelayValues()
 {
-  if (!as5600Sensor.isConnected())
+  if (!magEncoder.isConnected())
   {
     return;
   }
 
   // Use Voice 1 base values for global delay parameters (delay is not per-voice)
-  const AS5600BaseValuesVoice1 *baseValues = &as5600BaseValuesVoice1;
+  const EncoderBaseValuesVoice1 *baseValues = &encoderBaseValuesVoice1;
 
-  // Apply delay time directly (already clamped to 10ms-1.8s range in updateAS5600BaseValues)
+  // Apply delay time directly (already clamped to 2.5ms-1.53s range in updateEncoderBaseValues)
   delayTarget = baseValues->delayTime;
 
-  // Apply delay feedback directly (already clamped to 0.0-1.0 range in updateAS5600BaseValues)
+  // Apply delay feedback directly (already clamped to 0.0-0.91 range in updateEncoderBaseValues)
   feedbackAmmount = baseValues->delayFeedback;
 }
 
 // ----------------------
-// Helper: Update slide time on the active voice
+// Apply slide time values from the magnetic encoder to the active voice
 // ----------------------
-void updateAS5600SlideTime(uint8_t voiceId, float slideTime)
+void applyEncoderSlideTimeValues()
 {
-  if (!as5600Sensor.isConnected() || !uiState.slideMode)
-  {
-    return;
-  }
-  const AS5600BaseValues *activeBaseValues = uiState.isVoice2Mode ? &as5600BaseValuesVoice2 : &as5600BaseValuesVoice1;
-  // finish up by updating the base values
-  applyIncrementToParameter((AS5600BaseValues *)activeBaseValues, AS5600ParameterMode::SlideTime, slideTime);
-}
-
-// ----------------------
-// Apply slide time values from AS5600 to the active voice
-// ----------------------
-void applyAS5600SlideTimeValues()
-{
-  if (!as5600Sensor.isConnected() || !uiState.slideMode)
+  if (!magEncoder.isConnected() || !uiState.slideMode)
   {
     return;
   }
 
   // Determine which base values are active
-  AS5600BaseValues *activeBaseValues = uiState.isVoice2Mode
-                                           ? (AS5600BaseValues *)&as5600BaseValuesVoice2
-                                           : (AS5600BaseValues *)&as5600BaseValuesVoice1;
+  EncoderBaseValues *activeBaseValues = uiState.isVoice2Mode
+                                           ? (EncoderBaseValues *)&encoderBaseValuesVoice2
+                                           : (EncoderBaseValues *)&encoderBaseValuesVoice1;
 
   // Read encoder increment for SlideTime (unipolar 0.0 - 1.0 seconds)
-  float minVal = getParameterMinValue(AS5600ParameterMode::SlideTime);
-  float maxVal = getParameterMaxValue(AS5600ParameterMode::SlideTime);
-  float increment = as5600Sensor.getParameterIncrement(minVal - maxVal, maxVal - minVal, 3);
+  float minVal = getParameterMinValue(EncoderParameterMode::SlideTime);
+  float maxVal = getParameterMaxValue(EncoderParameterMode::SlideTime);
+  float increment = magEncoder.takeParameterIncrement(minVal - maxVal, maxVal - minVal, 3);
 
   // Apply increment if above noise threshold
   if (fabsf(increment) >= SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD)
   {
-    applyIncrementToParameter(activeBaseValues, AS5600ParameterMode::SlideTime, increment);
+    applyIncrementToParameter(activeBaseValues, EncoderParameterMode::SlideTime, increment);
   }
 
   // Map and apply to the currently selected voice via VoiceManager
@@ -508,93 +497,93 @@ void applyAS5600SlideTimeValues()
 }
 
 // =======================
-//   AS5600 HELPER FUNCTIONS (moved from main file)
+//   ENCODER HELPER FUNCTIONS (moved from main file)
 // =======================
 
 /**
- * Gets the current value of the active AS5600 parameter, normalized to a 0.0-1.0 range.
+ * Gets the current value of the active encoder parameter, normalized to a 0.0-1.0 range.
  * This is used for visual feedback, such as controlling the brightness or color of an LED.
  */
-float getAS5600ParameterValue()
+float getEncoderParameterValue()
 {
-  if (!as5600Sensor.isConnected())
+  if (!magEncoder.isConnected())
   {
     return 0.0f;
   }
 
-  const AS5600BaseValues *activeBaseValues = uiState.isVoice2Mode ? &as5600BaseValuesVoice2 : &as5600BaseValuesVoice1;
+  const EncoderBaseValues *activeBaseValues = uiState.isVoice2Mode ? &encoderBaseValuesVoice2 : &encoderBaseValuesVoice1;
   float value = 0.0f;
 
   // Retrieve the raw value for the current parameter
-  switch (uiState.currentAS5600Parameter)
+  switch (uiState.currentEncoderParameter)
   {
-  case AS5600ParameterMode::Velocity:
+  case EncoderParameterMode::Velocity:
     value = activeBaseValues->velocity;
     break;
-  case AS5600ParameterMode::Filter:
+  case EncoderParameterMode::Filter:
     value = activeBaseValues->filter;
     break;
-  case AS5600ParameterMode::Attack:
+  case EncoderParameterMode::Attack:
     value = activeBaseValues->attack;
     break;
-  case AS5600ParameterMode::Decay:
+  case EncoderParameterMode::Decay:
     value = activeBaseValues->decay;
     break;
-  case AS5600ParameterMode::DelayTime:
+  case EncoderParameterMode::DelayTime:
     value = activeBaseValues->delayTime;
     break;
-  case AS5600ParameterMode::DelayFeedback:
+  case EncoderParameterMode::DelayFeedback:
     value = activeBaseValues->delayFeedback;
     break;
-  case AS5600ParameterMode::SlideTime:
+  case EncoderParameterMode::SlideTime:
     value = activeBaseValues->slideTime;
     break;
   }
 
   // Normalize the value to a 0.0-1.0 range for LED feedback
-  float minVal = getParameterMinValue(uiState.currentAS5600Parameter);
-  float maxVal = getParameterMaxValue(uiState.currentAS5600Parameter);
+  float minVal = getParameterMinValue(uiState.currentEncoderParameter);
+  float maxVal = getParameterMaxValue(uiState.currentEncoderParameter);
   float normalizedValue = (value - minVal) / (maxVal - minVal);
 
   // For bipolar parameters (like velocity, filter, etc.), we need to handle the normalization differently.
   // Since they range from -maxRange to +maxRange, we can map this to 0.0-1.0.
-  if (uiState.currentAS5600Parameter <= AS5600ParameterMode::Decay) // Assuming these are the bipolar params
+  if (uiState.currentEncoderParameter <= EncoderParameterMode::Decay) // Assuming these are the bipolar params
   {
-    float maxRange = getAS5600BaseValueRange(uiState.currentAS5600Parameter);
+    float maxRange = getEncoderBaseValueRange(uiState.currentEncoderParameter);
     normalizedValue = (value + maxRange) / (2 * maxRange);
   }
 
   return std::max(0.0f, std::min(normalizedValue, 1.0f)); // Clamp to ensure valid range
 }
 
-void initAS5600BaseValues()
+void initEncoderBaseValues()
 {
   // Initialize voice parameters to neutral position for both voices
-  as5600BaseValuesVoice1.velocity = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-  as5600BaseValuesVoice1.filter = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-  as5600BaseValuesVoice1.attack = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-  as5600BaseValuesVoice1.decay = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
+  encoderBaseValuesVoice1.velocity = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
+  encoderBaseValuesVoice1.filter = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
+  encoderBaseValuesVoice1.attack = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
+  encoderBaseValuesVoice1.decay = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
 
-  as5600BaseValuesVoice2.velocity = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-  as5600BaseValuesVoice2.filter = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-  as5600BaseValuesVoice2.attack = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-  as5600BaseValuesVoice2.decay = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
+  encoderBaseValuesVoice2.velocity = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
+  encoderBaseValuesVoice2.filter = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
+  encoderBaseValuesVoice2.attack = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
+  encoderBaseValuesVoice2.decay = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
 
   // Initialize delay parameters with reasonable defaults for both voices
-  as5600BaseValuesVoice1.delayTime = SensorConstants::MagneticEncoder::DEFAULT_DELAY_TIME_SAMPLES;
-  as5600BaseValuesVoice1.delayFeedback = SensorConstants::MagneticEncoder::DEFAULT_DELAY_FEEDBACK;
-  as5600BaseValuesVoice2.delayTime = SensorConstants::MagneticEncoder::DEFAULT_DELAY_TIME_SAMPLES;
-  as5600BaseValuesVoice2.delayFeedback = SensorConstants::MagneticEncoder::DEFAULT_DELAY_FEEDBACK;
+  encoderBaseValuesVoice1.delayTime = SensorConstants::MagneticEncoder::DEFAULT_DELAY_TIME_SAMPLES;
+  encoderBaseValuesVoice1.delayFeedback = SensorConstants::MagneticEncoder::DEFAULT_DELAY_FEEDBACK;
+  encoderBaseValuesVoice2.delayTime = SensorConstants::MagneticEncoder::DEFAULT_DELAY_TIME_SAMPLES;
+  encoderBaseValuesVoice2.delayFeedback = SensorConstants::MagneticEncoder::DEFAULT_DELAY_FEEDBACK;
 }
 
-void resetAS5600BaseValues(UIState &uiState, bool currentVoiceOnly)
+void resetEncoderBaseValues(UIState &uiState, bool currentVoiceOnly)
 {
   if (currentVoiceOnly)
   {
     // Reset only the currently active voice to neutral position
-    AS5600BaseValues *activeVoiceBaseValues = uiState.isVoice2Mode
-                                                  ? (AS5600BaseValues *)&as5600BaseValuesVoice2
-                                                  : (AS5600BaseValues *)&as5600BaseValuesVoice1;
+    EncoderBaseValues *activeVoiceBaseValues = uiState.isVoice2Mode
+                                                  ? (EncoderBaseValues *)&encoderBaseValuesVoice2
+                                                  : (EncoderBaseValues *)&encoderBaseValuesVoice1;
 
     // Reset voice parameters to neutral position
     activeVoiceBaseValues->velocity = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
@@ -607,6 +596,6 @@ void resetAS5600BaseValues(UIState &uiState, bool currentVoiceOnly)
   else
   {
     // Reset all voices - call the full initialization
-    initAS5600BaseValues();
+    initEncoderBaseValues();
   }
 }

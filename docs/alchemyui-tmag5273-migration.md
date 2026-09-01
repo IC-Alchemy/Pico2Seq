@@ -1,6 +1,18 @@
 # Migration Plan: MPR121 → AlchemyUI, AS5600 → TMAG5273
 
-Status: **plan only, nothing implemented yet.** This document was produced by reading the
+Status (updated 2026-09-01): **Phase 1 (sensor swap) is implemented on branch `Working-Audio`** —
+uncommitted working-tree changes cover the full §5 scope: `MagEncoder` (TMAG5273 @ 0x22) replaces
+`AS5600Sensor`, `AS5600Manager` → `EncoderManager` with the complete identifier-rename table
+applied, `src/sensors/as5600.*` and the old `src/AS5600/` + `src/VL53L1X/` library copies are
+deleted, and every `docs/*.md` was refreshed to match. One addition beyond the original plan:
+the VL53L1X driver moved from Melopero_VL53L1X to **Adafruit_VL53L1X** (non-blocking, single
+data-ready poll per update), and the same driver design is packaged standalone at
+`vendor/VL53L1X/`. Host unit tests pass (60 cases / 162k assertions); arduino-cli firmware
+compile is green. **Still pending: Phase 0 bench checks, hardware verification of the encoder
+swap, and Phase 2 (AlchemyUI button matrix) — AlchemyUI remains vendored-but-unwired.** The
+sections below are the original planning record and are kept as written unless noted.
+
+This document was produced by reading the
 current source tree, the two vendored-but-unwired libraries, git history/status, and two
 `.zcode/plans/*.md` notes left in the repo from a related planning session. Every claim below
 is marked as confirmed (read directly in this repo's code) or unconfirmed (inferred, or true
@@ -151,7 +163,7 @@ and mode-dependent reinterpretation of the same index (§1). There are two hones
    of assuming it — closely matches what the `.zcode` note called `AlchemyPanelTest`.
 2. Confirm a TMAG5273 answers at `0x22` on the same Wire bus as the OLED and VL53L1X, and that
    adding `Wire.setClock(400000)` (required by `AlchemyTiles.h`'s own header contract) doesn't
-   destabilize the existing `Adafruit_SH110X` OLED or `Melopero_VL53L1X` reads — neither of those
+   destabilize the existing `Adafruit_SH110X` OLED or `Adafruit_VL53L1X` reads — neither of those
    two currently sets a bus clock either, so this is new territory for the whole bus, not just the
    new devices.
 

@@ -6,17 +6,18 @@ time-of-flight sensor, and tuned for instruments you play rather than things
 you program.
 
 It does the basics you would expect from a VL53L1X library, and one thing you
-probably would not: its reads never block. A sensor read that takes too long is
-cut off, not waited for. That is the whole reason this driver exists.
+probably would not: its update path never waits for a measurement. Each update
+checks readiness once and returns when the sensor has no new sample. That is the
+whole reason this driver exists.
 
 ## Features
 
 - **Continuous-mode distance** in millimeters, polled on your schedule.
-- **Non-blocking updates** with a configurable polling interval and a hard
-  timeout, so a stalled I2C read never stalls the loop it runs in. Built for the
+- **Non-blocking updates** with a configurable polling interval and one
+  data-ready check per update, so an incomplete measurement never stalls the loop it runs in. Built for the
   side of an embedded system that is not allowed to hang.
-- **Short / medium / long distance presets**, mapping to the sensor's native
-  distance modes.
+- **Short / medium / long distance presets**, with the application-level
+  medium preset using the Adafruit/ST long distance mode.
 - **Fully configurable timing** — timing budget, inter-measurement period, and
   polling cadence — via `DistanceSensor::Config`.
 - **Connection detection**, so a sketch can degrade gracefully when no sensor is
@@ -38,9 +39,9 @@ The VL53L1X's default I2C address is **0x29**. Pass a different value in the
 
 ## Installation
 
-This driver depends on the **Melopero VL53L1X** library, which wraps the ST
+This driver depends on the **Adafruit VL53L1X** library, which wraps the ST
 ultra-lite driver. Install it first from the Arduino IDE Library Manager
-(search for "Melopero VL53L1X"); it is declared in `library.properties`, so the
+(search for "Adafruit VL53L1X"); it is declared in `library.properties`, so the
 IDE will offer to install it automatically when you add this library.
 
 Then add this folder via **Sketch → Include Library → Add .ZIP Library…** on a
@@ -107,7 +108,7 @@ cfg.distanceMode             = DistanceMode::Long;  // ~4 m max range
 cfg.timingBudgetMicros       = 33000;               // longer budget, more range
 cfg.interMeasurementPeriodMs = 40;                  // continuous-mode period
 cfg.readIntervalMs           = 40;                  // poll cadence
-cfg.measurementTimeoutMs     = 8;                   // hard cap on waiting
+cfg.measurementTimeoutMs     = 8;                   // retained for API compatibility
 
 DistanceSensor sensor(cfg);
 ```
@@ -123,7 +124,7 @@ and every loop has a different budget.
 | Value | Notes |
 |---|---|
 | `Short` | ~1.3 m, better ambient-light immunity, faster |
-| `Medium` | ~3 m, balanced (default) |
+| `Medium` | Uses the long preset (~4 m), balanced for this application (default) |
 | `Long` | ~4 m, maximum range, slower |
 
 ### `DistanceSensor::Config`
@@ -136,7 +137,7 @@ A struct of tunables with sensible defaults. See the snippet above.
 |---|---|
 | `bool begin()` | Initialize the default `Wire` bus and the sensor. Returns false if not present or configuration failed. |
 | `bool begin(TwoWire &wire)` | Same, on an explicit bus (e.g. `Wire1`). |
-| `void update()` | Poll for a fresh reading, rate-limited and timeout-capped. Call every loop. |
+| `void update()` | Poll for a fresh reading, rate-limited with one data-ready check. Call every loop. |
 | `bool isConnected()` | Returns whether `begin()` configured the sensor successfully. |
 
 ### Read-only state

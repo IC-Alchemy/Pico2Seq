@@ -2,7 +2,7 @@
 
 ## Overview
 
-The voice module provides a comprehensive synthesizer voice system with multi-oscillator support, filtering, effects processing, and preset management. It is designed for embedded systems (specifically the Raspberry Pi Pico) and integrates with the sequencer and MIDI systems.
+The voice module provides a comprehensive synthesizer voice system with multi-oscillator support, filtering, effects processing, and preset management. It is designed for embedded systems (specifically the Raspberry Pi Pico 2 / RP2350) and integrates with the sequencer and MIDI systems.
 
 ### Architecture Components
 
@@ -20,25 +20,25 @@ The `VoiceSystem` struct provides a centralized approach to managing multiple vo
 
 ```cpp
 struct VoiceSystem {
-    static const uint8_t MAX_VOICES = 4;
-    
+    static constexpr uint8_t MAX_VOICES = 4;
+
     uint8_t voiceIds[MAX_VOICES];
     VoiceState voiceStates[MAX_VOICES];
-    bool gates[MAX_VOICES];
-    GateTimer gateTimers[MAX_VOICES];
-    
+
+    // Gates/timers exist only for voices 0-1 (hardware gate pins + MIDI);
+    // voices 2-3 are audio-only
+    volatile bool gates[2];
+    GateTimer gateTimers[2];
+
     // Getter methods for safe access
     uint8_t getVoiceId(uint8_t index) const;
+    void setVoiceId(uint8_t index, uint8_t voiceId);
     VoiceState& getVoiceState(uint8_t index);
     const VoiceState& getVoiceState(uint8_t index) const;
-    bool getGate(uint8_t index) const;
-    void setGate(uint8_t index, bool state);
+    volatile bool& getGate(uint8_t index);   // write through the reference
     GateTimer& getGateTimer(uint8_t index);
-    
+
     // Helper functions for common operations
-    void muteAllVoices();
-    void unmuteAllVoices();
-    void setAllVoiceVolumes(float volume);
     void stopAllGates();
     void tickAllGateTimers();
 };
@@ -49,7 +49,7 @@ This architecture provides:
 - **Array-based Access**: Eliminates repetitive code with loop-based operations
 - **Type Safety**: Bounds checking and consistent access patterns
 - **Scalability**: Easy to change voice count by modifying MAX_VOICES constant
-- **Helper Functions**: Common operations like muting all voices or stopping all gates
+- **Helper Functions**: Common operations like stopping all gates or ticking gate timers
 
 ### UIState Integration
 
@@ -362,9 +362,9 @@ std::vector<std::string> presets = VoiceManager::getAvailablePresets();
 - **Harmony**: -12 to +12 scale steps
 
 ### Filter Parameters
-- **Cutoff Frequency**: 250.0 to 8000.0 Hz (mapped from 0.0-1.0 normalized input)
+- **Cutoff Frequency**: 150.0 to 8000.0 Hz, exponential mapping (from 0.0-1.0 normalized input; matches `SensorConstants::System::FILTER_FREQUENCY_*_HZ`)
 - **Resonance**: 0.0 to 1.0
-- **Drive**: 0.0 to 10.0
+- **Drive**: 0.0 to 4.0
 - **Passband Gain**: 0.0 to 1.0
 - **High-pass Frequency**: 20.0 to 20000.0 Hz
 - **High-pass Resonance**: 0.0 to 1.0
@@ -435,9 +435,9 @@ The voice system expects MIDI-style control through the `VoiceState` structure:
 The voice system supports multiple musical scales:
 
 ```cpp
-// Inject scale data
-extern int scale_data[SCALES_COUNT][48];  // 48 steps per scale
-voice.setScaleTable(scale_data, SCALES_COUNT);
+// Inject scale data (actual globals from src/pico2seq-core/scales/scales.h)
+extern int scale[SCALES_COUNT][SCALE_STEPS];  // SCALE_STEPS = 48
+voice.setScaleTable(scale, SCALES_COUNT);
 
 // Set current scale
 extern uint8_t currentScale;
@@ -658,7 +658,7 @@ for (int i = 0; i < 4; i++) {
 }
 
 // New way - helper functions
-voiceSystem.muteAllVoices();
+voiceSystem.stopAllGates();
 ```
 
 ## Blocking Issues Discovered
@@ -667,7 +667,7 @@ voiceSystem.muteAllVoices();
 
 The voice system depends on several external components that need to be verified:
 
-- **rpdsp library** (vendored at `src/rpdsp/`): Required for oscillators, filters, envelope, and effects
+- **rpdsp library** (Git submodule at `src/rpdsp/`): Required for oscillators, filters, envelope, and effects
   - `rpdsp::SecondOrderBSplineSawOscillator` / `SecondOrderBSplinePulseOscillator` (via `VoiceOscillator`)
   - `rpdsp::LadderFilter`
   - `rpdsp::StateVariableFilter`
@@ -678,10 +678,9 @@ The voice system depends on several external components that need to be verified
   - `rpdsp::midiNoteToHz()` and `rpdsp::fmap()` functions
 
 - **Scale data**: The system references external scale arrays:
-  - `extern int scale[SCALES_COUNT][48]`
+  - `extern int scale[SCALES_COUNT][SCALE_STEPS]`
   - `extern uint8_t currentScale`
-  - `extern const int SCALES_COUNT`
-  - `extern const int SCALE_STEPS`
+  - `constexpr size_t SCALES_COUNT = 13` and `constexpr size_t SCALE_STEPS = 48` (in `src/pico2seq-core/scales/scales.h`)
 
 - **VoiceState structure**: Defined in `SequencerDefs.h` but not shown in voice module
 
@@ -695,10 +694,10 @@ The voice system reduces but doesn't eliminate global dependencies:
 
 ### 3. Resource Constraints
 
-For embedded systems (Raspberry Pi Pico):
+For embedded systems (Raspberry Pi Pico 2 / RP2350):
 
 - **Memory usage**: Each voice requires significant RAM for DSP components
-- **CPU usage**: Real-time audio processing with multiple voices may strain RP2040
+- **CPU usage**: Real-time audio processing with multiple voices may strain the RP2350
 - **Static allocation**: Pre-allocated lookup tables and preset storage
 
 ### 4. Integration Points

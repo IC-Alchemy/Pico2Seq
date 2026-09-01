@@ -14,48 +14,44 @@ bool DistanceSensor::begin()
   Wire.begin();
   delay(SensorConstants::DistanceSensor::I2C_STABILIZATION_DELAY_MS);
 
-  // Initialize sensor hardware with configured I2C address
-  vl53l1xSensor.initI2C(SensorConstants::DistanceSensor::I2C_ADDRESS, Wire);
-
-  // Initialize sensor with error checking
-  VL53L1_Error initStatus = vl53l1xSensor.initSensor();
-  if (initStatus != VL53L1_ERROR_NONE)
+  // Adafruit's begin() starts the bus, boots the sensor, and verifies its
+  // model ID before returning.
+  if (!vl53l1xSensor.begin(SensorConstants::DistanceSensor::I2C_ADDRESS, &Wire))
   {
     Serial.print("VL53L1X sensor initialization failed with error: ");
-    Serial.println(initStatus);
+    Serial.println(vl53l1xSensor.vl_status);
     sensorConnected = false;
     return false;
   }
 
-  // Configure sensor for medium-range distance measurement
-  VL53L1_Error configStatus = vl53l1xSensor.setDistanceMode(VL53L1_DISTANCEMODE_MEDIUM);
-  if (configStatus != VL53L1_ERROR_NONE)
+  // The Adafruit/ST driver exposes short and long presets. Use the long
+  // preset for the existing medium-range application (74-1400 mm).
+  if (vl53l1xSensor.VL53L1X_SetDistanceMode(2) != VL53L1X_ERROR_NONE)
   {
     sensorConnected = false;
     return false;
   }
 
-  // Set timing budget for measurement accuracy vs speed balance
-  configStatus = vl53l1xSensor.setMeasurementTimingBudgetMicroSeconds(
-      SensorConstants::DistanceSensor::TIMING_BUDGET_MICROSECONDS);
-  if (configStatus != VL53L1_ERROR_NONE)
+  // Adafruit's timing-budget setter takes milliseconds. The configured
+  // 20 ms budget is one of the sensor's supported values.
+  if (!vl53l1xSensor.setTimingBudget(static_cast<uint16_t>(
+          SensorConstants::DistanceSensor::TIMING_BUDGET_MICROSECONDS / 1000)))
   {
     sensorConnected = false;
     return false;
   }
 
   // Configure inter-measurement period for continuous operation
-  configStatus = vl53l1xSensor.setInterMeasurementPeriodMilliSeconds(
-      SensorConstants::DistanceSensor::INTER_MEASUREMENT_PERIOD_MS);
-  if (configStatus != VL53L1_ERROR_NONE)
+  if (vl53l1xSensor.VL53L1X_SetInterMeasurementInMs(static_cast<uint16_t>(
+          SensorConstants::DistanceSensor::INTER_MEASUREMENT_PERIOD_MS)) !=
+      VL53L1X_ERROR_NONE)
   {
     sensorConnected = false;
     return false;
   }
 
   // Start continuous measurement mode
-  configStatus = vl53l1xSensor.clearInterruptAndStartMeasurement();
-  if (configStatus != VL53L1_ERROR_NONE)
+  if (!vl53l1xSensor.startRanging())
   {
     sensorConnected = false;
     return false;
@@ -82,38 +78,24 @@ void DistanceSensor::update()
   }
   lastMeasurementTimeMs = currentTimeMs;
 
-  // Non-blocking measurement with timeout to prevent LED interference
-  unsigned long measurementStartTimeMs = millis();
-  VL53L1_Error dataReadyStatus = VL53L1_ERROR_NONE;
-
-  // Wait for measurement data with timeout protection
-  while ((millis() - measurementStartTimeMs) < SensorConstants::DistanceSensor::MEASUREMENT_TIMEOUT_MS)
-  {
-    dataReadyStatus = vl53l1xSensor.waitMeasurementDataReady();
-    if (dataReadyStatus == VL53L1_ERROR_NONE)
-    {
-      break; // Measurement data is ready
-    }
-  }
-
-  // Skip this reading cycle if timeout occurred
-  if (dataReadyStatus != VL53L1_ERROR_NONE)
+  // dataReady() performs one status check. Do not wait in the UI loop for a
+  // measurement to complete.
+  if (!vl53l1xSensor.dataReady())
   {
     return;
   }
 
   // Retrieve measurement data from sensor
-  VL53L1_Error measurementStatus = vl53l1xSensor.getRangingMeasurementData();
-  if (measurementStatus != VL53L1_ERROR_NONE)
+  const int16_t distanceMm = vl53l1xSensor.distance();
+  vl53l1xSensor.clearInterrupt();
+
+  if (distanceMm < 0)
   {
     return;
   }
 
-  // Initiate next measurement cycle for continuous operation
-  vl53l1xSensor.clearInterruptAndStartMeasurement();
-
   // Store the new distance measurement
-  currentDistanceMm = vl53l1xSensor.measurementData.RangeMilliMeter;
+  currentDistanceMm = distanceMm;
 }
 
 int DistanceSensor::getRawDistanceMm() const

@@ -223,6 +223,23 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
   displayHardware.setTextSize(1);
   displayHardware.setTextColor(SH110X_WHITE);
 
+  // HIGHEST PRIORITY: transient PARAM / UTIL banner shown for a short window
+  // after the GP7 mode strap flips the Alchemy control surface function set.
+  if (uiState.alchemyModeBannerUntil != 0 && millis() < uiState.alchemyModeBannerUntil)
+  {
+    const bool paramMode = (uiState.alchemyMode == UIState::AlchemyMode::Param);
+    const char *banner = paramMode ? "PARAM" : "UTIL";
+    const uint8_t bannerWidth = static_cast<uint8_t>(strlen(banner) * 6 * 3); // size-3 text
+    displayHardware.setTextSize(3);
+    displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - bannerWidth) / 2, 24);
+    displayHardware.print(banner);
+    displayHardware.setTextSize(1);
+    displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - 10 * 6) / 2, 52);
+    displayHardware.print(paramMode ? "> params <" : "> utility <");
+    displayHardware.display();
+    return;
+  }
+
   // Priority-based display logic with SettingsSubMode handling
   //
   // New sub-mode architecture (UIState::SettingsSubMode):
@@ -250,7 +267,7 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     return;
   }
 
-  // MEDIUM-LOW PRIORITY: Gate Sequence Length Mode (active while AS5600 control is held)
+  // MEDIUM-LOW PRIORITY: Gate Sequence Length Mode (active while encoder control is held)
   if (uiState.gateSeqLengthMode)
   {
     // Determine current sequencer and its gate length
@@ -294,18 +311,18 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     return;
   }
 
-  const ParamButtonMapping *heldParam = getHeldParameterButton(uiState);
+  const ParamId heldParamId = getHeldParameterParamId(uiState);
 
-  if (heldParam != nullptr)
+  if (heldParamId != ParamId::Count)
   {
     // Display parameter editing information
     uint8_t voice = uiState.selectedVoiceIndex; // 0-based
     const Sequencer &currentSeq = (uiState.selectedVoiceIndex == 0) ? seq1 : (uiState.selectedVoiceIndex == 1) ? seq2
                                                                          : (uiState.selectedVoiceIndex == 2)   ? seq3
                                                                                                                : seq4;
-    uint8_t currentStep = currentSeq.getCurrentStepForParameter(heldParam->paramId);
-    float currentValue = currentSeq.getStepParameterValue(heldParam->paramId, currentStep);
-    displayParameterInfo(heldParam->name, currentValue, voice, currentStep);
+    uint8_t currentStep = currentSeq.getCurrentStepForParameter(heldParamId);
+    float currentValue = currentSeq.getStepParameterValue(heldParamId, currentStep);
+    displayParameterInfo(paramName(heldParamId), currentValue, voice, currentStep);
   }
   else if (uiState.selectedStepForEdit != -1)
   {
@@ -319,18 +336,7 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
                                                                                                                  : seq4;
       float currentValue = currentSeq.getStepParameterValue(uiState.currentEditParameter, uiState.selectedStepForEdit);
 
-      // Find parameter name
-      const char *paramName = "Unknown";
-      for (size_t i = 0; i < PARAM_BUTTON_MAPPINGS_SIZE; ++i)
-      {
-        if (PARAM_BUTTON_MAPPINGS[i].paramId == uiState.currentEditParameter)
-        {
-          paramName = PARAM_BUTTON_MAPPINGS[i].name;
-          break;
-        }
-      }
-
-      displayParameterInfo(paramName, currentValue, voice, uiState.selectedStepForEdit);
+      displayParameterInfo(paramName(uiState.currentEditParameter), currentValue, voice, uiState.selectedStepForEdit);
     }
     else
     {
@@ -410,14 +416,11 @@ void OLEDDisplay::displayParameterInfo(const char *parameterName, float currentV
   displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 32);
 
   // Find the ParamId based on the parameter name for proper formatting
-  ParamId parameterID = ParamId::Note; // Default fallback
-  for (size_t mappingIndex = 0; mappingIndex < PARAM_BUTTON_MAPPINGS_SIZE; ++mappingIndex)
+  // (names round-trip through paramName()/paramIdFromName()).
+  ParamId parameterID = paramIdFromName(parameterName);
+  if (parameterID == ParamId::Count)
   {
-    if (strcmp(PARAM_BUTTON_MAPPINGS[mappingIndex].name, parameterName) == 0)
-    {
-      parameterID = PARAM_BUTTON_MAPPINGS[mappingIndex].paramId;
-      break;
-    }
+    parameterID = ParamId::Note; // Default fallback for unknown names
   }
 
   String formattedParameterValue = formatParameterValue(parameterID, currentValue);
@@ -459,7 +462,12 @@ String OLEDDisplay::formatParameterValue(ParamId paramId, float value)
 
   case ParamId::Filter:
   {
-    int filterFreq = rpdsp::fmap(value, 100.0f, 6710.0f, rpdsp::Mapping::EXP);
+    // Same range as the DSP (Voice.cpp) and EncoderManager display formatting
+    int filterFreq = rpdsp::fmap(
+        value,
+        SensorConstants::System::FILTER_FREQUENCY_MIN_HZ,
+        SensorConstants::System::FILTER_FREQUENCY_MAX_HZ,
+        rpdsp::Mapping::EXP);
     return String((int)(filterFreq)) + "Hz";
   }
 

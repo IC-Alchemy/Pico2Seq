@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `src/matrix` folder contains the button matrix scanning and event handling system for the PicoMudrasSequencer. This module provides a robust interface for a 32-button (4×8) grid using the Adafruit MPR121 capacitive touch sensor, with built-in debouncing and event dispatch capabilities.
+The `src/matrix` folder contains the button matrix scanning and event handling system for the Pico2Seq. This module provides a robust interface for a 32-button (4×8) grid using the Adafruit MPR121 capacitive touch sensor, with built-in debouncing and event dispatch capabilities.
 
 ## Key Components
 

@@ -9,6 +9,7 @@
 #include "../voice/VoiceSystem.h"
 #include "ButtonManager.h"
 #include "ButtonHandlers.h"
+#include "ControlSurfaceLogic.h"
 #include "UIConstants.h"
 #include <uClock.h>
 
@@ -72,75 +73,75 @@ extern Sequencer seq4;
 extern float delayTarget;
 
 // Helper function declarations (static to this file)
-static bool handleParameterButtonEvent(const MatrixButtonEvent &evt,
-                                       UIState &uiState);
 static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
                                   UIState &uiState, Sequencer *const *sequencers,
                                   size_t sequencerCount);
 
 // Private helper handlers for matrixEventHandler
-static void handleSlideModeToggle(const MatrixButtonEvent &evt, UIState &uiState);
-static void handleVoiceSwitch(const MatrixButtonEvent &evt, UIState &uiState, MidiNoteManager &midiNoteManager);
 static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount);
-static void handleRandomizeMatrixButtons(const MatrixButtonEvent &evt, UIState &uiState);
-static void handlePlayStopButton(const MatrixButtonEvent &evt, UIState &uiState);
-static void handleAS5600ControlButton(const MatrixButtonEvent &evt, UIState &uiState);
-static void handleOtherControlButtons(const MatrixButtonEvent &evt, UIState &uiState);
-// Optional micro-helpers for randomize buttons
-static inline bool isRandomizeButton(uint8_t idx);
-static uint8_t resolveRandomizeVoiceIndex(uint8_t pressedRandomizeButton, const UIState &uiState);
-
-static void autoSelectAS5600Parameter(ParamId paramId, UIState &uiState);
-static void handleAS5600ParameterControl(UIState &uiState);
 
 // Settings sub-mode helpers (settings mode refactor)
 static void toggleSettingsSubMode(UIState &uiState);
 static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState);
 static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState, VoiceManager *voiceManager);
 
-static void handleAS5600ControlButton(const MatrixButtonEvent &evt, UIState &uiState)
+static void autoSelectEncoderParameter(ParamId paramId, UIState &uiState);
+
+// Shared encoder-control hold/release implementation (used by the tile bridge)
+static void encoderControlShortPressAction(UIState &uiState);
+
+// Shared body of a short encoder-control press: in Settings mode while
+// stopped it toggles between sub-modes; otherwise it cycles the encoder
+// parameter target.
+static void encoderControlShortPressAction(UIState &uiState)
 {
-  if (evt.type == MATRIX_BUTTON_PRESSED)
+  // In Settings mode while stopped, the encoder button toggles between sub-modes.
+  // Otherwise, keep the existing encoder parameter cycling behavior.
+  if (uiState.settingsMode && !isClockRunning)
   {
-    uiState.as5600ControlPressTime = millis();
-    uiState.as5600ControlWasPressed = true;
-    return;
-  }
-
-  if (evt.type == MATRIX_BUTTON_RELEASED && uiState.as5600ControlWasPressed)
-  {
-    unsigned long pressDurationMs = millis() - uiState.as5600ControlPressTime;
-    uiState.as5600ControlWasPressed = false;
-
-    if (!isLongPress(pressDurationMs))
-    {
-      // Short press behavior
-      // In Settings mode while stopped, Button 25 toggles between sub-modes.
-      // Otherwise, keep the existing AS5600 parameter cycling behavior.
-      if (uiState.settingsMode && !isClockRunning)
-      {
-        toggleSettingsSubMode(uiState);
-        uiState.selectedStepForEdit = -1;
-      }
-      else
-      {
-        // Existing behavior outside of settings: cycle AS5600 parameter
-        handleControlButton(BUTTON_AS5600_CONTROL, uiState);
-      }
-    }
-
-    // Exit gate sequence length mode on release
-    uiState.gateSeqLengthMode = false;
+    toggleSettingsSubMode(uiState);
     uiState.selectedStepForEdit = -1;
   }
+  else
+  {
+    // Existing behavior outside of settings: cycle encoder parameter
+    handleControlButton(BUTTON_ENCODER_CONTROL, uiState);
+  }
+}
+
+void beginEncoderControlHold(UIState &uiState)
+{
+  uiState.encoderControlPressTime = millis();
+  uiState.encoderControlWasPressed = true;
+}
+
+void endEncoderControlHold(UIState &uiState)
+{
+  if (!uiState.encoderControlWasPressed)
+  {
+    return;
+  }
+  unsigned long pressDurationMs = millis() - uiState.encoderControlPressTime;
+  uiState.encoderControlWasPressed = false;
+
+  if (!isLongPress(pressDurationMs))
+  {
+    encoderControlShortPressAction(uiState);
+  }
+
+  // Exit gate sequence length mode on release
+  uiState.gateSeqLengthMode = false;
+  uiState.selectedStepForEdit = -1;
 }
 
 /**
  * @brief Primary matrix event handler that always uses the provided sequencer array.
  *
- * This is the canonical implementation: it selects sequencers exclusively from the
- * caller-supplied array and does not fall back to any globals. Overloads for
- * convenience (2-seq / 4-seq) forward to this implementation.
+ * Since the Alchemy tile migration, ALL 32 matrix indices are step pads: the
+ * parameter/utility buttons that used to live at indices 16-31 now live on
+ * the ButtonModule8/SliderModule tiles and enter through AlchemyControlBridge.
+ * Every pad is resolved to (voice, step) through the pad-bank mapping instead
+ * of assuming the single selected voice.
  */
 void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
                         Sequencer *const *sequencers, size_t sequencerCount,
@@ -151,125 +152,27 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
   pollUIHeldButtons(uiState, sequencers, sequencerCount);
 
   // =======================
-  //   SLIDE MODE HANDLING
-  // =======================
-
-  /**
-   * Handle slide mode toggle button (Button 22)
-   *
-   * Slide mode allows users to toggle slide/legato between notes in the sequence.
-   * When enabled, it disables other conflicting modes and allows setting slide
-   * per step by pressing step buttons.
-   */
-  if (evt.buttonIndex == BUTTON_SLIDE_MODE)
-  {
-    if (evt.type == MATRIX_BUTTON_PRESSED)
-    {
-      handleSlideModeToggle(evt, uiState);
-    }
-    return; // Exit after handling slide mode toggle
-  }
-
-  // =======================
-  //   VOICE SWITCHING
-  // =======================
-
-  /**
-   * Handle Voice Switch button (Button 24) - cycles through 4 voices
-   *
-   * Allows switching between the 4 available voices for editing and playback.
-   * Each voice has its own sequencer, parameters, and sound characteristics.
-   * Switching voices changes which sequencer is being edited.
-   */
-  if (evt.buttonIndex == BUTTON_VOICE_SWITCH)
-  {
-    if (evt.type == MATRIX_BUTTON_PRESSED)
-    {
-      handleVoiceSwitch(evt, uiState, midiNoteManager);
-    }
-    return; // Exit after handling voice switch
-  }
-
-  // =======================
   //   SLIDE MODE STEP HANDLING
   // =======================
 
   /**
-   * Handle step buttons in slide mode - toggle slide per step
+   * Handle step pads in slide mode - toggle slide per step
    *
-   * When in slide mode, step buttons toggle the slide parameter for individual
-   * steps rather than toggling the step on/off. This allows fine control over
-   * which notes in the sequence have smooth pitch transitions.
+   * When in slide mode, step pads toggle the slide parameter for individual
+   * steps on their own voice rather than toggling the step on/off.
    */
-  if (uiState.slideMode && evt.buttonIndex < NUMBER_OF_STEP_BUTTONS)
+  if (uiState.slideMode && evt.buttonIndex < NUMBER_OF_STEP_PADS)
   {
     if (evt.type == MATRIX_BUTTON_PRESSED)
     {
       handleSlideModeStep(evt, uiState, sequencers, sequencerCount);
     }
-    return; // In slide mode, step buttons only toggle slide
+    return; // In slide mode, step pads only toggle slide
   }
 
-  // Handle other buttons
-  // Dedicated handling for AS5600 control to support hold-mode
-  if (evt.buttonIndex == BUTTON_AS5600_CONTROL)
-  {
-    handleAS5600ControlButton(evt, uiState);
-    return;
-  }
-  if (handleParameterButtonEvent(evt, uiState))
-    return;
-  if (handleStepButtonEvent(evt, uiState, sequencers, sequencerCount))
-    return;
-
-  // =======================
-  //   RANDOMIZE BUTTON HANDLING
-  // =======================
-
-  /**
-   * Handle randomize buttons for all 4 voices
-   *
-   * Each voice has its own randomize button that supports two functions:
-   * - Short press: Randomize the sequence parameters
-   * - Long press: Reset the sequence to empty state
-   *
-   * The timing detection is handled by beginRandomizePress/handleRandomizeButton
-   * functions which track press duration and trigger appropriate actions.
-   */
-
-  // Delegate handling of randomize buttons (BUTTON_RANDOMIZE_SEQ1 and BUTTON_RANDOMIZE_SEQ2)
-  if (evt.buttonIndex == BUTTON_RANDOMIZE_SEQ1 || evt.buttonIndex == BUTTON_RANDOMIZE_SEQ2)
-  {
-    handleRandomizeMatrixButtons(evt, uiState);
-    return; // Exit after handling randomize button
-  }
-
-  // =======================
-  //   PLAY/STOP BUTTON HANDLING
-  // =======================
-
-  /**
-   * Handle PLAY_STOP button with long press detection for settings mode
-   *
-   * The play/stop button has dual functionality:
-   * - Short press: Start/stop the sequencer transport
-   * - Long press (when stopped): Enter settings mode for voice configuration
-   *
-   * Long press detection prevents accidental settings mode entry during performance.
-   */
-
-  // =======================
-  //   OTHER CONTROL BUTTONS
-  // =======================
-
-  /**
-   * Handle remaining control buttons (only on press events)
-   *
-   * Delegates to handleControlButton for processing other control functions
-   * like scale changes, theme changes, delay toggle, etc. Only processes
-   * press events to avoid double-triggering on release.
-   */
-  handleOtherControlButtons(evt, uiState);
+  // Step pads: settings navigation, gate-seq-length entry, parameter length
+  // programming, step toggling, and Shift+pad clearing.
+  handleStepButtonEvent(evt, uiState, sequencers, sequencerCount);
 }
 
 /**
@@ -303,63 +206,52 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
 // =======================
 
 /**
- * @brief Handles parameter button events from the matrix button grid
+ * @brief Handles a parameter button edge keyed by ParamId (Alchemy tile path)
  *
- * Processes button events for parameter control buttons (Note, Velocity, Filter, etc.).
- * Updates the UI state to track which parameter buttons are held, enabling
- * parameter editing mode when step buttons are pressed. Also handles automatic
- * AS5600 parameter selection for real-time control.
+ * The bridge has already folded Shift-latch semantics into
+ * parameterButtonHeld[]; this applies the rest of today's behavior:
+ * automatic encoder parameter selection for real-time control and parameter
+ * editing mode when a step is in edit.
  *
- * @param evt Matrix button event containing button index and press/release type
- * @param uiState Reference to the UI state object for tracking button states
- * @return true if the event was handled as a parameter button event, false otherwise
+ * @param paramId ParamId as uint8_t of the parameter button
+ * @param pressed true on press edge, false on release edge
+ * @param uiState Reference to the UI state object
  */
-static bool handleParameterButtonEvent(const MatrixButtonEvent &evt,
-                                       UIState &uiState)
+void handleParameterButtonById(uint8_t paramId, bool pressed, UIState &uiState)
 {
   // Block parameter button handling when in slide mode to avoid conflicts
   if (uiState.slideMode)
   {
-    return false;
+    return;
   }
 
-  // Search through parameter button mappings to find a match
-  for (size_t mappingIndex = 0; mappingIndex < PARAM_BUTTON_MAPPINGS_SIZE; ++mappingIndex)
+  if (paramId >= PARAM_ID_COUNT)
   {
-    const auto &currentMapping = PARAM_BUTTON_MAPPINGS[mappingIndex];
+    return;
+  }
+  const ParamId currentParamId = static_cast<ParamId>(paramId);
 
-    // Check if this button event matches a parameter button
-    if (evt.buttonIndex == currentMapping.buttonIndex)
+  // Automatically select encoder parameter for real-time control (except Note parameter)
+  if (pressed && currentParamId != ParamId::Note)
+  {
+    autoSelectEncoderParameter(currentParamId, uiState);
+  }
+
+  // Handle parameter editing in step edit mode
+  if (pressed && uiState.selectedStepForEdit >= 0)
+  {
+    if (uiState.currentEditParameter == currentParamId)
     {
-      // Update parameter button held state based on press/release
-      bool isButtonPressed = (evt.type == MATRIX_BUTTON_PRESSED);
-      uiState.parameterButtonHeld[static_cast<int>(currentMapping.paramId)] = isButtonPressed;
-
-      // Automatically select AS5600 parameter for real-time control (except Note parameter)
-      if (isButtonPressed && currentMapping.paramId != ParamId::Note)
-      {
-        autoSelectAS5600Parameter(currentMapping.paramId, uiState);
-      }
-
-      // Handle parameter editing in step edit mode
-      if (isButtonPressed && uiState.selectedStepForEdit >= 0)
-      {
-        if (uiState.currentEditParameter == currentMapping.paramId)
-        {
-          // Toggle off - stop editing this parameter
-          uiState.currentEditParameter = ParamId::Count;
-        }
-        else
-        {
-          // Toggle on - start editing this parameter
-          uiState.currentEditParameter = currentMapping.paramId;
-          autoSelectAS5600Parameter(currentMapping.paramId, uiState);
-        }
-      }
-      return true; // Event was handled as parameter button
+      // Toggle off - stop editing this parameter
+      uiState.currentEditParameter = ParamId::Count;
+    }
+    else
+    {
+      // Toggle on - start editing this parameter
+      uiState.currentEditParameter = currentParamId;
+      autoSelectEncoderParameter(currentParamId, uiState);
     }
   }
-  return false; // Event was not a parameter button
 }
 
 /**
@@ -382,38 +274,10 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
                                   UIState &uiState, Sequencer *const *sequencers,
                                   size_t sequencerCount)
 {
-  // Ignore out-of-bounds button indices
-  if (evt.buttonIndex >= NUMBER_OF_STEP_BUTTONS)
+  // Ignore out-of-bounds pad indices (all 32 matrix indices are step pads now)
+  if (evt.buttonIndex >= NUMBER_OF_STEP_PADS)
   {
     return false;
-  }
-
-  // =======================
-  //   GATE SEQ LENGTH MODE
-  // =======================
-  // While holding AS5600 control (long press), allow setting Gate track length (2-16)
-  if (uiState.gateSeqLengthMode && evt.type == MATRIX_BUTTON_PRESSED)
-  {
-    // Resolve current active sequencer
-    Sequencer *currentActiveSequencerPtr = nullptr;
-    // 'sequencers' array is authoritative
-    if (sequencers && uiState.selectedVoiceIndex < sequencerCount)
-    {
-      currentActiveSequencerPtr = sequencers[uiState.selectedVoiceIndex];
-    }
-    if (currentActiveSequencerPtr)
-    {
-      uint8_t requested = static_cast<uint8_t>(evt.buttonIndex + 1); // 1..16
-      if (requested < 2)
-        requested = 2;
-      if (requested > 16)
-        requested = 16;
-      currentActiveSequencerPtr->setParameterStepCount(ParamId::Gate, requested);
-      // Optional UI feedback flags
-      uiState.resetStepsLightsFlag = true;
-      uiState.selectedStepForEdit != -1;
-    }
-    return true; // consume event in this mode
   }
 
   // =======================
@@ -424,7 +288,8 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
    * Handle settings mode navigation and voice configuration
    *
    * Settings mode allows configuration of voice presets and voice parameters.
-   * Navigation uses step buttons for menu selection and preset application.
+   * Navigation uses raw pad indices (no bank resolution): pads 0-3 select a
+   * voice, pads 8-14 apply presets in the preset sub-mode.
    */
   if (uiState.settingsMode && evt.type == MATRIX_BUTTON_PRESSED)
   {
@@ -448,39 +313,76 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
     }
     return true; // Event was handled in settings mode
   }
+
+  // Resolve the pad through the bank mapping: bank = index/16 picks one of
+  // the two voices visible for the current pair, step = index%16.
+  const ControlSurface::PadAddress pad =
+      ControlSurface::PadBank::resolve(evt.buttonIndex, uiState.selectedVoiceIndex);
+  Sequencer *padSequencerPtr = nullptr;
+  if (sequencers && pad.voice < sequencerCount)
+  {
+    padSequencerPtr = sequencers[pad.voice];
+  }
+
   // =======================
-  //   NORMAL STEP BUTTON HANDLING
+  //   SHIFT + PAD: CLEAR STEP
   // =======================
 
-  // Select current active sequencer based on selected voice index using supplied array
+  // Shift + step pad clears that step (gate off, params reset) on the pad's
+  // own voice, in any mode.
+  if (uiState.shiftHeld && evt.type == MATRIX_BUTTON_PRESSED)
+  {
+    if (padSequencerPtr)
+    {
+      clearSequencerStep(*padSequencerPtr, pad.step);
+      uiState.selectedStepForEdit = -1;
+      uiState.currentEditParameter = ParamId::Count;
+    }
+    return true;
+  }
+
+  // =======================
+  //   GATE SEQ LENGTH MODE
+  // =======================
+  // While holding encoder control (long press), allow setting Gate track length (2-16)
+  if (uiState.gateSeqLengthMode && evt.type == MATRIX_BUTTON_PRESSED)
+  {
+    if (padSequencerPtr)
+    {
+      uint8_t requested = static_cast<uint8_t>(pad.step + 1); // 1..16
+      if (requested < 2)
+        requested = 2;
+      if (requested > 16)
+        requested = 16;
+      padSequencerPtr->setParameterStepCount(ParamId::Gate, requested);
+      // Optional UI feedback flags
+      uiState.resetStepsLightsFlag = true;
+      uiState.selectedStepForEdit = -1;
+    }
+    return true; // consume event in this mode
+  }
+
+  // Select the previously "active" (selected voice) sequencer for legacy paths
   Sequencer *currentActiveSequencerPtr = nullptr;
   if (sequencers && uiState.selectedVoiceIndex < sequencerCount)
   {
     currentActiveSequencerPtr = sequencers[uiState.selectedVoiceIndex];
   }
 
-  if (!currentActiveSequencerPtr)
-  {
-    // No sequencer available for the selected voice — ignore step actions.
-    return true;
-  }
-
-  Sequencer &currentActiveSequencer = *currentActiveSequencerPtr;
-
   // Handle parameter length adjustment when holding parameter buttons
   if (isAnyParameterButtonHeld(uiState) && evt.type == MATRIX_BUTTON_PRESSED)
   {
-    const ParamButtonMapping *heldParameterMapping = getHeldParameterButton(uiState);
-    if (heldParameterMapping)
+    const ParamId heldParameterId = getHeldParameterParamId(uiState);
+    if (heldParameterId != ParamId::Count && padSequencerPtr)
     {
-      uint8_t newParameterStepCount = evt.buttonIndex + 1; // Convert 0-based index to 1-based count
-      currentActiveSequencer.setParameterStepCount(heldParameterMapping->paramId, newParameterStepCount);
-      uiState.selectedStepForEdit != -1;
+      uint8_t newParameterStepCount = static_cast<uint8_t>(pad.step + 1); // Convert 0-based index to 1-based count
+      padSequencerPtr->setParameterStepCount(heldParameterId, newParameterStepCount);
+      uiState.selectedStepForEdit = -1;
     }
     return true; // Event was handled as parameter length adjustment
   }
 
-  // Handle normal step button presses (short/long press detection)
+  // Handle normal step pad presses (short/long press detection)
   if (!isAnyParameterButtonHeld(uiState))
   {
     if (evt.type == MATRIX_BUTTON_PRESSED)
@@ -495,8 +397,10 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
 
       if (isLongPress(pressDurationMs))
       {
-        // Long press: Toggle step edit mode for detailed parameter editing
-        if (uiState.selectedStepForEdit == evt.buttonIndex)
+        // Long press: Toggle step edit mode for detailed parameter editing.
+        // Editing always happens on the selected voice, so entering edit
+        // from a pad of the partner voice moves selection to that voice.
+        if (currentActiveSequencerPtr == padSequencerPtr && uiState.selectedStepForEdit == pad.step)
         {
           // Exit edit mode for this step
           uiState.selectedStepForEdit = -1;
@@ -504,65 +408,62 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
         }
         else
         {
-          // Enter edit mode for this step
-          uiState.selectedStepForEdit = evt.buttonIndex;
+          // Enter edit mode for this step on the pad's own voice
+          uiState.selectedVoiceIndex = pad.voice;
+          uiState.isVoice2Mode = (pad.voice == UIEventConstants::VOICE_2_INDEX); // legacy compat
+          uiState.voiceSwitchTriggered = true;                                   // immediate OLED update
+          uiState.selectedStepForEdit = pad.step;
         }
       }
       else
       {
-        // Short press: Toggle step on/off and exit edit mode
-        currentActiveSequencer.toggleStep(evt.buttonIndex);
+        // Short press: Toggle step on/off on the pad's own voice and exit edit mode
+        if (padSequencerPtr)
+        {
+          padSequencerPtr->toggleStep(pad.step);
+        }
         uiState.selectedStepForEdit = -1;
         uiState.currentEditParameter = ParamId::Count; // Clear edit parameter
       }
     }
   }
-  return true; // Event was handled as step button
+  return true; // Event was handled as step pad
 }
 
 // Obsolete static handleControlButtonEvent removed; logic is centralized in handleControlButton (ButtonHandlers.cpp)
 
-static void autoSelectAS5600Parameter(ParamId paramId, UIState &uiState)
+static void autoSelectEncoderParameter(ParamId paramId, UIState &uiState)
 {
-  AS5600ParameterMode newAS5600Param;
+  EncoderParameterMode newEncoderParam;
   bool isValid = true;
   switch (paramId)
   {
   case ParamId::Note:
-    newAS5600Param = AS5600ParameterMode::Note;
+    newEncoderParam = EncoderParameterMode::Note;
     break;
   case ParamId::Velocity:
-    newAS5600Param = AS5600ParameterMode::Velocity;
+    newEncoderParam = EncoderParameterMode::Velocity;
     break;
   case ParamId::Filter:
-    newAS5600Param = AS5600ParameterMode::Filter;
+    newEncoderParam = EncoderParameterMode::Filter;
     break;
   case ParamId::Attack:
-    newAS5600Param = AS5600ParameterMode::Attack;
+    newEncoderParam = EncoderParameterMode::Attack;
     break;
   case ParamId::Decay:
-    newAS5600Param = AS5600ParameterMode::Decay;
+    newEncoderParam = EncoderParameterMode::Decay;
     break;
   default:
     isValid = false;
     break;
   }
 
-  if (isValid && newAS5600Param != uiState.currentAS5600Parameter)
+  if (isValid && newEncoderParam != uiState.currentEncoderParameter)
   {
-    uiState.currentAS5600Parameter = newAS5600Param;
-    // Serial.print("AS5600 auto-selected: ");
+    uiState.currentEncoderParameter = newEncoderParam;
+    // Serial.print("Encoder auto-selected: ");
     // Serial.println(CORE_PARAMETERS[static_cast<int>(paramId)].name);
   }
-}
-
-static void handleAS5600ParameterControl(UIState &uiState)
-{
-  uiState.currentAS5600Parameter = static_cast<AS5600ParameterMode>(
-      (static_cast<uint8_t>(uiState.currentAS5600Parameter) + 1) %
-      static_cast<uint8_t>(AS5600ParameterMode::COUNT));
-
-  uiState.lastAS5600ButtonPressTime = millis();
 }
 
 // =======================
@@ -727,7 +628,7 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
   }
   break;
 
-  case 14: // Tempo -5 with floor at 55
+  case 14: // Tempo -5, floored at 45
   {
     float currentTempo = uClock.getTempo();
     uClock.setTempo(currentTempo - 5);
@@ -738,7 +639,7 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
   }
   break;
 
-  case 15: // Tempo +5 with ceiling at 160
+  case 15: // Tempo +5, capped at 200
   {
     float currentTempo = uClock.getTempo();
     uClock.setTempo(currentTempo + 5);
@@ -811,11 +712,11 @@ void pollUIHeldButtons(UIState &uiState, Sequencer *const *sequencers, size_t se
     }
   }
 
-  // Detect long hold of AS5600 control to enter Gate Sequence Length mode
+  // Detect long hold of encoder control to enter Gate Sequence Length mode
   // Suppress this feature while in settings menus (stopped state)
-  if (uiState.as5600ControlWasPressed && !uiState.gateSeqLengthMode && !uiState.settingsMode)
+  if (uiState.encoderControlWasPressed && !uiState.gateSeqLengthMode && !uiState.settingsMode)
   {
-    unsigned long pressDurationMs = currentTimeMs - uiState.as5600ControlPressTime;
+    unsigned long pressDurationMs = currentTimeMs - uiState.encoderControlPressTime;
     if (isLongPress(pressDurationMs))
     {
       uiState.gateSeqLengthMode = true;
@@ -828,8 +729,8 @@ void pollUIHeldButtons(UIState &uiState, Sequencer *const *sequencers, size_t se
       uiState.selectedStepForEdit = -1;
     }
   }
-  // Safety: if the AS5600 control is no longer held, ensure we exit the mode
-  else if (!uiState.as5600ControlWasPressed && uiState.gateSeqLengthMode)
+  // Safety: if the encoder control is no longer held, ensure we exit the mode
+  else if (!uiState.encoderControlWasPressed && uiState.gateSeqLengthMode)
   {
     uiState.gateSeqLengthMode = false;
     uiState.selectedStepForEdit = -1;
@@ -857,7 +758,7 @@ void pollUIHeldButtons(UIState &uiState, Sequencer &seq1, Sequencer &seq2,
   pollUIHeldButtons(uiState, sequencers, UIEventConstants::MAX_VOICES);
 }
 
-static void handleSlideModeToggle(const MatrixButtonEvent &evt, UIState &uiState)
+void handleSlideModePress(UIState &uiState)
 {
   // Toggle slide mode state
   uiState.slideMode = !uiState.slideMode;
@@ -878,27 +779,30 @@ static void handleSlideModeToggle(const MatrixButtonEvent &evt, UIState &uiState
   }
 }
 
-static void handleVoiceSwitch(const MatrixButtonEvent &evt, UIState &uiState, MidiNoteManager &midiNoteManager)
+void selectVoice(UIState &uiState, MidiNoteManager &midiNoteManager, uint8_t voiceIndex)
 {
+  if (voiceIndex >= UIEventConstants::MAX_VOICES)
+  {
+    return;
+  }
+
   midiNoteManager.onModeSwitch();
 
-  // Cycle to next voice (0-3, wrapping around)
-  uiState.selectedVoiceIndex = (uiState.selectedVoiceIndex + 1) % UIEventConstants::MAX_VOICES;
-  uiState.isVoice2Mode = (uiState.selectedVoiceIndex == UIEventConstants::VOICE_2_INDEX); // Legacy compatibility
-  uiState.selectedStepForEdit = -1;                                                       // Clear step editing when switching voices
-  uiState.voiceSwitchTriggered = true;                                                    // Set flag for immediate OLED update
-
-  // Serial.print("Switched to Voice ");
-  //  Serial.println(uiState.selectedVoiceIndex);
+  uiState.selectedVoiceIndex = voiceIndex;
+  uiState.isVoice2Mode = (voiceIndex == UIEventConstants::VOICE_2_INDEX); // Legacy compatibility
+  uiState.selectedStepForEdit = -1;                                       // Clear step editing when switching voices
+  uiState.voiceSwitchTriggered = true;                                    // Set flag for immediate OLED update
 }
 
 static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount)
 {
-  // Get the currently active sequencer pointer from the provided array (no globals)
+  // Resolve the pad to its own voice through the bank mapping
+  const ControlSurface::PadAddress pad =
+      ControlSurface::PadBank::resolve(evt.buttonIndex, uiState.selectedVoiceIndex);
   Sequencer *activeSequencerPtr = nullptr;
-  if (sequencers && uiState.selectedVoiceIndex < sequencerCount)
+  if (sequencers && pad.voice < sequencerCount)
   {
-    activeSequencerPtr = sequencers[uiState.selectedVoiceIndex];
+    activeSequencerPtr = sequencers[pad.voice];
   }
 
   if (activeSequencerPtr)
@@ -907,65 +811,49 @@ static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, 
 
     // Get current slide value and toggle it
     uint8_t currentSlideValue = currentActiveSequencer.getStepParameterValue(
-        ParamId::Slide, evt.buttonIndex);
+        ParamId::Slide, pad.step);
     uint8_t newSlideValue = (currentSlideValue > UIEventConstants::SLIDE_OFF_VALUE) ? UIEventConstants::SLIDE_OFF_VALUE : UIEventConstants::SLIDE_ON_VALUE;
 
     // Apply the new slide value to the step
-    currentActiveSequencer.setStepParameterValue(ParamId::Slide, evt.buttonIndex, newSlideValue);
+    currentActiveSequencer.setStepParameterValue(ParamId::Slide, pad.step, newSlideValue);
   }
   else
   {
-    // No sequencer available for the selected voice; ignore.
+    // No sequencer available for the pad's voice; ignore.
   }
 }
 
-static inline bool isRandomizeButton(uint8_t idx)
+void clearSequencerStep(Sequencer &sequencer, uint8_t stepIdx)
 {
-  return (idx == BUTTON_RANDOMIZE_SEQ1) || (idx == BUTTON_RANDOMIZE_SEQ2);
-}
-
-static uint8_t resolveRandomizeVoiceIndex(uint8_t pressedRandomizeButton, const UIState &uiState)
-{
-  bool firstPage = (uiState.selectedVoiceIndex <= UIEventConstants::VOICE_2_INDEX);
-  if (pressedRandomizeButton == BUTTON_RANDOMIZE_SEQ1)
-  {
-    return firstPage ? UIEventConstants::VOICE_1_INDEX : UIEventConstants::VOICE_3_INDEX;
-  }
-  else
-  {
-    return firstPage ? UIEventConstants::VOICE_2_INDEX : UIEventConstants::VOICE_4_INDEX;
-  }
-}
-
-static void handleRandomizeMatrixButtons(const MatrixButtonEvent &evt, UIState &uiState)
-{
-  if (!isRandomizeButton(evt.buttonIndex))
+  if (stepIdx >= NUMBER_OF_STEP_BUTTONS)
   {
     return;
   }
 
-  uint8_t voiceIndex = resolveRandomizeVoiceIndex(evt.buttonIndex, uiState);
+  // Gate off first: the step falls silent even if the sequencer is running.
+  sequencer.setStepParameterValue(ParamId::Gate, stepIdx, 0.0f);
 
-  if (evt.type == MATRIX_BUTTON_PRESSED)
+  // Reset the remaining automatable parameters to their track defaults.
+  // CORE_PARAMETERS[].defaultValue is a variant (float/bool); fold it to the
+  // float the sequencer tracks store.
+  auto variantToFloat = [](const ParameterValueType &value) -> float
   {
-    beginRandomizePress(voiceIndex, uiState);
-  }
-  else if (evt.type == MATRIX_BUTTON_RELEASED)
-  {
-    handleRandomizeButton(voiceIndex, uiState);
-  }
-}
+    if (std::holds_alternative<float>(value))
+      return std::get<float>(value);
+    if (std::holds_alternative<bool>(value))
+      return std::get<bool>(value) ? 1.0f : 0.0f;
+    return static_cast<float>(std::get<int>(value));
+  };
 
-static void handleOtherControlButtons(const MatrixButtonEvent &evt, UIState &uiState)
-{
-  // Handle remaining control buttons (only on press events)
-  if (evt.type == MATRIX_BUTTON_PRESSED)
+  for (uint8_t paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
   {
-    // AS5600 control is handled separately to support hold behavior
-    if (evt.buttonIndex != BUTTON_AS5600_CONTROL)
+    const ParamId paramId = static_cast<ParamId>(paramIndex);
+    if (paramId == ParamId::Gate)
     {
-      handleControlButton(evt.buttonIndex, uiState);
+      continue;
     }
+    sequencer.setStepParameterValue(paramId, stepIdx,
+                                    variantToFloat(CORE_PARAMETERS[paramIndex].defaultValue));
   }
 }
 

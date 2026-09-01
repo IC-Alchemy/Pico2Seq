@@ -18,6 +18,7 @@ Sequencer seq2(2); // Channel 2 for second sequencer
 Sequencer seq3(3); // Channel 3 for third sequencer
 Sequencer seq4(4); // Channel 4 for fourth sequencer
 LEDMatrix ledMatrix;
+AlchemyControlBridge alchemyBridge; // Alchemy tile panel -> firmware UI glue
 
 // --- MIDI & Clock ---
 Adafruit_USBD_MIDI raw_usb_midi;
@@ -83,6 +84,7 @@ void fill_audio_buffer(audio_buffer_t *buffer);
 void initOscillators();
 
 void updateParametersForStep(uint8_t stepToUpdate);
+void updateParametersForStepNormalized(uint8_t stepToUpdate, float normalizedValue);
 void onStepCallback(uint32_t uClockCurrentStep);
 void setupI2SAudio(audio_format_t *audioFormat, audio_i2s_config_t *i2sConfig);
 void setup();
@@ -283,11 +285,6 @@ void updateParametersForStep(uint8_t stepToUpdate) ///  This is the selected ste
     if (stepToUpdate >= SequencerConstants::MAX_STEPS_COUNT)
         return;
 
-    Sequencer *seqPtr = (uiState.selectedVoiceIndex == 0) ? &seq1 : (uiState.selectedVoiceIndex == 1) ? &seq2
-                                                                : (uiState.selectedVoiceIndex == 2)   ? &seq3
-                                                                                                      : &seq4;
-    Sequencer &activeSeq = *seqPtr;
-
     // Simple normalization of sensor value
     float normalized_mm_value = 0.0f;
     if (MAX_HEIGHT > 0)
@@ -296,12 +293,30 @@ void updateParametersForStep(uint8_t stepToUpdate) ///  This is the selected ste
     }
     normalized_mm_value = std::max(0.0f, std::min(normalized_mm_value, 1.0f));
 
+    updateParametersForStepNormalized(stepToUpdate, normalized_mm_value);
+}
+
+/**
+ * @brief Record a normalized 0..1 value into the step in edit for the held
+ *        parameter. Shared recording path: the lidar calls it with the
+ *        distance-derived value, the Alchemy faders with the fader value.
+ */
+void updateParametersForStepNormalized(uint8_t stepToUpdate, float normalizedValue)
+{
+    if (stepToUpdate >= SequencerConstants::MAX_STEPS_COUNT)
+        return;
+
+    Sequencer *seqPtr = (uiState.selectedVoiceIndex == 0) ? &seq1 : (uiState.selectedVoiceIndex == 1) ? &seq2
+                                                                : (uiState.selectedVoiceIndex == 2)   ? &seq3
+                                                                                                      : &seq4;
+    Sequencer &activeSeq = *seqPtr;
+
     bool parametersWereUpdated = false;
-    const ParamButtonMapping *heldMapping = getHeldParameterButton(uiState);
-    if (heldMapping)
+    const ParamId heldParamId = getHeldParameterParamId(uiState);
+    if (heldParamId != ParamId::Count)
     {
         // GATE-CONTROLLED NOTE PROGRAMMING: Check gate restriction for Note parameter
-        if (heldMapping->paramId == ParamId::Note)
+        if (heldParamId == ParamId::Note)
         {
             float gateValue = activeSeq.getStepParameterValue(ParamId::Gate, stepToUpdate);
             if (gateValue <= 0.5f) // Gate is LOW (0.0)
@@ -313,8 +328,8 @@ void updateParametersForStep(uint8_t stepToUpdate) ///  This is the selected ste
         }
 
         // Use the helper function to do the scaling correctly for any parameter.
-        float valueToSet = mapNormalizedValueToParamRange(heldMapping->paramId, normalized_mm_value);
-        activeSeq.setStepParameterValue(heldMapping->paramId, stepToUpdate, valueToSet);
+        float valueToSet = mapNormalizedValueToParamRange(heldParamId, normalizedValue);
+        activeSeq.setStepParameterValue(heldParamId, stepToUpdate, valueToSet);
         parametersWereUpdated = true;
 
         // Send immediate MIDI CC for real-time parameter recording (voices 1/2 only)
@@ -322,12 +337,12 @@ void updateParametersForStep(uint8_t stepToUpdate) ///  This is the selected ste
                                                                                                         : 255;
         if (midiVoiceId != 255)
         {
-            midiNoteManager.updateParameterCC(midiVoiceId, heldMapping->paramId, valueToSet);
+            midiNoteManager.updateParameterCC(midiVoiceId, heldParamId, valueToSet);
         }
 
         // Debug print if needed
         //  Serial.print("  -> Set ");
-        //   Serial.print(CORE_PARAMETERS[static_cast<int>(heldMapping->paramId)].name);
+        //   Serial.print(CORE_PARAMETERS[static_cast<int>(heldParamId)].name);
         // Serial.print(" to ");
         //  Serial.println(valueToSet);
     }
@@ -478,13 +493,13 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
 
     VoiceState *activeVoiceState = &voiceSystem.getVoiceState(voiceIndex);
 
-    // Update voice state with new step parameters + AS5600 encoder modifications
+    // Update voice state with new step parameters + magnetic encoder modifications
     activeSeq.playStepNow(stepIndex, activeVoiceState);
 
-    // Apply AS5600 base values only for voices 0/1 (no mapping for 2/3 by design)
+    // Apply encoder base values only for voices 0/1 (no mapping for 2/3 by design)
     if (voiceIndex <= 1)
     {
-        applyAS5600BaseValues(activeVoiceState, (voiceIndex == 1) ? 1 : 0);
+        applyEncoderBaseValues(activeVoiceState, (voiceIndex == 1) ? 1 : 0);
     }
 
     // Update synth hardware for immediate audio feedback using the per-voice function
@@ -514,13 +529,13 @@ void onStepCallback(uint32_t uClockCurrentStep)
     advanceSequencerStep(seq3, uClockCurrentStep, v3Distance, uiState, &tempState3);
     advanceSequencerStep(seq4, uClockCurrentStep, v4Distance, uiState, &tempState4);
 
-    // 3. Apply AS5600 base values per voice (only velocity/filter/attack/decay are affected)
-    applyAS5600BaseValues(&tempState1, 0);
-    applyAS5600BaseValues(&tempState2, 1);
-    // Voices 2/3 currently share no AS5600 mapping; leave as-is
+    // 3. Apply encoder base values per voice (only velocity/filter/attack/decay are affected)
+    applyEncoderBaseValues(&tempState1, 0);
+    applyEncoderBaseValues(&tempState2, 1);
+    // Voices 2/3 currently share no encoder mapping; leave as-is
 
-    // Apply AS5600 base values to global delay effect parameters
-    applyAS5600DelayValues();
+    // Apply encoder base values to global delay effect parameters
+    applyEncoderDelayValues();
 
     // 4. Update synth hardware (voices 1/2 with gates + MIDI; 3/4 audio only)
     VoiceState tempStates[] = {tempState1, tempState2, tempState3, tempState4};
@@ -759,21 +774,18 @@ void setup1()
         Serial.println("Distance sensor initialized successfully");
     }
 
-    // Initialize AS5600 magnetic encoder
-    if (!as5600Sensor.begin())
+    // Initialize TMAG5273 magnetic encoder (Velocity Encoder board, I2C 0x22)
+    if (!magEncoder.begin())
     {
-        Serial.println("[ERROR] AS5600 magnetic encoder initialization failed!");
+        Serial.println("[ERROR] TMAG5273 magnetic encoder initialization failed!");
     }
     else
     {
-        Serial.println("AS5600 magnetic encoder initialized successfully");
-
-        // Uncomment the line below to run smooth scaling validation test
-        // as5600Sensor.validateSmoothScaling();
+        Serial.println("TMAG5273 magnetic encoder initialized successfully");
     }
 
-    // Initialize AS5600 base values with proper defaults
-    initAS5600BaseValues();
+    // Initialize encoder base values with proper defaults
+    initEncoderBaseValues();
 
     if (!touchSensor.begin(0x5A))
     {
@@ -819,6 +831,20 @@ void setup1()
     Serial.println("Forcing initial matrix scan...");
     Matrix_scan();
     // Matrix_printState();
+
+    // =======================
+    //   ALCHEMY TILE CONTROL SURFACE (Wire1 bank + GP7 mode strap)
+    // =======================
+    // SliderModule + ButtonModule8 live on their own Wire1 bank at 400 kHz;
+    // Wire1 pin constants are bench-adjustable in includes.h.
+    pinMode(PIN_ALCHEMY_MODE_SWITCH, INPUT_PULLUP);
+    Wire1.setSDA(PIN_ALCHEMY_WIRE1_SDA);
+    Wire1.setSCL(PIN_ALCHEMY_WIRE1_SCL);
+    Wire1.begin();
+    Wire1.setClock(400000);
+    alchemyBridge.setModeSwitchPin(PIN_ALCHEMY_MODE_SWITCH);
+    alchemyBridge.begin(Wire1, /*bankB=*/nullptr, millis());
+    Serial.println("Alchemy tiles initialized");
 
     // Use a lambda to capture the context needed by the event handler
     Matrix_setEventHandler([](const MatrixButtonEvent &evt)
@@ -886,7 +912,8 @@ void loop1()
     usb_midi.read();
 
     unsigned long currentMillis = millis();
-    pollUIHeldButtons(uiState, seq1, seq2);
+    // All four sequencers so tile randomize long-press resets reach voices 3/4.
+    pollUIHeldButtons(uiState, seq1, seq2, seq3, seq4);
 
     // =======================
     //   TIMING AND SEQUENCER PROCESSING
@@ -924,7 +951,7 @@ void loop1()
     // =======================
     //   SENSOR AND CONTROL INPUT PROCESSING
     // =======================
-    // Button matrix, distance sensor, and AS5600 polling
+    // Button matrix, distance sensor, and magnetic encoder polling
     if ((currentMillis - lastControlUpdate >= CONTROL_UPDATE_INTERVAL))
     {
         lastControlUpdate = currentMillis;
@@ -932,12 +959,18 @@ void loop1()
         // Check if any parameter buttons are held for real-time recording
         bool parameterRecordingActive = isAnyParameterButtonHeld(uiState);
 
-        // Scan button matrix for user input
+        // Scan button matrix for user input (32 step pads)
         Matrix_scan();
 
-        // Update AS5600 magnetic encoder for base parameter control
-        as5600Sensor.update();
-        updateAS5600BaseValues(uiState);
+        // Poll the Alchemy tiles (param/utility buttons, voice selects,
+        // faders, GP7 mode strap) and translate edges into UI actions.
+        Sequencer *bridgeSequencers[] = {&seq1, &seq2, &seq3, &seq4};
+        alchemyBridge.update(currentMillis, uiState, bridgeSequencers, 4,
+                             midiNoteManager);
+
+        // Update magnetic encoder for base parameter control
+        magEncoder.update();
+        updateEncoderBaseValues(uiState);
 
         // Update distance sensor for real-time parameter recording
         distanceSensor.update();

@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 #include <Wire.h>
-#include <Melopero_VL53L1X.h>
+#include <Adafruit_VL53L1X.h>
 
 /**
  * DistanceSensor
@@ -11,10 +11,11 @@
  * Arduino driver for the ST VL53L1X time-of-flight distance sensor, with
  * non-blocking updates and tunable timing built in.
  *
- * Wraps the Melopero VL53L1X I2C driver and provides:
+ * Wraps the Adafruit VL53L1X I2C driver and provides:
  *   - Continuous-mode distance readings in millimeters.
- *   - A non-blocking update() with a configurable polling interval and a hard
- *     timeout, so a sensor read can never stall the loop it runs in.
+ *   - A non-blocking update() with a configurable polling interval and one
+ *     data-ready check per call, so an incomplete measurement never stalls the
+ *     loop it runs in.
  *   - Connection detection, so a sketch can degrade gracefully when no sensor
  *     is fitted.
  *
@@ -30,11 +31,11 @@
 class DistanceSensor
 {
 public:
-    /** Distance ranging preset. Maps to the sensor's native distance modes. */
+    /** Distance ranging preset. Medium uses the Adafruit/ST long preset. */
     enum class DistanceMode
     {
         Short,  // ~1.3 m, better ambient-light immunity, faster
-        Medium, // ~3 m, balanced (default)
+        Medium, // uses the long preset (~4 m), balanced for this application
         Long    // ~4 m, maximum range, slower
     };
 
@@ -43,9 +44,10 @@ public:
      *
      * The defaults are the values used in real-time parameter-control duty on a
      * Raspberry Pi Pico 2: a 20 ms timing budget with a 24 ms inter-measurement
-     * period, polled every 20 ms, with a 5 ms hard timeout so a stalled read
-     * never blocks the rest of the loop. Override any field in the constructor
-     * to retune without rewriting the driver.
+     * period, polled every 20 ms. The measurementTimeoutMs field is retained
+     * for source compatibility but is not used by the non-blocking Adafruit
+     * data-ready path. Override any other field in the constructor to retune
+     * without rewriting the driver.
      */
     struct Config
     {
@@ -54,7 +56,7 @@ public:
         uint32_t      timingBudgetMicros        = 20000;  // Measurement accuracy vs. speed
         uint32_t      interMeasurementPeriodMs  = 24;     // Continuous-mode period
         uint32_t      readIntervalMs            = 20;     // Minimum ms between update() reads
-        uint32_t      measurementTimeoutMs      = 5;      // Hard cap on waiting for a sample
+        uint32_t      measurementTimeoutMs      = 5;      // Compatibility field; not used
         uint32_t      i2cStabilizationDelayMs   = 50;     // Settle delay after Wire.begin()
     };
 
@@ -104,7 +106,7 @@ private:
     Config _cfg;
 
     // Hardware interface
-    Melopero_VL53L1X _sensor;
+    Adafruit_VL53L1X _sensor;
     bool             _connected;
 
     // Timing control for non-blocking updates

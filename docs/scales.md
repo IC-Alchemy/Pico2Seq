@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `src/scales` folder contains the musical scale system for the PicoMudrasSequencer. This module provides comprehensive scale definitions, note-to-MIDI conversion tables, and scale selection management for the step sequencer.
+The `src/pico2seq-core/scales` folder contains the musical scale system for the Pico2Seq. This module provides comprehensive scale definitions, note-to-MIDI conversion tables, and scale selection management for the step sequencer. It lives under `src/pico2seq-core/` because it is portable C++ with no Arduino/hardware dependencies (unit-tested on the host along with the sequencer core).
 
 ## Key Components
 
@@ -171,7 +171,7 @@ sendMidiNoteOn(midiNote, velocity, channel);
 ## File Structure
 
 ```
-src/scales/
+src/pico2seq-core/scales/
 ├── scales.cpp          # Scale definitions and data arrays
 └── scales.h            # Interface definitions and constants
 ```

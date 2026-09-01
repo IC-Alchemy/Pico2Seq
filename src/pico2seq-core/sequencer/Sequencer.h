@@ -136,7 +136,7 @@ public:
      * 2. Handle real-time parameter recording if buttons are held
      * 3. Process step using independent parameter positions
      * 4. Update VoiceState with current parameter values
-     * 5. Apply AS5600 encoder modifications (done in main loop)
+     * 5. Apply magnetic encoder modifications (done in main loop)
      *
      * @param current_uclock_step Global step counter from UClock
      * @param mm_distance Distance sensor reading (0-400mm range)

@@ -123,7 +123,11 @@ inline constexpr std::uint8_t kFadersPerTile = 4;
 
 // Button 4x tile (TYPE 0x02): DATA_LEN 3, same button block, same offsets.
 inline constexpr std::uint8_t kButtonDataLen = 3;
-inline constexpr std::uint8_t kButtonsPerTile = 4;
+// Both tile types carry a full 8-bit button bitmap in the same 3 DATA bytes:
+// ButtonModule8 drives all eight bits; the SliderModule drives only bits 0-3
+// and bits 4-7 read 0. Sizing the button arrays by the bitmap width (not by
+// the slider's physical count) lets one code path serve both tiles.
+inline constexpr std::uint8_t kButtonsPerTile = 8;
 
 /** The button sub-block both tile types share. */
 struct ButtonBlock {

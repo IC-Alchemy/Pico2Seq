@@ -54,13 +54,6 @@ ctest --test-dir build_test --output-on-failure       # what CI runs
 CI (`.github/workflows/tests.yml`) runs on every push/PR: `cmake -B build`, `cmake --build build
 --parallel`, then `ctest --test-dir build --output-on-failure`.
 
-### Firmware build (cannot be done headlessly)
-
-There is no CLI firmware build — it requires Arduino IDE with RP2040/RP2350 board support,
-the libraries listed in `README.md` (Adafruit_MPR121, Adafruit_SH110X, Adafruit_TinyUSB,
-FastLED, Melopero_VL53L1X, uClock, MIDI), and a physical Pico2 board with the wired
-peripherals described in `README.md` to test on. Don't claim to have "built the firmware" —
-at most you can verify the test suite passes and reason about the code.
 
 ## Testing strategy — read this before touching anything under `src/`
 
@@ -111,7 +104,7 @@ sensors,ButtonHandlers}.md` cover each subsystem. The essentials:
 - **Core 0** (`setup()`/`loop()` in `Pico2Seq.ino`): audio synthesis only. Pulls a buffer,
   calls `voiceManager->processAllVoices()` per-sample, writes I2S output. Nothing else should
   run here — this is real-time critical and must never block or allocate.
-- **Core 1** (`setup1()`/`loop1()`): everything else — MIDI I/O, AS5600 encoder and VL53L1X
+- **Core 1** (`setup1()`/`loop1()`): everything else — MIDI I/O, TMAG5273 magnetic encoder and VL53L1X
   distance sensor polling, MPR121 touch matrix scanning, `uClock` sequencer step ticking, LED
   matrix and OLED updates, UI state.
 - Cross-core communication is via `volatile` globals (e.g. `VoiceSystem::gates`,
@@ -134,7 +127,7 @@ this only applies to voices 0/1, since 2/3 never had gates or MIDI wired up.
 ### Data flow (input → sound)
 
 ```
-Matrix/AS5600/VL53L1X/MIDI input  (Core 1)
+Matrix/TMAG5273/VL53L1X/MIDI input  (Core 1)
   → UIEventHandler / ButtonHandlers  → UIState (single struct, no loose globals)
   → 4 independent Sequencer instances (seq1..seq4, one per voice, polymetric: each
     ParamId track can have its own step count, e.g. Note:16 steps, Filter:8 steps)

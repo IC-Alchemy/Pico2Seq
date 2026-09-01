@@ -45,9 +45,9 @@ Here is what that audit found for Pico2Seq:
 
 | Module | Files | Reason |
 |--------|-------|--------|
-| `src/rpdsp/` | header-only DSP library (`oscillator`, `ladder`, `filter`, `envelope`, `effects`, `wavefolder`, `DSPFunctions`, ...) | Only `<cmath>`/`<array>` — pure math |
+| `src/rpdsp/` | header-only DSP library, Git submodule (`oscillator`, `ladder`, `filter`, `envelope`, `effects`, `wavefolder`, `DSPFunctions`, ...) | Only `<cmath>`/`<array>` — pure math |
 | `src/voice/VoiceOscillator.h` | waveform-id → rpdsp oscillator class dispatch | Header-only, pure math |
-| `src/sequencer/SequencerDefs.h` | constants, enums, `ParameterTrack<N>` template | Only `<stdint.h>`, `<variant>` |
+| `src/pico2seq-core/sequencer/SequencerDefs.h` | constants, enums, `ParameterTrack<N>` template | Only `<stdint.h>`, `<variant>` |
 
 These compile on any C++17 host without modification.
 
@@ -55,9 +55,9 @@ These compile on any C++17 host without modification.
 
 | Module | What it needs |
 |--------|--------------|
-| `src/scales/scales.cpp` | Includes `Arduino.h` just for type aliases — a 3-line stub is enough |
-| `src/sequencer/Sequencer.cpp` | Uses `Serial.print()` and `pinMode()`/`digitalWrite()` — a 20-line stub |
-| `src/sequencer/ParameterManager.cpp` | Uses `pico/sync.h` for spinlocks — stub the spin_lock API |
+| `src/pico2seq-core/scales/scales.cpp` | Includes `Arduino.h` just for type aliases — a 3-line stub is enough |
+| `src/pico2seq-core/sequencer/Sequencer.cpp` | Uses `Serial.print()` and `pinMode()`/`digitalWrite()` — a 20-line stub |
+| `src/pico2seq-core/sequencer/ParameterManager.cpp` | Uses `pico/sync.h` for spinlocks — stub the spin_lock API |
 | `src/voice/Voice.cpp` | Depends on sequencer headers (Tier 2 above) transitively |
 
 ### Tier 3 — Skip for now
@@ -231,7 +231,7 @@ Some files declare `extern` symbols that are defined elsewhere in the full firmw
 // Sequencer.cpp
 extern bool slideMode;
 
-// ParameterManager.cpp (via AS5600Manager.h)
+// ParameterManager.cpp (via EncoderManager.h)
 extern const size_t MAX_DELAY_SAMPLES;
 ```
 
@@ -259,7 +259,7 @@ definitions". This is why `test_helpers.cpp` exists as a dedicated file.
 A good rule: test the most independent modules first. If a lower-level module has a bug, tests for
 higher-level modules that depend on it will also fail, making the failure harder to diagnose.
 
-### DSP tests (`test_dsp.cpp`) — the easiest
+### DSP tests (`test_rpdsp_additions.cpp`) — the easiest
 
 DSP classes like `Adsr` and `LadderFilter` have clean `Init()` / `Process()` interfaces and no
 external state. They are pure functions of their inputs over time.
@@ -482,8 +482,8 @@ These modules currently have no tests and would benefit from them:
 | Module | What to test |
 |--------|-------------|
 | `src/voice/VoiceManager.cpp` | `addVoice()`, `processAllVoices()`, preset application |
-| `src/sequencer/Sequencer.cpp` — `advanceStep()` | Polyrhythmic step advancement with mock button states |
-| `src/rpdsp` `Compressor` (used by VoiceManager, currently bypassed) | Gain reduction on loud signals |
+| `src/pico2seq-core/sequencer/Sequencer.cpp` — `advanceStep()` | Polyrhythmic step advancement with mock button states |
+| `src/rpdsp` `Compressor` (applied by VoiceManager on the master mix) | Gain reduction on loud signals |
 | `src/voice/VoicePresets.cpp` | Preset parameter ranges stay valid |
 
 ---
