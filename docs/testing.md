@@ -24,7 +24,8 @@ To enable rapid, automated regression testing and Continuous Integration (CI), P
     ├── scales & lookup tables      ├── src/LEDMatrix/ (FastLED WS2812B)
     ├── pico2seq-core sequencer     ├── src/OLED/ (SH1106G I2C)
     ├── voice synthesis & presets   ├── src/midi/ (TinyUSB stack)
-    └── ControlSurfaceLogic         └── src/sensors/ (TMAG/VL53 drivers)
+    ├── ControlSurfaceLogic         └── src/sensors/ (TMAG/VL53 drivers)
+    └── AlchemyProto wire format
              |                               |
              v                               v
     [ Host Unit Tests ]             [ Manual / Bench Testing ]
@@ -38,6 +39,7 @@ To enable rapid, automated regression testing and Continuous Integration (CI), P
 | **Tier 1: Zero Deps** | DSP & Sound Synthesis | `src/rpdsp/`, `src/voice/VoiceOscillator.h` | Pure math, `<cmath>`, `<variant>`, `<array>`. Tested natively. |
 | **Tier 1: Zero Deps** | Sequencer Core Templates | `src/pico2seq-core/sequencer/SequencerDefs.h` | Template data structures (`ParameterTrack<N>`). Tested natively. |
 | **Tier 1: Zero Deps** | UI Control Surface Logic | `src/ui/ControlSurfaceLogic.h/.cpp` | Pure state machines (`ModeStabilizer`, `PadBank`, `ShiftLatch`, `FaderMap`). Tested natively. |
+| **Tier 1: Zero Deps** | Alchemy Tile Wire Format | `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` | Pure C++ register/frame decoding — no Arduino, no Wire. Tested natively. |
 | **Tier 2: Light Stubs** | Musical Scales | `src/pico2seq-core/scales/scales.cpp` | Requires minimal `Arduino.h` type aliases (`uint8_t`, `String`). |
 | **Tier 2: Light Stubs** | Sequencer Logic | `src/pico2seq-core/sequencer/{Sequencer,ParameterManager}.cpp` | Requires `Arduino.h` and `pico/sync.h` spinlock stubs. |
 | **Tier 2: Light Stubs** | Voice & Presets | `src/voice/{Voice,VoicePresets}.cpp` | Requires staged parameter and scale table injection. |
@@ -45,7 +47,7 @@ To enable rapid, automated regression testing and Continuous Integration (CI), P
 
 ---
 
-## 7 Host Unit Test Suites
+## 8 Host Unit Test Suites
 
 The host test executable (`pico2seq_tests`) links all unit suites under `tests/unit/`:
 
@@ -55,7 +57,7 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 2 | `tests/unit/test_rpdsp_additions.cpp` | `rpdsp` DSP Extensions | `dspmap::fmap` curves (local carry-over), Waveshaper transfer functions, DSPFunctions |
 | 3 | `tests/unit/test_scales.cpp` | Musical Scale Lookup Tables | 13 scales monotonic ordering, root notes at 0, MIDI boundary validation, chromatic fallback |
 | 4 | `tests/unit/test_sequencer.cpp` | Core Step Sequencer | `ParameterTrack<N>` wrapping, `NoteDurationTracker` countdowns, start/stop, gate toggling |
-| 5 | `tests/unit/test_voice.cpp` | Synthesizer Voice Engine | Voice state transitions, staged parameter application on `process()`, scale injection, filter sweep |
+| 5 | `tests/unit/test_voice.cpp` | Synthesizer Voice Engine | Voice state transitions, staged parameter application on `process()`, scale injection, filter sweep, preset registry (15 named presets, engine selection, finite bounded audio per preset), waveguide / noise-FX engine behavior |
 | 6 | `tests/unit/test_voiceoscillator.cpp` | Voice Oscillator Dispatch | `VoiceOscillator` variant dispatch, band-limited waveforms, pulse width modulation, pitch changes |
 | 7 | `tests/unit/test_control_surface_logic.cpp` | Tile UI Decision Logic | `ModeStabilizer` debouncing, `PadBank` voice-pair resolution, `ShiftLatch` latching, `FaderMap` deadband |
 | 8 | `tests/unit/test_alchemy_proto.cpp` | Alchemy Tile Wire Format | Per-tile-type button block offsets (slider DATA 8..10 vs button DATA 0..2), fader decode, SEQ/STATUS decode, frame checksum, identity validation, `TileButton` press/hold/tap |
@@ -131,6 +133,9 @@ ctest --test-dir build_test --output-on-failure
 
 # Run only control surface logic tests
 ./build_test/tests/pico2seq_tests "[control_surface]"
+
+# Run only Alchemy tile wire-format tests
+./build_test/tests/pico2seq_tests "[alchemy_proto]"
 
 # Run only voice engine tests
 ./build_test/tests/pico2seq_tests "[voice]"

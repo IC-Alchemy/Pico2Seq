@@ -112,6 +112,7 @@ The full mechanical rename from `AS5600` to `Encoder` was executed across the co
 
 1. **Host Unit Tests**:
    - `tests/unit/test_control_surface_logic.cpp`: Covers `ModeStabilizer`, `PadBank`, `ShiftLatch`, and `FaderMap`.
+   - `tests/unit/test_alchemy_proto.cpp`: Covers the Alchemy tile wire format (`AlchemyProto.h`) — per-tile-TYPE DATA block offsets (slider DATA 8..10 vs button DATA 0..2), frame checksum, identity decoding — and `TileButton` press/hold/tap edges.
    - `tests/unit/test_rpdsp_additions.cpp`, `test_voice.cpp`, `test_voiceoscillator.cpp`, `test_scales.cpp`, `test_sequencer.cpp`.
 2. **I2C Bus Separation**:
    - Wire (GP4/5 @ 100 kHz) handles OLED, TMAG5273, VL53L1X, and MPR121.

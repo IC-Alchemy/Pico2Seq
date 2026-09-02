@@ -21,9 +21,9 @@ Arduino/RP2040 dependency — they're deliberately kept reusable in other projec
 `#include <Arduino.h>`, UI-layer (`UIState`), or hardware-glue includes back into this folder;
 firmware code that needs to bridge sequencer output to UI types (see
 `advanceSequencerStep()` in `src/ui/UIEventHandler.h/.cpp`) belongs in `src/`, not here.
-One known remaining wart: `Sequencer.cpp` calls `digitalWrite()` directly for hardware gate
-pins (10/11/12) — that's an Arduino dependency baked into otherwise-portable logic, not yet
-factored out.
+(The former `digitalWrite()` hardware-gate-pin coupling in `Sequencer.cpp` was removed
+2026-09-01 — the pins moved to the PIO I2S output — so the folder is fully portable again.
+Keep it that way.)
 
 ## Commands
 

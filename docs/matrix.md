@@ -70,7 +70,7 @@ The user interface separates physical responsibilities across two buses:
 
 2. **Alchemy Tiles (Wire1 GP14/GP15 @ 100kHz):**
    - `SliderModule`: 4 motorized/analog faders + 4 Voice Select buttons (Voice 1–4).
-   - `ButtonModule8`: 8 multi-function buttons (Param mode: Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Slide; Utility mode: Play/Stop, Record, Scale, Shuffle, Mute, Clear, Preset, Settings).
+   - `ButtonModule8`: 8 multi-function buttons (Param mode: Note, Velocity, Filter, Attack, Decay, Octave, Slide; Utility mode: Play/Stop, Delay, Scale, Swing, Theme, Encoder Target, Randomize; bit 7 is Shift in both modes).
    - `GP7 Mode Strap`: Hardware switch selecting Param mode (LOW) vs Utility mode (HIGH).
 
 ---

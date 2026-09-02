@@ -29,7 +29,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **VoiceSystem Architecture**: Centralized, array-based voice management with safe accessor methods
 - **Dual-Core Asymmetric Design**: Core 0 dedicated exclusively to 48kHz audio synthesis; Core 1 handles UI, sensors, MIDI, clock, and display rendering
 - **Lock-Free Parameter Staging**: Atomic generation counters allow Core 1 to stage parameter changes without blocking Core 0 audio processing
-- **Host Test Suite**: Catch2 v3 unit test suite with hardware stubs executing in CI via CTest
+- **Host Test Suite**: Catch2 v3 unit test suite with hardware stubs, built and run locally via CTest
 
 ---
 
@@ -129,60 +129,15 @@ uses a disposable, correctly named `Pico2Seq/Pico2Seq.ino` staging directory and
 `examples` directory. This leaves the checkout unchanged while compiling only the firmware and
 the submodules' library sources.
 
-Run the following PowerShell from the repository root:
+The reusable version of this recipe is [`scripts/build_pico2seq.ps1`](scripts/build_pico2seq.ps1).
+Run it from the repository root:
 
 ```powershell
-$repoRoot = (Get-Location).Path
-$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$stageRoot = Join-Path ([IO.Path]::GetTempPath()) "Pico2Seq-arduino-stage-$stamp"
-$stageSketch = Join-Path $stageRoot 'Pico2Seq'
-$buildPath = Join-Path $repoRoot "build\arduino-cli\Pico2Seq-current-$stamp"
-New-Item -ItemType Directory -Path $stageSketch -Force | Out-Null
-
-function Copy-StageTree {
-    param([string]$Source, [string]$Destination)
-
-    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
-    foreach ($item in Get-ChildItem -LiteralPath $Source -Force) {
-        if ($item.Name -in @('.git', 'build', 'build_test', 'vendor')) { continue }
-
-        $target = Join-Path $Destination $item.Name
-        if ($item.PSIsContainer) {
-            if ($item.Name -eq 'examples') { continue }
-            Copy-StageTree -Source $item.FullName -Destination $target
-        } else {
-            Copy-Item -LiteralPath $item.FullName -Destination $target -Force
-        }
-    }
-}
-
-Copy-StageTree -Source $repoRoot -Destination $stageSketch
-
-$boardOptions = @(
-    'flash=4194304_0'
-    'arch=arm'
-    'freq=225'
-    'opt=Optimize3'
-    'profile=Disabled'
-    'rtti=Disabled'
-    'stackprotect=Disabled'
-    'exceptions=Disabled'
-    'dbgport=Disabled'
-    'dbglvl=None'
-    'usbstack=tinyusb'
-    'ipbtstack=ipv4only'
-    'uploadmethod=default'
-) -join ','
-
-arduino-cli compile `
-    --fqbn rp2040:rp2040:rpipico2 `
-    --board-options $boardOptions `
-    --warnings all `
-    --clean `
-    --build-property 'build.extra_flags=-ffast-math' `
-    --build-path $buildPath `
-    $stageSketch
+.\scripts\build_pico2seq.ps1
 ```
+
+Pass `-ArduinoCli <path>` if Arduino CLI is not on `PATH`, `-BuildDirectory <path>`
+to choose an artifact directory, or `-KeepStage` to retain the disposable staging copy.
 
 The build is successful only when the foreground command finishes with exit code 0. Its `.uf2`,
 `.elf`, `.bin`, and `.map` files are written to the timestamped directory under
@@ -219,7 +174,7 @@ MIDI, displays, sensors, or controls on physical hardware.
 4. **Select a voice:** Press Voice 1–4 buttons on the SliderModule to switch active voices directly.
 5. **Adjust parameters:** Rotate the TMAG5273 magnetic encoder or move physical faders to dial parameter values with live OLED/LED feedback.
 6. **Real-time recording:** Hold (or Shift+tap to latch) a parameter button and touch step pads to record automation into the pattern.
-7. **Switch function sets:** Toggle the GP7 mode strap between **Param** (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Slide) and **Utility** (Play/Stop, Record, Scale, Shuffle, Mute, Clear, Preset, Settings).
+7. **Switch function sets:** Toggle the GP7 mode strap between **Param** (Note, Velocity, Filter, Attack, Decay, Octave, Slide) and **Utility** (Play/Stop, Delay, Scale, Swing, Theme, Encoder Target, Randomize). `Shift` (ButtonModule8 bit 7) latches parameter holds in Param mode and turns the SliderModule voice buttons into transport chords.
 
 ### Preset System
 

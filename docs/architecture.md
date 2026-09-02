@@ -22,7 +22,7 @@ Pico2Seq/
 │   ├── voice/              # Voice synthesis, VoiceManager, VoiceSystem, VoicePresets
 │   ├── rpdsp/              # Submodule: header-only DSP library (IC-Alchemy/RPDSP)
 │   ├── ui/                 # UIState, ControlSurfaceLogic, UIEventHandler, ButtonHandlers
-│   ├── AlchemyUI/          # Submodule: modular I2C UI tile driver (Wire1 @ 100kHz)
+│   ├── AlchemyUI/          # Modular I2C UI tile driver (Wire1 @ 100kHz)
 │   ├── VelocityEncoder/    # Submodule: TMAG5273 / AS5600 magnetic encoder driver
 │   ├── sensors/            # DistanceSensor (VL53L1X), EncoderManager, SensorConstants
 │   ├── matrix/             # MPR121 32-pad capacitive touch matrix scanning
@@ -251,8 +251,8 @@ All DSP components reside in the `rpdsp` namespace from `src/rpdsp/` (tracked as
                     │    - Silence short-circuit (if E <= 0.0005, ret 0)│
                     │    - Slew pitch if slide active                   │
                     │    - Commit pitch if gate HIGH                    │
-                    │    - Standard: Sum(VoiceOscillator[i] * amp[i])   │
-                    │    - Percussion: rpdsp::NoiseOscillator           │
+                    │    - VoiceConfig.engine dispatch: osc bank        │
+                    │      sum / waveguide / noise-FX source            │
                     └─────────────────────────┬─────────────────────────┘
                                               │
                                               ▼
@@ -315,14 +315,14 @@ Portable core with **no hardware, UI, or Arduino dependencies**:
 - `Voice.h/.cpp`: Synthesizer voice DSP chain with lock-free staging and gate-controlled pitch commits.
 - `VoiceManager.h/.cpp`: Multi-voice lifecycle management, master mixing, and preset attachment.
 - `VoiceSystem.h`: Centralized `VoiceSystem` struct (`MAX_VOICES = 4`).
-- `VoicePresets.h/.cpp`: Verified factory presets (Analog, Digital, Bass, Lead, Square, Pad, Percussion, SubFunk, RubberSub, WgPluck, WgNylon, WgBell, WgShimmer, Hypersaw, NoiseStorm); `VoiceConfig.engine` selects the osc / waveguide / noise-FX source stage.
+- `VoicePresets.h/.cpp`: Verified factory presets (Analog, Digital, Bass, Lead, Square, Pad, Percussion, SubFunk, RubberSub, WgPluck, WgNylon, WgBell, WgShimmer, Hypersaw, NoiseStorm); `constexpr` factories build a compile-time `std::array<VoiceConfig, 15>` table that lives in flash (.rodata), and `VoiceConfig.engine` selects the osc / waveguide / noise-FX source stage.
 - `VoiceOscillator.h`: Variant-based oscillator class dispatcher.
 
 ### 6.4 `src/ui/` & `src/AlchemyUI/`
 - `UIState.h`: Unified UI state struct (replaces loose globals; holds mode flags, debounce timestamps, preset arrays).
 - `ControlSurfaceLogic.h/.cpp`: Unit-tested decision logic (`ModeStabilizer`, `PadBank`, `ShiftLatch`, `FaderMap`).
 - `UIEventHandler.h/.cpp`: Event routing for MPR121 pads and control surface actions.
-- `AlchemyControlBridge.h/.cpp`: Hardware bridge polling the Alchemy tile panel on Wire1 @ 100kHz.
+- `AlchemyControlBridge.h/.cpp`: Hardware bridge polling the Alchemy tile panel on Wire1 @ 100kHz. Frames are decoded per tile TYPE (`AlchemyProto.h` `buttonBlockOffset()`: button bytes at DATA 8..10 on slider tiles, DATA 0..2 on button tiles), and the slider/button roles are resolved by tile `TYPE_ID` (`sliderSlot()` / `firstSlotOfType(kTypeButton4)`), not by fixed bus slots.
 - `ButtonHandlers.h/.cpp`: Button behavior implementations (play/stop, randomize, parameter cycling).
 
 ### 6.5 `src/matrix/`, `src/LEDMatrix/`, `src/OLED/`, `src/sensors/`

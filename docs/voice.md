@@ -56,14 +56,38 @@ extern VoiceSystem voiceSystem;
 Defined in `src/voice/Voice.h`:
 
 ```cpp
+enum VoiceEngine : uint8_t {
+    ENGINE_OSC = 0,       // Up to 3 oscillators (or raw noise when oscillatorCount == 0)
+    ENGINE_WAVEGUIDE = 1, // Karplus-Strong plucked string (rpdsp::PluckedStringVoice)
+    ENGINE_NOISEFX = 2,   // Noise + chaos source through diffuser/swarm inserts
+};
+
 struct VoiceConfig {
     // Oscillator configuration
-    uint8_t oscillatorCount = 3;                                            // Number of oscillators (1-3, 0 for percussion)
+    uint8_t oscillatorCount = 3;                                            // Number of oscillators (1-3; 0 = noise fallback / alternate-engine presets)
     uint8_t oscWaveforms[3] = {WAVE_BSP_SAW, WAVE_BSP_SAW, WAVE_BSP_SAW};   // Waveform types (WAVE_* from VoiceOscillator.h)
     float oscAmplitudes[3] = {0.5f, 0.5f, 0.5f};                            // Oscillator amplitudes (0.0-1.0)
     float oscDetuning[3] = {0.0f, 0.0f, 0.0f};                              // Detuning in semitones (-12.0 to +12.0)
     float oscPulseWidth[3] = {0.5f, 0.5f, 0.5f};                            // Pulse width for square/pulse waves (0.0-1.0)
     int harmony[3] = {0, 0, 0};                                             // Harmony intervals in scale steps (-12 to +12)
+
+    // Sound engine selection (VoiceEngine). Ignored fields stay at their defaults.
+    uint8_t engine = ENGINE_OSC;                                            // ENGINE_OSC, ENGINE_WAVEGUIDE, or ENGINE_NOISEFX
+
+    // Waveguide engine parameters (ENGINE_WAVEGUIDE only)
+    float wgT60 = 2.5f;                                                     // String tail T60 in seconds (0.05-10.0)
+    float wgBrightness = 0.7f;                                              // Loop damping: 0 dark nylon .. 1 glassy (0.0-1.0)
+    float wgPickPosition = 0.25f;                                           // Pick point on string (0.02 bridge .. 0.5 middle)
+    float wgPickHardness = 0.8f;                                            // Excitation burst: 0 soft felt .. 1 hard pick
+    float wgStiffness = 0.0f;                                               // Inharmonic dispersion: 0 harmonic .. 1 bell-like
+    float wgDetune = 6.0f;                                                  // Two-string course spread in cents (0.0-30.0)
+
+    // Noise-FX engine parameters (ENGINE_NOISEFX only)
+    float noiseDiffuseSize = 0.8f;                                          // Prime-tap diffuser smear (0.0-1.0)
+    float noiseDiffuseMix = 0.7f;                                           // Diffuser wet amount (0.0-1.0)
+    float noiseSwarmColor = 0.5f;                                           // Allpass swarm tone (0.0-1.0)
+    float noiseSwarmRegen = 0.9f;                                           // Allpass swarm regeneration (0.0-1.2)
+    float noiseChaosLevel = 0.35f;                                          // Pitch-tracked chaos_lorenz growl mix (0.0-1.0)
 
     // Filter settings
     float filterRes = 0.2f;                                                 // Filter resonance (0.0-1.0)
@@ -304,7 +328,9 @@ public:
 
 ## 3. Verified Preset System
 
-Defined in `src/voice/VoicePresets.h` and implemented in `src/voice/VoicePresets.cpp`. All 15 presets are verified verbatim against firmware source code:
+Defined in `src/voice/VoicePresets.h` and implemented in `src/voice/VoicePresets.cpp`. All 15 presets are verified verbatim against firmware source code.
+
+Each preset is built by a `constexpr VoiceConfig makeXxx() noexcept` factory function, and the factories are assembled into a `constexpr std::array<VoiceConfig, 15> kPresets` — the whole bank is compile-time data (.rodata, XIP flash on RP2350) and costs no SRAM; accessors hand out `const` references, and the caller's `VoiceConfig`/`stagedConfig_` copy is the only RAM instance. `static_assert`s keep the preset name table and preset table in sync. Index-based accessors: `getPresetName(uint8_t)` (returns `"Unknown"` out of range), `getPresetConfig(uint8_t)` (returns Analog out of range), and `getPresetCount()`, plus per-preset getters (`getAnalogVoice()` … `getNoiseStormVoice()`). `VoiceManager::getAvailablePresets()` / `setVoicePreset()` expose the same bank by lowercase name and fall back to Analog for unknown names.
 
 | # | Preset Name | Engine | Oscillators | Amplitudes | Detune (Semis) | Harmony | Filter Mode | Filter Settings | Overdrive | Envelope (A/D/S/R) | Output Level |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -323,6 +349,8 @@ Defined in `src/voice/VoicePresets.h` and implemented in `src/voice/VoicePresets
 | **12** | **WgShimmer** | waveguide | — (wg: T60 6.5s, bright 0.55, pick 0.35/0.6, stiff 0.15, det 26c) | — | — | — | **LP12** | Res: 0.2, Drive: 1.6, Passband: 0.23, HPF: 140 Hz | Off | `0.004s / 0.8s / 0.85 / 0.8s` | `0.7` |
 | **13** | **Hypersaw** | osc | 3x `WAVE_BSP_SAW` | `[0.45, 0.3, 0.3]` | `[0.0, +0.21, -0.21]` | `[0, 0, +12]` | **LP24** | Res: 0.35, Drive: 2.8, Passband: 0.25, HPF: 180 Hz | On (Gain: 0.85, Drive: 0.28) | `0.012s / 0.3s / 0.8 / 0.25s` | `0.5` |
 | **14** | **NoiseStorm** | noise-FX | — (nf: diffuse 0.85/0.65, swarm 0.6/0.95, chaos 0.4) | — | — | — | **LP24** | Res: 0.72, Drive: 3.2, Passband: 0.3, HPF: 220 Hz | On (Gain: 0.8, Drive: 0.4) | `0.003s / 0.5s / 0.55 / 0.45s` | `0.45` |
+
+The eight presets added with the expansion bank: **SubFunk** — bouncy sub bass; a sine sub an octave down carries the weight, a triangle adds movement, and a driven LP12 plus warm overdrive grit gives the filtered-growl funk character. **RubberSub** — rubbery sub bass; a sub-octave square grinds under a sine through a resonant BP24 ("rubbery honk"), with harder overdrive that spits on transients. **WgPluck** — classic Karplus-Strong plucked string: bright burst, harmonic loop, short natural tail. **WgNylon** — dark felt-soft nylon: heavily damped loop, gentle pick, long sympathetic tail. **WgBell** — stiff dispersive string whose inharmonic upper partials read as bell/kalimba; hard bridge pick, quick tail, HPF at 250 Hz keeps the shimmer. **WgShimmer** — wide-detuned (26-cent) two-string course with a very long T60 tail; slow chorusing sustain turns the pluck into a ringing pad. **Hypersaw** — supersaw-style stack of three BSP saws (two ±21-cent detuned unisons plus an octave-up layer) glued with mild overdrive under a wide-open LP24. **NoiseStorm** — noise-based texture: noise plus a pitch-tracked Lorenz chaos growl feed a prime-tap diffuser and a regenerative allpass swarm, then a resonant LP24 pings with the envelope.
 
 Preset 9-12 use `engine = ENGINE_WAVEGUIDE` (`rpdsp::PluckedStringVoice`, 2048-sample
 delay): each gate rise (or retrigger) plucks the string at the current base pitch, and

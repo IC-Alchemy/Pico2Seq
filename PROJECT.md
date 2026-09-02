@@ -3,9 +3,9 @@
 ## Architecture
 Pico2Seq is an RP2350 (Raspberry Pi Pico 2) dual-core firmware for a 4-voice polyphonic step sequencer and synthesizer.
 - **Core 0**: Real-time audio engine. Runs `fill_audio_buffer()` -> `voiceManager->processAllVoices()` -> `FloatToPcm16()` with ARM Cortex-M33 `__SSAT` -> I2S DMA @ 48kHz stereo (3 buffers x 256 samples).
-- **Core 1**: System control, sensors, MIDI, and UI. Runs 1ms sensor poll (TMAG5273 @ 0x22, VL53L1X @ 0x29, MPR121 32 touch pads @ 0x5A on Wire; Alchemy tile panel on Wire1 @ 100kHz), 20ms/50Hz display refresh (128x64 SH1106G OLED @ 0x3C, 8x8 WS2812B FastLED matrix on GPIO 1), TinyUSB MIDI I/O, and uClock sequencer tick processing.
+- **Core 1**: System control, sensors, MIDI, and UI. Runs 1ms sensor poll (TMAG5273A @ 0x35, VL53L1X @ 0x29, MPR121 32 touch pads @ 0x5A on Wire; Alchemy tile panel on Wire1 @ 100kHz), 20ms/50Hz display refresh (128x64 SH1106G OLED @ 0x3C, 8x8 WS2812B FastLED matrix on GPIO 1), TinyUSB MIDI I/O, and uClock sequencer tick processing.
 - **Cross-Core Concurrency**: Lock-free parameter and pitch staging via atomic generation counters (`paramsGen_`, `pitchGen_`) in `Voice.h/.cpp`. Mutex-free shared state with `volatile` globals.
-- **Voice System**: 4 polyphonic synthesizer voices (`VoiceSystem::MAX_VOICES = 4`). Hardware gate outputs (GPIO 10/11/12) and MIDI Note/CC output are active on Voices 0 and 1; Voices 2 and 3 are audio-only synthesis voices.
+- **Voice System**: 4 polyphonic synthesizer voices (`VoiceSystem::MAX_VOICES = 4`). Gate timing (`GateTimer`) and MIDI Note/CC output are active on Voices 0 and 1; Voices 2 and 3 are audio-only synthesis voices.
 - **Sequencer Core**: Portable C++ `pico2seq-core` decoupled from hardware. Polymetric `ParameterTrack<N>` (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide). UI adapter `advanceSequencerStep()` in `src/ui/UIEventHandler.h/.cpp`.
 - **UI & Control Surface**: Dual-surface architecture with Alchemy panel (SliderModule + ButtonModule8 on Wire1 GP14/15, GP7 mode strap) + 32-pad MPR121 step matrix (Wire GP4/5) managed via `ControlSurfaceLogic` and `UIState`.
 - **Testing**: Catch2 v3.5.2 host unit test suite built with CMake/CTest using header stubs in `tests/stubs/`.
@@ -17,7 +17,7 @@ Pico2Seq is an RP2350 (Raspberry Pi Pico 2) dual-core firmware for a 4-voice pol
 | 2 | VoiceSystem Accessors & Asymmetry | Document `MAX_VOICES = 4`, accessor API pattern, and Voices 0-1 (gate/MIDI) vs Voices 2-3 (audio-only) | M1 | survey_1 |
 | 3 | Lock-Free Parameter Staging | Document atomic generation counters (`paramsGen_`, `pitchGen_`), staged state, and audio-thread commit | M1 | survey_1 |
 | 4 | Voice API & Accurate Types | Document `Voice` class API, `noexcept` signatures, `VoiceConfig`, `VoiceState` (`float octaveOffset`, `uint16_t gateLengthTicks`) | M1 | survey_1 |
-| 5 | Voice Presets Accurate Table | Document the 7 verified presets in `VoicePresets.cpp` (Percussion, Digital, Analog, Bass, Lead, Pad, FM/Pluck) | M1 | survey_1 |
+| 5 | Voice Presets Accurate Table | Document the 15 verified presets in `VoicePresets.cpp` (Analog, Digital, Bass, Lead, Square, Pad, Percussion, SubFunk, RubberSub, WgPluck, WgNylon, WgBell, WgShimmer, Hypersaw, NoiseStorm), built as `constexpr` factory tables | M1 | survey_1 |
 | 6 | RPDSP Namespace & DSP Chain | Document `rpdsp::` integration, `VoiceOscillator` variant dispatch, ladder filter, ADSR, wavefolder, compressor status | M1 | survey_1 |
 | 7 | Debug Logging Utility | Document `src/utils/Debug.h/.cpp` zero-allocation logging system (`DBG_ERROR`, `DBG_WARN`, `DBG_INFO`, `DBG_VERBOSE`) | M1 | survey_3 |
 | 8 | Sequencer Core Decoupling | Document `pico2seq-core/sequencer/` isolation and UI adapter `advanceSequencerStep()` in `src/ui/` | M2 | survey_2 |
@@ -60,6 +60,6 @@ Pico2Seq is an RP2350 (Raspberry Pi Pico 2) dual-core firmware for a 4-voice pol
 - `src/`: Firmware source code.
 - `src/pico2seq-core/`: Portable core sequencer and scale logic.
 - `src/rpdsp/`: Vendored DSP library (submodule).
-- `src/AlchemyUI/`: Alchemy UI component library (submodule).
+- `src/AlchemyUI/`: Alchemy UI component library (tracked in-repo, not a submodule).
 - `src/VelocityEncoder/`: TMAG5273 magnetic encoder driver (submodule).
 - `tests/`: Catch2 unit tests and stubs.

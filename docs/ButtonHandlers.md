@@ -10,12 +10,14 @@ The Pico2Seq control surface operates on a **Dual-Surface Architecture** that pa
    - All 32 capacitive touch electrodes are dedicated exclusively as sequencer step pads.
    - Organized as two 16-step voice banks resolved dynamically through `ControlSurface::PadBank`.
 2. **Alchemy Modular UI Panel** (Tile bus `Wire1`, GP14/GP15 @ 100 kHz):
-   - **SliderModule (Slot 0, 0x08)**: 4 continuous faders (12-bit ADC) + 4 buttons (direct Voice 1–4 selection).
-   - **ButtonModule8 (Slot 1, 0x0B)**: 8 tactile buttons (7 parameter/utility buttons + 1 Shift modifier).
+   - **SliderModule (TYPE 0x01, base address 0x08)**: 4 continuous faders (12-bit ADC) + 4 buttons (direct Voice 1–4 selection).
+   - **ButtonModule8 (TYPE 0x02, base address 0x0B)**: 8 tactile buttons (7 parameter/utility buttons + 1 Shift modifier).
    - **GP7 Mode Strap Switch**: Selects the active tile function set (LOW = Param Mode, HIGH = Utility Mode), debounced in software (20 ms window).
+   - **Runtime Slot Resolution**: The bridge resolves which driver slot holds each tile by TYPE_ID (`AlchemyControlBridge::resolveSlots()`), not by fixed position — slot order is scan order, so a tile that did not answer at boot shifts the slots after it.
 
 The firmware partitions the control surface implementation into two distinct layers:
 - **`src/ui/ControlSurfaceLogic.h/.cpp`**: Pure, portable C++ decision logic (no Arduino dependencies, 100% unit-tested in `tests/unit/test_control_surface_logic.cpp`).
+- The Alchemy tile wire-format decoder (`src/AlchemyUI/src/AlchemyProto.h`) is likewise host-tested in `tests/unit/test_alchemy_proto.cpp` (per-tile-TYPE DATA block offsets, frame checksum, identity decoding, `TileButton` press/hold/tap).
 - **`src/ui/AlchemyControlBridge.h/.cpp`**: Hardware-bound translation glue on Core 1 that polls `AlchemyPanel` on Wire1, debounces GP7, and invokes the shared handler entry points in `ButtonHandlers.cpp` and `UIEventHandler.cpp`.
 
 ---
@@ -30,7 +32,7 @@ The firmware partitions the control surface implementation into two distinct lay
                                   /                \
                                  /                  \
    +------------------------------------+    +------------------------------------+
-   |   MPR121 Touch Matrix (Wire I2C0)  |    |   Alchemy Tiles (Wire1 I2C1 400k)  |
+   |   MPR121 Touch Matrix (Wire I2C0)  |    |   Alchemy Tiles (Wire1 I2C1 100k)  |
    |   32 Capacitive Step Pads (0x5A)   |    |   SliderModule + ButtonModule8     |
    +------------------------------------+    +------------------------------------+
                      |                                         |
@@ -95,7 +97,7 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, effects, and sys
 | **7** | `Shift` | Modifier for transport and utility chords |
 
 **Fader Channels in Utility Mode:**
-- **Fader 0**: Master Tempo (uClock BPM: 30–300 BPM).
+- **Fader 0**: Master Tempo (uClock BPM: 45–200 BPM).
 - **Fader 1**: Swing Amount (continuous shuffle template depth).
 - **Fader 2**: Delay Feedback Mix (`feedbackAmmount`: 0.0 to 0.91).
 - **Fader 3**: Gate Length (applies gate length across active steps on the selected voice).
@@ -104,7 +106,7 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, effects, and sys
 
 ### 3. SliderModule Direct Voice Selection and Shift Chords
 
-The 4 buttons on the SliderModule (Slot 0) act as direct Voice 1–4 selectors in both Param and Utility modes:
+The 4 buttons on the SliderModule tile act as direct Voice 1–4 selectors in both Param and Utility modes:
 
 - **Direct Press**:
   - Button 0: Select Voice 1 (`selectedVoiceIndex = 0`)
@@ -113,7 +115,7 @@ The 4 buttons on the SliderModule (Slot 0) act as direct Voice 1–4 selectors i
   - Button 3: Select Voice 4 (`selectedVoiceIndex = 3`)
 - **Shift + Voice Button Chords** (Held Shift + Slider Button):
   - `Shift + Voice 1`: Play / Stop toggle
-  - `Shift + Voice 2`: Randomize selected voice (short: randomize, long: reset)
+  - `Shift + Voice 2`: Randomize selected voice (short-press randomize only — the poll-driven long-press reset never triggers from a chord)
   - `Shift + Voice 3`: Cycle musical scale
   - `Shift + Voice 4`: Toggle delay effect ON / OFF
 
