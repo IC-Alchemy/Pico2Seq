@@ -40,9 +40,27 @@ ControlSurface::Mode bridgeMode(UIState::AlchemyMode mode)
 }
 } // namespace
 
+void AlchemyControlBridge::resolveSlots()
+{
+  sliderSlot_ = panel_.tiles().sliderSlot();
+  buttonSlot_ = panel_.tiles().firstSlotOfType(alchemy::kTypeButton4);
+}
+
+const TileButton &AlchemyControlBridge::buttonAt(int slot, uint8_t bit)
+{
+  // Stand-in for a tile that did not answer: never held, no edges, zero hold.
+  static const TileButton kAbsentButton{};
+  if (slot < 0)
+  {
+    return kAbsentButton;
+  }
+  return panel_.tiles().button(slot, bit);
+}
+
 void AlchemyControlBridge::begin(TwoWire &bankA, TwoWire *bankB, uint32_t nowMs)
 {
   panel_.begin(bankA, bankB, nowMs);
+  resolveSlots();
 
   // Seed the stabilizer with the strap so a boot in Utility mode does not
   // look like a flip on the first update().
@@ -54,11 +72,12 @@ void AlchemyControlBridge::begin(TwoWire &bankA, TwoWire *bankB, uint32_t nowMs)
 
   // Start edge tracking from the boot-time button levels so a button held
   // through reset does not fire a phantom press.
-  for (uint8_t slot = 0; slot < 2; ++slot)
+  const int roleSlot[kRoleCount] = {sliderSlot_, buttonSlot_};
+  for (uint8_t role = 0; role < kRoleCount; ++role)
   {
     for (uint8_t bit = 0; bit < kButtonBits; ++bit)
     {
-      buttonEdges_[slot][bit].prevHeld_ = panel_.tiles().button(slot, bit).held();
+      buttonEdges_[role][bit].prevHeld_ = buttonAt(roleSlot[role], bit).held();
     }
   }
 }
@@ -70,10 +89,14 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
   // Poll due tiles first: one transaction pair at most per pass.
   panel_.update(nowMs);
 
+  // Tiles can go offline and come back (kReprobeIntervalMs), which reshuffles
+  // nothing but can turn a slot present/absent, so re-read the mapping.
+  resolveSlots();
+
   handleModeStrap(nowMs, uiState);
 
   // Shift (bit 7 of the button tile) is a plain level in both modes.
-  uiState.shiftHeld = panel_.tiles().button(kButtonTileSlot, 7).held();
+  uiState.shiftHeld = buttonAt(buttonSlot_, 7).held();
 
   // SliderModule buttons: voice select, or transport chords with Shift —
   // identical in both modes.
@@ -136,8 +159,8 @@ void AlchemyControlBridge::handleVoiceButtons(UIState &uiState,
   const bool shift = uiState.shiftHeld;
   for (uint8_t voice = 0; voice < 4; ++voice)
   {
-    ButtonEdges &edges = buttonEdges_[kSliderSlot][voice];
-    if (!edges.take(panel_.tiles().button(kSliderSlot, voice)) || !edges.pressEdge)
+    ButtonEdges &edges = buttonEdges_[kSliderRole][voice];
+    if (!edges.take(buttonAt(sliderSlot_, voice)) || !edges.pressEdge)
     {
       continue;
     }
@@ -183,8 +206,8 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
 {
   for (uint8_t bit = 0; bit < 7; ++bit) // bits 0-6; bit 7 is Shift (read above)
   {
-    ButtonEdges &edges = buttonEdges_[kButtonTileSlot][bit];
-    if (!edges.take(panel_.tiles().button(kButtonTileSlot, bit)))
+    ButtonEdges &edges = buttonEdges_[kButtonRole][bit];
+    if (!edges.take(buttonAt(buttonSlot_, bit)))
     {
       continue;
     }
@@ -223,8 +246,8 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
 {
   for (uint8_t bit = 0; bit < 7; ++bit) // bits 0-6; bit 7 is Shift (read above)
   {
-    const TileButton &tileButton = panel_.tiles().button(kButtonTileSlot, bit);
-    ButtonEdges &edges = buttonEdges_[kButtonTileSlot][bit];
+    const TileButton &tileButton = buttonAt(buttonSlot_, bit);
+    ButtonEdges &edges = buttonEdges_[kButtonRole][bit];
     if (!edges.take(tileButton))
     {
       continue;

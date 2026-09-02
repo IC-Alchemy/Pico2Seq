@@ -730,6 +730,43 @@ void setup()
     setupI2SAudio(&audioFormat, &i2sConfig);
 }
 
+/**
+ * @brief Print what the Alchemy tile scan actually found.
+ *
+ * A tile that does not answer at begin() is never re-probed (the hot-plug
+ * path needs an address claimed during the scan), and a missing slider tile
+ * shifts the button tile into slot 0 — both are silent failures without this
+ * report. Type 0x01 is the SliderModule, 0x02 the ButtonModule.
+ */
+static void printAlchemyTileScanReport()
+{
+    const AlchemyTiles &tiles = alchemyBridge.tiles();
+    Serial.print("[ALCHEMY] tiles found: ");
+    Serial.println(tiles.presentTileCount());
+    for (int slot = 0; slot < tiles.tileCount(); ++slot)
+    {
+        const AlchemyTiles::TileInfo &info = tiles.info(slot);
+        if (!info.present)
+            continue;
+        Serial.print("[ALCHEMY]   slot ");
+        Serial.print(slot);
+        Serial.print(" addr 0x");
+        Serial.print(info.address, HEX);
+        Serial.print(" type 0x");
+        Serial.print(info.identity.typeId, HEX);
+        Serial.print(" dataLen ");
+        Serial.println(info.identity.dataLen);
+    }
+    if (!tiles.hasSlider())
+    {
+        Serial.println("[ALCHEMY] no slider tile - faders and voice selects dead");
+    }
+    if (tiles.firstSlotOfType(alchemy::kTypeButton4) < 0)
+    {
+        Serial.println("[ALCHEMY] no button tile - param/utility buttons dead");
+    }
+}
+
 // =======================
 //   CORE 1 SETUP (UI, MIDI, SENSORS)
 // =======================
@@ -836,16 +873,18 @@ void setup1()
     // =======================
     //   ALCHEMY TILE CONTROL SURFACE (Wire1 bank + GP7 mode strap)
     // =======================
-    // SliderModule + ButtonModule8 live on their own Wire1 bank at 400 kHz;
-    // Wire1 pin constants are bench-adjustable in includes.h.
+    // SliderModule + ButtonModule8 live on their own Wire1 bank; Wire1 pin
+    // constants are bench-adjustable in includes.h. Standard mode (100 kHz),
+    // not fast mode: 400 kHz stalls tile transfers on this rig, which is the
+    // rate the working Pico_DSP_Garden sketches run these same tiles at.
     pinMode(PIN_ALCHEMY_MODE_SWITCH, INPUT_PULLUP);
     Wire1.setSDA(PIN_ALCHEMY_WIRE1_SDA);
     Wire1.setSCL(PIN_ALCHEMY_WIRE1_SCL);
     Wire1.begin();
-    Wire1.setClock(400000);
+    Wire1.setClock(100000);
     alchemyBridge.setModeSwitchPin(PIN_ALCHEMY_MODE_SWITCH);
     alchemyBridge.begin(Wire1, /*bankB=*/nullptr, millis());
-    Serial.println("Alchemy tiles initialized");
+    printAlchemyTileScanReport();
 
     // Use a lambda to capture the context needed by the event handler
     Matrix_setEventHandler([](const MatrixButtonEvent &evt)

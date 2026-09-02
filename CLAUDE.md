@@ -73,7 +73,8 @@ What's tested vs. not, per `tests/CMakeLists.txt`:
   `src/pico2seq-core/scales/scales.cpp`,
   `src/pico2seq-core/sequencer/{ParameterManager,Sequencer}.cpp`,
   `src/voice/{Voice,VoicePresets}.cpp`,
-  `src/ui/ControlSurfaceLogic.cpp` via `tests/unit/test_control_surface_logic.cpp`.
+  `src/ui/ControlSurfaceLogic.cpp` via `tests/unit/test_control_surface_logic.cpp`,
+  `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` via `tests/unit/test_alchemy_proto.cpp`.
 - **Not tested, by design** (hardware-bound glue — keep logic out of these):
   `src/audio/` (PIO/DMA/I2S), `src/LEDMatrix/` (WS2812B GPIO/DMA), `src/OLED/` (I2C display),
   `src/midi/` (TinyUSB stack).

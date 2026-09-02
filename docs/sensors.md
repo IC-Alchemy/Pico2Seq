@@ -19,7 +19,7 @@ The Pico2Seq hardware separates sensors, displays, and control surfaces across t
 | Bus | RP2350 Pins | Clock Speed | Connected Devices | I2C Addresses | Purpose |
 |---|---|---|---|---|---|
 | **Wire** (I2C0) | GP4 (SDA)<br>GP5 (SCL) | 100 kHz (Standard) | TMAG5273A Magnetic Encoder<br>VL53L1X Distance Sensor<br>MPR121 Touch Matrix<br>SH1106 OLED Display | `0x35` (`TMAG5273::ADDRESS_A`)<br>`0x29` (VL53L1X)<br>`0x5A` (MPR121)<br>`0x3C` (OLED) | Primary sensor acquisition & display bus |
-| **Wire1** (I2C1) | GP14 (SDA)<br>GP15 (SCL) | 400 kHz (Fast Mode) | Alchemy Modular UI Tiles:<br>- SliderModule (Slot 0)<br>- ButtonModule8 (Slot 1) | `0x08` (SliderModule)<br>`0x0B` (ButtonModule8) | Dedicated high-speed control surface tile bus |
+| **Wire1** (I2C1) | GP14 (SDA)<br>GP15 (SCL) | 100 kHz (Standard Mode) | Alchemy Modular UI Tiles:<br>- SliderModule (Slot 0)<br>- ButtonModule8 (Slot 1) | `0x08` (SliderModule)<br>`0x0B` (ButtonModule8) | Dedicated control surface tile bus (400 kHz stalls tile transfers on this rig) |
 | **GPIO** | GP7 (Input Pullup) | N/A | Hardware Mode Strap Switch | N/A | Selects Param Mode (LOW) vs Utility Mode (HIGH) for Alchemy tiles |
 
 ### Interrupt & Hardware Pin Map
@@ -45,7 +45,7 @@ Core 0 (Real-Time Audio):
 Core 1 (UI, Sensors, Matrix, MIDI):
   loop1() Control Slice (CONTROL_UPDATE_INTERVAL = 1 ms):
     +-- Matrix_scan()            -> 1 ms MPR121 32-pad touch scanning
-    +-- alchemyBridge.update()   -> 1 ms Alchemy tile polling (Wire1 @ 400 kHz)
+    +-- alchemyBridge.update()   -> 1 ms Alchemy tile polling (Wire1 @ 100 kHz)
     +-- magEncoder.update()      -> 1 ms poll (5 ms internal throttle in driver)
     +-- updateEncoderBaseValues()-> Applies rotary increments to active params
     +-- distanceSensor.update()  -> 1 ms poll (20 ms non-blocking read interval)

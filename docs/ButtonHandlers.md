@@ -9,7 +9,7 @@ The Pico2Seq control surface operates on a **Dual-Surface Architecture** that pa
 1. **MPR121 Capacitive Touch Step Matrix** (Main bus `Wire`, GP4/GP5 @ 100 kHz):
    - All 32 capacitive touch electrodes are dedicated exclusively as sequencer step pads.
    - Organized as two 16-step voice banks resolved dynamically through `ControlSurface::PadBank`.
-2. **Alchemy Modular UI Panel** (Tile bus `Wire1`, GP14/GP15 @ 400 kHz):
+2. **Alchemy Modular UI Panel** (Tile bus `Wire1`, GP14/GP15 @ 100 kHz):
    - **SliderModule (Slot 0, 0x08)**: 4 continuous faders (12-bit ADC) + 4 buttons (direct Voice 1–4 selection).
    - **ButtonModule8 (Slot 1, 0x0B)**: 8 tactile buttons (7 parameter/utility buttons + 1 Shift modifier).
    - **GP7 Mode Strap Switch**: Selects the active tile function set (LOW = Param Mode, HIGH = Utility Mode), debounced in software (20 ms window).

@@ -68,7 +68,7 @@ The user interface separates physical responsibilities across two buses:
    - **Step Edit Mode:** Long-pressing a step pad enters Step Edit mode for that specific step, routing parameter adjustments from the magnetic encoder or Alchemy faders into that step's automation memory.
    - **Real-Time Recording:** Touching step pads while holding parameter buttons records live parameter values into the pattern.
 
-2. **Alchemy Tiles (Wire1 GP14/GP15 @ 400kHz):**
+2. **Alchemy Tiles (Wire1 GP14/GP15 @ 100kHz):**
    - `SliderModule`: 4 motorized/analog faders + 4 Voice Select buttons (Voice 1–4).
    - `ButtonModule8`: 8 multi-function buttons (Param mode: Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Slide; Utility mode: Play/Stop, Record, Scale, Shuffle, Mute, Clear, Preset, Settings).
    - `GP7 Mode Strap`: Hardware switch selecting Param mode (LOW) vs Utility mode (HIGH).
