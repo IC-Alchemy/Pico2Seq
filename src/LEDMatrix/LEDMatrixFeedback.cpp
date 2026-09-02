@@ -8,6 +8,7 @@
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../ui/UIEventHandler.h"
 #include "../ui/ButtonManager.h"
+#include "../voice/VoicePresets.h"
 #include "../utils/Debug.h"
 
 /**
@@ -372,7 +373,8 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState)
     if (uiState.inPresetSelection)
     {
         // Preset selection mode - show available presets
-        const uint8_t presetCount = 6; // VoicePresets::getPresetCount() returns 6
+        const uint8_t totalPresets = VoicePresets::getPresetCount();
+        const uint8_t presetCount = (totalPresets < SEQ_STEPS) ? totalPresets : SEQ_STEPS;
 
         // Define preset colors based on voice being configured
         CRGB selectedColor = (uiState.settingsMenuIndex == 0) ? activeThemeColors->gateOnV1 : activeThemeColors->gateOnV2;

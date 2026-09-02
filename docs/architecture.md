@@ -315,7 +315,7 @@ Portable core with **no hardware, UI, or Arduino dependencies**:
 - `Voice.h/.cpp`: Synthesizer voice DSP chain with lock-free staging and gate-controlled pitch commits.
 - `VoiceManager.h/.cpp`: Multi-voice lifecycle management, master mixing, and preset attachment.
 - `VoiceSystem.h`: Centralized `VoiceSystem` struct (`MAX_VOICES = 4`).
-- `VoicePresets.h/.cpp`: Verified factory presets (Analog, Digital, Bass, Lead, Square, Pad, Percussion).
+- `VoicePresets.h/.cpp`: Verified factory presets (Analog, Digital, Bass, Lead, Square, Pad, Percussion, SubFunk, RubberSub, WgPluck, WgNylon, WgBell, WgShimmer, Hypersaw, NoiseStorm); `VoiceConfig.engine` selects the osc / waveguide / noise-FX source stage.
 - `VoiceOscillator.h`: Variant-based oscillator class dispatcher.
 
 ### 6.4 `src/ui/` & `src/AlchemyUI/`

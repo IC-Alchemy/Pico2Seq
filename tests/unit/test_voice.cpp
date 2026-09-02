@@ -1,8 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
+#include <string>
 
 #include "voice/Voice.h"
+#include "voice/VoicePresets.h"
 #include "scales/scales.h"
 
 using namespace Catch::Matchers;
@@ -144,4 +146,117 @@ TEST_CASE("updateParameters updates state velocity", "[voice]") {
     v.updateParameters(vs);
     v.process();
     REQUIRE_THAT(v.getState().velocityLevel, WithinAbs(0.42f, 0.001f));
+}
+
+// ─── Preset registry (15 presets) ─────────────────────────────────────────────
+
+TEST_CASE("Preset registry exposes 15 presets with stable names", "[voice][presets]") {
+    REQUIRE(VoicePresets::getPresetCount() == 15);
+    REQUIRE(std::string(VoicePresets::getPresetName(0)) == "Analog");
+    REQUIRE(std::string(VoicePresets::getPresetName(6)) == "Percussion");
+    REQUIRE(std::string(VoicePresets::getPresetName(7)) == "SubFunk");
+    REQUIRE(std::string(VoicePresets::getPresetName(8)) == "RubberSub");
+    REQUIRE(std::string(VoicePresets::getPresetName(9)) == "WgPluck");
+    REQUIRE(std::string(VoicePresets::getPresetName(12)) == "WgShimmer");
+    REQUIRE(std::string(VoicePresets::getPresetName(13)) == "Hypersaw");
+    REQUIRE(std::string(VoicePresets::getPresetName(14)) == "NoiseStorm");
+    REQUIRE(std::string(VoicePresets::getPresetName(15)) == "Unknown");
+    REQUIRE(&VoicePresets::getPresetConfig(200) == &VoicePresets::getAnalogVoice());
+}
+
+TEST_CASE("New presets select the intended engines", "[voice][presets]") {
+    REQUIRE(VoicePresets::getSubFunkVoice().engine == ENGINE_OSC);
+    REQUIRE(VoicePresets::getRubberSubVoice().engine == ENGINE_OSC);
+    REQUIRE(VoicePresets::getWaveguidePluckVoice().engine == ENGINE_WAVEGUIDE);
+    REQUIRE(VoicePresets::getWaveguideNylonVoice().engine == ENGINE_WAVEGUIDE);
+    REQUIRE(VoicePresets::getWaveguideBellVoice().engine == ENGINE_WAVEGUIDE);
+    REQUIRE(VoicePresets::getWaveguideShimmerVoice().engine == ENGINE_WAVEGUIDE);
+    REQUIRE(VoicePresets::getHypersawVoice().engine == ENGINE_OSC);
+    REQUIRE(VoicePresets::getNoiseStormVoice().engine == ENGINE_NOISEFX);
+}
+
+// ─── Alternate engines (waveguide / noise-FX) ─────────────────────────────────
+
+TEST_CASE("Every preset produces finite bounded audio while gated", "[voice][presets]") {
+    for (uint8_t p = 0; p < VoicePresets::getPresetCount(); ++p)
+    {
+        Voice v(0, VoicePresets::getPresetConfig(p));
+        v.init(48000.0f);
+        v.setGate(true);
+
+        bool allFinite = true;
+        float maxAbs = 0.0f;
+        for (int i = 0; i < 24000; ++i) // half a second
+        {
+            const float s = v.process();
+            if (!std::isfinite(s))
+                allFinite = false;
+            maxAbs = std::max(maxAbs, std::abs(s));
+        }
+        INFO("preset index " << static_cast<int>(p)
+                             << " (" << VoicePresets::getPresetName(p) << ")");
+        REQUIRE(allFinite);
+        REQUIRE(maxAbs > 0.0f);  // every preset makes sound when gated
+        REQUIRE(maxAbs < 32.0f); // no preset diverges
+    }
+}
+
+TEST_CASE("Waveguide engine plucks on gate rise and decays after gate fall", "[voice]") {
+    Voice v(0, VoicePresets::getWaveguidePluckVoice());
+    v.init(48000.0f);
+
+    float maxAbs = 0.0f;
+    v.setGate(true);
+    for (int i = 0; i < 8000; ++i)
+    {
+        const float s = v.process();
+        REQUIRE(std::isfinite(s));
+        maxAbs = std::max(maxAbs, std::abs(s));
+    }
+    REQUIRE(maxAbs > 0.02f); // the string actually sounded
+
+    v.setGate(false);
+    for (int i = 0; i < 48000; ++i)
+        v.process();
+    REQUIRE(std::abs(v.process()) < 0.01f); // envelope release silences the tail
+}
+
+TEST_CASE("Noise-FX engine produces finite textured output while gated", "[voice]") {
+    Voice v(0, VoicePresets::getNoiseStormVoice());
+    v.init(48000.0f);
+    v.setGate(true);
+
+    float maxAbs = 0.0f;
+    for (int i = 0; i < 24000; ++i)
+    {
+        const float s = v.process();
+        REQUIRE(std::isfinite(s));
+        maxAbs = std::max(maxAbs, std::abs(s));
+    }
+    REQUIRE(maxAbs > 0.005f);  // noise + chaos + diffuser + swarm audible
+    REQUIRE(maxAbs < 32.0f);
+}
+
+TEST_CASE("Staged config switch to waveguide engine plucks on next gate rise", "[voice]") {
+    Voice v(0, defaultConfig());
+    v.init(48000.0f);
+    v.setGate(true);
+    for (int i = 0; i < 100; ++i)
+        v.process();
+
+    // setConfig stages cross-core; applyPendingConfig_ runs at the top of process()
+    v.setConfig(VoicePresets::getWaveguidePluckVoice());
+    v.setGate(false);
+    for (int i = 0; i < 100; ++i)
+        v.process();
+
+    v.setGate(true); // rising edge after the switch drives the pluck
+    float maxAbs = 0.0f;
+    for (int i = 0; i < 8000; ++i)
+    {
+        const float s = v.process();
+        REQUIRE(std::isfinite(s));
+        maxAbs = std::max(maxAbs, std::abs(s));
+    }
+    REQUIRE(maxAbs > 0.02f);
 }

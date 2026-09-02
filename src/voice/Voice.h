@@ -5,6 +5,8 @@
 #include "../rpdsp/src/rpdsp/filter.h"
 #include "../rpdsp/src/rpdsp/envelope.h"
 #include "../rpdsp/src/rpdsp/effects.h"
+#include "../rpdsp/src/rpdsp/waveguide.h"
+#include "../rpdsp/src/rpdsp/DSPFunctions.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 #include <array>
@@ -15,6 +17,17 @@
 #include <cstdint>
 #include <atomic>
 #include <cmath>
+
+// Sound-generation engine selected by VoiceConfig::engine. Engines other than
+// the default still run the shared envelope -> filter -> output chain; only
+// the source stage (and, for the noise engine, the pre-filter effect inserts)
+// differs.
+enum VoiceEngine : uint8_t
+{
+  ENGINE_OSC = 0,       // Up to 3 oscillators (or raw noise when oscillatorCount == 0)
+  ENGINE_WAVEGUIDE = 1, // Karplus-Strong plucked string (rpdsp::PluckedStringVoice)
+  ENGINE_NOISEFX = 2,   // Noise + chaos source through diffuser/swarm inserts
+};
 
 /**
  * @brief Configuration structure for a voice
@@ -34,6 +47,24 @@ struct VoiceConfig
   float oscDetuning[3] = {0.0f, 0.0f, 0.0f};   // Detuning in semitones (-12.0 to +12.0)
   float oscPulseWidth[3] = {0.5f, 0.5f, 0.5f}; // Pulse width for square/pulse waves (0.0-1.0)
   int harmony[3] = {0, 0, 0};                  // Harmony intervals in scale steps (-12 to +12)
+
+  // Sound engine selection (VoiceEngine). Ignored fields stay at their defaults.
+  uint8_t engine = ENGINE_OSC;
+
+  // Waveguide engine parameters (ENGINE_WAVEGUIDE only)
+  float wgT60 = 2.5f;          // String tail T60 in seconds (0.05-10.0)
+  float wgBrightness = 0.7f;   // Loop damping: 0 dark nylon .. 1 glassy (0.0-1.0)
+  float wgPickPosition = 0.25f; // Pick point on string, 0.02 bridge .. 0.5 middle
+  float wgPickHardness = 0.8f; // Excitation burst: 0 soft felt .. 1 hard pick
+  float wgStiffness = 0.0f;    // Inharmonic dispersion: 0 harmonic .. 1 bell-like
+  float wgDetune = 6.0f;       // Two-string course spread in cents (0.0-30.0)
+
+  // Noise-FX engine parameters (ENGINE_NOISEFX only)
+  float noiseDiffuseSize = 0.8f; // Prime-tap diffuser smear (0.0-1.0)
+  float noiseDiffuseMix = 0.7f;  // Diffuser wet amount (0.0-1.0)
+  float noiseSwarmColor = 0.5f;  // Allpass swarm tone (0.0-1.0)
+  float noiseSwarmRegen = 0.9f;  // Allpass swarm regeneration (0.0-1.2)
+  float noiseChaosLevel = 0.35f; // Pitch-tracked chaos_lorenz growl mix (0.0-1.0)
 
   // Filter settings
   float filterRes = 0.2f;            // Filter resonance (0.0-1.0)
@@ -327,8 +358,26 @@ private:
   rpdsp::ADSR envelope;
   rpdsp::Waveshaper overdrive;
 
+  // Alternate engines. Both are fixed-storage members so Voice stays
+  // allocation-free; they only run when config.engine selects them.
+  // Waveguide capacity 2048 samples ≈ 24 Hz minimum pitch at 48 kHz.
+  static constexpr size_t kWaveguideCapacity = 2048;
+  rpdsp::PluckedStringVoice<kWaveguideCapacity> waveguide_;
+  // Noise-FX scratch (caller-owned state for the rpdsp DSPFunctions free
+  // functions): 2048-tap diffuser ring plus diffuser/swarm/chaos state.
+  static constexpr int kNoiseFxBufferSize = 2048;
+  std::array<float, kNoiseFxBufferSize> noiseDiffuseBuf_{};
+  float noiseDiffuseState_[1] = {0.0f};
+  float noiseSwarmState_[5] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+  float noiseChaosState_[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+
   // Gate edge tracking for the event-style ADSR (noteOn on rise, noteOff on fall)
   bool gateHighPrev_ = false;
+  // Set on gate rise/retrigger so the waveguide engine plucks with the pitch
+  // already committed for this frame; consumed by mixOscillators().
+  bool wgPluckPending_ = false;
+  // Cached engine (clamped config.engine), updated on config apply.
+  uint8_t cachedEngine_ = ENGINE_OSC;
 
   // Voice state and control
   VoiceState state;
@@ -487,6 +536,29 @@ private:
    * @return float Mixed oscillator signal (-1.0 to +1.0)
    */
   float mixOscillators();
+
+  /**
+   * @brief Apply engine-specific configuration (waveguide tuning, noise state)
+   *        Called from init() and applyPendingConfig_() at control rate.
+   */
+  void applyEngineConfig_();
+
+  /**
+   * @brief Waveguide engine source stage: pluck on pending edges, process string
+   * @return float Waveguide output
+   */
+  float processWaveguide_() noexcept;
+
+  /**
+   * @brief Noise-FX engine source stage: noise + pitch-tracked chaos growl
+   * @return float Mixed noise source
+   */
+  float processNoiseFxSource_() noexcept;
+
+  /**
+   * @brief Reset the alternate-engine DSP state (called on engine switches)
+   */
+  void resetAlternateEngines_() noexcept;
 
   /**
    * @brief Apply effects chain to signal

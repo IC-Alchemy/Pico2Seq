@@ -499,7 +499,15 @@ std::vector<std::string> VoiceManager::getAvailablePresets()
         "lead",
         "square",
         "pad",
-        "percussion"};
+        "percussion",
+        "subfunk",
+        "rubbersub",
+        "wgpluck",
+        "wgnylon",
+        "wgbell",
+        "wgshimmer",
+        "hypersaw",
+        "noisestorm"};
 }
 
 /**
@@ -541,6 +549,38 @@ VoiceConfig VoiceManager::getPresetConfig(const std::string &presetName)
     else if (presetName == "percussion")
     {
         return VoicePresets::getPercussionVoice();
+    }
+    else if (presetName == "subfunk")
+    {
+        return VoicePresets::getSubFunkVoice();
+    }
+    else if (presetName == "rubbersub")
+    {
+        return VoicePresets::getRubberSubVoice();
+    }
+    else if (presetName == "wgpluck")
+    {
+        return VoicePresets::getWaveguidePluckVoice();
+    }
+    else if (presetName == "wgnylon")
+    {
+        return VoicePresets::getWaveguideNylonVoice();
+    }
+    else if (presetName == "wgbell")
+    {
+        return VoicePresets::getWaveguideBellVoice();
+    }
+    else if (presetName == "wgshimmer")
+    {
+        return VoicePresets::getWaveguideShimmerVoice();
+    }
+    else if (presetName == "hypersaw")
+    {
+        return VoicePresets::getHypersawVoice();
+    }
+    else if (presetName == "noisestorm")
+    {
+        return VoicePresets::getNoiseStormVoice();
     }
     else
     {

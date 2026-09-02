@@ -13,6 +13,16 @@ namespace VoicePresets {
   const VoiceConfig& getPadVoice() noexcept;
   const VoiceConfig& getPercussionVoice() noexcept;
 
+  // Extended factory functions (presets 8-15)
+  const VoiceConfig& getSubFunkVoice() noexcept;
+  const VoiceConfig& getRubberSubVoice() noexcept;
+  const VoiceConfig& getWaveguidePluckVoice() noexcept;
+  const VoiceConfig& getWaveguideNylonVoice() noexcept;
+  const VoiceConfig& getWaveguideBellVoice() noexcept;
+  const VoiceConfig& getWaveguideShimmerVoice() noexcept;
+  const VoiceConfig& getHypersawVoice() noexcept;
+  const VoiceConfig& getNoiseStormVoice() noexcept;
+
   // Preset utilities
   const char* getPresetName(uint8_t presetIndex) noexcept;
   const VoiceConfig& getPresetConfig(uint8_t presetIndex) noexcept;

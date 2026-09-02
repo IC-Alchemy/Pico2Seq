@@ -3,232 +3,516 @@
 
 namespace VoicePresets
 {
+  // Preset storage: constexpr factories build the whole table at compile time,
+  // so it lands in .rodata. On RP2350 (XIP flash) that means the presets cost
+  // zero SRAM; every accessor hands out a const reference into flash and the
+  // caller's VoiceConfig / stagedConfig_ copy is the only RAM instance.
+  //
+  // Field assignments below are the single source of truth. Fields a factory
+  // does not assign keep their VoiceConfig default-member value, exactly like
+  // the previous runtime-built table (which value-initialized the same NSDMIs).
 
-  // Thread-safe static storage for presets
-  static const std::array<VoiceConfig, 7> &presetStorage() noexcept
+  constexpr VoiceConfig makeAnalog() noexcept
   {
-    static std::array<VoiceConfig, 7> presets = []() noexcept
-    {
-      std::array<VoiceConfig, 7> p{};
-      // Analog
-      {
-        VoiceConfig &config = p[0];
-        config.oscillatorCount = 3;
-        config.oscWaveforms[0] = WAVE_BSP_SAW;
-        config.oscWaveforms[1] = WAVE_BSP_SAW;
-        config.oscWaveforms[2] = WAVE_BSP_SAW;
-        config.oscAmplitudes[0] = .5f;
-        config.oscAmplitudes[1] = .25f;
-        config.oscAmplitudes[2] = .25f;
-        config.oscDetuning[0] = 0.0f;
-        config.oscDetuning[1] = 0.08f;  // Slight detune
-        config.oscDetuning[2] = -0.08f; // Slight detune opposite
-        config.harmony[0] = 0;           // Root note
-        config.harmony[1] = 0;           // Unison (no harmony)
-        config.harmony[2] = 0;           // Unison (no harmony)
+    VoiceConfig c{};
+    c.oscillatorCount = 3;
+    c.oscWaveforms[0] = WAVE_BSP_SAW;
+    c.oscWaveforms[1] = WAVE_BSP_SAW;
+    c.oscWaveforms[2] = WAVE_BSP_SAW;
+    c.oscAmplitudes[0] = .5f;
+    c.oscAmplitudes[1] = .25f;
+    c.oscAmplitudes[2] = .25f;
+    c.oscDetuning[0] = 0.0f;
+    c.oscDetuning[1] = 0.08f;  // Slight detune
+    c.oscDetuning[2] = -0.08f; // Slight detune opposite
+    c.harmony[0] = 0;          // Root note
+    c.harmony[1] = 0;          // Unison (no harmony)
+    c.harmony[2] = 0;          // Unison (no harmony)
 
-        config.filterRes = 0.33f;
-        config.filterDrive = 3.1f;
-        config.filterMode = rpdsp::LadderFilter::Mode::LP24;
-        config.filterPassbandGain = 0.23f;
-        config.highPassFreq = 150.0f;
+    c.filterRes = 0.33f;
+    c.filterDrive = 3.1f;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP24;
+    c.filterPassbandGain = 0.23f;
+    c.highPassFreq = 150.0f;
 
-        config.hasOverdrive = false;
-        config.overdriveGain = 0.8f;
-        config.overdriveDrive = 0.25f;
+    c.hasOverdrive = false;
+    c.overdriveGain = 0.8f;
+    c.overdriveDrive = 0.25f;
 
-        config.defaultAttack = 0.04f;
-        config.defaultDecay = 0.14f;
-        config.defaultSustain = 0.3f;
-        config.defaultRelease = 0.1f;
-        config.outputLevel = 0.5f;
-      }
-
-      // Digital
-      {
-        VoiceConfig &config = p[1];
-        config.oscillatorCount = 2;
-        config.oscWaveforms[0] = WAVE_BSP_SQUARE;
-        config.oscWaveforms[1] = // Naive triangle: continuous waveform, band-limited enough without splines
-        WAVE_TRI;
-
-        config.oscAmplitudes[0] = .75f;
-        config.oscAmplitudes[1] = 1.f;
-        config.oscDetuning[0] = 0.0f; // Fixed duplicate assignment
-        config.oscDetuning[1] = 12.0f;  // Fixed duplicate assignment
-
-        config.harmony[0] = 0; // Root note
-        config.filterRes = 0.4f;
-        config.filterDrive = 2.5f;
-        config.filterPassbandGain = 0.25f;
-        config.highPassFreq = 111.0f;
-        config.highPassRes = 0.15f;
-        config.filterMode = rpdsp::LadderFilter::Mode::LP12; // Low-pass filter
-
-        config.hasOverdrive = false;
-        config.overdriveGain = 0.7f;
-        config.overdriveDrive = 0.51f;
-        config.defaultAttack = 0.015f;
-        config.defaultDecay = 0.1f;
-        config.defaultSustain = 0.5f;
-        config.defaultRelease = 0.1f;
-        config.outputLevel = 0.5f;
-      }
-
-      // Bass
-      {
-        VoiceConfig &config = p[2];
-        config.oscillatorCount = 2;
-        config.oscWaveforms[0] = WAVE_SIN;
-        config.oscWaveforms[1] = // Naive triangle: continuous waveform, band-limited enough without splines
-        WAVE_TRI;
-        config.oscAmplitudes[0] = 1.f;
-        config.oscAmplitudes[1] = 1.f;
-        config.oscDetuning[0] = -12.0f;
-        config.oscDetuning[1] = -12.0f;
-        config.harmony[0] = 0; // Root note
-        config.harmony[1] = 0; // Unison (bass typically monophonic)
-        config.highPassRes = 0.4f;
-        config.filterRes = 0.33f;
-        config.filterDrive = 2.f;
-        config.filterPassbandGain = 0.12f;
-        config.highPassFreq = 85.0f; // Lower for bass
-        config.filterMode = rpdsp::LadderFilter::Mode::LP12;
-        config.hasOverdrive = false;
-        config.overdriveGain = 0.95f;
-        config.overdriveDrive = 0.16f; // Subtle overdrive
-        config.defaultAttack = 0.01f;
-        config.defaultDecay = 0.3f;
-        config.defaultSustain = 0.55f;
-        config.defaultRelease = 0.2f;
-        config.outputLevel = .95f;
-      }
-
-      // Lead
-      {
-        VoiceConfig &config = p[3];
-        config.oscillatorCount = 2;
-        config.oscWaveforms[0] = WAVE_BSP_SAW;
-        config.oscWaveforms[1] = WAVE_BSP_SAW;
-        config.oscAmplitudes[0] = .6f;
-        config.oscAmplitudes[1] = .4f;
-        config.oscDetuning[0] = 0.0f;
-        config.oscDetuning[1] = 0.00f;
-        config.harmony[0] = 0; // Root note
-        config.harmony[1] = 3; // Unison (lead typically monophonic)
-        // config.oscPulseWidth[1] = 0.36f;
-
-        config.filterRes = 0.4f;
-        config.filterDrive = 3.f;
-        config.filterPassbandGain = 0.23f;
-        config.highPassFreq = 160.0f;
-        config.filterMode = rpdsp::LadderFilter::Mode::LP12;
-        config.hasOverdrive = false;
-        config.overdriveGain = 0.7f;
-        config.overdriveDrive = 0.45f;
-
-        config.defaultAttack = 0.02f;
-        config.defaultDecay = 0.2f;
-        config.defaultSustain = 0.5f;
-        config.defaultRelease = 0.15f;
-        config.outputLevel = 0.5f;
-      }
-
-      // Square
-      {
-        VoiceConfig &config = p[4];
-        config.oscillatorCount = 1;
-        config.oscWaveforms[0] = WAVE_BSP_SQUARE;
-        config.oscAmplitudes[0] = 1.f;
-        config.harmony[0] = 0; // Root note
-        config.oscPulseWidth[0] = 0.2f;
-
-        config.filterRes = 0.52f;
-        config.filterDrive = 3.3f;
-        config.filterPassbandGain = 0.33f;
-        config.highPassFreq = 150.0f;
-        config.filterMode = rpdsp::LadderFilter::Mode::LP24;
-        config.hasOverdrive = false;
-        config.overdriveGain = 0.75f;
-        config.overdriveDrive = 0.35f;
-
-        config.defaultAttack = 0.02f;
-        config.defaultDecay = 0.2f;
-        config.defaultSustain = 0.0f;
-        config.defaultRelease = 0.15f;
-        config.outputLevel = .5f;
-      }
-
-      // Pad
-      {
-        VoiceConfig &config = p[5];
-        config.oscillatorCount = 3;
-        config.oscWaveforms[0] = WAVE_BSP_SAW;
-        config.oscWaveforms[1] = WAVE_BSP_SAW;
-        config.oscWaveforms[2] = WAVE_BSP_SAW;
-        config.oscAmplitudes[0] = 0.33f;
-        config.oscAmplitudes[1] = 0.33f;
-        config.oscAmplitudes[2] = 0.33f;
-        config.harmony[0] = 0;  // Root note
-        config.harmony[1] = -3; // Perfect Fifth
-        config.harmony[2] = 2;  // Major Third
-
-        config.filterRes = 0.3f;
-        config.filterDrive = 2.2f;
-        config.filterPassbandGain = 0.23f;
-        config.highPassFreq = 140.0f;
-        config.highPassRes = 0.08f;
-        config.filterMode = rpdsp::LadderFilter::Mode::LP12;
-
-        config.hasOverdrive = false;
-        config.overdriveGain = 0.85f;
-        config.overdriveDrive = 0.25f;
-        config.defaultAttack = 0.02f; // Slow attack for pad
-        config.defaultDecay = 0.2f;
-        config.defaultSustain = 0.5f;
-        config.defaultRelease = .5f; // Long release
-        config.outputLevel = 0.5f;  // Lower level for pad
-      }
-
-      // Percussion
-      {
-        VoiceConfig &config = p[6];
-        config.oscillatorCount = 0;                       // No oscillators, only noise
-        config.oscWaveforms[0] = WAVE_NOISE;             // Use noise for percussive texture
-        config.oscAmplitudes[0] = 1.f;
-
-        config.filterRes = 0.4f;
-        config.filterDrive = 2.3f;
-        config.filterPassbandGain = 0.33f;
-        config.highPassFreq = 200.0f;
-        config.filterMode = rpdsp::LadderFilter::Mode::LP24;
-
-        config.hasOverdrive = false; 
-        config.overdriveGain = 0.45f;
-        config.overdriveDrive = 0.3f;
-
-        config.defaultAttack = 0.005f;
-        config.defaultDecay = 0.08f;
-        config.defaultSustain = 0.0f;
-        config.defaultRelease = 0.07f;
-        config.outputLevel = 0.5f;
-      }
-
-      return p;
-    }();
-    return presets;
+    c.defaultAttack = 0.04f;
+    c.defaultDecay = 0.14f;
+    c.defaultSustain = 0.3f;
+    c.defaultRelease = 0.1f;
+    c.outputLevel = 0.5f;
+    return c;
   }
 
-  static constexpr const char *VOICE_PRESET_NAMES[] = {"Analog", "Digital", "Bass", "Lead", "Square", "Pad", "Percussion"};
-  static constexpr uint8_t VOICE_PRESET_COUNT = 7;
+  constexpr VoiceConfig makeDigital() noexcept
+  {
+    VoiceConfig c{};
+    c.oscillatorCount = 2;
+    c.oscWaveforms[0] = WAVE_BSP_SQUARE;
+    c.oscWaveforms[1] = // Naive triangle: continuous waveform, band-limited enough without splines
+        WAVE_TRI;
 
-  const VoiceConfig &getAnalogVoice() noexcept { return presetStorage()[0]; }
-  const VoiceConfig &getDigitalVoice() noexcept { return presetStorage()[1]; }
-  const VoiceConfig &getBassVoice() noexcept { return presetStorage()[2]; }
-  const VoiceConfig &getLeadVoice() noexcept { return presetStorage()[3]; }
-  const VoiceConfig &getSquareVoice() noexcept { return presetStorage()[4]; }
-  const VoiceConfig &getPadVoice() noexcept { return presetStorage()[5]; }
-  const VoiceConfig &getPercussionVoice() noexcept { return presetStorage()[6]; }
+    c.oscAmplitudes[0] = .75f;
+    c.oscAmplitudes[1] = 1.f;
+    c.oscDetuning[0] = 0.0f; // Fixed duplicate assignment
+    c.oscDetuning[1] = 12.0f;  // Fixed duplicate assignment
+
+    c.harmony[0] = 0; // Root note
+    c.filterRes = 0.4f;
+    c.filterDrive = 2.5f;
+    c.filterPassbandGain = 0.25f;
+    c.highPassFreq = 111.0f;
+    c.highPassRes = 0.15f;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP12; // Low-pass filter
+
+    c.hasOverdrive = false;
+    c.overdriveGain = 0.7f;
+    c.overdriveDrive = 0.51f;
+    c.defaultAttack = 0.015f;
+    c.defaultDecay = 0.1f;
+    c.defaultSustain = 0.5f;
+    c.defaultRelease = 0.1f;
+    c.outputLevel = 0.5f;
+    return c;
+  }
+
+  constexpr VoiceConfig makeBass() noexcept
+  {
+    VoiceConfig c{};
+    c.oscillatorCount = 2;
+    c.oscWaveforms[0] = WAVE_SIN;
+    c.oscWaveforms[1] = // Naive triangle: continuous waveform, band-limited enough without splines
+        WAVE_TRI;
+    c.oscAmplitudes[0] = 1.f;
+    c.oscAmplitudes[1] = 1.f;
+    c.oscDetuning[0] = -12.0f;
+    c.oscDetuning[1] = -12.0f;
+    c.harmony[0] = 0; // Root note
+    c.harmony[1] = 0; // Unison (bass typically monophonic)
+    c.highPassRes = 0.4f;
+    c.filterRes = 0.33f;
+    c.filterDrive = 2.f;
+    c.filterPassbandGain = 0.12f;
+    c.highPassFreq = 85.0f; // Lower for bass
+    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
+    c.hasOverdrive = false;
+    c.overdriveGain = 0.95f;
+    c.overdriveDrive = 0.16f; // Subtle overdrive
+    c.defaultAttack = 0.01f;
+    c.defaultDecay = 0.3f;
+    c.defaultSustain = 0.55f;
+    c.defaultRelease = 0.2f;
+    c.outputLevel = .95f;
+    return c;
+  }
+
+  constexpr VoiceConfig makeLead() noexcept
+  {
+    VoiceConfig c{};
+    c.oscillatorCount = 2;
+    c.oscWaveforms[0] = WAVE_BSP_SAW;
+    c.oscWaveforms[1] = WAVE_BSP_SAW;
+    c.oscAmplitudes[0] = .6f;
+    c.oscAmplitudes[1] = .4f;
+    c.oscDetuning[0] = 0.0f;
+    c.oscDetuning[1] = 0.00f;
+    c.harmony[0] = 0; // Root note
+    c.harmony[1] = 3; // Unison (lead typically monophonic)
+
+    c.filterRes = 0.4f;
+    c.filterDrive = 3.f;
+    c.filterPassbandGain = 0.23f;
+    c.highPassFreq = 160.0f;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
+    c.hasOverdrive = false;
+    c.overdriveGain = 0.7f;
+    c.overdriveDrive = 0.45f;
+
+    c.defaultAttack = 0.02f;
+    c.defaultDecay = 0.2f;
+    c.defaultSustain = 0.5f;
+    c.defaultRelease = 0.15f;
+    c.outputLevel = 0.5f;
+    return c;
+  }
+
+  constexpr VoiceConfig makeSquare() noexcept
+  {
+    VoiceConfig c{};
+    c.oscillatorCount = 1;
+    c.oscWaveforms[0] = WAVE_BSP_SQUARE;
+    c.oscAmplitudes[0] = 1.f;
+    c.harmony[0] = 0; // Root note
+    c.oscPulseWidth[0] = 0.2f;
+
+    c.filterRes = 0.52f;
+    c.filterDrive = 3.3f;
+    c.filterPassbandGain = 0.33f;
+    c.highPassFreq = 150.0f;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP24;
+    c.hasOverdrive = false;
+    c.overdriveGain = 0.75f;
+    c.overdriveDrive = 0.35f;
+
+    c.defaultAttack = 0.02f;
+    c.defaultDecay = 0.2f;
+    c.defaultSustain = 0.0f;
+    c.defaultRelease = 0.15f;
+    c.outputLevel = .5f;
+    return c;
+  }
+
+  constexpr VoiceConfig makePad() noexcept
+  {
+    VoiceConfig c{};
+    c.oscillatorCount = 3;
+    c.oscWaveforms[0] = WAVE_BSP_SAW;
+    c.oscWaveforms[1] = WAVE_BSP_SAW;
+    c.oscWaveforms[2] = WAVE_BSP_SAW;
+    c.oscAmplitudes[0] = 0.33f;
+    c.oscAmplitudes[1] = 0.33f;
+    c.oscAmplitudes[2] = 0.33f;
+    c.harmony[0] = 0;  // Root note
+    c.harmony[1] = -3; // Perfect Fifth
+    c.harmony[2] = 2;  // Major Third
+
+    c.filterRes = 0.3f;
+    c.filterDrive = 2.2f;
+    c.filterPassbandGain = 0.23f;
+    c.highPassFreq = 140.0f;
+    c.highPassRes = 0.08f;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
+
+    c.hasOverdrive = false;
+    c.overdriveGain = 0.85f;
+    c.overdriveDrive = 0.25f;
+    c.defaultAttack = 0.02f;   // Slow attack for pad
+    c.defaultDecay = 0.2f;
+    c.defaultSustain = 0.5f;
+    c.defaultRelease = .5f;    // Long release
+    c.outputLevel = 0.5f;      // Lower level for pad
+    return c;
+  }
+
+  constexpr VoiceConfig makePercussion() noexcept
+  {
+    VoiceConfig c{};
+    c.oscillatorCount = 0;           // No oscillators, only noise
+    c.oscWaveforms[0] = WAVE_NOISE;  // Use noise for percussive texture
+    c.oscAmplitudes[0] = 1.f;
+
+    c.filterRes = 0.4f;
+    c.filterDrive = 2.3f;
+    c.filterPassbandGain = 0.33f;
+    c.highPassFreq = 200.0f;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP24;
+
+    c.hasOverdrive = false;
+    c.overdriveGain = 0.45f;
+    c.overdriveDrive = 0.3f;
+
+    c.defaultAttack = 0.005f;
+    c.defaultDecay = 0.08f;
+    c.defaultSustain = 0.0f;
+    c.defaultRelease = 0.07f;
+    c.outputLevel = 0.5f;
+    return c;
+  }
+
+  // SubFunk: bouncy sub bass. Sine sub an octave down carries the weight,
+  // a triangle adds movement, and a driven low-pass with a short punchy
+  // envelope gives the filtered-growl funk character.
+  constexpr VoiceConfig makeSubFunk() noexcept
+  {
+    VoiceConfig c{};
+    c.oscillatorCount = 3;
+    c.oscWaveforms[0] = WAVE_SIN;
+    c.oscWaveforms[1] = WAVE_TRI;
+    c.oscWaveforms[2] = WAVE_SIN;
+    c.oscAmplitudes[0] = 1.0f;
+    c.oscAmplitudes[1] = 0.4f;
+    c.oscAmplitudes[2] = 0.25f;
+    c.oscDetuning[0] = -12.0f; // sub octave
+    c.oscDetuning[1] = -12.0f; // sub octave color
+    c.oscDetuning[2] = 0.0f;   // fundamental body
+    c.harmony[0] = 0;
+    c.harmony[1] = 0;
+    c.harmony[2] = 0;
+
+    c.filterRes = 0.45f;
+    c.filterDrive = 3.6f;
+    c.filterPassbandGain = 0.2f;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
+    c.highPassFreq = 55.0f; // keep the sub, shed the rumble
+
+    c.hasOverdrive = true;
+    c.overdriveGain = 0.9f;
+    c.overdriveDrive = 0.35f; // warm grit
+
+    c.defaultAttack = 0.004f;
+    c.defaultDecay = 0.22f;
+    c.defaultSustain = 0.35f;
+    c.defaultRelease = 0.12f;
+    c.outputLevel = 0.9f;
+    return c;
+  }
+
+  // RubberSub: rubbery sub bass. Sub-octave square grinds under a sine,
+  // a resonant band-pass honks, and harder overdrive spits on transients.
+  constexpr VoiceConfig makeRubberSub() noexcept
+  {
+    VoiceConfig c{};
+    c.oscillatorCount = 3;
+    c.oscWaveforms[0] = WAVE_SIN;
+    c.oscWaveforms[1] = WAVE_BSP_SQUARE;
+    c.oscWaveforms[2] = WAVE_TRI;
+    c.oscAmplitudes[0] = 0.9f;
+    c.oscAmplitudes[1] = 0.3f;
+    c.oscAmplitudes[2] = 0.5f;
+    c.oscDetuning[0] = -12.0f; // sub octave
+    c.oscDetuning[1] = -24.0f; // two octaves down: harmonic grit
+    c.oscDetuning[2] = 0.0f;   // fundamental body
+    c.harmony[0] = 0;
+    c.harmony[1] = 0;
+    c.harmony[2] = 0;
+
+    c.filterRes = 0.62f;
+    c.filterDrive = 2.6f;
+    c.filterPassbandGain = 0.3f;
+    c.filterMode = rpdsp::LadderFilter::Mode::BP24; // rubbery honk
+    c.highPassFreq = 70.0f;
+
+    c.hasOverdrive = true;
+    c.overdriveGain = 1.0f;
+    c.overdriveDrive = 0.55f; // spit
+
+    c.defaultAttack = 0.002f;
+    c.defaultDecay = 0.16f;
+    c.defaultSustain = 0.25f;
+    c.defaultRelease = 0.09f;
+    c.outputLevel = 0.85f;
+    return c;
+  }
+
+  // WgPluck: classic Karplus-Strong plucked string (waveguide engine).
+  // Bright burst, harmonic loop, short natural tail.
+  constexpr VoiceConfig makeWaveguidePluck() noexcept
+  {
+    VoiceConfig c{};
+    c.oscillatorCount = 0;
+    c.engine = ENGINE_WAVEGUIDE;
+    c.wgT60 = 1.8f;
+    c.wgBrightness = 0.78f;
+    c.wgPickPosition = 0.26f;
+    c.wgPickHardness = 0.85f;
+    c.wgStiffness = 0.0f;
+    c.wgDetune = 4.0f;
+
+    c.filterRes = 0.2f;
+    c.filterDrive = 1.8f;
+    c.filterPassbandGain = 0.25f;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
+    c.highPassFreq = 120.0f;
+
+    c.hasOverdrive = false;
+    c.defaultAttack = 0.001f;
+    c.defaultDecay = 0.5f;
+    c.defaultSustain = 0.65f; // let the string's own T60 ring out
+    c.defaultRelease = 0.25f;
+    c.outputLevel = 0.75f;    // two-string course sums hot
+    return c;
+  }
+
+  // WgNylon: dark felt-soft nylon string. Damped loop, gentle pick,
+  // long sympathetic tail.
+  constexpr VoiceConfig makeWaveguideNylon() noexcept
+  {
+    VoiceConfig c{};
+    c.oscillatorCount = 0;
+    c.engine = ENGINE_WAVEGUIDE;
+    c.wgT60 = 3.2f;
+    c.wgBrightness = 0.28f;
+    c.wgPickPosition = 0.42f;
+    c.wgPickHardness = 0.22f;
+    c.wgStiffness = 0.05f;
+    c.wgDetune = 9.0f;
+
+    c.filterRes = 0.15f;
+    c.filterDrive = 1.5f;
+    c.filterPassbandGain = 0.25f;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
+    c.highPassFreq = 90.0f;
+
+    c.hasOverdrive = false;
+    c.defaultAttack = 0.002f;
+    c.defaultDecay = 0.6f;
+    c.defaultSustain = 0.7f;
+    c.defaultRelease = 0.5f;
+    c.outputLevel = 0.8f;
+    return c;
+  }
+
+  // WgBell: stiff dispersive string. High stiffness sharpens upper
+  // partials inharmonic (bell/kalimba), hard bridge pick, quick tail.
+  constexpr VoiceConfig makeWaveguideBell() noexcept
+  {
+    VoiceConfig c{};
+    c.oscillatorCount = 0;
+    c.engine = ENGINE_WAVEGUIDE;
+    c.wgT60 = 1.4f;
+    c.wgBrightness = 0.9f;
+    c.wgPickPosition = 0.08f; // bridge: thin and nasal
+    c.wgPickHardness = 1.0f;
+    c.wgStiffness = 0.88f;    // inharmonic dispersion
+    c.wgDetune = 0.0f;
+
+    c.filterRes = 0.3f;
+    c.filterDrive = 2.0f;
+    c.filterPassbandGain = 0.23f;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP24;
+    c.highPassFreq = 250.0f;  // clear the mud, keep the shimmer
+
+    c.hasOverdrive = false;
+    c.defaultAttack = 0.001f;
+    c.defaultDecay = 0.45f;
+    c.defaultSustain = 0.4f;
+    c.defaultRelease = 0.3f;
+    c.outputLevel = 0.65f;    // bright partials run hot
+    return c;
+  }
+
+  // WgShimmer: wide detuned two-string course, very long tail. Slow
+  // chorusing sustain turns a pluck into a ringing pad.
+  constexpr VoiceConfig makeWaveguideShimmer() noexcept
+  {
+    VoiceConfig c{};
+    c.oscillatorCount = 0;
+    c.engine = ENGINE_WAVEGUIDE;
+    c.wgT60 = 6.5f;
+    c.wgBrightness = 0.55f;
+    c.wgPickPosition = 0.35f;
+    c.wgPickHardness = 0.6f;
+    c.wgStiffness = 0.15f;
+    c.wgDetune = 26.0f;       // wide course: slow shimmer
+
+    c.filterRes = 0.2f;
+    c.filterDrive = 1.6f;
+    c.filterPassbandGain = 0.23f;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
+    c.highPassFreq = 140.0f;
+
+    c.hasOverdrive = false;
+    c.defaultAttack = 0.004f;
+    c.defaultDecay = 0.8f;
+    c.defaultSustain = 0.85f;
+    c.defaultRelease = 0.8f;  // pad-like gate for the long tail
+    c.outputLevel = 0.7f;
+    return c;
+  }
+
+  // Hypersaw: three saw stack - two detuned unisons plus an octave layer,
+  // glued with mild overdrive and a wide-open filter.
+  constexpr VoiceConfig makeHypersaw() noexcept
+  {
+    VoiceConfig c{};
+    c.oscillatorCount = 3;
+    c.oscWaveforms[0] = WAVE_BSP_SAW;
+    c.oscWaveforms[1] = WAVE_BSP_SAW;
+    c.oscWaveforms[2] = WAVE_BSP_SAW;
+    c.oscAmplitudes[0] = 0.45f;
+    c.oscAmplitudes[1] = 0.3f;
+    c.oscAmplitudes[2] = 0.3f;
+    c.oscDetuning[0] = 0.0f;
+    c.oscDetuning[1] = 0.21f;  // ~21 cents up
+    c.oscDetuning[2] = -0.21f; // ~21 cents down
+    c.harmony[0] = 0;
+    c.harmony[1] = 0;
+    c.harmony[2] = 12;         // octave layer on top
+
+    c.filterRes = 0.35f;
+    c.filterDrive = 2.8f;
+    c.filterPassbandGain = 0.25f;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP24;
+    c.highPassFreq = 180.0f;
+
+    c.hasOverdrive = true;
+    c.overdriveGain = 0.85f;
+    c.overdriveDrive = 0.28f; // density glue
+
+    c.defaultAttack = 0.012f;
+    c.defaultDecay = 0.3f;
+    c.defaultSustain = 0.8f;
+    c.defaultRelease = 0.25f;
+    c.outputLevel = 0.5f;     // 3 saws + OD run hot
+    return c;
+  }
+
+  // NoiseStorm: noise-based texture engine. Noise plus a pitch-tracked
+  // Lorenz chaos growl feed a prime-tap diffuser and a regenerative
+  // allpass swarm, then a resonant tracking filter shapes the result.
+  constexpr VoiceConfig makeNoiseStorm() noexcept
+  {
+    VoiceConfig c{};
+    c.oscillatorCount = 0;
+    c.engine = ENGINE_NOISEFX;
+    c.noiseDiffuseSize = 0.85f;
+    c.noiseDiffuseMix = 0.65f;
+    c.noiseSwarmColor = 0.6f;
+    c.noiseSwarmRegen = 0.95f;
+    c.noiseChaosLevel = 0.4f;
+
+    c.filterRes = 0.72f;      // resonant filter pings with the env
+    c.filterDrive = 3.2f;
+    c.filterPassbandGain = 0.3f;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP24;
+    c.highPassFreq = 220.0f;
+
+    c.hasOverdrive = true;
+    c.overdriveGain = 0.8f;
+    c.overdriveDrive = 0.4f;
+
+    c.defaultAttack = 0.003f;
+    c.defaultDecay = 0.5f;
+    c.defaultSustain = 0.55f;
+    c.defaultRelease = 0.45f;
+    c.outputLevel = 0.45f;    // diffuse + swarm can sum hot
+    return c;
+  }
+
+  // Compile-time table: lives in flash (.rodata), not SRAM.
+  static constexpr const char *VOICE_PRESET_NAMES[] = {"Analog", "Digital", "Bass", "Lead", "Square", "Pad", "Percussion", "SubFunk", "RubberSub", "WgPluck", "WgNylon", "WgBell", "WgShimmer", "Hypersaw", "NoiseStorm"};
+  static constexpr uint8_t VOICE_PRESET_COUNT = 15;
+
+  constexpr std::array<VoiceConfig, 15> kPresets = {
+      makeAnalog(),          makeDigital(),         makeBass(),
+      makeLead(),            makeSquare(),          makePad(),
+      makePercussion(),      makeSubFunk(),         makeRubberSub(),
+      makeWaveguidePluck(),  makeWaveguideNylon(),  makeWaveguideBell(),
+      makeWaveguideShimmer(), makeHypersaw(),       makeNoiseStorm()};
+
+  static_assert(kPresets.size() == 15, "preset table and names must stay in sync");
+  static_assert(sizeof(VOICE_PRESET_NAMES) / sizeof(VOICE_PRESET_NAMES[0]) == kPresets.size(),
+                "preset table and names must stay in sync");
+
+  const VoiceConfig &getAnalogVoice() noexcept { return kPresets[0]; }
+  const VoiceConfig &getDigitalVoice() noexcept { return kPresets[1]; }
+  const VoiceConfig &getBassVoice() noexcept { return kPresets[2]; }
+  const VoiceConfig &getLeadVoice() noexcept { return kPresets[3]; }
+  const VoiceConfig &getSquareVoice() noexcept { return kPresets[4]; }
+  const VoiceConfig &getPadVoice() noexcept { return kPresets[5]; }
+  const VoiceConfig &getPercussionVoice() noexcept { return kPresets[6]; }
+
+  const VoiceConfig &getSubFunkVoice() noexcept { return kPresets[7]; }
+  const VoiceConfig &getRubberSubVoice() noexcept { return kPresets[8]; }
+  const VoiceConfig &getWaveguidePluckVoice() noexcept { return kPresets[9]; }
+  const VoiceConfig &getWaveguideNylonVoice() noexcept { return kPresets[10]; }
+  const VoiceConfig &getWaveguideBellVoice() noexcept { return kPresets[11]; }
+  const VoiceConfig &getWaveguideShimmerVoice() noexcept { return kPresets[12]; }
+  const VoiceConfig &getHypersawVoice() noexcept { return kPresets[13]; }
+  const VoiceConfig &getNoiseStormVoice() noexcept { return kPresets[14]; }
 
   const char *getPresetName(uint8_t presetIndex) noexcept
   {
@@ -258,6 +542,22 @@ namespace VoicePresets
       return getPadVoice();
     case 6:
       return getPercussionVoice();
+    case 7:
+      return getSubFunkVoice();
+    case 8:
+      return getRubberSubVoice();
+    case 9:
+      return getWaveguidePluckVoice();
+    case 10:
+      return getWaveguideNylonVoice();
+    case 11:
+      return getWaveguideBellVoice();
+    case 12:
+      return getWaveguideShimmerVoice();
+    case 13:
+      return getHypersawVoice();
+    case 14:
+      return getNoiseStormVoice();
     }
   }
 

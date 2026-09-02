@@ -156,6 +156,15 @@ void Voice::init(float sr)
   overdrive.setDrive(1.0f + (config.overdriveDrive * 3.0f)); // map 0-1 drive to 1-4
   overdrive.setOutputGain(1.0f);
 
+  // Alternate engines: prepare + seed state, then apply tuning from config
+  waveguide_.prepare(sampleRate);
+  resetAlternateEngines_();
+  applyEngineConfig_();
+
+  // Populate the pitch cache unconditionally so alternate engines (which read
+  // baseFreq even without an oscillator bank) start from a valid frequency.
+  updatePitchCache_();
+
   // Update detune multipliers in case config changed before init
   recomputeDetuneMultipliers();
 }
@@ -296,11 +305,13 @@ float Voice::computeEnvelope()
     if (gateHigh)
     {
       envelope.noteOn();
+      wgPluckPending_ = true; // waveguide engine re-plucks on retriggers
     }
   }
   else if (rising)
   {
     envelope.noteOn();
+    wgPluckPending_ = true;
   }
   else if (falling)
   {
@@ -349,6 +360,17 @@ float Voice::mixOscillators()
   if (config.hasEnvelope && lastEnvelopeValue <= 0.0005f)
   {
     return 0.0f;
+  }
+
+  // Alternate engines replace the oscillator bank entirely; the shared
+  // envelope -> filter -> output chain still runs in finalizeOutput().
+  if (cachedEngine_ == static_cast<uint8_t>(ENGINE_WAVEGUIDE))
+  {
+    return processWaveguide_();
+  }
+  if (cachedEngine_ == static_cast<uint8_t>(ENGINE_NOISEFX))
+  {
+    return processNoiseFxSource_();
   }
 
   // Determine number of oscillators to process (max 3 pre-sized)
@@ -424,6 +446,18 @@ void Voice::applyEffects(float &signal)
     signal = overdrive.process(signal * config.overdriveGain);
   }
 
+  // Noise-FX engine inserts: prime-tap diffusion smears the noise into
+  // ambience, then the regenerative allpass swarm blooms. Both run pre-filter
+  // so the envelope-scaled ladder shapes the resulting texture.
+  if (cachedEngine_ == static_cast<uint8_t>(ENGINE_NOISEFX))
+  {
+    signal = rpdsp::fx_diffuse(signal, noiseDiffuseBuf_.data(), kNoiseFxBufferSize,
+                               config.noiseDiffuseSize, config.noiseDiffuseMix,
+                               noiseDiffuseState_);
+    signal = rpdsp::fx_swarm(signal, config.noiseSwarmColor,
+                             config.noiseSwarmRegen, noiseSwarmState_);
+  }
+
   // Level adjustments removed from here; handled in finalizeOutput
 }
 
@@ -431,6 +465,69 @@ void Voice::applyEffects(float &signal)
 void Voice::processEffectsChain(float &signal)
 {
   applyEffects(signal);
+}
+
+// -------- Alternate engines (waveguide / noise-FX) --------
+
+void Voice::applyEngineConfig_()
+{
+  cachedEngine_ = (config.engine <= static_cast<uint8_t>(ENGINE_NOISEFX))
+                      ? config.engine
+                      : static_cast<uint8_t>(ENGINE_OSC);
+  // Waveguide tuning. These are control-rate setters with internal clamps;
+  // setBrightness()/setPickHardness() derive coefficients from sampleRate_,
+  // so waveguide_.prepare() must have run first (init() guarantees this).
+  waveguide_.setDecayTimeSeconds(config.wgT60);
+  waveguide_.setBrightness(config.wgBrightness);
+  waveguide_.setPickPosition(config.wgPickPosition);
+  waveguide_.setPickHardness(config.wgPickHardness);
+  waveguide_.setStiffness(config.wgStiffness);
+  waveguide_.setDetuneCents(config.wgDetune);
+}
+
+float Voice::processWaveguide_() noexcept
+{
+  if (wgPluckPending_)
+  {
+    wgPluckPending_ = false;
+    // With an oscillator bank configured, honor its harmony/detune on the
+    // first oscillator; otherwise use the plain base pitch.
+    const float targetHz = (cachedOscCount_ > 0) ? pitchCache_.finalFreq[0]
+                                                 : pitchCache_.baseFreq;
+    if (targetHz > 0.0f)
+    {
+      // Velocity scales downstream at the filter input, so the string always
+      // plucks at full level.
+      waveguide_.pluck(targetHz, 1.0f);
+    }
+  }
+  return waveguide_.process();
+}
+
+float Voice::processNoiseFxSource_() noexcept
+{
+  float source = noise_.process();
+  if (config.noiseChaosLevel > 0.001f)
+  {
+    // Lorenz rate follows the base pitch so the growl tracks the sequence
+    // instead of sitting at one fixed register (0.0001 slow CV .. 0.02 growl).
+    const float baseHz = (pitchCache_.baseFreq > 0.0f) ? pitchCache_.baseFreq : 110.0f;
+    const float rate = std::clamp(baseHz / sampleRate, 1.0e-4f, 0.02f);
+    source += rpdsp::chaos_lorenz(rate, noiseChaosState_) * config.noiseChaosLevel * 0.5f;
+  }
+  return source;
+}
+
+void Voice::resetAlternateEngines_() noexcept
+{
+  waveguide_.reset();
+  wgPluckPending_ = false;
+  noiseDiffuseState_[0] = 0.0f;
+  for (float &s : noiseSwarmState_)
+    s = 0.0f;
+  for (float &s : noiseChaosState_)
+    s = 0.0f;
+  noiseDiffuseBuf_.fill(0.0f);
 }
 
 inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept
@@ -780,6 +877,16 @@ void Voice::applyPendingConfig_() noexcept
 
     // Update effects
     overdrive.setDrive(1.0f + (config.overdriveDrive * 3.0f)); // map 0-1 drive to 1-4
+
+    // Alternate engines: clear stale tails when switching, then re-apply tuning
+    const uint8_t newEngine = (config.engine <= static_cast<uint8_t>(ENGINE_NOISEFX))
+                                  ? config.engine
+                                  : static_cast<uint8_t>(ENGINE_OSC);
+    if (newEngine != cachedEngine_)
+    {
+      resetAlternateEngines_();
+    }
+    applyEngineConfig_();
 
     // Detune multipliers depend on config
     recomputeDetuneMultipliers();

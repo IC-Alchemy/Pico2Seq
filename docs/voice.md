@@ -11,7 +11,7 @@ The voice system consists of several key components:
 - **`Voice`**: Individual synthesizer voice encapsulating oscillators, ladder filter, high-pass filter, ADSR envelope, overdrive waveshaper, and lock-free parameter/pitch staging.
 - **`VoiceManager`**: Manages multiple voices with allocation, deallocation, master volume scaling, per-voice mix levels, and unified per-sample audio processing.
 - **`VoiceSystem`**: Centralized structure consolidating voice IDs, states, gates, and gate countdown timers into arrays for `MAX_VOICES = 4` voices.
-- **`VoicePresets`**: Factory namespace providing 7 verified voice presets (Analog, Digital, Bass, Lead, Square, Pad, Percussion).
+- **`VoicePresets`**: Factory namespace providing 15 voice presets (Analog, Digital, Bass, Lead, Square, Pad, Percussion, SubFunk, RubberSub, WgPluck, WgNylon, WgBell, WgShimmer, Hypersaw, NoiseStorm).
 - **`VoiceOscillator`**: Variant-based dispatcher decoupling numeric waveform IDs from `rpdsp` oscillator classes.
 - **Supporting Classes**: `VoiceManagerBuilder` and `VoiceFactory` for builder-pattern and pre-configured voice setups.
 
@@ -304,17 +304,33 @@ public:
 
 ## 3. Verified Preset System
 
-Defined in `src/voice/VoicePresets.h` and implemented in `src/voice/VoicePresets.cpp`. All 7 presets are verified verbatim against firmware source code:
+Defined in `src/voice/VoicePresets.h` and implemented in `src/voice/VoicePresets.cpp`. All 15 presets are verified verbatim against firmware source code:
 
-| # | Preset Name | Oscillators | Amplitudes | Detune (Semis) | Harmony | Filter Mode | Filter Settings | Overdrive | Envelope (A/D/S/R) | Output Level |
-|---|---|---|---|---|---|---|---|---|---|---|
-| **0** | **Analog** | 3x `WAVE_BSP_SAW` | `[0.5, 0.25, 0.25]` | `[0.0, +0.08, -0.08]` | `[0, 0, 0]` | **LP24** | Res: 0.33, Drive: 3.1, Passband: 0.23, HPF: 150 Hz | Off (Gain: 0.8, Drive: 0.25) | `0.04s / 0.14s / 0.3 / 0.1s` | `0.5` |
-| **1** | **Digital** | 2x (`WAVE_BSP_SQUARE`, `WAVE_TRI`) | `[0.75, 1.0]` | `[0.0, +12.0]` | `[0, 0]` | **LP12** | Res: 0.40, Drive: 2.5, Passband: 0.25, HPF: 111 Hz (Res: 0.15) | Off (Gain: 0.7, Drive: 0.51) | `0.015s / 0.1s / 0.5 / 0.1s` | `0.5` |
-| **2** | **Bass** | 2x (`WAVE_SIN`, `WAVE_TRI`) | `[1.0, 1.0]` | `[-12.0, -12.0]` | `[0, 0]` | **LP12** | Res: 0.33, Drive: 2.0, Passband: 0.12, HPF: 85 Hz (Res: 0.4) | Off (Gain: 0.95, Drive: 0.16) | `0.01s / 0.3s / 0.55 / 0.2s` | `0.95` |
-| **3** | **Lead** | 2x `WAVE_BSP_SAW` | `[0.6, 0.4]` | `[0.0, 0.0]` | `[0, 3]` | **LP12** | Res: 0.40, Drive: 3.0, Passband: 0.23, HPF: 160 Hz | Off (Gain: 0.7, Drive: 0.45) | `0.02s / 0.2s / 0.5 / 0.15s` | `0.5` |
-| **4** | **Square** | 1x `WAVE_BSP_SQUARE` (PW: 0.2) | `[1.0]` | `[0.0]` | `[0]` | **LP24** | Res: 0.52, Drive: 3.3, Passband: 0.33, HPF: 150 Hz | Off (Gain: 0.75, Drive: 0.35) | `0.02s / 0.2s / 0.0 / 0.15s` | `0.5` |
-| **5** | **Pad** | 3x `WAVE_BSP_SAW` | `[0.33, 0.33, 0.33]` | `[0.0, 0.0, 0.0]` | `[0, -3, +2]` | **LP12** | Res: 0.30, Drive: 2.2, Passband: 0.23, HPF: 140 Hz (Res: 0.08) | Off (Gain: 0.85, Drive: 0.25) | `0.02s / 0.2s / 0.5 / 0.5s` | `0.5` |
-| **6** | **Percussion** | **0 oscs** (`WAVE_NOISE`, `NoiseOscillator`) | `[1.0]` | `[0.0]` | `[0]` | **LP24** | Res: 0.40, Drive: 2.3, Passband: 0.33, HPF: 200 Hz | Off (Gain: 0.45, Drive: 0.30) | `0.005s / 0.08s / 0.0 / 0.07s` | `0.5` |
+| # | Preset Name | Engine | Oscillators | Amplitudes | Detune (Semis) | Harmony | Filter Mode | Filter Settings | Overdrive | Envelope (A/D/S/R) | Output Level |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **0** | **Analog** | osc | 3x `WAVE_BSP_SAW` | `[0.5, 0.25, 0.25]` | `[0.0, +0.08, -0.08]` | `[0, 0, 0]` | **LP24** | Res: 0.33, Drive: 3.1, Passband: 0.23, HPF: 150 Hz | Off (Gain: 0.8, Drive: 0.25) | `0.04s / 0.14s / 0.3 / 0.1s` | `0.5` |
+| **1** | **Digital** | osc | 2x (`WAVE_BSP_SQUARE`, `WAVE_TRI`) | `[0.75, 1.0]` | `[0.0, +12.0]` | `[0, 0]` | **LP12** | Res: 0.40, Drive: 2.5, Passband: 0.25, HPF: 111 Hz (Res: 0.15) | Off (Gain: 0.7, Drive: 0.51) | `0.015s / 0.1s / 0.5 / 0.1s` | `0.5` |
+| **2** | **Bass** | osc | 2x (`WAVE_SIN`, `WAVE_TRI`) | `[1.0, 1.0]` | `[-12.0, -12.0]` | `[0, 0]` | **LP12** | Res: 0.33, Drive: 2.0, Passband: 0.12, HPF: 85 Hz (Res: 0.4) | Off (Gain: 0.95, Drive: 0.16) | `0.01s / 0.3s / 0.55 / 0.2s` | `0.95` |
+| **3** | **Lead** | osc | 2x `WAVE_BSP_SAW` | `[0.6, 0.4]` | `[0.0, 0.0]` | `[0, 3]` | **LP12** | Res: 0.40, Drive: 3.0, Passband: 0.23, HPF: 160 Hz | Off (Gain: 0.7, Drive: 0.45) | `0.02s / 0.2s / 0.5 / 0.15s` | `0.5` |
+| **4** | **Square** | osc | 1x `WAVE_BSP_SQUARE` (PW: 0.2) | `[1.0]` | `[0.0]` | `[0]` | **LP24** | Res: 0.52, Drive: 3.3, Passband: 0.33, HPF: 150 Hz | Off (Gain: 0.75, Drive: 0.35) | `0.02s / 0.2s / 0.0 / 0.15s` | `0.5` |
+| **5** | **Pad** | osc | 3x `WAVE_BSP_SAW` | `[0.33, 0.33, 0.33]` | `[0.0, 0.0, 0.0]` | `[0, -3, +2]` | **LP12** | Res: 0.30, Drive: 2.2, Passband: 0.23, HPF: 140 Hz (Res: 0.08) | Off (Gain: 0.85, Drive: 0.25) | `0.02s / 0.2s / 0.5 / 0.5s` | `0.5` |
+| **6** | **Percussion** | osc | **0 oscs** (`WAVE_NOISE`, `NoiseOscillator`) | `[1.0]` | `[0.0]` | `[0]` | **LP24** | Res: 0.40, Drive: 2.3, Passband: 0.33, HPF: 200 Hz | Off (Gain: 0.45, Drive: 0.30) | `0.005s / 0.08s / 0.0 / 0.07s` | `0.5` |
+| **7** | **SubFunk** | osc | (`WAVE_SIN`, `WAVE_TRI`, `WAVE_SIN`) | `[1.0, 0.4, 0.25]` | `[-12.0, -12.0, 0.0]` | `[0, 0, 0]` | **LP12** | Res: 0.45, Drive: 3.6, Passband: 0.2, HPF: 55 Hz | On (Gain: 0.9, Drive: 0.35) | `0.004s / 0.22s / 0.35 / 0.12s` | `0.9` |
+| **8** | **RubberSub** | osc | (`WAVE_SIN`, `WAVE_BSP_SQUARE`, `WAVE_TRI`) | `[0.9, 0.3, 0.5]` | `[-12.0, -24.0, 0.0]` | `[0, 0, 0]` | **BP24** | Res: 0.62, Drive: 2.6, Passband: 0.3, HPF: 70 Hz | On (Gain: 1.0, Drive: 0.55) | `0.002s / 0.16s / 0.25 / 0.09s` | `0.85` |
+| **9** | **WgPluck** | waveguide | — (wg: T60 1.8s, bright 0.78, pick 0.26/0.85, stiff 0.0, det 4c) | — | — | — | **LP12** | Res: 0.2, Drive: 1.8, Passband: 0.25, HPF: 120 Hz | Off | `0.001s / 0.5s / 0.65 / 0.25s` | `0.75` |
+| **10** | **WgNylon** | waveguide | — (wg: T60 3.2s, bright 0.28, pick 0.42/0.22, stiff 0.05, det 9c) | — | — | — | **LP12** | Res: 0.15, Drive: 1.5, Passband: 0.25, HPF: 90 Hz | Off | `0.002s / 0.6s / 0.7 / 0.5s` | `0.8` |
+| **11** | **WgBell** | waveguide | — (wg: T60 1.4s, bright 0.9, pick 0.08/1.0, stiff 0.88, det 0c) | — | — | — | **LP24** | Res: 0.3, Drive: 2.0, Passband: 0.23, HPF: 250 Hz | Off | `0.001s / 0.45s / 0.4 / 0.3s` | `0.65` |
+| **12** | **WgShimmer** | waveguide | — (wg: T60 6.5s, bright 0.55, pick 0.35/0.6, stiff 0.15, det 26c) | — | — | — | **LP12** | Res: 0.2, Drive: 1.6, Passband: 0.23, HPF: 140 Hz | Off | `0.004s / 0.8s / 0.85 / 0.8s` | `0.7` |
+| **13** | **Hypersaw** | osc | 3x `WAVE_BSP_SAW` | `[0.45, 0.3, 0.3]` | `[0.0, +0.21, -0.21]` | `[0, 0, +12]` | **LP24** | Res: 0.35, Drive: 2.8, Passband: 0.25, HPF: 180 Hz | On (Gain: 0.85, Drive: 0.28) | `0.012s / 0.3s / 0.8 / 0.25s` | `0.5` |
+| **14** | **NoiseStorm** | noise-FX | — (nf: diffuse 0.85/0.65, swarm 0.6/0.95, chaos 0.4) | — | — | — | **LP24** | Res: 0.72, Drive: 3.2, Passband: 0.3, HPF: 220 Hz | On (Gain: 0.8, Drive: 0.4) | `0.003s / 0.5s / 0.55 / 0.45s` | `0.45` |
+
+Preset 9-12 use `engine = ENGINE_WAVEGUIDE` (`rpdsp::PluckedStringVoice`, 2048-sample
+delay): each gate rise (or retrigger) plucks the string at the current base pitch, and
+the `wg*` config fields tune T60, loop brightness, pick position/hardness, stiffness
+(inharmonic dispersion), and two-string course detune. Preset 14 uses
+`engine = ENGINE_NOISEFX`: `NoiseOscillator` plus a pitch-tracked `chaos_lorenz` growl
+feed `fx_diffuse` (prime-tap diffuser) and `fx_swarm` (regenerative allpass swarm)
+from `rpdsp/DSPFunctions.h`, pre-filter so the ladder shapes the texture.
 
 ---
 
@@ -342,9 +358,11 @@ Each call to `Voice::process()` on Core 0 executes the following stages:
 │    - One-pole smoother: cutoffCurrent += alpha * (targetCutoff - cutoffCurrent) │
 │    - Throttled filter.setFreq() update every 8 samples (relative eps > 0.2%)    │
 │                                                                                 │
-│ 4. Oscillator Synthesis & Slide Slew (mixOscillators)                           │
+│ 4. Source Stage & Slide Slew (mixOscillators)                                   │
 │    - Silence short-circuit: If E <= 0.0005, return 0.0 immediately              │
-│    - Commit pitch to hardware ONLY when isGateHigh == true                      │
+│    - engine == ENGINE_WAVEGUIDE: pluck on gate rise; S_osc = waveguide_.process │
+│    - engine == ENGINE_NOISEFX: S_osc = noise + chaos_lorenz (fx inserts at 5)   │
+│    - ENGINE_OSC: commit pitch to hardware ONLY when isGateHigh == true          │
 │    - If slide active: Exponential slew via fmaf(delta, slideAlpha, currentFreq) │
 │    - If oscCount > 0: S_osc = Sum(osc[i].process() * oscAmplitudes[i])          │
 │    - If oscCount == 0: S_osc = noise_.process()                                 │
@@ -352,6 +370,7 @@ Each call to `Voice::process()` on Core 0 executes the following stages:
 │ 5. Pre-Filter VCA & Effects Shaping (finalizeOutput)                            │
 │    - S_vca = S_osc * E   (Pre-filter VCA makes overdrive response dynamic)      │
 │    - If hasOverdrive: S_vca = overdrive.process(S_vca * overdriveGain)          │
+│    - If ENGINE_NOISEFX: fx_diffuse -> fx_swarm inserts (rpdsp DSPFunctions)     │
 │                                                                                 │
 │ 6. Ladder & High-Pass Filtering                                                 │
 │    - S_filt = filter.process(S_vca * velocityLevel)                             │
