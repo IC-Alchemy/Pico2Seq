@@ -26,7 +26,7 @@ time (voice pair 1+2 or 3+4).
 | Surface | Connection | Role |
 |---|---|---|
 | MPR121 (existing) | existing Wire bus | 32 step pads |
-| SliderModule + ButtonModule8 | **Wire1**, dedicated bank, 400 kHz | param/utility buttons, voice select, faders |
+| SliderModule + ButtonModule8 | **Wire1**, dedicated bank, 100 kHz | param/utility buttons, voice select, faders |
 | GP7 | `INPUT_PULLUP`, switch to GND | mode select: **LOW = Param mode, HIGH = Utility mode** (constant `kModeParamLevel`, flippable) |
 
 Wire1 pins are named constants in `includes.h` (confirmed SDA=GP14, SCL=GP15;

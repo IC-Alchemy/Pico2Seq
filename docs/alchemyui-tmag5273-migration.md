@@ -11,7 +11,7 @@
 >   - All `AS5600` identifiers renamed across `SequencerDefs.h`, `UIState.h`, `ButtonHandlers.cpp`, `UIEventHandler.cpp`, and display modules.
 > - **Phase 2 (Control Surface) — COMPLETED via Dual-Surface Design**:
 >   - *Initial proposal (historical below)*: Proposed dropping the MPR121 touch matrix entirely and compressing 32 functions into 20 tile buttons with paged 8-step banks.
->   - *Approved & implemented architecture*: Adopted the **Dual-Surface Architecture** specified in `docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`. The 32 capacitive pads on the MPR121 (`Adafruit_MPR121` on Wire at `0x5A`) are **retained** as dedicated step pads across two 16-step voice banks, while the Alchemy UI panel (SliderModule 4 faders + ButtonModule8 8 buttons) is integrated on a separate bus (`Wire1`, GP14/15 @ 400 kHz) with a hardware `GP7` mode strap.
+>   - *Approved & implemented architecture*: Adopted the **Dual-Surface Architecture** specified in `docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`. The 32 capacitive pads on the MPR121 (`Adafruit_MPR121` on Wire at `0x5A`) are **retained** as dedicated step pads across two 16-step voice banks, while the Alchemy UI panel (SliderModule 4 faders + ButtonModule8 8 buttons) is integrated on a separate bus (`Wire1`, GP14/15 @ 100 kHz) with a hardware `GP7` mode strap.
 >   - Pure decision logic is factored into `src/ui/ControlSurfaceLogic.h/.cpp` (covered by host unit tests in `tests/unit/test_control_surface_logic.cpp`), and hardware glue is encapsulated in `src/ui/AlchemyControlBridge.h/.cpp`.
 >
 > The sections below record the original planning analysis and trade-offs for historical context.
@@ -39,7 +39,7 @@
 
 **{confirmed}** I2C addresses post-migration do not collide:
 - Main Bus (`Wire`, GP4/GP5 @ 100 kHz): OLED `0x3C`, VL53L1X `0x29`, TMAG5273A `0x35` (`TMAG5273::ADDRESS_A`), MPR121 `0x5A`.
-- Tile Bus (`Wire1`, GP14/GP15 @ 400 kHz): SliderModule `0x08`, ButtonModule8 `0x0B`.
+- Tile Bus (`Wire1`, GP14/GP15 @ 100 kHz): SliderModule `0x08`, ButtonModule8 `0x0B`.
 
 ---
 
@@ -59,7 +59,7 @@ During architectural refinement (`docs/superpowers/specs/2026-09-01-alchemy-tile
    - All 32 physical pads on the MPR121 touch grid operate exclusively as step pads.
    - Dynamically mapped via `ControlSurface::PadBank` into two 16-step banks (Voices 1 & 2 or Voices 3 & 4).
    - Instant 16-step visual feedback and manipulation without step pagination.
-2. **Dedicate Alchemy Tiles on Wire1 (400 kHz) for Controls & Faders**:
+2. **Dedicate Alchemy Tiles on Wire1 (100 kHz) for Controls & Faders**:
    - **SliderModule (Slot 0, 0x08)**: 4 faders (12-bit ADC) for continuous parameter/utility editing + 4 buttons for direct Voice 1–4 selection (plus Shift chords).
    - **ButtonModule8 (Slot 1, 0x0B)**: 8 buttons carrying parameter arming (Param mode) or transport/utilities (Utility mode), plus Shift modifier.
    - **GP7 Mode Strap Switch**: Selects Param vs Utility mode, debounced in software (20 ms).
@@ -76,7 +76,7 @@ Rather than using an adapter shim translating tile events into synthetic matrix 
    - `ShiftLatch`: Manages Shift + tap parameter latching and momentary holds.
    - `FaderMap`: Normalizes 12-bit counts (0–4095) with an 8-count deadband filter to eliminate bus traffic.
 2. **Hardware Bridge (`src/ui/AlchemyControlBridge.h/.cpp`)**:
-   - Direct master driver polling `AlchemyPanel` on `Wire1` @ 400 kHz within `loop1()` (1 ms slice).
+   - Direct master driver polling `AlchemyPanel` on `Wire1` @ 100 kHz within `loop1()` (1 ms slice).
    - Invokes shared firmware handlers: `handleParameterButtonById`, `handleSlideModePress`, `handleControlButton`, `selectVoice`, `clearSequencerStep`.
 3. **Matrix Handler (`src/ui/UIEventHandler.cpp`)**:
    - Step pad events from `Matrix_scan()` resolve through `PadBank::resolve` and dispatch to `handleStepButtonEvent()`.
@@ -115,7 +115,7 @@ The full mechanical rename from `AS5600` to `Encoder` was executed across the co
    - `tests/unit/test_rpdsp_additions.cpp`, `test_voice.cpp`, `test_voiceoscillator.cpp`, `test_scales.cpp`, `test_sequencer.cpp`.
 2. **I2C Bus Separation**:
    - Wire (GP4/5 @ 100 kHz) handles OLED, TMAG5273, VL53L1X, and MPR121.
-   - Wire1 (GP14/15 @ 400 kHz) handles SliderModule (0x08) and ButtonModule8 (0x0B).
+   - Wire1 (GP14/15 @ 100 kHz) handles SliderModule (0x08) and ButtonModule8 (0x0B).
 3. **Dual-Core Safety**:
    - Audio synthesis remains 100% isolated on Core 0.
    - All sensor acquisition, matrix scanning, and tile polling run non-blocking in Core 1's 1 ms control loop.

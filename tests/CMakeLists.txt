@@ -22,6 +22,7 @@ add_executable(pico2seq_tests
   unit/test_voice.cpp
   unit/test_voiceoscillator.cpp
   unit/test_control_surface_logic.cpp
+  unit/test_alchemy_proto.cpp
 
   # Scale data
   ${CORE_DIR}/scales/scales.cpp

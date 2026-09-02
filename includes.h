@@ -44,7 +44,7 @@
 // Main bus (Wire, I2C0): OLED, MPR121, TMAG5273, VL53L1X.
 constexpr uint8_t PIN_WIRE_SDA = 4;
 constexpr uint8_t PIN_WIRE_SCL = 5;
-// Tile bank (Wire1, I2C1) at 400 kHz: SliderModule + ButtonModule8.
+// Tile bank (Wire1, I2C1) at 100 kHz: SliderModule + ButtonModule8.
 // (I2S moved off GP15 onto GP10-12; see PICO_AUDIO_I2S_* in Pico2Seq.ino.)
 constexpr uint8_t PIN_ALCHEMY_WIRE1_SDA = 14;
 constexpr uint8_t PIN_ALCHEMY_WIRE1_SCL = 15;

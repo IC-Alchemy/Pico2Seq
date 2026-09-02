@@ -3,7 +3,7 @@
 ## Architecture
 Pico2Seq is an RP2350 (Raspberry Pi Pico 2) dual-core firmware for a 4-voice polyphonic step sequencer and synthesizer.
 - **Core 0**: Real-time audio engine. Runs `fill_audio_buffer()` -> `voiceManager->processAllVoices()` -> `FloatToPcm16()` with ARM Cortex-M33 `__SSAT` -> I2S DMA @ 48kHz stereo (3 buffers x 256 samples).
-- **Core 1**: System control, sensors, MIDI, and UI. Runs 1ms sensor poll (TMAG5273 @ 0x22, VL53L1X @ 0x29, MPR121 32 touch pads @ 0x5A on Wire; Alchemy tile panel on Wire1 @ 400kHz), 20ms/50Hz display refresh (128x64 SH1106G OLED @ 0x3C, 8x8 WS2812B FastLED matrix on GPIO 1), TinyUSB MIDI I/O, and uClock sequencer tick processing.
+- **Core 1**: System control, sensors, MIDI, and UI. Runs 1ms sensor poll (TMAG5273 @ 0x22, VL53L1X @ 0x29, MPR121 32 touch pads @ 0x5A on Wire; Alchemy tile panel on Wire1 @ 100kHz), 20ms/50Hz display refresh (128x64 SH1106G OLED @ 0x3C, 8x8 WS2812B FastLED matrix on GPIO 1), TinyUSB MIDI I/O, and uClock sequencer tick processing.
 - **Cross-Core Concurrency**: Lock-free parameter and pitch staging via atomic generation counters (`paramsGen_`, `pitchGen_`) in `Voice.h/.cpp`. Mutex-free shared state with `volatile` globals.
 - **Voice System**: 4 polyphonic synthesizer voices (`VoiceSystem::MAX_VOICES = 4`). Hardware gate outputs (GPIO 10/11/12) and MIDI Note/CC output are active on Voices 0 and 1; Voices 2 and 3 are audio-only synthesis voices.
 - **Sequencer Core**: Portable C++ `pico2seq-core` decoupled from hardware. Polymetric `ParameterTrack<N>` (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide). UI adapter `advanceSequencerStep()` in `src/ui/UIEventHandler.h/.cpp`.
@@ -25,7 +25,7 @@ Pico2Seq is an RP2350 (Raspberry Pi Pico 2) dual-core firmware for a 4-voice pol
 | 10 | ShuffleTemplates & uClock | Document `ShuffleTemplates.h` shuffle patterns and uClock tick processing | M2 | survey_2 |
 | 11 | Scales & Dual Pitch Offsets | Document 13 scales, 48 steps, C3 (+48) synthesis vs C2 (+36) MIDI pitch offsets, and precomputed rank cache | M2 | survey_2 |
 | 12 | Sensors Subsystem | Document TMAG5273 magnetic encoder (`MagEncoder`, `EncoderManager`), VL53L1X distance, MPR121 touch | M3 | survey_2 |
-| 13 | Dual-Surface Alchemy UI | Document Alchemy panel (Wire1 @ 400kHz, SliderModule + ButtonModule8, GP7 mode strap) + 32-pad MPR121 matrix | M3 | survey_2 |
+| 13 | Dual-Surface Alchemy UI | Document Alchemy panel (Wire1 @ 100kHz, SliderModule + ButtonModule8, GP7 mode strap) + 32-pad MPR121 matrix | M3 | survey_2 |
 | 14 | ControlSurfaceLogic Module | Document `ModeStabilizer`, `PadBank`, `ShiftLatch`, `FaderMap`, and `UIState` single source of truth | M3 | survey_2 |
 | 15 | ButtonHandlers Code Snippet Fix | Fix `BUTTON_PLAY_STOP` snippet in `docs/ButtonHandlers.md` to match `ButtonHandlers.cpp` | M3 | survey_2 |
 | 16 | Migration Doc Completion Status | Update `docs/alchemyui-tmag5273-migration.md` status banner to COMPLETED with historical context note | M3 | survey_2 |
