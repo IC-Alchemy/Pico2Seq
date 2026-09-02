@@ -38,9 +38,11 @@ cmake --build build_test --parallel
 Run a single tag/group instead of the full suite:
 
 ```bash
-./build_test/tests/pico2seq_tests "[adsr]"
+./build_test/tests/pico2seq_tests "[rpdsp]"
 ./build_test/tests/pico2seq_tests "[sequencer]"
 ./build_test/tests/pico2seq_tests "[voice]"
+./build_test/tests/pico2seq_tests "[voiceosc]"
+./build_test/tests/pico2seq_tests "[control_surface]"
 ```
 
 Other useful invocations:
@@ -70,7 +72,8 @@ What's tested vs. not, per `tests/CMakeLists.txt`:
   DSPFunctions smoke tests), `src/voice/VoiceOscillator.h` via `test_voiceoscillator.cpp`,
   `src/pico2seq-core/scales/scales.cpp`,
   `src/pico2seq-core/sequencer/{ParameterManager,Sequencer}.cpp`,
-  `src/voice/{Voice,VoicePresets}.cpp`.
+  `src/voice/{Voice,VoicePresets}.cpp`,
+  `src/ui/ControlSurfaceLogic.cpp` via `tests/unit/test_control_surface_logic.cpp`.
 - **Not tested, by design** (hardware-bound glue — keep logic out of these):
   `src/audio/` (PIO/DMA/I2S), `src/LEDMatrix/` (WS2812B GPIO/DMA), `src/OLED/` (I2C display),
   `src/midi/` (TinyUSB stack).

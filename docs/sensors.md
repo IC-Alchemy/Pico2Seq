@@ -2,32 +2,111 @@
 
 ## Overview
 
-The sensors module provides real-time parameter control for the Pico2Seq synthesizer using two complementary sensor types:
+The sensors module provides real-time physical input and parameter modulation for the Pico2Seq synthesizer using three primary hardware input systems:
 
-- **TMAG5273 Magnetic Encoder** (Velocity Encoder board): Precise rotary control with velocity-sensitive scaling for parameter adjustment
-- **VL53L1X Distance Sensors**: Time-of-flight distance measurement for hands-free parameter modulation
+1. **TMAG5273 Magnetic Velocity Encoder** (Velocity Encoder board): High-precision rotary input with velocity-sensitive acceleration for parameter adjustment and step editing.
+2. **VL53L1X Distance Sensor**: Time-of-Flight (ToF) infrared optical distance measurement for hands-free parameter modulation and real-time step recording.
+3. **MPR121 Capacitive Touch Matrix**: 32-pad capacitive touch grid configured as two 16-step sequencer voice banks for step programming, voice selection, and note input.
 
-The module is designed for Core 1 operation to avoid interference with Core 0 audio processing, with non-blocking updates and one data-ready poll per update to ensure system stability.
+All sensor acquisition and processing runs exclusively on **Core 1** inside a 1 ms non-blocking control slice (`loop1()`), ensuring zero interference or jitter with Core 0 real-time I2S audio synthesis (48 kHz stereo).
+
+---
+
+## Hardware Bus Architecture and Pinouts
+
+The Pico2Seq hardware separates sensors, displays, and control surfaces across two independent hardware I2C peripheral blocks on the RP2350 microcontroller:
+
+| Bus | RP2350 Pins | Clock Speed | Connected Devices | I2C Addresses | Purpose |
+|---|---|---|---|---|---|
+| **Wire** (I2C0) | GP4 (SDA)<br>GP5 (SCL) | 100 kHz (Standard) | TMAG5273A Magnetic Encoder<br>VL53L1X Distance Sensor<br>MPR121 Touch Matrix<br>SH1106 OLED Display | `0x35` (`TMAG5273::ADDRESS_A`)<br>`0x29` (VL53L1X)<br>`0x5A` (MPR121)<br>`0x3C` (OLED) | Primary sensor acquisition & display bus |
+| **Wire1** (I2C1) | GP14 (SDA)<br>GP15 (SCL) | 400 kHz (Fast Mode) | Alchemy Modular UI Tiles:<br>- SliderModule (Slot 0)<br>- ButtonModule8 (Slot 1) | `0x08` (SliderModule)<br>`0x0B` (ButtonModule8) | Dedicated high-speed control surface tile bus |
+| **GPIO** | GP7 (Input Pullup) | N/A | Hardware Mode Strap Switch | N/A | Selects Param Mode (LOW) vs Utility Mode (HIGH) for Alchemy tiles |
+
+### Interrupt & Hardware Pin Map
+
+- `PIN_WIRE_SDA` = `4` (GP4)
+- `PIN_WIRE_SCL` = `5` (GP5)
+- `PIN_ALCHEMY_WIRE1_SDA` = `14` (GP14)
+- `PIN_ALCHEMY_WIRE1_SCL` = `15` (GP15)
+- `PIN_ALCHEMY_MODE_SWITCH` = `7` (GP7, `INPUT_PULLUP`)
+- `PIN_TOUCH_IRQ` = `10` (Legacy / diagnostic touch interrupt)
+
+---
+
+## Real-Time Scheduling and Update Rates
+
+The firmware implements a strict dual-core separation:
+
+```
+Core 0 (Real-Time Audio):
+  fill_audio_buffer() @ 48 kHz stereo I2S (GP10 BCLK, GP11 LRCK, GP12 DATA)
+  -> 0% I2C / sensor involvement -> Never blocks, no dynamic allocations
+
+Core 1 (UI, Sensors, Matrix, MIDI):
+  loop1() Control Slice (CONTROL_UPDATE_INTERVAL = 1 ms):
+    +-- Matrix_scan()            -> 1 ms MPR121 32-pad touch scanning
+    +-- alchemyBridge.update()   -> 1 ms Alchemy tile polling (Wire1 @ 400 kHz)
+    +-- magEncoder.update()      -> 1 ms poll (5 ms internal throttle in driver)
+    +-- updateEncoderBaseValues()-> Applies rotary increments to active params
+    +-- distanceSensor.update()  -> 1 ms poll (20 ms non-blocking read interval)
+    +-- pollUIHeldButtons()      -> Promotes long-press states (randomize reset, gate seq length)
+  loop1() Display Slice (LED_UPDATE_INTERVAL = 20 ms / 50 Hz):
+    +-- updateStepLEDs() / updateControlLEDs() / ledMatrix.show()
+    +-- display.update() (SH1106 OLED @ 0x3C)
+```
+
+---
 
 ## Key Components
 
-### EncoderManager
-High-level management system for the magnetic encoder. Handles parameter increment calculation, boundary checking, and integration with the synthesizer's voice and delay parameters.
+### 1. TMAG5273 Magnetic Velocity Encoder
 
-### MagEncoder
-Low-level driver for the magnetic encoder, from the `src/VelocityEncoder` library (Git submodule). One driver wraps either a TI TMAG5273 or an AMS AS5600 behind a single API; Pico2Seq configures it for the **TMAG5273** fitted on the Velocity Encoder board (I2C address 0x22, the TMAG5273B default). Provides 1/16-degree angle resolution (5760 counts per revolution) with velocity-sensitive scaling and multi-turn wrap-around handling.
+The magnetic encoder subsystem consists of two architectural layers:
 
-### DistanceSensor
-Driver for VL53L1X time-of-flight distance sensor. Uses the Adafruit_VL53L1X library for reliable distance measurements in the 74-1400mm range.
+- **`MagEncoder` (`src/VelocityEncoder/src/MagEncoder.h/.cpp`)**: Portable, low-level C++ driver wrapping TI TMAG5273 (and legacy AS5600) behind a unified interface. Pico2Seq configures `MagEncoder::Sensor::TMAG5273` with `TMAG5273::ADDRESS_A` on Wire at address `0x35`. Features include:
+  - 1/16-degree angular resolution (5760 counts per revolution).
+  - Multi-turn cumulative position tracking with wrap-around handling.
+  - Dynamic velocity-sensitive acceleration (400x dynamic range: 0.008x to 3.2x scaling factor).
+  - Adaptive low-pass speed filtering.
+- **`EncoderManager` (`src/sensors/EncoderManager.h/.cpp`)**: High-level parameter management subsystem bridging encoder delta increments to the synthesizer data model. Handles:
+  - Base parameter updates across Voice 1 and Voice 2 (`applyEncoderBaseValues`).
+  - Global effects modulation (`applyEncoderDelayValues`, `applyEncoderSlideTimeValues`).
+  - Individual step parameter editing (`updateEncoderStepParameterValues`).
+  - Bidirectional "Shift and Scale" mapping.
+  - Dynamic boundary proximity flash zones (`FlashSpeedZone`).
 
-### SensorConstants
-Centralized configuration file containing all sensor-related constants, hardware addresses, timing parameters, and calibration values.
+### 2. VL53L1X Distance Sensor
 
-## Public Classes and Structures
+- **`DistanceSensor` (`src/sensors/DistanceSensor.h/.cpp`)**: Non-blocking driver wrapping `Adafruit_VL53L1X` on Wire at address `0x29`.
+  - Continuous measurement mode with medium distance mode.
+  - 20 ms timing budget (`TIMING_BUDGET_MICROSECONDS = 20000`).
+  - 24 ms inter-measurement period (`INTER_MEASUREMENT_PERIOD_MS = 24`).
+  - 20 ms update polling interval (`READ_INTERVAL_MS = 20`).
+  - Operational measurement range: 74 mm to 1400 mm (`MIN_DISTANCE_HEIGHT_MM` to `MAX_DISTANCE_HEIGHT_MM`).
+  - Normalized distance calculation: `mm = rawDistanceValue - MIN_HEIGHT` (0 to 1326 mm).
+  - Non-blocking single-poll guarantee: `update()` checks `dataReady()` once and returns immediately without stalling the control loop.
 
-### EncoderManager Functions
+### 3. MPR121 Capacitive Touch Matrix
 
-#### Core Parameter Management
+- **`Matrix` (`src/matrix/Matrix.h/.cpp`)**: 32-electrode capacitive touch matrix driver using `Adafruit_MPR121` on Wire at address `0x5A`.
+  - Autoconfig enabled with conservative touch/release thresholds: `touchSensor.setThresholds(55, 22)`.
+  - Scanned every 1 ms via `Matrix_scan()`.
+  - Drives 32 dedicated step pads across two 16-step voice banks resolved via `ControlSurface::PadBank::resolve(buttonIndex, selectedVoiceIndex)`:
+    - Indices 0–15: Voice A steps 0–15.
+    - Indices 16–31: Voice B steps 0–15.
+  - Dispatches `MatrixButtonEvent` (pressed/released) to `matrixEventHandler()`.
+
+### 4. SensorConstants
+
+- **`SensorConstants.h` (`src/sensors/SensorConstants.h`)**: Centralized configuration header providing strongly typed `constexpr` constants across namespaces `DistanceSensor`, `MagneticEncoder`, and `System`.
+
+---
+
+## Public Classes and API Reference
+
+### EncoderManager API (`src/sensors/EncoderManager.h`)
+
+#### Parameter Modification & Application
 ```cpp
 void applyIncrementToParameter(EncoderBaseValues* baseValues, EncoderParameterMode param, float increment);
 void updateEncoderBaseValues(UIState& uiState);
@@ -37,7 +116,7 @@ void applyEncoderDelayValues();
 void applyEncoderSlideTimeValues();
 ```
 
-#### Parameter Range and Validation
+#### Range Validation & Clamping
 ```cpp
 float getParameterMinValue(EncoderParameterMode param);
 float getParameterMaxValue(EncoderParameterMode param);
@@ -45,7 +124,7 @@ float getEncoderBaseValueRange(EncoderParameterMode param);
 float clampEncoderBaseValue(EncoderParameterMode param, float value);
 ```
 
-#### Step Parameter Editing
+#### Step Parameter Conversions & Formatting
 ```cpp
 ParamId convertEncoderParameterToParamId(EncoderParameterMode encoderParam);
 float getParameterMinValueForParamId(ParamId paramId);
@@ -53,295 +132,260 @@ float getParameterMaxValueForParamId(ParamId paramId);
 String formatParameterValueForDisplay(ParamId paramId, float value);
 ```
 
-#### System Management
+#### Lifecycle & State Initialization
 ```cpp
 void resetEncoderBaseValues(UIState& uiState, bool currentVoiceOnly = true);
 void initEncoderBaseValues();
+
+extern MagEncoder magEncoder;
+extern float delayTarget;
+extern float feedbackAmmount;
+extern const size_t MAX_DELAY_SAMPLES;
 ```
 
-### MagEncoder Methods (selected)
+---
+
+### MagEncoder API (`src/VelocityEncoder/src/MagEncoder.h`)
+
 ```cpp
 class MagEncoder {
 public:
     enum class Sensor { AS5600, TMAG5273 };
-    explicit MagEncoder(Sensor sensor);              // Pico2Seq uses Sensor::TMAG5273
-    bool begin(TwoWire &wire = Wire);                // Initialize I2C + verify/configure sensor
-    void update();                                   // Throttled (5ms) sensor read
+    explicit MagEncoder(Sensor sensor = Sensor::AS5600, uint8_t i2cAddress = 0);
+    bool begin(TwoWire &wire = Wire);                // Initialize I2C and verify sensor identity
+    void update();                                   // Throttled sensor read (5ms interval)
     uint16_t getRawAngle() const;                    // Native counts (0-5759 on TMAG5273)
-    float getNormalizedAngle() const;                // Get normalized angle (0.0-1.0)
-    int32_t getCumulativePosition() const;           // Multi-turn position with wrap-around
+    float getNormalizedAngle() const;                // Normalized position [0.0, 1.0]
+    int32_t getCumulativePosition() const;           // Multi-turn position with wrap tracking
     float getAngularSpeed() const;                   // Filtered angular speed in °/s
     float getParameterIncrement(float minVal, float maxVal, uint8_t maxRotations = 4) const;
     float getPositionPercentage(uint8_t maxRotations = 4) const;
-    bool isConnected() const;                        // Check sensor connection
+    bool isConnected() const;                        // Sensor health check
     void resetCumulativePosition(int32_t position = 0);
-    TMAG5273 &tmag();                                // Direct access to the TMAG5273 driver
+    TMAG5273 &tmag();                                // Direct access to underlying TMAG5273 driver
 };
 ```
 
-### DistanceSensor Methods
+---
+
+### DistanceSensor API (`src/sensors/DistanceSensor.h`)
+
 ```cpp
 class DistanceSensor {
 public:
-    bool begin();                    // Initialize VL53L1X sensor
-    void update();                   // Non-blocking sensor update
-    int getRawDistanceMm() const;    // Get distance in millimeters
-    bool isConnected() const;        // Check sensor connection
+    DistanceSensor();
+    bool begin();                    // Configures Adafruit_VL53L1X on Wire @ 0x29
+    void update();                   // Non-blocking single data-ready poll (20ms interval)
+    int getRawDistanceMm() const;    // Returns raw measurement in mm (74-1400mm)
+    bool isConnected() const;        // Connection status flag
 };
+
+extern DistanceSensor distanceSensor;
+void updateDistanceSensor();         // Legacy helper
 ```
 
-### Enums and Structs
+---
 
-#### FlashSpeedZone
+### Matrix API (`src/matrix/Matrix.h`)
+
 ```cpp
-enum class FlashSpeedZone : uint8_t {
-    Normal = 0,   // Normal operation range
-    Warning = 1,  // Warning zone (approaching limits)
-    Critical = 2  // Critical zone (at boundaries)
-};
+#define MATRIX_BUTTON_COUNT 32
+
+typedef enum {
+    MATRIX_BUTTON_PRESSED,
+    MATRIX_BUTTON_RELEASED
+} MatrixButtonEventType;
+
+typedef struct {
+    uint8_t buttonIndex;
+    MatrixButtonEventType type;
+} MatrixButtonEvent;
+
+void Matrix_init(Adafruit_MPR121 *sensor);
+void Matrix_scan();
+bool Matrix_getButtonState(uint8_t idx);
+void Matrix_setEventHandler(void (*handler)(const MatrixButtonEvent &));
+void Matrix_setRisingEdgeHandler(void (*handler)(uint8_t buttonIndex));
+void Matrix_printState();
 ```
 
-#### FlashSpeedConfig
+---
+
+## Configuration Constants (`SensorConstants.h`)
+
+### VL53L1X Constants (`SensorConstants::DistanceSensor`)
 ```cpp
-struct FlashSpeedConfig {
-    float speedMultiplier;  // Flash speed multiplier (1.0x to 3.0x)
-    float thresholdStart;   // Zone start threshold (0.0-1.0)
-    float thresholdEnd;     // Zone end threshold (0.0-1.0)
-};
+static constexpr uint8_t I2C_ADDRESS = 0x29;
+static constexpr uint8_t I2C_STABILIZATION_DELAY_MS = 50;
+static constexpr unsigned long READ_INTERVAL_MS = 20;
+static constexpr unsigned long TIMING_BUDGET_MICROSECONDS = 20000;
+static constexpr unsigned long INTER_MEASUREMENT_PERIOD_MS = 24;
+static constexpr int MAX_DISTANCE_HEIGHT_MM = 1400;
+static constexpr int MIN_DISTANCE_HEIGHT_MM = 74;
+static constexpr int INVALID_DISTANCE_MM = -1;
 ```
 
-## Important Constants and Configuration
-
-### VL53L1X Distance Sensor Constants
+### Magnetic Encoder Constants (`SensorConstants::MagneticEncoder`)
 ```cpp
-namespace DistanceSensor {
-    static constexpr uint8_t I2C_ADDRESS = 0x29;
-    static constexpr uint8_t I2C_STABILIZATION_DELAY_MS = 50;
-    static constexpr unsigned long READ_INTERVAL_MS = 20;
-    static constexpr unsigned long TIMING_BUDGET_MICROSECONDS = 20000;
-    static constexpr unsigned long INTER_MEASUREMENT_PERIOD_MS = 24;
-    static constexpr int MAX_DISTANCE_HEIGHT_MM = 1400;
-    static constexpr int MIN_DISTANCE_HEIGHT_MM = 74;
-    static constexpr int INVALID_DISTANCE_MM = -1;
-}
+static constexpr float PARAMETER_MIN_VALUE = 0.0f;
+static constexpr float PARAMETER_MAX_VALUE = 1.0f;
+static constexpr float NOTE_PARAMETER_MAX = 21.0f;
+static constexpr float DELAY_TIME_MIN_SAMPLES = 120.0f;
+static constexpr float DELAY_FEEDBACK_MAX = 0.91f;
+static constexpr float MINIMUM_INCREMENT_THRESHOLD = 0.0005f;
+static constexpr float PARAMETER_RANGE_SCALE_FACTOR = 0.75f;
+
+// Flash speed zone thresholds
+static constexpr float NORMAL_ZONE_START = 0.0f;
+static constexpr float NORMAL_ZONE_END = 0.65f;
+static constexpr float WARNING_ZONE_START = 0.65f;
+static constexpr float WARNING_ZONE_END = 0.8375f;
+static constexpr float CRITICAL_ZONE_START = 0.8375f;
+static constexpr float CRITICAL_ZONE_END = 1.0f;
+
+// Flash speed multipliers
+static constexpr float NORMAL_FLASH_SPEED = 1.0f;
+static constexpr float WARNING_FLASH_SPEED = 2.0f;
+static constexpr float CRITICAL_FLASH_SPEED = 3.0f;
+
+// Defaults
+static constexpr float DEFAULT_DELAY_TIME_SAMPLES = 48000.0f * 0.2f; // 200ms
+static constexpr float DEFAULT_DELAY_FEEDBACK = 0.55f;
+static constexpr float DEFAULT_VOICE_PARAMETER = 0.0f;
 ```
 
-### Magnetic Encoder Constants
+### System Constants (`SensorConstants::System`)
 ```cpp
-namespace MagneticEncoder {
-    static constexpr float PARAMETER_MIN_VALUE = 0.0f;
-    static constexpr float PARAMETER_MAX_VALUE = 1.0f;
-    static constexpr float NOTE_PARAMETER_MAX = 21.0f;
-    static constexpr float DELAY_TIME_MIN_SAMPLES = 120.0f;
-    static constexpr float DELAY_FEEDBACK_MAX = 0.91f;
-    static constexpr float MINIMUM_INCREMENT_THRESHOLD = 0.0005f;
-    static constexpr float PARAMETER_RANGE_SCALE_FACTOR = 0.75f;
-
-    // Flash speed zone thresholds
-    static constexpr float NORMAL_ZONE_START = 0.0f;
-    static constexpr float NORMAL_ZONE_END = 0.65f;
-    static constexpr float WARNING_ZONE_START = 0.65f;
-    static constexpr float WARNING_ZONE_END = 0.8375f;
-    static constexpr float CRITICAL_ZONE_START = 0.8375f;
-    static constexpr float CRITICAL_ZONE_END = 1.0f;
-
-    // Flash speed multipliers
-    static constexpr float NORMAL_FLASH_SPEED = 1.0f;
-    static constexpr float WARNING_FLASH_SPEED = 2.0f;
-    static constexpr float CRITICAL_FLASH_SPEED = 3.0f;
-
-    // Default parameter values
-    static constexpr float DEFAULT_DELAY_TIME_SAMPLES = 48000.0f * 0.2f;
-    static constexpr float DEFAULT_DELAY_FEEDBACK = 0.55f;
-    static constexpr float DEFAULT_VOICE_PARAMETER = 0.0f;
-}
+static constexpr float SAMPLE_RATE_HZ = 48000.0f;
+static constexpr uint8_t MAX_VOICES = 4;
+static constexpr unsigned long SENSOR_UPDATE_INTERVAL_MS = 1;
+static constexpr int FILTER_FREQUENCY_MIN_HZ = 150;
+static constexpr int FILTER_FREQUENCY_MAX_HZ = 8000;
 ```
 
-### System Constants
-```cpp
-namespace System {
-    static constexpr float SAMPLE_RATE_HZ = 48000.0f;
-    static constexpr uint8_t MAX_VOICES = 4;
-    static constexpr unsigned long SENSOR_UPDATE_INTERVAL_MS = 1;
-    static constexpr int FILTER_FREQUENCY_MIN_HZ = 150;
-    static constexpr int FILTER_FREQUENCY_MAX_HZ = 8000;
-}
-```
+---
 
-## Example Usage
+## Velocity-Sensitive Rotary Scaling
 
-### Basic Sensor Initialization
-```cpp
-// Initialize TMAG5273 magnetic encoder (global defined in EncoderManager.cpp)
-if (!magEncoder.begin()) {
-    Serial.println("TMAG5273 initialization failed!");
-}
+The magnetic encoder driver applies nonlinear velocity scaling so slow rotations afford fine single-step tuning while swift turns traverse entire parameter sweeps:
 
-// Initialize VL53L1X distance sensor
-if (!distanceSensor.begin()) {
-    Serial.println("VL53L1X initialization failed!");
-}
-```
+- **Low Speed (≤ 250°/s)**: Sub-unity scaling (down to 0.008x) for ultra-fine micro-adjustments.
+- **Mid Speed (250–1500°/s)**: Standard proportional curve (1.0x baseline).
+- **High Speed (≥ 1500°/s)**: Accelerated curve (up to 3.2x) for rapid value transitions.
 
-### Main Loop Sensor Updates
-```cpp
-void loop() {
-    // Update sensors (non-blocking)
-    magEncoder.update();
-    distanceSensor.update();
+Tuning parameters configured in `MagEncoder::Config`:
+- `minVelDps` = 90.0°/s
+- `maxVelDps` = 2400.0°/s
+- `minScale` = 0.008f
+- `maxScale` = 3.2f
+- `curveExponent` = 1.8f
+- `velocitySmoothing` = 0.08f
 
-    // Update parameter values based on encoder input
-    updateEncoderBaseValues(uiState);
+---
 
-    // Apply sensor values to synthesis parameters
-    if (uiState.currentEncoderParameter <= EncoderParameterMode::Decay) {
-        // Voice parameters
-        applyEncoderBaseValues(voiceState, currentVoiceId);
-    } else {
-        // Global parameters (delay, slide)
-        applyEncoderDelayValues();
-        applyEncoderSlideTimeValues();
-    }
-}
-```
+## "Shift and Scale" Parameter Mapping
 
-### Step Parameter Editing
-```cpp
-// Enable step editing mode
-uiState.selectedStepForEdit = stepIndex;
-uiState.currentEditParameter = ParamId::Velocity;
-
-// The encoder will now control the specific step parameter
-// instead of the global voice parameters
-```
-
-### Reading Sensor Values
-```cpp
-// Magnetic encoder
-if (magEncoder.isConnected()) {
-    float angle = magEncoder.getNormalizedAngle();      // 0.0 to 1.0
-    float speed = magEncoder.getAngularSpeed();         // degrees per second
-    int32_t position = magEncoder.getCumulativePosition(); // cumulative rotations
-}
-
-// VL53L1X distance sensor
-if (distanceSensor.isConnected()) {
-    int distance = distanceSensor.getRawDistanceMm();     // distance in mm
-    if (distance > 0) {  // Valid reading
-        // Use distance for parameter modulation
-    }
-}
-```
-
-## Dependencies and Integration Points
-
-### Hardware Dependencies
-- **TMAG5273 Magnetic Encoder** (Velocity Encoder board): I2C address 0x22, 1/16-degree resolution
-- **VL53L1X Distance Sensor**: I2C address 0x29, 74-1400mm range
-
-### Software Dependencies
-- **VelocityEncoder library** (`src/VelocityEncoder`, Git submodule): MagEncoder + TMAG5273 drivers
-- **Adafruit_VL53L1X**: Arduino library for VL53L1X sensor
-- **Arduino Wire library**: I2C communication
-- **UIState**: User interface state management
-- **VoiceState**: Voice synthesis parameters
-- **VoiceManager**: Voice management system
-- **Sequencer**: Step sequencer integration
-
-### Integration Points
-- **Voice Parameters**: Velocity, filter cutoff, attack/decay times
-- **Delay Effects**: Delay time and feedback control
-- **Slide Parameters**: Note transition smoothing
-- **Sequencer Steps**: Individual step parameter editing
-- **OLED Display**: Parameter value formatting
-- **LED Matrix**: Visual feedback for parameter boundaries
-
-## Velocity-Sensitive Scaling
-
-The magnetic encoder implements velocity-sensitive scaling so slow turns give fine control while fast turns cover range:
-
-- **Low Speed (≤ 250°/s)**: Enhanced precision
-- **Mid Speed (250-1500°/s)**: Standard curve
-- **High Speed (≥ 1500°/s)**: Enhanced responsiveness for rapid control
-
-**Dynamic Range**: 400x (0.008x to 3.2x scaling factor)
-
-**Adaptive Filtering**: Low-pass filter coefficients adjust based on rotation speed for smooth control. Tuning constants live in `MagEncoder::Config` (minVelDps 90, maxVelDps 2400, minScale 0.008, maxScale 3.2, curveExponent 1.8, velocitySmoothing 0.08).
-
-## "Shift and Scale" Mapping Algorithm
-
-The system uses a "Shift and Scale" algorithm to combine encoder base values with sequencer step values:
+To combine encoder base offsets with dynamic sequencer step tracks without clipping or introducing dead zones, `applyEncoderBaseValues` implements bidirectional "Shift and Scale":
 
 ```cpp
 float shiftAndScale(float seqValue, float encoderOffset) {
     if (encoderOffset >= 0.0f) {
-        // Positive offset sets minimum value
+        // Positive offset elevates minimum floor; scales remaining upper span
         return encoderOffset + (seqValue * (1.0f - encoderOffset));
     } else {
-        // Negative offset reduces maximum value
+        // Negative offset compresses upper ceiling; preserves minimum floor
         return seqValue * (1.0f + encoderOffset);
     }
 }
 ```
 
-This approach avoids dead zones by scaling the sequencer output within the dynamic range defined by the encoder offset.
+---
 
-## Troubleshooting
+## Example Initialization and Control Loop
 
-### TMAG5273 Issues
-- **No Response**: Check I2C connection and address 0x22 (TMAG5273B default on the Velocity Encoder board)
-- **Erratic Readings**: Verify on-axis diametric magnet placement and magnet strength
-- **Slow Response**: Tune the velocity curve via `MagEncoder::Config`
-- **Parameter Limits**: Verify min/max values in SensorConstants.h
+```cpp
+#include "includes.h"
 
-### VL53L1X Issues
-- **Initialization Failure**: Check I2C address 0x29 and wiring
-- **Invalid Readings**: Ensure target is within 74-1400mm range
-- **Stalled Reads**: Check I2C wiring, pull-ups, and the Wire timeout configuration
-- **LED Interference**: Check for electrical noise from LED matrix
+void setup1() {
+    // 1. Configure main I2C bus pins and initialize Wire
+    Wire.setSDA(PIN_WIRE_SDA); // GP4
+    Wire.setSCL(PIN_WIRE_SCL); // GP5
+    Wire.begin();
 
-### System Integration Issues
-- **Audio Glitches**: Ensure sensors run on Core 1 only
-- **Parameter Conflicts**: Verify UI state management for voice selection
-- **Memory Issues**: Check for buffer overflows in cumulative position tracking
+    // 2. Initialize Distance Sensor (VL53L1X @ 0x29)
+    if (!distanceSensor.begin()) {
+        Serial.println("VL53L1X initialization failed!");
+    }
 
-### Performance Tuning
-- **Update Frequency**: Adjust `MagEncoder::Config::readIntervalMs` for responsiveness vs. performance balance
-- **Velocity Thresholds**: Tune MINIMUM_INCREMENT_THRESHOLD to reduce noise
-- **Flash Zones**: Adjust boundary proximity thresholds for visual feedback
+    // 3. Initialize Magnetic Velocity Encoder (TMAG5273A @ 0x35)
+    if (!magEncoder.begin()) {
+        Serial.println("TMAG5273 initialization failed!");
+    }
+    initEncoderBaseValues();
 
-## Blocking Issues
+    // 4. Initialize Touch Sensor Matrix (MPR121 @ 0x5A)
+    if (!touchSensor.begin(0x5A)) {
+        Serial.println("MPR121 initialization failed!");
+    } else {
+        touchSensor.setAutoconfig(true);
+        touchSensor.setThresholds(55, 22);
+    }
+    Matrix_init(&touchSensor);
+}
 
-### Resolved Dependencies
-- ✅ All required header files present
-- ✅ I2C addresses properly defined
-- ✅ External library references documented
+void loop1() {
+    unsigned long currentMillis = millis();
 
-### Known Limitations
-- **Single Distance Sensor**: Currently supports one VL53L1X sensor
-- **Fixed I2C Addresses**: No runtime address configuration
-- **Core 1 Requirement**: Sensors must run on UI core to avoid audio interference
-- **Magnet Dependency**: The TMAG5273 requires a proper on-axis diametric magnet for accurate angle readings
+    // 1 ms Control Loop Slice
+    if (currentMillis - lastControlUpdate >= 1) {
+        lastControlUpdate = currentMillis;
 
-### Missing Components
-- **None identified**: All referenced classes and functions are implemented
-- **External Libraries**: Requires Adafruit_VL53L1X library installation; VelocityEncoder is vendored as a submodule (`git submodule update --init --recursive`)
+        // Scan MPR121 step matrix
+        Matrix_scan();
 
-## Files
-- `src/sensors/SensorConstants.h` - Centralized sensor constants
-- `src/sensors/EncoderManager.h` - High-level encoder management interface
-- `src/sensors/EncoderManager.cpp` - Encoder management implementation + global `magEncoder` instance
-- `src/sensors/DistanceSensor.h` - Distance sensor interface
-- `src/sensors/DistanceSensor.cpp` - Distance sensor implementation
-- `src/VelocityEncoder/src/MagEncoder.h/.cpp` - Magnetic encoder driver library (submodule)
+        // Update magnetic encoder & apply base values
+        magEncoder.update();
+        updateEncoderBaseValues(uiState);
 
-## Integration Checklist
-- [ ] Install Adafruit_VL53L1X library
-- [ ] Initialize VelocityEncoder submodule (`git submodule update --init --recursive`)
-- [ ] Connect Velocity Encoder board (TMAG5273) to I2C bus (address 0x22)
-- [ ] Connect VL53L1X to I2C bus (address 0x29)
-- [ ] Verify on-axis diametric magnet installation on the TMAG5273
-- [ ] Test sensor initialization in setup()
-- [ ] Verify non-blocking updates in main loop
-- [ ] Test parameter control responsiveness
-- [ ] Verify Core 1 operation (not Core 0)
+        // Update ToF distance sensor
+        distanceSensor.update();
+        int rawDistance = distanceSensor.getRawDistanceMm();
+        if (rawDistance >= MIN_HEIGHT && rawDistance <= MAX_HEIGHT) {
+            mm = rawDistance - MIN_HEIGHT;
+        } else {
+            mm = 0;
+        }
+
+        // Live parameter recording into active step if step is selected
+        if (uiState.selectedStepForEdit != -1) {
+            updateParametersForStep(uiState.selectedStepForEdit);
+        }
+    }
+}
+```
+
+---
+
+## Troubleshooting Guide
+
+### TMAG5273 Magnetic Encoder
+- **Device Not Detected (`0x35`)**: Check Wire connections (GP4/GP5), 3.3V power, and verify the Velocity Encoder board I2C pull-ups. Pico2Seq is configured for a TMAG5273A; use the matching `TMAG5273::ADDRESS_*` constant if a different factory-programmed part is fitted.
+- **Erratic Angle Readings**: Confirm an on-axis diametric magnet is centered directly over the TMAG5273 package with ~1–3mm air gap.
+- **Sluggish Response**: Check if `magEncoder.update()` is called regularly every 1 ms in `loop1()`.
+
+### VL53L1X Distance Sensor
+- **Initialization Fails (`0x29`)**: Verify I2C bus address and 50 ms stabilization delay (`I2C_STABILIZATION_DELAY_MS`).
+- **Reading Stalls at -1**: Target out of range (< 74 mm or > 1400 mm) or optical cover glass is occluded.
+- **Jitter or False Triggers**: Optical noise from high-brightness WS2812B LEDs or ambient infrared sunlight.
+
+### MPR121 Capacitive Touch Matrix
+- **Matrix Unresponsive (`0x5A`)**: Check wiring to MPR121 breakout and confirm address jumper is pulled to GND (`0x5A`).
+- **Stuck Touches**: Verify `touchSensor.setThresholds(55, 22)` is applied and autoconfig is enabled. Avoid grounding pads during boot.
+
+---
+
+## Related Documentation
+- `docs/ButtonHandlers.md`: Alchemy tile control surface and MPR121 dual-surface architecture.
+- `docs/matrix.md`: MPR121 32-pad touch grid layout and bank resolution.
+- `docs/architecture.md`: Dual-core audio/UI separation architecture.
+- `docs/alchemyui-tmag5273-migration.md`: Historical migration log for TMAG5273 and AlchemyUI.

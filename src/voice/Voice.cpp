@@ -1,5 +1,5 @@
 #include "Voice.h"
-#include "../rpdsp/src/rpdsp/algorithm.h"
+#include "../utils/DspMapping.h"
 #include <algorithm>
 #include <cmath>
 #include <mutex>
@@ -107,14 +107,6 @@ void Voice::init(float sr)
   // Compute per-sample slide coefficient from time constant
   slideAlpha = makeSmoothingAlpha(slideTimeSeconds, sampleRate);
 
-  // Initialize wavefolder wet/dry smoothing (about 5ms time constant)
-  {
-    const float tau = 0.005f; // seconds
-    wavefolderMixAlpha = makeSmoothingAlpha(tau, sampleRate);
-    wavefolderMixTarget = config.hasWavefolder ? 1.0f : 0.0f;
-    wavefolderMix = wavefolderMixTarget; // start with no transition
-  }
-
   // Initialize oscillators
   cachedOscCount_ = static_cast<uint8_t>(std::min<size_t>(3, config.oscillatorCount));
   for (size_t i = 0; i < cachedOscCount_; i++)
@@ -163,10 +155,6 @@ void Voice::init(float sr)
   // Initialize effects
   overdrive.setDrive(1.0f + (config.overdriveDrive * 3.0f)); // map 0-1 drive to 1-4
   overdrive.setOutputGain(1.0f);
-
-  // Always initialize wavefolder so it's safe to process even when toggled at runtime
-  wavefolder.setGain(config.wavefolderGain);
-  wavefolder.setOffset(config.wavefolderOffset);
 
   // Update detune multipliers in case config changed before init
   recomputeDetuneMultipliers();
@@ -431,11 +419,6 @@ float Voice::mixOscillators()
 
 void Voice::applyEffects(float &signal)
 {
-
-  if (config.hasWavefolder)
-  {
-    signal = wavefolder.process(signal);
-  }
   if (config.hasOverdrive)
   {
     signal = overdrive.process(signal * config.overdriveGain);
@@ -454,7 +437,7 @@ inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept
 {
   float preEffects = signal * envelopeValue;
   // Apply effects (pre-filter)
-  //    VCA envelope is applied pre effects so that the Wavefolder/ overdrive sounds more dynamic
+  //    VCA envelope is applied pre effects so that the overdrive sounds more dynamic
   applyEffects(preEffects);
 
   // Apply ladder filter
@@ -483,9 +466,9 @@ inline void Voice::applyEnvelopeParameters() noexcept
 {
   // Map normalized parameters to appropriate ranges
   float attack =
-      rpdsp::fmap(state.attackTimeSeconds, 0.002f, 0.75f, rpdsp::Mapping::LINEAR);
+      dspmap::fmap(state.attackTimeSeconds, 0.002f, 0.75f, dspmap::Mapping::LINEAR);
   float decay =
-      rpdsp::fmap(state.decayTimeSeconds, 0.002f, 0.8f, rpdsp::Mapping::LOG);
+      dspmap::fmap(state.decayTimeSeconds, 0.002f, 0.8f, dspmap::Mapping::LOG);
   // float release = decay; // Use decay for release in this implementation
 
   envelope.setAttack(attack);
@@ -753,7 +736,7 @@ void Voice::applyPendingParams_() noexcept
     setGate(state.isGateHigh);
 
     // Recompute filter base freq from normalized param
-    filterFrequency = rpdsp::fmap(state.filterCutoff, 150.0f, 8000.0f, rpdsp::Mapping::EXP);
+    filterFrequency = dspmap::fmap(state.filterCutoff, 150.0f, 8000.0f, dspmap::Mapping::EXP);
 
     // Update envelope segment times
     applyEnvelopeParameters();
@@ -797,11 +780,6 @@ void Voice::applyPendingConfig_() noexcept
 
     // Update effects
     overdrive.setDrive(1.0f + (config.overdriveDrive * 3.0f)); // map 0-1 drive to 1-4
-    wavefolder.setGain(config.wavefolderGain);
-    wavefolder.setOffset(config.wavefolderOffset);
-
-    // Smoothly transition wavefolder mix if toggled
-    wavefolderMixTarget = config.hasWavefolder ? 1.0f : 0.0f;
 
     // Detune multipliers depend on config
     recomputeDetuneMultipliers();

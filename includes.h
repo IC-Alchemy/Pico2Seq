@@ -45,9 +45,7 @@
 constexpr uint8_t PIN_WIRE_SDA = 4;
 constexpr uint8_t PIN_WIRE_SCL = 5;
 // Tile bank (Wire1, I2C1) at 400 kHz: SliderModule + ButtonModule8.
-// WARNING: GP15 is also PICO_AUDIO_I2S_DATA_PIN in Pico2Seq.ino (I2S DAC
-// data). A GPIO can drive only one peripheral function at a time — resolve
-// this collision (move the DAC data pin or these pins) before bench power-up.
+// (I2S moved off GP15 onto GP10-12; see PICO_AUDIO_I2S_* in Pico2Seq.ino.)
 constexpr uint8_t PIN_ALCHEMY_WIRE1_SDA = 14;
 constexpr uint8_t PIN_ALCHEMY_WIRE1_SCL = 15;
 // GP7 strap switch to GND: LOW = Param mode, HIGH = Utility mode. If the

@@ -1,227 +1,421 @@
 # Pico2Seq Architecture
 
-This document gives a high-level overview of modules, data flow, and key responsibilities to make the codebase easier to navigate.
+This document provides a comprehensive technical overview of the Pico2Seq architecture, dual-core task distribution, data flow, DSP pipeline, concurrency model, and subsystem responsibilities on the Raspberry Pi Pico 2 (RP2350).
 
-## Top-Level
-- Pico2Seq.ino — Arduino entry point. Initializes hardware, systems, and main loop with dual-core architecture support.
-- includes.h — Central aggregator of library and project headers (Arduino-friendly `src/...` includes).
-- diagnostic.h — Structured logging and diagnostic macros.
-- docs/ — Documentation.
-- src/ — Source modules grouped by domain.
-- vendor/ — Standalone library packaging outside the firmware build tree (see "Staged / Not Yet Wired").
+---
 
-## Modules (src/)
+## 1. Top-Level Overview
 
-### Core System Modules
-- **audio/**: I2S configuration, audio callback wiring for Pico2, real-time audio processing
-  - `audio.h`, `audio_i2s.h`, `audio.cpp` — Core audio interface and I2S management (@48kHz)
-  - `buffer.h` — Audio buffer management for reliable audio streaming
-  - `sample_conversion.h` — Audio format conversion utilities
+Pico2Seq is a 4-voice polyphonic step sequencer and synthesizer running as an Arduino sketch on the dual-core ARM Cortex-M33 Raspberry Pi Pico 2 (RP2350).
 
-### Sequencer System
-- **pico2seq-core/**: Portable sequencer/scale core with **no Arduino or hardware dependencies** (kept reusable in other projects; don't add UI or hardware includes here)
-  - `sequencer/Sequencer.h/.cpp` — Main sequencer class with per-parameter pattern storage (up to 64 steps per track, default 16; 4 independent sequencers)
-  - `sequencer/SequencerDefs.h` — Parameter definitions, timing constants, and step structures
-  - `sequencer/ParameterManager.h/.cpp` — Thread-safe parameter management and validation
-  - `sequencer/ShuffleTemplates.h` — Shuffle pattern templates for rhythmic variation
-  - `scales/scales.h/.cpp` — Musical scale tables (13 built-in scales)
+```
+Pico2Seq/
+├── Pico2Seq.ino            # Main sketch entry point (setup/loop on Core 0, setup1/loop1 on Core 1)
+├── includes.h              # Central aggregator of subsystem headers and pin definitions
+├── diagnostic.h            # Structured diagnostic logging macros
+├── docs/                   # System and subsystem documentation
+├── src/                    # Firmware source code organized by subsystem
+│   ├── audio/              # I2S DMA audio driver and producer buffer management (@48kHz)
+│   ├── pico2seq-core/      # Portable, zero-dependency sequencer and musical scale core
+│   │   ├── scales/         # Musical scale definitions (13 scales, 48 steps)
+│   │   └── sequencer/      # Polymetric Sequencer, ParameterManager, ShuffleTemplates
+│   ├── voice/              # Voice synthesis, VoiceManager, VoiceSystem, VoicePresets
+│   ├── rpdsp/              # Submodule: header-only DSP library (IC-Alchemy/RPDSP)
+│   ├── ui/                 # UIState, ControlSurfaceLogic, UIEventHandler, ButtonHandlers
+│   ├── AlchemyUI/          # Submodule: modular I2C UI tile driver (Wire1 @ 400kHz)
+│   ├── VelocityEncoder/    # Submodule: TMAG5273 / AS5600 magnetic encoder driver
+│   ├── sensors/            # DistanceSensor (VL53L1X), EncoderManager, SensorConstants
+│   ├── matrix/             # MPR121 32-pad capacitive touch matrix scanning
+│   ├── LEDMatrix/          # 8x8 WS2812B FastLED matrix controller and visual feedback
+│   ├── OLED/               # 128x64 SH1106G I2C OLED display driver and view hierarchy
+│   ├── midi/               # TinyUSB MIDI input/output, CC management, clock generation
+│   └── utils/              # Debug.h/.cpp lightweight logging utilities
+└── tests/                  # Catch2 v3.5.2 host unit tests with hardware header stubs
+```
 
-### Voice Synthesis System
-- **voice/**: Multi-voice synthesizer with DSP processing and preset management
-  - `Voice.h/.cpp`, `VoiceManager.h/.cpp` — Voice synthesis and management systems
-  - `VoiceSystem.h` — Centralized voice state management (4 voices max with array-based access)
-  - `VoicePresets.h/.cpp` — Factory system for synthesizer voice configurations (7 preset types)
+---
 
-### Digital Signal Processing
-- **rpdsp/**: Header-only DSP library, tracked as a **Git submodule** from `IC-Alchemy/RPDSP` (clone with `--recurse-submodules`)
-  - ADSR envelope, ladder filter, waveshaper, wavefolder, oscillators, delay lines, and more
-  - Reached from the voice code through `src/voice/VoiceOscillator.h` (waveform-id dispatch)
+## 2. Dual-Core Task Distribution & Lifecycle Model
 
-### User Interface System
-- **ui/**: Complete UI management system for step pads, tiles, and controls
-  - `UIState.h` — Central UI state structure (replaces global variables with structured array management; also holds the Alchemy mode/Shift/latch state)
-  - `UIEventHandler.h/.cpp` — Matrix step-pad event processing (all 32 indices are pads, resolved through the bank mapping) plus the shared entry points the tile bridge calls
-  - `ControlSurfaceLogic.h/.cpp` — Pure, unit-tested decision logic for the Alchemy tile surface: `ModeStabilizer` (GP7 debounce), `PadBank` (pad→voice/step), `ShiftLatch` (Shift-keyed param holds), `FaderMap` (mode+channel→target, deadband)
-  - `AlchemyControlBridge.h/.cpp` — Glue owning the `AlchemyPanel`: polls the tiles each control pass and translates edges/fader moves into calls to the existing handlers (no logic of its own; not unit-tested)
-  - `ButtonHandlers.h/.cpp` — Specialized button behavior implementations (randomize, parameter cycling)
-  - `ButtonManager.h/.cpp` — Parameter hold state helpers keyed by `ParamId` (`paramName`/`paramIdFromName`)
-  - `UIConstants.h` — UI constants and button mappings
+The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio synthesis strictly to Core 0 and all user interaction, sensors, sequencing, and communication to Core 1.
 
-### Alchemy Tile Control Surface
-- **AlchemyUI/**: Vendored hub-side library for the Alchemy Modular UI I2C tiles (protocol v2, register map, adaptive reads, TileButton edge state). `ButtonMap.h` maps logical buttons onto the 2-tile rig: a **SliderModule** (4 faders + 4 buttons = Voice 1–4 selects) and a **ButtonModule8** (8 buttons = 7 parameter buttons + Shift, or 6 utility buttons + Shift depending on the GP7 mode strap). Tiles sit on a dedicated **Wire1** bank at 400 kHz (SDA=GP14, SCL=GP15; the shared OLED/sensor bus is Wire on SDA=GP4, SCL=GP5 — pins in `includes.h`); the MPR121 matrix is 32 dedicated step pads (two voices at a time via pad banks).
+```
++-----------------------------------------------------------------------------------------+
+|                                    RP2350 DUAL-CORE SPLIT                               |
++----------------------------------------------------+------------------------------------+
+|                      CORE 0                        |               CORE 1               |
+|            Real-Time Audio Synthesis               |   UI, Sensors, MIDI & Sequencer    |
++----------------------------------------------------+------------------------------------+
+| setup():                                           | setup1():                          |
+|  - initOscillators()                               |  - delay(300) [stabilize Core 0]   |
+|      * VoiceManager(4) construction                |  - usb_midi.begin()                |
+|      * Add 4 preset voices                         |  - Wire (I2C0 GP4/GP5): OLED,      |
+|      * Attach seq1..seq4 to voice IDs              |    MPR121, TMAG5273, VL53L1X       |
+|  - audio_new_producer_pool(3 buffers, 256 samples) |  - Wire1 (I2C1 GP14/GP15 @ 400kHz):|
+|  - audio_i2s_setup(48kHz, stereo S16, GP10-12)    |    Alchemy tile control panel      |
+|  - audio_i2s_set_enabled(true)                     |  - ledMatrix.begin(100) (GP1)      |
+|                                                    |  - uClock.init(90 BPM, 480 PPQN)   |
+| loop():                                            |                                    |
+|  - take_audio_buffer(producer_pool, true)          | loop1():                           |
+|  - fill_audio_buffer(audioBuffer):                 |  - usb_midi.read()                 |
+|      for i = 0 .. 255:                             |  - pollUIHeldButtons(uiState, ...) |
+|        s = voiceManager->processAllVoices()        |  - Drain PPQN ticks (uClock):      |
+|        pcm16 = FloatToPcm16(s)  [__SSAT]           |      * midiNoteManager.update()    |
+|        out[2*i] = pcm16; out[2*i+1] = pcm16;       |      * seq1..seq4.tickNoteDuration()|
+|  - give_audio_buffer(producer_pool, audioBuffer)   |      * voiceSystem.tickAllGateTimers()|
+|                                                    |  - 1ms Loop (Control & Sensors):   |
+|                                                    |      * Matrix_scan() (32 step pads)|
+|                                                    |      * alchemyBridge.update()      |
+|                                                    |      * magEncoder.update()         |
+|                                                    |      * distanceSensor.update()     |
+|                                                    |  - 20ms Loop (50Hz Displays):      |
+|                                                    |      * updateStepLEDs()            |
+|                                                    |      * display.update() (OLED)     |
+|                                                    |      * updateControlLEDs()         |
+|                                                    |      * ledMatrix.show()            |
++----------------------------------------------------+------------------------------------+
+```
 
-### Hardware Interface
-- **matrix/**: 4×8 capacitive touch matrix scanning system with debounced input processing — all 32 MPR121 indices are dedicated **step pads** since the Alchemy tile migration; pad presses resolve to (voice, step) via `ControlSurface::PadBank` (selected voice 1/2 → pads address voices 1+2; voice 3/4 → voices 3+4)
-- **LEDMatrix/**: 8×8 LED matrix display system with theme-based visual feedback for step states and parameter values
-- **OLED/**: 128×64 SH1106G display for detailed parameter visualization and settings navigation
-- **midi/**: USB MIDI communication with multi-voice note transmission and continuous controller (CC) support
-- **sensors/**: Multi-sensor control system with TMAG5273 magnetic encoder and VL53L1X distance sensor
-  - `EncoderManager.h/.cpp` — High-level encoder parameter management (base values, ranges, step editing) plus the global `magEncoder` instance
-  - `DistanceSensor.h/.cpp` — Non-blocking VL53L1X driver built on Adafruit_VL53L1X
-  - `SensorConstants.h` — All sensor timing, address, and range constants
-- **VelocityEncoder/**: Git submodule (`IC-Alchemy/VelocityEncoder`) providing the `MagEncoder` driver — one API wrapping either a TI TMAG5273 or an AMS AS5600; Pico2Seq uses the TMAG5273 on the Velocity Encoder board (I2C 0x22)
+### 2.1 Core 0: Real-Time Audio Engine
+- **Dedicated Execution**: Runs standard Arduino `setup()` and `loop()`. No UI, serial processing, or sensor polling is ever executed on Core 0.
+- **Buffer Pool**: Configured with `audio_new_producer_pool(&bufferFormat, 3, 256)`:
+  - 3 producer buffers in the pool.
+  - 256 samples per buffer @ 48kHz ($\approx 5.33\text{ ms}$ real-time budget per buffer).
+  - Format: 16-bit signed stereo (`AUDIO_BUFFER_FORMAT_PCM_S16`), sample stride of 4 bytes (2 channels $\times$ 2 bytes).
+- **I2S Hardware Configuration**:
+  - Data pin: GP12 (`PICO_AUDIO_I2S_DATA_PIN`).
+  - Clock base pin: GP10 (`PICO_AUDIO_I2S_CLOCK_PIN_BASE` for BCLK GP10 and LRCK GP11).
+  - DMA channel: Channel 0; PIO state machine: SM 0.
+- **Fast Saturation (`FloatToPcm16`)**:
+  ```cpp
+  static inline int16_t FloatToPcm16(float s) noexcept {
+      s = fminf(1.0f, fmaxf(-1.0f, s));
+      const float scaled = s * 32768.0f;
+      const int32_t i = (int32_t)lrintf(scaled);
+      return (int16_t)__SSAT(i, 16);
+  }
+  ```
+  Uses the ARM Cortex-M33 hardware saturation instruction `__SSAT` to clamp the scaled 32-bit integer into signed 16-bit range in a single cycle.
+- **Mono-to-Stereo Replication**: The mono voice mix is duplicated across both channels: `out[2*i] = pcm16; out[2*i+1] = pcm16;`.
 
-### Utilities and Helpers
-- **utils/**: `Debug.h/.cpp` — common debug helpers
-- **diagnostic.h** (repo root): Structured logging (`DBG_INFO` etc.) and diagnostic utilities
+### 2.2 Core 1: System Control, UI, Sensors, MIDI & Clock
+- **Execution**: Runs Arduino `setup1()` and `loop1()`.
+- **Clock Engine (`uClock`)**:
+  - Default tempo: 90 BPM; resolution: 480 PPQN (`PPQN_480`).
+  - Shuffle: Built-in `uClock.setShuffle(true)` using templates from `ShuffleTemplates.h`.
+  - Interrupt / callback writes: `onOutputPPQNCallback` increments `ppqnTicksPending`, and `onStepCallback` fires every 16th note step to advance sequencers and update `VoiceState`.
+- **PPQN Drain Loop**:
+  - Drains `ppqnTicksPending` inside `loop1()`.
+  - Advances `midiNoteManager.updateTiming(globalTickCounter)`.
+  - Advances sequencer note durations (`seq1..seq4.tickNoteDuration()`).
+  - Ticks gate countdown timers (`voiceSystem.tickAllGateTimers()`).
+- **1ms Sensor and Control Loop**:
+  - `Matrix_scan()`: Scans MPR121 32 capacitive touch step pads over I2C0 (Wire: GP4/GP5 @ 0x5A).
+  - `alchemyBridge.update()`: Polls SliderModule (4 faders) and ButtonModule8 on dedicated I2C1 (Wire1: GP14/GP15 @ 400kHz) and reads the GP7 hardware mode strap.
+  - `magEncoder.update()`: Reads the TMAG5273A magnetic encoder on Wire @ 0x35 and updates base values via `updateEncoderBaseValues(uiState)`.
+  - `distanceSensor.update()`: Non-blocking VL53L1X distance sensor update on Wire @ 0x29 (74–1400mm range).
+  - `pollUIHeldButtons()`: Processes long-press events across all four sequencers (`seq1..seq4`).
+- **20ms (50Hz) Display Refresh Loop**:
+  - OLED Display: `display.update(uiState, seq1..seq4, voiceManager)` refreshes the 128x64 SH1106G display on Wire @ 0x3C.
+  - LED Matrix: `updateStepLEDs()`, `updateControlLEDs()`, and `ledMatrix.show()` refresh the 8x8 WS2812B FastLED array on GPIO 1.
 
-### Staged / Not Yet Wired
-- **vendor/ (repo root)**: Standalone library packaging outside the firmware build tree — currently `vendor/VL53L1X`, an IC-Alchemy non-blocking VL53L1X wrapper library (the same driver design as `src/sensors/DistanceSensor`).
+---
 
-## VoiceSystem Architecture
+## 3. Concurrency Model & Lock-Free Staging
 
-The VoiceSystem represents a significant architectural improvement that centralizes voice management:
+To maintain real-time audio deadlines on Core 0 without priority inversion, lock contention, or memory corruption, Pico2Seq uses lock-free atomic generation counters and `volatile` communication flags instead of mutexes or blocking primitives.
 
-### Key Design Principles
-- **Centralization**: All voice-related data consolidated in one structure
-- **Array-based Access**: Replaces individual `voice1Id`, `voice2Id` variables with `voiceIds[MAX_VOICES]`
-- **Type Safety**: Bounds checking and consistent data access patterns
-- **Scalability**: Easy to modify voice count by changing `MAX_VOICES` constant (currently 4)
-- **Encapsulation**: Safe accessor methods prevent direct array access
+```
+Core 1 (Control Thread)                           Core 0 (Audio Thread @ 48kHz)
+-----------------------                           -----------------------------
+Voice::updateParameters(newState)                 Voice::process()
+  │                                                 │
+  ├── stagedState_ = newState                       ├── applyPendingConfig_() [acquire]
+  └── paramsGen_.fetch_add(1) ────────────────────> ├── applyPendingParams_()
+                                                    │     if (paramsGen_ != appliedParamsGen_) {
+Voice::setConfig(newConfig)                         │       state = stagedState_;
+  │                                                 │       appliedParamsGen_ = paramsGen_;
+  ├── stagedConfig_ = newConfig                     │     }
+  └── configPending_.store(true, release) ────────> │
+                                                    ├── computeEnvelope()
+Voice::updatePitchCache_()                          │
+  │                                                 ├── updateFilter()
+  ├── Compute base & per-osc harmony                │
+  ├── pitchCache_.finalFreq[i] = ...                ├── mixOscillators()
+  └── pitchGen_.fetch_add(1) ─────────────────────> │     if (isGateHigh && pitchGen_ != appliedPitchGen_) {
+                                                    │       oscillators[i].setFreq(pitchCache_.finalFreq[i]);
+                                                    │       appliedPitchGen_ = pitchGen_;
+                                                    │     }
+                                                    │
+                                                    └── finalizeOutput()
+```
+
+### 3.1 Lock-Free Staging Mechanisms
+1. **Parameter Staging (`paramsGen_` / `appliedParamsGen_`)**:
+   - Written by Core 1 in `Voice::updateParameters()`.
+   - Core 1 updates `stagedState_` and bumps `paramsGen_.fetch_add(1, std::memory_order_seq_cst)`.
+   - Core 0 checks `applyPendingParams_()` at the start of `Voice::process()`. If `paramsGen_ != appliedParamsGen_`, it safely copies `stagedState_` into active `state` and updates envelope and filter parameters.
+2. **Config Staging (`configPending_`)**:
+   - Written by Core 1 in `Voice::setConfig()`.
+   - Core 1 writes `stagedConfig_` and sets `configPending_.store(true, std::memory_order_release)`.
+   - Core 0 checks `applyPendingConfig_()` with `memory_order_acquire`, reconfigures oscillator slots, filter modes, detune multipliers, and clears the pending flag.
+3. **Pitch Staging (`pitchGen_` / `appliedPitchGen_`)**:
+   - Precomputed by Core 1 in `Voice::updatePitchCache_()` and cached in `pitchCache_`.
+   - `pitchGen_.fetch_add(1, std::memory_order_seq_cst)` is bumped.
+   - Core 0 commits oscillator frequencies inside `Voice::mixOscillators()` **only when `state.isGateHigh == true`**. This prevents pitch glitching during note release.
+   - Frequency changes are threshold-gated by `ShouldApplyFreq_` (~0.017 cent threshold) to eliminate redundant oscillator calculations.
+4. **Volatile Shared State**:
+   - `volatile bool gates[2]`: Gate state for hardware-gated voices 0–1.
+   - `volatile uint32_t ppqnTicksPending`: Pending clock ticks incremented by timer callback, decremented by Core 1.
+   - `volatile bool touchFlag`, `volatile bool g_audioOK`, `volatile bool g_errorState`: System status flags.
+
+---
+
+## 4. Voice Subsystem & VoiceSystem Architecture
+
+### 4.1 `VoiceSystem` Data Structure
+
+Defined in `src/voice/VoiceSystem.h`:
 
 ```cpp
 struct VoiceSystem {
-    static const uint8_t MAX_VOICES = 4;
+    static constexpr uint8_t MAX_VOICES = 4;
 
-    // Core voice data arrays
-    uint8_t voiceIds[MAX_VOICES];
+    // Voice IDs assigned by VoiceManager
+    uint8_t voiceIds[MAX_VOICES] = {0, 0, 0, 0};
+
+    // Active voice states for synthesis and sequencing
     VoiceState voiceStates[MAX_VOICES];
-    volatile bool gates[2];   // voices 0-1 only
-    GateTimer gateTimers[2];  // voices 0-1 only
 
-    // Safe accessor methods
-    VoiceState& getVoiceState(uint8_t index);
-    volatile bool& getGate(uint8_t index);  // write through the reference
-    GateTimer& getGateTimer(uint8_t index);
+    // Software gate flags + gate timers (strictly Voices 0 and 1)
+    volatile bool gates[2] = {false, false};
+    GateTimer gateTimers[2];
+
+    // Array accessors with bounds checking
+    uint8_t getVoiceId(uint8_t voiceIndex) const;
+    void setVoiceId(uint8_t voiceIndex, uint8_t voiceId);
+
+    VoiceState& getVoiceState(uint8_t voiceIndex);
+    const VoiceState& getVoiceState(uint8_t voiceIndex) const;
+
+    volatile bool& getGate(uint8_t voiceIndex);
+    GateTimer& getGateTimer(uint8_t voiceIndex);
+
+    void stopAllGates();
+    void tickAllGateTimers();
 };
+
+extern VoiceSystem voiceSystem;
 ```
 
-### Benefits Over Legacy System
-1. **Reduced Code Duplication**: Eliminates switch/case statements for voice selection
-2. **Improved Performance**: Loop-based operations replace conditional branching
-3. **Enhanced Safety**: Bounds checking prevents array access violations
-4. **Better Organization**: All voice data in one location simplifies debugging
-5. **Future Extensibility**: Easy to add features across all voices consistently
+### 4.2 Voice Count & Hardware Asymmetry
+- **4 Polyphonic Voices (`MAX_VOICES = 4`)**: All 4 voices are fully synthesized in real time on Core 0 via `voiceManager->processAllVoices()`.
+- **2-Channel Hardware Gate / MIDI Asymmetry**:
+  - **Voices 0 and 1**: Fully equipped with USB MIDI note on/off and CC transmission, and `GateTimer` duration countdowns.
+  - **Voices 2 and 3**: Audio-only synthesis voices. They are driven by `seq3` and `seq4` and synthesized by `VoiceManager`, but have no USB MIDI output routing.
+- **Safe Dummy Returns**:
+  - `getGate(voiceIndex)` for `voiceIndex >= 2` returns a reference to an internal `static volatile bool dummy = false`.
+  - `getGateTimer(voiceIndex)` for `voiceIndex >= 2` returns a reference to an internal `static GateTimer dummy`.
+  - `getVoiceState(voiceIndex)` clamps index `< MAX_VOICES ? voiceIndex : 0`.
 
-## Data Flow Architecture
+---
+
+## 5. DSP Processing Pipeline & RPDSP Integration
+
+All DSP components reside in the `rpdsp` namespace from `src/rpdsp/` (tracked as a Git submodule from `IC-Alchemy/RPDSP`).
 
 ```
-User Input (Step Pads / Alchemy Tiles / Sensors / MIDI)
-         ↓ (UIEventHandler + AlchemyControlBridge)
-    Central UIState Management
-         ↓ (Real-time updates)
-      4x Independent Sequencers
-         ↓ (Polymetric stepping)
-      VoiceSystem (Dual-core sync)
-         ↓ (Parameter mapping)
-    VoiceManager/Voice DSP Chain
-         ↓ (Real-time synthesis)
-      I2S Audio Output @48kHz
-         ↓ (Parallel processing)
-    MIDI CC/MIDI Note Output
+                              Voice::process() (Core 0 @ 48kHz)
+                                              │
+                    ┌─────────────────────────┴─────────────────────────┐
+                    │ 1. applyPendingConfig_() & applyPendingParams_()  │
+                    └─────────────────────────┬─────────────────────────┘
+                                              │
+                                              ▼
+                    ┌───────────────────────────────────────────────────┐
+                    │ 2. computeEnvelope()                              │
+                    │    - rpdsp::ADSR (Gate rise/fall or retrigger)    │
+                    │    - Returns envelope amplitude E in [0.0, 1.0]   │
+                    └─────────────────────────┬─────────────────────────┘
+                                              │
+                                              ▼
+                    ┌───────────────────────────────────────────────────┐
+                    │ 3. updateFilter(E)                                │
+                    │    - One-pole cutoff smoothing (4ms tau)          │
+                    │    - Throttled filter.setFreq() every 8 samples   │
+                    └─────────────────────────┬─────────────────────────┘
+                                              │
+                                              ▼
+                    ┌───────────────────────────────────────────────────┐
+                    │ 4. mixOscillators()                               │
+                    │    - Silence short-circuit (if E <= 0.0005, ret 0)│
+                    │    - Slew pitch if slide active                   │
+                    │    - Commit pitch if gate HIGH                    │
+                    │    - Standard: Sum(VoiceOscillator[i] * amp[i])   │
+                    │    - Percussion: rpdsp::NoiseOscillator           │
+                    └─────────────────────────┬─────────────────────────┘
+                                              │
+                                              ▼
+                    ┌───────────────────────────────────────────────────┐
+                    │ 5. finalizeOutput()                               │
+                    │    - S_vca = S_osc * E (Pre-filter VCA envelope)  │
+                    │    - Overdrive: rpdsp::Waveshaper (if enabled)    │
+                    │    - Ladder Filter: rpdsp::LadderFilter           │
+                    │      (LP24, LP12, BP24, BP12, HP24, HP12)         │
+                    │    - High-Pass: rpdsp::StateVariableFilter (HPF)  │
+                    │    - Scaling: S_out = S_hpf * outputLevel         │
+                    └─────────────────────────┬─────────────────────────┘
+                                              │
+                                              ▼
+                    ┌───────────────────────────────────────────────────┐
+                    │ VoiceManager::processAllVoices()                  │
+                    │   Sum(voice[i] * mixLevel[i]) * globalVolume      │
+                    └─────────────────────────┬─────────────────────────┘
+                                              │
+                                              ▼
+                             FloatToPcm16() (Cortex-M33 __SSAT)
+                                              │
+                                              ▼
+                                 I2S DMA Stereo Output @ 48kHz
 ```
 
-### Detailed Processing Chain
+### 5.1 `VoiceOscillator` Class Dispatch
+`src/voice/VoiceOscillator.h` decouples numeric waveform identifiers from `rpdsp`'s class-per-waveform architecture using `std::variant`:
 
-#### 1. Input Processing
-- **Step Pads (MPR121, 32)**: All matrix indices are pads; each press resolves
-  through the pad-bank mapping to (voice, step) — gate toggling, long-press
-  step edit, param-hold programming, Shift+pad clear
-- **Alchemy Tiles (Wire1)**: Parameter/utility buttons + Voice 1–4 selects +
-  faders, selected per mode by the GP7 strap (LOW = Param, HIGH = Utility);
-  `AlchemyControlBridge` feeds the same handler code the old matrix buttons used
-- **TMAG5273 Encoder**: Real-time parameter modulation with velocity-sensitive scaling
-- **VL53L1X Distance**: Hands-free parameter control (74-1400mm range)
-- **MIDI Input**: Future expansion capability
+```cpp
+using Osc = std::variant<
+    rpdsp::BSplineSawOsc,        // WAVE_BSP_SAW (4): Band-limited 2nd-order B-spline saw
+    rpdsp::BSplineSquareOsc,     // WAVE_BSP_SQUARE (5): Band-limited 2nd-order B-spline pulse (PWM)
+    rpdsp::SineOscillator,       // WAVE_SIN (0): Pure sine wave
+    rpdsp::TriangleOscillator,   // WAVE_TRI (1): Triangle wave
+    rpdsp::SawOsc,               // WAVE_SAW (2): Naive saw wave
+    rpdsp::SquareOsc,            // WAVE_SQUARE (3): Naive square wave
+    rpdsp::NoiseOscillator       // WAVE_NOISE (255): White noise generator
+>;
+```
 
-#### 2. UI State Management
-- **Centralized State**: All UI variables now in `UIState` struct vs global variables
-- **Parameter Mapping**: Button presses mapped to voice parameters, sequencer controls
-- **Mode Management**: Settings mode, gate length mode, step editing modes
-- **State Synchronization**: Safe inter-core communication using volatile variables
+---
 
-#### 3. Sequencer Processing
-- **4 Independent Sequencers**: One per voice with fully configurable parameter tracks
-- **Polymetric Operation**: Each parameter can have different step counts (Note:16, Filter:8, etc.)
-- **Real-time Recording**: Live sensor parameter capture during playback
-- **Gate-controlled Programming**: Parameter editing restricted to active step gates
+## 6. Subsystem Breakdown & Source Modules
 
-#### 4. Voice Synthesis Chain
-- **VoiceSystem Coordination**: Centralized voice state management and access
-- **VoiceManager Integration**: Manages voice lifecycle and DSP configuration
-- **DSP Processing**: Multi-oscillator synthesis with effects (filter, overdrive, wavefolder)
-- **Parameter Interpolation**: Smooth transitions between sequencer steps
+### 6.1 `src/audio/`
+- `audio.h`, `audio_i2s.h`, `audio.cpp`: Low-level I2S driver using RP2040/RP2350 PIO and DMA.
+- `buffer.h`: Audio buffer structures (`audio_buffer_t`, `audio_buffer_pool_t`).
+- `sample_conversion.h`: Conversion utilities between PCM representations.
 
-#### 5. Output Processing
-- **I2S Audio**: Real-time audio output @48kHz with hardware optimization
-- **MIDI Communication**: USB MIDI note transmission and CC parameter output
-- **Visual Feedback**: OLED display shows parameters, LED matrix shows step states
+### 6.2 `src/pico2seq-core/`
+Portable core with **no hardware, UI, or Arduino dependencies**:
+- `sequencer/Sequencer.h/.cpp`: 4-voice independent step sequencers.
+- `sequencer/SequencerDefs.h`: Polymetric `ParameterTrack<N>`, `ParamId` enum, `VoiceState`, `GateTimer`.
+- `sequencer/ParameterManager.h/.cpp`: Thread-safe parameter validation and clamping.
+- `sequencer/ShuffleTemplates.h`: Groove and shuffle timing templates.
+- `scales/scales.h/.cpp`: 13 musical scales across 48 steps, scale degree ranking, and frequency conversion.
 
-## Key Architectural Decisions
+### 6.3 `src/voice/`
+- `Voice.h/.cpp`: Synthesizer voice DSP chain with lock-free staging and gate-controlled pitch commits.
+- `VoiceManager.h/.cpp`: Multi-voice lifecycle management, master mixing, and preset attachment.
+- `VoiceSystem.h`: Centralized `VoiceSystem` struct (`MAX_VOICES = 4`).
+- `VoicePresets.h/.cpp`: Verified factory presets (Analog, Digital, Bass, Lead, Square, Pad, Percussion).
+- `VoiceOscillator.h`: Variant-based oscillator class dispatcher.
 
-### Multi-core Architecture
-- **Core 0**: Audio synthesis and I2S output (real-time critical)
-- **Core 1**: UI processing, sensor reading, LED/OLED updates
-- **Synchronization**: Volatile variables and careful interrupt handling
-- **Performance**: Isolates real-time audio from UI processing
+### 6.4 `src/ui/` & `src/AlchemyUI/`
+- `UIState.h`: Unified UI state struct (replaces loose globals; holds mode flags, debounce timestamps, preset arrays).
+- `ControlSurfaceLogic.h/.cpp`: Unit-tested decision logic (`ModeStabilizer`, `PadBank`, `ShiftLatch`, `FaderMap`).
+- `UIEventHandler.h/.cpp`: Event routing for MPR121 pads and control surface actions.
+- `AlchemyControlBridge.h/.cpp`: Hardware bridge polling the Alchemy tile panel on Wire1 @ 400kHz.
+- `ButtonHandlers.h/.cpp`: Button behavior implementations (play/stop, randomize, parameter cycling).
 
-### UIState Centralization
-- **Eliminated Globals**: 25+ global UI variables replaced with structured `UIState`
-- **Thread Safety**: Single responsibility for state mutations
-- **Data Flow**: Clear parameter flow from input → UIState → sequencer → voice
-- **Extensibility**: Easy addition of new UI modes and parameters
+### 6.5 `src/matrix/`, `src/LEDMatrix/`, `src/OLED/`, `src/sensors/`
+- `matrix/`: MPR121 driver scanning 32 capacitive touch pads.
+- `LEDMatrix/`: 8x8 WS2812B FastLED matrix controller providing real-time visual feedback.
+- `OLED/`: 128x64 SH1106G display manager with hierarchical view rendering.
+- `sensors/`: `EncoderManager` (TMAG5273 magnetic encoder) and `DistanceSensor` (VL53L1X laser ToF).
 
-### Polymetric Sequencing
-- **Independent Track Lengths**: Each parameter can have different step counts
-- **Complex Patterns**: Enables rhythmic diversity (e.g., note every 2 steps, filter every 8)
-- **Memory Efficient**: Template-based `ParameterTrack` with static allocation
-- **Real-time Capable**: O(1) access time for all parameter lookups
+### 6.6 `src/utils/`
+- `Debug.h/.cpp`: Zero-allocation, lightweight logging system with runtime toggle and level control (`DBG_ERROR`, `DBG_WARN`, `DBG_INFO`, `DBG_VERBOSE`).
 
-### Sensor Integration
-- **TMAG5273 Encoder**: Velocity-sensitive parameter control with 1/16-degree resolution
-- **VL53L1X Distance**: Instant parameter feedback via proximity sensing
-- **Range Optimization**: Parameter values intelligently mapped to musical ranges
-- **Debouncing**: Hardware and software filtering prevent erratic behavior
+---
 
-### VoiceSystem Benefits
-1. **Code Clarity**: Reference `voiceSystem.getVoiceState(voiceIndex)` instead of individual variables
-2. **Maintenance**: Changes to voice count are contained in one struct definition
-3. **Testing**: Easier unit testing with centralized access pattern
-4. **Performance**: Reduced function call overhead and improved cache locality
+## 7. Logging & Diagnostics (`src/utils/Debug.h/.cpp`)
 
-## Gate Sequence Length Mode (UI → Sequencer → LED/OLED)
+Pico2Seq includes a lightweight, microcontroller-safe debugging utility designed to operate without dynamic memory allocations:
 
-- **Activation**: Long-hold the encoder control tile button (Utility mode, bit 5) enters Gate Sequence Length Mode; release to exit
-- **Behavior**: Step pads (1–16) set the Gate track length of the pressed pad's own voice via the bank mapping
-- **LED Feedback**: LEDMatrixFeedback renders blinking band up to current length on selected voice row
-- **OLED Feedback**: OLED display shows "Gate Len Mode", selected voice, length, and bar graph visualization
+```cpp
+#include "src/utils/Debug.h"
 
-## Performance Characteristics
+// Runtime level selection: Error (1), Warn (2), Info (3), Verbose (4)
+Debug::setLevel(Debug::Level::Info);
+Debug::setEnabled(true);
 
-### Real-time Constraints
-- **Audio Processing**: Pure audio synthesis runs isolated on Core 0
-- **I2S Performance**: Hardware-optimized 48kHz output with minimal jitter
-- **Parameter Interpolation**: Smooth parameter changes prevent zipper noise
-- **Memory Layout**: Static allocation eliminates heap fragmentation
+DBG_ERROR("Critical audio buffer underrun detected!");
+DBG_WARN("VoiceManager: addVoice failed - no slots available");
+DBG_INFO("Voice %u triggered note %.1f", voiceIndex, state.noteIndex);
+DBG_VERBOSE("Sensor distance: %u mm", distanceMm);
+```
 
-### Dual-core Synchronization
-- **Data Consistency**: Volatile variables for cross-core communication
-- **Race Prevention**: Careful state management prevents corruption
-- **Timing Coordination**: Hardware timers coordinate sequencer stepping
+- **Zero Cost When Disabled**: Set `AUG_DEBUG_COMPILED 0` to compile out all logging calls to `(void)0;`.
+- **Fixed-Buffer Formatting**: Uses an internal 160-byte stack buffer with `vsnprintf()` to eliminate heap fragmentation.
 
-### Hardware Optimizations
-- **LED Matrix**: Direct GPIO control with efficient update algorithms
-- **OLED Display**: Cached rendering with selective update regions
-- **Sensor Reading**: Non-blocking I2C operations with one data-ready poll per update
+---
 
-## Next Improvements (Roadmap)
-- Introduce an `AppContext` structure to further centralize all global state management
-- Promote public headers to an `include/` directory with project-wide `#include` standardization
-- Add comprehensive unit tests for sequencer logic and voice management
-- Implement CI pipeline with clang-format, clang-tidy, and cppcheck validation
-- Add performance profiling tools for real-time optimization analysis
+## 8. Data Flow Architecture
 
-## Coding Style
-- `.clang-format` (LLVM base, 2-space indent) and `.editorconfig` enforce consistent style and EOLs
-- `diagnostic.h` provides structured logging and debugging utilities
-- Static analysis tools integrated into development workflow
+```
+Physical Inputs (Core 1)
+├── MPR121 32 Step Pads (Wire: GP4/GP5 @ 0x5A)
+├── Alchemy Tile Panel: 4 Faders + 12 Buttons (Wire1: GP14/GP15 @ 400kHz)
+├── TMAG5273A Velocity Encoder (Wire @ 0x35)
+├── VL53L1X Distance Sensor (Wire @ 0x29)
+└── USB MIDI In (TinyUSB)
+         │
+         ▼
+UIEventHandler / ControlSurfaceLogic / AlchemyControlBridge
+         │
+         ▼
+UIState (Single Source of Truth)
+         │
+         ▼
+4x Polymetric Sequencers (seq1..seq4)
+         │
+         ▼ (onStepCallback @ 16th notes)
+VoiceSystem (voiceStates[4], gates[2], gateTimers[2])
+         │
+         ├──────────────────────────────────────────┐
+         ▼ (Lock-Free Staging)                      ▼
+VoiceManager / 4x Voice DSP Chains (Core 0)    USB MIDI Out & Gate Timing (Core 1)
+         │
+         ▼ (fill_audio_buffer @ 48kHz)
+FloatToPcm16() [ARM Cortex-M33 __SSAT]
+         │
+         ▼
+I2S DMA Buffer Pool (3x 256 samples)
+         │
+         ▼
+I2S Stereo Audio Out (GP10 / GP11 / GP12)
+```
+
+---
+
+## 9. Gate Sequence Length Mode
+
+- **Activation**: Long-hold the encoder control button (Utility mode bit 5) to enter Gate Sequence Length Mode.
+- **Behavior**: Step pads 1–16 set the Gate track length (2–16 steps) for the active voice via `Sequencer::setParameterStepCount(ParamId::Gate, ...)`.
+- **Visual Feedback**:
+  - **LED Matrix**: Renders a blinking band along the selected voice row up to the active Gate length; non-selected rows dim.
+  - **OLED**: Displays "Gate Len Mode", the active voice number, length value, and a proportional horizontal gauge.
+- **Exit**: Release the encoder button or toggle slide mode.
+
+---
+
+## 10. Performance & Verification Summary
+
+| Constraint / Metric | Specification | Verification Method |
+|---|---|---|
+| Audio Sample Rate | 48,000 Hz, 16-bit stereo | Hardware I2S clock configuration (`Pico2Seq.ino`) |
+| Audio Buffer Size | 256 samples ($5.33\text{ ms}$) $\times$ 3 buffers | `audio_new_producer_pool` inspection |
+| Audio Latency | $\approx 10.66\text{ ms}$ (2 buffers) | DMA producer pool sizing |
+| Core 0 Allocation | 0 bytes dynamic allocation in `loop()` | Static buffer and fixed array audit |
+| Core 1 Control Scan | 1,000 Hz (1 ms interval) | `loop1()` timing loop verification |
+| Core 1 Display Refresh | 50 Hz (20 ms interval) | `loop1()` timing loop verification |
+| Sequencer Resolution | 480 PPQN @ 90 BPM default | `uClock.init()` verification |
+| Unit Test Coverage | Catch2 v3.5.2 host test suite | `ctest --test-dir build_test` |

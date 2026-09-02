@@ -65,9 +65,12 @@ audio_buffer_pool_t *producer_pool = nullptr;
 // =======================
 constexpr int MAX_HEIGHT = SensorConstants::DistanceSensor::MAX_DISTANCE_HEIGHT_MM;
 constexpr int MIN_HEIGHT = SensorConstants::DistanceSensor::MIN_DISTANCE_HEIGHT_MM;
-constexpr int PIN_TOUCH_IRQ = 10;
-constexpr uint8_t PICO_AUDIO_I2S_DATA_PIN = 15;
-constexpr uint8_t PICO_AUDIO_I2S_CLOCK_PIN_BASE = 16;
+// I2S DAC: DATA on GP12. The PIO driver drives BCLK on clock_pin_base and
+// LRCK on clock_pin_base + 1, so base 10 = BCLK GP10, LRCK GP11.
+// NOTE: GP10-GP12 were the legacy gate/step-clock outputs in Sequencer.cpp;
+// I2S now owns those pads (gate writes become harmless no-ops).
+constexpr uint8_t PICO_AUDIO_I2S_DATA_PIN = 12;
+constexpr uint8_t PICO_AUDIO_I2S_CLOCK_PIN_BASE = 10;
 constexpr int IRQ_PIN = 1;
 constexpr int MAX_MIDI_NOTES = 16;
 
@@ -113,14 +116,6 @@ volatile bool touchFlag = false;
 bool isClockRunning = true;
 unsigned long previousMillis = 0;
 uint32_t ppqnTicksPending = 0;
-
-// =======================
-//   INTERRUPT HANDLERS
-// =======================
-void touchInterrupt()
-{
-    touchFlag = true;
-}
 
 // =======================
 //   AUDIO PROCESSING HELPER FUNCTIONS
@@ -780,7 +775,7 @@ void setup1()
         Serial.println("Distance sensor initialized successfully");
     }
 
-    // Initialize TMAG5273 magnetic encoder (Velocity Encoder board, I2C 0x22)
+    // Initialize TMAG5273A magnetic encoder (Velocity Encoder board, I2C 0x35)
     if (!magEncoder.begin())
     {
         Serial.println("[ERROR] TMAG5273 magnetic encoder initialization failed!");

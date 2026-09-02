@@ -7,6 +7,7 @@
 #include "../pico2seq-core/sequencer/ShuffleTemplates.h"
 #include "../pico2seq-core/scales/scales.h"
 #include "../ui/ButtonManager.h"
+#include "../utils/DspMapping.h" // dspmap::fmap for filter Hz formatting
 #include <cstring> // For strcmp, strlen
 #include <Arduino.h>
 
@@ -131,7 +132,6 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
   const VoiceParameterDisplayInfo parameterInfo[] = {
       {"Envelope", 8},
       {"Overdrive", 9},
-      {"Wavefolder", 10},
       {"Filter Mode", 11},
       {"Filter Res", 12}};
 
@@ -157,9 +157,6 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
       break;
     case 9: // Overdrive
       displayHardware.print(voiceConfiguration->hasOverdrive ? "ON" : "OFF");
-      break;
-    case 10: // Wavefolder
-      displayHardware.print(voiceConfiguration->hasWavefolder ? "ON" : "OFF");
       break;
     case 11: // Filter Mode
     {
@@ -463,11 +460,11 @@ String OLEDDisplay::formatParameterValue(ParamId paramId, float value)
   case ParamId::Filter:
   {
     // Same range as the DSP (Voice.cpp) and EncoderManager display formatting
-    int filterFreq = rpdsp::fmap(
+    int filterFreq = dspmap::fmap(
         value,
         SensorConstants::System::FILTER_FREQUENCY_MIN_HZ,
         SensorConstants::System::FILTER_FREQUENCY_MAX_HZ,
-        rpdsp::Mapping::EXP);
+        dspmap::Mapping::EXP);
     return String((int)(filterFreq)) + "Hz";
   }
 
@@ -647,10 +644,6 @@ void OLEDDisplay::displayVoiceParameterInfo(const UIState &uiState, VoiceManager
   case 9:
     paramName = "Overdrive";
     paramValue = config->hasOverdrive ? "ON" : "OFF";
-    break;
-  case 10:
-    paramName = "Wavefolder";
-    paramValue = config->hasWavefolder ? "ON" : "OFF";
     break;
   case 11:
   {

@@ -132,13 +132,7 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)
     Serial.print(" overdrive ");
     Serial.println(config.hasOverdrive ? "ON" : "OFF");
     break;
-  case 10: // Toggle hasWavefolder
-    config.hasWavefolder = !config.hasWavefolder;
-    Serial.print("Voice ");
-    Serial.print(displayVoiceNumber);
-    Serial.print(" wavefolder ");
-    Serial.println(config.hasWavefolder ? "ON" : "OFF");
-    break;
+  // case 10 (hasWavefolder toggle) removed with the wavefolder effect
   case 11:
   { // Cycle through the shared filter-mode table (names and modes stay in sync)
     int currentIndex = 0;

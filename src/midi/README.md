@@ -1,14 +1,29 @@
-# MIDI Manager
+# Pico2Seq MIDI Module
 
-This module is responsible for handling MIDI communications for the PicoMudrasSequencer.
+This module is responsible for handling USB MIDI communication for Pico2Seq. See the [main README](../../README.md) for overall project context.
+
+---
 
 ## Files
 
-- `MidiManager.h`: Header file declaring the functions for sending MIDI note on/off messages for both voices, and an `allNotesOff` function.
-- `MidiManager.cpp`: Implementation of the MIDI functions. This code was extracted from the main `.ino` file to improve modularity.
+- `MidiCCConfig.h`: Configuration constants, CC number mappings (CC 71–74 for Voice 1, CC 75–78 for Voice 2), rate limiting, and change detection settings.
+- `MidiManager.h`: Interface declarations for `MidiNoteManager`, `MidiNoteTracker`, `CCParameterState`, and extern USB MIDI interface (`usb_midi`).
+- `MidiManager.cpp`: Implementation of note lifecycle tracking, gate synchronization, and CC transmission.
 
-## Responsibilities
+---
 
-- Sending MIDI note events.
-- Handling monophonic behavior for each voice.
-- Providing a central place for all MIDI-related logic.
+## Responsibilities & Architecture
+
+- **Monophonic Note Management:** Manages note-on/note-off pairing and gate timing for external MIDI devices.
+- **Voice Asymmetry:** Manages MIDI note and CC transmission for **Voices 0 and 1** (`voice1Tracker` and `voice2Tracker`). Voices 2 and 3 are internal audio synthesis voices and do not emit MIDI events.
+- **Continuous Controller (CC) Output:** Sends real-time parameter changes (Filter, Attack, Decay, Octave) on MIDI Channel 1 with rate limiting and change detection.
+- **Realtime MIDI Clock:** Broadcasts `Clock` (24 PPQN), `Start`, and `Stop` messages synchronized with `uClock` on Core 1.
+
+---
+
+## Related Documentation
+
+- [MIDI Subsystem Documentation](../../docs/midi.md): In-depth CC mappings, voice asymmetry, and timing details
+- [VoiceSystem Documentation](../../docs/VoiceSystem.md): Centralized voice state management
+- [Architecture Documentation](../../docs/architecture.md): Dual-core division and system overview
+- [Main Project README](../../README.md): Project overview and setup instructions

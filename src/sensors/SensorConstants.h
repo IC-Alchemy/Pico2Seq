@@ -87,7 +87,7 @@ namespace SensorConstants
 
     // Parameter mapping constants
     // Display range for filter cutoff; must match the DSP mapping in Voice.cpp
-    // (rpdsp::fmap(state.filterCutoff, 150.0f, 8000.0f, EXP))
+    // (dspmap::fmap(state.filterCutoff, 150.0f, 8000.0f, EXP))
     static constexpr int FILTER_FREQUENCY_MIN_HZ = 150;
     static constexpr int FILTER_FREQUENCY_MAX_HZ = 8000;
   }

@@ -4,7 +4,7 @@
 #include "../VelocityEncoder/src/MagEncoder.h"
 #include "SensorConstants.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
-#include "../rpdsp/src/rpdsp/algorithm.h" // fmap/Mapping for filter Hz display
+#include "../utils/DspMapping.h" // dspmap::fmap for filter Hz display
 #include "../ui/UIState.h"
 
 // Forward declarations

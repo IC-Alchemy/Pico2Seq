@@ -5,7 +5,6 @@
 #include "../rpdsp/src/rpdsp/filter.h"
 #include "../rpdsp/src/rpdsp/envelope.h"
 #include "../rpdsp/src/rpdsp/effects.h"
-#include "../rpdsp/src/rpdsp/wavefolder.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 #include <array>
@@ -48,12 +47,9 @@ struct VoiceConfig
 
   // Effects chain configuration
   bool hasOverdrive = false;     // Enable overdrive effect
-  bool hasWavefolder = false;    // Enable wavefolder effect
   bool hasEnvelope = true;       // Enable envelope (recommended: true)
   float overdriveGain = 0.34f;   // Overdrive output gain (0.0-2.0)
   float overdriveDrive = 0.25f;  // Overdrive drive amount (0.0-1.0)
-  float wavefolderGain = 8.5f;   // Wavefolder gain (0.0-10.0)
-  float wavefolderOffset = 2.0f; // Wavefolder DC offset (0.0-5.0)
 
   // Envelope default settings
   float defaultAttack = 0.04f; // Default attack time in seconds (0.001-10.0)
@@ -330,7 +326,6 @@ private:
   rpdsp::StateVariableFilter highPassFilter;
   rpdsp::ADSR envelope;
   rpdsp::Waveshaper overdrive;
-  rpdsp::Wavefolder wavefolder;
 
   // Gate edge tracking for the event-style ADSR (noteOn on rise, noteOff on fall)
   bool gateHighPrev_ = false;
@@ -372,11 +367,6 @@ private:
   // slideAlpha is the per-sample coefficient computed from slideTimeSeconds and sampleRate
   float slideTimeSeconds = 0.06f;
   float slideAlpha = 0.00035f;
-
-  // Smooth wet/dry mix for wavefolder to prevent clicks when toggling
-  float wavefolderMix = 0.0f;       // current wet amount [0..1]
-  float wavefolderMixTarget = 0.0f; // target wet amount [0..1]
-  float wavefolderMixAlpha = 0.0f;  // per-sample smoothing coefficient
 
   // Cached detune multipliers to avoid powf in the realtime path
   // detuneMul[i] = 2^(oscDetuning[i] / 12)

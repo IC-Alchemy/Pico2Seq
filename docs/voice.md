@@ -1,189 +1,246 @@
 # Voice Module Documentation
 
-## Overview
+## 1. Overview
 
-The voice module provides a comprehensive synthesizer voice system with multi-oscillator support, filtering, effects processing, and preset management. It is designed for embedded systems (specifically the Raspberry Pi Pico 2 / RP2350) and integrates with the sequencer and MIDI systems.
+The voice module provides a comprehensive synthesizer voice system with multi-oscillator synthesis, ladder filtering, effects processing, lock-free parameter staging, and preset management. It is designed specifically for the dual-core Raspberry Pi Pico 2 (RP2350) architecture and integrates with the sequencer, UI, and MIDI systems.
 
-### Architecture Components
+### 1.1 Architecture Components
 
 The voice system consists of several key components:
 
-- **`Voice`**: Individual synthesizer voice with oscillators, filter, envelope, and effects
-- **`VoiceManager`**: Manages multiple voices with allocation, deallocation, and unified audio processing
-- **`VoiceSystem`**: Centralized struct that consolidates voice IDs, states, gates, and timers into arrays for efficient management
-- **`VoicePresets`**: Factory system for common synthesizer voice configurations
-- **Supporting Classes**: `VoiceManagerBuilder`, `VoiceFactory` for easy setup and configuration
+- **`Voice`**: Individual synthesizer voice encapsulating oscillators, ladder filter, high-pass filter, ADSR envelope, overdrive waveshaper, and lock-free parameter/pitch staging.
+- **`VoiceManager`**: Manages multiple voices with allocation, deallocation, master volume scaling, per-voice mix levels, and unified per-sample audio processing.
+- **`VoiceSystem`**: Centralized structure consolidating voice IDs, states, gates, and gate countdown timers into arrays for `MAX_VOICES = 4` voices.
+- **`VoicePresets`**: Factory namespace providing 7 verified voice presets (Analog, Digital, Bass, Lead, Square, Pad, Percussion).
+- **`VoiceOscillator`**: Variant-based dispatcher decoupling numeric waveform IDs from `rpdsp` oscillator classes.
+- **Supporting Classes**: `VoiceManagerBuilder` and `VoiceFactory` for builder-pattern and pre-configured voice setups.
 
-### VoiceSystem Architecture
+### 1.2 VoiceSystem Centralization
 
-The `VoiceSystem` struct provides a centralized approach to managing multiple voices, replacing individual voice variables with arrays for better maintainability and scalability:
+The `VoiceSystem` struct provides centralized voice tracking:
 
 ```cpp
 struct VoiceSystem {
     static constexpr uint8_t MAX_VOICES = 4;
 
-    uint8_t voiceIds[MAX_VOICES];
+    uint8_t voiceIds[MAX_VOICES] = {0, 0, 0, 0};
     VoiceState voiceStates[MAX_VOICES];
 
-    // Gates/timers exist only for voices 0-1 (hardware gate pins + MIDI);
-    // voices 2-3 are audio-only
-    volatile bool gates[2];
+    // Gates and timers are strictly dedicated to Voices 0 and 1
+    // (the two voices with MIDI gate support)
+    volatile bool gates[2] = {false, false};
     GateTimer gateTimers[2];
 
-    // Getter methods for safe access
-    uint8_t getVoiceId(uint8_t index) const;
-    void setVoiceId(uint8_t index, uint8_t voiceId);
-    VoiceState& getVoiceState(uint8_t index);
-    const VoiceState& getVoiceState(uint8_t index) const;
-    volatile bool& getGate(uint8_t index);   // write through the reference
-    GateTimer& getGateTimer(uint8_t index);
+    uint8_t getVoiceId(uint8_t voiceIndex) const;
+    void setVoiceId(uint8_t voiceIndex, uint8_t voiceId);
 
-    // Helper functions for common operations
+    VoiceState& getVoiceState(uint8_t voiceIndex);
+    const VoiceState& getVoiceState(uint8_t voiceIndex) const;
+
+    volatile bool& getGate(uint8_t voiceIndex);
+    GateTimer& getGateTimer(uint8_t voiceIndex);
+
     void stopAllGates();
     void tickAllGateTimers();
 };
+
+extern VoiceSystem voiceSystem;
 ```
 
-This architecture provides:
-- **Centralized Management**: All voice-related data in one structure
-- **Array-based Access**: Eliminates repetitive code with loop-based operations
-- **Type Safety**: Bounds checking and consistent access patterns
-- **Scalability**: Easy to change voice count by modifying MAX_VOICES constant
-- **Helper Functions**: Common operations like stopping all gates or ticking gate timers
+---
 
-### UIState Integration
+## 2. Public Classes and APIs
 
-The UI system has been updated to work seamlessly with the VoiceSystem architecture:
+### 2.1 `VoiceConfig` Structure
 
-```cpp
-struct UIState {
-    // Voice preset management using arrays
-    static const uint8_t MAX_VOICES = 4;
-    uint8_t voicePresetIndices[MAX_VOICES];
-    
-    // Other UI state variables...
-    uint8_t selectedVoiceIndex;
-    // ...
-};
-```
-
-Key improvements:
-- **Array-based Preset Management**: `voicePresetIndices[MAX_VOICES]` replaces individual `voice1PresetIndex`, `voice2PresetIndex`, etc.
-- **Consistent Indexing**: All voice-related UI operations use the same indexing scheme
-- **Simplified Access**: `uiState.voicePresetIndices[voiceIndex]` instead of conditional selection
-- **Scalable Design**: Adding more voices requires only changing the MAX_VOICES constant
-
-### Key Features
-
-- **Multi-oscillator synthesis**: Up to 3 oscillators per voice with independent waveforms, amplitudes, detuning, and harmony
-- **Advanced filtering**: 24dB ladder filter with multiple modes, plus high-pass filtering
-- **Effects processing**: Overdrive and wavefolder effects
-- **Envelope control**: ADSR envelope with configurable attack, decay, sustain, release
-- **Frequency sliding**: Smooth portamento/glide effects between notes
-- **Scale integration**: Support for different musical scales with chromatic fallback
-- **Preset system**: 7 predefined voice types (Analog, Digital, Bass, Lead, Square, Pad, Percussion)
-- **Memory efficient**: Designed for embedded systems with limited RAM
-
-## Public Classes and APIs
-
-### VoiceConfig Structure
+Defined in `src/voice/Voice.h`:
 
 ```cpp
 struct VoiceConfig {
     // Oscillator configuration
-    uint8_t oscillatorCount = 3;           // Number of oscillators (1-3)
-    uint8_t oscWaveforms[3] = {...};       // Waveform types (WAVE_* ids from VoiceOscillator.h)
-    float oscAmplitudes[3] = {0.5f, 0.5f, 0.5f};  // Oscillator amplitudes (0.0-1.0)
-    float oscDetuning[3] = {0.0f, 0.0f, 0.0f};    // Detuning in semitones (-12.0 to +12.0)
-    float oscPulseWidth[3] = {0.5f, 0.5f, 0.5f};  // Pulse width for square waves (0.0-1.0)
-    int harmony[3] = {0, 0, 0};             // Harmony intervals in scale steps (-12 to +12)
+    uint8_t oscillatorCount = 3;                                            // Number of oscillators (1-3, 0 for percussion)
+    uint8_t oscWaveforms[3] = {WAVE_BSP_SAW, WAVE_BSP_SAW, WAVE_BSP_SAW};   // Waveform types (WAVE_* from VoiceOscillator.h)
+    float oscAmplitudes[3] = {0.5f, 0.5f, 0.5f};                            // Oscillator amplitudes (0.0-1.0)
+    float oscDetuning[3] = {0.0f, 0.0f, 0.0f};                              // Detuning in semitones (-12.0 to +12.0)
+    float oscPulseWidth[3] = {0.5f, 0.5f, 0.5f};                            // Pulse width for square/pulse waves (0.0-1.0)
+    int harmony[3] = {0, 0, 0};                                             // Harmony intervals in scale steps (-12 to +12)
 
     // Filter settings
-    float filterRes = 0.2f;                // Filter resonance (0.0-1.0)
-    float filterDrive = 1.8f;              // Filter drive amount (0.0-4.0)
-    float filterPassbandGain = 0.23f;      // Passband gain compensation (0.0-0.5)
-    rpdsp::LadderFilter::Mode filterMode = rpdsp::LadderFilter::Mode::LP24;
-    float highPassFreq = 80.0f;            // High-pass cutoff frequency in Hz (20.0-20000.0)
-    float highPassRes = 0.1f;              // High-pass resonance (0.0-1.0)
+    float filterRes = 0.2f;                                                 // Filter resonance (0.0-1.0)
+    float filterDrive = 1.8f;                                               // Filter drive amount (0.0-4.0)
+    float filterPassbandGain = 0.23f;                                       // Passband gain compensation (0.0-0.5)
+    rpdsp::LadderFilter::Mode filterMode = rpdsp::LadderFilter::Mode::LP24; // Ladder filter mode (LP24, LP12, BP24, BP12, HP24, HP12)
 
-    // Effects configuration
-    bool hasOverdrive = false;             // Enable overdrive effect
-    bool hasWavefolder = false;            // Enable wavefolder effect
-    bool hasEnvelope = true;               // Enable envelope (recommended: true)
-    float overdriveGain = 0.34f;           // Overdrive output gain (0.0-2.0)
-    float overdriveDrive = 0.25f;          // Overdrive drive amount (0.0-1.0)
-    float wavefolderGain = 3.5f;           // Wavefolder gain (0.0-10.0)
-    float wavefolderOffset = 2.0f;         // Wavefolder DC offset (0.0-5.0)
+    // High-pass filter settings
+    float highPassFreq = 80.0f;                                             // High-pass cutoff frequency in Hz (20.0-20000.0)
+    float highPassRes = 0.1f;                                               // High-pass resonance (0.0-1.0)
 
-    // Envelope settings
-    float defaultAttack = 0.04f;           // Default attack time in seconds (0.001-10.0)
-    float defaultDecay = 0.14f;            // Default decay time in seconds (0.001-10.0)
-    float defaultSustain = 0.5f;           // Default sustain level (0.0-1.0)
-    float defaultRelease = 0.1f;           // Default release time in seconds (0.001-10.0)
+    // Effects chain configuration
+    bool hasOverdrive = false;                                              // Enable overdrive effect
+    bool hasEnvelope = true;                                                // Enable envelope (recommended: true)
+    float overdriveGain = 0.34f;                                            // Overdrive output gain (0.0-2.0)
+    float overdriveDrive = 0.25f;                                           // Overdrive drive amount (0.0-1.0)
+
+    // Envelope default settings
+    float defaultAttack = 0.04f;                                            // Default attack time in seconds (0.001-10.0)
+    float defaultDecay = 0.14f;                                             // Default decay time in seconds (0.001-10.0)
+    float defaultSustain = 0.5f;                                            // Default sustain level (0.0-1.0)
+    float defaultRelease = 0.1f;                                            // Default release time in seconds (0.001-10.0)
 
     // Voice mixing
-    float outputLevel = 0.6f;              // Voice output level (0.0-1.0)
-    bool enabled = true;                   // Voice enabled state
+    float outputLevel = 0.6f;                                               // Voice output level (0.0-1.0)
+    bool enabled = true;                                                    // Voice enabled state
 };
 ```
 
-### Voice Class
+#### UI Filter Modes (`voiceui` namespace)
+```cpp
+namespace voiceui {
+inline constexpr rpdsp::LadderFilter::Mode kFilterModes[] = {
+    rpdsp::LadderFilter::Mode::LP24, rpdsp::LadderFilter::Mode::LP12,
+    rpdsp::LadderFilter::Mode::BP24, rpdsp::LadderFilter::Mode::BP12,
+    rpdsp::LadderFilter::Mode::HP24, rpdsp::LadderFilter::Mode::HP12
+};
+inline constexpr const char* kFilterModeNames[] = {"LP24", "LP12", "BP24", "BP12", "HP24", "HP12"};
+inline constexpr int kFilterModeCount = 6;
+}
+```
+
+---
+
+### 2.2 `Voice` Class
+
+Defined in `src/voice/Voice.h` and implemented in `src/voice/Voice.cpp`:
 
 ```cpp
 class Voice {
 public:
-    // Constructor/Destructor
     Voice(uint8_t id, const VoiceConfig& config);
     ~Voice() = default;
 
     // Initialization and configuration
     void init(float sampleRate);
     void setConfig(const VoiceConfig& config);
-    const VoiceConfig& getConfig() const;
-    VoiceConfig& getConfig();
+    const VoiceConfig& getConfig() const noexcept;
+    VoiceConfig& getConfig() noexcept;
 
-    // Audio processing
-    float process();
+    // Real-time audio processing (runs on Core 0 @ 48kHz)
+    float process() noexcept;
 
-    // Parameter updates
+    // Parameter updates (called on Core 1 control thread)
     void updateParameters(const VoiceState& newState);
 
     // Sequencer integration
     void setSequencer(std::unique_ptr<Sequencer> seq);
     void setSequencer(Sequencer* seq);
-    Sequencer* getSequencer();
+    Sequencer* getSequencer() noexcept;
 
-    // State management
-    VoiceState& getState();
-    const VoiceState& getState() const;
+    // Scale injection (removes global scale coupling)
+    void setScaleTable(const int (*table)[48], size_t scaleCount);
+    void setCurrentScalePointer(const uint8_t* currentScalePtr);
+
+    // State and gate management
+    VoiceState& getState() noexcept;
+    const VoiceState& getState() const noexcept;
     void setGate(bool gateState);
-    bool getGate() const;
+    bool getGate() const noexcept;
 
     // Filter control
     void setFilterFrequency(float freq);
-    float getFilterFrequency() const;
+    float getFilterFrequency() const noexcept;
 
-    // Voice identification
-    uint8_t getId() const;
-    bool isEnabled() const;
+    // Voice identification and enable
+    uint8_t getId() const noexcept;
+    bool isEnabled() const noexcept;
     void setEnabled(bool enabled);
 
-    // Frequency control
+    // Frequency and slide control
     void setFrequency(float frequency);
     void setSlideTime(float slideTime);
 
-    // Scale integration
-    void setScaleTable(const int (*table)[48], size_t scaleCount);
-    void setCurrentScalePointer(const uint8_t* currentScalePtr);
+    // Pitch optimization & modulation API
+    void setPitchBend(float semitones);
+    void setModulationDepth(float semitones);
+    void markPitchDirty();
+    void updateFrequencyIfNeeded();
+    float getCachedFrequency(uint8_t oscIndex) const;
 };
 ```
 
-### VoiceManager Class
+---
+
+### 2.3 `VoiceState` Structure
+
+Defined in `src/pico2seq-core/sequencer/SequencerDefs.h`:
+
+```cpp
+struct VoiceState {
+    float noteIndex = 0.0f;                                                   // Scale step index (0-47)
+    float velocityLevel = 0.8f;                                               // Voice amplitude (0.0-1.0)
+    float filterCutoff = 0.37f;                                               // Filter cutoff frequency (0.0-1.0 normalized)
+    float attackTimeSeconds = 0.01f;                                          // Envelope attack time (0.0-1.0s)
+    float decayTimeSeconds = 0.01f;                                           // Envelope decay time (0.0-1.0s)
+    float octaveOffset = 0.0f;                                                // Normalized octave offset (0.0=C2, 0.5=C3, 1.0=C4)
+    uint16_t gateLengthTicks = SequencerConstants::DEFAULT_GATE_LENGTH_TICKS; // Gate duration (default 60 ticks @ 480 PPQN)
+    bool isGateHigh = false;                                                  // Voice gate state (active note on)
+    bool hasSlide = false;                                                    // Portamento / slide enable flag
+    bool shouldRetrigger = false;                                             // Envelope restart flag
+};
+```
+
+---
+
+### 2.4 `VoiceOscillator` Class & Waveform Dispatch
+
+Defined in `src/voice/VoiceOscillator.h`:
+
+```cpp
+inline constexpr uint8_t WAVE_SIN = 0;
+inline constexpr uint8_t WAVE_TRI = 1;
+inline constexpr uint8_t WAVE_SAW = 2;
+inline constexpr uint8_t WAVE_SQUARE = 3;
+inline constexpr uint8_t WAVE_BSP_SAW = 4;     // Band-limited 2nd-order B-spline saw
+inline constexpr uint8_t WAVE_BSP_SQUARE = 5;  // Band-limited 2nd-order B-spline pulse (with PWM)
+inline constexpr uint8_t WAVE_NOISE = 255;    // White noise generator marker
+
+class VoiceOscillator {
+public:
+    void prepare(float sampleRate);
+    void setWaveform(uint8_t waveform);
+    void setFreq(float hz);
+    void setPulseWidth(float width);
+    float process();
+    uint8_t waveform() const;
+
+private:
+    using Osc = std::variant<
+        rpdsp::BSplineSawOsc,
+        rpdsp::BSplineSquareOsc,
+        rpdsp::SineOscillator,
+        rpdsp::TriangleOscillator,
+        rpdsp::SawOsc,
+        rpdsp::SquareOsc,
+        rpdsp::NoiseOscillator
+    >;
+    // ...
+};
+```
+
+- **Band-Limited Oscillators**: Uses 2nd-order B-spline polynomial interpolation (`BSplineSawOsc` and `BSplineSquareOsc`) for alias-suppressed synthesis on ARM Cortex-M33.
+- **Zero Heap Allocations**: Oscillator variants are stored in fixed-size `std::array<VoiceOscillator, 3>` members on the stack/struct.
+
+---
+
+### 2.5 `VoiceManager` Class
+
+Defined in `src/voice/VoiceManager.h`:
 
 ```cpp
 class VoiceManager {
 public:
-    // Constructor
+    using VoiceCountCallback = std::function<void(uint8_t voiceCount)>;
+    using VoiceUpdateCallback = std::function<void(uint8_t voiceId, const VoiceState& state)>;
+
     VoiceManager(uint8_t maxVoices = 8);
     ~VoiceManager() = default;
 
@@ -202,14 +259,14 @@ public:
     bool updateVoiceState(uint8_t voiceId, const VoiceState& state);
     VoiceState* getVoiceState(uint8_t voiceId);
 
-    // Sequencer Management
+    // Sequencer Attachment
     bool attachSequencer(uint8_t voiceId, std::unique_ptr<Sequencer> sequencer);
     bool attachSequencer(uint8_t voiceId, Sequencer* sequencer);
     Sequencer* getSequencer(uint8_t voiceId);
 
     // Audio Processing
     void init(float sampleRate);
-    float processAllVoices();
+    float processAllVoices() noexcept;
     float processVoice(uint8_t voiceId);
 
     // Voice Control
@@ -221,8 +278,6 @@ public:
     uint8_t getVoiceCount() const;
     uint8_t getMaxVoices() const;
     std::vector<uint8_t> getActiveVoiceIds() const;
-
-    // Memory Management
     size_t getMemoryUsage() const;
     bool hasAvailableSlots() const;
 
@@ -234,7 +289,7 @@ public:
     static std::vector<std::string> getAvailablePresets();
     static VoiceConfig getPresetConfig(const std::string& presetName);
 
-    // Global Voice Parameters
+    // Global & Per-Voice Mixing
     void setGlobalVolume(float volume);
     float getGlobalVolume() const;
     void setVoiceMix(uint8_t voiceId, float mix);
@@ -245,479 +300,140 @@ public:
 };
 ```
 
-### VoiceManagerBuilder Class
+---
 
-```cpp
-class VoiceManagerBuilder {
-public:
-    VoiceManagerBuilder& withMaxVoices(uint8_t maxVoices);
-    VoiceManagerBuilder& withVoice(const std::string& presetName);
-    VoiceManagerBuilder& withVoice(const VoiceConfig& config);
-    VoiceManagerBuilder& withGlobalVolume(float volume);
-    VoiceManagerBuilder& withVoiceCountCallback(VoiceManager::VoiceCountCallback callback);
-    VoiceManagerBuilder& withVoiceUpdateCallback(VoiceManager::VoiceUpdateCallback callback);
+## 3. Verified Preset System
 
-    std::unique_ptr<VoiceManager> build();
-};
+Defined in `src/voice/VoicePresets.h` and implemented in `src/voice/VoicePresets.cpp`. All 7 presets are verified verbatim against firmware source code:
+
+| # | Preset Name | Oscillators | Amplitudes | Detune (Semis) | Harmony | Filter Mode | Filter Settings | Overdrive | Envelope (A/D/S/R) | Output Level |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **0** | **Analog** | 3x `WAVE_BSP_SAW` | `[0.5, 0.25, 0.25]` | `[0.0, +0.08, -0.08]` | `[0, 0, 0]` | **LP24** | Res: 0.33, Drive: 3.1, Passband: 0.23, HPF: 150 Hz | Off (Gain: 0.8, Drive: 0.25) | `0.04s / 0.14s / 0.3 / 0.1s` | `0.5` |
+| **1** | **Digital** | 2x (`WAVE_BSP_SQUARE`, `WAVE_TRI`) | `[0.75, 1.0]` | `[0.0, +12.0]` | `[0, 0]` | **LP12** | Res: 0.40, Drive: 2.5, Passband: 0.25, HPF: 111 Hz (Res: 0.15) | Off (Gain: 0.7, Drive: 0.51) | `0.015s / 0.1s / 0.5 / 0.1s` | `0.5` |
+| **2** | **Bass** | 2x (`WAVE_SIN`, `WAVE_TRI`) | `[1.0, 1.0]` | `[-12.0, -12.0]` | `[0, 0]` | **LP12** | Res: 0.33, Drive: 2.0, Passband: 0.12, HPF: 85 Hz (Res: 0.4) | Off (Gain: 0.95, Drive: 0.16) | `0.01s / 0.3s / 0.55 / 0.2s` | `0.95` |
+| **3** | **Lead** | 2x `WAVE_BSP_SAW` | `[0.6, 0.4]` | `[0.0, 0.0]` | `[0, 3]` | **LP12** | Res: 0.40, Drive: 3.0, Passband: 0.23, HPF: 160 Hz | Off (Gain: 0.7, Drive: 0.45) | `0.02s / 0.2s / 0.5 / 0.15s` | `0.5` |
+| **4** | **Square** | 1x `WAVE_BSP_SQUARE` (PW: 0.2) | `[1.0]` | `[0.0]` | `[0]` | **LP24** | Res: 0.52, Drive: 3.3, Passband: 0.33, HPF: 150 Hz | Off (Gain: 0.75, Drive: 0.35) | `0.02s / 0.2s / 0.0 / 0.15s` | `0.5` |
+| **5** | **Pad** | 3x `WAVE_BSP_SAW` | `[0.33, 0.33, 0.33]` | `[0.0, 0.0, 0.0]` | `[0, -3, +2]` | **LP12** | Res: 0.30, Drive: 2.2, Passband: 0.23, HPF: 140 Hz (Res: 0.08) | Off (Gain: 0.85, Drive: 0.25) | `0.02s / 0.2s / 0.5 / 0.5s` | `0.5` |
+| **6** | **Percussion** | **0 oscs** (`WAVE_NOISE`, `NoiseOscillator`) | `[1.0]` | `[0.0]` | `[0]` | **LP24** | Res: 0.40, Drive: 2.3, Passband: 0.33, HPF: 200 Hz | Off (Gain: 0.45, Drive: 0.30) | `0.005s / 0.08s / 0.0 / 0.07s` | `0.5` |
+
+---
+
+## 4. DSP Processing Pipeline & Signal Flow
+
+Each call to `Voice::process()` on Core 0 executes the following stages:
+
+```
+[Sequencer / UI Parameters]
+           │
+           ▼ (Lock-Free Staging: paramsGen_, configPending_, pitchGen_)
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ Voice::process() (Core 0 @ 48kHz)                                               │
+│                                                                                 │
+│ 1. Apply Pending Updates                                                        │
+│    - applyPendingConfig_(): Reconfigures filters, waveforms, detune multipliers  │
+│    - applyPendingParams_(): Applies staged VoiceState, ADSR parameters, filter f │
+│                                                                                 │
+│ 2. Envelope Processing (computeEnvelope)                                        │
+│    - rpdsp::ADSR: noteOn() on gate rise / retrigger; noteOff() on gate fall     │
+│    - Computes envelope amplitude E in [0.0, 1.0]                                │
+│                                                                                 │
+│ 3. Filter Cutoff Smoothing (updateFilter)                                       │
+│    - Target cutoff = (filterFrequency * E) + (filterFrequency * 0.1)            │
+│    - One-pole smoother: cutoffCurrent += alpha * (targetCutoff - cutoffCurrent) │
+│    - Throttled filter.setFreq() update every 8 samples (relative eps > 0.2%)    │
+│                                                                                 │
+│ 4. Oscillator Synthesis & Slide Slew (mixOscillators)                           │
+│    - Silence short-circuit: If E <= 0.0005, return 0.0 immediately              │
+│    - Commit pitch to hardware ONLY when isGateHigh == true                      │
+│    - If slide active: Exponential slew via fmaf(delta, slideAlpha, currentFreq) │
+│    - If oscCount > 0: S_osc = Sum(osc[i].process() * oscAmplitudes[i])          │
+│    - If oscCount == 0: S_osc = noise_.process()                                 │
+│                                                                                 │
+│ 5. Pre-Filter VCA & Effects Shaping (finalizeOutput)                            │
+│    - S_vca = S_osc * E   (Pre-filter VCA makes overdrive response dynamic)      │
+│    - If hasOverdrive: S_vca = overdrive.process(S_vca * overdriveGain)          │
+│                                                                                 │
+│ 6. Ladder & High-Pass Filtering                                                 │
+│    - S_filt = filter.process(S_vca * velocityLevel)                             │
+│    - S_hpf = highPassFilter.process(S_filt).highpass (or bypassed if <= 20Hz)   │
+│                                                                                 │
+│ 7. Output Scaling                                                               │
+│    - S_out = S_hpf * outputLevel                                                │
+└─────────────────────────────────────────────────────────────────────────────────┘
+           │
+           ▼
+[VoiceManager::processAllVoices() -> Sum(S_out * mixLevel) * globalVolume]
+           │
+           ▼
+[FloatToPcm16() -> Cortex-M33 __SSAT -> I2S DMA Buffer]
 ```
 
-### VoiceFactory Class
+---
 
+## 5. Musical Scale & Pitch Architecture
+
+### 5.1 Static Precomputed Lookup Table
+- `frequencyLookupTable[128]`: Initialized once via `std::call_once` covering MIDI notes 0–127 using `rpdsp::midiNoteToHz()`.
+
+### 5.2 Scale Data Injection
+Scale tables are injected via dependency injection, eliminating global couplings:
 ```cpp
-class VoiceFactory {
-public:
-    // Create a basic dual-voice setup (like current implementation)
-    static std::unique_ptr<VoiceManager> createDualVoiceSetup();
-
-    // Create a quad-voice setup for more complex arrangements
-    static std::unique_ptr<VoiceManager> createQuadVoiceSetup();
-
-    // Create a full 8-voice polyphonic setup
-    static std::unique_ptr<VoiceManager> createPolyphonicSetup();
-
-    // Create a custom setup based on user preferences
-    static std::unique_ptr<VoiceManager> createCustomSetup(
-        const std::vector<std::string>& presets,
-        uint8_t maxVoices = 8);
-};
-```
-
-## Preset System
-
-### Available Presets
-
-The system includes 7 predefined voice presets:
-
-1. **Analog**: Classic analog synthesizer sound with 3 detuned saw waves, wavefolder distortion
-2. **Digital**: Clean digital sound with single saw oscillator, subtle wavefolder
-3. **Bass**: Deep bass sound with saw and triangle oscillators, octave detuning
-4. **Lead**: Bright lead sound with saw and square oscillators, 12th detuning
-5. **Square**: Classic square wave sound with PWM capability
-6. **Pad**: Atmospheric pad sound with 3 harmonically rich oscillators
-7. **Percussion**: Percussive sound with sine waves and fast envelope
-
-### Preset Loading and Application
-
-```cpp
-// Load preset by name
-VoiceManager voiceManager(8);
-uint8_t voiceId = voiceManager.addVoice("analog");
-
-// Apply preset to existing voice
-voiceManager.setVoicePreset(voiceId, "bass");
-
-// Get preset configuration
-VoiceConfig config = VoiceManager::getPresetConfig("lead");
-
-// List available presets
-std::vector<std::string> presets = VoiceManager::getAvailablePresets();
-```
-
-### Preset Configuration Details
-
-#### Analog Preset
-- 3 oscillators: All saw waves with slight detuning (0.0, +0.045, -0.04 semitones)
-- Wavefolder distortion with gain 5.5, offset 1.3
-- Filter: 24dB lowpass, resonance 0.33, drive 3.1
-- Envelope: Attack 0.04s, Decay 0.14s, Sustain 0.45, Release 0.1s
-
-#### Digital Preset
-- 1 oscillator: Saw wave
-- Wavefolder with gain 3.0
-- Filter: 24dB lowpass, resonance 0.2, drive 1.5
-- Envelope: Attack 0.015s, Decay 0.1s, Sustain 0.1, Release 0.1s
-
-#### Bass Preset
-- 2 oscillators: Saw + Triangle, with -12 semitone detuning on second oscillator
-- Filter: 24dB lowpass, resonance 0.33, drive 2.5
-- Envelope: Attack 0.01s, Decay 0.3s, Sustain 0.4, Release 0.2s
-
-#### Lead Preset
-- 2 oscillators: Saw + Square with 12 semitone detuning
-- Square wave pulse width: 0.3
-- Filter: 24dB lowpass, resonance 0.23, drive 3.0
-- Envelope: Attack 0.02s, Decay 0.2s, Sustain 0.35, Release 0.15s
-
-#### Square Preset
-- 1 oscillator: Square wave with pulse width 0.255
-- Filter: 24dB lowpass, resonance 0.55, drive 2.8
-- Envelope: Attack 0.02s, Decay 0.2s, Sustain 0.0, Release 0.15s
-
-#### Pad Preset
-- 3 oscillators: All saw waves with harmony (0, +4, +9 semitones)
-- Filter: 12dB lowpass, resonance 0.1, drive 1.0
-- Envelope: Attack 0.5s, Decay 0.2s, Sustain 0.5, Release 0.5s
-
-#### Percussion Preset
-- 3 oscillators: All sine waves with detuning (+0, +7, -5 semitones)
-- Filter: 24dB lowpass, resonance 0.4, drive 2.3
-- Envelope: Attack 0.005s, Decay 0.08s, Sustain 0.0, Release 0.07s
-
-## Parameter Ranges and Units
-
-### Oscillator Parameters
-- **Amplitude**: 0.0 to 1.0 (linear)
-- **Detuning**: -12.0 to +12.0 semitones
-- **Pulse Width**: 0.0 to 1.0 (square/pulse waves only)
-- **Harmony**: -12 to +12 scale steps
-
-### Filter Parameters
-- **Cutoff Frequency**: 150.0 to 8000.0 Hz, exponential mapping (from 0.0-1.0 normalized input; matches `SensorConstants::System::FILTER_FREQUENCY_*_HZ`)
-- **Resonance**: 0.0 to 1.0
-- **Drive**: 0.0 to 4.0
-- **Passband Gain**: 0.0 to 1.0
-- **High-pass Frequency**: 20.0 to 20000.0 Hz
-- **High-pass Resonance**: 0.0 to 1.0
-
-### Envelope Parameters
-- **Attack Time**: 0.002 to 0.75 seconds
-- **Decay Time**: 0.002 to 0.8 seconds
-- **Sustain Level**: 0.0 to 1.0
-- **Release Time**: 0.001 to 10.0 seconds
-
-### Effects Parameters
-- **Overdrive Gain**: 0.0 to 2.0
-- **Overdrive Drive**: 0.0 to 1.0
-- **Wavefolder Gain**: 0.0 to 10.0
-- **Wavefolder Offset**: 0.0 to 5.0
-
-### Voice Control Parameters
-- **Output Level**: 0.0 to 1.0
-- **Slide Time**: 0.0 to 10.0 seconds
-- **Voice Mix**: 0.0 to 1.0
-- **Global Volume**: 0.0 to 1.0
-
-## MIDI and Sequencer Integration
-
-### Voice State Structure
-
-The voice receives real-time updates through the `VoiceState` structure:
-
-```cpp
-struct VoiceState {
-    float noteIndex;           // Note position in scale (0-47)
-    float velocityLevel;       // Note velocity (0.0-1.0)
-    float filterCutoff;        // Filter cutoff (0.0-1.0 normalized)
-    float attackTimeSeconds;   // Envelope attack time
-    float decayTimeSeconds;    // Envelope decay time
-    int8_t octaveOffset;       // Octave offset in semitones
-    bool isGateHigh;           // Gate on/off state
-    bool hasSlide;             // Enable slide/portamento
-    bool shouldRetrigger;      // Retrigger envelope
-    uint8_t gateLengthTicks;   // Gate length in sequencer ticks
-};
-```
-
-### Sequencer Integration
-
-Each voice can be attached to a sequencer for automated playback:
-
-```cpp
-// Create and attach sequencer
-auto sequencer = std::make_unique<Sequencer>();
-voiceManager.attachSequencer(voiceId, std::move(sequencer));
-
-// Or attach existing sequencer
-voiceManager.attachSequencer(voiceId, existingSequencerPtr);
-```
-
-### MIDI Integration
-
-The voice system expects MIDI-style control through the `VoiceState` structure:
-
-- **Note numbers**: Converted to frequency using scale-aware mapping
-- **Velocity**: 0-127 MIDI velocity mapped to 0.0-1.0
-- **Gate events**: Note on/off triggers envelope
-- **Controller changes**: Map to filter cutoff, envelope parameters
-
-### Scale Integration
-
-The voice system supports multiple musical scales:
-
-```cpp
-// Inject scale data (actual globals from src/pico2seq-core/scales/scales.h)
-extern int scale[SCALES_COUNT][SCALE_STEPS];  // SCALE_STEPS = 48
-voice.setScaleTable(scale, SCALES_COUNT);
-
-// Set current scale
+extern int scale[SCALES_COUNT][SCALE_STEPS];  // 13 scales, 48 steps
 extern uint8_t currentScale;
-voice.setCurrentScalePointer(&currentScale);
+
+voice->setScaleTable(scale, SCALES_COUNT);
+voice->setCurrentScalePointer(&currentScale);
 ```
+- **Synthesis Pitch Offset**: Scale degrees are centered around C3 (+48) with octave offset:
+  $$\text{midiNote} = \text{scale}[\text{scaleIndex}][\text{noteIndex} + \text{harmony}] + 48 + \text{static\_cast<int>}(\text{octaveOffset})$$
+- **Scale Degree Unique-Rank Cache**: `setScaleTable()` precomputes `scaleUniqueCounts`, `scaleIndexToRank`, and `scaleUniqueIndexList` during non-realtime setup to enable $O(1)$ scale degree traversal without runtime search loops.
 
-Scale steps (0-47) are mapped to semitone offsets. If no scale is injected, the system falls back to chromatic mapping.
+### 5.3 Gate-Controlled Pitch Commit
+To prevent audible pitch clicks and glitches when release tails ring out after a sequencer step transition, pitch changes are **committed to oscillators only when `state.isGateHigh == true`**. When the gate is low, the active voice rings out at its last assigned frequency.
 
-## Usage Examples
+---
 
-### Basic Voice Usage
+## 6. Usage Examples
+
+### 6.1 Creating and Initializing Voices
 
 ```cpp
-#include "Voice.h"
-#include "VoiceManager.h"
+#include "src/voice/VoiceManager.h"
+#include "src/pico2seq-core/scales/scales.h"
 
-// Create voice manager
+// Instantiate VoiceManager for 4 polyphonic voices
 VoiceManager voiceManager(4);
 
-// Add voices using presets
-uint8_t voice1 = voiceManager.addVoice("analog");
-uint8_t voice2 = voiceManager.addVoice("bass");
+// Add voices using factory presets
+uint8_t v1 = voiceManager.addVoice("analog");
+uint8_t v2 = voiceManager.addVoice("bass");
+uint8_t v3 = voiceManager.addVoice("lead");
+uint8_t v4 = voiceManager.addVoice("percussion");
 
-// Initialize with sample rate
+// Initialize DSP with 48kHz audio sample rate
 voiceManager.init(48000.0f);
-
-// Process audio (call this every sample)
-float output = voiceManager.processAllVoices();
 ```
 
-### Voice Configuration
+### 6.2 Updating Voice State from Sequencer Step
 
 ```cpp
-// Create custom voice configuration
-VoiceConfig customConfig;
-customConfig.oscillatorCount = 2;
-customConfig.oscWaveforms[0] = WAVE_BSP_SAW;
-customConfig.oscWaveforms[1] = WAVE_BSP_SQUARE;
-customConfig.oscAmplitudes[0] = 0.7f;
-customConfig.oscAmplitudes[1] = 0.3f;
-customConfig.filterRes = 0.4f;
-customConfig.hasWavefolder = true;
+// Called on Core 1 when sequencer triggers a step
+VoiceState newState;
+newState.noteIndex = 12.0f;           // 12th step in scale
+newState.velocityLevel = 0.85f;       // 85% velocity
+newState.filterCutoff = 0.6f;         // 60% filter cutoff
+newState.isGateHigh = true;           // Gate ON
+newState.hasSlide = false;
+newState.octaveOffset = 0.0f;
+newState.gateLengthTicks = 60;        // 60 PPQN ticks
 
-// Add custom voice
-uint8_t voiceId = voiceManager.addVoice(customConfig);
+voiceManager.updateVoiceState(v1, newState);
 ```
 
-### Real-time Parameter Control
+### 6.3 Real-Time Per-Sample Audio Loop (Core 0)
 
 ```cpp
-// Create voice state for real-time control
-VoiceState state;
-state.noteIndex = 24.0f;           // Middle C in scale
-state.velocityLevel = 0.8f;        // 80% velocity
-state.filterCutoff = 0.5f;         // 50% filter cutoff
-state.isGateHigh = true;           // Note on
-state.hasSlide = false;            // No slide
-state.octaveOffset = 0;            // No octave shift
-
-// Update voice parameters
-voiceManager.updateVoiceState(voiceId, state);
+// Called per sample inside fill_audio_buffer() on Core 0
+float sample = voiceManager.processAllVoices();
+int16_t pcm16 = FloatToPcm16(sample);
 ```
-
-### Builder Pattern Usage
-
-```cpp
-// Create voice manager using builder pattern
-auto voiceManager = VoiceManagerBuilder()
-    .withMaxVoices(6)
-    .withVoice("analog")
-    .withVoice("bass")
-    .withVoice("lead")
-    .withGlobalVolume(0.8f)
-    .build();
-
-// Create predefined setups
-auto dualSetup = VoiceFactory::createDualVoiceSetup();
-auto polySetup = VoiceFactory::createPolyphonicSetup();
-```
-
-### Sequencer Integration
-
-```cpp
-// Create sequencer and attach to voice
-auto sequencer = std::make_unique<Sequencer>();
-voiceManager.attachSequencer(voiceId, std::move(sequencer));
-
-// Get sequencer for configuration
-Sequencer* seq = voiceManager.getSequencer(voiceId);
-if (seq) {
-    // Configure sequencer parameters
-    // seq->setTempo(120.0f);
-    // seq->setPatternLength(16);
-}
-```
-
-### Individual Voice Processing
-
-```cpp
-// Process individual voice (for solo monitoring or effects)
-float voiceOutput = voiceManager.processVoice(voiceId);
-
-// Control individual voice parameters
-voiceManager.setVoiceVolume(voiceId, 0.7f);
-voiceManager.setVoiceMix(voiceId, 0.8f);
-voiceManager.setVoiceSlide(voiceId, 0.1f);  // 100ms slide time
-
-// Enable/disable voice
-voiceManager.enableVoice(voiceId, true);
-voiceManager.disableVoice(voiceId);
-```
-
-### Memory Management
-
-```cpp
-// Check memory usage
-size_t memoryUsed = voiceManager.getMemoryUsage();
-
-// Check available slots
-if (voiceManager.hasAvailableSlots()) {
-    // Add more voices
-}
-
-// Remove voices to free memory
-voiceManager.removeVoice(voiceId);
-voiceManager.removeAllVoices();
-```
-
-## System Refactoring and Migration
-
-### Migration from Individual Variables to VoiceSystem
-
-The voice system has undergone a significant architectural refactoring to improve maintainability and scalability. The migration involved:
-
-#### Before (Individual Variables)
-```cpp
-// Old approach - individual variables for each voice
-extern uint8_t voice1Id, voice2Id, voice3Id, voice4Id;
-extern VoiceState voiceState1, voiceState2, voiceState3, voiceState4;
-extern bool GATE1, GATE2, GATE3, GATE4;
-extern GateTimer gateTimer1, gateTimer2, gateTimer3, gateTimer4;
-
-// UI state with individual preset indices
-struct UIState {
-    uint8_t voice1PresetIndex;
-    uint8_t voice2PresetIndex;
-    uint8_t voice3PresetIndex;
-    uint8_t voice4PresetIndex;
-};
-```
-
-#### After (VoiceSystem Architecture)
-```cpp
-// New approach - centralized VoiceSystem
-extern VoiceSystem voiceSystem;
-
-// UI state with array-based preset management
-struct UIState {
-    uint8_t voicePresetIndices[MAX_VOICES];
-};
-```
-
-### Benefits of the Refactoring
-
-1. **Reduced Code Duplication**: Eliminated repetitive code patterns across multiple files
-2. **Improved Maintainability**: Changes to voice management logic only need to be made in one place
-3. **Enhanced Consistency**: All voice operations follow the same access patterns
-4. **Better Scalability**: Adding or removing voices requires minimal code changes
-5. **Cleaner Architecture**: Centralized voice management reduces coupling between modules
-6. **Loop-based Operations**: Common operations like muting all voices can be implemented with simple loops
-7. **Type Safety**: Array bounds checking and consistent data types
-
-### Files Updated During Refactoring
-
-The following files were updated to use the new VoiceSystem architecture:
-
-- **`src/voice/VoiceSystem.h`**: New centralized voice management structure
-- **`src/ui/UIState.h`**: Updated to use voice preset arrays
-- **`src/midi/MidiManager.cpp/.h`**: Refactored to use VoiceSystem for MIDI handling
-- **`src/ui/ButtonHandlers.cpp`**: Updated voice ID access patterns
-- **`src/ui/UIEventHandler.cpp`**: Centralized voice ID retrieval
-- **`src/OLED/oled.cpp`**: Updated display logic to use VoiceSystem
-- **`src/LEDMatrix/LEDMatrixFeedback.cpp`**: Updated LED feedback for voice states
-- **`Pico2Seq.ino`**: Main loop updated to use VoiceSystem helper functions
-
-### Usage Examples with New Architecture
-
-#### Voice Access
-```cpp
-// Old way - conditional selection
-uint8_t currentVoiceId;
-if (selectedVoice == 0) currentVoiceId = voice1Id;
-else if (selectedVoice == 1) currentVoiceId = voice2Id;
-// ...
-
-// New way - direct array access
-uint8_t currentVoiceId = voiceSystem.getVoiceId(selectedVoice);
-```
-
-#### Voice State Management
-```cpp
-// Old way - individual variable updates
-if (voiceIndex == 0) voiceState1 = newState;
-else if (voiceIndex == 1) voiceState2 = newState;
-// ...
-
-// New way - direct array assignment
-voiceSystem.getVoiceState(voiceIndex) = newState;
-```
-
-#### Bulk Operations
-```cpp
-// Old way - manual loops
-for (int i = 0; i < 4; i++) {
-    if (i == 0) osc1.SetAmp(0.0f);
-    else if (i == 1) osc2.SetAmp(0.0f);
-    // ...
-}
-
-// New way - helper functions
-voiceSystem.stopAllGates();
-```
-
-## Blocking Issues Discovered
-
-### 1. Missing Dependencies
-
-The voice system depends on several external components that need to be verified:
-
-- **rpdsp library** (Git submodule at `src/rpdsp/`): Required for oscillators, filters, envelope, and effects
-  - `rpdsp::SecondOrderBSplineSawOscillator` / `SecondOrderBSplinePulseOscillator` (via `VoiceOscillator`)
-  - `rpdsp::LadderFilter`
-  - `rpdsp::StateVariableFilter`
-  - `rpdsp::ADSR`
-  - `rpdsp::Waveshaper` (overdrive)
-  - `rpdsp::Wavefolder`
-  - `rpdsp::NoiseOscillator`
-  - `rpdsp::midiNoteToHz()` and `rpdsp::fmap()` functions
-
-- **Scale data**: The system references external scale arrays:
-  - `extern int scale[SCALES_COUNT][SCALE_STEPS]`
-  - `extern uint8_t currentScale`
-  - `constexpr size_t SCALES_COUNT = 13` and `constexpr size_t SCALE_STEPS = 48` (in `src/pico2seq-core/scales/scales.h`)
-
-- **VoiceState structure**: Defined in `SequencerDefs.h` but not shown in voice module
-
-### 2. Global Variable Coupling
-
-The voice system reduces but doesn't eliminate global dependencies:
-
-- Scale data injection requires external management
-- Falls back to chromatic mapping if scale injection fails
-- Debug system uses `DBG_INFO`, `DBG_WARN`, `DBG_VERBOSE` macros
-
-### 3. Resource Constraints
-
-For embedded systems (Raspberry Pi Pico 2 / RP2350):
-
-- **Memory usage**: Each voice requires significant RAM for DSP components
-- **CPU usage**: Real-time audio processing with multiple voices may strain the RP2350
-- **Static allocation**: Pre-allocated lookup tables and preset storage
-
-### 4. Integration Points
-
-The system integrates with:
-- **Sequencer system**: For rhythmic playback and pattern generation
-- **MIDI system**: For external control and note input
-- **UI system**: For parameter control and voice management
-- **Audio system**: For final output processing
-
-### 5. Thread Safety
-
-- Static frequency lookup table is initialized once (thread-safe)
-- Preset storage uses static initialization (thread-safe)
-- Voice manager operations should be synchronized in multi-threaded environments
-
-## Recommendations
-
-1. **Verify rpdsp Integration**: Ensure all rpdsp components are properly included and initialized
-2. **Scale System Integration**: Confirm scale data arrays are properly defined and accessible
-3. **Memory Profiling**: Monitor RAM usage with multiple voices on target hardware
-4. **Performance Testing**: Verify real-time audio processing performance with maximum voice count
-5. **Error Handling**: Add proper error handling for missing presets and invalid configurations

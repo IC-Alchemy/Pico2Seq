@@ -3,7 +3,6 @@
 #include <cmath>
 #include "SequencerDefs.h"
 #include "Sequencer.h"
-#include "Arduino.h"
 
 // External mode state variables
 extern bool slideMode;
@@ -71,14 +70,6 @@ Sequencer::Sequencer()
         currentStepPerParam[i] = 0;
     }
 
-    // Initialize GPIO pins for gate outputs and step clock
-    pinMode(10, OUTPUT); // Voice 1 gate output
-    pinMode(11, OUTPUT); // Voice 2 gate output
-    pinMode(12, OUTPUT); // Step clock output
-    digitalWrite(10, LOW);
-    digitalWrite(11, LOW);
-    digitalWrite(12, LOW);
-
     initializeParameters();
 }
 
@@ -94,14 +85,6 @@ Sequencer::Sequencer(uint8_t channel)
     {
         currentStepPerParam[i] = 0;
     }
-
-    // Initialize GPIO pins for gate outputs and step clock
-    pinMode(10, OUTPUT); // Voice 1 gate output
-    pinMode(11, OUTPUT); // Voice 2 gate output
-    pinMode(12, OUTPUT); // Step clock output
-    digitalWrite(10, LOW);
-    digitalWrite(11, LOW);
-    digitalWrite(12, LOW);
 
     initializeParameters();
 }
@@ -208,11 +191,6 @@ void Sequencer::advanceStep(uint8_t current_uclock_step, int mm_distance,
     {
         return;
     }
-
-    // Output step clock pulse on pin 12 (with swing timing from uClock)
-    // This triggers on every step regardless of gate state
-    digitalWrite(12, HIGH);
-    digitalWrite(12, LOW);
 
     // Use the Gate parameter's step count to determine the main sequence length
     uint8_t sequenceLength = getParameterStepCount(ParamId::Gate);
@@ -356,15 +334,6 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
     {
         // Calculate the final note value
         int finalNote = noteVal + octaveOffset;
-        // Output gate signal based on channel
-        if (channel == 1)
-        {
-            digitalWrite(10, HIGH); // Voice 1 gate output
-        }
-        else if (channel == 2)
-        {
-            digitalWrite(11, HIGH); // Voice 2 gate output
-        }
 
         // If the step's gate is on, decide whether to start a new note or slide to it.
         if (!slideVal)
@@ -388,14 +357,6 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
     }
     else
     {
-        if (channel == 1)
-        {
-            digitalWrite(10, LOW); // Voice 1 gate output
-        }
-        else if (channel == 2)
-        {
-            digitalWrite(11, LOW); // Voice 2 gate output
-        }
         // The gate is off for this step. Only turn off the note if the previous step didn't have slide enabled.
         // This allows slide steps to sustain the envelope even when followed by gate-off steps.
         if (!previousStepHadSlide)
@@ -450,16 +411,6 @@ void Sequencer::handleNoteOff(VoiceState *voiceState)
         if (midiNoteOffCallback)
         {
             midiNoteOffCallback(static_cast<uint8_t>(currentNote), channel);
-        }
-
-        // Ensure hardware gate outputs are forced low when a note is turned off.
-        if (channel == 1)
-        {
-            digitalWrite(10, LOW); // Voice 1 gate output
-        }
-        else if (channel == 2)
-        {
-            digitalWrite(11, LOW); // Voice 2 gate output
         }
 
         currentNote = -1;

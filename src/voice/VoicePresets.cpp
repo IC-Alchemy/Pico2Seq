@@ -34,11 +34,8 @@ namespace VoicePresets
         config.highPassFreq = 150.0f;
 
         config.hasOverdrive = false;
-        config.hasWavefolder = false;
         config.overdriveGain = 0.8f;
         config.overdriveDrive = 0.25f;
-        config.wavefolderGain = 5.5f;
-        config.wavefolderOffset = 1.3f;
 
         config.defaultAttack = 0.04f;
         config.defaultDecay = 0.14f;
@@ -69,10 +66,8 @@ namespace VoicePresets
         config.filterMode = rpdsp::LadderFilter::Mode::LP12; // Low-pass filter
 
         config.hasOverdrive = false;
-        config.hasWavefolder = false;
         config.overdriveGain = 0.7f;
         config.overdriveDrive = 0.51f;
-        config.wavefolderGain = 8.0f;
         config.defaultAttack = 0.015f;
         config.defaultDecay = 0.1f;
         config.defaultSustain = 0.5f;
@@ -99,11 +94,9 @@ namespace VoicePresets
         config.filterPassbandGain = 0.12f;
         config.highPassFreq = 85.0f; // Lower for bass
         config.filterMode = rpdsp::LadderFilter::Mode::LP12;
-        config.hasWavefolder = false;
         config.hasOverdrive = false;
         config.overdriveGain = 0.95f;
         config.overdriveDrive = 0.16f; // Subtle overdrive
-        config.wavefolderGain = 9.0f;
         config.defaultAttack = 0.01f;
         config.defaultDecay = 0.3f;
         config.defaultSustain = 0.55f;
@@ -131,10 +124,8 @@ namespace VoicePresets
         config.highPassFreq = 160.0f;
         config.filterMode = rpdsp::LadderFilter::Mode::LP12;
         config.hasOverdrive = false;
-        config.hasWavefolder = false;
         config.overdriveGain = 0.7f;
         config.overdriveDrive = 0.45f;
-        config.wavefolderGain = 9.0f;
 
         config.defaultAttack = 0.02f;
         config.defaultDecay = 0.2f;
@@ -158,11 +149,8 @@ namespace VoicePresets
         config.highPassFreq = 150.0f;
         config.filterMode = rpdsp::LadderFilter::Mode::LP24;
         config.hasOverdrive = false;
-        config.hasWavefolder = false;
         config.overdriveGain = 0.75f;
         config.overdriveDrive = 0.35f;
-        config.wavefolderGain = 9.0f;
-        config.wavefolderOffset = .4f;
 
         config.defaultAttack = 0.02f;
         config.defaultDecay = 0.2f;
@@ -193,11 +181,8 @@ namespace VoicePresets
         config.filterMode = rpdsp::LadderFilter::Mode::LP12;
 
         config.hasOverdrive = false;
-        config.hasWavefolder = false;
         config.overdriveGain = 0.85f;
         config.overdriveDrive = 0.25f;
-        config.wavefolderGain = 4.0f;
-        config.wavefolderOffset = 4.0f;
         config.defaultAttack = 0.02f; // Slow attack for pad
         config.defaultDecay = 0.2f;
         config.defaultSustain = 0.5f;
@@ -221,8 +206,6 @@ namespace VoicePresets
         config.hasOverdrive = false; 
         config.overdriveGain = 0.45f;
         config.overdriveDrive = 0.3f;
-        config.hasWavefolder = false;
-        config.wavefolderGain = 7.0f;
 
         config.defaultAttack = 0.005f;
         config.defaultDecay = 0.08f;

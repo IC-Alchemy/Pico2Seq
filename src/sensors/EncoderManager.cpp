@@ -20,9 +20,22 @@ extern std::unique_ptr<VoiceManager> voiceManager;
 //   MAGNETIC ENCODER GLOBALS
 // =======================
 
-// The magnetic encoder driver: a TMAG5273 on the Velocity Encoder board
-// (I2C address 0x22, the TMAG5273B default).
-MagEncoder magEncoder(MagEncoder::Sensor::TMAG5273);
+namespace
+{
+// This Pico2Seq unit uses a TMAG5273A, whose factory-programmed address is
+// 0x35.  Set it explicitly: MagEncoder's zero-address sentinel resolves to
+// the TMAG5273B default (0x22).
+MagEncoder::Config makeMagEncoderConfig()
+{
+  MagEncoder::Config cfg;
+  cfg.sensor = MagEncoder::Sensor::TMAG5273;
+  cfg.i2cAddress = TMAG5273::ADDRESS_A;
+  return cfg;
+}
+} // namespace
+
+// The magnetic encoder driver for the TMAG5273A Velocity Encoder board.
+MagEncoder magEncoder(makeMagEncoderConfig());
 
 // Note: currentEncoderParameter is accessed via uiState.currentEncoderParameter
 
@@ -376,11 +389,11 @@ String formatParameterValueForDisplay(ParamId paramId, float value)
 
   case ParamId::Filter:
   {
-    int filterFrequencyHz = rpdsp::fmap(
+    int filterFrequencyHz = dspmap::fmap(
         value,
         SensorConstants::System::FILTER_FREQUENCY_MIN_HZ,
         SensorConstants::System::FILTER_FREQUENCY_MAX_HZ,
-        rpdsp::Mapping::EXP);
+        dspmap::Mapping::EXP);
     return String(filterFrequencyHz) + "Hz";
   }
 

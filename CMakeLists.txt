@@ -3,4 +3,5 @@ project(Pico2Seq_Tests CXX C)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+include(CTest)
 add_subdirectory(tests)

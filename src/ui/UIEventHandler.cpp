@@ -573,13 +573,7 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
     Serial.println(voiceConfig.hasOverdrive ? "ON" : "OFF");
     break;
 
-  case 10: // Toggle wavefolder
-    voiceConfig.hasWavefolder = !voiceConfig.hasWavefolder;
-    Serial.print("Voice ");
-    Serial.print(displayVoiceNumber);
-    Serial.print(" wavefolder ");
-    Serial.println(voiceConfig.hasWavefolder ? "ON" : "OFF");
-    break;
+  // case 10 (wavefolder toggle) removed with the wavefolder effect
 
   case 11: // Cycle filter mode
   {
@@ -646,16 +640,6 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
     if (currentTempo > 200)
     {
       uClock.setTempo(200);
-    }
-  }
-  break;
-  case 16:
-  {
-    voiceConfig.wavefolderOffset += 0.25f;
-    if (voiceConfig.wavefolderOffset > 5.0f)
-
-    {
-      voiceConfig.wavefolderOffset = 0.0f;
     }
   }
   break;

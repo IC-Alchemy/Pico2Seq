@@ -1,175 +1,170 @@
-# Matrix Module Documentation
+# Matrix Module Documentation (MPR121 Touch Input)
 
 ## Overview
 
-The `src/matrix` folder contains the button matrix scanning and event handling system for the Pico2Seq. This module provides a robust interface for a 32-button (4×8) grid using the Adafruit MPR121 capacitive touch sensor, with built-in debouncing and event dispatch capabilities.
+The `src/matrix/` subsystem provides the capacitive touch step-input interface for Pico2Seq using an **Adafruit MPR121** 12-channel capacitive touch sensor over I2C (`Wire` @ `0x5A`).
 
-## Key Components
+> **Disambiguation Note:**
+> - `docs/matrix.md` (this document) describes the **MPR121 capacitive touch step-pad input subsystem** (`src/matrix/`).
+> - [`docs/LEDMatrix.md`](LEDMatrix.md) describes the **WS2812B 8×8 RGB LED visual output system** on GPIO 1 (`src/LEDMatrix/`).
 
-### 1. Matrix.h - Interface Definition
+---
 
-**Constants:**
-- `MATRIX_BUTTON_COUNT = 32` - Total number of buttons in the 4×8 matrix
+## Hardware Configuration & Pinout
 
-**Data Types:**
+- **Sensor IC:** Adafruit MPR121 12-channel Capacitive Touch Controller
+- **Bus:** `Wire` (I2C0)
+  - `SDA`: GP4
+  - `SCL`: GP5
+- **I2C Address:** `0x5A` (default)
+- **Matrix Topology:** 4 Row electrodes (Electrodes 0–3) × 8 Column electrodes (Electrodes 4–11), multiplexed to sense 32 discrete touch pads.
+- **Scanning Frequency:** Polled on Core 1 in `loop1()` every 1 ms with automatic debouncing.
+
+---
+
+## 32 Dedicated Step Pads & Bank Architecture
+
+With the integration of the dedicated [Alchemy Modular UI tile panel](superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md) (which offloads parameter and utility buttons to I2C1), all 32 MPR121 touch pads function as **dedicated step sequencing pads**.
+
+The 32 pads are organized into two 16-step banks that address the currently selected voice pair:
+
+```
+                            32-PAD TOUCH GRID
+  +-------------------------------------------------------------------+
+  | Row 0: Pads  0 -  7  -->  Low Voice  (Steps  0 -  7)               |
+  | Row 1: Pads  8 - 15  -->  Low Voice  (Steps  8 - 15)               |
+  +-------------------------------------------------------------------+
+  | Row 2: Pads 16 - 23  -->  High Voice (Steps  0 -  7)               |
+  | Row 3: Pads 24 - 31  -->  High Voice (Steps  8 - 15)               |
+  +-------------------------------------------------------------------+
+```
+
+### Voice Pair Resolution (`PadBank` Logic)
+The 32 pads dynamically map to voices based on the currently selected voice (`uiState.selectedVoiceIndex` 0–3):
+
+| Selected Voice | Low Bank (Pads 0–15) | High Bank (Pads 16–31) |
+|---|---|---|
+| **Voice 0** | Voice 0 (Steps 0–15) | Voice 1 (Steps 0–15) |
+| **Voice 1** | Voice 0 (Steps 0–15) | Voice 1 (Steps 0–15) |
+| **Voice 2** | Voice 2 (Steps 0–15) | Voice 3 (Steps 0–15) |
+| **Voice 3** | Voice 2 (Steps 0–15) | Voice 3 (Steps 0–15) |
+
+For any pad index `0..31`:
 ```cpp
+// From src/ui/ControlSurfaceLogic.h
+const uint8_t bank = padIndex / 16;  // 0 = low bank, 1 = high bank
+const uint8_t step = padIndex % 16;  // 0..15 step index within voice
+const uint8_t voice = (selectedVoiceIndex / 2) * 2 + bank;
+```
+
+---
+
+## Interaction with the Alchemy UI Panel
+
+The user interface separates physical responsibilities across two buses:
+
+1. **Step Grid (MPR121 on `Wire` GP4/GP5):**
+   - **Short Tap:** Toggles the gate state for the corresponding step on that voice.
+   - **Step Edit Mode:** Long-pressing a step pad enters Step Edit mode for that specific step, routing parameter adjustments from the magnetic encoder or Alchemy faders into that step's automation memory.
+   - **Real-Time Recording:** Touching step pads while holding parameter buttons records live parameter values into the pattern.
+
+2. **Alchemy Tiles (Wire1 GP14/GP15 @ 400kHz):**
+   - `SliderModule`: 4 motorized/analog faders + 4 Voice Select buttons (Voice 1–4).
+   - `ButtonModule8`: 8 multi-function buttons (Param mode: Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Slide; Utility mode: Play/Stop, Record, Scale, Shuffle, Mute, Clear, Preset, Settings).
+   - `GP7 Mode Strap`: Hardware switch selecting Param mode (LOW) vs Utility mode (HIGH).
+
+---
+
+## Software API & Core Types (`src/matrix/Matrix.h`)
+
+### Data Structures
+```cpp
+#define MATRIX_BUTTON_COUNT 32
+
 typedef struct {
-    uint8_t rowInput;    // MPR121 electrode for row
-    uint8_t colInput;    // MPR121 electrode for column
+    uint8_t rowInput;    // MPR121 electrode for row (0-3)
+    uint8_t colInput;    // MPR121 electrode for column (4-11)
 } MatrixButton;
 
 typedef enum {
-    MATRIX_BUTTON_PRESSED,   // Button press event
-    MATRIX_BUTTON_RELEASED   // Button release event
+    MATRIX_BUTTON_PRESSED,   // Pad touch detected
+    MATRIX_BUTTON_RELEASED   // Pad release detected
 } MatrixButtonEventType;
 
 typedef struct {
-    uint8_t buttonIndex;           // Linear button index (0-31)
-    MatrixButtonEventType type;    // Press or release
+    uint8_t buttonIndex;           // Linear index 0-31
+    MatrixButtonEventType type;    // Press or release event
 } MatrixButtonEvent;
 ```
 
-**Pin Mapping:**
-- Row inputs: Electrodes 0, 1, 2, 3
-- Column inputs: Electrodes 4, 5, 6, 7, 8, 9, 10, 11
+### Core Functions
+| Function | Signature | Description |
+|---|---|---|
+| `Matrix_init` | `void Matrix_init(Adafruit_MPR121 *sensor)` | Initializes matrix state and binds to the MPR121 instance |
+| `Matrix_scan` | `void Matrix_scan()` | Scans electrode states, performs debouncing, and dispatches callbacks |
+| `Matrix_getButtonState` | `bool Matrix_getButtonState(uint8_t idx)` | Queries current state of pad `idx` (0–31) |
+| `Matrix_setEventHandler` | `void Matrix_setEventHandler(void (*handler)(const MatrixButtonEvent &))` | Sets general callback for press and release events |
+| `Matrix_setRisingEdgeHandler` | `void Matrix_setRisingEdgeHandler(void (*handler)(uint8_t buttonIndex))` | Sets callback invoked only on touch press events |
+| `Matrix_printState` | `void Matrix_printState()` | Prints 4×8 matrix debug state to Serial |
 
-### 2. Matrix.cpp - Implementation
+---
 
-**Core Functions:**
-- `Matrix_init(Adafruit_MPR121*)` - Initialize with MPR121 sensor
-- `Matrix_scan()` - Poll for button state changes (call in main loop)
-- `Matrix_getButtonState(uint8_t)` - Query current button state
-- `Matrix_setEventHandler(func)` - Set general event handler
-- `Matrix_setRisingEdgeHandler(func)` - Set press-only handler
-- `Matrix_printState()` - Debug output of all button states
+## Integration Workflow
 
-**Key Features:**
-- **Debouncing**: Automatic state change detection with reliable debouncing
-- **Event Dispatch**: Supports both press/release and press-only callbacks
-- **State Tracking**: Maintains current state for all 32 buttons
-- **Early Exit**: Optimized scanning with early termination for performance
-- **Bounds Checking**: Safe access with index validation
-
-**Button Mapping:**
-- Linear indexing: 0-31 corresponds to rows 0-3, columns 0-7
-- Physical layout: Button at row R, column C = index (R × 8 + C)
-- MPR121 integration: Uses electrode touch bits for reliable detection
-
-### 3. README.md - Module Documentation
-
-Provides comprehensive module documentation including:
-- Feature overview and dependencies
-- Complete API reference with examples
-- Integration guidelines for main loop usage
-- Related module connections (LEDMatrix, Sequencer)
-
-## Dependencies
-
-- **Adafruit MPR121**: Library for I2C capacitive touch sensor interface
-- **Arduino.h**: Standard Arduino framework
-- **OneButton.h**: Button debouncing utilities (referenced but not directly used)
-
-## Usage Pattern
-
-### Basic Setup
 ```cpp
 #include <Adafruit_MPR121.h>
-#include "Matrix.h"
+#include "src/matrix/Matrix.h"
 
-Adafruit_MPR121 capSensor = Adafruit_MPR121();
-MatrixButtonEvent lastEvent;
+Adafruit_MPR121 capSensor;
 
-void setup() {
-    Serial.begin(115200);
-    capSensor.begin(0x5A);  // Default I2C address
-    Matrix_init(&capSensor);
-}
-
-void loop() {
-    Matrix_scan();  // Poll for changes
-    delay(10);      // Timing control
-}
-```
-
-### Event Handling
-```cpp
-// General event handler (press and release)
-Matrix_setEventHandler([](const MatrixButtonEvent &evt) {
-    if (evt.type == MATRIX_BUTTON_PRESSED) {
-        Serial.printf("Button %d pressed\n", evt.buttonIndex);
-    } else {
-        Serial.printf("Button %d released\n", evt.buttonIndex);
+void setup1() {
+    Wire.setSDA(4);
+    Wire.setSCL(5);
+    Wire.begin();
+    
+    if (capSensor.begin(0x5A, &Wire)) {
+        Matrix_init(&capSensor);
     }
-});
-
-// Press-only handler
-Matrix_setRisingEdgeHandler([](uint8_t buttonIndex) {
-    Serial.printf("Button %d activated\n", buttonIndex);
-});
-```
-
-### State Query
-```cpp
-// Check specific button state
-if (Matrix_getButtonState(15)) {  // Button at row 1, column 7
-    // Button is currently pressed
+    
+    Matrix_setEventHandler([](const MatrixButtonEvent &evt) {
+        if (evt.type == MATRIX_BUTTON_PRESSED) {
+            handleStepPadPress(evt.buttonIndex);
+        } else {
+            handleStepPadRelease(evt.buttonIndex);
+        }
+    });
 }
 
-// Debug output
-Matrix_printState();  // Print 4×8 grid of button states
+void loop1() {
+    Matrix_scan(); // Polled non-blocking on Core 1
+}
 ```
 
-## Hardware Integration
+---
 
-### MPR121 Sensor
-- **I2C Address**: 0x5A (default)
-- **Electrodes**: 12 total (0-11)
-- **Touch Detection**: Capacitive sensing with configurable thresholds
-- **Update Rate**: Polled in main loop via `Matrix_scan()`
+## Performance & Optimization
 
-### Button Matrix Layout
-```
-Electrode Layout:
-    Columns (4-11):   0   1   2   3   4   5   6   7
-Rows (0-3):      0 [0] [1] [2] [3] [4] [5] [6] [7]
-                 1 [8] [9] [10][11][12][13][14][15]
-                 2 [16][17][18][19][20][21][22][23]
-                 3 [24][25][26][27][28][29][30][31]
-```
+- **Early Exit:** If the MPR121 returns zero touched electrodes, `Matrix_scan()` exits immediately in O(1) time.
+- **Debounced Transitions:** Software hysteresis ensures clean edge transitions without contact chatter.
+- **Zero Allocations:** Uses static arrays for state tracking and event routing.
 
-## Performance Characteristics
-
-- **Low Latency**: Immediate response to touch events
-- **Efficient Scanning**: Early exit optimization when no electrodes touched
-- **Minimal Memory**: Static arrays for state tracking
-- **Debounced Output**: Reliable state changes without false triggers
-
-## Integration Points
-
-- **LEDMatrix Module**: Visual feedback for button presses
-- **Sequencer Module**: Step parameter control and pattern editing
-- **UI System**: Button state queries for interface logic
-- **Main Loop**: Requires regular `Matrix_scan()` calls for responsiveness
+---
 
 ## File Structure
 
 ```
 src/matrix/
-├── Matrix.cpp          # Implementation with scanning logic
-├── Matrix.h            # Interface definitions and API
-└── README.md           # Module documentation and examples
+├── Matrix.cpp          # Scanning engine and electrode-to-pad mapping
+├── Matrix.h            # Matrix data types and API definitions
+└── README.md           # Module overview
 ```
 
-## Error Handling
+---
 
-- **Sensor Validation**: Null pointer checks for MPR121 instance
-- **Bounds Checking**: Index validation for button state queries
-- **Debug Output**: Serial logging for initialization and state changes
-- **Graceful Degradation**: Safe returns when sensor unavailable
+## Related Documentation
 
-## Development Notes
-
-- **Self-Contained**: Can be reused in other projects with compatible hardware
-- **Extensible**: Event handler pattern allows flexible integration
-- **Well-Documented**: Comprehensive code comments and API documentation
-- **Tested**: Debug functions for hardware validation and troubleshooting
+- [`docs/LEDMatrix.md`](LEDMatrix.md) — 8×8 WS2812B visual feedback system
+- [`docs/sensors.md`](sensors.md) — TMAG5273 encoder and VL53L1X distance sensor
+- [`docs/ButtonHandlers.md`](ButtonHandlers.md) — UI button event dispatching
+- [`docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`](superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md) — Alchemy tile control surface design spec
+- [`docs/architecture.md`](architecture.md) — System architecture and dual-core division

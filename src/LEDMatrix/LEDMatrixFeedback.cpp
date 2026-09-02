@@ -475,7 +475,7 @@ void updateVoiceParameterLEDs(LEDMatrix &ledMatrix, const UIState &uiState)
     case 10: // Overdrive
         paramColor = uiState.isVoice2Mode ? activeThemeColors->modFilterActive : activeThemeColors->modVelocityActive;
         break;
-    case 11: // Wavefolder
+    case 11: // (was Wavefolder; button removed with the wavefolder effect)
         paramColor = uiState.isVoice2Mode ? activeThemeColors->modOctaveActive : activeThemeColors->modNoteActive;
         break;
     case 12: // Filter Mode

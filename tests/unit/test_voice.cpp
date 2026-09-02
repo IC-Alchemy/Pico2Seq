@@ -14,7 +14,6 @@ static VoiceConfig defaultConfig() {
     cfg.oscAmplitudes[0] = 1.0f;
     cfg.oscDetuning[0] = 0.0f;
     cfg.hasOverdrive = false;
-    cfg.hasWavefolder = false;
     cfg.hasEnvelope = true;
     cfg.enabled = true;
     return cfg;

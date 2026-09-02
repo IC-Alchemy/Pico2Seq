@@ -2,142 +2,217 @@
 
 ## Overview
 
-The `src/LEDMatrix` folder contains the LED matrix display system for the Pico2Seq. This module provides comprehensive visual feedback through an 8x8 WS2812B LED matrix, including sequencer state visualization, parameter editing feedback, and user interface indicators.
+The `src/LEDMatrix/` subsystem provides comprehensive visual feedback for Pico2Seq through an 8×8 WS2812B RGB LED matrix (64 total LEDs) driven by the `FastLED` library on **GPIO pin 1**.
 
-## Key Components
+> **Disambiguation Note:**
+> - `docs/LEDMatrix.md` (this document) describes the **WS2812B 8×8 RGB LED visual output system** on GPIO 1 (`src/LEDMatrix/`).
+> - [`docs/matrix.md`](matrix.md) describes the **MPR121 capacitive touch input matrix** providing 32 dedicated step pads on I2C `Wire` @ `0x5A` (`src/matrix/`).
 
-### 1. LEDConstants.h
-Centralized constants for LED matrix configuration and visual parameters.
+---
 
-**Hardware Configuration:**
-- Matrix dimensions: 8x8 (64 total LEDs)
-- Data pin: GPIO 1
-- Default brightness: 120
+## Hardware Configuration & Pinout
 
-**Animation Timing:**
-- Pulse frequency: 0.006 Hz
-- Breathing cycle: 2000ms
-- Blink interval: 500ms
+- **LED Type:** WS2812B Addressable RGB LEDs
+- **Matrix Dimensions:** 8 columns × 8 rows (64 total LEDs)
+- **Data Pin:** `GPIO 1` (`LEDConstants::MATRIX_DATA_PIN`)
+- **Default Brightness:** 120 (on a 0–255 scale)
+- **Power Supply:** 5V rail capable of supplying up to ~1.5A for full-white illumination; internal brightness scaling is applied to limit peak current draw.
 
-**Color Categories:**
-- Standard colors (Black, White)
-- Delay effect colors (Time, Feedback indicators)
-- Breathing animation colors
-- Polyrhythmic overlay colors
+---
 
-**Brightness Levels:**
-- Full: 200, High: 180, Medium: 128, Low: 64, Dim: 32, Subtle: 12
+## Architecture & Subsystem Components
 
-### 2. LEDMatrix Class (ledMatrix.h)
-Core hardware abstraction layer for the 8x8 WS2812B LED matrix.
+```
+                +-------------------------------------------------------+
+                |                       UIState                         |
+                |  (selectedVoiceIndex, modes, step selections, timers) |
+                +--------------------------+----------------------------+
+                                           |
+                    +----------------------+---------------------+
+                    |                                            |
+                    v                                            v
+         +--------------------+                       +--------------------+
+         |   LEDController    |                       | LEDMatrixFeedback  |
+         | (Parameter & Voice |                       | (Step gates, play- |
+         |  indicators)       |                       |  heads, menus)     |
+         +----------+---------+                       +----------+---------+
+                    |                                            |
+                    +----------------------+---------------------+
+                                           |
+                                           v
+                               +-----------------------+
+                               |       LEDMatrix       |
+                               | (FastLED abstraction) |
+                               +-----------+-----------+
+                                           |
+                                           v
+                             [ WS2812B 8x8 Grid @ GP1 ]
+```
 
-**Key Methods:**
-- `LEDMatrix()` - Constructor initializes to black
-- `begin(brightness)` - Initialize hardware with brightness level
-- `setLED(x, y, color)` - Set individual LED color at coordinates
-- `setAll(color)` - Set all LEDs to same color
-- `show()` - Update physical LED matrix
-- `clear()` - Set all LEDs to black
-- `getLeds()` - Direct access to LED array (advanced use)
+### 1. `LEDConstants.h` & `LEDColors`
 
-### 3. LEDController (LEDController.h)
-Manages all control LED functionality for user interface elements.
+Centralized namespace declarations for timing, layout geometry, color categories, and brightness levels:
 
-**Control LED Positions:**
-- Parameter buttons: Note, Velocity, Filter, Attack, Decay, Octave, Slide
-- Delay parameters: Time, Feedback (magnetic encoder control)
-- Mode indicators: Voice 1/2 selection LEDs, Delay toggle, Randomize confirmation
-  (Note: with 4 voices, only the two hardware voice LEDs exist today — voice indication still keys off the legacy `isVoice2Mode` flag rather than the full `selectedVoiceIndex` 0–3 range)
+#### `namespace LEDConstants`
+- **Matrix Geometry:** `MATRIX_WIDTH = 8`, `MATRIX_HEIGHT = 8`, `MATRIX_DATA_PIN = 1`, `MATRIX_TOTAL_LEDS = 64`, `DEFAULT_BRIGHTNESS = 120`.
+- **Layout Offsets:**
+  - `TOP_HALF_OFFSET = 0` (Row 0: low voice step row)
+  - `BOTTOM_HALF_OFFSET = 24` (Row 4: high voice step row in 8×8 matrix)
+  - `VOICE_PAIR_SEPARATION = 3` (Rows between voice pair tracks)
+  - `MAX_STEP_BUTTONS = 16`
+- **Animation Timing:**
+  - `PULSE_FREQUENCY = 0.006f`
+  - `PULSE_BASE_BRIGHTNESS = 22`, `PULSE_AMPLITUDE = 188`
+  - `BREATHING_CYCLE_MS = 2000`
+  - `BLINK_INTERVAL_MS = 500`
+  - `VOICE_PARAM_TIMEOUT_MS = 3000`
+  - `VOICE_PARAM_SETTINGS_TIMEOUT_MS = 5000`
+- **Color Blending Amounts:**
+  - `TARGET_SMOOTHING_BLEND_AMOUNT = 180`
+  - `STANDARD_BLEND_AMOUNT = 166`
+  - `DIM_BLEND_AMOUNT = 122`
+  - `FADE_BLEND_AMOUNT = 64`
+  - `SUBTLE_BLEND_AMOUNT = 32`
+- **Brightness Scaling Tiers:**
+  - `FULL_BRIGHTNESS = 200`
+  - `HIGH_BRIGHTNESS = 180`
+  - `MEDIUM_BRIGHTNESS = 128`
+  - `LOW_BRIGHTNESS = 64`
+  - `DIM_BRIGHTNESS = 32`
+  - `SUBTLE_BRIGHTNESS = 12`
+- **Polyrhythmic Overlays:** `POLYRHYTHM_INTENSITY = 32`, `POLYRHYTHM_PARAM_COUNT = 3`.
 
-**VoiceSystem Integration:**
-- Updated to support up to 4 voices through centralized VoiceSystem
-- Voice indicators now use `voiceSystem.getVoiceId(index)` for consistent voice identification
-- Preset feedback uses `uiState.voicePresetIndices[voiceIndex]` for array-based access
+#### `namespace LEDColors`
+- **Standard:** `BLACK = CRGB::Black`, `WHITE = CRGB::White`.
+- **Delay Effects:** `DELAY_INDICATOR = CRGB(0, 166, 55)`, `DELAY_TIME_BASE = CRGB(0, 44, 33)`, `DELAY_FEEDBACK_BASE = CRGB(0, 55, 22)`.
+- **Breathing Animation:** `BREATHING_BLUE_BASE = CRGB(0, 0, 94)`, `BREATHING_MIN_INTENSITY = 16`, `BREATHING_MAX_INTENSITY = 80`.
+- **Polyrhythmic Track Accents:**
+  - `POLYRHYTHM_NOTE = CRGB(0, 32, 32)` (Cyan tint)
+  - `POLYRHYTHM_VELOCITY = CRGB(0, 32, 0)` (Green tint)
+  - `POLYRHYTHM_FILTER = CRGB(0, 0, 32)` (Blue tint)
 
-**Key Functions:**
-- `initLEDController()` - System initialization
-- `updateControlLEDs()` - Update all control LEDs based on UI state
+---
 
-### 4. LEDMatrixFeedback (LEDMatrixFeedback.h)
-Comprehensive visual feedback system for sequencer state and UI modes.
+### 2. `LEDMatrix` Class (`ledMatrix.h`, `LEDmatrix.cpp`)
 
-**Display Modes:**
-- **Idle Mode**: Breathing animation when sequencers stopped
-- **Step Gates**: Visualizes sequencer gate states with playhead
-- **Parameter Editing**: Shows parameter values and editing feedback
-- **Settings Menu**: Navigation and preset selection display
-- **Voice Parameters**: Parameter button highlighting and feedback
-
-**Color Themes:**
-- DEFAULT, OCEANIC, VOLCANIC, FOREST, NEON
-- MODERN, DARK_NOCTIS, DARK_EMBER, BLUE, GREEN
-
-**Key Functions:**
-- `setupLEDMatrixFeedback()` - Initialize feedback system
-- `updateStepLEDs()` - Main LED update function
-- `updateSettingsModeLEDs()` - Settings menu display
-- `updateVoiceParameterLEDs()` - Voice parameter feedback
-- `setLEDTheme()` - Change active color theme
-
-## Dependencies
-
-- **FastLED**: Arduino library for WS2812B LED control
-- **Arduino.h**: Standard Arduino framework
-- **UIState**: Central UI state management
-- **VoiceManager**: Voice system integration
-- **Sequencer**: Sequencer state access
-
-## Usage Example
+Provides the direct hardware abstraction wrapping `FastLED`:
 
 ```cpp
-// Initialize LED matrix
-LEDMatrix ledMatrix;
-ledMatrix.begin();
+class LEDMatrix {
+public:
+  static constexpr uint8_t WIDTH = 8;
+  static constexpr uint8_t HEIGHT = 8;
+  static constexpr uint8_t NUM_LEDS = WIDTH * HEIGHT; // 64
 
-// Set individual LED
-ledMatrix.setLED(0, 0, CRGB::Red);
-
-// Update control LEDs
-updateControlLEDs(ledMatrix, uiState);
-
-// Update step visualization
-updateStepLEDs(ledMatrix, seq1, seq2, seq3, seq4, uiState, 0);
-
-// Show changes
-ledMatrix.show();
+  LEDMatrix();
+  void begin(uint8_t brightness = LEDConstants::DEFAULT_BRIGHTNESS);
+  void setLED(uint8_t x, uint8_t y, const CRGB& color);
+  void setAll(const CRGB& color);
+  void show();
+  void clear();
+  CRGB* getLeds();
+};
 ```
+
+---
+
+### 3. `LEDController` (`LEDController.h`, `LEDController.cpp`)
+
+Manages the visual state of control and indicator LEDs on the matrix surface.
+
+#### 4-Voice Pair Indicator Logic
+The physical control surface provides two voice LEDs (`VOICE1_LED_INDEX` and `VOICE2_LED_INDEX`). In Pico2Seq's 4-voice architecture, these two LEDs dynamically reflect the currently active voice pair (Voices 0 & 1 vs. Voices 2 & 3):
+
+```cpp
+// Check if the selected voice is the first voice in its pair (Voice 0 or Voice 2)
+const bool selectedIsFirstInPair = (uiState.selectedVoiceIndex % 2) == 0;
+const CRGB selectedVoiceLEDColor = activeThemeColors->defaultActive;
+const CRGB partnerVoiceLEDColor = activeThemeColors->defaultInactive;
+
+setLEDByLinearIndex(ControlLEDIndices::VOICE1_LED_INDEX,
+                    selectedIsFirstInPair ? selectedVoiceLEDColor : partnerVoiceLEDColor);
+setLEDByLinearIndex(ControlLEDIndices::VOICE2_LED_INDEX,
+                    selectedIsFirstInPair ? partnerVoiceLEDColor : selectedVoiceLEDColor);
+```
+
+- **Voice 0 Selected:** Voice 1 LED is bright (active), Voice 2 LED is dim (partner).
+- **Voice 1 Selected:** Voice 1 LED is dim, Voice 2 LED is bright (active).
+- **Voice 2 Selected:** Voice 1 LED is bright (active), Voice 2 LED is dim (partner).
+- **Voice 3 Selected:** Voice 1 LED is dim, Voice 2 LED is bright (active).
+
+#### Parameter & Sensor Feedback
+- **Held Parameter Buttons:** Pulse dynamically using sine modulation (`PULSE_BASE_BRIGHTNESS + sinf(...) * PULSE_AMPLITUDE`).
+- **TMAG5273 Magnetic Encoder Assignment:** When an encoder parameter is selected (`Velocity`, `Filter`, `Attack`, `Decay`), the corresponding button LED scales brightness proportionally to the current normalized parameter value.
+- **Delay Controls:** Delay Time and Feedback LEDs scale with encoder values when selected.
+- **Flashing Indicators:** Randomize and Delay Toggle buttons support timed flash animations (`flash23Until`, `flash31Until`).
+
+---
+
+### 4. `LEDMatrixFeedback` (`LEDMatrixFeedback.h`, `LEDMatrixFeedback.cpp`)
+
+Implements the multi-mode sequencing and navigation visualizer:
+
+#### Display Modes
+1. **Idle Breathing Mode:** When sequencers are stopped, renders a smooth pulsing breathing wave across the matrix using `BREATHING_BLUE_BASE`.
+2. **Step Gate & Playhead Visualization:** Displays active gates for the current voice pair across rows 0–1 and 4–5, with a distinct `playheadAccent` indicating the current 16th-note playhead position.
+3. **Polyrhythmic Track Overlays:** Visualizes independent parameter track step lengths and positions for Note, Velocity, and Filter tracks.
+4. **Parameter Edit Mode:** Shows step values, track lengths, and value adjustments when holding a parameter button or editing a step.
+5. **Settings & Preset Selection:** Shows voice configurations and allows scrolling through the 7 voice presets with cursor highlighting.
+
+#### 10 LED Color Themes (`enum class LEDTheme`)
+
+Pico2Seq includes 10 fully realized color palettes selectable in settings or via utility controls:
+
+| Theme Enum | Name | Visual Character |
+|---|---|---|
+| `DEFAULT` (0) | Standard | Classic Blue/Green palette |
+| `OCEANIC` (1) | Oceanic | Deep ocean blues, cyan, and teal accents |
+| `VOLCANIC` (2) | Volcanic | Intense reds, fiery oranges, and warm ambers |
+| `FOREST` (3) | Forest | Earthy greens, moss, and warm brown highlights |
+| `NEON` (4) | Neon | High-energy vibrant magenta, purple, and electric cyan |
+| `MODERN` (5) | Modern | Refined muted tones optimized for high legibility |
+| `DARK_NOCTIS` (6) | Dark Noctis | Low-light stealth theme with cool midnight blue accents |
+| `DARK_EMBER` (7) | Dark Ember | Low-light theme with warm glowing ember highlights |
+| `BLUE` (8) | Blue Contrast | High-contrast monochromatic blue palette |
+| `GREEN` (9) | Green Contrast | High-contrast monochromatic green palette |
+
+#### `LEDThemeColors` Structure
+Each theme defines colors for:
+- `gateOnV1`, `gateOffV1`, `gateOnV2`, `gateOffV2` (Gate states for voice pair)
+- `playheadAccent`, `idleBreathingBlue` (Transport indicators)
+- `editModeDimBlueV1`, `editModeDimBlueV2` (Step edit indicators)
+- `modNoteActive`/`Inactive`, `modVelocityActive`/`Inactive`, `modFilterActive`/`Inactive`, `modDecayActive`/`Inactive`, `modAttackActive`/`Inactive`, `modOctaveActive`/`Inactive`, `modSlideActive`/`Inactive` (Parameter buttons)
+- `defaultActive`, `defaultInactive`, `modParamModeActive`/`Inactive`, `modGateModeActive`/`Inactive` (System modes)
+- `randomizeFlash`, `randomizeIdle` (Randomize button states)
+
+---
 
 ## File Structure
 
 ```
 src/LEDMatrix/
-├── LEDConstants.h          # Constants and configuration
-├── LEDController.cpp       # Control LED implementation
-├── LEDController.h         # Control LED interface
-├── LEDmatrix.cpp           # LEDMatrix class implementation
-├── ledMatrix.h             # LEDMatrix class interface
-├── LEDMatrixFeedback.cpp   # Feedback system implementation
-└── LEDMatrixFeedback.h     # Feedback system interface
+├── LEDConstants.h          # Hardware pins, timing, layout & OLED geometry constants
+├── LEDController.cpp       # Control LED mapping, pulsing & pair-based voice indicators
+├── LEDController.h         # Control LED public interface
+├── LEDmatrix.cpp           # FastLED driver wrapper implementation
+├── ledMatrix.h             # LEDMatrix class definition
+├── LEDMatrixFeedback.cpp   # Multi-mode step rendering & theme implementations
+└── LEDMatrixFeedback.h     # Themes enum, LEDThemeColors & feedback API
 ```
 
-## Hardware Requirements
+---
 
-- 8x8 WS2812B LED matrix (64 individual LEDs)
-- Data connection to GPIO pin 1
-- 5V power supply capable of supporting LED current draw
-- FastLED library compatible with target microcontroller
+## Performance & Concurrency Considerations
 
-## Performance Considerations
+- **Dual-Core Execution:** All LED rendering occurs exclusively on **Core 1** (`loop1()`) at a ~50 Hz (20 ms) update rate, leaving Core 0 dedicated to real-time 48 kHz audio processing.
+- **Batching:** Frame changes are drawn into an internal buffer and updated to hardware with a single `ledMatrix.show()` call per frame.
+- **Zero Heap Allocations:** All color calculations, blending tables, and state trackers use static memory.
 
-- LED updates should be batched to minimize `show()` calls
-- Color blending uses optimized algorithms for smooth transitions
-- Direct array access available for performance-critical operations
-- Theme switching is immediate but may cause brief visual artifacts
+---
 
-## Integration Points
+## Related Documentation
 
-- **UI System**: Receives state updates from UIState
-- **Sequencer**: Visualizes sequencer gate and playhead states
-- **Voice System**: Shows voice parameter feedback and selection
-- **Sensor System**: Magnetic encoder parameter visualization
-- **Settings**: Theme selection and configuration feedback
+- [`docs/matrix.md`](matrix.md) — MPR121 32-pad capacitive touch input matrix
+- [`docs/oled.md`](oled.md) — 128×64 SH1106G OLED display subsystem
+- [`docs/architecture.md`](architecture.md) — System architecture and dual-core split
+- [`docs/voice.md`](voice.md) — Synthesizer voice DSP and preset definitions

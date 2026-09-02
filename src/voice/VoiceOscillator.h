@@ -62,8 +62,8 @@ class VoiceOscillator {
   uint8_t waveform() const { return waveform_; }
 
  private:
-  using Osc = std::variant<rpdsp::SecondOrderBSplineSawOscillator,
-                          rpdsp::SecondOrderBSplinePulseOscillator,
+  using Osc = std::variant<rpdsp::BSplineSawOsc,
+                          rpdsp::BSplineSquareOsc,
                           rpdsp::SineOscillator, rpdsp::TriangleOscillator,
                           rpdsp::SawOsc, rpdsp::SquareOsc,
                           rpdsp::NoiseOscillator>;
@@ -102,12 +102,12 @@ class VoiceOscillator {
       case WAVE_SQUARE:
         return rpdsp::SquareOsc{};
       case WAVE_BSP_SQUARE:
-        return rpdsp::SecondOrderBSplinePulseOscillator{};
+        return rpdsp::BSplineSquareOsc{};
       case WAVE_NOISE:
         return rpdsp::NoiseOscillator{};
       case WAVE_BSP_SAW:
       default:
-        return rpdsp::SecondOrderBSplineSawOscillator{};
+        return rpdsp::BSplineSawOsc{};
     }
   }
 
@@ -136,5 +136,5 @@ class VoiceOscillator {
   float freqHz_ = 440.0f;
   float pulseWidth_ = 0.5f;
   uint8_t waveform_ = WAVE_BSP_SAW;
-  Osc osc_{rpdsp::SecondOrderBSplineSawOscillator{}};
+  Osc osc_{rpdsp::BSplineSawOsc{}};
 };
