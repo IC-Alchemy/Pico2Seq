@@ -22,7 +22,7 @@ Pico2Seq/
 │   ├── voice/              # Voice synthesis, VoiceManager, VoiceSystem, VoicePresets
 │   ├── rpdsp/              # Submodule: header-only DSP library (IC-Alchemy/RPDSP)
 │   ├── ui/                 # UIState, ControlSurfaceLogic, UIEventHandler, ButtonHandlers
-│   ├── AlchemyUI/          # Submodule: modular I2C UI tile driver (Wire1 @ 400kHz)
+│   ├── AlchemyUI/          # Submodule: modular I2C UI tile driver (Wire1 @ 100kHz)
 │   ├── VelocityEncoder/    # Submodule: TMAG5273 / AS5600 magnetic encoder driver
 │   ├── sensors/            # DistanceSensor (VL53L1X), EncoderManager, SensorConstants
 │   ├── matrix/             # MPR121 32-pad capacitive touch matrix scanning
@@ -51,7 +51,7 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
 |      * VoiceManager(4) construction                |  - usb_midi.begin()                |
 |      * Add 4 preset voices                         |  - Wire (I2C0 GP4/GP5): OLED,      |
 |      * Attach seq1..seq4 to voice IDs              |    MPR121, TMAG5273, VL53L1X       |
-|  - audio_new_producer_pool(3 buffers, 256 samples) |  - Wire1 (I2C1 GP14/GP15 @ 400kHz):|
+|  - audio_new_producer_pool(3 buffers, 256 samples) |  - Wire1 (I2C1 GP14/GP15 @ 100kHz):|
 |  - audio_i2s_setup(48kHz, stereo S16, GP10-12)    |    Alchemy tile control panel      |
 |  - audio_i2s_set_enabled(true)                     |  - ledMatrix.begin(100) (GP1)      |
 |                                                    |  - uClock.init(90 BPM, 480 PPQN)   |
@@ -111,7 +111,7 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
   - Ticks gate countdown timers (`voiceSystem.tickAllGateTimers()`).
 - **1ms Sensor and Control Loop**:
   - `Matrix_scan()`: Scans MPR121 32 capacitive touch step pads over I2C0 (Wire: GP4/GP5 @ 0x5A).
-  - `alchemyBridge.update()`: Polls SliderModule (4 faders) and ButtonModule8 on dedicated I2C1 (Wire1: GP14/GP15 @ 400kHz) and reads the GP7 hardware mode strap.
+  - `alchemyBridge.update()`: Polls SliderModule (4 faders) and ButtonModule8 on dedicated I2C1 (Wire1: GP14/GP15 @ 100kHz) and reads the GP7 hardware mode strap.
   - `magEncoder.update()`: Reads the TMAG5273A magnetic encoder on Wire @ 0x35 and updates base values via `updateEncoderBaseValues(uiState)`.
   - `distanceSensor.update()`: Non-blocking VL53L1X distance sensor update on Wire @ 0x29 (74–1400mm range).
   - `pollUIHeldButtons()`: Processes long-press events across all four sequencers (`seq1..seq4`).
@@ -322,7 +322,7 @@ Portable core with **no hardware, UI, or Arduino dependencies**:
 - `UIState.h`: Unified UI state struct (replaces loose globals; holds mode flags, debounce timestamps, preset arrays).
 - `ControlSurfaceLogic.h/.cpp`: Unit-tested decision logic (`ModeStabilizer`, `PadBank`, `ShiftLatch`, `FaderMap`).
 - `UIEventHandler.h/.cpp`: Event routing for MPR121 pads and control surface actions.
-- `AlchemyControlBridge.h/.cpp`: Hardware bridge polling the Alchemy tile panel on Wire1 @ 400kHz.
+- `AlchemyControlBridge.h/.cpp`: Hardware bridge polling the Alchemy tile panel on Wire1 @ 100kHz.
 - `ButtonHandlers.h/.cpp`: Button behavior implementations (play/stop, randomize, parameter cycling).
 
 ### 6.5 `src/matrix/`, `src/LEDMatrix/`, `src/OLED/`, `src/sensors/`
@@ -363,7 +363,7 @@ DBG_VERBOSE("Sensor distance: %u mm", distanceMm);
 ```
 Physical Inputs (Core 1)
 ├── MPR121 32 Step Pads (Wire: GP4/GP5 @ 0x5A)
-├── Alchemy Tile Panel: 4 Faders + 12 Buttons (Wire1: GP14/GP15 @ 400kHz)
+├── Alchemy Tile Panel: 4 Faders + 12 Buttons (Wire1: GP14/GP15 @ 100kHz)
 ├── TMAG5273A Velocity Encoder (Wire @ 0x35)
 ├── VL53L1X Distance Sensor (Wire @ 0x29)
 └── USB MIDI In (TinyUSB)

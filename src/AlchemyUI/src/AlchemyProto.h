@@ -121,13 +121,24 @@ inline constexpr std::uint8_t kDataBtnPressed = 9;   // sticky, clear on read
 inline constexpr std::uint8_t kDataBtnReleased = 10;  // sticky, clear on read
 inline constexpr std::uint8_t kFadersPerTile = 4;
 
-// Button 4x tile (TYPE 0x02): DATA_LEN 3, same button block, same offsets.
+// Button tile (TYPE 0x02): DATA_LEN 3. It carries the same three button
+// fields as a slider tile, but they begin at its own DATA offset 0 — the
+// slider's offsets 8..10 are past the end of a button tile's DATA block.
 inline constexpr std::uint8_t kButtonDataLen = 3;
 // Both tile types carry a full 8-bit button bitmap in the same 3 DATA bytes:
 // ButtonModule8 drives all eight bits; the SliderModule drives only bits 0-3
 // and bits 4-7 read 0. Sizing the button arrays by the bitmap width (not by
 // the slider's physical count) lets one code path serve both tiles.
 inline constexpr std::uint8_t kButtonsPerTile = 8;
+
+/**
+ * Offset of the common level/pressed/released button block within DATA. Slider
+ * tiles prefix it with four fader words; a dedicated Button tile does not, so
+ * its block starts at DATA offset 0.
+ */
+inline constexpr std::uint8_t buttonBlockOffset(std::uint8_t typeId) {
+  return typeId == kTypeSliderButton ? kDataBtnLevel : 0;
+}
 
 /** The button sub-block both tile types share. */
 struct ButtonBlock {

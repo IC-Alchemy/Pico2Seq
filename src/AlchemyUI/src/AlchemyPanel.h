@@ -5,7 +5,7 @@
 // and never think about slots, buses, or strap offsets again.
 //
 //   AlchemyPanel panel;
-//   Wire.setClock(400000);            // sketch owns the shared bus
+//   Wire.setClock(100000);            // sketch owns the shared bus
 //   panel.begin(Wire, /*bankB=*/&Wire1, millis());
 //   panel.update(millis());           // each control-loop pass
 //   if (panel.button(Btn::Play).pressEdge()) ...

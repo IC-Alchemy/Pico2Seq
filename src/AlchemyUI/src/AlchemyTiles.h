@@ -11,7 +11,7 @@
 //     STATUS+DATA+SUM frame (checksum-verified) the moment SEQ moves;
 //   - decodes faders and buttons, turning sticky edges into TileButton
 //     press/hold/tap state;
-//   - never blocks longer than one transaction pair (~470 us at 400 kHz) per
+//   - never blocks longer than one transaction pair (~1.9 ms at 100 kHz) per
 //     update() call, pacing tiles round-robin so a 1 kHz control loop is
 //     never stalled servicing five tiles at once.
 //
@@ -22,7 +22,8 @@
 // is internally coherent. Never split a STATUS+DATA+SUM read in two.
 //
 // The bus clock is the sketch's business (it is shared with the OLED, the
-// TMAG5273 and the VL53L1X): call Wire.setClock(400000) before begin().
+// TMAG5273 and the VL53L1X): call Wire.setClock() before begin(). 100 kHz is
+// the house rate — 400 kHz stalls transfers on this rig.
 //
 // Core 1 only. This is control-surface I/O; nothing here may run on the
 // audio core (see the repo's Docs/realtime_rules.md).
@@ -42,6 +43,10 @@ class AlchemyTiles {
   static constexpr std::uint32_t kPollIntervalMs = 4;  // ~250 Hz tier B
   static constexpr std::uint32_t kReprobeIntervalMs = 1000;
   static constexpr std::uint8_t kOfflineAfterBusErrors = 4;
+  // Discovery runs only in begin(). Patient retries make power-up ordering
+  // and one-off NACK/short-read failures much less likely to hide a tile.
+  static constexpr std::uint8_t kDiscoveryAttempts = 4;
+  static constexpr std::uint32_t kDiscoveryRetryDelayMs = 10;
 
   struct TileInfo {
     bool present = false;
@@ -70,8 +75,35 @@ class AlchemyTiles {
   [[nodiscard]] int tileCount() const { return kMaxTiles; }
   [[nodiscard]] const TileInfo& info(int slot) const { return info_[slot]; }
 
+  /** Count of tiles currently marked present. */
+  [[nodiscard]] int presentTileCount() const {
+    int count = 0;
+    for (int slot = 0; slot < kMaxTiles; ++slot) {
+      if (info_[slot].present) ++count;
+    }
+    return count;
+  }
+
+  /** True when any tile (slider or button) answered and is present. */
+  [[nodiscard]] bool hasTile() const { return presentTileCount() > 0; }
+
   /** True when the slot holds a present slider tile. */
   [[nodiscard]] bool hasSlider() const { return sliderSlot_ >= 0 && info_[sliderSlot_].present; }
+
+  /** Slot the slider tile claimed, or -1 when no slider tile answered. */
+  [[nodiscard]] int sliderSlot() const { return hasSlider() ? sliderSlot_ : -1; }
+
+  /**
+   * Lowest slot holding a present tile of the given TYPE_ID, or -1. Callers
+   * that need "the button tile" should ask by type rather than assume a fixed
+   * slot: scan order shifts when a tile is missing at begin().
+   */
+  [[nodiscard]] int firstSlotOfType(std::uint8_t typeId) const {
+    for (int slot = 0; slot < kMaxTiles; ++slot) {
+      if (info_[slot].present && info_[slot].identity.typeId == typeId) return slot;
+    }
+    return -1;
+  }
 
   /** Fader 0..3 as 0..1 from the slider tile (0 when absent). */
   [[nodiscard]] float fader(std::uint8_t channel) const;
@@ -96,6 +128,10 @@ class AlchemyTiles {
   TwoWire* bus_[kMaxTiles] = {nullptr, nullptr, nullptr, nullptr, nullptr};
   TileInfo info_[kMaxTiles];
   TileButton buttons_[kMaxTiles][alchemy::kButtonsPerTile];
+  // Last decoded level bitmap per slot. Idle polls (SEQ static) carry no
+  // frame data, but TileButton::update() must still be fed every poll or a
+  // sustained press never ages into longPress().
+  std::uint8_t lastButtonLevels_[kMaxTiles] = {0, 0, 0, 0, 0};
   std::uint16_t faders_[alchemy::kFadersPerTile] = {0, 0, 0, 0};
   std::uint32_t lastPollMs_[kMaxTiles] = {0, 0, 0, 0, 0};
   std::uint32_t lastProbeMs_[kMaxTiles] = {0, 0, 0, 0, 0};

@@ -21,8 +21,8 @@ class MidiNoteManager;
  *
  * Call begin() from setup1() (after Wire1 pins/clock are configured) and
  * update() from the 1 ms control slice of loop1(), alongside Matrix_scan().
- * One update() pass never blocks longer than one tile transaction (~470 us
- * at 400 kHz) because AlchemyTiles paces tiles round-robin.
+ * One update() pass never blocks longer than one tile transaction (~1.9 ms
+ * at 100 kHz) because AlchemyTiles paces tiles round-robin.
  *
  * Semantics implemented here (see docs/superpowers/specs/
  * 2026-09-01-alchemy-tile-control-surface-design.md):
@@ -57,6 +57,9 @@ public:
               Sequencer *const *sequencers, size_t sequencerCount,
               MidiNoteManager &midiNoteManager);
 
+  /** Read-only driver access, for boot scan reports and diagnostics pages. */
+  [[nodiscard]] const AlchemyTiles &tiles() const { return panel_.tiles(); }
+
 private:
   // One edge-tracker per physical button we watch: TileButton edge flags
   // stay asserted until the tile's next poll, and this bridge runs faster
@@ -78,6 +81,21 @@ private:
     bool releaseEdge = false;
   };
 
+  /**
+   * Re-resolve which driver slot holds the slider tile and which holds the
+   * button tile. Slot order is scan order, so a tile that did not answer at
+   * begin() shifts every slot after it — asking the driver by TYPE_ID keeps
+   * the mapping right when only one of the two tiles is plugged in.
+   */
+  void resolveSlots();
+
+  /**
+   * Edge state for a button on a resolved slot. A slot of -1 (its tile did
+   * not answer) yields a never-pressed stand-in rather than indexing the
+   * driver's array out of range.
+   */
+  const TileButton &buttonAt(int slot, uint8_t bit);
+
   void handleModeStrap(uint32_t nowMs, UIState &uiState);
   void onModeFlip(uint32_t nowMs, UIState &uiState);
   void handleVoiceButtons(UIState &uiState, MidiNoteManager &midiNoteManager,
@@ -92,12 +110,21 @@ private:
   ControlSurface::ShiftLatch latch_;
   ControlSurface::FaderMap faders_;
 
-  // Slot/bit geometry of the 2-tile rig (see AlchemyUI ButtonMap.h).
-  static constexpr uint8_t kSliderSlot = 0;
-  static constexpr uint8_t kButtonTileSlot = 1;
+  // Slot/bit geometry of the 2-tile rig (see AlchemyUI ButtonMap.h). The
+  // constants are the nominal layout of a fully-populated rig; the live slot
+  // indices come from resolveSlots() so a rig missing one tile still works.
+  static constexpr int kSliderSlotDefault = 0;
+  static constexpr int kButtonTileSlotDefault = 1;
   static constexpr uint8_t kButtonBits = 8;
 
-  ButtonEdges buttonEdges_[2][kButtonBits]; // [slot][bit]
+  // Edge trackers are indexed by role (0 = slider tile, 1 = button tile), not
+  // by driver slot, so a slot change never scrambles the stored levels.
+  enum Role : uint8_t { kSliderRole = 0, kButtonRole = 1, kRoleCount = 2 };
+
+  int sliderSlot_ = kSliderSlotDefault;
+  int buttonSlot_ = kButtonTileSlotDefault;
+
+  ButtonEdges buttonEdges_[kRoleCount][kButtonBits]; // [role][bit]
   bool playSettingsOpenedThisPress_ = false;
   uint8_t modeSwitchPin_ = 7; // GP7 default; setup1 sets PIN_ALCHEMY_MODE_SWITCH
 };
