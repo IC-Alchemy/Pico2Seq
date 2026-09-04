@@ -128,21 +128,25 @@ private:
 
   /**
    * @brief Display parameter editing information with progress bar
-   * @param parameterName Name of the parameter being edited
+   * @param parameterId Parameter being edited
    * @param currentValue Current parameter value (0.0-1.0 for most parameters)
    * @param voiceIndex Voice index (0-3) for display
    * @param stepIndex Current step index for the parameter
+   * @param presetIndex Selected voice's preset; re-purposed slots are named
+   *                   and formatted per its param set
    */
-  void displayParameterInfo(const char *parameterName, float currentValue,
-                            uint8_t voiceIndex, uint8_t stepIndex);
+  void displayParameterInfo(ParamId parameterId, float currentValue,
+                            uint8_t voiceIndex, uint8_t stepIndex, uint8_t presetIndex);
 
   /**
    * @brief Format parameter value for human-readable display
    * @param parameterID Parameter ID for type-specific formatting
    * @param rawValue Raw parameter value from sequencer
+   * @param presetIndex Selected voice's preset; re-purposed slots get their
+   *                    own units (%, seconds, semitones)
    * @return Formatted string with units and appropriate precision
    */
-  String formatParameterValue(ParamId parameterID, float rawValue);
+  String formatParameterValue(ParamId parameterID, float rawValue, uint8_t presetIndex);
 
   /**
    * @brief Display settings menu with navigation and preset selection

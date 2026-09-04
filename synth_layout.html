@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pico2Seq — Interactive Panel Explorer</title>
+<style>
+  :root{
+    --bg:#0e1114; --panel:#151a1f; --edge:#232b33; --txt:#c9d4dd; --dim:#7d8b97;
+    --accent:#5ac8fa; --mono:ui-monospace,'Cascadia Code',Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font:14px/1.45 system-ui,'Segoe UI',sans-serif}
+  header{padding:14px 22px 8px;border-bottom:1px solid var(--edge)}
+  header h1{margin:0;font-size:19px;letter-spacing:.4px}
+  header p{margin:3px 0 0;color:var(--dim);font-size:12.5px}
+  header .k{font-family:var(--mono);color:var(--accent)}
+
+  .grid{display:grid;grid-template-columns:250px minmax(620px,1fr) 320px;
+    grid-template-areas:"controls stage info" "notes notes notes";
+    gap:14px;padding:14px 22px;align-items:start}
+  @media (max-width:1250px){
+    .grid{grid-template-columns:230px 1fr;grid-template-areas:"controls stage" "info info" "notes notes"}
+  }
+
+  /* ---- controls rail ---- */
+  #controls{grid-area:controls;display:flex;flex-direction:column;gap:12px}
+  .card{background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:10px 12px}
+  .card h3{margin:0 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:1.2px;color:var(--dim)}
+  .row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  button{background:#1d252d;border:1px solid #2c3944;color:var(--txt);border-radius:7px;
+    padding:5px 10px;font:inherit;font-size:12.5px;cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button.on{background:#173242;border-color:var(--accent);color:#dff3ff}
+  button.big{width:100%;padding:8px;font-size:14px;font-weight:600}
+  select,input[type=range]{accent-color:var(--accent)}
+  select{background:#1d252d;color:var(--txt);border:1px solid #2c3944;border-radius:6px;
+    padding:4px 6px;font:inherit;font-size:12.5px;max-width:100%}
+  label.lbl{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);margin:8px 0 3px}
+  label.lbl b{color:var(--txt);font-family:var(--mono);font-weight:600}
+  input[type=range]{width:100%}
+  .chip{padding:4px 9px}
+  .note{font-size:11.5px;color:var(--dim);margin-top:6px}
+  .toggle{display:flex;align-items:center;gap:8px;font-size:12.5px;margin:6px 0;cursor:pointer}
+  .toggle input{accent-color:var(--accent)}
+
+  /* ---- stage ---- */
+  #stage{grid-area:stage;min-width:0}
+  #panel{width:100%;height:auto;display:block;border-radius:14px}
+  #panel .hot{cursor:pointer}
+  #panel text{user-select:none;-webkit-user-select:none;pointer-events:none}
+  .flow{display:flex;align-items:center;gap:0;margin-top:12px;flex-wrap:wrap}
+  .fnode{background:var(--panel);border:1px solid var(--edge);border-radius:8px;
+    padding:7px 11px;font-size:11.5px;line-height:1.3;min-width:110px}
+  .fnode b{display:block;font-size:11px;color:var(--accent);letter-spacing:.5px}
+  .fnode.pulse{animation:fp .28s ease-out}
+  @keyframes fp{0%{border-color:#fff;box-shadow:0 0 14px #5ac8fa88}100%{}}
+  .farrow{color:var(--dim);padding:0 7px;font-size:14px}
+  .core0{border-color:#4a5a2a}.core1{border-color:#2a4a5a}
+
+  /* ---- info ---- */
+  #info{grid-area:info;position:sticky;top:12px}
+  #infoCard{font-size:13px}
+  #infoCard h2{margin:0 0 6px;font-size:15px;color:#e8f2fa}
+  #infoCard .src{font-family:var(--mono);font-size:10.5px;color:var(--dim);margin-bottom:8px}
+  #infoCard ul{margin:6px 0;padding-left:18px}
+  #infoCard li{margin:3px 0}
+  #infoCard .uv{color:#e0b050;font-size:11.5px}
+
+  /* ---- patch notes ---- */
+  #notes{grid-area:notes}
+  #patchOut{width:100%;min-height:74px;background:#10151a;color:#b8d8b8;border:1px solid var(--edge);
+    border-radius:8px;padding:9px;font:12.5px/1.5 var(--mono);resize:vertical}
+  #copyBtn{margin-top:7px}
+  footer{padding:4px 22px 18px;color:var(--dim);font-size:11.5px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Pico2Seq — Interactive Panel Explorer</h1>
+  <p>4-voice polymetric step sequencer / synthesizer on Raspberry Pi Pico 2 (RP2350).
+     Click any control on the panel to toggle it and read what it does.
+     <span class="k">Space</span> = play/stop · <span class="k">Shift</span>+click a parameter button = latch.</p>
+</header>
+
+<main class="grid">
+  <aside id="controls">
+    <div class="card">
+      <h3>Transport</h3>
+      <button id="railPlay" class="big">▶ Play</button>
+      <label class="lbl">Tempo <b id="bpmVal">90 BPM</b></label>
+      <input type="range" id="bpmSlider" min="40" max="200" value="90">
+      <div class="note">uClock ticks 16th notes; each voice's <b>Gate</b> track length defines its pattern length, so voices can polymeter against each other.</div>
+    </div>
+
+    <div class="card">
+      <h3>Selected voice</h3>
+      <div class="row" id="voiceChips"></div>
+      <label class="lbl">Preset (Sound Buffet) <b></b></label>
+      <select id="presetSel"></select>
+      <label class="lbl">Pattern length <b id="lenVal">16</b></label>
+      <input type="range" id="lenSlider" min="1" max="16" value="16">
+      <div class="note">Boot presets: V1 Square · V2 Bass · V3 Digital · V4 Percussion. On hardware, presets are picked on pads 8–22 in Settings (hold Play).</div>
+    </div>
+
+    <div class="card">
+      <h3>LED theme</h3>
+      <select id="themeSel" style="width:100%"></select>
+      <div class="note">Real palettes from <span style="font-family:var(--mono)">LEDMatrixFeedback.cpp</span> — 8×4 WS2812B mirror of the pad grid.</div>
+    </div>
+
+    <div class="card">
+      <h3>GP7 mode strap</h3>
+      <div class="row">
+        <button id="modeParam" class="chip on">PARAM</button>
+        <button id="modeUtil" class="chip">UTILITY</button>
+      </div>
+      <label class="toggle"><input type="checkbox" id="gateLenChk"> Gate-length mode (hold ENC on hw)</label>
+      <label class="toggle"><input type="checkbox" id="settingsChk"> Settings mode (hold Play on hw)</label>
+    </div>
+
+    <div class="card">
+      <h3>View presets</h3>
+      <div class="row">
+        <button class="chip" onclick="applyView('perf')">Performance</button>
+        <button class="chip" onclick="applyView('poly')">Polymeter</button>
+        <button class="chip" onclick="applyView('buffet')">Sound Buffet</button>
+        <button class="chip" onclick="applyView('dark')">Dark Stage</button>
+      </div>
+    </div>
+  </aside>
+
+  <section id="stage">
+    <svg id="panel" viewBox="0 0 1200 560" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div class="flow" id="flow">
+      <div class="fnode" id="fn-sens"><b>SENSORS · CORE 1</b>MPR121 pads · TMAG5273 dial · VL53L1X ToF · tiles</div>
+      <span class="farrow">→</span>
+      <div class="fnode" id="fn-core1"><b>CORE 1 · UI + SEQ</b>UIState · 4× Sequencer · uClock 16ths</div>
+      <span class="farrow">→</span>
+      <div class="fnode" id="fn-vs"><b>VOICESYSTEM</b>gates · preset + param staging</div>
+      <span class="farrow">→</span>
+      <div class="fnode core0" id="fn-core0"><b>CORE 0 · AUDIO</b>4× osc → ladder filter → ADSR → drive</div>
+      <span class="farrow">→</span>
+      <div class="fnode core0" id="fn-i2s"><b>I2S OUT</b>48 kHz stereo</div>
+    </div>
+  </section>
+
+  <aside id="info"><div class="card" id="infoCard"></div></aside>
+
+  <section id="notes" class="card">
+    <h3>Patch notes — describes the current on-screen configuration</h3>
+    <textarea id="patchOut" readonly></textarea>
+    <button id="copyBtn">Copy patch notes</button>
+  </section>
+</main>
+
+<footer>
+  Interactive companion to <span style="font-family:var(--mono)">docs/manual.md</span>. All mappings, theme palettes and names transcribed from the firmware sources
+  (<span style="font-family:var(--mono)">ControlSurfaceLogic · ButtonMap · LEDMatrixFeedback · VoicePresets · ShuffleTemplates · docs/sensors.md · docs/oled.md</span>).
+  Patterns seeded for illustration — the hardware boots with all steps off.
+</footer>
+
+<script>
+'use strict';
+/* ============================== helpers ============================== */
+const NS='http://www.w3.org/2000/svg';
+function el(tag,attrs,parent,text){
+  const n=document.createElementNS(NS,tag);
+  for(const k in attrs)n.setAttribute(k,attrs[k]);
+  if(parent)parent.appendChild(n);
+  if(text!=null)n.textContent=text;
+  return n;
+}
+function hex2rgb(h){return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];}
+function rgb2hex(r){return '#'+r.map(v=>Math.round(Math.max(0,Math.min(255,v))).toString(16).padStart(2,'0')).join('');}
+function mix(a,b,t){const A=hex2rgb(a),B=hex2rgb(b);return rgb2hex(A.map((v,i)=>v+(B[i]-v)*t));}
+function css(c,alpha){const[r,g,b]=hex2rgb(c);return `rgba(${r},${g},${b},${alpha==null?1:alpha})`;}
+const $=id=>document.getElementById(id);
+
+/* ============================== firmware data ============================== */
+/* LED themes — LEDThemeColors transcribed from src/LEDMatrix/LEDMatrixFeedback.cpp.
+   Order: on1 off1 on2 off2 play breath | noteA noteI velA velI filtA filtI attA attI
+          decA decI octA octI sldA sldI | defA defI flash                        */
+const THEMES=[
+ {name:'Standard',      enum:'DEFAULT',     c:['#00bc00','#001605','#bc5e00','#000c0c','#000808','#00005e','#805e00','#201800','#5e005e','#0c000c','#005ebc','#001830','#800000','#200000','#bc4000','#301000','#008040','#002010','#bc00bc','#300030','#404080','#101020','#405e5e']},
+ {name:'Oceanic',       enum:'OCEANIC',     c:['#005abc','#000c18','#0c9c7a','#00040c','#00120c','#003090','#0090bc','#000f16','#4090bc','#0d1d26','#5e00bc','#0b0018','#bc9000','#261d00','#90bc5e','#1d2613','#bc005e','#11000b','#9000bc','#1d0026','#309090','#0a1d1d','#00bca6']},
+ {name:'Volcanic',      enum:'VOLCANIC',    c:['#dc5014','#0a0402','#ff8c28','#080302','#3c1204','#321408','#e6965a','#1e120c','#f0b478','#201610','#c85a3c','#1c0c08','#ffc878','#20180e','#be7846','#1a100a','#ff783c','#1e0c06','#ffa05a','#1e120c','#f0dcc8','#100a08','#ffdc96']},
+ {name:'Forest',        enum:'FOREST',      c:['#1ea03c','#030a04','#78c850','#040a03','#0a280e','#102412','#a0dc8c','#141e12','#bee6a0','#182016','#6eb478','#0e1810','#d2be78','#1c1a10','#8cbe6e','#121a0e','#c8965a','#1c140c','#96dcaa','#121c16','#dcf0d2','#0a0e0a','#e6fab4']},
+ {name:'Neon',          enum:'NEON',        c:['#00e6e6','#000c0e','#ff00b4','#0e000a','#003c50','#001e3c','#78ffff','#101e1e','#b4ffff','#142020','#5a78ff','#0c1022','#ffdc3c','#201c08','#8cff78','#122010','#ff3cff','#200820','#00ffc8','#0a1e18','#e6e6ff','#0c0c12','#ffffff']},
+ {name:'Modern',        enum:'MODERN',      c:['#30b16f','#03080a','#de8242','#0f0605','#141842','#3c546e','#c8b4a0','#463c38','#b4c8dc','#404850','#8c78a0','#302430','#dcc88c','#403624','#8ca078','#303828','#dc8cb4','#381c24','#a0c8c8','#304040','#c8c8c8','#242428','#ffd2aa']},
+ {name:'Dark Noctis',   enum:'DARK_NOCTIS', c:['#145a8c','#060608','#2837a0','#08040a','#183050','#121e32','#648ca0','#181c1e','#8ca0b4','#1e2224','#78648c','#181218','#a0785a','#1c1a16','#78966e','#161a14','#b46ea0','#140c10','#64a0aa','#121a1c','#c8c8c8','#0e0e10','#dcc8b4']},
+ {name:'Dark Ember',    enum:'DARK_EMBER',  c:['#c8783c','#080904','#ffb46e','#0a0605','#281812','#1c1614','#dca078','#1c1814','#c8a08c','#1e1a18','#b47864','#181210','#ffc896','#1c1410','#a0b48c','#161412','#dc8ca0','#140c0c','#c8a08c','#12100e','#e6dcc8','#0e0c0c','#ffd28c']},
+ {name:'Blue Contrast', enum:'BLUE',        c:['#287abc','#06080c','#7864c8','#08060a','#20630c','#102450','#8cb4dc','#14181c','#b4d2e6','#181c20','#788cc8','#141218','#c8a078','#161410','#78b48c','#121610','#dc8cc8','#140c10','#a0d2e6','#12181a','#dce6f0','#0e0e12','#fff0dc']},
+ {name:'Green Contrast',enum:'GREEN',       c:['#289650','#02080c','#27b47a','#010c06','#006e3c','#122c1c','#c8f0c8','#161a16','#b4e6c8','#181e1a','#8cb4a0','#141214','#c8b48c','#161412','#8cc878','#121410','#dcb4c8','#140c0c','#a0dcb4','#121412','#f0faf0','#0c0e0c','#fffac8']},
+];
+function TC(i){const t=THEMES[i].c;return{on:[t[0],t[2]],off:[t[1],t[3]],play:t[4],breath:t[5],
+  params:[[t[6],t[7]],[t[8],t[9]],[t[10],t[11]],[t[12],t[13]],[t[14],t[15]],[t[16],t[17]],[t[18],t[19]]],
+  def:[t[20],t[21]],flash:t[22]};}
+
+/* 15-preset constexpr bank — src/voice/VoicePresets.cpp (indices are firmware indices) */
+const PRESETS=['Analog','Digital','Bass','Lead','Square','Pad','Percussion','SubFunk','RubberSub',
+ 'WgPluck','WgNylon','WgBell','WgShimmer','Hypersaw','NoiseStorm'];
+const PRESET_GLOSS=['analog-style synthetic voice','digital hybrid voice','dedicated bass voice',
+ 'melodic lead voice','square-wave voice','sustained pad voice','percussive hit voice',
+ 'sub-bass funk voice','rubbery sub-bass voice','waveguide plucked string','waveguide nylon guitar',
+ 'waveguide bell','waveguide shimmer','supersaw stack','noise / FX storm engine'];
+const BOOT_PRESETS=[4,2,1,6]; // UIState::voicePresetIndices — Square, Bass, Digital, Percussion
+
+const SCALES=['Ionian Major','Dorian','Phrygian','Lydian','Mixolydian','Aeolian Minor','Locrian',
+ 'Pentatonic Minor','Phrygian Dominant','Lydian Dominant','Harmonic Minor','Wholetone','Chromatic'];
+
+/* 16 shuffle templates — src/pico2seq-core/sequencer/ShuffleTemplates.h */
+const SHUFFLES=['No Shuffle','Teeny Swing',"Lil' Swing (53%)","Neg' Swing (53%)",'CornBread',
+ 'Swing (55%)','Swing (56%)','Swing (57%)','Swing (60%)','Big Swang (60%)','Phatty Swang',
+ 'Big Swang (62%)','Humanize 1','Humanize 2','Hip-Hop','Funk Groove'];
+
+/* ButtonModule8 logical buttons — src/AlchemyUI/src/ButtonMap.h */
+const PARAM_BTNS=[['NOTE','Note'],['VEL','Velocity'],['FILT','Filter'],['ATT','Attack'],
+ ['DEC','Decay'],['OCT','Octave'],['SLIDE','Slide']]; // bit7 = Shift in both modes
+const UTIL_BTNS=[['PLAY','Play/Stop'],['DLY','Delay toggle'],['SCALE','Scale cycle'],
+ ['SWNG','Shuffle cycle'],['THME','Theme cycle'],['ENC','Encoder mode cycle'],['RAND','Randomize']];
+
+const ENC_MODES=['Velocity','Filter','Attack','Decay','Note','DelayTime','DelayFeedback','SlideTime'];
+
+/* ============================== state ============================== */
+function mkVoice(i,steps,length){
+  return {steps, length, presetIdx:BOOT_PRESETS[i], currentStep:-1, gateFlash:0,
+    params:{filter:.5,attack:.2,decay:.5,velocity:.8}, gateLenPct:.6};
+}
+const state={
+  playing:false, bpm:90, swingIdx:0, scaleIdx:0, delayOn:true, themeIdx:0,
+  mode:'Param', selectedVoice:0, shiftHeld:false,
+  latchedParam:-1, momentaryParam:-1, lastEditedName:null, lastEditedVal:null,
+  encMode:0, encVals:[.8,.5,.3,.6,.5,.4,.45,.2],
+  vl53mm:300, gateLenMode:false, settingsMode:false, settingsPresetIdx:4,
+  voices:[ /* seeded grooves — illustrative; hardware boots silent */
+    mkVoice(0,[1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,1],16),
+    mkVoice(1,[0,0,1,0, 0,0,1,0, 0,0,1,0, 0,1,1,0],16),
+    mkVoice(2,[1,0,0,1, 0,0,1,0, 1,0,0,1, 0,0,1,0].map((v,i)=>i<8?v:0),8),
+    mkVoice(3,[0,0,1,0, 0,0,0,0, 0,0,1,0, 0,0,1,1].map((v,i)=>i<8?v:0),8),
+  ],
+  bannerUntil:0, notice:null, noticeUntil:0, randFlashUntil:0, holdPlayTimer:null, playSpent:false,
+};
+const pairFor=sv=>[sv&~1, sv|1];           // ControlSurface::PadBank::pairFor
+const bandOf =sv=>sv&1;                    // LedLayout::bandOfVoiceInPair
+const theme =()=>TC(state.themeIdx);
+
+/* ============================== info content ============================== */
+const INFO={
+ intro:{t:'Pico2Seq panel',s:'docs/manual.md · docs/architecture.md',b:
+  `<p>Every control below is live and mirrors the real firmware behavior. Try:</p>
+   <ul><li>Toggle pad steps, then press <b>Play</b> (or the PLAY button in Utility mode).</li>
+   <li>Flip the <b>GP7 strap</b> — the 8-button module swaps between the parameter set and the transport/utility set, exactly like the hardware.</li>
+   <li>Drag a fader in Utility mode for tempo / swing / delay / gate length.</li>
+   <li>Hold <b>Play</b> (600 ms) for Settings — the OLED becomes the Sound Buffet and pads 8–22 audition the 15 presets.</li></ul>
+   <p>Click anything to read what it does.</p>`},
+ pads:{t:'Touch pads — MPR121 8×4 (32)',s:'ControlSurfaceLogic.h PadBank · docs/sensors.md',b:
+  `<p>The MPR121 capacitive matrix at address 0x5A is scanned every 1 ms. Its 32 pads are <b>two 16-step banks</b> resolved by <span style="font-family:var(--mono)">PadBank::resolve()</span>: pads 0–15 are the pair's low voice, pads 16–31 its high voice. The visible pair follows the selected voice (V1/V2 or V3/V4) — the selected voice's own bank is the one your index (band&nbsp;= voice&nbsp;&amp;&nbsp;1).</p>
+   <ul><li><b>Tap</b> a pad: toggle that step's gate.</li>
+   <li><b>Settings mode</b>: pads 8–22 audition the 15 presets for the selected voice (Sound Buffet).</li>
+   <li><b>Gate-length mode</b> (hold ENC): a pad tap sets the Gate track length — which defines the whole pattern length of that voice.</li></ul>`},
+ leds:{t:'LED matrix — 8×4 pad-mirror',s:'LEDMatrixFeedback.cpp · LedLayout',b:
+  `<p>The WS2812B panel mirrors the touch grid: linear LED index == pad index (the <span style="font-family:var(--mono)">LedLayout</span> invariant). Each 2-row band renders one voice's 16 steps; the playhead step blinks white. When the transport is stopped the matrix "breathes" with the theme's idle color. Ten themes ship in firmware — cycle them with THME or the picker.</p>`},
+ oled:{t:'OLED — SH1106G 128×64',s:'docs/oled.md',b:
+  `<p>I2C at 0x3C (GP4/GP5). Renders by a strict 5-tier priority, reproduced here:</p>
+   <ul><li><b>1</b> PARAM/UTIL banner after a strap flip</li><li><b>2</b> Settings: voice-parameter toggles & preset browser (Sound Buffet)</li><li><b>3</b> Gate sequence-length gauge</li><li><b>4</b> Parameter edit (held/latched button or selected step)</li><li><b>5</b> Status: scale, shuffle, voice + preset, step indicators</li></ul>
+   <p>Transient notices (delay on/off, randomized) also appear here — control-cluster LED flashes moved to OLED notices in 2026-09.</p>`},
+ faders:{t:'Faders — SliderModule (slot 0)',s:'ControlSurfaceLogic.h FaderMap',b:
+  `<p>Four fader channels on the Alchemy SliderModule (Wire1, 0x08), 12-bit with an 8-count send deadband. Meaning depends on the GP7 strap:</p>
+  <ul><li><b>Param mode</b>: ch1 Filter · ch2 Attack · ch3 Decay · ch4 Velocity — records the parameter into the selected voice's steps.</li>
+  <li><b>Utility mode</b>: ch1 Tempo · ch2 Swing depth · ch3 Delay mix · ch4 Gate length.</li></ul>
+  <p><span class="uv">The physical panel shows a fifth slot; firmware maps exactly four channels (kChannelCount = 4). The fifth is unverified/spare.</span></p>`},
+ voicebtns:{t:'V1–V4 voice selects',s:'ButtonMap.h (SliderModule buttons)',b:
+  `<p>The four buttons of the SliderModule directly select voices 1–4 in <b>both</b> modes. The selected voice keeps its own pad bank; the partner voice takes the other bank.</p>
+   <p><span class="uv">Note:</span> the magnetic encoder's base-parameter application (velocity/filter/attack/decay) currently reaches voices 1–2 only (<span style="font-family:var(--mono)">applyEncoderBaseValues</span> on tempState1/2).</p>`},
+ module8:{t:'ButtonModule8 — 8 buttons (slot 1)',s:'ButtonMap.h · ShiftLatch',b:
+  `<p>One physical 8-button tile carries two function sets; GP7 picks which is live. Shift (bit 7) is shared.</p>
+   <ul><li><b>Param</b>: NOTE VEL FILT ATT DEC OCT SLIDE + SHIFT. Hold = momentary; <b>Shift+press latches</b> the parameter so it stays held (one latch at a time).</li>
+   <li><b>Utility</b>: PLAY DLY SCALE SWNG THME ENC RAND + SHIFT.</li></ul>`},
+ gp7:{t:'GP7 mode strap switch',s:'ControlSurfaceLogic.h ModeStabilizer',b:
+  `<p>Hardware strap on GP7 (input pull-up, LOW = Param). Readings must hold stable 20 ms before the mode flips; a flip shows the PARAM/UTIL OLED banner and resets shift-latches. Try flipping it — the 8-button module relabels itself.</p>`},
+ tmag:{t:'TMAG5273 magnetic encoder',s:'docs/sensors.md · EncoderManager',b:
+  `<p>3D hall-effect rotary sensor at 0x35, 5760 counts/rev, with velocity-proportional acceleration (0.008×–3.2×, a 400× dynamic range): turn slowly for fine control, fast for big sweeps. The ENC button cycles what it controls: Velocity · Filter · Attack · Decay · Note · Delay time · Delay feedback · Slide time. Boundary-proximity "flash zones" warn at limits. Drag around the dial here.</p>`},
+ vl53:{t:'VL53L1X distance sensor',s:'docs/sensors.md',b:
+  `<p>Time-of-flight laser ranging at 0x29, 74–1400 mm, non-blocking 20 ms updates — hands-free parameter modulation and real-time step recording. Move the beam slider and watch the readout.</p>`},
+ gate:{t:'Gate Input jack',s:'panel legend',b:
+  `<p>Labeled jack on the wooden panel. <span class="uv">Unverified:</span> no gate-input / external-clock code exists in the current firmware (the old GPIO gate outputs were removed 2026-09-01 when gates moved to the PIO I2S stream). Present on the panel; treated as non-functional in firmware.</p>`},
+ out:{t:'Stereo Out — I2S 48 kHz',s:'docs/sensors.md · src/audio',b:
+  `<p>Stereo I2S output on GP10 (BCLK) / GP11 (LRCK) / GP12 (DATA), filled by Core 0's <span style="font-family:var(--mono)">fill_audio_buffer()</span>. A global delay (boot: 667 ms, feedback 0.45, cap 0.91) sits on the bus — DLY toggles it.</p>`},
+ param:{t:'Parameter buttons',s:'UIState · ShiftLatch',b:
+  `<p>Hold (or Shift-latch) a parameter, then the pads/OLED become its editor; each ParamId is its own polymetric track with an independent step count. Waveguide presets re-purpose the Filter/Attack/Decay slots (e.g. Bright/Pick/T60) and the OLED follows the re-purposed names.</p>`},
+ play:{t:'PLAY / Stop',s:'UIState · docs/oled.md',b:
+  `<p>Short press: start/stop the uClock transport (16th-note ticks). Hold ~600 ms: enters/exits Settings without stopping the transport — the OLED becomes the preset browser (Sound Buffet) and pads 8–22 audition presets.</p>`},
+ rand:{t:'RAND — randomize',s:'UIState randomize state',b:
+  `<p>Randomizes the selected voice's pattern (heuristics in the firmware; a fresh press-and-hold reset exists on hardware). The OLED flashes a RANDOMIZED notice. Try it.</p>`},
+};
+
+/* ============================== SVG panel build ============================== */
+const svg=$('panel');
+const defs=el('defs',{},svg);
+const wood=el('linearGradient',{id:'wood',x1:0,y1:0,x2:0,y2:1},defs);
+el('stop',{offset:'0%','stop-color':'#c9a06a'},wood);
+el('stop',{offset:'100%','stop-color':'#a87f4e'},wood);
+const gWood=el('g',{},svg);
+el('rect',{x:2,y:2,width:1196,height:556,rx:20,fill:'url(#wood)',stroke:'#6e4f2c','stroke-width':2},gWood);
+[[26,26],[1174,26],[26,534],[1174,534]].forEach(([x,y])=>el('circle',{cx:x,cy:y,r:5,fill:'#00000042'},gWood));
+function label(x,y,txt,opts={}){
+  return el('text',{x,y,fill:opts.fill||'#3c2b14','font-size':opts.fs||11,'font-weight':700,
+    'text-anchor':opts.anchor||'middle','font-family':'system-ui,sans-serif',
+    'letter-spacing':opts.ls||'.8',transform:opts.rot?`rotate(${opts.rot} ${x} ${y})`:null},gWood,txt);
+}
+function showInfo(key){renderInfo(key);}
+function clickable(node,key){node.classList.add('hot');node.addEventListener('click',e=>{showInfo(key);});}
+
+/* --- OLED (top-left) --- */
+const oledG=el('g',{},svg);
+el('rect',{x:40,y:36,width:262,height:132,rx:10,fill:'#15100a',stroke:'#5e4526','stroke-width':3},oledG);
+const oledScr=el('rect',{x:52,y:46,width:238,height:112,rx:4,fill:'#0a0f0c'},oledG);
+clickable(oledG,'oled');
+const oledTxt=el('text',{x:62,y:64,fill:'#9ef0c8','font-size':11,'font-family':"'Cascadia Code',Consolas,monospace",
+  'xml:space':'preserve'},oledG,'');
+const oledTicks=el('g',{},oledG);
+label(171,180,'OLED · SH1106G');
+
+/* --- jacks (left) --- */
+const jackG=el('g',{},svg);
+function jack(cx,cy,name,key){
+  const g=el('g',{class:'hot'},jackG);
+  el('circle',{cx,cy,r:17,fill:'#2a2018',stroke:'#0e0a06','stroke-width':3},g);
+  el('circle',{cx,cy,r:7,fill:'#050403'},g);
+  label(cx,cy+34,name,{fs:10});
+  clickable(g,key);return g;
+}
+jack(72,232,'GATE IN','gate');
+jack(160,232,'STEREO L','out');jack(224,232,'STEREO R','out');
+label(192,196,'STEREO OUT',{fs:10});
+
+/* --- TMAG5273 dial (bottom-left) --- */
+const dial={cx:105,cy:412,r:52,ang:0};
+const dialG=el('g',{},svg);
+el('circle',{cx:dial.cx,cy:dial.cy,r:dial.r+10,fill:'#00000030',stroke:'#6e4f2c'},dialG);
+const dialFace=el('circle',{cx:dial.cx,cy:dial.cy,r:dial.r,fill:'#1c1712',stroke:'#3c2b14','stroke-width':2,class:'hot'},dialG);
+const dialPtr=el('line',{x1:dial.cx,y1:dial.cy,x2:dial.cx,y2:dial.cy-dial.r+8,stroke:'#5ac8fa','stroke-width':4,'stroke-linecap':'round'},dialG);
+el('circle',{cx:dial.cx,cy:dial.cy,r:8,fill:'#0e0a06',class:'hot'},dialG);
+const dialTxt=el('text',{x:dial.cx,y:dial.cy+dial.r+26,fill:'#3c2b14','font-size':10.5,'text-anchor':'middle',
+  'font-family':'monospace','font-weight':700},dialG,'');
+clickable(dialG,'tmag');
+label(dial.cx,dial.cy-dial.r-10,'TMAG5273',{fs:10});
+
+/* --- VL53L1X ToF (bottom, left-center) --- */
+const tof={x:210,y:330,w:44,h:150};
+const tofG=el('g',{},svg);
+el('rect',{x:tof.x-8,y:tof.y-24,width:tof.w+16,height:tof.h+52,rx:10,fill:'#00000022'},tofG);
+const tofTrack=el('rect',{x:tof.x+16,y:tof.y,width:10,height:tof.h,rx:5,fill:'#141b21'},tofG);
+const tofKnob=el('rect',{x:tof.x+2,y:tof.y,width:38,height:16,rx:5,fill:'#5ac8fa',class:'hot'},tofG);
+const tofTxt=el('text',{x:tof.x+tof.w/2,y:tof.y+tof.h+18,fill:'#3c2b14','font-size':10.5,'text-anchor':'middle',
+  'font-family':'monospace','font-weight':700},tofG,'');
+clickable(tofG,'vl53');
+label(tof.x+tof.w/2,tof.y-10,'VL53L1X',{fs:10});
+
+/* --- pad grid 8×4 with LED mirror (center) --- */
+const GRID={x0:380,y0:46,cell:58,gap:8};
+const padCells=[]; // {led,pad,band,row,col,step}
+const padGridG=el('g',{},svg);
+/* band labels */
+const bandLabels=[el('text',{},padGridG),el('text',{},padGridG)];
+bandLabels.forEach((t,b)=>{
+  t.setAttribute('x',GRID.x0-10);t.setAttribute('text-anchor','end');
+  t.setAttribute('y',GRID.y0+b*2*(GRID.cell+GRID.gap)+(GRID.cell+GRID.gap)-14);
+  t.setAttribute('fill','#3c2b14');t.setAttribute('font-size',12);t.setAttribute('font-weight',700);
+});
+/* step numbers */
+for(let c=0;c<8;c++){
+  label(GRID.x0+c*(GRID.cell+GRID.gap)+GRID.cell/2,GRID.y0-8,String(c+1),{fs:9,fill:'#5e4526'});
+  label(GRID.x0+c*(GRID.cell+GRID.gap)+GRID.cell/2,GRID.y0-8+2*(GRID.cell+GRID.gap)-6,String(c+9),{fs:9,fill:'#5e4526'});
+}
+for(let band=0;band<2;band++)for(let row=0;row<2;row++)for(let col=0;col<8;col++){
+  const pad=band*16+row*8+col, step=row*8+col;
+  const x=GRID.x0+col*(GRID.cell+GRID.gap), y=GRID.y0+(band*2+row)*(GRID.cell+GRID.gap);
+  const g=el('g',{class:'hot'},padGridG);
+  el('rect',{x,y,width:GRID.cell,height:GRID.cell,rx:8,fill:'#00000038',stroke:'#00000060'},g);
+  const led=el('rect',{x:x+7,y:y+7,width:GRID.cell-14,height:GRID.cell-14,rx:5,fill:'#000'},g);
+  g.addEventListener('click',()=>onPad(pad));
+  g.addEventListener('mouseenter',()=>hoverPad(pad));
+  padCells.push({led,pad,band,row,col,step,x,y});
+}
+clickable(padGridG,'pads');
+
+/* --- ButtonModule8 (below grid) --- */
+const B8={x0:388,y:332,w:52,h:38,gap:9};
+const b8Btns=[]; // {g,rect,label,slot}
+const b8G=el('g',{},svg);
+for(let i=0;i<8;i++){
+  const x=B8.x0+i*(B8.w+B8.gap);
+  const g=el('g',{class:'hot'},b8G);
+  const r=el('rect',{x,y:B8.y,width:B8.w,height:B8.h,rx:7,fill:'#141b21',stroke:'#0c0f13','stroke-width':2},g);
+  const t=el('text',{x:x+B8.w/2,y:B8.y+B8.h/2+4,'text-anchor':'middle','font-size':10,
+    'font-weight':700,'font-family':'system-ui','fill':'#c9d4dd'},g,'');
+  g.addEventListener('click',()=>onB8(i));
+  b8Btns.push({g,rect:r,label:t,idx:i});
+}
+const b8Title=label(B8.x0+4*(B8.w+B8.gap)-4,B8.y+B8.h+20,'ButtonModule8 · PARAM mode',{fs:10.5});
+
+/* --- GP7 strap (below B8, left) --- */
+const gp7={x:B8.x0,y:414,w:120,h:30};
+const gp7G=el('g',{class:'hot'},svg);
+el('rect',{x:gp7.x,y:gp7.y,width:gp7.w,height:gp7.h,rx:15,fill:'#141b21',stroke:'#0c0f13','stroke-width':2},gp7G);
+const gp7Knob=el('circle',{cx:gp7.x+22,cy:gp7.y+15,r:11,fill:'#5ac8fa'},gp7G);
+label(gp7.x+gp7.w+16,gp7.y+15,'← GP7 MODE STRAP',{fs:9.5,anchor:'start',fill:'#5e4526'});
+clickable(gp7G,'gp7');
+gp7G.addEventListener('click',()=>setMode(state.mode==='Param'?'Utility':'Param'));
+
+/* --- SliderModule faders (right) --- */
+const FAD={x0:952,y0:60,y1:330,w:40,gap:14};
+const faders=[]; // {g,knob,ch}
+const fadG=el('g',{},svg);
+for(let i=0;i<5;i++){
+  const x=FAD.x0+i*(FAD.w+FAD.gap);
+  const g=el('g',{},fadG);
+  el('rect',{x:x-6,y:FAD.y0-26,width:FAD.w+12,height:FAD.y1-FAD.y0+56,rx:9,fill:'#00000022'},g);
+  el('rect',{x:x+FAD.w/2-5,y:FAD.y0,width:10,height:FAD.y1-FAD.y0,rx:5,fill:'#141b21'},g);
+  const knob=el('rect',{x:x-3,y:0,width:FAD.w+6,height:20,rx:5,fill:'#c9d4dd',stroke:'#0c0f13',
+    'stroke-width':2,class:'hot'},g);
+  const t=el('text',{x:x+FAD.w/2,y:FAD.y1+20,'text-anchor':'middle','font-size':9.5,'font-weight':700,
+    'font-family':'system-ui',fill:'#3c2b14'},g,'');
+  faders.push({g,knob,lab:t,ch:i,x});
+  if(i<4)bindFaderDrag(g,i);
+}
+const fad5hint=label(FAD.x0+4*(FAD.w+FAD.gap)+FAD.w/2,FAD.y1+38,'5th slot: unmapped',{fs:8,fill:'#6e5a3a'});
+label(FAD.x0+2*(FAD.w+FAD.gap)+FAD.w/2,FAD.y1+56,'SliderModule — 4 faders',{fs:10.5});
+clickable(fadG,'faders');
+
+/* --- V1–V4 voice buttons (right, below faders) --- */
+const VB={x0:FAD.x0,y:432,w:42,h:32,gap:8};
+const vBtns=[];
+const vbG=el('g',{},svg);
+for(let i=0;i<4;i++){
+  const x=VB.x0+i*(VB.w+VB.gap);
+  const g=el('g',{class:'hot'},vbG);
+  const r=el('rect',{x,y:VB.y,width:VB.w,height:VB.h,rx:7,fill:'#141b21',stroke:'#0c0f13','stroke-width':2},g);
+  el('text',{x:x+VB.w/2,y:VB.y+VB.h/2+4,'text-anchor':'middle','font-size':11,'font-weight':700,
+    fill:'#c9d4dd','font-family':'system-ui'},g,'V'+(i+1));
+  g.addEventListener('click',()=>selectVoice(i));
+  vBtns.push(r);
+}
+clickable(vbG,'voicebtns');
+
+/* ============================== interactions ============================== */
+function onPad(pad){
+  const[pairLo,pairHi]=pairFor(state.selectedVoice);
+  if(state.settingsMode){ // Sound Buffet: pads 8..22 -> preset 0..14
+    if(pad>=8&&pad<=22){state.settingsPresetIdx=pad-8;state.voices[state.selectedVoice].presetIdx=pad-8;refreshAll();}
+    return;
+  }
+  if(state.gateLenMode){state.voices[state.selectedVoice].length=pad%16+1;refreshAll();return;}
+  const v=pad<16?pairLo:pairHi, step=pad%16;
+  const vo=state.voices[v];vo.steps[step]=vo.steps[step]?0:1;
+  refreshAll();
+}
+function hoverPad(pad){
+  const[pairLo,pairHi]=pairFor(state.selectedVoice);
+  const v=pad<16?pairLo:pairHi;
+  showInfo(state.settingsMode&&pad>=8&&pad<=22?'play':'pads');
+}
+function onB8(idx){
+  if(idx===7){state.shiftHeld=!state.shiftHeld;refreshAll();return;} // Shift shared, bit 7
+  if(state.mode==='Param'){
+    const pid=idx;
+    if(state.shiftHeld){state.latchedParam=(state.latchedParam===pid)?-1:pid;} // Shift+press toggles latch
+    else {state.momentaryParam=pid;state.latchedParam=-1;
+      setTimeout(()=>{if(state.momentaryParam===pid)state.momentaryParam=-1;refreshAll();},1400);}
+    touchEdit(PARAM_BTNS[pid][1],null);
+    refreshAll();
+  }else{
+    utilityAction(idx);
+  }
+}
+function utilityAction(idx){
+  switch(idx){
+    case 0: if(state.playSpent){state.playSpent=false;break;}     // long-press already handled
+      togglePlay(); break;                                        // PLAY
+    case 1: state.delayOn=!state.delayOn; notice(state.delayOn?'DELAY ON':'DELAY OFF'); break;
+    case 2: state.scaleIdx=(state.scaleIdx+1)%SCALES.length; break; // SCALE
+    case 3: state.swingIdx=(state.swingIdx+1)%SHUFFLES.length; break;// SWNG
+    case 4: state.themeIdx=(state.themeIdx+1)%THEMES.length; syncRail(); break; // THME
+    case 5: state.encMode=(state.encMode+1)%ENC_MODES.length; break;// ENC
+    case 6: randomize(); break;                                     // RAND
+  }
+  refreshAll();
+}
+function randomize(){
+  const v=state.voices[state.selectedVoice];
+  for(let i=0;i<16;i++)v.steps[i]=Math.random()<(i%4===0?.6:.3)?1:0;
+  state.randFlashUntil=performance.now()+450;
+  notice('RANDOMIZED  V'+(state.selectedVoice+1));
+}
+function notice(txt){state.notice=txt;state.noticeUntil=performance.now()+1600;}
+function touchEdit(name,val){state.lastEditedName=name;state.lastEditedVal=val;state.lastEditUntil=performance.now()+4000;}
+function selectVoice(i){state.selectedVoice=i;state.settingsPresetIdx=state.voices[i].presetIdx;showInfo('voicebtns');refreshAll();}
+function setMode(m){
+  if(state.mode===m)return;
+  state.mode=m;state.latchedParam=-1;state.momentaryParam=-1;state.shiftHeld=false; // ShiftLatch::reset
+  state.bannerUntil=performance.now()+1500;
+  syncRail();refreshAll();
+}
+function togglePlay(){
+  if(state.settingsMode){state.settingsMode=false;syncRail();refreshAll();return;} // short press exits settings
+  state.playing=!state.playing;
+  if(!state.playing)state.voices.forEach(v=>v.currentStep=-1);
+  else pulseFlow('fn-vs');
+  syncRail();refreshAll();
+}
+
+/* fader drag */
+function bindFaderDrag(g,ch){
+  const move=e=>{
+    const pt=svgPoint(e);const v=1-Math.min(1,Math.max(0,(pt.y-FAD.y0)/(FAD.y1-FAD.y0)));
+    setFader(ch,v);
+  };
+  g.addEventListener('pointerdown',e=>{g.setPointerCapture(e.pointerId);move(e);
+    const mv=ev=>move(ev);const up=()=>{g.removeEventListener('pointermove',mv);g.removeEventListener('pointerup',up);};
+    g.addEventListener('pointermove',mv);g.addEventListener('pointerup',up);});
+}
+function svgPoint(e){
+  const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;
+  return pt.matrixTransform(svg.getScreenCTM().inverse());
+}
+function setFader(ch,v){
+  if(ch>3)return;
+  if(state.mode==='Param'){
+    const key=['filter','attack','decay','velocity'][ch];
+    state.voices[state.selectedVoice].params[key]=v;
+    touchEdit(['Filter','Attack','Decay','Velocity'][ch],v);
+  }else{
+    if(ch===0){state.bpm=Math.round(40+v*160);}
+    if(ch===1){state.swingIdx=Math.min(15,Math.round(v*15));}
+    if(ch===2){state.delayOn=v>0.02;}
+    if(ch===3){state.voices[state.selectedVoice].gateLenPct=v;}
+    touchEdit(['Tempo','Swing depth','Delay mix','Gate length'][ch],v);
+  }
+  syncRail();refreshAll();
+}
+
+/* dial drag (TMAG) */
+let dialDragging=false,dialLastAng=0,dialLastT=0;
+dialFace.addEventListener('pointerdown',e=>{
+  dialDragging=true;dialLastAng=ptAngle(e);dialLastT=performance.now();
+  dialFace.setPointerCapture(e.pointerId);
+});
+dialFace.addEventListener('pointermove',e=>{
+  if(!dialDragging)return;
+  const a=ptAngle(e);let d=a-dialLastAng;
+  if(d>Math.PI)d-=2*Math.PI;if(d<-Math.PI)d+=2*Math.PI;
+  const now=performance.now(),speed=Math.abs(d)/Math.max(1,now-dialLastT); // rad/ms
+  const accel=Math.min(3.2,0.008+speed*22);          // velocity scaling, 0.008x..3.2x per firmware
+  dial.ang+=d;
+  const p=state.encMode===4?-24:0, span=state.encMode===4?48:1;
+  state.encVals[state.encMode]=Math.min(1,Math.max(0,state.encVals[state.encMode]+d/(2*Math.PI)*2*accel*(state.encMode===4?1:1)));
+  touchEdit(ENC_MODES[state.encMode]+' (encoder)',state.encVals[state.encMode]);
+  dialLastAng=a;dialLastT=now;refreshAll();
+});
+dialFace.addEventListener('pointerup',()=>dialDragging=false);
+function ptAngle(e){const p=svgPoint(e);return Math.atan2(p.y-dial.cy,p.x-dial.cx);}
+
+/* tof drag */
+tofG.addEventListener('pointerdown',e=>{
+  tofG.setPointerCapture(e.pointerId);const mv=ev=>{
+    const p=svgPoint(ev);
+    state.vl53mm=Math.round(74+(1-Math.min(1,Math.max(0,(p.y-tof.y)/tof.h)))*(1400-74));
+    refreshAll();};
+  mv(e);const up=()=>{tofG.removeEventListener('pointermove',mv);tofG.removeEventListener('pointerup',up);};
+  tofG.addEventListener('pointermove',mv);tofG.addEventListener('pointerup',up);
+});
+
+/* hold Play = settings (600 ms), like the firmware long-press */
+b8Btns[0].g.addEventListener('pointerdown',()=>{
+  state.playSpent=false;
+  state.holdPlayTimer=setTimeout(()=>{state.playSpent=true;state.settingsMode=!state.settingsMode;
+    if(state.settingsMode)state.settingsPresetIdx=state.voices[state.selectedVoice].presetIdx;
+    syncRail();refreshAll();},600);
+});
+b8Btns[0].g.addEventListener('pointerup',()=>{clearTimeout(state.holdPlayTimer);});
+
+/* ============================== transport clock ============================== */
+let nextTick=0;
+function tick(){
+  state.voices.forEach((v,i)=>{
+    v.currentStep=(v.currentStep+1)%v.length;
+    if(v.steps[v.currentStep]){v.gateFlash=1;pulseFlow(i===state.selectedVoice?'fn-vs':'fn-core0');}
+  });
+}
+function pulseFlow(id){const n=$(id);if(!n)return;n.classList.remove('pulse');void n.offsetWidth;n.classList.add('pulse');}
+
+/* ============================== render ============================== */
+function renderPads(now){
+  const t=theme(),pair=pairFor(state.selectedVoice);
+  const blink=state.playing&&Math.floor(now/110)%2===0;
+  const breathing=!state.playing, br=0.3+0.22*Math.sin(now/650);
+  const flash=now<state.randFlashUntil;
+  bandLabels[0].textContent='V'+(pair[0]+1)+' · '+PRESETS[state.voices[pair[0]].presetIdx];
+  bandLabels[1].textContent='V'+(pair[1]+1)+' · '+PRESETS[state.voices[pair[1]].presetIdx];
+  padCells.forEach(pc=>{
+    const v=state.voices[pair[pc.band]];
+    let base;
+    const active=v.steps[pc.step]&&pc.step<v.length;
+    if(flash&&active)base=t.flash;
+    else if(breathing)base=css2mix(t.breath,br);
+    else base=active?mix(t.on[pc.band],'#000000',1-(0.55+0.45*v.params.velocity)):t.off[pc.band];
+    let fill=base;
+    if(state.playing&&v.currentStep===pc.step){
+      fill=mix(active?base:t.off[pc.band],blink?'#ffffff':t.play,blink?0.7:0.4);
+    }
+    pc.led.setAttribute('fill',fill);
+    /* gate-length tail hint (utility fader 4) */
+    if(active){pc.led.setAttribute('height',(GRID.cell-14)*(0.4+0.6*v.gateLenPct));
+      pc.led.setAttribute('y',pc.y+7+(GRID.cell-14)*(1-(0.4+0.6*v.gateLenPct)));}
+    else{pc.led.setAttribute('height',GRID.cell-14);pc.led.setAttribute('y',pc.y+7);}
+  });
+}
+function css2mix(c,alpha){return mix('#000000',c,0.15+alpha);} // breathing = dim theme breath color
+function renderB8(){
+  const t=theme();
+  const names=state.mode==='Param'?PARAM_BTNS.map(b=>b[0]):UTIL_BTNS.map(b=>b[0]);
+  b8Title.textContent='ButtonModule8 · '+state.mode.toUpperCase()+' mode'+(state.shiftHeld?' · SHIFT':'');
+  b8Btns.forEach((b,i)=>{
+    b.label.textContent=i===7?'SHFT':names[i];
+    let col;
+    if(i===7)col=state.shiftHeld?t.def[0]:t.def[1];
+    else if(state.mode==='Param'){
+      const pair=t.params[i];col=(i===state.latchedParam||i===state.momentaryParam)?pair[0]:pair[1];
+    }else{
+      const on=(i===0&&state.playing)||(i===1&&state.delayOn);
+      col=on?t.def[0]:t.def[1];
+      if(i===0&&state.settingsMode)col=t.flash;
+    }
+    b.rect.setAttribute('fill',col);
+    b.rect.setAttribute('stroke',i===state.latchedParam?'#5ac8fa':'#0c0f13');
+  });
+}
+function faderLabel(ch){return state.mode==='Param'?['FILT','ATT','DEC','VEL'][ch]:['BPM','SWNG','DLY','GATE'][ch];}
+function faderValue(ch){
+  if(state.mode==='Param'){const k=['filter','attack','decay','velocity'][ch];return state.voices[state.selectedVoice].params[k];}
+  return [ (state.bpm-40)/160, state.swingIdx/15, state.delayOn?0.45:0, state.voices[state.selectedVoice].gateLenPct ][ch];
+}
+function renderFaders(){
+  faders.forEach(f=>{
+    if(f.ch===4){f.knob.setAttribute('y',FAD.y0+(FAD.y1-FAD.y0)*0.5-10);f.knob.setAttribute('fill','#4a4438');
+      f.lab.textContent='—';return;}
+    f.knob.setAttribute('fill','#c9d4dd');
+    const v=faderValue(f.ch);
+    f.knob.setAttribute('y',FAD.y0+(FAD.y1-FAD.y0)*(1-v)-10);
+    f.lab.textContent=faderLabel(f.ch);
+  });
+}
+function renderDial(){
+  dialPtr.setAttribute('transform',`rotate(${dial.ang*180/Math.PI} ${dial.cx} ${dial.cy})`);
+  const m=state.encMode,v=state.encVals[m];let txt;
+  if(m===4)txt='NOTE '+(Math.round(-24+48*v)>=0?'+':'')+Math.round(-24+48*v)+' st';
+  else if(m===5)txt='DLY '+(Math.round(40+900*v))+' ms';
+  else if(m===6)txt='FB '+(v*0.91).toFixed(2);
+  else if(m===7)txt='SLIDE '+(v*1000|0)+' ms';
+  else txt=ENC_MODES[m].slice(0,4).toUpperCase()+' '+Math.round(v*100)+'%';
+  dialTxt.textContent=txt+'  ['+(m+1)+'/8]';
+}
+function renderTof(){tofKnob.setAttribute('y',tof.y+tof.h*(1-(state.vl53mm-74)/(1400-74))-8);
+  tofTxt.textContent=state.vl53mm+' mm';}
+function renderVBtns(){
+  vBtns.forEach((r,i)=>{
+    r.setAttribute('fill',i===state.selectedVoice?theme().def[0]:'#141b21');
+    r.setAttribute('stroke',i===state.selectedVoice?'#5ac8fa':'#0c0f13');
+  });
+}
+function renderGp7(){
+  gp7Knob.setAttribute('cx',state.mode==='Param'?gp7.x+22:gp7.x+gp7.w-22);
+  gp7Knob.setAttribute('fill',state.mode==='Param'?'#5ac8fa':'#ffb45a');
+}
+function renderOled(now){
+  const v=state.voices[state.selectedVoice];
+  const L=[];let ticks=false;
+  if(now<state.bannerUntil){
+    L.push('','',state.mode==='Param'?'  P A R A M':'  U T I L  ','',
+           ' '+(state.mode==='Param'?'> params <':'> utility <'));
+  }
+  else if(state.settingsMode){
+    const n=state.settingsPresetIdx;
+    L.push('SOUND BUFFET  V'+(state.selectedVoice+1),
+           PRESETS[Math.max(0,n-1)]+'  <',
+           '* '+PRESETS[n]+'  *',
+           '  >  '+PRESETS[Math.min(14,n+1)],
+           (n+1)+'/15   Pads 8-22');
+  }
+  else if(state.gateLenMode){
+    L.push('Sequence Length','Voice '+(state.selectedVoice)+'  (0-based)','LEN  '+v.length,'',
+           '');
+    drawTicks(Math.min(16,Math.round(v.length/16*16)),true);
+    paintOled(L);return;
+  }
+  else if(state.lastEditedName&&now<state.lastEditUntil){
+    const val=state.lastEditedVal;
+    L.push(state.lastEditedName,'',
+      val==null?'':'value '+(val<=1?Math.round(val*100)+'%':val),'','');
+  }
+  else{
+    L.push('SCL '+SCALES[state.scaleIdx],'SWG '+SHUFFLES[state.swingIdx],
+      'V'+state.selectedVoice+' '+PRESETS[v.presetIdx]+'  LEN '+v.length,
+      state.bpm+' BPM  DLY '+(state.delayOn?'ON':'OFF'),'');
+    ticks=true;
+  }
+  paintOled(L);
+  if(ticks)drawTicks(v.currentStep<0?-1:v.currentStep,false);
+}
+function paintOled(lines){
+  oledTxt.textContent='';
+  lines.slice(0,5).forEach((ln,i)=>{
+    const ts=el('tspan',{x:62,dy:i===0?0:17},oledTxt,(ln||'').slice(0,30));
+  });
+}
+function drawTicks(hl,gauge){
+  while(oledTicks.firstChild)oledTicks.removeChild(oledTicks.firstChild);
+  const v=state.voices[state.selectedVoice];
+  for(let i=0;i<16;i++){
+    const on=gauge?i<hl:(v.steps[i]&&i<v.length);
+    el('rect',{x:62+i*14.5,y:142,width:11,height:11,rx:2,
+      fill:on?'#9ef0c8':'#1d3a2c',stroke:i===hl?'#ffffff':'none','stroke-width':1.4},oledTicks);
+  }
+}
+function renderInfo(key){
+  const d=INFO[key]||INFO.intro;
+  $('infoCard').innerHTML='<h2>'+d.t+'</h2><div class="src">'+d.s+'</div>'+d.b;
+}
+function renderPlayheadFlow(){/* flow pulse handled by tick() */}
+
+/* ---- patch notes ---- */
+const DEFAULTS={bpm:90,swingIdx:0,scaleIdx:0,delayOn:true,themeIdx:0};
+function patchNotes(){
+  const parts=[];
+  if(state.bpm!==DEFAULTS.bpm)parts.push('tempo '+state.bpm+' BPM');
+  if(state.swingIdx!==DEFAULTS.swingIdx)parts.push('shuffle "'+SHUFFLES[state.swingIdx]+'"');
+  if(state.scaleIdx!==DEFAULTS.scaleIdx)parts.push(SCALES[state.scaleIdx]+' scale');
+  if(!state.delayOn)parts.push('global delay off');
+  if(state.themeIdx!==DEFAULTS.themeIdx)parts.push('LED theme "'+THEMES[state.themeIdx].name+'"');
+  const stepsTxt=v=>{const on=[];for(let i=0;i<v.length;i++)if(v.steps[i])on.push(i+1);
+    return on.length?on.join(', '):'silent';};
+  state.voices.forEach((v,i)=>{
+    const bits=[];
+    if(v.presetIdx!==BOOT_PRESETS[i])bits.push('preset '+PRESETS[v.presetIdx]);
+    else bits.push(PRESETS[v.presetIdx]+' (boot preset)');
+    if(v.length!==16)bits.push(v.length+'-step pattern');
+    bits.push('gate steps: '+stepsTxt(v));
+    parts.push('Voice '+(i+1)+' — '+bits.join(', '));
+  });
+  if(state.encMode!==0)parts.push('encoder controlling '+ENC_MODES[state.encMode]);
+  return 'Program the Pico2Seq like this: '+(parts.join('; '))+'. ' +
+   'Pattern lengths are the Gate-track lengths; all other tracks modulo against the global 16th-note clock, so mismatched lengths polymeter against each other.';
+}
+function renderPatch(){$('patchOut').value=patchNotes();}
+
+function refreshAll(){
+  const now=performance.now();
+  renderPads(now);renderB8();renderFaders();renderDial();renderTof();renderVBtns();renderGp7();
+  renderOled(now);renderPatch();renderRailDyn();
+}
+function renderRailDyn(){
+  $('railPlay').textContent=state.playing?'■ Stop':'▶ Play';
+  $('railPlay').classList.toggle('on',state.playing);
+  $('modeParam').classList.toggle('on',state.mode==='Param');
+  $('modeUtil').classList.toggle('on',state.mode==='Utility');
+}
+
+/* ============================== main loop ============================== */
+function loop(now){
+  if(state.playing){
+    if(now>=nextTick){tick();const interval=15000/state.bpm;nextTick=(nextTick>now-500?nextTick+interval:now+interval);}
+  } else nextTick=now;
+  state.voices.forEach(v=>{if(v.gateFlash>0)v.gateFlash=Math.max(0,v.gateFlash-0.08);});
+  refreshVisualOnly(now);
+  requestAnimationFrame(loop);
+}
+function refreshVisualOnly(now){
+  renderPads(now);renderOled(now);renderDial();renderTof();
+}
+
+/* ============================== rail wiring ============================== */
+function syncRail(){
+  $('bpmSlider').value=state.bpm;$('bpmVal').textContent=state.bpm+' BPM';
+  const ts=$('themeSel');if(+ts.value!==state.themeIdx)ts.value=state.themeIdx;
+  $('gateLenChk').checked=state.gateLenMode;$('settingsChk').checked=state.settingsMode;
+  const ps=$('presetSel');ps.value=state.voices[state.selectedVoice].presetIdx;
+  $('lenSlider').value=state.voices[state.selectedVoice].length;$('lenVal').textContent=state.voices[state.selectedVoice].length;
+  document.querySelectorAll('#voiceChips button').forEach((b,i)=>b.classList.toggle('on',i===state.selectedVoice));
+}
+$('railPlay').onclick=togglePlay;
+$('bpmSlider').oninput=e=>{state.bpm=+e.target.value;syncRail();};
+$('themeSel').onchange=e=>{state.themeIdx=+e.target.value;};
+$('presetSel').onchange=e=>{state.voices[state.selectedVoice].presetIdx=+e.target.value;refreshAll();};
+$('lenSlider').oninput=e=>{state.voices[state.selectedVoice].length=+e.target.value;syncRail();};
+$('gateLenChk').onchange=e=>{state.gateLenMode=e.target.checked;};
+$('settingsChk').onchange=e=>{state.settingsMode=e.target.checked;
+  if(state.settingsMode)state.settingsPresetIdx=state.voices[state.selectedVoice].presetIdx;};
+$('modeParam').onclick=()=>setMode('Param');
+$('modeUtil').onclick=()=>setMode('Utility');
+$('copyBtn').onclick=()=>{
+  const ta=$('patchOut');ta.select();
+  (navigator.clipboard?navigator.clipboard.writeText(ta.value):Promise.reject())
+    .catch(()=>document.execCommand('copy'));
+  $('copyBtn').textContent='Copied!';setTimeout(()=>$('copyBtn').textContent='Copy patch notes',1200);
+};
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'&&!/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)){
+    e.preventDefault();togglePlay();}
+});
+
+/* build selects & chips */
+THEMES.forEach((t,i)=>{const o=document.createElement('option');o.value=i;o.textContent=t.name;$('themeSel').appendChild(o);});
+PRESETS.forEach((p,i)=>{const o=document.createElement('option');o.value=i;o.textContent=i+' · '+p;$('presetSel').appendChild(o);});
+for(let i=0;i<4;i++){const b=document.createElement('button');b.className='chip';b.textContent='V'+(i+1);
+  b.onclick=()=>selectVoice(i);$('voiceChips').appendChild(b);}
+window.applyView=function(key){
+  if(key==='perf'){state.themeIdx=0;state.bpm=120;state.playing=true;state.settingsMode=false;state.gateLenMode=false;
+    state.voices[0].length=16;state.voices[1].length=16;state.voices[2].length=8;state.voices[3].length=8;}
+  if(key==='poly'){state.themeIdx=4;state.playing=true;state.settingsMode=false;
+    state.voices[0].length=16;state.voices[1].length=12;state.voices[2].length=8;state.voices[3].length=5;}
+  if(key==='buffet'){state.playing=false;state.settingsMode=true;state.settingsPresetIdx=state.voices[state.selectedVoice].presetIdx;}
+  if(key==='dark'){state.themeIdx=6;state.playing=false;state.settingsMode=false;}
+  nextTick=performance.now();syncRail();refreshAll();
+};
+
+/* init */
+syncRail();renderInfo('intro');refreshAll();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

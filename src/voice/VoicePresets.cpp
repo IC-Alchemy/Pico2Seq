@@ -1,5 +1,7 @@
 #include "VoicePresets.h"
+#include <algorithm>
 #include <array>
+#include <cmath>
 
 namespace VoicePresets
 {
@@ -31,6 +33,8 @@ namespace VoicePresets
 
     c.filterRes = 0.33f;
     c.filterDrive = 2.1f;
+    // Ladder on purpose: this is one of only two presets still using it
+    // (with Lead); the test suite pins that count.
     c.filterMode = rpdsp::LadderFilter::Mode::LP24;
     c.filterPassbandGain = 0.23f;
     c.highPassFreq = 120.0f;
@@ -62,11 +66,10 @@ namespace VoicePresets
 
     c.harmony[0] = 0; // Root note
     c.filterRes = 0.4f;
-    c.filterDrive = 2.5f;
-    c.filterPassbandGain = 0.25f;
+    c.filterType = FILTER_SVF; // clean resonant low-pass replaces the ladder
     c.highPassFreq = 111.0f;
     c.highPassRes = 0.15f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12; // Low-pass filter
+    c.filterMode = rpdsp::LadderFilter::Mode::LP12; // SVF response: low-pass
 
     c.hasOverdrive = false;
     c.overdriveGain = 0.7f;
@@ -93,11 +96,10 @@ namespace VoicePresets
     c.harmony[0] = 0; // Root note
     c.harmony[1] = 0; // Unison (bass typically monophonic)
     c.highPassRes = 0.4f;
-    c.filterRes = 0.33f;
-    c.filterDrive = 2.f;
-    c.filterPassbandGain = 0.12f;
+    c.filterRes = 0.45f; // SVF resonance carries the growl (no ladder drive)
+    c.filterType = FILTER_SVF; // TPT state-variable low-pass: tight, stable bass
     c.highPassFreq = 45.0f; // Lower for bass
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP12; // SVF response: low-pass
     c.hasOverdrive = true;
     c.overdriveGain = 0.65f;
     c.overdriveDrive = 0.16f; // Subtle overdrive
@@ -126,6 +128,8 @@ namespace VoicePresets
     c.filterDrive = 3.f;
     c.filterPassbandGain = 0.23f;
     c.highPassFreq = 160.0f;
+    // Ladder on purpose: this is one of only two presets still using it
+    // (with Analog); the test suite pins that count.
     c.filterMode = rpdsp::LadderFilter::Mode::LP12;
     c.hasOverdrive = false;
     c.overdriveGain = 0.7f;
@@ -148,11 +152,10 @@ namespace VoicePresets
     c.harmony[0] = 0; // Root note
     c.oscPulseWidth[0] = 0.2f;
 
-    c.filterRes = 0.52f;
-    c.filterDrive = 3.3f;
-    c.filterPassbandGain = 0.33f;
+    c.filterRes = 0.6f; // resonant SVF band-pass honk
+    c.filterType = FILTER_SVF;
     c.highPassFreq = 150.0f;
-    c.filterMode = rpdsp::LadderFilter::Mode::BP24;
+    c.filterMode = rpdsp::LadderFilter::Mode::BP24; // SVF response: band-pass
     c.hasOverdrive = false;
     c.overdriveGain = 0.75f;
     c.overdriveDrive = 0.35f;
@@ -180,11 +183,10 @@ namespace VoicePresets
     c.harmony[2] = 9;  // Major Third
 
     c.filterRes = 0.3f;
-    c.filterDrive = 2.2f;
-    c.filterPassbandGain = 0.23f;
+    c.filterType = FILTER_SVF; // smooth state-variable low-pass
     c.highPassFreq = 140.0f;
     c.highPassRes = 0.08f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP12; // SVF response: low-pass
 
     c.hasOverdrive = false;
     c.overdriveGain = 0.85f;
@@ -205,10 +207,9 @@ namespace VoicePresets
     c.oscAmplitudes[0] = 1.f;
 
     c.filterRes = 0.4f;
-    c.filterDrive = 2.3f;
-    c.filterPassbandGain = 0.33f;
+    c.filterType = FILTER_SVF;
     c.highPassFreq = 200.0f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP24;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP24; // SVF response: low-pass
 
     c.hasOverdrive = false;
     c.overdriveGain = 0.45f;
@@ -223,8 +224,8 @@ namespace VoicePresets
   }
 
   // SubFunk: bouncy sub bass. Sine sub an octave down carries the weight,
-  // a triangle adds movement, and a driven low-pass with a short punchy
-  // envelope gives the filtered-growl funk character.
+  // a triangle adds movement, and a resonant state-variable low-pass with a
+  // short punchy envelope gives the filtered-growl funk character.
   constexpr VoiceConfig makeSubFunk() noexcept
   {
     VoiceConfig c{};
@@ -242,10 +243,9 @@ namespace VoicePresets
     c.harmony[1] = 0;
     c.harmony[2] = 0;
 
-    c.filterRes = 0.45f;
-    c.filterDrive = 3.6f;
-    c.filterPassbandGain = 0.2f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
+    c.filterRes = 0.5f;
+    c.filterType = FILTER_SVF; // resonant low-pass keeps the sub stable under env sweeps
+    c.filterMode = rpdsp::LadderFilter::Mode::LP12; // SVF response: low-pass
     c.highPassFreq = 55.0f; // keep the sub, shed the rumble
 
     c.hasOverdrive = true;
@@ -261,7 +261,8 @@ namespace VoicePresets
   }
 
   // RubberSub: rubbery sub bass. Sub-octave square grinds under a sine,
-  // a resonant band-pass honks, and harder overdrive spits on transients.
+  // a resonant state-variable band-pass honks, and harder overdrive spits
+  // on transients.
   constexpr VoiceConfig makeRubberSub() noexcept
   {
     VoiceConfig c{};
@@ -279,10 +280,9 @@ namespace VoicePresets
     c.harmony[1] = 0;
     c.harmony[2] = 0;
 
-    c.filterRes = 0.62f;
-    c.filterDrive = 2.6f;
-    c.filterPassbandGain = 0.3f;
-    c.filterMode = rpdsp::LadderFilter::Mode::BP24; // rubbery honk
+    c.filterRes = 0.7f; // SVF band-pass honk (2-pole: higher Q than the old BP24 ladder)
+    c.filterType = FILTER_SVF;
+    c.filterMode = rpdsp::LadderFilter::Mode::BP24; // SVF response: band-pass
     c.highPassFreq = 70.0f;
 
     c.hasOverdrive = true;
@@ -298,12 +298,15 @@ namespace VoicePresets
   }
 
   // WgPluck: classic Karplus-Strong plucked string (waveguide engine).
-  // Bright burst, harmonic loop, short natural tail.
+  // Bright burst, harmonic loop, short natural tail. No ladder, no ADSR —
+  // the string rings out on its own T60; Brightness/Pick/T60 are sequencer
+  // slots (see getSequencerParamName).
   constexpr VoiceConfig makeWaveguidePluck() noexcept
   {
     VoiceConfig c{};
     c.oscillatorCount = 0;
     c.engine = ENGINE_WAVEGUIDE;
+    c.paramSet = PARAMSET_WAVEGUIDE;
     c.wgT60 = 1.8f;
     c.wgBrightness = 0.78f;
     c.wgPickPosition = 0.26f;
@@ -311,28 +314,23 @@ namespace VoicePresets
     c.wgStiffness = 0.0f;
     c.wgDetune = 4.0f;
 
-    c.filterRes = 0.2f;
-    c.filterDrive = 1.8f;
-    c.filterPassbandGain = 0.25f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
-    c.highPassFreq = 120.0f;
-
     c.hasOverdrive = false;
-    c.defaultAttack = 0.001f;
-    c.defaultDecay = 0.5f;
-    c.defaultSustain = 0.65f; // let the string's own T60 ring out
-    c.defaultRelease = 0.25f;
-    c.outputLevel = 0.75f;    // two-string course sums hot
+    c.hasFilter = false;    // raw string; velocity scales the output directly
+    c.hasEnvelope = false;  // natural T60 decay instead of a gated VCA
+    c.highPassFreq = 55.0f;  // sub-shedding HPF: Karplus tails collect rumble
+    c.highPassRes = 0.0f;
+    c.outputLevel = 0.85f;  // two-string course sums hot
     return c;
   }
 
   // WgNylon: dark felt-soft nylon string. Damped loop, gentle pick,
-  // long sympathetic tail.
+  // long sympathetic tail. No ladder, no ADSR.
   constexpr VoiceConfig makeWaveguideNylon() noexcept
   {
     VoiceConfig c{};
     c.oscillatorCount = 0;
     c.engine = ENGINE_WAVEGUIDE;
+    c.paramSet = PARAMSET_WAVEGUIDE;
     c.wgT60 = 3.2f;
     c.wgBrightness = 0.28f;
     c.wgPickPosition = 0.42f;
@@ -340,28 +338,24 @@ namespace VoicePresets
     c.wgStiffness = 0.05f;
     c.wgDetune = 9.0f;
 
-    c.filterRes = 0.15f;
-    c.filterDrive = 1.5f;
-    c.filterPassbandGain = 0.25f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
-    c.highPassFreq = 90.0f;
-
     c.hasOverdrive = false;
-    c.defaultAttack = 0.002f;
-    c.defaultDecay = 0.6f;
-    c.defaultSustain = 0.7f;
-    c.defaultRelease = 0.5f;
-    c.outputLevel = 0.8f;
+    c.hasFilter = false;
+    c.hasEnvelope = false;
+    c.highPassFreq = 66.0f;
+    c.highPassRes = 0.0f;
+    c.outputLevel = 0.9f;
     return c;
   }
 
   // WgBell: stiff dispersive string. High stiffness sharpens upper
   // partials inharmonic (bell/kalimba), hard bridge pick, quick tail.
+  // No ladder, no ADSR.
   constexpr VoiceConfig makeWaveguideBell() noexcept
   {
     VoiceConfig c{};
     c.oscillatorCount = 0;
     c.engine = ENGINE_WAVEGUIDE;
+    c.paramSet = PARAMSET_WAVEGUIDE;
     c.wgT60 = 1.4f;
     c.wgBrightness = 0.9f;
     c.wgPickPosition = 0.08f; // bridge: thin and nasal
@@ -369,28 +363,23 @@ namespace VoicePresets
     c.wgStiffness = 0.88f;    // inharmonic dispersion
     c.wgDetune = 0.0f;
 
-    c.filterRes = 0.3f;
-    c.filterDrive = 2.0f;
-    c.filterPassbandGain = 0.23f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP24;
-    c.highPassFreq = 250.0f;  // clear the mud, keep the shimmer
-
     c.hasOverdrive = false;
-    c.defaultAttack = 0.001f;
-    c.defaultDecay = 0.45f;
-    c.defaultSustain = 0.4f;
-    c.defaultRelease = 0.3f;
-    c.outputLevel = 0.65f;    // bright partials run hot
+    c.hasFilter = false;
+    c.hasEnvelope = false;
+    c.highPassFreq = 0.0f;
+    c.highPassRes = 0.0f;
+    c.outputLevel = 0.75f;    // bright partials run hot
     return c;
   }
 
   // WgShimmer: wide detuned two-string course, very long tail. Slow
-  // chorusing sustain turns a pluck into a ringing pad.
+  // chorusing sustain turns a pluck into a ringing pad. No ladder, no ADSR.
   constexpr VoiceConfig makeWaveguideShimmer() noexcept
   {
     VoiceConfig c{};
     c.oscillatorCount = 0;
     c.engine = ENGINE_WAVEGUIDE;
+    c.paramSet = PARAMSET_WAVEGUIDE;
     c.wgT60 = 6.5f;
     c.wgBrightness = 0.55f;
     c.wgPickPosition = 0.35f;
@@ -398,28 +387,24 @@ namespace VoicePresets
     c.wgStiffness = 0.15f;
     c.wgDetune = 26.0f;       // wide course: slow shimmer
 
-    c.filterRes = 0.2f;
-    c.filterDrive = 1.6f;
-    c.filterPassbandGain = 0.23f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
-    c.highPassFreq = 140.0f;
-
     c.hasOverdrive = false;
-    c.defaultAttack = 0.004f;
-    c.defaultDecay = 0.8f;
-    c.defaultSustain = 0.85f;
-    c.defaultRelease = 0.8f;  // pad-like gate for the long tail
-    c.outputLevel = 0.7f;
+    c.hasFilter = false;
+    c.hasEnvelope = false;
+    c.highPassFreq = 0.0f;
+    c.highPassRes = 0.0f;
+    c.outputLevel = 0.8f;
     return c;
   }
 
   // Hypersaw: three saw stack - two detuned unisons plus an octave layer,
-  // glued with mild overdrive and a wide-open filter.
+  // glued with mild overdrive and a wide-open filter. Detune/Drive are
+  // sequencer slots (see getSequencerParamName).
   constexpr VoiceConfig makeHypersaw() noexcept
   {
     VoiceConfig c{};
     c.oscillatorCount = 3;
     c.oscWaveforms[0] = WAVE_BSP_SAW;
+    c.paramSet = PARAMSET_HYPERSAW;
     c.oscWaveforms[1] = WAVE_BSP_SAW;
     c.oscWaveforms[2] = WAVE_BSP_SAW;
     c.oscAmplitudes[0] = 0.45f;
@@ -432,10 +417,9 @@ namespace VoicePresets
     c.harmony[2] = 12;         // octave layer on top
 
     c.filterRes = 0.35f;
-    c.filterDrive = 2.8f;
-    c.filterPassbandGain = 0.25f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP24;
+    c.filterType = FILTER_SVF; // wide-open clean low-pass
     c.highPassFreq = 180.0f;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP24; // SVF response: low-pass
 
     c.hasOverdrive = true;
     c.overdriveGain = 0.85f;
@@ -452,11 +436,13 @@ namespace VoicePresets
   // NoiseStorm: noise-based texture engine. Noise plus a pitch-tracked
   // Lorenz chaos growl feed a prime-tap diffuser and a regenerative
   // allpass swarm, then a resonant tracking filter shapes the result.
+  // Color/Regen/Chaos are sequencer slots (see getSequencerParamName).
   constexpr VoiceConfig makeNoiseStorm() noexcept
   {
     VoiceConfig c{};
     c.oscillatorCount = 0;
     c.engine = ENGINE_NOISEFX;
+    c.paramSet = PARAMSET_NOISESTORM;
     c.noiseDiffuseSize = 0.85f;
     c.noiseDiffuseMix = 0.65f;
     c.noiseSwarmColor = 0.6f;
@@ -464,10 +450,9 @@ namespace VoicePresets
     c.noiseChaosLevel = 0.4f;
 
     c.filterRes = 0.72f;      // resonant filter pings with the env
-    c.filterDrive = 3.2f;
-    c.filterPassbandGain = 0.3f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP24;
+    c.filterType = FILTER_SVF;
     c.highPassFreq = 220.0f;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP24; // SVF response: low-pass
 
     c.hasOverdrive = true;
     c.overdriveGain = 0.8f;
@@ -520,6 +505,80 @@ namespace VoicePresets
       return VOICE_PRESET_NAMES[presetIndex];
     }
     return "Unknown";
+  }
+
+  float wgT60ToNormalized(float t60Seconds) noexcept
+  {
+    // Inverse of dspmap::fmap(v, 0.05f, 10.0f, Mapping::EXP), whose EXP curve
+    // is min + in^2 * (max - min): in = sqrt((out - min) / (max - min)).
+    const float t = std::clamp(t60Seconds, 0.05f, 10.0f);
+    return std::sqrt((t - 0.05f) / 9.95f);
+  }
+
+  namespace
+  {
+    // Re-purposed slot display names per param set; nullptr = slot keeps its
+    // standard meaning. Order matters only for readability.
+    struct SlotName
+    {
+      ParamId id;
+      const char *wg;
+      const char *hy;
+      const char *ns;
+    };
+    constexpr SlotName kSlotNames[] = {
+        {ParamId::Filter, "Bright", nullptr, "Color"},
+        {ParamId::Attack, "Pick", "Detune", "Regen"},
+        {ParamId::Decay, "T60", "Drive", "Chaos"},
+    };
+  }
+
+  VoiceParamSet getPresetParamSet(uint8_t presetIndex) noexcept
+  {
+    if (presetIndex >= getPresetCount())
+    {
+      return PARAMSET_STANDARD;
+    }
+    return static_cast<VoiceParamSet>(getPresetConfig(presetIndex).paramSet);
+  }
+
+  const char *getSequencerParamName(uint8_t presetIndex, ParamId id) noexcept
+  {
+    const VoiceParamSet set = getPresetParamSet(presetIndex);
+    if (set == PARAMSET_STANDARD)
+    {
+      return nullptr;
+    }
+    for (const auto &slot : kSlotNames)
+    {
+      if (slot.id != id)
+      {
+        continue;
+      }
+      switch (set)
+      {
+      case PARAMSET_WAVEGUIDE:
+        return slot.wg;
+      case PARAMSET_HYPERSAW:
+        return slot.hy;
+      case PARAMSET_NOISESTORM:
+        return slot.ns;
+      default:
+        return nullptr;
+      }
+    }
+    return nullptr;
+  }
+
+  int presetIndexForPad(uint8_t padIndex, uint8_t presetCount) noexcept
+  {
+    constexpr uint8_t kBasePad = 8; // first preset pad in settings mode
+    if (presetCount == 0 || padIndex < kBasePad)
+    {
+      return -1;
+    }
+    const uint8_t idx = static_cast<uint8_t>(padIndex - kBasePad);
+    return (idx < presetCount) ? static_cast<int>(idx) : -1;
   }
 
   const VoiceConfig &getPresetConfig(uint8_t presetIndex) noexcept

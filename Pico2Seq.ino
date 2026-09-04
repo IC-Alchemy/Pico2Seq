@@ -220,6 +220,65 @@ void initOscillators()
     // Note: OLED display registration occurs in setup1() after display initialization
 }
 
+// Clamp to the 0..1 range of the re-purposed sequencer slots (no <algorithm>
+// dependency in the sketch; fminf/fmaxf come in via <cmath>).
+static inline float clamp01(float v)
+{
+    return fminf(1.0f, fmaxf(0.0f, v));
+}
+
+/**
+ * @brief Seed the sequencer tracks that a preset's param set re-purposes
+ *
+ * Non-standard presets reinterpret the Filter/Attack/Decay slots (e.g.
+ * WgPluck's Decay slot is the string T60). Without seeding, the stale track
+ * values (filter 0.5 / attack 0.01 / decay 0.3 defaults) would stomp the
+ * preset's tuned engine values on the first step after a switch. Filter stays
+ * untouched for Hypersaw (it remains a live cutoff there).
+ */
+static void seedRepurposedParamTracks(uint8_t voiceIndex, const VoiceConfig &config)
+{
+    Sequencer *sequencers[VoiceSystem::MAX_VOICES] = {&seq1, &seq2, &seq3, &seq4};
+    Sequencer &seq = *sequencers[voiceIndex];
+
+    struct Slot
+    {
+        ParamId id;
+        float value;
+    };
+    Slot slots[3];
+    uint8_t count = 0;
+
+    switch (config.paramSet)
+    {
+    case PARAMSET_WAVEGUIDE:
+        slots[count++] = {ParamId::Filter, clamp01(config.wgBrightness)};
+        slots[count++] = {ParamId::Attack, clamp01(config.wgPickHardness)};
+        slots[count++] = {ParamId::Decay, VoicePresets::wgT60ToNormalized(config.wgT60)};
+        break;
+    case PARAMSET_HYPERSAW:
+        slots[count++] = {ParamId::Attack, clamp01(config.oscDetuning[1])};
+        slots[count++] = {ParamId::Decay, clamp01(config.overdriveDrive)};
+        break;
+    case PARAMSET_NOISESTORM:
+        slots[count++] = {ParamId::Filter, clamp01(config.noiseSwarmColor)};
+        slots[count++] = {ParamId::Attack, clamp01(config.noiseSwarmRegen)};
+        slots[count++] = {ParamId::Decay, clamp01(config.noiseChaosLevel)};
+        break;
+    default:
+        return; // STANDARD presets keep their existing tracks
+    }
+
+    for (uint8_t i = 0; i < count; i++)
+    {
+        const uint8_t steps = seq.getParameterStepCount(slots[i].id);
+        for (uint8_t s = 0; s < steps; s++)
+        {
+            seq.setStepParameterValue(slots[i].id, s, slots[i].value);
+        }
+    }
+}
+
 // Apply voice preset to the specified voice (0-based index)
 void applyVoicePreset(uint8_t voiceIndex, uint8_t presetIndex)
 {
@@ -240,6 +299,7 @@ void applyVoicePreset(uint8_t voiceIndex, uint8_t presetIndex)
 
     if (voiceManager->setVoiceConfig(voiceId, config))
     {
+        seedRepurposedParamTracks(voiceIndex, config);
         Serial.print("Applied preset '");
         Serial.print(VoicePresets::getPresetName(presetIndex));
         Serial.print("' to Voice ");

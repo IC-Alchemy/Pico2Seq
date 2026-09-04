@@ -39,6 +39,28 @@ enum VoiceEngine : uint8_t
   ENGINE_NOISEFX = 2,   // Noise + chaos source through diffuser/swarm inserts
 };
 
+// How the sequencer's Filter/Attack/Decay parameter slots are interpreted for
+// this voice. STANDARD = filter cutoff + ADSR times; the alternates re-purpose
+// the same slots for engine-specific parameters (routed in
+// Voice::applyPendingParams_(), named via VoicePresets::getSequencerParamName).
+enum VoiceParamSet : uint8_t
+{
+  PARAMSET_STANDARD = 0,
+  PARAMSET_WAVEGUIDE = 1,
+  PARAMSET_HYPERSAW = 2,
+  PARAMSET_NOISESTORM = 3,
+};
+
+// Topology of the voice's main filter (when hasFilter is set). The ladder is
+// the character filter (drive + passband-gain compensation, 12/24 dB responses);
+// the state-variable filter is a clean TPT resonant filter whose response is
+// chosen by filterMode (LP* -> lowpass, BP* -> bandpass, HP* -> highpass).
+enum VoiceFilterType : uint8_t
+{
+  FILTER_LADDER = 0,
+  FILTER_SVF = 1,
+};
+
 /**
  * @brief Configuration structure for a voice
  *
@@ -61,6 +83,9 @@ struct VoiceConfig
   // Sound engine selection (VoiceEngine). Ignored fields stay at their defaults.
   uint8_t engine = ENGINE_OSC;
 
+  // Which sequencer parameter slots this voice re-purposes (VoiceParamSet).
+  uint8_t paramSet = PARAMSET_STANDARD;
+
   // Waveguide engine parameters (ENGINE_WAVEGUIDE only)
   float wgT60 = 2.5f;          // String tail T60 in seconds (0.05-10.0)
   float wgBrightness = 0.7f;   // Loop damping: 0 dark nylon .. 1 glassy (0.0-1.0)
@@ -76,11 +101,17 @@ struct VoiceConfig
   float noiseSwarmRegen = 0.9f;  // Allpass swarm regeneration (0.0-1.2)
   float noiseChaosLevel = 0.35f; // Pitch-tracked chaos_lorenz growl mix (0.0-1.0)
 
-  // Filter settings
+  // Filter settings. filterType picks the topology; filterDrive and
+  // filterPassbandGain only affect the ladder and are ignored by the SVF.
+  // filterMode selects the ladder response, and doubles as the SVF response
+  // (LP* -> lowpass out, BP* -> bandpass out, HP* -> highpass out).
+  uint8_t filterType = FILTER_LADDER; // Main filter topology (VoiceFilterType)
   float filterRes = 0.2f;            // Filter resonance (0.0-1.0)
-  float filterDrive = 1.8f;          // Filter drive amount (0.0-4.0)
-  float filterPassbandGain = 0.23f;  // Passband gain compensation (0.0-0.5)
+  float filterDrive = 1.8f;          // Ladder drive amount (0.0-4.0; SVF ignores)
+  float filterPassbandGain = 0.23f;  // Ladder passband gain compensation (0.0-0.5; SVF ignores)
   rpdsp::LadderFilter::Mode filterMode = rpdsp::LadderFilter::Mode::LP24; // Filter mode
+  float filterCutoffBase = 0.37f;    // Normalized static cutoff (0.0-1.0) used when
+                                     // paramSet re-purposes the Filter slot (e.g. NoiseStorm)
 
   // High-pass filter settings
   float highPassFreq = 80.0f; // High-pass cutoff frequency in Hz (20.0-20000.0)
@@ -89,6 +120,7 @@ struct VoiceConfig
   // Effects chain configuration
   bool hasOverdrive = false;     // Enable overdrive effect
   bool hasEnvelope = true;       // Enable envelope (recommended: true)
+  bool hasFilter = true;         // Enable the main filter (false = bypass, velocity scales output)
   float overdriveGain = 0.34f;   // Overdrive output gain (0.0-2.0)
   float overdriveDrive = 0.25f;  // Overdrive drive amount (0.0-1.0)
 
@@ -364,6 +396,7 @@ private:
   std::array<VoiceOscillator, 3> oscillators;
   rpdsp::NoiseOscillator noise_;
   rpdsp::LadderFilter filter;
+  rpdsp::StateVariableFilter filterSvf_;  // Alternate main-filter topology (FILTER_SVF)
   rpdsp::StateVariableFilter highPassFilter;
   rpdsp::ADSR envelope;
   rpdsp::Waveshaper overdrive;
@@ -424,6 +457,10 @@ private:
   uint8_t cachedOscCount_ = 0;
   // Bypass flags computed on config apply to avoid unnecessary DSP work
   bool hpfBypass_ = false;
+  // Which StateVariableFilter output the main filter reads when
+  // filterType == FILTER_SVF: 0 lowpass, 1 bandpass, 2 highpass (from
+  // filterMode, cached on config apply).
+  uint8_t svfOutputSel_ = 0;
 
   // Slide/portamento control
   // slideTimeSeconds is the exponential time constant in seconds
@@ -454,6 +491,15 @@ private:
 
   VoiceConfig stagedConfig_{};             // control-thread writes
   std::atomic<bool> configPending_{false}; // set true when a new config is staged
+
+  // Structural config staging (oscillator bank rebuild + engine switch).
+  // Applied only while the gate is low so a live preset swap never clicks a
+  // held note or cuts a ringing tail; scalars still apply immediately.
+  bool structuralPending_ = false;
+  uint8_t stagedEngine_ = ENGINE_OSC;
+  uint8_t stagedOscCount_ = 0;
+  uint8_t stagedWaveforms_[3] = {WAVE_BSP_SAW, WAVE_BSP_SAW, WAVE_BSP_SAW};
+  float stagedPulseWidth_[3] = {0.5f, 0.5f, 0.5f};
 
   // -------- Pitch change-detection & caching --------
   // Staging cache computed on control thread, committed on audio thread.
@@ -536,6 +582,9 @@ private:
   }
   void applyPendingParamsSlow_(uint32_t gen) noexcept;
   void applyPendingConfigSlow_() noexcept;
+  // Structural part of a config change (oscillator bank rebuild + engine
+  // switch); process() applies it only while the gate is low.
+  void applyStructuralConfig_() noexcept;
 
   // Pitch recompute helpers (staging on control thread; commit on audio thread)
   // Detects changes in note/octave/harmony/osc count/detune version/sample-rate version/slide/bend/mod.
@@ -555,6 +604,14 @@ private:
    * @param envelopeValue Current envelope value (0.0-1.0)
    */
   PICO2SEQ_HOT_INLINE void updateFilter(float envelopeValue);
+
+  /**
+   * @brief Push topology-dependent filter config (resonance, SVF response)
+   *        into the state-variable path. Control-rate: called from init() and
+   *        applyPendingConfig_(); cutoff itself is updated per-sample by
+   *        updateFilter().
+   */
+  void configureMainFilterFromConfig_() noexcept;
 
   /**
    * @brief Recompute cached detune multipliers from configuration
@@ -619,6 +676,14 @@ private:
    * Updates attack, decay, sustain, and release values from voice state.
    */
   void applyEnvelopeParameters() noexcept;
+
+  /**
+   * @brief Apply the config's default envelope segment times to the ADSR
+   *
+   * Used when paramSet re-purposes the Attack/Decay sequencer slots so they no
+   * longer carry envelope times; the preset defaults then define the shape.
+   */
+  void applyEnvelopeDefaults_() noexcept;
 
   /**
    * @brief Calculate frequency for a given note with octave offset

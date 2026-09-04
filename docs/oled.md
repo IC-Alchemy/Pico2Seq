@@ -76,10 +76,17 @@ Activated when `uiState.settingsMode` is true:
   - Filter Mode (`LP12`, `LP24`, `LP36`, `BP12`, `BP24`)
   - Filter Resonance (%)
 - **Preset Selection Sub-Mode (`SettingsSubMode::PRESET_SELECTION`):**
+  - Reachable while the transport runs (long-press Play/Stop toggles settings; short-press while running inside settings exits without stopping).
   - Displays currently selected preset name centered in size-2 text.
   - Previous (`<`) and next (`>`) preset previews.
-  - Preset counter (`1/7` through `7/7`).
+  - Preset counter (`1/15` through `15/15`; dynamic from `VoicePresets::getPresetCount()`).
+  - All 15 presets are selectable on matrix pads 8–22 (`VoicePresets::presetIndexForPad`); the prompt line shows the live pad range (e.g. "Pads 8-22").
   - When browsing root settings, displays the **"Sound Buffet"** listing current presets assigned across all 4 voices (0–3).
+
+The parameter name/value screens are preset-aware: for voices whose preset re-purposes the
+Filter/Attack/Decay slots (`VoiceConfig::paramSet`), the OLED shows the slot's re-purposed
+name (e.g. Bright/Pick/T60 on a waveguide voice, via `VoicePresets::getSequencerParamName`)
+and formats the value in its own unit (%, seconds for T60, semitones for detune).
 
 #### 3. Gate Sequence Length Gauge (Priority 3)
 Activated when `uiState.gateSeqLengthMode` is active (holding the encoder while rotating):

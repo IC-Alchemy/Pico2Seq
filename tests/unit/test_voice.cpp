@@ -6,6 +6,7 @@
 #include "voice/Voice.h"
 #include "voice/VoicePresets.h"
 #include "scales/scales.h"
+#include "utils/DspMapping.h"
 
 using namespace Catch::Matchers;
 
@@ -201,9 +202,97 @@ TEST_CASE("Every preset produces finite bounded audio while gated", "[voice][pre
     }
 }
 
+TEST_CASE("Waveguide presets bypass filter and envelope", "[voice][presets]") {
+    for (uint8_t p = 9; p <= 12; ++p)
+    {
+        const VoiceConfig &c = VoicePresets::getPresetConfig(p);
+        INFO(VoicePresets::getPresetName(p));
+        REQUIRE(c.hasFilter == false);
+        REQUIRE(c.hasEnvelope == false);
+        // WgBell/WgShimmer bypass the high-pass entirely (<=20 Hz trips the
+        // voice's HPF bypass); WgPluck/WgNylon keep a gentle sub-shedding HPF
+        // instead — Karplus tails accumulate inaudible low-end otherwise.
+        if (p >= 11)
+        {
+            REQUIRE(c.highPassFreq <= 20.0f);
+        }
+        else
+        {
+            REQUIRE(c.highPassRes <= 0.01f);
+            REQUIRE(c.highPassFreq > 20.0f);
+            REQUIRE(c.highPassFreq < 100.0f);
+        }
+    }
+}
+
+TEST_CASE("Only Analog and Lead keep the ladder filter", "[voice][presets]") {
+    int ladderCount = 0;
+    for (uint8_t p = 0; p < VoicePresets::getPresetCount(); ++p)
+    {
+        const VoiceConfig &c = VoicePresets::getPresetConfig(p);
+        if (c.hasFilter && c.filterType == FILTER_LADDER)
+        {
+            INFO("preset " << static_cast<int>(p) << " ("
+                           << VoicePresets::getPresetName(p) << ") uses the ladder");
+            ++ladderCount;
+        }
+    }
+    REQUIRE(ladderCount == 2);
+    REQUIRE(VoicePresets::getAnalogVoice().filterType == FILTER_LADDER);
+    REQUIRE(VoicePresets::getLeadVoice().filterType == FILTER_LADDER);
+}
+
+TEST_CASE("Bass presets use the state-variable filter", "[voice][presets]") {
+    for (const uint8_t p : {2u, 7u, 8u}) // Bass, SubFunk, RubberSub
+    {
+        const VoiceConfig &c = VoicePresets::getPresetConfig(p);
+        INFO(VoicePresets::getPresetName(p));
+        REQUIRE(c.hasFilter);
+        REQUIRE(c.filterType == FILTER_SVF);
+    }
+}
+
+TEST_CASE("SVF main filter tracks cutoff on the audio path", "[voice]") {
+    // A tone a few octaves above the closed-cutoff point: near-silent while
+    // the SVF low-pass sits below it, near-unity when the cutoff opens.
+    VoiceConfig cfg = defaultConfig();
+    cfg.filterType = FILTER_SVF;
+    cfg.filterMode = rpdsp::LadderFilter::Mode::LP24;
+    cfg.filterRes = 0.45f;
+    Voice v(0, cfg);
+    initVoiceWithScale(v);
+
+    VoiceState vs;
+    vs.noteIndex = 24.0f; // ~C4, well above the closed cutoff
+    vs.isGateHigh = true;
+    v.updateParameters(vs);
+    v.setGate(true);
+
+    auto settledRms = [&](float cutoffBaseHz) {
+        v.setFilterFrequency(cutoffBaseHz);
+        for (int i = 0; i < 24000; ++i)
+            v.process(); // settle the ADSR and cutoff smoothing
+        float sum = 0.0f;
+        for (int i = 0; i < 48000; ++i)
+        {
+            const float s = v.process();
+            sum += s * s;
+        }
+        return std::sqrt(sum / 48000.0f);
+    };
+
+    const float closed = settledRms(120.0f);
+    const float open = settledRms(6000.0f);
+    REQUIRE(std::isfinite(closed));
+    REQUIRE(std::isfinite(open));
+    REQUIRE(open > closed * 4.0f); // the SVF low-pass actually filters
+}
+
 TEST_CASE("Waveguide engine plucks on gate rise and decays after gate fall", "[voice]") {
-    Voice v(0, VoicePresets::getWaveguidePluckVoice());
-    v.init(48000.0f);
+    VoiceConfig cfg = VoicePresets::getWaveguidePluckVoice();
+    cfg.wgT60 = 0.3f; // short tail so the ring-out check runs fast without an ADSR release
+    Voice v(0, cfg);
+    initVoiceWithScale(v);
 
     float maxAbs = 0.0f;
     v.setGate(true);
@@ -218,7 +307,182 @@ TEST_CASE("Waveguide engine plucks on gate rise and decays after gate fall", "[v
     v.setGate(false);
     for (int i = 0; i < 48000; ++i)
         v.process();
-    REQUIRE(std::abs(v.process()) < 0.01f); // envelope release silences the tail
+    REQUIRE(std::abs(v.process()) < 0.01f); // the string's own decay silences the tail
+}
+
+TEST_CASE("Bypassed envelope still plucks the waveguide on gate rise", "[voice]") {
+    VoiceConfig cfg = VoicePresets::getWaveguidePluckVoice();
+    cfg.hasEnvelope = false;
+    Voice v(0, cfg);
+    initVoiceWithScale(v);
+
+    v.setGate(true);
+    float maxAbs = 0.0f;
+    for (int i = 0; i < 8000; ++i)
+    {
+        const float s = v.process();
+        REQUIRE(std::isfinite(s));
+        maxAbs = std::max(maxAbs, std::abs(s));
+    }
+    REQUIRE(maxAbs > 0.02f); // pluck armed even with the ADSR bypassed
+}
+
+TEST_CASE("Bypassed filter scales output by velocity", "[voice]") {
+    VoiceConfig cfg = defaultConfig();
+    cfg.hasFilter = false;
+    cfg.hasEnvelope = false; // isolate the level path from the ADSR
+    Voice v(0, cfg);
+    initVoiceWithScale(v);
+
+    VoiceState vs;
+    vs.noteIndex = 0.0f;
+    vs.isGateHigh = true;
+
+    vs.velocityLevel = 1.0f;
+    v.updateParameters(vs);
+    v.setGate(true);
+    float loud = 0.0f;
+    for (int i = 0; i < 480; ++i)
+        loud = std::max(loud, std::abs(v.process()));
+
+    vs.velocityLevel = 0.25f;
+    v.updateParameters(vs);
+    // Discard the amplitude-step transient through the high-pass filter before
+    // measuring the settled level.
+    for (int i = 0; i < 2400; ++i)
+        v.process();
+    float quiet = 0.0f;
+    for (int i = 0; i < 480; ++i)
+        quiet = std::max(quiet, std::abs(v.process()));
+
+    REQUIRE(loud > quiet * 2.0f);
+}
+
+TEST_CASE("Waveguide slots drive T60 via Decay track", "[voice]") {
+    VoiceConfig cfg = VoicePresets::getWaveguidePluckVoice();
+    Voice v(0, cfg);
+    initVoiceWithScale(v);
+
+    VoiceState vs;
+    vs.isGateHigh = true;
+    vs.noteIndex = 0.0f;
+    vs.filterCutoff = cfg.wgBrightness;        // Bright slot
+    vs.attackTimeSeconds = cfg.wgPickHardness; // Pick slot
+    vs.decayTimeSeconds = 0.0f;                // T60 slot: fmap(0, 0.05, 10, EXP) = 0.05 s
+    v.updateParameters(vs);
+    v.setGate(true);
+    for (int i = 0; i < 4800; ++i)
+    {
+        const float s = v.process();
+        REQUIRE(std::isfinite(s));
+    }
+
+    v.setGate(false);
+    float early = 0.0f;
+    for (int i = 0; i < 480; ++i)
+        early = std::max(early, std::abs(v.process()));
+    REQUIRE(early > 0.0f);
+
+    // Half a second later a T60 of 0.05 s is 10^-10 of its level; the preset's
+    // unrouted 1.8 s T60 would still hold ~53% — the ratio discriminates hard.
+    for (int i = 0; i < 23520; ++i)
+        v.process();
+    float late = 0.0f;
+    for (int i = 0; i < 480; ++i)
+        late = std::max(late, std::abs(v.process()));
+    REQUIRE(late < early * 0.05f);
+}
+
+TEST_CASE("Noise/Hypersaw slots are re-purposed on the audio-thread config", "[voice]") {
+    Voice vn(0, VoicePresets::getNoiseStormVoice());
+    initVoiceWithScale(vn);
+    VoiceState vs;
+    vs.isGateHigh = true;
+    vs.filterCutoff = 0.9f;       // Color slot
+    vs.attackTimeSeconds = 0.7f;  // Regen slot
+    vs.decayTimeSeconds = 0.4f;   // Chaos slot
+    vn.updateParameters(vs);
+    vn.process();
+    REQUIRE(vn.getConfig().noiseSwarmColor == 0.9f);
+    REQUIRE(vn.getConfig().noiseSwarmRegen == 0.7f);
+    REQUIRE(vn.getConfig().noiseChaosLevel == 0.4f);
+
+    Voice vh(0, VoicePresets::getHypersawVoice());
+    initVoiceWithScale(vh);
+    vs.attackTimeSeconds = 0.5f;  // Detune slot (semitones)
+    vs.decayTimeSeconds = 0.25f;  // Drive slot
+    vh.updateParameters(vs);
+    vh.process();
+    REQUIRE(vh.getConfig().oscDetuning[1] == 0.5f);
+    REQUIRE(vh.getConfig().oscDetuning[2] == -0.5f);
+}
+
+TEST_CASE("Preset param sets and re-purposed slot names", "[voice][presets]") {
+    namespace VP = VoicePresets;
+    REQUIRE(VP::getPresetParamSet(0) == PARAMSET_STANDARD);
+    REQUIRE(VP::getPresetParamSet(8) == PARAMSET_STANDARD);
+    REQUIRE(VP::getPresetParamSet(9) == PARAMSET_WAVEGUIDE);
+    REQUIRE(VP::getPresetParamSet(12) == PARAMSET_WAVEGUIDE);
+    REQUIRE(VP::getPresetParamSet(13) == PARAMSET_HYPERSAW);
+    REQUIRE(VP::getPresetParamSet(14) == PARAMSET_NOISESTORM);
+    REQUIRE(VP::getPresetParamSet(200) == PARAMSET_STANDARD);
+
+    REQUIRE(std::string(VP::getSequencerParamName(9, ParamId::Filter)) == "Bright");
+    REQUIRE(std::string(VP::getSequencerParamName(9, ParamId::Attack)) == "Pick");
+    REQUIRE(std::string(VP::getSequencerParamName(9, ParamId::Decay)) == "T60");
+    REQUIRE(VP::getSequencerParamName(9, ParamId::Velocity) == nullptr);
+    REQUIRE(std::string(VP::getSequencerParamName(13, ParamId::Attack)) == "Detune");
+    REQUIRE(std::string(VP::getSequencerParamName(13, ParamId::Decay)) == "Drive");
+    REQUIRE(VP::getSequencerParamName(13, ParamId::Filter) == nullptr); // stays Cutoff
+    REQUIRE(std::string(VP::getSequencerParamName(14, ParamId::Filter)) == "Color");
+    REQUIRE(std::string(VP::getSequencerParamName(14, ParamId::Attack)) == "Regen");
+    REQUIRE(std::string(VP::getSequencerParamName(14, ParamId::Decay)) == "Chaos");
+    REQUIRE(VP::getSequencerParamName(0, ParamId::Filter) == nullptr);
+}
+
+TEST_CASE("presetIndexForPad maps pads 8..8+count-1", "[voice][presets]") {
+    REQUIRE(VoicePresets::presetIndexForPad(7, 15) == -1);
+    REQUIRE(VoicePresets::presetIndexForPad(8, 15) == 0);
+    REQUIRE(VoicePresets::presetIndexForPad(22, 15) == 14);
+    REQUIRE(VoicePresets::presetIndexForPad(23, 15) == -1);
+    REQUIRE(VoicePresets::presetIndexForPad(8, 0) == -1);
+
+    // Round-trip of the T60 seeding map
+    const float norm = VoicePresets::wgT60ToNormalized(3.2f);
+    REQUIRE_THAT(dspmap::fmap(norm, 0.05f, 10.0f, dspmap::Mapping::EXP),
+                 WithinAbs(3.2f, 0.01f));
+}
+
+TEST_CASE("Preset switch while gate high keeps the held note sounding", "[voice]") {
+    Voice v(0, VoicePresets::getAnalogVoice());
+    initVoiceWithScale(v);
+
+    VoiceState vs;
+    vs.isGateHigh = true;
+    vs.noteIndex = 3.0f;
+    vs.velocityLevel = 0.8f;
+    v.updateParameters(vs);
+    v.setGate(true);
+    for (int i = 0; i < 4800; ++i)
+        v.process();
+
+    // Staged config while the note is held: the engine switch and oscillator
+    // phase reset must wait for the gate to fall, so the playing note keeps
+    // sounding (no cut to silence, no click).
+    v.setConfig(VoicePresets::getWaveguidePluckVoice());
+    bool silentWindow = false;
+    float windowMax = 0.0f;
+    for (int i = 1; i <= 4800; ++i)
+    {
+        windowMax = std::max(windowMax, std::abs(v.process()));
+        if (i % 480 == 0)
+        {
+            if (windowMax < 0.01f)
+                silentWindow = true;
+            windowMax = 0.0f;
+        }
+    }
+    REQUIRE_FALSE(silentWindow);
 }
 
 TEST_CASE("Noise-FX engine produces finite textured output while gated", "[voice]") {

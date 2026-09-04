@@ -58,7 +58,7 @@ function Copy-StageTree {
 $boardOptions = @(
     'flash=4194304_0'
     'arch=arm'
-    'freq=225'
+    'freq=300'
     'opt=Optimize3'
     'profile=Disabled'
     'rtti=Disabled'

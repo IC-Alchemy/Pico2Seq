@@ -257,30 +257,48 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
     case 0: // Play / Stop
       if (edges.pressEdge)
       {
+        // Transport action is deferred to release/hold so a long-press can
+        // toggle settings without ever stopping playback.
         playSettingsOpenedThisPress_ = false;
-        if (isClockRunning)
+      }
+      else if (tileButton.held() && !playSettingsOpenedThisPress_ &&
+               tileButton.heldMilliseconds(nowMs) >= UITimingConstants::LONG_PRESS_THRESHOLD_MS)
+      {
+        // Long-press (any clock state): toggle settings open/closed. Entering
+        // while running keeps the transport playing — preset apply is staged
+        // and click-safe.
+        playSettingsOpenedThisPress_ = true;
+        if (uiState.settingsMode)
         {
-          // Running: stop immediately (entering settings, as ever).
-          handleControlButton(BUTTON_PLAY_STOP, uiState);
+          uiState.settingsMode = false;
+          uiState.inPresetSelection = false;
+          uiState.inVoiceParameterMode = false;
         }
-        // Stopped: defer to release so a long-press can open settings.
+        else
+        {
+          uiState.settingsMode = true;
+          uiState.currentSubMode = UIState::SettingsSubMode::PRESET_SELECTION;
+          uiState.inPresetSelection = true;
+        }
       }
       else if (edges.releaseEdge)
       {
         if (!playSettingsOpenedThisPress_)
         {
-          handleControlButton(BUTTON_PLAY_STOP, uiState); // start
+          if (uiState.settingsMode && isClockRunning)
+          {
+            // Short-press while running inside settings: exit settings only,
+            // keep the transport playing.
+            uiState.settingsMode = false;
+            uiState.inPresetSelection = false;
+            uiState.inVoiceParameterMode = false;
+          }
+          else
+          {
+            handleControlButton(BUTTON_PLAY_STOP, uiState); // stop+settings / start
+          }
         }
         playSettingsOpenedThisPress_ = false;
-      }
-      else if (tileButton.held() && !isClockRunning && !playSettingsOpenedThisPress_ &&
-               tileButton.heldMilliseconds(nowMs) >= UITimingConstants::LONG_PRESS_THRESHOLD_MS)
-      {
-        // Long-press while stopped opens settings (preserved behavior).
-        playSettingsOpenedThisPress_ = true;
-        uiState.settingsMode = true;
-        uiState.currentSubMode = UIState::SettingsSubMode::PRESET_SELECTION;
-        uiState.inPresetSelection = true;
       }
       break;
 

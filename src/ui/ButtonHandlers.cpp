@@ -139,6 +139,13 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)
   // case 10 (hasWavefolder toggle) removed with the wavefolder effect
   case 11:
   { // Cycle through the shared filter-mode table (names and modes stay in sync)
+    if (!config.hasFilter)
+    {
+      Serial.print("Voice ");
+      Serial.print(displayVoiceNumber);
+      Serial.println(" has no filter (waveguide preset); filter mode ignored");
+      break;
+    }
     int currentIndex = 0;
     for (int i = 0; i < voiceui::kFilterModeCount; ++i)
     {
@@ -159,6 +166,13 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)
   break;
   case 12:
   { // Cycle through filter resonance amounts
+    if (!config.hasFilter)
+    {
+      Serial.print("Voice ");
+      Serial.print(displayVoiceNumber);
+      Serial.println(" has no filter (waveguide preset); resonance ignored");
+      break;
+    }
     float currentResonance = config.filterRes;
     currentResonance += 0.1f;
     if (currentResonance > 1.0f)

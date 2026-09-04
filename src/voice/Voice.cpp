@@ -127,6 +127,11 @@ void Voice::init(float sr)
   filter.setInputDrive(config.filterDrive);
   filter.setPassbandGain(config.filterPassbandGain);
   filter.setMode(config.filterMode);
+  // Alternate main-filter topology: kept prepared even when unused so a live
+  // config swap can switch filterType without re-preparing mid-gate.
+  filterSvf_.prepare(sampleRate);
+  filterSvf_.setCutoff(filterFrequency);
+  configureMainFilterFromConfig_();
   // Initialize high-pass filter
   highPassFilter.prepare(sampleRate);
   highPassFilter.setCutoff(config.highPassFreq);
@@ -146,17 +151,18 @@ void Voice::init(float sr)
 
   // Initialize envelope
   envelope.prepare(sampleRate);
-  envelope.setAttack(config.defaultAttack);
-  envelope.setDecay(config.defaultDecay);
-  envelope.setSustain(config.defaultSustain);
-  envelope.setRelease(config.defaultRelease);
+  applyEnvelopeDefaults_();
   gateHighPrev_ = false;
 
   // Initialize effects
   overdrive.setDrive(1.0f + (config.overdriveDrive * 3.0f)); // map 0-1 drive to 1-4
   overdrive.setOutputGain(1.0f);
 
-  // Alternate engines: prepare + seed state, then apply tuning from config
+  // Alternate engines: prepare + seed state, then apply tuning from config.
+  // init() is setup-time, so the engine cache is set directly here.
+  cachedEngine_ = (config.engine <= static_cast<uint8_t>(ENGINE_NOISEFX))
+                      ? config.engine
+                      : static_cast<uint8_t>(ENGINE_OSC);
   waveguide_.prepare(sampleRate);
   resetAlternateEngines_();
   applyEngineConfig_();
@@ -271,8 +277,18 @@ float Voice::process() noexcept
   // Cache envelope value for cheap per-voice checks in hot paths (avoids reprocessing ADSR)
   lastEnvelopeValue = envelopeValue;
 
+  // Apply a staged structural config as soon as the gate allows it (nothing
+  // sounding), so live preset swaps never click a held note or cut a tail.
+  if (structuralPending_ && !gate)
+  {
+    applyStructuralConfig_();
+  }
+
   // 2) Filter cutoff update (uses envelope)
-  updateFilter(envelopeValue);
+  if (config.hasFilter)
+  {
+    updateFilter(envelopeValue);
+  }
 
   // 3) Oscillator/engine mixing (+ slide updates)
   float mixed = mixOscillators();
@@ -285,16 +301,13 @@ float Voice::process() noexcept
 
 float Voice::computeEnvelope()
 {
-  // Track gate edges for the event-style ADSR (noteOn on rise, noteOff on fall)
+  // Track gate edges for the event-style ADSR (noteOn on rise, noteOff on fall).
+  // This must happen even when the ADSR is bypassed: hasEnvelope == false means
+  // "ring naturally" (waveguide pluck still arms on edges), not "ignore gates".
   const bool gateHigh = gate;
   const bool rising = gateHigh && !gateHighPrev_;
   const bool falling = !gateHigh && gateHighPrev_;
   gateHighPrev_ = gateHigh;
-
-  if (!config.hasEnvelope)
-  {
-    return 1.0f;
-  }
 
   // Retrigger restarts the attack from zero, matching the old soft-retrigger
   // behavior while gated. Consumed even when ungated so a stale flag cannot
@@ -304,18 +317,26 @@ float Voice::computeEnvelope()
     state.shouldRetrigger = false;
     if (gateHigh)
     {
-      envelope.noteOn();
+      if (config.hasEnvelope)
+        envelope.noteOn();
       wgPluckPending_ = true; // waveguide engine re-plucks on retriggers
     }
   }
   else if (rising)
   {
-    envelope.noteOn();
+    if (config.hasEnvelope)
+      envelope.noteOn();
     wgPluckPending_ = true;
   }
   else if (falling)
   {
-    envelope.noteOff();
+    if (config.hasEnvelope)
+      envelope.noteOff();
+  }
+
+  if (!config.hasEnvelope)
+  {
+    return 1.0f;
   }
 
   return envelope.process();
@@ -336,12 +357,34 @@ void Voice::updateFilter(float envelopeValue)
   {
     if (ShouldApplyFilterFreq_(filterCutoffCurrent, lastAppliedFilterCutoff))
     {
-      filter.setFreq(filterCutoffCurrent);
+      if (config.filterType == FILTER_SVF)
+        filterSvf_.setCutoff(filterCutoffCurrent);
+      else
+        filter.setFreq(filterCutoffCurrent);
       lastAppliedFilterCutoff = filterCutoffCurrent;
     }
   }
   // Mask wrap: kFilterUpdateInterval is a power of two (static_assert in Voice.h)
   filterUpdateCounter = static_cast<uint8_t>((filterUpdateCounter + 1) & (kFilterUpdateInterval - 1));
+}
+
+void Voice::configureMainFilterFromConfig_() noexcept
+{
+  filterSvf_.setResonance(config.filterRes);
+  switch (config.filterMode)
+  {
+  case rpdsp::LadderFilter::Mode::BP24:
+  case rpdsp::LadderFilter::Mode::BP12:
+    svfOutputSel_ = 1;
+    break;
+  case rpdsp::LadderFilter::Mode::HP24:
+  case rpdsp::LadderFilter::Mode::HP12:
+    svfOutputSel_ = 2;
+    break;
+  default:
+    svfOutputSel_ = 0;
+    break;
+  }
 }
 
 float Voice::mixOscillators()
@@ -350,7 +393,7 @@ float Voice::mixOscillators()
 
   // Very cheap per-voice silence short-circuit: if envelope is enabled and the cached
   // envelope value is effectively zero, skip oscillator/noise processing entirely.
-  if (config.hasEnvelope && lastEnvelopeValue <= 0.0005f)
+  if (config.hasEnvelope && lastEnvelopeValue <= 0.001f)
   {
     return 0.0f;
   }
@@ -464,12 +507,11 @@ void Voice::processEffectsChain(float &signal)
 
 void Voice::applyEngineConfig_()
 {
-  cachedEngine_ = (config.engine <= static_cast<uint8_t>(ENGINE_NOISEFX))
-                      ? config.engine
-                      : static_cast<uint8_t>(ENGINE_OSC);
   // Waveguide tuning. These are control-rate setters with internal clamps;
   // setBrightness()/setPickHardness() derive coefficients from sampleRate_,
   // so waveguide_.prepare() must have run first (init() guarantees this).
+  // NOTE: cachedEngine_ is NOT updated here — the engine switch belongs to
+  // applyStructuralConfig_() so a live swap waits for the gate to fall.
   waveguide_.setDecayTimeSeconds(config.wgT60);
   waveguide_.setBrightness(config.wgBrightness);
   waveguide_.setPickPosition(config.wgPickPosition);
@@ -530,14 +572,31 @@ inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept
   //    VCA envelope is applied pre effects so that the overdrive sounds more dynamic
   applyEffects(preEffects);
 
-  // Apply ladder filter
-  float filteredSignal = filter.process(preEffects * state.velocityLevel);
+  // With the main filter bypassed, velocity scales the signal directly —
+  // the filter input was its only entry point.
+  const float filterInput = preEffects * state.velocityLevel;
+  float shaped;
+  if (!config.hasFilter)
+  {
+    shaped = filterInput;
+  }
+  else if (config.filterType == FILTER_SVF)
+  {
+    const rpdsp::StateVariableOutput svf = filterSvf_.process(filterInput);
+    shaped = (svfOutputSel_ == 1)   ? svf.bandpass
+             : (svfOutputSel_ == 2) ? svf.highpass
+                                    : svf.lowpass;
+  }
+  else
+  {
+    shaped = filter.process(filterInput);
+  }
 
   // Apply optional high-pass filter
-  float postHpf = filteredSignal;
+  float postHpf = shaped;
   if (!hpfBypass_)
   {
-    postHpf = highPassFilter.process(filteredSignal).highpass;
+    postHpf = highPassFilter.process(shaped).highpass;
   }
 
   float finalOutput = postHpf * config.outputLevel;
@@ -558,12 +617,20 @@ inline void Voice::applyEnvelopeParameters() noexcept
   float attack =
       dspmap::fmap(state.attackTimeSeconds, 0.002f, 0.75f, dspmap::Mapping::LINEAR);
   float decay =
-      dspmap::fmap(state.decayTimeSeconds, 0.002f, 0.8f, dspmap::Mapping::LOG);
+      dspmap::fmap(state.decayTimeSeconds, 0.01f, 0.5f, dspmap::Mapping::LOG);
   // float release = decay; // Use decay for release in this implementation
 
   envelope.setAttack(attack);
   envelope.setDecay(0.075f + (decay * 0.32f));
   envelope.setRelease(decay);
+}
+
+inline void Voice::applyEnvelopeDefaults_() noexcept
+{
+  envelope.setAttack(config.defaultAttack);
+  envelope.setDecay(config.defaultDecay);
+  envelope.setSustain(config.defaultSustain);
+  envelope.setRelease(config.defaultRelease);
 }
 
 inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset,
@@ -824,16 +891,74 @@ void Voice::applyPendingParamsSlow_(uint32_t gen) noexcept
   // Synchronize ADSR gate
   setGate(state.isGateHigh);
 
-  // Recompute filter base freq from normalized param
-  filterFrequency = dspmap::fmap(state.filterCutoff, 150.0f, 8000.0f, dspmap::Mapping::EXP);
-
-  // Update envelope segment times
-  applyEnvelopeParameters();
+  // Route the sequencer's Filter/Attack/Decay slots by param set: standard
+  // voices read cutoff + ADSR times; alternate param sets re-purpose the
+  // same 0..1 slots for engine-specific parameters. All targets here are
+  // audio-thread-owned (config copy, waveguide_, overdrive), same class of
+  // access as applyPendingConfigSlow_().
+  switch (config.paramSet)
+  {
+  case PARAMSET_WAVEGUIDE:
+    waveguide_.setBrightness(std::clamp(state.filterCutoff, 0.0f, 1.0f));
+    waveguide_.setPickHardness(std::clamp(state.attackTimeSeconds, 0.0f, 1.0f));
+    waveguide_.setDecayTimeSeconds(
+        dspmap::fmap(state.decayTimeSeconds, 0.05f, 7.0f, dspmap::Mapping::EXP));
+    break;
+  case PARAMSET_HYPERSAW:
+  {
+    const float spread = std::clamp(state.attackTimeSeconds, 0.0f, 1.0f); // semitones
+    config.oscDetuning[0] = 0.0f;
+    config.oscDetuning[1] = spread;
+    config.oscDetuning[2] = -spread;
+    recomputeDetuneMultipliers();
+    overdrive.setDrive(1.0f + std::clamp(state.decayTimeSeconds, 0.0f, 1.0f) * 3.0f);
+    filterFrequency = dspmap::fmap(state.filterCutoff, 150.0f, 8000.0f, dspmap::Mapping::EXP);
+    break;
+  }
+  case PARAMSET_NOISESTORM:
+    config.noiseSwarmColor = std::clamp(state.filterCutoff, 0.0f, 1.0f);
+    config.noiseSwarmRegen = std::clamp(state.attackTimeSeconds, 0.0f, 1.0f);
+    config.noiseChaosLevel = std::clamp(state.decayTimeSeconds, 0.0f, 1.0f);
+    // The main filter stays on the preset's static cutoff (the Filter slot
+    // now carries swarm color); the envelope still moves it.
+    filterFrequency = dspmap::fmap(config.filterCutoffBase, 150.0f, 8000.0f, dspmap::Mapping::EXP);
+    break;
+  default:
+    filterFrequency = dspmap::fmap(state.filterCutoff, 120.0f, 5000.0f, dspmap::Mapping::EXP);
+    applyEnvelopeParameters();
+    break;
+  }
 
   // Stage pitch recompute; audio thread will commit oscillator freq via mixOscillators
   updateFrequencyIfNeeded();
 
   appliedParamsGen_ = gen;
+}
+
+// Apply staged structural config (oscillator bank + engine) on the audio
+// thread. Only called while the gate is low so the change never interrupts a
+// sounding note.
+void Voice::applyStructuralConfig_() noexcept
+{
+  cachedOscCount_ = stagedOscCount_;
+  for (size_t i = 0; i < 3; ++i)
+  {
+    oscillators[i].prepare(sampleRate); // phase reset deferred off the playing note
+    if (i < cachedOscCount_)
+    {
+      oscillators[i].setWaveform(stagedWaveforms_[i]);
+      // Ignored by non-pulse waveforms
+      oscillators[i].setPulseWidth(stagedPulseWidth_[i]);
+    }
+  }
+
+  // Alternate engines: clear stale tails when switching engines.
+  if (stagedEngine_ != cachedEngine_)
+  {
+    resetAlternateEngines_();
+  }
+  cachedEngine_ = stagedEngine_;
+  structuralPending_ = false;
 }
 
 // Apply staged VoiceConfig changes from control thread safely on audio thread.
@@ -843,24 +968,15 @@ void Voice::applyPendingConfigSlow_() noexcept
 {
   config = stagedConfig_;
 
-  // Oscillator slots are fixed-size; only the first cachedOscCount_ are processed
-  cachedOscCount_ = static_cast<uint8_t>(std::min<size_t>(3, config.oscillatorCount));
-  for (size_t i = 0; i < 3; ++i)
+  // Update filters (scalar; safe mid-note)
+  if (config.hasFilter)
   {
-    oscillators[i].prepare(sampleRate);
-    if (i < cachedOscCount_)
-    {
-      oscillators[i].setWaveform(config.oscWaveforms[i]);
-      // Ignored by non-pulse waveforms
-      oscillators[i].setPulseWidth(config.oscPulseWidth[i]);
-    }
+    filter.setRes(config.filterRes);
+    filter.setInputDrive(config.filterDrive);
+    filter.setPassbandGain(config.filterPassbandGain);
+    filter.setMode(config.filterMode);
+    configureMainFilterFromConfig_();
   }
-
-  // Update filters
-  filter.setRes(config.filterRes);
-  filter.setInputDrive(config.filterDrive);
-  filter.setPassbandGain(config.filterPassbandGain);
-  filter.setMode(config.filterMode);
 
   highPassFilter.setCutoff(config.highPassFreq);
   highPassFilter.setResonance(config.highPassRes);
@@ -869,15 +985,30 @@ void Voice::applyPendingConfigSlow_() noexcept
   // Update effects
   overdrive.setDrive(1.0f + (config.overdriveDrive * 3.0f)); // map 0-1 drive to 1-4
 
-  // Alternate engines: clear stale tails when switching, then re-apply tuning
-  const uint8_t newEngine = (config.engine <= static_cast<uint8_t>(ENGINE_NOISEFX))
-                                ? config.engine
-                                : static_cast<uint8_t>(ENGINE_OSC);
-  if (newEngine != cachedEngine_)
+  // Stage the structural part (oscillator bank rebuild + engine switch).
+  // Applied immediately only when nothing is sounding, so a live preset
+  // swap is click-free.
+  stagedOscCount_ = static_cast<uint8_t>(std::min<size_t>(3, config.oscillatorCount));
+  for (size_t i = 0; i < 3; ++i)
   {
-    resetAlternateEngines_();
+    stagedWaveforms_[i] = config.oscWaveforms[i];
+    stagedPulseWidth_[i] = config.oscPulseWidth[i];
   }
+  stagedEngine_ = (config.engine <= static_cast<uint8_t>(ENGINE_NOISEFX))
+                      ? config.engine
+                      : static_cast<uint8_t>(ENGINE_OSC);
+  structuralPending_ = true;
+  if (!gate)
+  {
+    applyStructuralConfig_();
+  }
+
+  // Engine tuning (waveguide/noise scalars) is safe to apply mid-note
   applyEngineConfig_();
+
+  // Envelope segment times: for standard voices the next staged state
+  // re-maps them; for re-purposed slots the preset defaults define the shape.
+  applyEnvelopeDefaults_();
 
   // Detune multipliers depend on config
   recomputeDetuneMultipliers();

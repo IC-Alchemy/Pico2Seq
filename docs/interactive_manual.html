@@ -1,0 +1,2291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pico2Seq — Interactive User Manual & Living Hardware Twin</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    /* Phosphor CRT / OLED effect */
+    .oled-screen {
+      background-color: #04080e;
+      box-shadow: inset 0 0 18px rgba(0, 180, 255, 0.2), 0 0 8px rgba(0, 180, 255, 0.15);
+      image-rendering: pixelated;
+    }
+    .oled-pixel-glow {
+      text-shadow: 0 0 4px #5ac8fa, 0 0 10px rgba(90, 200, 250, 0.5);
+    }
+    /* Hardware wooden chassis styling */
+    .chassis-wood {
+      background: radial-gradient(circle at 50% 20%, #2b1e16 0%, #17100b 100%);
+      box-shadow: inset 0 1px 1px rgba(255,255,255,0.1), inset 0 -2px 8px rgba(0,0,0,0.8), 0 12px 30px rgba(0,0,0,0.6);
+      border: 2px solid #3d2b20;
+    }
+    .panel-aluminum {
+      background: linear-gradient(180deg, #181d24 0%, #10141a 100%);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), inset 0 0 12px rgba(0,0,0,0.6);
+      border: 1px solid #283240;
+    }
+    .pad-grid-slot {
+      background: #0d1117;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.8);
+    }
+    .pad-button {
+      transition: all 0.08s ease-out;
+      user-select: none;
+    }
+    .pad-button:active {
+      transform: scale(0.94);
+    }
+    .fader-track {
+      background: #0a0d12;
+      box-shadow: inset 0 2px 5px rgba(0,0,0,0.9), inset 0 0 0 1px #1a222d;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: rgba(0,0,0,0.2);
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+    @keyframes pulseSlow {
+      0%, 100% { opacity: 0.35; transform: scale(0.97); }
+      50% { opacity: 0.85; transform: scale(1.02); }
+    }
+    .led-breathing {
+      animation: pulseSlow 2.4s ease-in-out infinite;
+    }
+    .led-glow {
+      filter: drop-shadow(0 0 6px currentColor);
+    }
+  </style>
+</head>
+<body class="bg-[var(--background,#0b0f17)] text-[var(--foreground,#e2e8f0)] antialiased font-sans min-h-screen flex flex-col custom-scroll">
+
+  <!-- Top Global App Bar -->
+  <header class="border-b border-[var(--border,#1e293b)] bg-[var(--card,#111722)] px-4 py-3 sticky top-0 z-50 flex flex-wrap items-center justify-between gap-4 shadow-md">
+    <div class="flex items-center gap-3">
+      <div class="h-9 w-9 rounded-lg bg-amber-600/20 border border-amber-500/40 flex items-center justify-center text-amber-400 font-mono font-bold text-lg shadow-[0_0_12px_rgba(245,158,11,0.2)]">
+        P2
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="font-bold text-base tracking-wide text-white flex items-center gap-1.5">
+            Pico2Seq
+            <span class="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 font-mono">RP2350</span>
+          </h1>
+          <span class="text-xs text-[var(--muted-foreground,#94a3b8)]">· Interactive User Manual</span>
+        </div>
+        <p class="text-xs text-[var(--muted-foreground,#64748b)]">4-Voice Polyphonic Polymetric Step Sequencer & Synthesizer</p>
+      </div>
+    </div>
+
+    <!-- Global Sound Engine Bar -->
+    <div class="flex items-center gap-3 bg-[var(--content,#0d131f)] px-3 py-1.5 rounded-xl border border-[var(--border,#1e293b)]">
+      <button id="globalPlayBtn" class="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs shadow-lg transition-all active:scale-95">
+        <svg id="playIcon" class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        <span id="playBtnText">Start Audio & Play</span>
+      </button>
+
+      <div class="h-5 w-px bg-slate-700/60"></div>
+
+      <div class="flex items-center gap-2">
+        <span class="text-[11px] font-mono text-slate-400">BPM</span>
+        <input id="globalBpmInput" type="number" min="45" max="200" value="90" class="w-14 bg-slate-900 border border-slate-700 text-amber-400 font-mono text-xs rounded px-1.5 py-0.5 text-center focus:outline-none focus:border-amber-400">
+      </div>
+
+      <div class="h-5 w-px bg-slate-700/60"></div>
+
+      <div class="flex items-center gap-2">
+        <span class="text-[11px] font-mono text-slate-400">VOL</span>
+        <input id="globalMasterVol" type="range" min="0" max="100" value="70" class="w-16 accent-amber-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg">
+      </div>
+
+      <div class="h-5 w-px bg-slate-700/60"></div>
+
+      <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer user-select-none">
+        <input id="globalDelayToggle" type="checkbox" checked class="accent-emerald-500 rounded">
+        <span class="text-[11px] font-mono">DELAY</span>
+      </label>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <nav class="flex items-center gap-1 bg-slate-900/70 p-1 rounded-xl border border-slate-800">
+      <button data-tab="simulator" class="nav-tab px-3 py-1.5 rounded-lg text-xs font-medium transition-all bg-amber-500/20 text-amber-300 border border-amber-500/30">
+        🎛️ Simulator Twin
+      </button>
+      <button data-tab="polymeter" class="nav-tab px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 transition-all">
+        ⏱️ Polymeter Lab
+      </button>
+      <button data-tab="presets" class="nav-tab px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 transition-all">
+        🥣 Sound Buffet
+      </button>
+      <button data-tab="scales" class="nav-tab px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 transition-all">
+        🎵 Scales & Swing
+      </button>
+      <button data-tab="manual" class="nav-tab px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 transition-all">
+        📖 Manual & Reference
+      </button>
+      <button data-tab="gotchas" class="nav-tab px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 transition-all">
+        ⚠️ Gotchas
+      </button>
+    </nav>
+  </header>
+
+  <!-- Main Multi-Tab Viewport -->
+  <main class="flex-1 p-4 max-w-[1600px] w-full mx-auto">
+
+    <!-- =================================================================== -->
+    <!-- TAB 1: HARDWARE SIMULATOR TWIN                                      -->
+    <!-- =================================================================== -->
+    <section id="tab-simulator" class="tab-pane block space-y-4">
+
+      <!-- Hardware Panel Overview Card -->
+      <div class="chassis-wood rounded-2xl p-4 sm:p-6 text-slate-200 relative">
+        <div class="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-amber-900/40">
+          <div>
+            <div class="text-xs uppercase tracking-widest text-amber-500/80 font-mono font-semibold">Pico2Seq Physical Hardware Twin</div>
+            <div class="text-xs text-amber-200/60 mt-0.5">Click pads, move faders, flip mode switch, drag rotary encoder, or hover distance sensor.</div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-amber-300/80 font-mono">View Pair:</span>
+            <span id="activePairBadge" class="px-2.5 py-0.5 rounded-md text-xs font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+              Voices 1 & 2 (Low: V1, High: V2)
+            </span>
+            <button id="quickRandomizeBtn" class="px-2.5 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 transition">
+              🎲 Randomize Current Voice
+            </button>
+            <button id="quickClearBtn" class="px-2.5 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-rose-300 border border-rose-500/30 transition">
+              🧹 Clear Voice
+            </button>
+          </div>
+        </div>
+
+        <!-- The Front Faceplate -->
+        <div class="panel-aluminum rounded-xl mt-4 p-4 sm:p-5 grid grid-cols-1 lg:grid-cols-12 gap-5">
+
+          <!-- Left Column (Cols 1-4): OLED Screen, TMAG5273 Encoder, VL53L1X Distance Sensor, Jacks -->
+          <div class="lg:col-span-4 flex flex-col gap-4">
+
+            <!-- 1. OLED Display (128x64 Canvas with 5-tier priority hierarchy) -->
+            <div class="bg-black/90 p-3 rounded-xl border border-slate-800 flex flex-col items-center">
+              <div class="flex items-center justify-between w-full mb-1.5 px-1">
+                <span class="text-[10px] uppercase font-mono tracking-wider text-slate-400">SH1106G OLED (128×64)</span>
+                <span id="oledPriorityTag" class="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-400 border border-cyan-800/60">P5: Status</span>
+              </div>
+              <canvas id="oledCanvas" width="128" height="64" class="oled-screen w-full max-w-[280px] h-[140px] rounded-lg border border-cyan-900/50"></canvas>
+              <div class="w-full flex justify-between items-center text-[10px] font-mono text-slate-500 mt-1.5 px-1">
+                <span id="oledSubModeText">Mode: PARAM</span>
+                <span id="oledVoiceIndicator">Voice: 0</span>
+              </div>
+            </div>
+
+            <!-- 2. TMAG5273 3D Magnetic Rotary Encoder -->
+            <div class="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 flex flex-col gap-2">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-mono font-semibold text-amber-300 flex items-center gap-1.5">
+                  <span class="h-2 w-2 rounded-full bg-amber-400"></span>
+                  TMAG5273 Encoder
+                </span>
+                <span id="encoderTargetBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800">
+                  Target: Velocity
+                </span>
+              </div>
+              <div class="flex items-center gap-4 py-1">
+                <!-- Interactive Knob SVG -->
+                <div id="encoderKnobContainer" class="relative w-16 h-16 cursor-grab active:cursor-grabbing flex-shrink-0 flex items-center justify-center">
+                  <svg id="encoderSvg" class="w-16 h-16 transform transition-transform duration-75" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="46" fill="#1e293b" stroke="#334155" stroke-width="4"/>
+                    <circle cx="50" cy="50" r="38" fill="#0f172a" stroke="#475569" stroke-width="2"/>
+                    <line id="knobPointer" x1="50" y1="50" x2="50" y2="16" stroke="#f59e0b" stroke-width="5" stroke-linecap="round"/>
+                    <circle cx="50" cy="50" r="6" fill="#f59e0b"/>
+                  </svg>
+                </div>
+                <div class="flex-1 text-xs space-y-1">
+                  <div class="flex items-center justify-between text-[11px] font-mono">
+                    <span class="text-slate-400">Drag or Wheel:</span>
+                    <span id="encoderValText" class="text-amber-400 font-bold">100%</span>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <button id="encoderTargetCycleBtn" class="flex-1 py-1 text-[10px] font-mono rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+                      Cycle Target
+                    </button>
+                    <button id="encoderHoldBtn" class="px-2 py-1 text-[10px] font-mono rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700" title="Hold encoder button (activates Gate Length mode)">
+                      Hold GateLen
+                    </button>
+                  </div>
+                  <div class="text-[9px] text-slate-500">Velocity-sensitive acceleration enabled</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3. VL53L1X Laser Distance Sensor Window -->
+            <div class="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 flex flex-col gap-2">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-mono font-semibold text-rose-300 flex items-center gap-1.5">
+                  <span class="h-2 w-2 rounded-full bg-rose-500 animate-pulse"></span>
+                  VL53L1X Laser Distance
+                </span>
+                <span id="tofDistanceBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800">
+                  Range: 420 mm
+                </span>
+              </div>
+              <p class="text-[11px] text-slate-400">
+                Move "hand" closer/further (74–1400 mm). When a parameter button is held/latched, distance records live into playing steps!
+              </p>
+              <div class="space-y-1">
+                <div class="flex justify-between text-[10px] font-mono text-slate-500">
+                  <span>Near (74mm)</span>
+                  <span id="tofNormVal">Norm: 0.26</span>
+                  <span>Far (1400mm)</span>
+                </div>
+                <input id="tofSlider" type="range" min="74" max="1400" value="420" class="w-full accent-rose-500 h-2 bg-slate-800 rounded-lg cursor-ew-resize">
+              </div>
+            </div>
+
+            <!-- 4. Audio Jacks & Connectors -->
+            <div class="flex items-center justify-between p-2.5 bg-black/40 rounded-xl border border-slate-800/80 text-[11px] font-mono text-slate-400">
+              <div class="flex items-center gap-2">
+                <div class="w-5 h-5 rounded-full border-2 border-slate-600 bg-black flex items-center justify-center">
+                  <div class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]"></div>
+                </div>
+                <div>
+                  <div class="text-white font-bold">Stereo Out</div>
+                  <div class="text-[9px] text-slate-500">48kHz I2S DAC</div>
+                </div>
+              </div>
+              <div class="text-right">
+                <div class="text-slate-300">USB-C Core 1</div>
+                <div class="text-[9px] text-slate-500">MIDI Ch1 / Serial 115k</div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Middle Column (Cols 5-9): 8x4 LED Matrix Mirror + 32-Pad Touch Grid (MPR121) -->
+          <div class="lg:col-span-5 flex flex-col gap-4">
+
+            <!-- 1. 8x4 WS2812B RGB LED Matrix Mirror -->
+            <div class="bg-black/90 p-4 rounded-xl border border-slate-800">
+              <div class="flex items-center justify-between mb-2 px-1">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-mono font-semibold text-emerald-400 flex items-center gap-1.5">
+                    <span class="h-2 w-2 rounded-full bg-emerald-400"></span>
+                    8×4 WS2812B LED Matrix Mirror
+                  </span>
+                  <span class="text-[10px] text-slate-500 font-mono">(GP1 FastLED)</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-[10px] font-mono text-slate-400">Theme:</span>
+                  <select id="themeSelector" class="bg-slate-900 border border-slate-700 text-xs font-mono text-emerald-300 rounded px-2 py-0.5 focus:outline-none">
+                    <option value="0">0: Standard</option>
+                    <option value="1">1: Oceanic</option>
+                    <option value="2">2: Volcanic</option>
+                    <option value="3">3: Forest</option>
+                    <option value="4">4: Neon</option>
+                    <option value="5">5: Modern</option>
+                    <option value="6">6: Dark Noctis</option>
+                    <option value="7">7: Dark Ember</option>
+                    <option value="8">8: Blue Contrast</option>
+                    <option value="9">9: Green Contrast</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- LED Grid Container: 4 rows x 8 cols -->
+              <div class="p-3 bg-slate-950 rounded-lg border border-slate-800/80 shadow-inner">
+                <!-- Low Voice Band (Rows 0-1) -->
+                <div class="text-[10px] font-mono text-slate-500 mb-1 flex justify-between">
+                  <span id="ledLowBandLabel">LOW VOICE (Voice 1, Steps 1–16)</span>
+                  <span class="text-slate-600">Rows 0–1 / LEDs 0–15</span>
+                </div>
+                <div id="ledGridLow" class="grid grid-cols-8 gap-2 mb-3"></div>
+
+                <!-- Separation Line -->
+                <div class="h-px bg-slate-800 my-2"></div>
+
+                <!-- High Voice Band (Rows 2-3) -->
+                <div class="text-[10px] font-mono text-slate-500 mb-1 flex justify-between">
+                  <span id="ledHighBandLabel">HIGH VOICE (Voice 2, Steps 1–16)</span>
+                  <span class="text-slate-600">Rows 2–3 / LEDs 16–31</span>
+                </div>
+                <div id="ledGridHigh" class="grid grid-cols-8 gap-2"></div>
+              </div>
+            </div>
+
+            <!-- 2. 32-Pad Touch Step Grid (MPR121 Capacitive) -->
+            <div class="bg-slate-900/90 p-4 rounded-xl border border-slate-800 flex-1 flex flex-col">
+              <div class="flex items-center justify-between mb-2 px-1">
+                <div>
+                  <span class="text-xs font-mono font-semibold text-amber-300">
+                    32-Pad Capacitive Touch Grid (MPR121)
+                  </span>
+                  <span class="text-[10px] text-slate-500 font-mono ml-2">I2C 0x5A</span>
+                </div>
+                <div class="text-[10px] font-mono text-slate-400">
+                  Tap = Toggle Gate · Long-press = Step Edit · Shift+Tap = Clear
+                </div>
+              </div>
+
+              <div class="pad-grid-slot p-3 rounded-lg border border-slate-800/90 flex-1 flex flex-col justify-between gap-3">
+                <!-- Low Bank Pads (Pads 1-16) -->
+                <div>
+                  <div class="text-[10px] font-mono text-amber-400/80 mb-1.5 flex justify-between">
+                    <span id="padLowBankTitle">Bank 0: Steps 1–16 (Voice 1)</span>
+                    <span class="text-slate-600">Low Pair Voice</span>
+                  </div>
+                  <div id="padGridLow" class="grid grid-cols-8 gap-1.5 sm:gap-2"></div>
+                </div>
+
+                <div class="h-px bg-slate-800/80"></div>
+
+                <!-- High Bank Pads (Pads 17-32) -->
+                <div>
+                  <div class="text-[10px] font-mono text-cyan-400/80 mb-1.5 flex justify-between">
+                    <span id="padHighBankTitle">Bank 1: Steps 17–32 (Voice 2)</span>
+                    <span class="text-slate-600">High Pair Voice</span>
+                  </div>
+                  <div id="padGridHigh" class="grid grid-cols-8 gap-1.5 sm:gap-2"></div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Right Column (Cols 10-12): 4 Faders, 4 Voice Selectors, 8-Button Tile + GP7 Mode Switch -->
+          <div class="lg:col-span-3 flex flex-col gap-4">
+
+            <!-- 1. Mode Strap Switch (GP7) & 8-Button Function Module -->
+            <div class="bg-slate-900/90 p-3.5 rounded-xl border border-slate-800">
+              <div class="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
+                <span class="text-xs font-mono font-semibold text-slate-200">Mode Switch (GP7)</span>
+                <div class="flex items-center gap-1 bg-black/60 p-1 rounded-lg border border-slate-700">
+                  <button id="strapParamBtn" class="px-2 py-0.5 text-[11px] font-mono rounded font-bold bg-amber-500 text-black transition">
+                    PARAM
+                  </button>
+                  <button id="strapUtilBtn" class="px-2 py-0.5 text-[11px] font-mono rounded font-bold text-slate-400 hover:text-white transition">
+                    UTIL
+                  </button>
+                </div>
+              </div>
+
+              <!-- 8 Buttons Matrix (ButtonModule8) -->
+              <div class="text-[10px] font-mono text-slate-400 mb-1.5 flex justify-between">
+                <span>Function Buttons (ButtonModule8)</span>
+                <span id="shiftStatusIndicator" class="text-slate-600 font-bold">SHIFT OFF</span>
+              </div>
+              <div id="funcButtonGrid" class="grid grid-cols-2 gap-2">
+                <!-- Dynamically filled based on Mode (Param vs Utility) -->
+              </div>
+            </div>
+
+            <!-- 2. Voice Select Buttons (V1-V4) on SliderModule -->
+            <div class="bg-slate-900/90 p-3.5 rounded-xl border border-slate-800">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-mono font-semibold text-slate-200">Voice Select (V1–V4)</span>
+                <span class="text-[10px] font-mono text-slate-500">Hold Shift for Chords</span>
+              </div>
+              <div class="grid grid-cols-4 gap-1.5">
+                <button data-voice="0" class="voice-btn py-2 rounded-lg font-mono font-bold text-xs bg-amber-500 text-black border border-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.3)]">
+                  V1
+                </button>
+                <button data-voice="1" class="voice-btn py-2 rounded-lg font-mono font-bold text-xs bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700">
+                  V2
+                </button>
+                <button data-voice="2" class="voice-btn py-2 rounded-lg font-mono font-bold text-xs bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700">
+                  V3
+                </button>
+                <button data-voice="3" class="voice-btn py-2 rounded-lg font-mono font-bold text-xs bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700">
+                  V4
+                </button>
+              </div>
+              <div class="mt-2 text-[10px] text-slate-400 space-y-0.5">
+                <div><span class="text-amber-400 font-mono">Shift+V1:</span> Play/Stop · <span class="text-amber-400 font-mono">Shift+V2:</span> Randomize</div>
+                <div><span class="text-amber-400 font-mono">Shift+V3:</span> Scale Cycle · <span class="text-amber-400 font-mono">Shift+V4:</span> Delay Toggle</div>
+              </div>
+            </div>
+
+            <!-- 3. 4 Continuous Faders (SliderModule) -->
+            <div class="bg-slate-900/90 p-3.5 rounded-xl border border-slate-800 flex-1 flex flex-col justify-between">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-mono font-semibold text-slate-200">Continuous Faders</span>
+                <span id="faderModeIndicator" class="text-[10px] font-mono text-amber-400">PARAM MODE</span>
+              </div>
+
+              <div class="grid grid-cols-4 gap-2 h-44 py-1">
+                <!-- Fader 1 -->
+                <div class="flex flex-col items-center justify-between">
+                  <span id="fader1Label" class="text-[10px] font-mono text-center text-slate-400 leading-tight">Filter</span>
+                  <div class="fader-track w-4 flex-1 rounded-full relative my-2 flex items-center justify-center">
+                    <input id="fader1" type="range" min="0" max="1000" value="650" orient="vertical" class="w-24 h-4 transform -rotate-90 accent-amber-500 cursor-pointer">
+                  </div>
+                  <span id="fader1Val" class="text-[10px] font-mono text-amber-400">65%</span>
+                </div>
+
+                <!-- Fader 2 -->
+                <div class="flex flex-col items-center justify-between">
+                  <span id="fader2Label" class="text-[10px] font-mono text-center text-slate-400 leading-tight">Attack</span>
+                  <div class="fader-track w-4 flex-1 rounded-full relative my-2 flex items-center justify-center">
+                    <input id="fader2" type="range" min="0" max="1000" value="120" orient="vertical" class="w-24 h-4 transform -rotate-90 accent-amber-500 cursor-pointer">
+                  </div>
+                  <span id="fader2Val" class="text-[10px] font-mono text-amber-400">12%</span>
+                </div>
+
+                <!-- Fader 3 -->
+                <div class="flex flex-col items-center justify-between">
+                  <span id="fader3Label" class="text-[10px] font-mono text-center text-slate-400 leading-tight">Decay</span>
+                  <div class="fader-track w-4 flex-1 rounded-full relative my-2 flex items-center justify-center">
+                    <input id="fader3" type="range" min="0" max="1000" value="450" orient="vertical" class="w-24 h-4 transform -rotate-90 accent-amber-500 cursor-pointer">
+                  </div>
+                  <span id="fader3Val" class="text-[10px] font-mono text-amber-400">45%</span>
+                </div>
+
+                <!-- Fader 4 -->
+                <div class="flex flex-col items-center justify-between">
+                  <span id="fader4Label" class="text-[10px] font-mono text-center text-slate-400 leading-tight">Velocity</span>
+                  <div class="fader-track w-4 flex-1 rounded-full relative my-2 flex items-center justify-center">
+                    <input id="fader4" type="range" min="0" max="1000" value="850" orient="vertical" class="w-24 h-4 transform -rotate-90 accent-amber-500 cursor-pointer">
+                  </div>
+                  <span id="fader4Val" class="text-[10px] font-mono text-amber-400">85%</span>
+                </div>
+              </div>
+
+              <div class="text-[9px] text-slate-500 text-center mt-1">12-bit ADC Hardware Resolution</div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 2: POLYMETER LABORATORY                                         -->
+    <!-- =================================================================== -->
+    <section id="tab-polymeter" class="tab-pane hidden space-y-4">
+      <div class="bg-[var(--card,#111722)] border border-[var(--border,#1e293b)] rounded-2xl p-5 shadow-lg space-y-5">
+        <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
+          <div>
+            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+              <span>⏱️</span> Polymeter & Phase Drift Laboratory
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">
+              Each parameter track has an independent step length. See and hear how patterns phase against each other.
+            </p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-mono text-amber-400">Pattern Reset Cycle:</span>
+            <span id="polymeterLcmBadge" class="px-3 py-1 rounded-lg bg-amber-500/20 text-amber-300 font-mono text-xs font-bold border border-amber-500/40">
+              LCM: 80 Steps (5.0 bars)
+            </span>
+          </div>
+        </div>
+
+        <!-- Polymeter Explanation Banner -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
+          <div class="space-y-1">
+            <span class="font-bold text-amber-300 font-mono">1. Master Gate Track</span>
+            <p class="text-slate-400">The <b>Gate Track length</b> sets the overall bar loop length for that voice (<code class="text-amber-300 font-mono">clockStep % gateLength</code>).</p>
+          </div>
+          <div class="space-y-1">
+            <span class="font-bold text-cyan-300 font-mono">2. Independent Modulo</span>
+            <p class="text-slate-400">Note, Velocity, and Filter tracks modulo against the clock on their own lengths (<code class="text-cyan-300 font-mono">step % trackLength</code>).</p>
+          </div>
+          <div class="space-y-1">
+            <span class="font-bold text-emerald-300 font-mono">3. LED Matrix Overlays</span>
+            <p class="text-slate-400">The 8×4 LED matrix displays these track positions as colored accents (Cyan: Note, Green: Velocity, Blue: Filter).</p>
+          </div>
+        </div>
+
+        <!-- Interactive Tracks Visualization Matrix -->
+        <div class="space-y-3 bg-black/40 p-4 rounded-xl border border-slate-800/80">
+
+          <!-- Track 1: Gate (Pattern Loop) -->
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between text-xs font-mono">
+              <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded bg-amber-500 inline-block"></span>
+                <span class="font-bold text-amber-300">Gate Track (Defines Voice Pattern Length)</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-slate-400">Length:</span>
+                <span id="polyGateLenText" class="text-amber-400 font-bold">16</span>
+                <input id="polyGateLenSlider" type="range" min="2" max="16" value="16" class="w-28 accent-amber-500 h-1.5 bg-slate-800 rounded">
+              </div>
+            </div>
+            <div id="polyGateCells" class="grid grid-cols-16 gap-1 h-7"></div>
+          </div>
+
+          <!-- Track 2: Note Track -->
+          <div class="space-y-1.5 pt-2 border-t border-slate-800/60">
+            <div class="flex items-center justify-between text-xs font-mono">
+              <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded bg-cyan-400 inline-block"></span>
+                <span class="font-bold text-cyan-300">Note Track (Pitch Sequence)</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-slate-400">Length:</span>
+                <span id="polyNoteLenText" class="text-cyan-400 font-bold">5</span>
+                <input id="polyNoteLenSlider" type="range" min="1" max="16" value="5" class="w-28 accent-cyan-400 h-1.5 bg-slate-800 rounded">
+              </div>
+            </div>
+            <div id="polyNoteCells" class="grid grid-cols-16 gap-1 h-7"></div>
+          </div>
+
+          <!-- Track 3: Filter Cutoff Track -->
+          <div class="space-y-1.5 pt-2 border-t border-slate-800/60">
+            <div class="flex items-center justify-between text-xs font-mono">
+              <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded bg-blue-500 inline-block"></span>
+                <span class="font-bold text-blue-300">Filter Track (Cutoff Automation)</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-slate-400">Length:</span>
+                <span id="polyFilterLenText" class="text-blue-400 font-bold">7</span>
+                <input id="polyFilterLenSlider" type="range" min="1" max="16" value="7" class="w-28 accent-blue-500 h-1.5 bg-slate-800 rounded">
+              </div>
+            </div>
+            <div id="polyFilterCells" class="grid grid-cols-16 gap-1 h-7"></div>
+          </div>
+
+          <!-- Track 4: Velocity Track -->
+          <div class="space-y-1.5 pt-2 border-t border-slate-800/60">
+            <div class="flex items-center justify-between text-xs font-mono">
+              <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded bg-emerald-500 inline-block"></span>
+                <span class="font-bold text-emerald-300">Velocity Track (Dynamics Accent)</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-slate-400">Length:</span>
+                <span id="polyVelLenText" class="text-emerald-400 font-bold">8</span>
+                <input id="polyVelLenSlider" type="range" min="1" max="16" value="8" class="w-28 accent-emerald-500 h-1.5 bg-slate-800 rounded">
+              </div>
+            </div>
+            <div id="polyVelCells" class="grid grid-cols-16 gap-1 h-7"></div>
+          </div>
+
+        </div>
+
+        <!-- Polymeter Presets Generator -->
+        <div class="flex items-center gap-2 pt-2">
+          <span class="text-xs font-mono text-slate-400">Preset Grooves:</span>
+          <button id="polyPreset1" class="px-3 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+            5 / 7 / 16 (Hypnotic Techno)
+          </button>
+          <button id="polyPreset2" class="px-3 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+            3 / 5 / 8 (Golden Ratio)
+          </button>
+          <button id="polyPreset3" class="px-3 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">
+            13 / 16 (Cross-Bar Hemiola)
+          </button>
+          <button id="polyReset" class="px-3 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30">
+            Standard 16 Lockstep
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 3: SOUND BUFFET & 15 PRESETS                                    -->
+    <!-- =================================================================== -->
+    <section id="tab-presets" class="tab-pane hidden space-y-4">
+      <div class="bg-[var(--card,#111722)] border border-[var(--border,#1e293b)] rounded-2xl p-5 shadow-lg space-y-5">
+        <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
+          <div>
+            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+              <span>🥣</span> The 15 Presets & "Sound Buffet" Architecture
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">
+              Three synthesis engines: Multi-Oscillator Subtractive, Physical Waveguide String, and Chaos Noise-Storm.
+            </p>
+          </div>
+          <div class="text-xs font-mono text-slate-400">
+            Selected for Audition: <span id="activePresetTitle" class="text-amber-400 font-bold">1: Analog</span>
+          </div>
+        </div>
+
+        <!-- Synthesis Signal Flow Architecture -->
+        <div class="bg-black/50 p-4 rounded-xl border border-slate-800/80 text-xs">
+          <div class="text-slate-400 font-mono text-[11px] mb-2 font-semibold uppercase tracking-wider">
+            DSP Signal Flow (Real-Time Audio Core 0 @ 48 kHz):
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-2 text-center font-mono">
+            <div class="p-2.5 rounded-lg bg-blue-950/60 border border-blue-800/60 text-blue-300">
+              <div class="font-bold">1. SOURCE</div>
+              <div class="text-[10px] text-blue-400/80 mt-1">3x Osc / Waveguide / Lorenz Chaos</div>
+            </div>
+            <div class="p-2.5 rounded-lg bg-indigo-950/60 border border-indigo-800/60 text-indigo-300">
+              <div class="font-bold">2. ADSR</div>
+              <div class="text-[10px] text-indigo-400/80 mt-1">Pre-filter VCA Envelope</div>
+            </div>
+            <div class="p-2.5 rounded-lg bg-purple-950/60 border border-purple-800/60 text-purple-300">
+              <div class="font-bold">3. OVERDRIVE</div>
+              <div class="text-[10px] text-purple-400/80 mt-1">Non-linear Waveshaper</div>
+            </div>
+            <div class="p-2.5 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-300">
+              <div class="font-bold">4. MAIN FILTER</div>
+              <div class="text-[10px] text-rose-400/80 mt-1">Ladder (Analog/Lead) or SVF; LP/BP/HP</div>
+            </div>
+            <div class="p-2.5 rounded-lg bg-amber-950/60 border border-amber-800/60 text-amber-300">
+              <div class="font-bold">5. HIGH-PASS</div>
+              <div class="text-[10px] text-amber-400/80 mt-1">Low-end Tamer</div>
+            </div>
+            <div class="p-2.5 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-300">
+              <div class="font-bold">6. MASTER DELAY</div>
+              <div class="text-[10px] text-emerald-400/80 mt-1">Ping-Pong Stereo I2S</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 15 Preset Grid Cards -->
+        <div id="presetCardsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <!-- Dynamically filled with 15 preset definitions -->
+        </div>
+
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 4: SCALES & SWING EXPLORER                                      -->
+    <!-- =================================================================== -->
+    <section id="tab-scales" class="tab-pane hidden space-y-4">
+      <div class="bg-[var(--card,#111722)] border border-[var(--border,#1e293b)] rounded-2xl p-5 shadow-lg space-y-5">
+        <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
+          <div>
+            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+              <span>🎵</span> Musical Scales & Shuffle Groove Tables
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">
+              13 quantized 48-step semitone scales & 16 micro-timing swing templates (480 PPQN).
+            </p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+          <!-- Left: 13 Scales Explorer -->
+          <div class="bg-black/40 p-4 rounded-xl border border-slate-800 space-y-4">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-amber-300 text-xs uppercase tracking-wider font-mono">13 Built-in Scales</span>
+              <span id="activeScaleName" class="text-xs font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                0: Ionian Major
+              </span>
+            </div>
+
+            <!-- Scale Picker Dropdown -->
+            <select id="scaleSelectBox" class="w-full bg-slate-900 border border-slate-700 text-xs font-mono text-slate-200 rounded-lg p-2 focus:outline-none focus:border-amber-400"></select>
+
+            <!-- Piano Keyboard Visualizer -->
+            <div class="space-y-1.5">
+              <div class="text-[10px] font-mono text-slate-400">Scale Degree Quantization (Root C3):</div>
+              <div id="pianoKeyboard" class="flex h-20 bg-slate-950 p-1.5 rounded-lg border border-slate-800 overflow-x-auto"></div>
+            </div>
+
+            <!-- Scale Character Description -->
+            <div id="scaleDescCard" class="p-3 bg-slate-900/80 rounded-lg border border-slate-800 text-xs text-slate-300">
+              <!-- Description filled via JS -->
+            </div>
+          </div>
+
+          <!-- Right: 16 Shuffle Groove Templates -->
+          <div class="bg-black/40 p-4 rounded-xl border border-slate-800 space-y-4">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-cyan-300 text-xs uppercase tracking-wider font-mono">16 Shuffle Templates (480 PPQN)</span>
+              <span id="activeShuffleName" class="text-xs font-mono px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+                0: No Shuffle
+              </span>
+            </div>
+
+            <!-- Shuffle Picker Dropdown -->
+            <select id="shuffleSelectBox" class="w-full bg-slate-900 border border-slate-700 text-xs font-mono text-slate-200 rounded-lg p-2 focus:outline-none focus:border-cyan-400"></select>
+
+            <!-- Microtiming Deviation Chart (16 steps) -->
+            <div class="space-y-1.5">
+              <div class="text-[10px] font-mono text-slate-400 flex justify-between">
+                <span>Micro-timing Offset per 16th Note</span>
+                <span class="text-slate-500">Positive = Late, Negative = Early</span>
+              </div>
+              <div id="shuffleTimingBars" class="grid grid-cols-16 gap-1 h-24 items-end bg-slate-950 p-2 rounded-lg border border-slate-800"></div>
+            </div>
+
+            <!-- Groove Feel Description -->
+            <div id="shuffleDescCard" class="p-3 bg-slate-900/80 rounded-lg border border-slate-800 text-xs text-slate-300">
+              <!-- Description filled via JS -->
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 5: COMPLETE MANUAL & REFERENCE                                  -->
+    <!-- =================================================================== -->
+    <section id="tab-manual" class="tab-pane hidden space-y-4">
+      <div class="bg-[var(--card,#111722)] border border-[var(--border,#1e293b)] rounded-2xl p-6 shadow-lg space-y-6">
+        
+        <!-- Search and Quick Jump -->
+        <div class="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800">
+          <div>
+            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+              <span>📖</span> Pico2Seq Official User Manual
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">Authoritative hardware and firmware documentation (compiled from source).</p>
+          </div>
+          <div class="flex items-center gap-2 w-full sm:w-auto">
+            <input id="manualSearchInput" type="text" placeholder="Search manual..." class="bg-slate-900 border border-slate-700 text-xs font-mono text-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-amber-400 w-full sm:w-64">
+          </div>
+        </div>
+
+        <!-- Manual Table of Contents Jump Links -->
+        <div class="flex flex-wrap gap-2 text-xs font-mono">
+          <a href="#man-sec-1" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700">1. Panel Layout</a>
+          <a href="#man-sec-2" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700">2. Quick Start</a>
+          <a href="#man-sec-3" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700">3. Sequencing Concepts</a>
+          <a href="#man-sec-4" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700">4. Voices & DSP</a>
+          <a href="#man-sec-5" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700">5. Control Reference</a>
+          <a href="#man-sec-6" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700">6. LED Themes</a>
+          <a href="#man-sec-7" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700">7. MIDI & Connectivity</a>
+          <a href="#man-sec-8" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700">8. Firmware & Devs</a>
+          <a href="#man-sec-9" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700">9. Gotchas</a>
+          <a href="#man-sec-10" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700">10. Glossary</a>
+        </div>
+
+        <!-- Rendered Chapters -->
+        <div id="manualContent" class="space-y-8 text-sm leading-relaxed text-slate-300 divide-y divide-slate-800/80">
+
+          <!-- Section 1 -->
+          <article id="man-sec-1" class="pt-6 first:pt-0 space-y-3">
+            <h3 class="text-base font-bold text-amber-400 flex items-center gap-2">
+              <span class="font-mono text-xs px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-amber-300">§ 1</span>
+              Panel & Hardware Layout
+            </h3>
+            <p>Pico2Seq features a dual-surface control architecture pairing dedicated physical step pads with modular parameter/utility controls:</p>
+            <ul class="list-disc pl-5 space-y-1.5 text-xs text-slate-300">
+              <li><b>32 Capacitive Touch Pads (MPR121 @ 0x5A)</b>: Dedicated exclusively as step pads, split into two 16-step banks representing the currently active voice pair (V1/V2 or V3/V4).</li>
+              <li><b>8×4 WS2812B RGB LED Matrix (GPIO 1)</b>: Directly mirrors the touch pad grid 1:1, rendering active gates, beat playhead accents, breathing idle wave, and polyrhythmic overlays.</li>
+              <li><b>SliderModule (4 Faders + 4 Voice Buttons)</b>: 12-bit ADC continuous control and direct selection for Voices 1–4.</li>
+              <li><b>ButtonModule8 (8 Tactile Buttons + GP7 Mode Switch)</b>: Dual function sets for Param Mode (Note, Velocity, Filter, Attack, Decay, Octave, Slide, Shift) and Utility Mode (Play/Stop, Delay, Scale, Swing, Theme, Encoder Target, Randomize, Shift).</li>
+              <li><b>TMAG5273 Magnetic Encoder (I2C 0x35)</b>: Velocity-sensitive 3D hall-effect knob for precision parameter tweaking and gate length adjustments.</li>
+              <li><b>VL53L1X Time-of-Flight Laser Sensor (I2C 0x29)</b>: Hands-free performance modulation over 74–1400 mm.</li>
+              <li><b>OLED Display (SH1106G 128×64 @ 0x3C)</b>: Deterministic 5-tier priority rendering system.</li>
+            </ul>
+          </article>
+
+          <!-- Section 2 -->
+          <article id="man-sec-2" class="pt-6 space-y-3">
+            <h3 class="text-base font-bold text-amber-400 flex items-center gap-2">
+              <span class="font-mono text-xs px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-amber-300">§ 2</span>
+              Quick Start Tutorial
+            </h3>
+            <ol class="list-decimal pl-5 space-y-2 text-xs text-slate-300">
+              <li><b>Power & Audio</b>: Connect Stereo Out (3.5mm) to mixer/headphones and supply USB-C power. The transport boots running at 90 BPM.</li>
+              <li><b>Factory Presets</b>: Boots with Voice 1 = Square, Voice 2 = Bass, Voice 3 = Digital, Voice 4 = Percussion.</li>
+              <li><b>Inputting Notes</b>: Tap pads in Bank 0 (Low Voice) or Bank 1 (High Voice) to toggle step gates.</li>
+              <li><b>Tweak Sound</b>: With GP7 mode switch set to PARAM, move Faders 1–4 to modulate Filter, Attack, Decay, and Velocity.</li>
+              <li><b>Polymeter</b>: Hold a parameter button (e.g. Filter) and tap Pad 5. The filter track now cycles every 5 steps against the 16-step gate track!</li>
+            </ol>
+          </article>
+
+          <!-- Section 3 -->
+          <article id="man-sec-3" class="pt-6 space-y-3">
+            <h3 class="text-base font-bold text-amber-400 flex items-center gap-2">
+              <span class="font-mono text-xs px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-amber-300">§ 3</span>
+              Sequencing Concepts & Polymeter
+            </h3>
+            <p>Every voice features 9 independent parameter tracks:</p>
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs font-mono border-collapse border border-slate-800">
+                <thead class="bg-slate-900/80 text-amber-300">
+                  <tr>
+                    <th class="p-2 border border-slate-800 text-left">Param</th>
+                    <th class="p-2 border border-slate-800 text-left">Range</th>
+                    <th class="p-2 border border-slate-800 text-left">Description</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800">
+                  <tr><td class="p-2 border border-slate-800 text-amber-400 font-bold">Note</td><td class="p-2 border border-slate-800">0–21 steps</td><td class="p-2 border border-slate-800">Quantized scale degree into active 48-step scale table.</td></tr>
+                  <tr><td class="p-2 border border-slate-800 text-amber-400 font-bold">Velocity</td><td class="p-2 border border-slate-800">0–100%</td><td class="p-2 border border-slate-800">Note trigger amplitude and accent.</td></tr>
+                  <tr><td class="p-2 border border-slate-800 text-amber-400 font-bold">Filter</td><td class="p-2 border border-slate-800">20Hz–20kHz</td><td class="p-2 border border-slate-800">Exponential cutoff frequency modulation.</td></tr>
+                  <tr><td class="p-2 border border-slate-800 text-amber-400 font-bold">Attack</td><td class="p-2 border border-slate-800">0–1.0s</td><td class="p-2 border border-slate-800">VCA envelope attack ramp.</td></tr>
+                  <tr><td class="p-2 border border-slate-800 text-amber-400 font-bold">Decay</td><td class="p-2 border border-slate-800">0–1.0s</td><td class="p-2 border border-slate-800">VCA envelope decay / waveguide T60 duration.</td></tr>
+                  <tr><td class="p-2 border border-slate-800 text-amber-400 font-bold">Octave</td><td class="p-2 border border-slate-800">-1 / 0 / +1</td><td class="p-2 border border-slate-800">Quantized octave transpose.</td></tr>
+                  <tr><td class="p-2 border border-slate-800 text-amber-400 font-bold">GateLength</td><td class="p-2 border border-slate-800">0.1–100%</td><td class="p-2 border border-slate-800">Fraction of 16th step held.</td></tr>
+                  <tr><td class="p-2 border border-slate-800 text-amber-400 font-bold">Gate</td><td class="p-2 border border-slate-800">ON / OFF</td><td class="p-2 border border-slate-800">Step trigger state; defines voice pattern length!</td></tr>
+                  <tr><td class="p-2 border border-slate-800 text-amber-400 font-bold">Slide</td><td class="p-2 border border-slate-800">ON / OFF</td><td class="p-2 border border-slate-800">Portamento glide into step without retriggering envelope.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <!-- Section 5 -->
+          <article id="man-sec-5" class="pt-6 space-y-3">
+            <h3 class="text-base font-bold text-amber-400 flex items-center gap-2">
+              <span class="font-mono text-xs px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-amber-300">§ 5</span>
+              Complete Control Reference
+            </h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-800 space-y-2">
+                <span class="font-bold text-amber-300 font-mono">Param Mode (GP7 LOW)</span>
+                <ul class="space-y-1 text-slate-400">
+                  <li>• <b>Hold Param Button</b>: Arms real-time recording via encoder/sensor.</li>
+                  <li>• <b>Shift + Param Tap</b>: Latches hold without finger contact.</li>
+                  <li>• <b>Fader 1–4</b>: Filter Cutoff, Attack, Decay, Velocity.</li>
+                </ul>
+              </div>
+              <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-800 space-y-2">
+                <span class="font-bold text-cyan-300 font-mono">Utility Mode (GP7 HIGH)</span>
+                <ul class="space-y-1 text-slate-400">
+                  <li>• <b>Btn 1 (Play/Stop)</b>: Starts/stops transport; opens Settings when stopped.</li>
+                  <li>• <b>Btn 2 (Delay)</b>: Toggle global master delay.</li>
+                  <li>• <b>Btn 3 (Scale)</b>: Cycle 13 musical scales.</li>
+                  <li>• <b>Btn 4 (Swing)</b>: Cycle 16 shuffle templates.</li>
+                  <li>• <b>Btn 5 (Theme)</b>: Cycle 10 LED matrix color themes.</li>
+                  <li>• <b>Btn 6 (Target)</b>: Cycle encoder target (hold = Gate Length mode).</li>
+                  <li>• <b>Btn 7 (Random)</b>: Short tap randomizes voice; long-press resets.</li>
+                </ul>
+              </div>
+            </div>
+          </article>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- TAB 6: GOTCHAS & CHEAT SHEET                                        -->
+    <!-- =================================================================== -->
+    <section id="tab-gotchas" class="tab-pane hidden space-y-4">
+      <div class="bg-[var(--card,#111722)] border border-[var(--border,#1e293b)] rounded-2xl p-5 shadow-lg space-y-5">
+        <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
+          <div>
+            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+              <span>⚠️</span> Hardware & Firmware Gotchas Reference
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">Critical behavioral nuances verified directly from C++ firmware source.</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+
+          <div class="p-4 rounded-xl bg-amber-950/20 border border-amber-700/40 space-y-1.5">
+            <span class="font-bold text-amber-400 font-mono flex items-center gap-1.5">
+              <span>⚡</span> Voices 3 & 4 Are Internal-Audio Only
+            </span>
+            <p class="text-slate-300">
+              Only <b>Voices 1 and 2</b> have USB MIDI note/gate output and gate timers wired. Voices 3 and 4 are synthesis-only and do not emit external MIDI notes.
+            </p>
+          </div>
+
+          <div class="p-4 rounded-xl bg-amber-950/20 border border-amber-700/40 space-y-1.5">
+            <span class="font-bold text-amber-400 font-mono flex items-center gap-1.5">
+              <span>⚡</span> Encoder Offsets Apply to Voices 1 & 2 Only
+            </span>
+            <p class="text-slate-300">
+              <code class="text-amber-300 font-mono">applyEncoderBaseValues()</code> is invoked only for internal voices 0 and 1. Turning the encoder while Voice 3 or 4 is selected will not alter step offsets.
+            </p>
+          </div>
+
+          <div class="p-4 rounded-xl bg-rose-950/20 border border-rose-700/40 space-y-1.5">
+            <span class="font-bold text-rose-400 font-mono flex items-center gap-1.5">
+              <span>🔒</span> Note Edits Are Gate-Protected
+            </span>
+            <p class="text-slate-300">
+              You cannot write or record a pitch into a step whose Gate is OFF. Toggle the step ON first before setting pitch via encoder, distance sensor, or faders.
+            </p>
+          </div>
+
+          <div class="p-4 rounded-xl bg-blue-950/20 border border-blue-700/40 space-y-1.5">
+            <span class="font-bold text-blue-400 font-mono flex items-center gap-1.5">
+              <span>🎚️</span> Fader Value Snapping on Mode Flip
+            </span>
+            <p class="text-slate-300">
+              When flipping the GP7 mode switch between PARAM and UTILITY, the physical slider positions snap into the new parameters upon the first reading.
+            </p>
+          </div>
+
+          <div class="p-4 rounded-xl bg-emerald-950/20 border border-emerald-700/40 space-y-1.5">
+            <span class="font-bold text-emerald-400 font-mono flex items-center gap-1.5">
+              <span>📏</span> VL53L1X Distance Window (74–1400 mm)
+            </span>
+            <p class="text-slate-300">
+              Readings below 74 mm or above 1400 mm return invalid (-1) and are ignored by firmware. Distance is normalized from 74 mm upwards.
+            </p>
+          </div>
+
+          <div class="p-4 rounded-xl bg-purple-950/20 border border-purple-700/40 space-y-1.5">
+            <span class="font-bold text-purple-400 font-mono flex items-center gap-1.5">
+              <span>🎛️</span> Staged Parameter Updates
+            </span>
+            <p class="text-slate-300">
+              Voice parameter updates cross Core 1 to Core 0 via atomic staging (<code class="text-purple-300 font-mono">stagedState_</code>) and take effect on the next audio buffer slice.
+            </p>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-[var(--border,#1e293b)] bg-[var(--card,#111722)] px-4 py-3 text-center text-xs text-slate-500 font-mono">
+    Pico2Seq Interactive User Manual · Built with Antigravity Generative UI · Dual-Core RP2350 Architecture
+  </footer>
+
+  <!-- =================================================================== -->
+  <!-- APPLICATION JAVASCRIPT ENGINE                                       -->
+  <!-- =================================================================== -->
+  <script>
+    /* ===================================================================
+       1. DATA DEFINITIONS (Scales, Presets, Shuffle, LED Themes)
+       =================================================================== */
+    const SCALES = [
+      { name: "Ionian Major", desc: "Bright, standard major mode. Natural 3rd, 6th, 7th.", intervals: [0, 2, 4, 5, 7, 9, 11] },
+      { name: "Dorian", desc: "Jazzy minor with raised natural 6th. Softer minor feel.", intervals: [0, 2, 3, 5, 7, 9, 10] },
+      { name: "Phrygian", desc: "Dark minor with distinctive flat 2nd. Spanish/flamenco flavor.", intervals: [0, 1, 3, 5, 7, 8, 10] },
+      { name: "Lydian", desc: "Dreamy major mode with raised 4th (tritone). Ethereal.", intervals: [0, 2, 4, 6, 7, 9, 11] },
+      { name: "Mixolydian", desc: "Bluesy rock major with flat 7th. Dominant harmony.", intervals: [0, 2, 4, 5, 7, 9, 10] },
+      { name: "Aeolian Minor", desc: "Natural minor, classic melancholic character.", intervals: [0, 2, 3, 5, 7, 8, 10] },
+      { name: "Locrian", desc: "Tense, unstable, diminished 5th. Darkest mode.", intervals: [0, 1, 3, 5, 6, 8, 10] },
+      { name: "Pentatonic Minor", desc: "Classic 5-note blues/rock staple (padded across 48 steps).", intervals: [0, 3, 5, 7, 10] },
+      { name: "Phrygian Dominant", desc: "Major 3rd with flat 2nd/6th/7th. Middle Eastern aura.", intervals: [0, 1, 4, 5, 7, 8, 10] },
+      { name: "Lydian Dominant", desc: "Acoustic overtone scale: raised 4th, flat 7th.", intervals: [0, 2, 4, 6, 7, 9, 10] },
+      { name: "Harmonic Minor", desc: "Minor scale with natural 7th. Dramatic classical leading tone.", intervals: [0, 2, 3, 5, 7, 8, 11] },
+      { name: "Wholetone", desc: "Symmetrical equal-whole-step scale. Impressionistic dream.", intervals: [0, 2, 4, 6, 8, 10] },
+      { name: "Chromatic", desc: "All 12 semitones, 1:1 direct note mapping.", intervals: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] }
+    ];
+
+    const SHUFFLE_TEMPLATES = [
+      { name: "No Shuffle", desc: "Straight mechanical 16ths (0 tick offset).", ticks: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] },
+      { name: "Teeny Swing", desc: "Subtle humanized micro-swing for gentle breath.", ticks: [0,5,0,6,0,5,0,6,0,5,0,6,0,5,0,6] },
+      { name: "Lil' Swing (53%)", desc: "Classic light swing pocket.", ticks: [0,10,0,11,0,10,0,9,0,10,0,10,0,11,0,10] },
+      { name: "Neg' Swing (53%)", desc: "Pushed / rushed upbeats with aggressive drive.", ticks: [0,-10,0,-11,0,-10,0,-9,0,-10,0,-10,0,-11,0,-10] },
+      { name: "CornBread", desc: "Asymmetric organic groove with vintage bounce.", ticks: [0,13,0,14,0,13,0,14,0,15,0,13,0,15,0,14] },
+      { name: "Swing (55%)", desc: "Standard medium swing feel.", ticks: [0,17,0,18,0,17,0,18,0,17,0,18,0,18,0,17] },
+      { name: "Swing (56%)", desc: "Moderate house and jazz pocket.", ticks: [0,19,0,18,0,19,0,20,0,19,0,20,0,23,0,20] },
+      { name: "Swing (57%)", desc: "Pronounced dance groove swing.", ticks: [0,23,0,22,0,23,0,23,0,22,0,23,0,22,0,23] },
+      { name: "Swing (60%)", desc: "Pronounced triplet-leaning swing.", ticks: [0,30,0,28,0,30,0,28,0,31,0,29,0,31,0,28] },
+      { name: "Big Swang (60%)", desc: "Heavy laid-back swing groove.", ticks: [0,36,0,34,0,36,0,33,0,36,0,36,0,36,0,36] },
+      { name: "Phatty Swang", desc: "Deep MPC-style delayed upbeat pocket.", ticks: [0,40,0,40,0,40,0,40,0,40,0,40,0,40,0,40] },
+      { name: "Big Swang (62%)", desc: "Extreme hard late-swing groove.", ticks: [0,50,0,48,0,50,0,48,0,50,0,48,0,50,0,48] },
+      { name: "Humanize 1", desc: "Live drummer micro-timing fluctuations.", ticks: [0,-1,3,1,0,-2,1,0,-1,1,0,3,-1,2,1,-2] },
+      { name: "Humanize 2", desc: "Loose unquantized natural live feel.", ticks: [0,-1,0,2,1,2,0,-2,-1,0,1,1,2,2,3,1] },
+      { name: "Hip-Hop", desc: "Boom-bap asymmetric late groove.", ticks: [0,40,0,22,0,40,0,22,0,40,0,22,0,40,0,22] },
+      { name: "Funk Groove", desc: "Syncopated funk pocket with crisp pushes.", ticks: [0,35,0,20,0,30,0,20,0,35,0,20,0,30,0,20] }
+    ];
+
+    const PRESETS = [
+      { id: 1, name: "Analog", engine: "Oscillator", desc: "Triple-saw classic subtractive synth through a warm 24 dB ladder filter." },
+      { id: 2, name: "Digital", engine: "Oscillator", desc: "Square + triangle hybrid (osc 2 up an octave), sharp 12 dB lowpass." },
+      { id: 3, name: "Bass", engine: "Oscillator", desc: "Deep sub-octave detuned sine/triangle bass with solid low punch." },
+      { id: 4, name: "Lead", engine: "Oscillator", desc: "Dual-saw lead with scale-harmony layer on the second oscillator." },
+      { id: 5, name: "Square", engine: "Oscillator", desc: "Narrow PWM pulse (20% width) with resonant bite; snappy envelope." },
+      { id: 6, name: "Pad", engine: "Oscillator", desc: "Atmospheric 3-osc chord pad (harmonies 0/-3/+2), slow attack & release." },
+      { id: 7, name: "Percussion", engine: "Noise", desc: "Fast-decaying noise-textured hit (pure noise burst into filter)." },
+      { id: 8, name: "SubFunk", engine: "Oscillator", desc: "Sub-octave sine/triangle sub bass with warm overdrive grit." },
+      { id: 9, name: "RubberSub", engine: "Oscillator", desc: "Rubbery sub bass: square grind under resonant bandpass honk." },
+      { id: 10, name: "WgPluck", engine: "Waveguide", desc: "Karplus-Strong plucked string: bright burst, short natural tail." },
+      { id: 11, name: "WgNylon", engine: "Waveguide", desc: "Dark felt-soft nylon string: heavily damped pick, long sympathetic tail." },
+      { id: 12, name: "WgBell", engine: "Waveguide", desc: "Stiff dispersive waveguide: inharmonic bell/kalimba partials." },
+      { id: 13, name: "WgShimmer", engine: "Waveguide", desc: "Wide-detuned two-string course: slow chorusing sustain, shimmering pad." },
+      { id: 14, name: "Hypersaw", engine: "Oscillator", desc: "Supersaw stack: two detuned unisons plus octave-up saw with overdrive." },
+      { id: 15, name: "NoiseStorm", engine: "Noise-FX", desc: "Pitch-tracked Lorenz chaos growl through diffuser and allpass swarm." }
+    ];
+
+    const THEMES = [
+      { name: "Standard", active: "#00e5ff", idle: "#004466", head: "#ffffff" },
+      { name: "Oceanic", active: "#00ffcc", idle: "#003333", head: "#bbf7d0" },
+      { name: "Volcanic", active: "#ff4500", idle: "#441100", head: "#fed7aa" },
+      { name: "Forest", active: "#22c55e", idle: "#052e16", head: "#fef08a" },
+      { name: "Neon", active: "#d946ef", idle: "#4a044e", head: "#67e8f9" },
+      { name: "Modern", active: "#94a3b8", idle: "#1e293b", head: "#ffffff" },
+      { name: "Dark Noctis", active: "#3b82f6", idle: "#0f172a", head: "#93c5fd" },
+      { name: "Dark Ember", active: "#f97316", idle: "#271003", head: "#fef08a" },
+      { name: "Blue Contrast", active: "#2563eb", idle: "#0c1f4a", head: "#ffffff" },
+      { name: "Green Contrast", active: "#16a34a", idle: "#052912", head: "#ffffff" }
+    ];
+
+    const ENCODER_TARGETS = [
+      "Velocity", "Filter", "Attack", "Decay", "Note", "Delay Time", "Delay Feedback", "Slide Time"
+    ];
+
+    /* ===================================================================
+       2. SYNTHESIZER & SEQUENCER STATE
+       =================================================================== */
+    class SequencerVoice {
+      constructor(id, presetId = 1) {
+        this.id = id;
+        this.presetId = presetId;
+        this.gateLength = 16;
+        this.noteLength = 16;
+        this.filterLength = 16;
+        this.velocityLength = 16;
+        this.attackLength = 16;
+        this.decayLength = 16;
+
+        this.gates = new Array(16).fill(false);
+        this.notes = new Array(16).fill(0);
+        this.velocities = new Array(16).fill(80);
+        this.filters = new Array(16).fill(60);
+        this.slides = new Array(16).fill(false);
+
+        // Parameters
+        this.filterCutoff = 0.65;
+        this.attackTime = 0.05;
+        this.decayTime = 0.35;
+        this.velocity = 0.85;
+
+        // Default rhythm seeds
+        if (id === 0) { // Voice 1: Melodic syncopation
+          [0, 3, 6, 10, 12].forEach(s => this.gates[s] = true);
+          this.notes = [0, 4, 7, 9, 12, 7, 4, 0, 2, 5, 9, 12, 14, 12, 7, 2];
+        } else if (id === 1) { // Voice 2: Bassline
+          [0, 4, 8, 12].forEach(s => this.gates[s] = true);
+          this.notes = [0, 0, 7, 7, 0, 0, 5, 5, 0, 0, 7, 7, 0, 0, 3, 3];
+          this.filterCutoff = 0.45;
+        } else if (id === 2) { // Voice 3: Arp
+          [2, 6, 10, 14].forEach(s => this.gates[s] = true);
+          this.notes = [12, 14, 16, 19, 12, 16, 19, 21, 12, 14, 16, 19, 12, 16, 19, 21];
+        } else if (id === 3) { // Voice 4: Percussion
+          [4, 12].forEach(s => this.gates[s] = true);
+        }
+      }
+    }
+
+    const state = {
+      isPlaying: false,
+      bpm: 90,
+      currentScale: 0,
+      currentShuffle: 0,
+      currentTheme: 0,
+      selectedVoice: 0, // 0 to 3 (V1-V4)
+      gp7Mode: "PARAM", // PARAM or UTIL
+      shiftActive: false,
+      shiftLatchedParam: null,
+      heldParamId: null,
+      selectedStepForEdit: -1,
+      gateLengthMode: false,
+      settingsMode: false,
+      bannerUntil: 0,
+      bannerText: "",
+      bannerSub: "",
+      encoderTargetIdx: 0,
+      encoderValue: 100,
+      tofDistance: 420,
+      clockStep: 0,
+      voices: [
+        new SequencerVoice(0, 5), // V1: Square
+        new SequencerVoice(1, 3), // V2: Bass
+        new SequencerVoice(2, 2), // V3: Digital
+        new SequencerVoice(3, 7)  // V4: Percussion
+      ]
+    };
+
+    /* ===================================================================
+       3. WEB AUDIO SYNTHESIZER ENGINE
+       =================================================================== */
+    let audioCtx = null;
+    let masterGain = null;
+    let delayNode = null;
+    let delayFeedback = null;
+    let timerId = null;
+
+    function initAudio() {
+      if (audioCtx) return;
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AudioContext();
+
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 0.7;
+
+      // Master Delay
+      delayNode = audioCtx.createDelay(2.0);
+      delayNode.delayTime.value = 0.333; // 333ms delay
+      delayFeedback = audioCtx.createGain();
+      delayFeedback.gain.value = 0.45;
+
+      delayNode.connect(delayFeedback);
+      delayFeedback.connect(delayNode);
+      delayNode.connect(masterGain);
+
+      masterGain.connect(audioCtx.destination);
+    }
+
+    function triggerVoiceSound(voiceIdx, noteVal, velVal, filtVal, isSlide) {
+      if (!audioCtx) return;
+      const v = state.voices[voiceIdx];
+      const now = audioCtx.currentTime;
+
+      // Scale quantizer
+      const scale = SCALES[state.currentScale];
+      const octave = Math.floor(noteVal / scale.intervals.length);
+      const degree = noteVal % scale.intervals.length;
+      const semitone = octave * 12 + scale.intervals[degree];
+      
+      // Base frequency: V1/V3 center C3 (48), V2 center C2 (36), V4 noise
+      let rootMidi = 48;
+      if (voiceIdx === 1) rootMidi = 36;
+      if (voiceIdx === 2) rootMidi = 60;
+      const midiNote = rootMidi + semitone;
+      const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
+
+      const amp = (velVal / 100) * v.velocity * 0.4;
+      if (amp <= 0.001) return;
+
+      if (v.presetId === 7) { // Noise Percussion
+        playNoiseHit(now, amp, filtVal);
+        return;
+      }
+
+      // Multi-engine oscillator setup
+      const osc = audioCtx.createOscillator();
+      const filter = audioCtx.createBiquadFilter();
+      const gain = audioCtx.createGain();
+
+      if (v.presetId === 5) { // Square
+        osc.type = "square";
+      } else if (v.presetId === 3) { // Bass
+        osc.type = "sawtooth";
+      } else if (v.presetId === 2) { // Digital
+        osc.type = "triangle";
+      } else if (v.presetId >= 10 && v.presetId <= 13) { // Waveguide plucked
+        osc.type = "sawtooth";
+      } else {
+        osc.type = "sawtooth";
+      }
+
+      osc.frequency.setValueAtTime(freq, now);
+
+      // Lowpass Ladder Filter emulation
+      filter.type = "lowpass";
+      const baseCutoff = 20 + Math.pow(v.filterCutoff * (filtVal / 100), 2) * 14000;
+      filter.frequency.setValueAtTime(baseCutoff, now);
+      filter.Q.value = 4.5;
+
+      // Envelope
+      const att = Math.max(0.005, v.attackTime);
+      const dec = Math.max(0.05, v.decayTime);
+
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.linearRampToValueAtTime(amp, now + att);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + att + dec);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(masterGain);
+
+      // Send to delay
+      if (document.getElementById("globalDelayToggle").checked) {
+        gain.connect(delayNode);
+      }
+
+      osc.start(now);
+      osc.stop(now + att + dec + 0.1);
+    }
+
+    function playNoiseHit(now, amp, filtVal) {
+      const bufferSize = audioCtx.sampleRate * 0.15;
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buffer;
+
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.frequency.value = 2500;
+      filter.Q.value = 2.0;
+
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(amp * 0.8, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(masterGain);
+
+      noise.start(now);
+      noise.stop(now + 0.15);
+    }
+
+    /* ===================================================================
+       4. SEQUENCER TICK ENGINE (16th Note Clock + Swing)
+       =================================================================== */
+    function startClock() {
+      if (state.isPlaying) return;
+      initAudio();
+      state.isPlaying = true;
+      document.getElementById("globalPlayBtn").classList.replace("bg-emerald-600", "bg-rose-600");
+      document.getElementById("globalPlayBtn").classList.replace("hover:bg-emerald-500", "hover:bg-rose-500");
+      document.getElementById("playBtnText").textContent = "Stop Transport";
+      scheduleNextStep();
+    }
+
+    function stopClock() {
+      state.isPlaying = false;
+      if (timerId) clearTimeout(timerId);
+      document.getElementById("globalPlayBtn").classList.replace("bg-rose-600", "bg-emerald-600");
+      document.getElementById("globalPlayBtn").classList.replace("hover:bg-rose-500", "hover:bg-emerald-500");
+      document.getElementById("playBtnText").textContent = "Start Audio & Play";
+      renderLedMatrix();
+      renderOled();
+    }
+
+    function scheduleNextStep() {
+      if (!state.isPlaying) return;
+
+      const step = state.clockStep;
+      const shuffle = SHUFFLE_TEMPLATES[state.currentShuffle];
+      const tickOffset = shuffle.ticks[step % 16]; // 480 PPQN
+      
+      // Calculate 16th duration
+      const base16thMs = (60000 / state.bpm) / 4;
+      const swingOffsetMs = (tickOffset / 120) * (base16thMs * 0.25);
+      const nextDuration = Math.max(20, base16thMs + swingOffsetMs);
+
+      // Trigger active voices
+      state.voices.forEach((v, vIdx) => {
+        const vStep = step % v.gateLength;
+        if (v.gates[vStep]) {
+          const noteStep = step % v.noteLength;
+          const velStep = step % v.velocityLength;
+          const filtStep = step % v.filterLength;
+          triggerVoiceSound(vIdx, v.notes[noteStep], v.velocities[velStep], v.filters[filtStep], v.slides[vStep]);
+        }
+      });
+
+      // Distance sensor live recording
+      const armedParam = state.heldParamId || state.shiftLatchedParam;
+      if (armedParam && state.isPlaying) {
+        const selVoice = state.voices[state.selectedVoice];
+        const vStep = step % selVoice.gateLength;
+        const norm = Math.max(0, Math.min(1, (state.tofDistance - 74) / (1400 - 74)));
+        if (armedParam === "Filter") {
+          selVoice.filters[step % selVoice.filterLength] = Math.round(norm * 100);
+        } else if (armedParam === "Velocity") {
+          selVoice.velocities[step % selVoice.velocityLength] = Math.round(norm * 100);
+        } else if (armedParam === "Note" && selVoice.gates[vStep]) {
+          selVoice.notes[step % selVoice.noteLength] = Math.round(norm * 21);
+        }
+      }
+
+      renderLedMatrix();
+      renderOled();
+      renderPolymeterLab();
+
+      state.clockStep++;
+      timerId = setTimeout(scheduleNextStep, nextDuration);
+    }
+
+    /* ===================================================================
+       5. 128x64 OLED CANVAS RENDERING (Strict 5-Tier Priority Hierarchy)
+       =================================================================== */
+    const oledCanvas = document.getElementById("oledCanvas");
+    const oledCtx = oledCanvas.getContext("2d");
+
+    function renderOled() {
+      oledCtx.fillStyle = "#04080e";
+      oledCtx.fillRect(0, 0, 128, 64);
+      oledCtx.fillStyle = "#5ac8fa";
+
+      const now = Date.now();
+
+      // PRIORITY 1: Transitory PARAM / UTIL Banner
+      if (now < state.bannerUntil) {
+        document.getElementById("oledPriorityTag").textContent = "P1: Banner";
+        oledCtx.font = "bold 16px monospace";
+        oledCtx.textAlign = "center";
+        oledCtx.fillText(state.bannerText, 64, 30);
+        oledCtx.font = "9px monospace";
+        oledCtx.fillText(state.bannerSub, 64, 46);
+        return;
+      }
+
+      // PRIORITY 2: Settings & Preset Menu (when stopped or settingsMode)
+      if (state.settingsMode || !state.isPlaying) {
+        document.getElementById("oledPriorityTag").textContent = "P2: Settings / Presets";
+        oledCtx.font = "9px monospace";
+        oledCtx.textAlign = "left";
+        oledCtx.fillText("SOUND BUFFET: V" + state.selectedVoice, 6, 12);
+        oledCtx.fillRect(6, 15, 116, 1);
+
+        const v = state.voices[state.selectedVoice];
+        const p = PRESETS.find(pr => pr.id === v.presetId) || PRESETS[0];
+
+        oledCtx.font = "bold 13px monospace";
+        oledCtx.textAlign = "center";
+        oledCtx.fillText("< " + p.name + " >", 64, 34);
+
+        oledCtx.font = "8px monospace";
+        oledCtx.fillText(p.engine + " · Preset " + p.id + "/15", 64, 46);
+
+        // 4-voice mini overview
+        oledCtx.font = "8px monospace";
+        oledCtx.textAlign = "left";
+        oledCtx.fillText("V1:Sq V2:Bs V3:Dg V4:Pc", 6, 58);
+        return;
+      }
+
+      // PRIORITY 3: Gate Sequence Length Gauge (holding encoder)
+      if (state.gateLengthMode) {
+        document.getElementById("oledPriorityTag").textContent = "P3: Gate Length";
+        const v = state.voices[state.selectedVoice];
+        oledCtx.font = "9px monospace";
+        oledCtx.textAlign = "left";
+        oledCtx.fillText("SEQUENCE LENGTH V" + state.selectedVoice, 6, 14);
+        oledCtx.fillRect(6, 17, 116, 1);
+
+        oledCtx.font = "bold 18px monospace";
+        oledCtx.textAlign = "center";
+        oledCtx.fillText(v.gateLength + " Steps", 64, 38);
+
+        // Gauge bar
+        const barWidth = (v.gateLength / 16) * 110;
+        oledCtx.strokeRect(8, 46, 112, 10);
+        oledCtx.fillRect(9, 47, barWidth, 8);
+        return;
+      }
+
+      // PRIORITY 4: Parameter Edit Screen
+      const activeParam = state.heldParamId || state.shiftLatchedParam;
+      if (activeParam || state.selectedStepForEdit >= 0) {
+        document.getElementById("oledPriorityTag").textContent = "P4: Param Edit";
+        const v = state.voices[state.selectedVoice];
+        const paramName = activeParam || "Step Edit";
+
+        oledCtx.font = "bold 11px monospace";
+        oledCtx.textAlign = "left";
+        oledCtx.fillText(paramName, 6, 14);
+
+        oledCtx.font = "9px monospace";
+        oledCtx.textAlign = "right";
+        const stepLbl = state.selectedStepForEdit >= 0 ? "S" + (state.selectedStepForEdit + 1) : "LIVE";
+        oledCtx.fillText("V" + state.selectedVoice + " " + stepLbl, 122, 14);
+        oledCtx.fillRect(6, 18, 116, 1);
+
+        // Value text
+        oledCtx.font = "bold 15px monospace";
+        oledCtx.textAlign = "center";
+        let valStr = "";
+        let pct = 0.5;
+
+        if (paramName === "Filter") {
+          const hz = Math.round(20 * Math.pow(1000, v.filterCutoff));
+          valStr = hz + " Hz";
+          pct = v.filterCutoff;
+        } else if (paramName === "Attack") {
+          valStr = (v.attackTime).toFixed(3) + " s";
+          pct = v.attackTime;
+        } else if (paramName === "Decay") {
+          valStr = (v.decayTime).toFixed(3) + " s";
+          pct = v.decayTime;
+        } else if (paramName === "Velocity") {
+          valStr = Math.round(v.velocity * 100) + " %";
+          pct = v.velocity;
+        } else if (paramName === "Note") {
+          valStr = "Degree " + v.notes[0];
+          pct = v.notes[0] / 21;
+        } else {
+          valStr = state.encoderValue + " %";
+          pct = state.encoderValue / 100;
+        }
+
+        oledCtx.fillText(valStr, 64, 38);
+
+        // Progress bar
+        oledCtx.strokeRect(10, 46, 108, 8);
+        oledCtx.fillRect(11, 47, Math.max(2, pct * 106), 6);
+        return;
+      }
+
+      // PRIORITY 5: Default System Status Screen
+      document.getElementById("oledPriorityTag").textContent = "P5: Status";
+      oledCtx.font = "8px monospace";
+      oledCtx.textAlign = "left";
+      oledCtx.fillText("SCALE: " + SCALES[state.currentScale].name.slice(0, 14), 6, 11);
+      oledCtx.fillText("SWING: " + SHUFFLE_TEMPLATES[state.currentShuffle].name.slice(0, 14), 6, 21);
+
+      // Large Voice indicator
+      oledCtx.font = "bold 15px monospace";
+      oledCtx.fillText("Voice: " + state.selectedVoice, 6, 38);
+
+      // Encoder target notice
+      oledCtx.font = "8px monospace";
+      oledCtx.textAlign = "right";
+      oledCtx.fillText("ENC:" + ENCODER_TARGETS[state.encoderTargetIdx], 122, 38);
+
+      // Beat Playhead dot strip
+      oledCtx.fillRect(6, 43, 116, 1);
+      const v = state.voices[state.selectedVoice];
+      const curStep = state.clockStep % v.gateLength;
+      for (let s = 0; s < 16; s++) {
+        const x = 8 + s * 7.2;
+        if (s === curStep && state.isPlaying) {
+          oledCtx.fillRect(x - 1, 48, 5, 8);
+        } else if (v.gates[s]) {
+          oledCtx.fillRect(x, 50, 3, 4);
+        } else {
+          oledCtx.strokeRect(x, 52, 2, 2);
+        }
+      }
+    }
+
+    /* ===================================================================
+       6. 8x4 LED MATRIX MIRROR RENDERING
+       =================================================================== */
+    function renderLedMatrix() {
+      const lowContainer = document.getElementById("ledGridLow");
+      const highContainer = document.getElementById("ledGridHigh");
+      lowContainer.innerHTML = "";
+      highContainer.innerHTML = "";
+
+      const theme = THEMES[state.currentTheme];
+      const isLowPair = (state.selectedVoice < 2);
+      const lowVoiceIdx = isLowPair ? 0 : 2;
+      const highVoiceIdx = isLowPair ? 1 : 3;
+
+      document.getElementById("ledLowBandLabel").textContent = `LOW VOICE (Voice ${lowVoiceIdx + 1}, Steps 1–16)`;
+      document.getElementById("ledHighBandLabel").textContent = `HIGH VOICE (Voice ${highVoiceIdx + 1}, Steps 1–16)`;
+
+      const vLow = state.voices[lowVoiceIdx];
+      const vHigh = state.voices[highVoiceIdx];
+
+      const lowHead = state.isPlaying ? (state.clockStep % vLow.gateLength) : -1;
+      const highHead = state.isPlaying ? (state.clockStep % vHigh.gateLength) : -1;
+
+      // Render Low Voice (Rows 0-1, Steps 0-15)
+      for (let s = 0; s < 16; s++) {
+        const dot = createLedDot(s, vLow.gates[s], s === lowHead, theme);
+        lowContainer.appendChild(dot);
+      }
+
+      // Render High Voice (Rows 2-3, Steps 0-15)
+      for (let s = 0; s < 16; s++) {
+        const dot = createLedDot(s, vHigh.gates[s], s === highHead, theme);
+        highContainer.appendChild(dot);
+      }
+    }
+
+    function createLedDot(stepIdx, isGateOn, isHead, theme) {
+      const d = document.createElement("div");
+      d.className = "w-6 h-6 rounded-full flex items-center justify-center transition-all duration-75 relative";
+
+      if (isHead) {
+        d.style.backgroundColor = theme.head;
+        d.style.boxShadow = `0 0 12px ${theme.head}, 0 0 4px #ffffff`;
+        d.style.transform = "scale(1.15)";
+      } else if (isGateOn) {
+        d.style.backgroundColor = theme.active;
+        d.style.boxShadow = `0 0 8px ${theme.active}`;
+      } else {
+        d.style.backgroundColor = theme.idle;
+        d.style.opacity = "0.35";
+        if (!state.isPlaying) {
+          d.classList.add("led-breathing");
+        }
+      }
+
+      // Mini step index label inside dot
+      const num = document.createElement("span");
+      num.className = "text-[8px] font-mono text-black/70 select-none font-bold";
+      num.textContent = (stepIdx + 1);
+      d.appendChild(num);
+
+      return d;
+    }
+
+    /* ===================================================================
+       7. 32-PAD TOUCH GRID (MPR121) RENDERING & GESTURES
+       =================================================================== */
+    function renderPads() {
+      const padLow = document.getElementById("padGridLow");
+      const padHigh = document.getElementById("padGridHigh");
+      padLow.innerHTML = "";
+      padHigh.innerHTML = "";
+
+      const isLowPair = (state.selectedVoice < 2);
+      const lowVoiceIdx = isLowPair ? 0 : 2;
+      const highVoiceIdx = isLowPair ? 1 : 3;
+
+      document.getElementById("padLowBankTitle").textContent = `Bank 0: Steps 1–16 (Voice ${lowVoiceIdx + 1})`;
+      document.getElementById("padHighBankTitle").textContent = `Bank 1: Steps 17–32 (Voice ${highVoiceIdx + 1})`;
+
+      // Low Bank (Pads 1-16)
+      for (let s = 0; s < 16; s++) {
+        const btn = createPadButton(lowVoiceIdx, s, s + 1);
+        padLow.appendChild(btn);
+      }
+
+      // High Bank (Pads 17-32)
+      for (let s = 0; s < 16; s++) {
+        const btn = createPadButton(highVoiceIdx, s, s + 17);
+        padHigh.appendChild(btn);
+      }
+    }
+
+    function createPadButton(voiceIdx, stepIdx, padNum) {
+      const btn = document.createElement("button");
+      const v = state.voices[voiceIdx];
+      const isGate = v.gates[stepIdx];
+
+      btn.className = `pad-button h-10 sm:h-12 rounded-lg font-mono text-xs font-bold border transition-all flex flex-col items-center justify-center p-0.5 ${
+        isGate 
+          ? "bg-amber-500/30 border-amber-400 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.2)]" 
+          : "bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-700 hover:text-slate-300"
+      }`;
+
+      if (state.selectedStepForEdit === stepIdx && state.selectedVoice === voiceIdx) {
+        btn.classList.add("ring-2", "ring-cyan-400");
+      }
+
+      btn.innerHTML = `
+        <span class="text-[9px] text-slate-500">${padNum}</span>
+        <span class="text-[11px]">${stepIdx + 1}</span>
+      `;
+
+      let pressTimer = null;
+
+      btn.onmousedown = () => {
+        pressTimer = setTimeout(() => {
+          // Long press: Step Edit Mode
+          state.selectedStepForEdit = stepIdx;
+          state.selectedVoice = voiceIdx;
+          showBanner("STEP EDIT", "Step " + (stepIdx + 1) + " Voice " + (voiceIdx + 1));
+          renderPads();
+          renderOled();
+        }, 400);
+      };
+
+      btn.onmouseup = btn.onmouseleave = () => {
+        if (pressTimer) clearTimeout(pressTimer);
+      };
+
+      btn.onclick = () => {
+        if (pressTimer) clearTimeout(pressTimer);
+
+        // Check context actions:
+        if (state.gateLengthMode) {
+          // Sets voice pattern length
+          state.voices[voiceIdx].gateLength = stepIdx + 1;
+          showBanner("GATE LENGTH", (stepIdx + 1) + " Steps");
+        } else if (state.shiftActive) {
+          // Shift + Pad: Clear step
+          v.gates[stepIdx] = false;
+          v.notes[stepIdx] = 0;
+          v.velocities[stepIdx] = 80;
+        } else if (state.heldParamId) {
+          // Held param + Pad: Set that parameter track's length!
+          if (state.heldParamId === "Filter") v.filterLength = stepIdx + 1;
+          if (state.heldParamId === "Velocity") v.velocityLength = stepIdx + 1;
+          if (state.heldParamId === "Note") v.noteLength = stepIdx + 1;
+          showBanner(state.heldParamId + " LEN", (stepIdx + 1) + " Steps");
+        } else {
+          // Normal tap: Toggle gate
+          v.gates[stepIdx] = !v.gates[stepIdx];
+        }
+
+        renderPads();
+        renderLedMatrix();
+        renderOled();
+      };
+
+      return btn;
+    }
+
+    /* ===================================================================
+       8. 8-BUTTON FUNCTION MODULE & GP7 MODE STRAP
+       =================================================================== */
+    const PARAM_BUTTONS = [
+      { id: "Note", label: "Note" },
+      { id: "Velocity", label: "Velocity" },
+      { id: "Filter", label: "Filter" },
+      { id: "Attack", label: "Attack" },
+      { id: "Decay", label: "Decay" },
+      { id: "Octave", label: "Octave" },
+      { id: "Slide", label: "Slide" },
+      { id: "Shift", label: "Shift" }
+    ];
+
+    const UTIL_BUTTONS = [
+      { id: "Play", label: "Play/Stop" },
+      { id: "Delay", label: "Delay On/Off" },
+      { id: "Scale", label: "Scale Cycle" },
+      { id: "Swing", label: "Swing Cycle" },
+      { id: "Theme", label: "Theme Cycle" },
+      { id: "Target", label: "Enc Target" },
+      { id: "Random", label: "Randomize" },
+      { id: "Shift", label: "Shift" }
+    ];
+
+    function renderFunctionButtons() {
+      const container = document.getElementById("funcButtonGrid");
+      container.innerHTML = "";
+      const isParam = (state.gp7Mode === "PARAM");
+      const list = isParam ? PARAM_BUTTONS : UTIL_BUTTONS;
+
+      list.forEach(b => {
+        const btn = document.createElement("button");
+        const isShift = (b.id === "Shift");
+        const isLatched = (state.shiftLatchedParam === b.id);
+        const isHeld = (state.heldParamId === b.id);
+
+        btn.className = `p-2 rounded-lg text-xs font-mono font-medium border transition-all flex items-center justify-between ${
+          isShift && state.shiftActive ? "bg-cyan-500 text-black border-cyan-400 font-bold shadow-[0_0_8px_#22d3ee]" :
+          isLatched ? "bg-amber-500 text-black border-amber-400 font-bold shadow-[0_0_8px_#f59e0b]" :
+          isHeld ? "bg-amber-600/40 text-amber-300 border-amber-400" :
+          "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white"
+        }`;
+
+        btn.innerHTML = `
+          <span>${b.label}</span>
+          <span class="w-1.5 h-1.5 rounded-full ${isLatched || isHeld ? 'bg-amber-400 shadow-[0_0_4px_#f59e0b]' : 'bg-slate-600'}"></span>
+        `;
+
+        if (isParam) {
+          // PARAM MODE ACTIONS
+          if (isShift) {
+            btn.onclick = () => {
+              state.shiftActive = !state.shiftActive;
+              document.getElementById("shiftStatusIndicator").textContent = state.shiftActive ? "SHIFT ON" : "SHIFT OFF";
+              document.getElementById("shiftStatusIndicator").className = state.shiftActive ? "text-cyan-400 font-bold" : "text-slate-600 font-bold";
+              renderFunctionButtons();
+            };
+          } else {
+            btn.onclick = () => {
+              if (state.shiftActive) {
+                // Shift Latch
+                if (state.shiftLatchedParam === b.id) {
+                  state.shiftLatchedParam = null;
+                } else {
+                  state.shiftLatchedParam = b.id;
+                  state.heldParamId = b.id;
+                }
+                state.shiftActive = false;
+                document.getElementById("shiftStatusIndicator").textContent = "SHIFT OFF";
+                document.getElementById("shiftStatusIndicator").className = "text-slate-600 font-bold";
+              } else {
+                state.heldParamId = (state.heldParamId === b.id) ? null : b.id;
+              }
+              renderFunctionButtons();
+              renderOled();
+            };
+          }
+        } else {
+          // UTILITY MODE ACTIONS
+          btn.onclick = () => {
+            if (b.id === "Play") {
+              state.isPlaying ? stopClock() : startClock();
+            } else if (b.id === "Delay") {
+              const dChk = document.getElementById("globalDelayToggle");
+              dChk.checked = !dChk.checked;
+              showBanner(dChk.checked ? "DELAY ON" : "DELAY OFF", "Master Delay Effect");
+            } else if (b.id === "Scale") {
+              state.currentScale = (state.currentScale + 1) % SCALES.length;
+              showBanner("SCALE", SCALES[state.currentScale].name);
+            } else if (b.id === "Swing") {
+              state.currentShuffle = (state.currentShuffle + 1) % SHUFFLE_TEMPLATES.length;
+              showBanner("SWING", SHUFFLE_TEMPLATES[state.currentShuffle].name);
+            } else if (b.id === "Theme") {
+              state.currentTheme = (state.currentTheme + 1) % THEMES.length;
+              document.getElementById("themeSelector").value = state.currentTheme;
+              showBanner("THEME", THEMES[state.currentTheme].name);
+              renderLedMatrix();
+            } else if (b.id === "Target") {
+              state.encoderTargetIdx = (state.encoderTargetIdx + 1) % ENCODER_TARGETS.length;
+              document.getElementById("encoderTargetBadge").textContent = "Target: " + ENCODER_TARGETS[state.encoderTargetIdx];
+              showBanner("ENC TARGET", ENCODER_TARGETS[state.encoderTargetIdx]);
+            } else if (b.id === "Random") {
+              randomizeVoice(state.selectedVoice);
+            } else if (b.id === "Shift") {
+              state.shiftActive = !state.shiftActive;
+              document.getElementById("shiftStatusIndicator").textContent = state.shiftActive ? "SHIFT ON" : "SHIFT OFF";
+              document.getElementById("shiftStatusIndicator").className = state.shiftActive ? "text-cyan-400 font-bold" : "text-slate-600 font-bold";
+            }
+            renderFunctionButtons();
+            renderOled();
+          };
+        }
+
+        container.appendChild(btn);
+      });
+    }
+
+    function showBanner(title, sub) {
+      state.bannerText = title;
+      state.bannerSub = sub;
+      state.bannerUntil = Date.now() + 1400;
+      renderOled();
+    }
+
+    function randomizeVoice(vIdx) {
+      const v = state.voices[vIdx];
+      for (let s = 0; s < 16; s++) {
+        // Even steps 75% gate, odd ~33%
+        v.gates[s] = (s % 2 === 0) ? (Math.random() < 0.75) : (Math.random() < 0.33);
+        v.notes[s] = Math.floor(Math.random() * 12);
+        v.velocities[s] = Math.floor(50 + Math.random() * 50);
+        v.filters[s] = Math.floor(30 + Math.random() * 65);
+        v.slides[s] = Math.random() < 0.12;
+      }
+      showBanner("RANDOMIZED", "Voice " + (vIdx + 1));
+      renderPads();
+      renderLedMatrix();
+    }
+
+    /* ===================================================================
+       9. FADERS & MODE SWITCH DISPATCH
+       =================================================================== */
+    function updateFadersMode() {
+      const isParam = (state.gp7Mode === "PARAM");
+      document.getElementById("faderModeIndicator").textContent = isParam ? "PARAM MODE" : "UTILITY MODE";
+      document.getElementById("faderModeIndicator").className = isParam ? "text-[10px] font-mono text-amber-400" : "text-[10px] font-mono text-cyan-400";
+
+      if (isParam) {
+        document.getElementById("fader1Label").textContent = "Filter";
+        document.getElementById("fader2Label").textContent = "Attack";
+        document.getElementById("fader3Label").textContent = "Decay";
+        document.getElementById("fader4Label").textContent = "Velocity";
+      } else {
+        document.getElementById("fader1Label").textContent = "Tempo";
+        document.getElementById("fader2Label").textContent = "Swing";
+        document.getElementById("fader3Label").textContent = "Feedback";
+        document.getElementById("fader4Label").textContent = "GateLen";
+      }
+      updateFadersValues();
+    }
+
+    function updateFadersValues() {
+      const v = state.voices[state.selectedVoice];
+      const isParam = (state.gp7Mode === "PARAM");
+
+      if (isParam) {
+        document.getElementById("fader1").value = v.filterCutoff * 1000;
+        document.getElementById("fader1Val").textContent = Math.round(v.filterCutoff * 100) + "%";
+
+        document.getElementById("fader2").value = v.attackTime * 1000;
+        document.getElementById("fader2Val").textContent = Math.round(v.attackTime * 1000) + "ms";
+
+        document.getElementById("fader3").value = v.decayTime * 1000;
+        document.getElementById("fader3Val").textContent = Math.round(v.decayTime * 1000) + "ms";
+
+        document.getElementById("fader4").value = v.velocity * 1000;
+        document.getElementById("fader4Val").textContent = Math.round(v.velocity * 100) + "%";
+      } else {
+        document.getElementById("fader1").value = ((state.bpm - 45) / (200 - 45)) * 1000;
+        document.getElementById("fader1Val").textContent = state.bpm + " BPM";
+
+        document.getElementById("fader2").value = (state.currentShuffle / SHUFFLE_TEMPLATES.length) * 1000;
+        document.getElementById("fader2Val").textContent = "T" + state.currentShuffle;
+
+        document.getElementById("fader3").value = (delayFeedback ? delayFeedback.gain.value : 0.45) * 1000;
+        document.getElementById("fader3Val").textContent = Math.round((delayFeedback ? delayFeedback.gain.value : 0.45) * 100) + "%";
+
+        document.getElementById("fader4").value = (v.gateLength / 16) * 1000;
+        document.getElementById("fader4Val").textContent = v.gateLength + " Stp";
+      }
+    }
+
+    function setupFaderHandlers() {
+      document.getElementById("fader1").oninput = (e) => {
+        const val = e.target.value / 1000;
+        if (state.gp7Mode === "PARAM") {
+          state.voices[state.selectedVoice].filterCutoff = val;
+          document.getElementById("fader1Val").textContent = Math.round(val * 100) + "%";
+        } else {
+          state.bpm = Math.round(45 + val * (200 - 45));
+          document.getElementById("globalBpmInput").value = state.bpm;
+          document.getElementById("fader1Val").textContent = state.bpm + " BPM";
+        }
+        renderOled();
+      };
+
+      document.getElementById("fader2").oninput = (e) => {
+        const val = e.target.value / 1000;
+        if (state.gp7Mode === "PARAM") {
+          state.voices[state.selectedVoice].attackTime = val;
+          document.getElementById("fader2Val").textContent = Math.round(val * 1000) + "ms";
+        } else {
+          const idx = Math.floor(val * (SHUFFLE_TEMPLATES.length - 1));
+          state.currentShuffle = idx;
+          document.getElementById("fader2Val").textContent = "T" + idx;
+        }
+        renderOled();
+      };
+
+      document.getElementById("fader3").oninput = (e) => {
+        const val = e.target.value / 1000;
+        if (state.gp7Mode === "PARAM") {
+          state.voices[state.selectedVoice].decayTime = val;
+          document.getElementById("fader3Val").textContent = Math.round(val * 1000) + "ms";
+        } else {
+          if (delayFeedback) delayFeedback.gain.value = Math.min(0.91, val);
+          document.getElementById("fader3Val").textContent = Math.round(val * 100) + "%";
+        }
+        renderOled();
+      };
+
+      document.getElementById("fader4").oninput = (e) => {
+        const val = e.target.value / 1000;
+        if (state.gp7Mode === "PARAM") {
+          state.voices[state.selectedVoice].velocity = val;
+          document.getElementById("fader4Val").textContent = Math.round(val * 100) + "%";
+        } else {
+          const len = Math.max(2, Math.round(val * 16));
+          state.voices[state.selectedVoice].gateLength = len;
+          document.getElementById("fader4Val").textContent = len + " Stp";
+        }
+        renderOled();
+      };
+    }
+
+    /* ===================================================================
+       10. POLYMETER LAB INTERACTION & RENDERING
+       =================================================================== */
+    function gcd(a, b) { return b === 0 ? a : gcd(b, a % b); }
+    function lcm(a, b) { return (a * b) / gcd(a, b); }
+
+    function updateLcmCalc() {
+      const v = state.voices[state.selectedVoice];
+      const g = v.gateLength;
+      const n = v.noteLength;
+      const f = v.filterLength;
+      const vel = v.velocityLength;
+      const totalLcm = lcm(lcm(lcm(g, n), f), vel);
+      const bars = (totalLcm / 16).toFixed(1);
+      document.getElementById("polymeterLcmBadge").textContent = `LCM: ${totalLcm} Steps (${bars} bars)`;
+    }
+
+    function renderPolymeterLab() {
+      const v = state.voices[state.selectedVoice];
+      const gCur = state.isPlaying ? (state.clockStep % v.gateLength) : -1;
+      const nCur = state.isPlaying ? (state.clockStep % v.noteLength) : -1;
+      const fCur = state.isPlaying ? (state.clockStep % v.filterLength) : -1;
+      const vCur = state.isPlaying ? (state.clockStep % v.velocityLength) : -1;
+
+      renderPolyTrackCells("polyGateCells", 16, v.gateLength, gCur, "bg-amber-500", "bg-amber-950/60");
+      renderPolyTrackCells("polyNoteCells", 16, v.noteLength, nCur, "bg-cyan-400", "bg-cyan-950/60");
+      renderPolyTrackCells("polyFilterCells", 16, v.filterLength, fCur, "bg-blue-500", "bg-blue-950/60");
+      renderPolyTrackCells("polyVelCells", 16, v.velocityLength, vCur, "bg-emerald-500", "bg-emerald-950/60");
+      updateLcmCalc();
+    }
+
+    function renderPolyTrackCells(elemId, maxSteps, activeLen, playhead, activeColor, dimColor) {
+      const container = document.getElementById(elemId);
+      container.innerHTML = "";
+      for (let i = 0; i < maxSteps; i++) {
+        const cell = document.createElement("div");
+        const inTrack = i < activeLen;
+        const isHit = (i === playhead);
+
+        cell.className = `rounded flex items-center justify-center text-[9px] font-mono transition-all ${
+          isHit ? "bg-white text-black font-bold shadow-[0_0_8px_#ffffff]" :
+          inTrack ? `${activeColor} text-black font-semibold` :
+          "bg-slate-900 text-slate-700 border border-slate-800"
+        }`;
+        cell.textContent = (i + 1);
+        container.appendChild(cell);
+      }
+    }
+
+    function setupPolymeterLabControls() {
+      const v = state.voices[state.selectedVoice];
+      document.getElementById("polyGateLenSlider").oninput = (e) => {
+        v.gateLength = parseInt(e.target.value);
+        document.getElementById("polyGateLenText").textContent = v.gateLength;
+        renderPolymeterLab();
+      };
+      document.getElementById("polyNoteLenSlider").oninput = (e) => {
+        v.noteLength = parseInt(e.target.value);
+        document.getElementById("polyNoteLenText").textContent = v.noteLength;
+        renderPolymeterLab();
+      };
+      document.getElementById("polyFilterLenSlider").oninput = (e) => {
+        v.filterLength = parseInt(e.target.value);
+        document.getElementById("polyFilterLenText").textContent = v.filterLength;
+        renderPolymeterLab();
+      };
+      document.getElementById("polyVelLenSlider").oninput = (e) => {
+        v.velocityLength = parseInt(e.target.value);
+        document.getElementById("polyVelLenText").textContent = v.velocityLength;
+        renderPolymeterLab();
+      };
+
+      document.getElementById("polyPreset1").onclick = () => {
+        v.gateLength = 16; v.noteLength = 5; v.filterLength = 7; v.velocityLength = 8;
+        syncPolySliders();
+      };
+      document.getElementById("polyPreset2").onclick = () => {
+        v.gateLength = 8; v.noteLength = 3; v.filterLength = 5; v.velocityLength = 8;
+        syncPolySliders();
+      };
+      document.getElementById("polyPreset3").onclick = () => {
+        v.gateLength = 13; v.noteLength = 16; v.filterLength = 7; v.velocityLength = 13;
+        syncPolySliders();
+      };
+      document.getElementById("polyReset").onclick = () => {
+        v.gateLength = 16; v.noteLength = 16; v.filterLength = 16; v.velocityLength = 16;
+        syncPolySliders();
+      };
+    }
+
+    function syncPolySliders() {
+      const v = state.voices[state.selectedVoice];
+      document.getElementById("polyGateLenSlider").value = v.gateLength;
+      document.getElementById("polyGateLenText").textContent = v.gateLength;
+      document.getElementById("polyNoteLenSlider").value = v.noteLength;
+      document.getElementById("polyNoteLenText").textContent = v.noteLength;
+      document.getElementById("polyFilterLenSlider").value = v.filterLength;
+      document.getElementById("polyFilterLenText").textContent = v.filterLength;
+      document.getElementById("polyVelLenSlider").value = v.velocityLength;
+      document.getElementById("polyVelLenText").textContent = v.velocityLength;
+      renderPolymeterLab();
+    }
+
+    /* ===================================================================
+       11. 15 PRESET CARDS & AUDITION
+       =================================================================== */
+    function renderPresetCards() {
+      const container = document.getElementById("presetCardsGrid");
+      container.innerHTML = "";
+
+      PRESETS.forEach(p => {
+        const card = document.createElement("div");
+        card.className = "p-3.5 bg-slate-900/80 rounded-xl border border-slate-800 flex flex-col justify-between gap-3 hover:border-slate-700 transition";
+
+        card.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between">
+              <span class="font-mono font-bold text-amber-300 text-sm">${p.id}. ${p.name}</span>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">${p.engine}</span>
+            </div>
+            <p class="text-xs text-slate-400 mt-1.5 leading-relaxed">${p.desc}</p>
+          </div>
+          <div class="flex items-center gap-2 pt-2 border-t border-slate-800/80">
+            <button class="audition-btn flex-1 py-1 px-2.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-mono font-semibold border border-amber-500/40 transition">
+              Audition
+            </button>
+            <button class="assign-btn py-1 px-2.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono border border-slate-700 transition">
+              Assign to V${state.selectedVoice + 1}
+            </button>
+          </div>
+        `;
+
+        card.querySelector(".audition-btn").onclick = () => {
+          initAudio();
+          triggerVoiceSound(state.selectedVoice, 0, 90, 80, false);
+          document.getElementById("activePresetTitle").textContent = `${p.id}: ${p.name}`;
+        };
+
+        card.querySelector(".assign-btn").onclick = () => {
+          state.voices[state.selectedVoice].presetId = p.id;
+          showBanner("PRESET ASSIGNED", `V${state.selectedVoice + 1} = ${p.name}`);
+          renderOled();
+        };
+
+        container.appendChild(card);
+      });
+    }
+
+    /* ===================================================================
+       12. SCALES & SHUFFLE EXPLORER
+       =================================================================== */
+    function setupScalesAndShuffle() {
+      const scaleSel = document.getElementById("scaleSelectBox");
+      scaleSel.innerHTML = "";
+      SCALES.forEach((s, idx) => {
+        const opt = document.createElement("option");
+        opt.value = idx;
+        opt.textContent = `${idx}: ${s.name}`;
+        scaleSel.appendChild(opt);
+      });
+
+      scaleSel.onchange = (e) => {
+        state.currentScale = parseInt(e.target.value);
+        updateScaleView();
+      };
+
+      const shuffleSel = document.getElementById("shuffleSelectBox");
+      shuffleSel.innerHTML = "";
+      SHUFFLE_TEMPLATES.forEach((sh, idx) => {
+        const opt = document.createElement("option");
+        opt.value = idx;
+        opt.textContent = `${idx}: ${sh.name}`;
+        shuffleSel.appendChild(opt);
+      });
+
+      shuffleSel.onchange = (e) => {
+        state.currentShuffle = parseInt(e.target.value);
+        updateShuffleView();
+      };
+
+      updateScaleView();
+      updateShuffleView();
+    }
+
+    function updateScaleView() {
+      const s = SCALES[state.currentScale];
+      document.getElementById("activeScaleName").textContent = `${state.currentScale}: ${s.name}`;
+      document.getElementById("scaleDescCard").textContent = s.desc;
+
+      // Render mini keyboard
+      const kb = document.getElementById("pianoKeyboard");
+      kb.innerHTML = "";
+      const notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+      for (let i = 0; i < 24; i++) {
+        const semitone = i % 12;
+        const isBlack = [1, 3, 6, 8, 10].includes(semitone);
+        const inScale = s.intervals.includes(semitone);
+
+        const key = document.createElement("div");
+        key.className = `flex-shrink-0 w-5 rounded-b flex items-end justify-center pb-1 text-[8px] font-mono select-none ${
+          isBlack ? (inScale ? "bg-amber-600 text-white h-12 -mx-1.5 z-10" : "bg-slate-900 text-slate-600 h-12 -mx-1.5 z-10") :
+          (inScale ? "bg-amber-300 text-black h-16 border border-amber-400 font-bold" : "bg-slate-800 text-slate-500 h-16 border border-slate-700")
+        }`;
+        key.textContent = notes[semitone];
+        kb.appendChild(key);
+      }
+    }
+
+    function updateShuffleView() {
+      const sh = SHUFFLE_TEMPLATES[state.currentShuffle];
+      document.getElementById("activeShuffleName").textContent = `${state.currentShuffle}: ${sh.name}`;
+      document.getElementById("shuffleDescCard").textContent = sh.desc;
+
+      const chart = document.getElementById("shuffleTimingBars");
+      chart.innerHTML = "";
+      sh.ticks.forEach((tick, i) => {
+        const barWrap = document.createElement("div");
+        barWrap.className = "flex flex-col items-center h-full justify-end";
+
+        const bar = document.createElement("div");
+        const h = Math.min(100, Math.max(10, Math.abs(tick) * 2 + 10));
+        bar.style.height = h + "%";
+        bar.className = `w-full rounded-t ${tick > 0 ? 'bg-cyan-400' : tick < 0 ? 'bg-rose-400' : 'bg-slate-700'}`;
+
+        const lbl = document.createElement("span");
+        lbl.className = "text-[7px] font-mono text-slate-400 mt-1";
+        lbl.textContent = tick;
+
+        barWrap.appendChild(bar);
+        barWrap.appendChild(lbl);
+        chart.appendChild(barWrap);
+      });
+    }
+
+    /* ===================================================================
+       13. GLOBAL EVENT LISTENERS & WIRING
+       =================================================================== */
+    function initListeners() {
+      // Tab navigation
+      document.querySelectorAll(".nav-tab").forEach(tab => {
+        tab.onclick = () => {
+          document.querySelectorAll(".nav-tab").forEach(t => {
+            t.className = "nav-tab px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 transition-all";
+          });
+          tab.className = "nav-tab px-3 py-1.5 rounded-lg text-xs font-medium transition-all bg-amber-500/20 text-amber-300 border border-amber-500/30";
+
+          const tabName = tab.dataset.tab;
+          document.querySelectorAll(".tab-pane").forEach(p => p.classList.add("hidden"));
+          document.getElementById("tab-" + tabName).classList.remove("hidden");
+        };
+      });
+
+      // Transport button
+      document.getElementById("globalPlayBtn").onclick = () => {
+        state.isPlaying ? stopClock() : startClock();
+      };
+
+      // Global BPM input
+      document.getElementById("globalBpmInput").onchange = (e) => {
+        state.bpm = Math.max(45, Math.min(200, parseInt(e.target.value) || 90));
+        updateFadersValues();
+      };
+
+      // Master volume
+      document.getElementById("globalMasterVol").oninput = (e) => {
+        if (masterGain) masterGain.gain.value = (e.target.value / 100) * 0.9;
+      };
+
+      // Voice selection buttons
+      document.querySelectorAll(".voice-btn").forEach(btn => {
+        btn.onclick = () => {
+          const vIdx = parseInt(btn.dataset.voice);
+
+          if (state.shiftActive) {
+            // Shift Chords:
+            if (vIdx === 0) state.isPlaying ? stopClock() : startClock();
+            if (vIdx === 1) randomizeVoice(state.selectedVoice);
+            if (vIdx === 2) {
+              state.currentScale = (state.currentScale + 1) % SCALES.length;
+              showBanner("SCALE", SCALES[state.currentScale].name);
+            }
+            if (vIdx === 3) {
+              const dChk = document.getElementById("globalDelayToggle");
+              dChk.checked = !dChk.checked;
+              showBanner(dChk.checked ? "DELAY ON" : "DELAY OFF", "Master Delay");
+            }
+            state.shiftActive = false;
+            document.getElementById("shiftStatusIndicator").textContent = "SHIFT OFF";
+            document.getElementById("shiftStatusIndicator").className = "text-slate-600 font-bold";
+            return;
+          }
+
+          state.selectedVoice = vIdx;
+          document.querySelectorAll(".voice-btn").forEach(b => {
+            b.className = "voice-btn py-2 rounded-lg font-mono font-bold text-xs bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700";
+          });
+          btn.className = "voice-btn py-2 rounded-lg font-mono font-bold text-xs bg-amber-500 text-black border border-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.3)]";
+
+          const isLowPair = (vIdx < 2);
+          document.getElementById("activePairBadge").textContent = isLowPair 
+            ? "Voices 1 & 2 (Low: V1, High: V2)" 
+            : "Voices 3 & 4 (Low: V3, High: V4)";
+
+          renderPads();
+          renderLedMatrix();
+          updateFadersValues();
+          renderOled();
+        };
+      });
+
+      // GP7 Mode Strap switch buttons
+      document.getElementById("strapParamBtn").onclick = () => {
+        state.gp7Mode = "PARAM";
+        document.getElementById("strapParamBtn").className = "px-2 py-0.5 text-[11px] font-mono rounded font-bold bg-amber-500 text-black transition";
+        document.getElementById("strapUtilBtn").className = "px-2 py-0.5 text-[11px] font-mono rounded font-bold text-slate-400 hover:text-white transition";
+        showBanner("PARAM", "> parameters <");
+        updateFadersMode();
+        renderFunctionButtons();
+      };
+
+      document.getElementById("strapUtilBtn").onclick = () => {
+        state.gp7Mode = "UTIL";
+        document.getElementById("strapUtilBtn").className = "px-2 py-0.5 text-[11px] font-mono rounded font-bold bg-cyan-400 text-black transition";
+        document.getElementById("strapParamBtn").className = "px-2 py-0.5 text-[11px] font-mono rounded font-bold text-slate-400 hover:text-white transition";
+        showBanner("UTIL", "> utility <");
+        updateFadersMode();
+        renderFunctionButtons();
+      };
+
+      // TMAG5273 Rotary drag
+      const knobSvg = document.getElementById("encoderSvg");
+      let isDraggingKnob = false;
+      let lastAngle = 0;
+
+      knobSvg.onmousedown = (e) => {
+        isDraggingKnob = true;
+        const rect = knobSvg.getBoundingClientRect();
+        lastAngle = Math.atan2(e.clientY - (rect.top + rect.height / 2), e.clientX - (rect.left + rect.width / 2));
+      };
+
+      window.onmousemove = (e) => {
+        if (!isDraggingKnob) return;
+        const rect = knobSvg.getBoundingClientRect();
+        const angle = Math.atan2(e.clientY - (rect.top + rect.height / 2), e.clientX - (rect.left + rect.width / 2));
+        const delta = angle - lastAngle;
+        lastAngle = angle;
+
+        state.encoderValue = Math.max(0, Math.min(100, state.encoderValue + delta * 20));
+        document.getElementById("encoderValText").textContent = Math.round(state.encoderValue) + "%";
+        knobSvg.style.transform = `rotate(${angle}rad)`;
+
+        // Update target parameter
+        const target = ENCODER_TARGETS[state.encoderTargetIdx];
+        const v = state.voices[state.selectedVoice];
+        if (target === "Velocity") v.velocity = state.encoderValue / 100;
+        if (target === "Filter") v.filterCutoff = state.encoderValue / 100;
+        if (target === "Attack") v.attackTime = state.encoderValue / 100;
+        if (target === "Decay") v.decayTime = state.encoderValue / 100;
+
+        renderOled();
+      };
+
+      window.onmouseup = () => { isDraggingKnob = false; };
+
+      document.getElementById("encoderTargetCycleBtn").onclick = () => {
+        state.encoderTargetIdx = (state.encoderTargetIdx + 1) % ENCODER_TARGETS.length;
+        document.getElementById("encoderTargetBadge").textContent = "Target: " + ENCODER_TARGETS[state.encoderTargetIdx];
+        showBanner("ENC TARGET", ENCODER_TARGETS[state.encoderTargetIdx]);
+        renderOled();
+      };
+
+      document.getElementById("encoderHoldBtn").onclick = () => {
+        state.gateLengthMode = !state.gateLengthMode;
+        document.getElementById("encoderHoldBtn").className = state.gateLengthMode
+          ? "px-2 py-1 text-[10px] font-mono rounded bg-amber-500 text-black font-bold border border-amber-400"
+          : "px-2 py-1 text-[10px] font-mono rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700";
+        showBanner(state.gateLengthMode ? "GATE LEN MODE" : "EXIT GATE LEN", "Tap pad 1-16");
+        renderOled();
+      };
+
+      // VL53L1X distance slider
+      document.getElementById("tofSlider").oninput = (e) => {
+        state.tofDistance = parseInt(e.target.value);
+        const norm = ((state.tofDistance - 74) / (1400 - 74)).toFixed(2);
+        document.getElementById("tofDistanceBadge").textContent = "Range: " + state.tofDistance + " mm";
+        document.getElementById("tofNormVal").textContent = "Norm: " + norm;
+      };
+
+      // Theme selector
+      document.getElementById("themeSelector").onchange = (e) => {
+        state.currentTheme = parseInt(e.target.value);
+        renderLedMatrix();
+      };
+
+      // Quick toolbar buttons
+      document.getElementById("quickRandomizeBtn").onclick = () => {
+        randomizeVoice(state.selectedVoice);
+      };
+
+      document.getElementById("quickClearBtn").onclick = () => {
+        const v = state.voices[state.selectedVoice];
+        v.gates.fill(false);
+        v.notes.fill(0);
+        showBanner("CLEARED", "Voice " + (state.selectedVoice + 1));
+        renderPads();
+        renderLedMatrix();
+      };
+
+      // Search bar
+      document.getElementById("manualSearchInput").oninput = (e) => {
+        const query = e.target.value.toLowerCase();
+        document.querySelectorAll("#manualContent article").forEach(sec => {
+          const text = sec.textContent.toLowerCase();
+          sec.style.display = (text.includes(query) || query === "") ? "block" : "none";
+        });
+      };
+    }
+
+    /* ===================================================================
+       14. APP INITIALIZATION
+       =================================================================== */
+    window.addEventListener("DOMContentLoaded", () => {
+      renderPads();
+      renderLedMatrix();
+      renderFunctionButtons();
+      setupFaderHandlers();
+      updateFadersMode();
+      renderPolymeterLab();
+      setupPolymeterLabControls();
+      renderPresetCards();
+      setupScalesAndShuffle();
+      initListeners();
+      renderOled();
+    });
+  </script>
+</body>
+</html>
