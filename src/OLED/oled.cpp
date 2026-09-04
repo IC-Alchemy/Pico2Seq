@@ -184,6 +184,24 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
   displayHardware.display();
 }
 
+// Short label for the parameter the magnetic encoder currently controls.
+static const char *encoderParamName(EncoderParameterMode mode)
+{
+  switch (mode)
+  {
+  case EncoderParameterMode::Velocity:      return "Velocity";
+  case EncoderParameterMode::Filter:        return "Filter";
+  case EncoderParameterMode::Attack:        return "Attack";
+  case EncoderParameterMode::Decay:         return "Decay";
+  case EncoderParameterMode::Note:          return "Note";
+  case EncoderParameterMode::DelayTime:     return "DelayTime";
+  case EncoderParameterMode::DelayFeedback: return "DelayFdbk";
+  case EncoderParameterMode::SlideTime:     return "SlideTime";
+  default:                                  return "-";
+  }
+}
+extern float getEncoderParameterValue(); // defined in src/sensors/EncoderManager.cpp
+
 // update() (thin wrapper):
 // - For convenience, delegates to the extended overload by passing a null manager.
 //   Keeps call sites simple when voice config is not needed for that frame.
@@ -198,10 +216,11 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
 // - The heart of the display state machine. It enforces a strict priority order so
 //   that mutually exclusive views do not fight for the screen in a given frame.
 //   Priority from highest to lowest:
+//     0) Transient PARAM/UTIL mode banner and confirmation notice (short windows)
 //     1) In settings + voice parameter edit active (recent interaction window)
 //     2) In settings main/preset menu
 //     3) Transient voice parameter info (outside settings, brief after-change)
-//     4) Default status (scale, shuffle, selected voice, step indicators)
+//     4) Default status (scale, shuffle, selected voice, encoder, step indicators)
 // - Timing: uses millis()-based timeouts from UIState to show transient UIs without
 //   blocking the main loop.
 // - Efficiency: clears once, sets text props once, and renders one view per frame.
@@ -233,6 +252,45 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     displayHardware.setTextSize(1);
     displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - 10 * 6) / 2, 52);
     displayHardware.print(paramMode ? "> params <" : "> utility <");
+    displayHardware.display();
+    return;
+  }
+
+  // Transient confirmation notice (replaces the old control-cluster LED
+  // flashes). Shown just below the PARAM/UTIL banner, above everything else,
+  // then the previous view resumes.
+  if (uiState.oledNoticeUntil != 0 && millis() < uiState.oledNoticeUntil &&
+      uiState.oledNoticeKind != UIState::OledNoticeKind::None)
+  {
+    const char *line1 = nullptr;
+    if (uiState.oledNoticeKind == UIState::OledNoticeKind::DelayOn)
+    {
+      line1 = "DELAY ON";
+    }
+    else if (uiState.oledNoticeKind == UIState::OledNoticeKind::DelayOff)
+    {
+      line1 = "DELAY OFF";
+    }
+    else
+    {
+      line1 = "RANDOMIZED";
+    }
+
+    displayHardware.setTextSize(2);
+    const uint8_t line1Width = static_cast<uint8_t>(strlen(line1) * 12); // size-2 chars are 12px wide
+    displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - line1Width) / 2, 16);
+    displayHardware.print(line1);
+
+    if (uiState.oledNoticeKind == UIState::OledNoticeKind::Randomized)
+    {
+      displayHardware.setTextSize(1);
+      char voiceLine[12];
+      snprintf(voiceLine, sizeof(voiceLine), "Voice %u", static_cast<unsigned>(uiState.oledNoticeVoice) + 1);
+      const uint8_t voiceLineWidth = static_cast<uint8_t>(strlen(voiceLine) * 6);
+      displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - voiceLineWidth) / 2, 44);
+      displayHardware.print(voiceLine);
+    }
+
     displayHardware.display();
     return;
   }
@@ -380,6 +438,18 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     const Sequencer &currentSequencerDefault = (uiState.selectedVoiceIndex == 0) ? seq1 : (uiState.selectedVoiceIndex == 1) ? seq2
                                                                                       : (uiState.selectedVoiceIndex == 2)   ? seq3
                                                                                                                             : seq4;
+    // Encoder control line (replaces the old control-cluster value-fade LED):
+    // shows which parameter the encoder drives and its live value.
+    if (uiState.currentEncoderParameter != EncoderParameterMode::COUNT)
+    {
+      displayHardware.setTextSize(1);
+      displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 53);
+      displayHardware.print("ENC:");
+      displayHardware.print(encoderParamName(uiState.currentEncoderParameter));
+      displayHardware.print(" ");
+      displayHardware.print(getEncoderParameterValue(), 2);
+    }
+
     drawStepIndicators(currentSequencerDefault, 63);
   }
 
