@@ -282,6 +282,65 @@ TEST_CASE("Bypassed filter scales output by velocity", "[voice]") {
     REQUIRE(loud > quiet * 2.0f);
 }
 
+TEST_CASE("Waveguide slots drive T60 via Decay track", "[voice]") {
+    VoiceConfig cfg = VoicePresets::getWaveguidePluckVoice();
+    Voice v(0, cfg);
+    initVoiceWithScale(v);
+
+    VoiceState vs;
+    vs.isGateHigh = true;
+    vs.noteIndex = 0.0f;
+    vs.filterCutoff = cfg.wgBrightness;        // Bright slot
+    vs.attackTimeSeconds = cfg.wgPickHardness; // Pick slot
+    vs.decayTimeSeconds = 0.0f;                // T60 slot: fmap(0, 0.05, 10, EXP) = 0.05 s
+    v.updateParameters(vs);
+    v.setGate(true);
+    for (int i = 0; i < 4800; ++i)
+    {
+        const float s = v.process();
+        REQUIRE(std::isfinite(s));
+    }
+
+    v.setGate(false);
+    float early = 0.0f;
+    for (int i = 0; i < 480; ++i)
+        early = std::max(early, std::abs(v.process()));
+    REQUIRE(early > 0.0f);
+
+    // Half a second later a T60 of 0.05 s is 10^-10 of its level; the preset's
+    // unrouted 1.8 s T60 would still hold ~53% — the ratio discriminates hard.
+    for (int i = 0; i < 23520; ++i)
+        v.process();
+    float late = 0.0f;
+    for (int i = 0; i < 480; ++i)
+        late = std::max(late, std::abs(v.process()));
+    REQUIRE(late < early * 0.05f);
+}
+
+TEST_CASE("Noise/Hypersaw slots are re-purposed on the audio-thread config", "[voice]") {
+    Voice vn(0, VoicePresets::getNoiseStormVoice());
+    initVoiceWithScale(vn);
+    VoiceState vs;
+    vs.isGateHigh = true;
+    vs.filterCutoff = 0.9f;       // Color slot
+    vs.attackTimeSeconds = 0.7f;  // Regen slot
+    vs.decayTimeSeconds = 0.4f;   // Chaos slot
+    vn.updateParameters(vs);
+    vn.process();
+    REQUIRE(vn.getConfig().noiseSwarmColor == 0.9f);
+    REQUIRE(vn.getConfig().noiseSwarmRegen == 0.7f);
+    REQUIRE(vn.getConfig().noiseChaosLevel == 0.4f);
+
+    Voice vh(0, VoicePresets::getHypersawVoice());
+    initVoiceWithScale(vh);
+    vs.attackTimeSeconds = 0.5f;  // Detune slot (semitones)
+    vs.decayTimeSeconds = 0.25f;  // Drive slot
+    vh.updateParameters(vs);
+    vh.process();
+    REQUIRE(vh.getConfig().oscDetuning[1] == 0.5f);
+    REQUIRE(vh.getConfig().oscDetuning[2] == -0.5f);
+}
+
 TEST_CASE("Noise-FX engine produces finite textured output while gated", "[voice]") {
     Voice v(0, VoicePresets::getNoiseStormVoice());
     v.init(48000.0f);

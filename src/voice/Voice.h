@@ -608,6 +608,14 @@ private:
   void applyEnvelopeParameters() noexcept;
 
   /**
+   * @brief Apply the config's default envelope segment times to the ADSR
+   *
+   * Used when paramSet re-purposes the Attack/Decay sequencer slots so they no
+   * longer carry envelope times; the preset defaults then define the shape.
+   */
+  void applyEnvelopeDefaults_() noexcept;
+
+  /**
    * @brief Calculate frequency for a given note with octave offset
    * @param note Note value (0-21 for scale array lookup, 0-127 for chromatic)
    * @param octaveOffset Octave offset in semitones (-24 to +24)

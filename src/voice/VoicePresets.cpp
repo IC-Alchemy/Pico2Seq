@@ -1,5 +1,7 @@
 #include "VoicePresets.h"
+#include <algorithm>
 #include <array>
+#include <cmath>
 
 namespace VoicePresets
 {
@@ -397,12 +399,14 @@ namespace VoicePresets
   }
 
   // Hypersaw: three saw stack - two detuned unisons plus an octave layer,
-  // glued with mild overdrive and a wide-open filter.
+  // glued with mild overdrive and a wide-open filter. Detune/Drive are
+  // sequencer slots (see getSequencerParamName).
   constexpr VoiceConfig makeHypersaw() noexcept
   {
     VoiceConfig c{};
     c.oscillatorCount = 3;
     c.oscWaveforms[0] = WAVE_BSP_SAW;
+    c.paramSet = PARAMSET_HYPERSAW;
     c.oscWaveforms[1] = WAVE_BSP_SAW;
     c.oscWaveforms[2] = WAVE_BSP_SAW;
     c.oscAmplitudes[0] = 0.45f;
@@ -435,11 +439,13 @@ namespace VoicePresets
   // NoiseStorm: noise-based texture engine. Noise plus a pitch-tracked
   // Lorenz chaos growl feed a prime-tap diffuser and a regenerative
   // allpass swarm, then a resonant tracking filter shapes the result.
+  // Color/Regen/Chaos are sequencer slots (see getSequencerParamName).
   constexpr VoiceConfig makeNoiseStorm() noexcept
   {
     VoiceConfig c{};
     c.oscillatorCount = 0;
     c.engine = ENGINE_NOISEFX;
+    c.paramSet = PARAMSET_NOISESTORM;
     c.noiseDiffuseSize = 0.85f;
     c.noiseDiffuseMix = 0.65f;
     c.noiseSwarmColor = 0.6f;
@@ -503,6 +509,14 @@ namespace VoicePresets
       return VOICE_PRESET_NAMES[presetIndex];
     }
     return "Unknown";
+  }
+
+  float wgT60ToNormalized(float t60Seconds) noexcept
+  {
+    // Inverse of dspmap::fmap(v, 0.05f, 10.0f, Mapping::EXP), whose EXP curve
+    // is min + in^2 * (max - min): in = sqrt((out - min) / (max - min)).
+    const float t = std::clamp(t60Seconds, 0.05f, 10.0f);
+    return std::sqrt((t - 0.05f) / 9.95f);
   }
 
   const VoiceConfig &getPresetConfig(uint8_t presetIndex) noexcept

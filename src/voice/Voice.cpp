@@ -146,10 +146,7 @@ void Voice::init(float sr)
 
   // Initialize envelope
   envelope.prepare(sampleRate);
-  envelope.setAttack(config.defaultAttack);
-  envelope.setDecay(config.defaultDecay);
-  envelope.setSustain(config.defaultSustain);
-  envelope.setRelease(config.defaultRelease);
+  applyEnvelopeDefaults_();
   gateHighPrev_ = false;
 
   // Initialize effects
@@ -583,6 +580,14 @@ inline void Voice::applyEnvelopeParameters() noexcept
   envelope.setRelease(decay);
 }
 
+inline void Voice::applyEnvelopeDefaults_() noexcept
+{
+  envelope.setAttack(config.defaultAttack);
+  envelope.setDecay(config.defaultDecay);
+  envelope.setSustain(config.defaultSustain);
+  envelope.setRelease(config.defaultRelease);
+}
+
 inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset,
                                            int harmony) noexcept
 {
@@ -842,11 +847,43 @@ void Voice::applyPendingParams_() noexcept
     // Synchronize ADSR gate
     setGate(state.isGateHigh);
 
-    // Recompute filter base freq from normalized param
-    filterFrequency = dspmap::fmap(state.filterCutoff, 150.0f, 8000.0f, dspmap::Mapping::EXP);
-
-    // Update envelope segment times
-    applyEnvelopeParameters();
+    // Route the sequencer's Filter/Attack/Decay slots by param set: standard
+    // voices read cutoff + ADSR times; alternate param sets re-purpose the
+    // same 0..1 slots for engine-specific parameters. All targets here are
+    // audio-thread-owned (config copy, waveguide_, overdrive), same class of
+    // access as applyPendingConfig_().
+    switch (config.paramSet)
+    {
+    case PARAMSET_WAVEGUIDE:
+      waveguide_.setBrightness(std::clamp(state.filterCutoff, 0.0f, 1.0f));
+      waveguide_.setPickHardness(std::clamp(state.attackTimeSeconds, 0.0f, 1.0f));
+      waveguide_.setDecayTimeSeconds(
+          dspmap::fmap(state.decayTimeSeconds, 0.05f, 10.0f, dspmap::Mapping::EXP));
+      break;
+    case PARAMSET_HYPERSAW:
+    {
+      const float spread = std::clamp(state.attackTimeSeconds, 0.0f, 1.0f); // semitones
+      config.oscDetuning[0] = 0.0f;
+      config.oscDetuning[1] = spread;
+      config.oscDetuning[2] = -spread;
+      recomputeDetuneMultipliers();
+      overdrive.setDrive(1.0f + std::clamp(state.decayTimeSeconds, 0.0f, 1.0f) * 3.0f);
+      filterFrequency = dspmap::fmap(state.filterCutoff, 150.0f, 8000.0f, dspmap::Mapping::EXP);
+      break;
+    }
+    case PARAMSET_NOISESTORM:
+      config.noiseSwarmColor = std::clamp(state.filterCutoff, 0.0f, 1.0f);
+      config.noiseSwarmRegen = std::clamp(state.attackTimeSeconds, 0.0f, 1.0f);
+      config.noiseChaosLevel = std::clamp(state.decayTimeSeconds, 0.0f, 1.0f);
+      // The ladder stays on the preset's static cutoff (the Filter slot now
+      // carries swarm color); the envelope still moves it.
+      filterFrequency = dspmap::fmap(config.filterCutoffBase, 150.0f, 8000.0f, dspmap::Mapping::EXP);
+      break;
+    default:
+      filterFrequency = dspmap::fmap(state.filterCutoff, 150.0f, 8000.0f, dspmap::Mapping::EXP);
+      applyEnvelopeParameters();
+      break;
+    }
 
     // Stage pitch recompute; audio thread will commit oscillator freq via mixOscillators
     updateFrequencyIfNeeded();

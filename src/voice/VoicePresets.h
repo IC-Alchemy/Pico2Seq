@@ -27,4 +27,9 @@ namespace VoicePresets {
   const char* getPresetName(uint8_t presetIndex) noexcept;
   const VoiceConfig& getPresetConfig(uint8_t presetIndex) noexcept;
   uint8_t getPresetCount() noexcept;
+
+  // Sequencer-slot interop for non-standard param sets. Inverse of Voice's
+  // waveguide T60 mapping (fmap EXP 0.05..10 s) so preset values can be
+  // seeded into the re-purposed Decay track.
+  float wgT60ToNormalized(float t60Seconds) noexcept;
 }
