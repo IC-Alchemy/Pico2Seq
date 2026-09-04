@@ -298,12 +298,15 @@ namespace VoicePresets
   }
 
   // WgPluck: classic Karplus-Strong plucked string (waveguide engine).
-  // Bright burst, harmonic loop, short natural tail.
+  // Bright burst, harmonic loop, short natural tail. No ladder, no ADSR —
+  // the string rings out on its own T60; Brightness/Pick/T60 are sequencer
+  // slots (see getSequencerParamName).
   constexpr VoiceConfig makeWaveguidePluck() noexcept
   {
     VoiceConfig c{};
     c.oscillatorCount = 0;
     c.engine = ENGINE_WAVEGUIDE;
+    c.paramSet = PARAMSET_WAVEGUIDE;
     c.wgT60 = 1.8f;
     c.wgBrightness = 0.78f;
     c.wgPickPosition = 0.26f;
@@ -311,28 +314,23 @@ namespace VoicePresets
     c.wgStiffness = 0.0f;
     c.wgDetune = 4.0f;
 
-    c.filterRes = 0.2f;
-    c.filterDrive = 1.8f;
-    c.filterPassbandGain = 0.25f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
-    c.highPassFreq = 120.0f;
-
     c.hasOverdrive = false;
-    c.defaultAttack = 0.001f;
-    c.defaultDecay = 0.5f;
-    c.defaultSustain = 0.65f; // let the string's own T60 ring out
-    c.defaultRelease = 0.25f;
-    c.outputLevel = 0.75f;    // two-string course sums hot
+    c.hasFilter = false;    // raw string; velocity scales the output directly
+    c.hasEnvelope = false;  // natural T60 decay instead of a gated VCA
+    c.highPassFreq = 0.0f;  // bypass the high-pass too
+    c.highPassRes = 0.0f;
+    c.outputLevel = 0.85f;  // two-string course sums hot
     return c;
   }
 
   // WgNylon: dark felt-soft nylon string. Damped loop, gentle pick,
-  // long sympathetic tail.
+  // long sympathetic tail. No ladder, no ADSR.
   constexpr VoiceConfig makeWaveguideNylon() noexcept
   {
     VoiceConfig c{};
     c.oscillatorCount = 0;
     c.engine = ENGINE_WAVEGUIDE;
+    c.paramSet = PARAMSET_WAVEGUIDE;
     c.wgT60 = 3.2f;
     c.wgBrightness = 0.28f;
     c.wgPickPosition = 0.42f;
@@ -340,28 +338,24 @@ namespace VoicePresets
     c.wgStiffness = 0.05f;
     c.wgDetune = 9.0f;
 
-    c.filterRes = 0.15f;
-    c.filterDrive = 1.5f;
-    c.filterPassbandGain = 0.25f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
-    c.highPassFreq = 90.0f;
-
     c.hasOverdrive = false;
-    c.defaultAttack = 0.002f;
-    c.defaultDecay = 0.6f;
-    c.defaultSustain = 0.7f;
-    c.defaultRelease = 0.5f;
-    c.outputLevel = 0.8f;
+    c.hasFilter = false;
+    c.hasEnvelope = false;
+    c.highPassFreq = 0.0f;
+    c.highPassRes = 0.0f;
+    c.outputLevel = 0.9f;
     return c;
   }
 
   // WgBell: stiff dispersive string. High stiffness sharpens upper
   // partials inharmonic (bell/kalimba), hard bridge pick, quick tail.
+  // No ladder, no ADSR.
   constexpr VoiceConfig makeWaveguideBell() noexcept
   {
     VoiceConfig c{};
     c.oscillatorCount = 0;
     c.engine = ENGINE_WAVEGUIDE;
+    c.paramSet = PARAMSET_WAVEGUIDE;
     c.wgT60 = 1.4f;
     c.wgBrightness = 0.9f;
     c.wgPickPosition = 0.08f; // bridge: thin and nasal
@@ -369,28 +363,23 @@ namespace VoicePresets
     c.wgStiffness = 0.88f;    // inharmonic dispersion
     c.wgDetune = 0.0f;
 
-    c.filterRes = 0.3f;
-    c.filterDrive = 2.0f;
-    c.filterPassbandGain = 0.23f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP24;
-    c.highPassFreq = 250.0f;  // clear the mud, keep the shimmer
-
     c.hasOverdrive = false;
-    c.defaultAttack = 0.001f;
-    c.defaultDecay = 0.45f;
-    c.defaultSustain = 0.4f;
-    c.defaultRelease = 0.3f;
-    c.outputLevel = 0.65f;    // bright partials run hot
+    c.hasFilter = false;
+    c.hasEnvelope = false;
+    c.highPassFreq = 0.0f;
+    c.highPassRes = 0.0f;
+    c.outputLevel = 0.75f;    // bright partials run hot
     return c;
   }
 
   // WgShimmer: wide detuned two-string course, very long tail. Slow
-  // chorusing sustain turns a pluck into a ringing pad.
+  // chorusing sustain turns a pluck into a ringing pad. No ladder, no ADSR.
   constexpr VoiceConfig makeWaveguideShimmer() noexcept
   {
     VoiceConfig c{};
     c.oscillatorCount = 0;
     c.engine = ENGINE_WAVEGUIDE;
+    c.paramSet = PARAMSET_WAVEGUIDE;
     c.wgT60 = 6.5f;
     c.wgBrightness = 0.55f;
     c.wgPickPosition = 0.35f;
@@ -398,18 +387,12 @@ namespace VoicePresets
     c.wgStiffness = 0.15f;
     c.wgDetune = 26.0f;       // wide course: slow shimmer
 
-    c.filterRes = 0.2f;
-    c.filterDrive = 1.6f;
-    c.filterPassbandGain = 0.23f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
-    c.highPassFreq = 140.0f;
-
     c.hasOverdrive = false;
-    c.defaultAttack = 0.004f;
-    c.defaultDecay = 0.8f;
-    c.defaultSustain = 0.85f;
-    c.defaultRelease = 0.8f;  // pad-like gate for the long tail
-    c.outputLevel = 0.7f;
+    c.hasFilter = false;
+    c.hasEnvelope = false;
+    c.highPassFreq = 0.0f;
+    c.highPassRes = 0.0f;
+    c.outputLevel = 0.8f;
     return c;
   }
 

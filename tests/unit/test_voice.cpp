@@ -201,9 +201,22 @@ TEST_CASE("Every preset produces finite bounded audio while gated", "[voice][pre
     }
 }
 
+TEST_CASE("Waveguide presets bypass filter and envelope", "[voice][presets]") {
+    for (uint8_t p = 9; p <= 12; ++p)
+    {
+        const VoiceConfig &c = VoicePresets::getPresetConfig(p);
+        INFO(VoicePresets::getPresetName(p));
+        REQUIRE(c.hasFilter == false);
+        REQUIRE(c.hasEnvelope == false);
+        REQUIRE(c.highPassFreq <= 20.0f); // triggers the voice's HPF bypass
+    }
+}
+
 TEST_CASE("Waveguide engine plucks on gate rise and decays after gate fall", "[voice]") {
-    Voice v(0, VoicePresets::getWaveguidePluckVoice());
-    v.init(48000.0f);
+    VoiceConfig cfg = VoicePresets::getWaveguidePluckVoice();
+    cfg.wgT60 = 0.3f; // short tail so the ring-out check runs fast without an ADSR release
+    Voice v(0, cfg);
+    initVoiceWithScale(v);
 
     float maxAbs = 0.0f;
     v.setGate(true);
@@ -218,7 +231,7 @@ TEST_CASE("Waveguide engine plucks on gate rise and decays after gate fall", "[v
     v.setGate(false);
     for (int i = 0; i < 48000; ++i)
         v.process();
-    REQUIRE(std::abs(v.process()) < 0.01f); // envelope release silences the tail
+    REQUIRE(std::abs(v.process()) < 0.01f); // the string's own decay silences the tail
 }
 
 TEST_CASE("Bypassed envelope still plucks the waveguide on gate rise", "[voice]") {
