@@ -11,6 +11,7 @@
 // rpdsp submodule update — see src/utils/DspMapping.h).
 #include <rpdsp/algorithm.h>
 #include <rpdsp/effects.h>
+#include <rpdsp/envelope.h>
 #include <rpdsp/DSPFunctions.h>
 
 #include "utils/DspMapping.h"
@@ -70,6 +71,80 @@ TEST_CASE("Waveshaper stays bounded for bounded inputs", "[rpdsp]") {
         REQUIRE(std::fabs(y) <= 1.0f + 1e-6f);
         REQUIRE(std::isfinite(y));
     }
+}
+
+// ─── Hot-path kernels that replaced libm calls (padeTanh, sinNormalizedPhase) ─
+
+TEST_CASE("padeTanh tracks std::tanh to 1e-4 for all inputs", "[rpdsp]") {
+    // Worst case is 7.1e-5 at the 4.79 clamp (balanced against the tail);
+    // fastTanh (the cheaper cousin) is only good to ~2e-2. Sweep well past
+    // the clamp so the saturated tail is covered too.
+    float maxErr = 0.0f;
+    float maxErrInner = 0.0f; // |x| <= 4: the range Waveshaper drives reach
+    for (int i = -800; i <= 800; ++i) {
+        const float x = static_cast<float>(i) / 100.0f;
+        const float err = std::fabs(rpdsp::padeTanh(x) - std::tanh(x));
+        maxErr = std::max(maxErr, err);
+        if (std::fabs(x) <= 4.0f) {
+            maxErrInner = std::max(maxErrInner, err);
+        }
+    }
+    REQUIRE(maxErr < 1e-4f);
+    REQUIRE(maxErrInner < 2e-5f);
+    // Odd symmetry and monotonic up to the clamp (Waveshaper's unity
+    // normalization relies on padeTanh(x*d) <= padeTanh(d) for |x| <= 1).
+    REQUIRE_THAT(rpdsp::padeTanh(-2.0f), WithinAbs(-rpdsp::padeTanh(2.0f), 1e-7f));
+    float prev = rpdsp::padeTanh(-6.0f);
+    for (int i = -600; i <= 600; ++i) {
+        const float y = rpdsp::padeTanh(static_cast<float>(i) / 100.0f);
+        REQUIRE(y >= prev);
+        prev = y;
+    }
+}
+
+TEST_CASE("sinNormalizedPhase tracks sin(2*pi*p) to 1e-6 over one cycle", "[rpdsp]") {
+    float maxErr = 0.0f;
+    for (int i = 0; i < 100000; ++i) {
+        const float p = static_cast<float>(i) / 100000.0f;
+        const float ref = std::sin(2.0 * 3.14159265358979323846 * p);
+        maxErr = std::max(maxErr, std::fabs(rpdsp::sinNormalizedPhase(p) - ref));
+    }
+    REQUIRE(maxErr < 1e-6f);
+    // Quadrant boundaries land on exact values
+    REQUIRE_THAT(rpdsp::sinNormalizedPhase(0.0f), WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(rpdsp::sinNormalizedPhase(0.25f), WithinAbs(1.0f, 1e-6f));
+    REQUIRE_THAT(rpdsp::sinNormalizedPhase(0.5f), WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(rpdsp::sinNormalizedPhase(0.75f), WithinAbs(-1.0f, 1e-6f));
+}
+
+TEST_CASE("ADSR reciprocal stage steps still land exactly on stage ends", "[rpdsp]") {
+    rpdsp::ADSR env;
+    env.prepare(48000.0f);
+    env.setAttack(0.01f);   // 480 samples
+    env.setDecay(0.1f);     // 4800 samples
+    env.setSustain(0.5f);
+    env.setRelease(0.2f);   // 9600 samples
+    env.noteOn();
+    float prev = 0.0f;
+    for (int i = 0; i < 479; ++i) {
+        const float v = env.process();
+        REQUIRE(v >= prev); // monotonic attack
+        REQUIRE(v <= 1.0f);
+        prev = v;
+    }
+    REQUIRE_THAT(env.process(), WithinAbs(1.0f, 1e-7f)); // sample 480: attack end pinned to 1.0
+    REQUIRE(env.stage() == rpdsp::ADSR::Stage::kDecay);
+    for (int i = 0; i < 4800; ++i) {
+        env.process();
+    }
+    REQUIRE(env.stage() == rpdsp::ADSR::Stage::kSustain);
+    REQUIRE_THAT(env.value(), WithinAbs(0.5f, 1e-7f));
+    env.noteOff();
+    for (int i = 0; i < 9600; ++i) {
+        env.process();
+    }
+    REQUIRE(env.stage() == rpdsp::ADSR::Stage::kIdle);
+    REQUIRE_THAT(env.value(), WithinAbs(0.0f, 1e-7f));
 }
 
 // ─── Vendored Pico-DSP-Garden headers compile and run on host ───────────────

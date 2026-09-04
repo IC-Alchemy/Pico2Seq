@@ -332,23 +332,16 @@ void Voice::updateFilter(float envelopeValue)
 
   // Throttle setFreq to avoid per-sample work if change is tiny (setFreq is
   // polynomial in rpdsp, but the throttle also caps coefficient churn)
-  if (filterUpdateInterval == 0)
+  if (filterUpdateCounter == 0)
   {
-    filter.setFreq(filterCutoffCurrent);
-    lastAppliedFilterCutoff = filterCutoffCurrent;
-  }
-  else
-  {
-    if (filterUpdateCounter == 0)
+    if (ShouldApplyFilterFreq_(filterCutoffCurrent, lastAppliedFilterCutoff))
     {
-      if (ShouldApplyFilterFreq_(filterCutoffCurrent, lastAppliedFilterCutoff))
-      {
-        filter.setFreq(filterCutoffCurrent);
-        lastAppliedFilterCutoff = filterCutoffCurrent;
-      }
+      filter.setFreq(filterCutoffCurrent);
+      lastAppliedFilterCutoff = filterCutoffCurrent;
     }
-    filterUpdateCounter = static_cast<uint8_t>((filterUpdateCounter + 1) % filterUpdateInterval);
   }
+  // Mask wrap: kFilterUpdateInterval is a power of two (static_assert in Voice.h)
+  filterUpdateCounter = static_cast<uint8_t>((filterUpdateCounter + 1) & (kFilterUpdateInterval - 1));
 }
 
 float Voice::mixOscillators()
@@ -820,80 +813,77 @@ void Voice::setSequencer(Sequencer *seq)
   sequencer = seq;
 }
 
-// Apply staged VoiceState updates from control thread (UI/Sequencer)
-void Voice::applyPendingParams_() noexcept
+// Apply staged VoiceState updates from control thread (UI/Sequencer).
+// Slow path only: the per-sample generation compare is inline in Voice.h
+// (applyPendingParams_), so the hot loop pays one load + branch, not a call.
+void Voice::applyPendingParamsSlow_(uint32_t gen) noexcept
 {
-  const uint32_t gen = paramsGen_.load(std::memory_order_seq_cst);
-  if (gen != appliedParamsGen_)
-  {
-    // Copy staged state and apply changes that require immediate DSP updates
-    state = stagedState_;
+  // Copy staged state and apply changes that require immediate DSP updates
+  state = stagedState_;
 
-    // Synchronize ADSR gate
-    setGate(state.isGateHigh);
+  // Synchronize ADSR gate
+  setGate(state.isGateHigh);
 
-    // Recompute filter base freq from normalized param
-    filterFrequency = dspmap::fmap(state.filterCutoff, 150.0f, 8000.0f, dspmap::Mapping::EXP);
+  // Recompute filter base freq from normalized param
+  filterFrequency = dspmap::fmap(state.filterCutoff, 150.0f, 8000.0f, dspmap::Mapping::EXP);
 
-    // Update envelope segment times
-    applyEnvelopeParameters();
+  // Update envelope segment times
+  applyEnvelopeParameters();
 
-    // Stage pitch recompute; audio thread will commit oscillator freq via mixOscillators
-    updateFrequencyIfNeeded();
+  // Stage pitch recompute; audio thread will commit oscillator freq via mixOscillators
+  updateFrequencyIfNeeded();
 
-    appliedParamsGen_ = gen;
-  }
+  appliedParamsGen_ = gen;
 }
 
-// Apply staged VoiceConfig changes from control thread safely on audio thread
-void Voice::applyPendingConfig_() noexcept
+// Apply staged VoiceConfig changes from control thread safely on audio thread.
+// Slow path only: the per-sample configPending_ check is inline in Voice.h
+// (applyPendingConfig_).
+void Voice::applyPendingConfigSlow_() noexcept
 {
-  if (configPending_.load(std::memory_order_acquire))
+  config = stagedConfig_;
+
+  // Oscillator slots are fixed-size; only the first cachedOscCount_ are processed
+  cachedOscCount_ = static_cast<uint8_t>(std::min<size_t>(3, config.oscillatorCount));
+  for (size_t i = 0; i < 3; ++i)
   {
-    config = stagedConfig_;
-
-    // Oscillator slots are fixed-size; only the first cachedOscCount_ are processed
-    cachedOscCount_ = static_cast<uint8_t>(std::min<size_t>(3, config.oscillatorCount));
-    for (size_t i = 0; i < 3; ++i)
+    oscillators[i].prepare(sampleRate);
+    if (i < cachedOscCount_)
     {
-      oscillators[i].prepare(sampleRate);
-      if (i < cachedOscCount_)
-      {
-        oscillators[i].setWaveform(config.oscWaveforms[i]);
-        // Ignored by non-pulse waveforms
-        oscillators[i].setPulseWidth(config.oscPulseWidth[i]);
-      }
+      oscillators[i].setWaveform(config.oscWaveforms[i]);
+      // Ignored by non-pulse waveforms
+      oscillators[i].setPulseWidth(config.oscPulseWidth[i]);
     }
-
-    // Update filters
-    filter.setRes(config.filterRes);
-    filter.setInputDrive(config.filterDrive);
-    filter.setPassbandGain(config.filterPassbandGain);
-    filter.setMode(config.filterMode);
-
-    highPassFilter.setCutoff(config.highPassFreq);
-    highPassFilter.setResonance(config.highPassRes);
-    hpfBypass_ = (config.highPassFreq <= 20.0f && config.highPassRes <= 0.01f);
-
-    // Update effects
-    overdrive.setDrive(1.0f + (config.overdriveDrive * 3.0f)); // map 0-1 drive to 1-4
-
-    // Alternate engines: clear stale tails when switching, then re-apply tuning
-    const uint8_t newEngine = (config.engine <= static_cast<uint8_t>(ENGINE_NOISEFX))
-                                  ? config.engine
-                                  : static_cast<uint8_t>(ENGINE_OSC);
-    if (newEngine != cachedEngine_)
-    {
-      resetAlternateEngines_();
-    }
-    applyEngineConfig_();
-
-    // Detune multipliers depend on config
-    recomputeDetuneMultipliers();
-
-    // Pitch depends on harmony, etc.
-    updateFrequencyIfNeeded();
-
-    configPending_.store(false, std::memory_order_release);
   }
+
+  // Update filters
+  filter.setRes(config.filterRes);
+  filter.setInputDrive(config.filterDrive);
+  filter.setPassbandGain(config.filterPassbandGain);
+  filter.setMode(config.filterMode);
+
+  highPassFilter.setCutoff(config.highPassFreq);
+  highPassFilter.setResonance(config.highPassRes);
+  hpfBypass_ = (config.highPassFreq <= 20.0f && config.highPassRes <= 0.01f);
+
+  // Update effects
+  overdrive.setDrive(1.0f + (config.overdriveDrive * 3.0f)); // map 0-1 drive to 1-4
+
+  // Alternate engines: clear stale tails when switching, then re-apply tuning
+  const uint8_t newEngine = (config.engine <= static_cast<uint8_t>(ENGINE_NOISEFX))
+                                ? config.engine
+                                : static_cast<uint8_t>(ENGINE_OSC);
+  if (newEngine != cachedEngine_)
+  {
+    resetAlternateEngines_();
+  }
+  applyEngineConfig_();
+
+  // Detune multipliers depend on config
+  recomputeDetuneMultipliers();
+
+  // Pitch depends on harmony, etc.
+  updateFrequencyIfNeeded();
+
+  configPending_.store(false, std::memory_order_release);
 }

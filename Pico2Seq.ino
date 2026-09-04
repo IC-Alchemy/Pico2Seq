@@ -565,14 +565,18 @@ static inline float clampf(float v, float lo, float hi) noexcept
 
 static inline int16_t FloatToPcm16(float s) noexcept
 {
-    // Optional but recommended safety clamp to handle NaN/Inf and small overs
+    // Clamp first so the float->int conversion below is always in range
+    // (fminf/fmaxf inline to VMINNM/VMAXNM; NaN folds to a finite value)
     s = fminf(1.0f, fmaxf(-1.0f, s));
 
-    // Scale so -1.0 → -32768 and +1.0 → +32767 (after saturation below)
+    // Scale so -1.0 → -32768 and +1.0 → +32768 (saturated to +32767 below)
     const float scaled = s * 32768.0f;
 
-    // Round to nearest using hardware rounding (fast on M33 with FPU)
-    const int32_t i = (int32_t)lrintf(scaled);
+    // Truncate toward zero with a single VCVT. The previous lrintf() was a
+    // ~50-instruction newlib call per sample (GCC does not inline it, even
+    // with -ffast-math); truncation instead of round-to-nearest changes the
+    // output by at most 1 LSB (-96 dBFS).
+    const int32_t i = static_cast<int32_t>(scaled);
 
     // Saturate to int16 range [-32768, 32767] using single-cycle SSAT
     return (int16_t)__SSAT(i, 16);
