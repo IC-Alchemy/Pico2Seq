@@ -127,6 +127,11 @@ void Voice::init(float sr)
   filter.setInputDrive(config.filterDrive);
   filter.setPassbandGain(config.filterPassbandGain);
   filter.setMode(config.filterMode);
+  // Alternate main-filter topology: kept prepared even when unused so a live
+  // config swap can switch filterType without re-preparing mid-gate.
+  filterSvf_.prepare(sampleRate);
+  filterSvf_.setCutoff(filterFrequency);
+  configureMainFilterFromConfig_();
   // Initialize high-pass filter
   highPassFilter.prepare(sampleRate);
   highPassFilter.setCutoff(config.highPassFreq);
@@ -348,9 +353,13 @@ void Voice::updateFilter(float envelopeValue)
 
   // Throttle setFreq to avoid per-sample work if change is tiny (setFreq is
   // polynomial in rpdsp, but the throttle also caps coefficient churn)
+  const bool useSvf = (config.filterType == FILTER_SVF);
   if (filterUpdateInterval == 0)
   {
-    filter.setFreq(filterCutoffCurrent);
+    if (useSvf)
+      filterSvf_.setCutoff(filterCutoffCurrent);
+    else
+      filter.setFreq(filterCutoffCurrent);
     lastAppliedFilterCutoff = filterCutoffCurrent;
   }
   else
@@ -359,11 +368,33 @@ void Voice::updateFilter(float envelopeValue)
     {
       if (ShouldApplyFilterFreq_(filterCutoffCurrent, lastAppliedFilterCutoff))
       {
-        filter.setFreq(filterCutoffCurrent);
+        if (useSvf)
+          filterSvf_.setCutoff(filterCutoffCurrent);
+        else
+          filter.setFreq(filterCutoffCurrent);
         lastAppliedFilterCutoff = filterCutoffCurrent;
       }
     }
     filterUpdateCounter = static_cast<uint8_t>((filterUpdateCounter + 1) % filterUpdateInterval);
+  }
+}
+
+void Voice::configureMainFilterFromConfig_() noexcept
+{
+  filterSvf_.setResonance(config.filterRes);
+  switch (config.filterMode)
+  {
+  case rpdsp::LadderFilter::Mode::BP24:
+  case rpdsp::LadderFilter::Mode::BP12:
+    svfOutputSel_ = 1;
+    break;
+  case rpdsp::LadderFilter::Mode::HP24:
+  case rpdsp::LadderFilter::Mode::HP12:
+    svfOutputSel_ = 2;
+    break;
+  default:
+    svfOutputSel_ = 0;
+    break;
   }
 }
 
@@ -552,10 +583,25 @@ inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept
   //    VCA envelope is applied pre effects so that the overdrive sounds more dynamic
   applyEffects(preEffects);
 
-  // With the ladder bypassed, velocity scales the signal directly —
+  // With the main filter bypassed, velocity scales the signal directly —
   // the filter input was its only entry point.
-  const float shaped = config.hasFilter ? filter.process(preEffects * state.velocityLevel)
-                                        : (preEffects * state.velocityLevel);
+  const float filterInput = preEffects * state.velocityLevel;
+  float shaped;
+  if (!config.hasFilter)
+  {
+    shaped = filterInput;
+  }
+  else if (config.filterType == FILTER_SVF)
+  {
+    const rpdsp::StateVariableOutput svf = filterSvf_.process(filterInput);
+    shaped = (svfOutputSel_ == 1)   ? svf.bandpass
+             : (svfOutputSel_ == 2) ? svf.highpass
+                                    : svf.lowpass;
+  }
+  else
+  {
+    shaped = filter.process(filterInput);
+  }
 
   // Apply optional high-pass filter
   float postHpf = shaped;
@@ -885,8 +931,8 @@ void Voice::applyPendingParams_() noexcept
       config.noiseSwarmColor = std::clamp(state.filterCutoff, 0.0f, 1.0f);
       config.noiseSwarmRegen = std::clamp(state.attackTimeSeconds, 0.0f, 1.0f);
       config.noiseChaosLevel = std::clamp(state.decayTimeSeconds, 0.0f, 1.0f);
-      // The ladder stays on the preset's static cutoff (the Filter slot now
-      // carries swarm color); the envelope still moves it.
+      // The main filter stays on the preset's static cutoff (the Filter slot
+      // now carries swarm color); the envelope still moves it.
       filterFrequency = dspmap::fmap(config.filterCutoffBase, 150.0f, 8000.0f, dspmap::Mapping::EXP);
       break;
     default:
@@ -942,6 +988,7 @@ void Voice::applyPendingConfig_() noexcept
       filter.setInputDrive(config.filterDrive);
       filter.setPassbandGain(config.filterPassbandGain);
       filter.setMode(config.filterMode);
+      configureMainFilterFromConfig_();
     }
 
     highPassFilter.setCutoff(config.highPassFreq);

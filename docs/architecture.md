@@ -259,7 +259,8 @@ All DSP components reside in the `rpdsp` namespace from `src/rpdsp/` (tracked as
                     │ 5. finalizeOutput()                               │
                     │    - S_vca = S_osc * E (Pre-filter VCA envelope)  │
                     │    - Overdrive: rpdsp::Waveshaper (if enabled)    │
-                    │    - Ladder Filter: rpdsp::LadderFilter           │
+                    │    - Main filter per filterType:                  │
+                    │      Ladder (Analog/Lead) or StateVariableFilter  │
                     │      (LP24, LP12, BP24, BP12, HP24, HP12)         │
                     │    - High-Pass: rpdsp::StateVariableFilter (HPF)  │
                     │    - Scaling: S_out = S_hpf * outputLevel         │
