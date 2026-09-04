@@ -459,6 +459,15 @@ private:
   VoiceConfig stagedConfig_{};             // control-thread writes
   std::atomic<bool> configPending_{false}; // set true when a new config is staged
 
+  // Structural config staging (oscillator bank rebuild + engine switch).
+  // Applied only while the gate is low so a live preset swap never clicks a
+  // held note or cuts a ringing tail; scalars still apply immediately.
+  bool structuralPending_ = false;
+  uint8_t stagedEngine_ = ENGINE_OSC;
+  uint8_t stagedOscCount_ = 0;
+  uint8_t stagedWaveforms_[3] = {WAVE_BSP_SAW, WAVE_BSP_SAW, WAVE_BSP_SAW};
+  float stagedPulseWidth_[3] = {0.5f, 0.5f, 0.5f};
+
   // -------- Pitch change-detection & caching --------
   // Staging cache computed on control thread, committed on audio thread.
   struct PitchSnapshot
@@ -523,6 +532,7 @@ private:
   // Cross-core application helpers (called on audio thread at start of process)
   void applyPendingParams_() noexcept;
   void applyPendingConfig_() noexcept;
+  void applyStructuralConfig_() noexcept;
 
   // Pitch recompute helpers (staging on control thread; commit on audio thread)
   // Detects changes in note/octave/harmony/osc count/detune version/sample-rate version/slide/bend/mod.

@@ -153,7 +153,11 @@ void Voice::init(float sr)
   overdrive.setDrive(1.0f + (config.overdriveDrive * 3.0f)); // map 0-1 drive to 1-4
   overdrive.setOutputGain(1.0f);
 
-  // Alternate engines: prepare + seed state, then apply tuning from config
+  // Alternate engines: prepare + seed state, then apply tuning from config.
+  // init() is setup-time, so the engine cache is set directly here.
+  cachedEngine_ = (config.engine <= static_cast<uint8_t>(ENGINE_NOISEFX))
+                      ? config.engine
+                      : static_cast<uint8_t>(ENGINE_OSC);
   waveguide_.prepare(sampleRate);
   resetAlternateEngines_();
   applyEngineConfig_();
@@ -267,6 +271,13 @@ float Voice::process() noexcept
   float envelopeValue = computeEnvelope();
   // Cache envelope value for cheap per-voice checks in hot paths (avoids reprocessing ADSR)
   lastEnvelopeValue = envelopeValue;
+
+  // Apply a staged structural config as soon as the gate allows it (nothing
+  // sounding), so live preset swaps never click a held note or cut a tail.
+  if (structuralPending_ && !gate)
+  {
+    applyStructuralConfig_();
+  }
 
   // 2) Filter cutoff update (uses envelope)
   if (config.hasFilter)
@@ -476,12 +487,11 @@ void Voice::processEffectsChain(float &signal)
 
 void Voice::applyEngineConfig_()
 {
-  cachedEngine_ = (config.engine <= static_cast<uint8_t>(ENGINE_NOISEFX))
-                      ? config.engine
-                      : static_cast<uint8_t>(ENGINE_OSC);
   // Waveguide tuning. These are control-rate setters with internal clamps;
   // setBrightness()/setPickHardness() derive coefficients from sampleRate_,
   // so waveguide_.prepare() must have run first (init() guarantees this).
+  // NOTE: cachedEngine_ is NOT updated here — the engine switch belongs to
+  // applyStructuralConfig_() so a live swap waits for the gate to fall.
   waveguide_.setDecayTimeSeconds(config.wgT60);
   waveguide_.setBrightness(config.wgBrightness);
   waveguide_.setPickPosition(config.wgPickPosition);
@@ -892,6 +902,32 @@ void Voice::applyPendingParams_() noexcept
   }
 }
 
+// Apply staged structural config (oscillator bank + engine) on the audio
+// thread. Only called while the gate is low so the change never interrupts a
+// sounding note.
+void Voice::applyStructuralConfig_() noexcept
+{
+  cachedOscCount_ = stagedOscCount_;
+  for (size_t i = 0; i < 3; ++i)
+  {
+    oscillators[i].prepare(sampleRate); // phase reset deferred off the playing note
+    if (i < cachedOscCount_)
+    {
+      oscillators[i].setWaveform(stagedWaveforms_[i]);
+      // Ignored by non-pulse waveforms
+      oscillators[i].setPulseWidth(stagedPulseWidth_[i]);
+    }
+  }
+
+  // Alternate engines: clear stale tails when switching engines.
+  if (stagedEngine_ != cachedEngine_)
+  {
+    resetAlternateEngines_();
+  }
+  cachedEngine_ = stagedEngine_;
+  structuralPending_ = false;
+}
+
 // Apply staged VoiceConfig changes from control thread safely on audio thread
 void Voice::applyPendingConfig_() noexcept
 {
@@ -899,24 +935,14 @@ void Voice::applyPendingConfig_() noexcept
   {
     config = stagedConfig_;
 
-    // Oscillator slots are fixed-size; only the first cachedOscCount_ are processed
-    cachedOscCount_ = static_cast<uint8_t>(std::min<size_t>(3, config.oscillatorCount));
-    for (size_t i = 0; i < 3; ++i)
+    // Update filters (scalar; safe mid-note)
+    if (config.hasFilter)
     {
-      oscillators[i].prepare(sampleRate);
-      if (i < cachedOscCount_)
-      {
-        oscillators[i].setWaveform(config.oscWaveforms[i]);
-        // Ignored by non-pulse waveforms
-        oscillators[i].setPulseWidth(config.oscPulseWidth[i]);
-      }
+      filter.setRes(config.filterRes);
+      filter.setInputDrive(config.filterDrive);
+      filter.setPassbandGain(config.filterPassbandGain);
+      filter.setMode(config.filterMode);
     }
-
-    // Update filters
-    filter.setRes(config.filterRes);
-    filter.setInputDrive(config.filterDrive);
-    filter.setPassbandGain(config.filterPassbandGain);
-    filter.setMode(config.filterMode);
 
     highPassFilter.setCutoff(config.highPassFreq);
     highPassFilter.setResonance(config.highPassRes);
@@ -925,15 +951,30 @@ void Voice::applyPendingConfig_() noexcept
     // Update effects
     overdrive.setDrive(1.0f + (config.overdriveDrive * 3.0f)); // map 0-1 drive to 1-4
 
-    // Alternate engines: clear stale tails when switching, then re-apply tuning
-    const uint8_t newEngine = (config.engine <= static_cast<uint8_t>(ENGINE_NOISEFX))
-                                  ? config.engine
-                                  : static_cast<uint8_t>(ENGINE_OSC);
-    if (newEngine != cachedEngine_)
+    // Stage the structural part (oscillator bank rebuild + engine switch).
+    // Applied immediately only when nothing is sounding, so a live preset
+    // swap is click-free.
+    stagedOscCount_ = static_cast<uint8_t>(std::min<size_t>(3, config.oscillatorCount));
+    for (size_t i = 0; i < 3; ++i)
     {
-      resetAlternateEngines_();
+      stagedWaveforms_[i] = config.oscWaveforms[i];
+      stagedPulseWidth_[i] = config.oscPulseWidth[i];
     }
+    stagedEngine_ = (config.engine <= static_cast<uint8_t>(ENGINE_NOISEFX))
+                        ? config.engine
+                        : static_cast<uint8_t>(ENGINE_OSC);
+    structuralPending_ = true;
+    if (!gate)
+    {
+      applyStructuralConfig_();
+    }
+
+    // Engine tuning (waveguide/noise scalars) is safe to apply mid-note
     applyEngineConfig_();
+
+    // Envelope segment times: for standard voices the next staged state
+    // re-maps them; for re-purposed slots the preset defaults define the shape.
+    applyEnvelopeDefaults_();
 
     // Detune multipliers depend on config
     recomputeDetuneMultipliers();

@@ -378,6 +378,38 @@ TEST_CASE("presetIndexForPad maps pads 8..8+count-1", "[voice][presets]") {
                  WithinAbs(3.2f, 0.01f));
 }
 
+TEST_CASE("Preset switch while gate high keeps the held note sounding", "[voice]") {
+    Voice v(0, VoicePresets::getAnalogVoice());
+    initVoiceWithScale(v);
+
+    VoiceState vs;
+    vs.isGateHigh = true;
+    vs.noteIndex = 3.0f;
+    vs.velocityLevel = 0.8f;
+    v.updateParameters(vs);
+    v.setGate(true);
+    for (int i = 0; i < 4800; ++i)
+        v.process();
+
+    // Staged config while the note is held: the engine switch and oscillator
+    // phase reset must wait for the gate to fall, so the playing note keeps
+    // sounding (no cut to silence, no click).
+    v.setConfig(VoicePresets::getWaveguidePluckVoice());
+    bool silentWindow = false;
+    float windowMax = 0.0f;
+    for (int i = 1; i <= 4800; ++i)
+    {
+        windowMax = std::max(windowMax, std::abs(v.process()));
+        if (i % 480 == 0)
+        {
+            if (windowMax < 0.01f)
+                silentWindow = true;
+            windowMax = 0.0f;
+        }
+    }
+    REQUIRE_FALSE(silentWindow);
+}
+
 TEST_CASE("Noise-FX engine produces finite textured output while gated", "[voice]") {
     Voice v(0, VoicePresets::getNoiseStormVoice());
     v.init(48000.0f);
