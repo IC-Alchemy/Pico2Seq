@@ -440,6 +440,10 @@ only **Analog** and **Lead** still run the true ladder filter.
 Presets 1–9 are oscillator-engine sounds; 10–13 are waveguide strings; 14 is a stacked
 oscillator lead; 15 is the noise-FX texture engine. Presets live in flash and are changed
 per voice from the **preset browser** (stop the transport to open Settings on the OLED).
+In the browser, touch **pads 8–22** — exactly the pads lit on the LED mirror — to apply
+presets 1–15 to the selected voice; tap **pads 0–3** (or the V1–V4 buttons) to switch the
+target voice without leaving the browser. The encoder button toggles the Settings screen
+between the preset browser and the voice-parameter toggles.
 
 ---
 
@@ -455,6 +459,7 @@ per voice from the **preset browser** (stop the transport to open Settings on th
 | Hold a parameter button + tap pad | Set that parameter track's length to the pad number |
 | Hold (or Shift+latch) a parameter button + touch pads during playback | Record live values into the armed parameter of the current step (Note only on gate-on steps) |
 | Pad press while Gate Length mode is held | Set the selected voice's Gate track length (2–16 steps) |
+| Tap a pad while the preset browser is open | Apply that preset to the selected voice — pads 8–22 = presets 1–15; pads 0–3 switch the target voice |
 
 ### Faders
 

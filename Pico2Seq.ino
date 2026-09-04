@@ -551,11 +551,8 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
     // Update voice state with new step parameters + magnetic encoder modifications
     activeSeq.playStepNow(stepIndex, activeVoiceState);
 
-    // Apply encoder base values only for voices 0/1 (no mapping for 2/3 by design)
-    if (voiceIndex <= 1)
-    {
-        applyEncoderBaseValues(activeVoiceState, (voiceIndex == 1) ? 1 : 0);
-    }
+    // Apply encoder base values for the selected voice (mapping covers all four voices)
+    applyEncoderBaseValues(activeVoiceState, voiceIndex);
 
     // Update synth hardware for immediate audio feedback using the per-voice function
     updateVoiceMIDI(*activeVoiceState, voiceIndex);
@@ -584,16 +581,18 @@ void onStepCallback(uint32_t uClockCurrentStep)
     advanceSequencerStep(seq3, uClockCurrentStep, v3Distance, uiState, &tempState3);
     advanceSequencerStep(seq4, uClockCurrentStep, v4Distance, uiState, &tempState4);
 
+    VoiceState tempStates[] = {tempState1, tempState2, tempState3, tempState4};
+
     // 3. Apply encoder base values per voice (only velocity/filter/attack/decay are affected)
-    applyEncoderBaseValues(&tempState1, 0);
-    applyEncoderBaseValues(&tempState2, 1);
-    // Voices 2/3 currently share no encoder mapping; leave as-is
+    for (uint8_t voiceIndex = 0; voiceIndex < VoiceSystem::MAX_VOICES; voiceIndex++)
+    {
+        applyEncoderBaseValues(&tempStates[voiceIndex], voiceIndex);
+    }
 
     // Apply encoder base values to global delay effect parameters
     applyEncoderDelayValues();
 
     // 4. Update synth hardware (voices 1/2 with gates + MIDI; 3/4 audio only)
-    VoiceState tempStates[] = {tempState1, tempState2, tempState3, tempState4};
 
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++)
     {
