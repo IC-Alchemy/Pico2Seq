@@ -76,6 +76,105 @@ const LEDThemeColors ALL_THEMES[] = {
      CRGB(38, 29, 0), CRGB(144, 188, 94), CRGB(29, 38, 19), CRGB(188, 0, 94), CRGB(17, 0, 11),
      CRGB(144, 0, 188), CRGB(29, 0, 38), CRGB(48, 144, 144), CRGB(10, 29, 29), CRGB(0, 166, 188),
      CRGB(0, 33, 38), CRGB(144, 0, 188), CRGB(15, 0, 22), CRGB(0, 188, 166), CRGB(0, 22, 15)},
+    {
+        // VOLCANIC theme - red/orange fire on near-black
+        CRGB(220, 80, 20),   // gateOnV1 - ember red-orange
+        CRGB(10, 4, 2),      // gateOffV1 - near-black
+        CRGB(255, 140, 40),  // gateOnV2 - bright flame orange
+        CRGB(8, 3, 2),       // gateOffV2 - deep dark
+        CRGB(60, 18, 4),     // playheadAccent - dark lava accent
+        CRGB(50, 20, 8),     // idleBreathingBlue - warm ember glow
+        CRGB(12, 6, 4),      // editModeDimBlueV1 - very dark warm slate
+        CRGB(14, 8, 5),      // editModeDimBlueV2
+        CRGB(230, 150, 90),  // modNoteActive - warm beige-orange
+        CRGB(30, 18, 12),    // modNoteInactive
+        CRGB(240, 180, 120), // modVelocityActive - pale amber
+        CRGB(32, 22, 16),    // modVelocityInactive
+        CRGB(200, 90, 60),   // modFilterActive - muted terracotta red
+        CRGB(28, 12, 8),     // modFilterInactive
+        CRGB(255, 200, 120), // modDecayActive - bright amber
+        CRGB(32, 24, 14),    // modDecayInactive
+        CRGB(190, 120, 70),  // modAttackActive - muted copper
+        CRGB(26, 16, 10),    // modAttackInactive
+        CRGB(255, 120, 60),  // modOctaveActive - hot orange accent
+        CRGB(30, 12, 6),     // modOctaveInactive
+        CRGB(255, 160, 90),  // modSlideActive - warm slide accent
+        CRGB(30, 18, 12),    // modSlideInactive
+        CRGB(240, 220, 200), // defaultActive - warm light gray
+        CRGB(16, 10, 8),     // defaultInactive - near-black
+        CRGB(255, 170, 100), // modParamModeActive - warm pale
+        CRGB(28, 18, 12),    // modParamModeInactive
+        CRGB(255, 140, 60),  // modGateModeActive - bright ember highlight
+        CRGB(26, 14, 8),     // modGateModeInactive
+        CRGB(255, 220, 150), // randomizeFlash - bright warm flash
+        CRGB(24, 14, 10)     // randomizeIdle - dark subtle tone
+    },
+    {
+        // FOREST theme - greens and warm browns on dark moss
+        CRGB(30, 160, 60),   // gateOnV1 - vivid leaf green
+        CRGB(3, 10, 4),      // gateOffV1 - near-black green tint
+        CRGB(120, 200, 80),  // gateOnV2 - pale moss accent
+        CRGB(4, 10, 3),      // gateOffV2 - deep dark
+        CRGB(10, 40, 14),    // playheadAccent - deep forest accent
+        CRGB(16, 36, 18),    // idleBreathingBlue - deep moss breathing
+        CRGB(6, 12, 7),      // editModeDimBlueV1 - dark green slate
+        CRGB(8, 14, 9),      // editModeDimBlueV2
+        CRGB(160, 220, 140), // modNoteActive - pale green
+        CRGB(20, 30, 18),    // modNoteInactive
+        CRGB(190, 230, 160), // modVelocityActive - soft mint
+        CRGB(24, 32, 22),    // modVelocityInactive
+        CRGB(110, 180, 120), // modFilterActive - muted green-teal
+        CRGB(14, 24, 16),    // modFilterInactive
+        CRGB(210, 190, 120), // modDecayActive - dry-grass warm contrast
+        CRGB(28, 26, 16),    // modDecayInactive
+        CRGB(140, 190, 110), // modAttackActive - sage
+        CRGB(18, 26, 14),    // modAttackInactive
+        CRGB(200, 150, 90),  // modOctaveActive - warm bark accent
+        CRGB(28, 20, 12),    // modOctaveInactive
+        CRGB(150, 220, 170), // modSlideActive - minty slide accent
+        CRGB(18, 28, 22),    // modSlideInactive
+        CRGB(220, 240, 210), // defaultActive - off-white green tint
+        CRGB(10, 14, 10),    // defaultInactive - near-black
+        CRGB(170, 230, 150), // modParamModeActive - bright leaf
+        CRGB(20, 30, 20),    // modParamModeInactive
+        CRGB(190, 210, 120), // modGateModeActive - lichen highlight
+        CRGB(24, 28, 14),    // modGateModeInactive
+        CRGB(230, 250, 180), // randomizeFlash - pale flash
+        CRGB(14, 20, 12)     // randomizeIdle - dark subtle tone
+    },
+    {
+        // NEON theme - bright cyan/magenta on dark
+        CRGB(0, 230, 230),   // gateOnV1 - electric cyan
+        CRGB(0, 12, 14),     // gateOffV1 - near-black cyan tint
+        CRGB(255, 0, 180),   // gateOnV2 - hot magenta accent
+        CRGB(14, 0, 10),     // gateOffV2 - deep dark
+        CRGB(0, 60, 80),     // playheadAccent - deep cyan accent
+        CRGB(0, 30, 60),     // idleBreathingBlue - neon blue breathing
+        CRGB(0, 10, 16),     // editModeDimBlueV1 - dark cyan slate
+        CRGB(10, 0, 12),     // editModeDimBlueV2
+        CRGB(120, 255, 255), // modNoteActive - pale cyan
+        CRGB(16, 30, 30),    // modNoteInactive
+        CRGB(180, 255, 255), // modVelocityActive - ice cyan
+        CRGB(20, 32, 32),    // modVelocityInactive
+        CRGB(90, 120, 255),  // modFilterActive - electric indigo
+        CRGB(12, 16, 34),    // modFilterInactive
+        CRGB(255, 220, 60),  // modDecayActive - neon yellow contrast
+        CRGB(32, 28, 8),     // modDecayInactive
+        CRGB(140, 255, 120), // modAttackActive - neon green
+        CRGB(18, 32, 16),    // modAttackInactive
+        CRGB(255, 60, 255),  // modOctaveActive - magenta accent
+        CRGB(32, 8, 32),     // modOctaveInactive
+        CRGB(0, 255, 200),   // modSlideActive - spring neon slide
+        CRGB(10, 30, 24),    // modSlideInactive
+        CRGB(230, 230, 255), // defaultActive - pale violet-white
+        CRGB(12, 12, 18),    // defaultInactive - near-black
+        CRGB(80, 255, 180),  // modParamModeActive - neon mint
+        CRGB(10, 30, 22),    // modParamModeInactive
+        CRGB(255, 120, 220), // modGateModeActive - pink neon highlight
+        CRGB(30, 12, 26),    // modGateModeInactive
+        CRGB(255, 255, 255), // randomizeFlash - white flash
+        CRGB(14, 14, 20)     // randomizeIdle - dark subtle tone
+    },
     // DARK_NOCTIS theme - deep charcoal with cool blue/cyan accents
     {
         CRGB(20, 90, 140),   // gateOnV1 - cool cyan-blue (visible on dark)
