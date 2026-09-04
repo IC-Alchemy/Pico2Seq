@@ -396,8 +396,10 @@ Each voice runs a full synthesis chain at 48 kHz on the audio core:
  OVERDRIVE waveshaper (per preset, optional; toggle in Settings)
         |
         v
- LADDER FILTER — multi-mode: LP24, LP12, BP24, BP12, HP24, HP12, with
- resonance and drive; cutoff tracks the envelope
+ MAIN FILTER — ladder (Analog + Lead only) or state-variable SVF (all
+ other filtered presets); multi-mode: LP24, LP12, BP24, BP12, HP24, HP12,
+ with resonance (and ladder drive on the two ladder voices); cutoff
+ tracks the envelope
         |
         v
  HIGH-PASS filter (per preset, tames lows)
@@ -412,7 +414,8 @@ time/feedback with the encoder's Delay Time / Delay Feedback targets.
 
 Filter **mode** (LP24 … HP12) and **resonance** are cycled/set from the OLED Settings
 screen's voice-parameter page; envelope and overdrive can be switched off per voice there
-too.
+too. On SVF voices the mode picks the response (LP→low-pass, BP→band-pass, HP→high-pass);
+only **Analog** and **Lead** still run the true ladder filter.
 
 ### 4.2 The 15 presets
 

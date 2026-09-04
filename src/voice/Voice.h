@@ -41,6 +41,16 @@ enum VoiceParamSet : uint8_t
   PARAMSET_NOISESTORM = 3,
 };
 
+// Topology of the voice's main filter (when hasFilter is set). The ladder is
+// the character filter (drive + passband-gain compensation, 12/24 dB responses);
+// the state-variable filter is a clean TPT resonant filter whose response is
+// chosen by filterMode (LP* -> lowpass, BP* -> bandpass, HP* -> highpass).
+enum VoiceFilterType : uint8_t
+{
+  FILTER_LADDER = 0,
+  FILTER_SVF = 1,
+};
+
 /**
  * @brief Configuration structure for a voice
  *
@@ -81,10 +91,14 @@ struct VoiceConfig
   float noiseSwarmRegen = 0.9f;  // Allpass swarm regeneration (0.0-1.2)
   float noiseChaosLevel = 0.35f; // Pitch-tracked chaos_lorenz growl mix (0.0-1.0)
 
-  // Filter settings
+  // Filter settings. filterType picks the topology; filterDrive and
+  // filterPassbandGain only affect the ladder and are ignored by the SVF.
+  // filterMode selects the ladder response, and doubles as the SVF response
+  // (LP* -> lowpass out, BP* -> bandpass out, HP* -> highpass out).
+  uint8_t filterType = FILTER_LADDER; // Main filter topology (VoiceFilterType)
   float filterRes = 0.2f;            // Filter resonance (0.0-1.0)
-  float filterDrive = 1.8f;          // Filter drive amount (0.0-4.0)
-  float filterPassbandGain = 0.23f;  // Passband gain compensation (0.0-0.5)
+  float filterDrive = 1.8f;          // Ladder drive amount (0.0-4.0; SVF ignores)
+  float filterPassbandGain = 0.23f;  // Ladder passband gain compensation (0.0-0.5; SVF ignores)
   rpdsp::LadderFilter::Mode filterMode = rpdsp::LadderFilter::Mode::LP24; // Filter mode
   float filterCutoffBase = 0.37f;    // Normalized static cutoff (0.0-1.0) used when
                                      // paramSet re-purposes the Filter slot (e.g. NoiseStorm)
@@ -96,7 +110,7 @@ struct VoiceConfig
   // Effects chain configuration
   bool hasOverdrive = false;     // Enable overdrive effect
   bool hasEnvelope = true;       // Enable envelope (recommended: true)
-  bool hasFilter = true;         // Enable the ladder filter (false = bypass, velocity scales output)
+  bool hasFilter = true;         // Enable the main filter (false = bypass, velocity scales output)
   float overdriveGain = 0.34f;   // Overdrive output gain (0.0-2.0)
   float overdriveDrive = 0.25f;  // Overdrive drive amount (0.0-1.0)
 
@@ -372,6 +386,7 @@ private:
   std::array<VoiceOscillator, 3> oscillators;
   rpdsp::NoiseOscillator noise_;
   rpdsp::LadderFilter filter;
+  rpdsp::StateVariableFilter filterSvf_;  // Alternate main-filter topology (FILTER_SVF)
   rpdsp::StateVariableFilter highPassFilter;
   rpdsp::ADSR envelope;
   rpdsp::Waveshaper overdrive;
@@ -428,6 +443,10 @@ private:
   uint8_t cachedOscCount_ = 0;
   // Bypass flags computed on config apply to avoid unnecessary DSP work
   bool hpfBypass_ = false;
+  // Which StateVariableFilter output the main filter reads when
+  // filterType == FILTER_SVF: 0 lowpass, 1 bandpass, 2 highpass (from
+  // filterMode, cached on config apply).
+  uint8_t svfOutputSel_ = 0;
 
   // Slide/portamento control
   // slideTimeSeconds is the exponential time constant in seconds
@@ -552,6 +571,14 @@ private:
    * @param envelopeValue Current envelope value (0.0-1.0)
    */
   void updateFilter(float envelopeValue);
+
+  /**
+   * @brief Push topology-dependent filter config (resonance, SVF response)
+   *        into the state-variable path. Control-rate: called from init() and
+   *        applyPendingConfig_(); cutoff itself is updated per-sample by
+   *        updateFilter().
+   */
+  void configureMainFilterFromConfig_() noexcept;
 
   /**
    * @brief Recompute cached detune multipliers from configuration

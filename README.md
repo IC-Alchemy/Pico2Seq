@@ -5,9 +5,9 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 ## Features
 
 ### Synthesis
-- **4 Independent Polyphonic Voices**: Each with a complete DSP chain (B-spline oscillator bank, resonant ladder filter, ADSR envelope, overdrive distortion)
+- **4 Independent Polyphonic Voices**: Each with a complete DSP chain (B-spline oscillator bank, resonant main filter, ADSR envelope, overdrive distortion)
 - **Three Sound Engines per Voice**: A classic oscillator bank (up to 3 oscillators, or raw noise), a Karplus-Strong **waveguide** engine for plucked/nylon/bell/shimmer strings, and a **noise-FX texture** engine (prime-tap diffuser, regenerative allpass swarm, pitch-tracked Lorenz chaos growl)
-- **Professional Ladder Filters**: 24dB multi-mode ladder filters (LP12, LP24, LP36, BP12, BP24) with resonance and passband gain compensation
+- **Two Filter Topologies**: A 24dB multi-mode ladder filter (LP12, LP24, BP12, BP24, HP12, HP24) with drive and passband gain compensation on the character voices, plus a clean modulation-stable state-variable filter (LP/BP/HP) everywhere else — including all three bass presets
 - **Effects Processing**: Per-voice overdrive distortion
 - **ADSR Envelopes**: Fast, analog-modeled attack, decay, sustain, and release stages with microsecond accuracy
 - **15 Voice Presets**: Stored as `constexpr` tables in flash (.rodata), covering classic subtractive, sub-bass, waveguide string, hypersaw, and noise-texture sounds

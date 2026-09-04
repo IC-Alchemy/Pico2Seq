@@ -33,6 +33,8 @@ namespace VoicePresets
 
     c.filterRes = 0.33f;
     c.filterDrive = 2.1f;
+    // Ladder on purpose: this is one of only two presets still using it
+    // (with Lead); the test suite pins that count.
     c.filterMode = rpdsp::LadderFilter::Mode::LP24;
     c.filterPassbandGain = 0.23f;
     c.highPassFreq = 120.0f;
@@ -64,11 +66,10 @@ namespace VoicePresets
 
     c.harmony[0] = 0; // Root note
     c.filterRes = 0.4f;
-    c.filterDrive = 2.5f;
-    c.filterPassbandGain = 0.25f;
+    c.filterType = FILTER_SVF; // clean resonant low-pass replaces the ladder
     c.highPassFreq = 111.0f;
     c.highPassRes = 0.15f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12; // Low-pass filter
+    c.filterMode = rpdsp::LadderFilter::Mode::LP12; // SVF response: low-pass
 
     c.hasOverdrive = false;
     c.overdriveGain = 0.7f;
@@ -95,11 +96,10 @@ namespace VoicePresets
     c.harmony[0] = 0; // Root note
     c.harmony[1] = 0; // Unison (bass typically monophonic)
     c.highPassRes = 0.4f;
-    c.filterRes = 0.33f;
-    c.filterDrive = 2.f;
-    c.filterPassbandGain = 0.12f;
+    c.filterRes = 0.45f; // SVF resonance carries the growl (no ladder drive)
+    c.filterType = FILTER_SVF; // TPT state-variable low-pass: tight, stable bass
     c.highPassFreq = 45.0f; // Lower for bass
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP12; // SVF response: low-pass
     c.hasOverdrive = true;
     c.overdriveGain = 0.65f;
     c.overdriveDrive = 0.16f; // Subtle overdrive
@@ -128,6 +128,8 @@ namespace VoicePresets
     c.filterDrive = 3.f;
     c.filterPassbandGain = 0.23f;
     c.highPassFreq = 160.0f;
+    // Ladder on purpose: this is one of only two presets still using it
+    // (with Analog); the test suite pins that count.
     c.filterMode = rpdsp::LadderFilter::Mode::LP12;
     c.hasOverdrive = false;
     c.overdriveGain = 0.7f;
@@ -150,11 +152,10 @@ namespace VoicePresets
     c.harmony[0] = 0; // Root note
     c.oscPulseWidth[0] = 0.2f;
 
-    c.filterRes = 0.52f;
-    c.filterDrive = 3.3f;
-    c.filterPassbandGain = 0.33f;
+    c.filterRes = 0.6f; // resonant SVF band-pass honk
+    c.filterType = FILTER_SVF;
     c.highPassFreq = 150.0f;
-    c.filterMode = rpdsp::LadderFilter::Mode::BP24;
+    c.filterMode = rpdsp::LadderFilter::Mode::BP24; // SVF response: band-pass
     c.hasOverdrive = false;
     c.overdriveGain = 0.75f;
     c.overdriveDrive = 0.35f;
@@ -182,11 +183,10 @@ namespace VoicePresets
     c.harmony[2] = 9;  // Major Third
 
     c.filterRes = 0.3f;
-    c.filterDrive = 2.2f;
-    c.filterPassbandGain = 0.23f;
+    c.filterType = FILTER_SVF; // smooth state-variable low-pass
     c.highPassFreq = 140.0f;
     c.highPassRes = 0.08f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP12; // SVF response: low-pass
 
     c.hasOverdrive = false;
     c.overdriveGain = 0.85f;
@@ -207,10 +207,9 @@ namespace VoicePresets
     c.oscAmplitudes[0] = 1.f;
 
     c.filterRes = 0.4f;
-    c.filterDrive = 2.3f;
-    c.filterPassbandGain = 0.33f;
+    c.filterType = FILTER_SVF;
     c.highPassFreq = 200.0f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP24;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP24; // SVF response: low-pass
 
     c.hasOverdrive = false;
     c.overdriveGain = 0.45f;
@@ -225,8 +224,8 @@ namespace VoicePresets
   }
 
   // SubFunk: bouncy sub bass. Sine sub an octave down carries the weight,
-  // a triangle adds movement, and a driven low-pass with a short punchy
-  // envelope gives the filtered-growl funk character.
+  // a triangle adds movement, and a resonant state-variable low-pass with a
+  // short punchy envelope gives the filtered-growl funk character.
   constexpr VoiceConfig makeSubFunk() noexcept
   {
     VoiceConfig c{};
@@ -244,10 +243,9 @@ namespace VoicePresets
     c.harmony[1] = 0;
     c.harmony[2] = 0;
 
-    c.filterRes = 0.45f;
-    c.filterDrive = 3.6f;
-    c.filterPassbandGain = 0.2f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
+    c.filterRes = 0.5f;
+    c.filterType = FILTER_SVF; // resonant low-pass keeps the sub stable under env sweeps
+    c.filterMode = rpdsp::LadderFilter::Mode::LP12; // SVF response: low-pass
     c.highPassFreq = 55.0f; // keep the sub, shed the rumble
 
     c.hasOverdrive = true;
@@ -263,7 +261,8 @@ namespace VoicePresets
   }
 
   // RubberSub: rubbery sub bass. Sub-octave square grinds under a sine,
-  // a resonant band-pass honks, and harder overdrive spits on transients.
+  // a resonant state-variable band-pass honks, and harder overdrive spits
+  // on transients.
   constexpr VoiceConfig makeRubberSub() noexcept
   {
     VoiceConfig c{};
@@ -281,10 +280,9 @@ namespace VoicePresets
     c.harmony[1] = 0;
     c.harmony[2] = 0;
 
-    c.filterRes = 0.62f;
-    c.filterDrive = 2.6f;
-    c.filterPassbandGain = 0.3f;
-    c.filterMode = rpdsp::LadderFilter::Mode::BP24; // rubbery honk
+    c.filterRes = 0.7f; // SVF band-pass honk (2-pole: higher Q than the old BP24 ladder)
+    c.filterType = FILTER_SVF;
+    c.filterMode = rpdsp::LadderFilter::Mode::BP24; // SVF response: band-pass
     c.highPassFreq = 70.0f;
 
     c.hasOverdrive = true;
@@ -319,7 +317,7 @@ namespace VoicePresets
     c.hasOverdrive = false;
     c.hasFilter = false;    // raw string; velocity scales the output directly
     c.hasEnvelope = false;  // natural T60 decay instead of a gated VCA
-    c.highPassFreq = 55.0f;  // bypass the high-pass too
+    c.highPassFreq = 55.0f;  // sub-shedding HPF: Karplus tails collect rumble
     c.highPassRes = 0.0f;
     c.outputLevel = 0.85f;  // two-string course sums hot
     return c;
@@ -419,10 +417,9 @@ namespace VoicePresets
     c.harmony[2] = 12;         // octave layer on top
 
     c.filterRes = 0.35f;
-    c.filterDrive = 2.8f;
-    c.filterPassbandGain = 0.25f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP24;
+    c.filterType = FILTER_SVF; // wide-open clean low-pass
     c.highPassFreq = 180.0f;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP24; // SVF response: low-pass
 
     c.hasOverdrive = true;
     c.overdriveGain = 0.85f;
@@ -453,10 +450,9 @@ namespace VoicePresets
     c.noiseChaosLevel = 0.4f;
 
     c.filterRes = 0.72f;      // resonant filter pings with the env
-    c.filterDrive = 3.2f;
-    c.filterPassbandGain = 0.3f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP24;
+    c.filterType = FILTER_SVF;
     c.highPassFreq = 220.0f;
+    c.filterMode = rpdsp::LadderFilter::Mode::LP24; // SVF response: low-pass
 
     c.hasOverdrive = true;
     c.overdriveGain = 0.8f;

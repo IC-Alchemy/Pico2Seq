@@ -209,8 +209,83 @@ TEST_CASE("Waveguide presets bypass filter and envelope", "[voice][presets]") {
         INFO(VoicePresets::getPresetName(p));
         REQUIRE(c.hasFilter == false);
         REQUIRE(c.hasEnvelope == false);
-        REQUIRE(c.highPassFreq <= 20.0f); // triggers the voice's HPF bypass
+        // WgBell/WgShimmer bypass the high-pass entirely (<=20 Hz trips the
+        // voice's HPF bypass); WgPluck/WgNylon keep a gentle sub-shedding HPF
+        // instead — Karplus tails accumulate inaudible low-end otherwise.
+        if (p >= 11)
+        {
+            REQUIRE(c.highPassFreq <= 20.0f);
+        }
+        else
+        {
+            REQUIRE(c.highPassRes <= 0.01f);
+            REQUIRE(c.highPassFreq > 20.0f);
+            REQUIRE(c.highPassFreq < 100.0f);
+        }
     }
+}
+
+TEST_CASE("Only Analog and Lead keep the ladder filter", "[voice][presets]") {
+    int ladderCount = 0;
+    for (uint8_t p = 0; p < VoicePresets::getPresetCount(); ++p)
+    {
+        const VoiceConfig &c = VoicePresets::getPresetConfig(p);
+        if (c.hasFilter && c.filterType == FILTER_LADDER)
+        {
+            INFO("preset " << static_cast<int>(p) << " ("
+                           << VoicePresets::getPresetName(p) << ") uses the ladder");
+            ++ladderCount;
+        }
+    }
+    REQUIRE(ladderCount == 2);
+    REQUIRE(VoicePresets::getAnalogVoice().filterType == FILTER_LADDER);
+    REQUIRE(VoicePresets::getLeadVoice().filterType == FILTER_LADDER);
+}
+
+TEST_CASE("Bass presets use the state-variable filter", "[voice][presets]") {
+    for (const uint8_t p : {2u, 7u, 8u}) // Bass, SubFunk, RubberSub
+    {
+        const VoiceConfig &c = VoicePresets::getPresetConfig(p);
+        INFO(VoicePresets::getPresetName(p));
+        REQUIRE(c.hasFilter);
+        REQUIRE(c.filterType == FILTER_SVF);
+    }
+}
+
+TEST_CASE("SVF main filter tracks cutoff on the audio path", "[voice]") {
+    // A tone a few octaves above the closed-cutoff point: near-silent while
+    // the SVF low-pass sits below it, near-unity when the cutoff opens.
+    VoiceConfig cfg = defaultConfig();
+    cfg.filterType = FILTER_SVF;
+    cfg.filterMode = rpdsp::LadderFilter::Mode::LP24;
+    cfg.filterRes = 0.45f;
+    Voice v(0, cfg);
+    initVoiceWithScale(v);
+
+    VoiceState vs;
+    vs.noteIndex = 24.0f; // ~C4, well above the closed cutoff
+    vs.isGateHigh = true;
+    v.updateParameters(vs);
+    v.setGate(true);
+
+    auto settledRms = [&](float cutoffBaseHz) {
+        v.setFilterFrequency(cutoffBaseHz);
+        for (int i = 0; i < 24000; ++i)
+            v.process(); // settle the ADSR and cutoff smoothing
+        float sum = 0.0f;
+        for (int i = 0; i < 48000; ++i)
+        {
+            const float s = v.process();
+            sum += s * s;
+        }
+        return std::sqrt(sum / 48000.0f);
+    };
+
+    const float closed = settledRms(120.0f);
+    const float open = settledRms(6000.0f);
+    REQUIRE(std::isfinite(closed));
+    REQUIRE(std::isfinite(open));
+    REQUIRE(open > closed * 4.0f); // the SVF low-pass actually filters
 }
 
 TEST_CASE("Waveguide engine plucks on gate rise and decays after gate fall", "[voice]") {
