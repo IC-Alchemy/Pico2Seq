@@ -18,6 +18,16 @@
 #include <atomic>
 #include <cmath>
 
+// Force-inline the per-sample stages of Voice::process(). Even at -O3 GCC
+// left computeEnvelope/updateFilter/mixOscillators and the two pending-change
+// checks as out-of-line calls: 4-6 call/return pairs per voice per sample on
+// the RP2350. The bodies are private and only ever called from process().
+#if defined(__GNUC__)
+#define PICO2SEQ_HOT_INLINE inline __attribute__((always_inline))
+#else
+#define PICO2SEQ_HOT_INLINE inline
+#endif
+
 // Sound-generation engine selected by VoiceConfig::engine. Engines other than
 // the default still run the shared envelope -> filter -> output chain; only
 // the source stage (and, for the noise engine, the pre-filter effect inserts)
@@ -39,6 +49,16 @@ enum VoiceParamSet : uint8_t
   PARAMSET_WAVEGUIDE = 1,
   PARAMSET_HYPERSAW = 2,
   PARAMSET_NOISESTORM = 3,
+};
+
+// Topology of the voice's main filter (when hasFilter is set). The ladder is
+// the character filter (drive + passband-gain compensation, 12/24 dB responses);
+// the state-variable filter is a clean TPT resonant filter whose response is
+// chosen by filterMode (LP* -> lowpass, BP* -> bandpass, HP* -> highpass).
+enum VoiceFilterType : uint8_t
+{
+  FILTER_LADDER = 0,
+  FILTER_SVF = 1,
 };
 
 /**
@@ -81,10 +101,14 @@ struct VoiceConfig
   float noiseSwarmRegen = 0.9f;  // Allpass swarm regeneration (0.0-1.2)
   float noiseChaosLevel = 0.35f; // Pitch-tracked chaos_lorenz growl mix (0.0-1.0)
 
-  // Filter settings
+  // Filter settings. filterType picks the topology; filterDrive and
+  // filterPassbandGain only affect the ladder and are ignored by the SVF.
+  // filterMode selects the ladder response, and doubles as the SVF response
+  // (LP* -> lowpass out, BP* -> bandpass out, HP* -> highpass out).
+  uint8_t filterType = FILTER_LADDER; // Main filter topology (VoiceFilterType)
   float filterRes = 0.2f;            // Filter resonance (0.0-1.0)
-  float filterDrive = 1.8f;          // Filter drive amount (0.0-4.0)
-  float filterPassbandGain = 0.23f;  // Passband gain compensation (0.0-0.5)
+  float filterDrive = 1.8f;          // Ladder drive amount (0.0-4.0; SVF ignores)
+  float filterPassbandGain = 0.23f;  // Ladder passband gain compensation (0.0-0.5; SVF ignores)
   rpdsp::LadderFilter::Mode filterMode = rpdsp::LadderFilter::Mode::LP24; // Filter mode
   float filterCutoffBase = 0.37f;    // Normalized static cutoff (0.0-1.0) used when
                                      // paramSet re-purposes the Filter slot (e.g. NoiseStorm)
@@ -96,7 +120,7 @@ struct VoiceConfig
   // Effects chain configuration
   bool hasOverdrive = false;     // Enable overdrive effect
   bool hasEnvelope = true;       // Enable envelope (recommended: true)
-  bool hasFilter = true;         // Enable the ladder filter (false = bypass, velocity scales output)
+  bool hasFilter = true;         // Enable the main filter (false = bypass, velocity scales output)
   float overdriveGain = 0.34f;   // Overdrive output gain (0.0-2.0)
   float overdriveDrive = 0.25f;  // Overdrive drive amount (0.0-1.0)
 
@@ -372,6 +396,7 @@ private:
   std::array<VoiceOscillator, 3> oscillators;
   rpdsp::NoiseOscillator noise_;
   rpdsp::LadderFilter filter;
+  rpdsp::StateVariableFilter filterSvf_;  // Alternate main-filter topology (FILTER_SVF)
   rpdsp::StateVariableFilter highPassFilter;
   rpdsp::ADSR envelope;
   rpdsp::Waveshaper overdrive;
@@ -408,8 +433,12 @@ private:
   // Cache of last applied cutoff to avoid redundant filter.SetFreq calls in the hotpath.
   // Initialized to -1.0f in ctor/init to guarantee first SetFreq occurs.
   float lastAppliedFilterCutoff = -1.0f;
-  // Throttle expensive filter.SetFreq() updates
-  uint8_t filterUpdateInterval = 8;              // apply SetFreq at most once every 8 samples
+  // Throttle expensive filter.setFreq() updates: coefficients are recomputed
+  // at most once every kFilterUpdateInterval samples. Power of two so the
+  // rolling counter wraps with a mask instead of a per-sample UDIV.
+  static constexpr uint8_t kFilterUpdateInterval = 8;
+  static_assert((kFilterUpdateInterval & (kFilterUpdateInterval - 1)) == 0,
+                "kFilterUpdateInterval must be a power of two");
   uint8_t filterUpdateCounter = 0;               // rolling counter
   static constexpr float kFilterRelEps = 2e-3f;  // 0.2% relative change
   static constexpr float kFilterAbsEpsHz = 1.0f; // or at least 1 Hz change
@@ -428,6 +457,10 @@ private:
   uint8_t cachedOscCount_ = 0;
   // Bypass flags computed on config apply to avoid unnecessary DSP work
   bool hpfBypass_ = false;
+  // Which StateVariableFilter output the main filter reads when
+  // filterType == FILTER_SVF: 0 lowpass, 1 bandpass, 2 highpass (from
+  // filterMode, cached on config apply).
+  uint8_t svfOutputSel_ = 0;
 
   // Slide/portamento control
   // slideTimeSeconds is the exponential time constant in seconds
@@ -529,9 +562,28 @@ private:
    */
   void processEffectsChain(float &signal);
 
-  // Cross-core application helpers (called on audio thread at start of process)
-  void applyPendingParams_() noexcept;
-  void applyPendingConfig_() noexcept;
+  // Cross-core application helpers (called on audio thread at start of
+  // process). The per-sample checks are inline so the common "nothing
+  // pending" case costs one load and one branch; the bodies stay in Voice.cpp.
+  PICO2SEQ_HOT_INLINE void applyPendingParams_() noexcept
+  {
+    const uint32_t gen = paramsGen_.load(std::memory_order_seq_cst);
+    if (gen != appliedParamsGen_)
+    {
+      applyPendingParamsSlow_(gen);
+    }
+  }
+  PICO2SEQ_HOT_INLINE void applyPendingConfig_() noexcept
+  {
+    if (configPending_.load(std::memory_order_acquire))
+    {
+      applyPendingConfigSlow_();
+    }
+  }
+  void applyPendingParamsSlow_(uint32_t gen) noexcept;
+  void applyPendingConfigSlow_() noexcept;
+  // Structural part of a config change (oscillator bank rebuild + engine
+  // switch); process() applies it only while the gate is low.
   void applyStructuralConfig_() noexcept;
 
   // Pitch recompute helpers (staging on control thread; commit on audio thread)
@@ -545,13 +597,21 @@ private:
    * @brief Compute envelope value for current sample
    * @return float Envelope amplitude (0.0-1.0)
    */
-  float computeEnvelope();
+  PICO2SEQ_HOT_INLINE float computeEnvelope();
 
   /**
    * @brief Update filter parameters based on envelope and voice state
    * @param envelopeValue Current envelope value (0.0-1.0)
    */
-  void updateFilter(float envelopeValue);
+  PICO2SEQ_HOT_INLINE void updateFilter(float envelopeValue);
+
+  /**
+   * @brief Push topology-dependent filter config (resonance, SVF response)
+   *        into the state-variable path. Control-rate: called from init() and
+   *        applyPendingConfig_(); cutoff itself is updated per-sample by
+   *        updateFilter().
+   */
+  void configureMainFilterFromConfig_() noexcept;
 
   /**
    * @brief Recompute cached detune multipliers from configuration
@@ -563,7 +623,7 @@ private:
    * @brief Mix and process oscillator outputs
    * @return float Mixed oscillator signal (-1.0 to +1.0)
    */
-  float mixOscillators();
+  PICO2SEQ_HOT_INLINE float mixOscillators();
 
   /**
    * @brief Apply engine-specific configuration (waveguide tuning, noise state)
@@ -600,7 +660,7 @@ private:
    * @param envelopeValue Envelope amplitude (0.0-1.0)
    * @return float Final output signal (-1.0 to +1.0)
    */
-  float finalizeOutput(float signal, float envelopeValue) noexcept;
+  PICO2SEQ_HOT_INLINE float finalizeOutput(float signal, float envelopeValue) noexcept;
 
   /**
    * @brief Update oscillator frequencies based on current state
