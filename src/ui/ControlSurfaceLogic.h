@@ -108,6 +108,67 @@ public:
 };
 
 // ---------------------------------------------------------------------------
+// LED layout (pad-mirror geometry)
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief Linear LED-index geometry for the 8x4 WS2812B panel.
+ *
+ * The LED panel mirrors the 4x8 MPR121 touch matrix: band b (0 = the voice
+ * pair's low voice, 1 = its high voice) occupies LED linear indices
+ * b*16..b*16+15 — exactly the pad indices of touch rows 2b..2b+1. All step
+ * rendering in src/LEDMatrix/ must go through this helper so the two
+ * surfaces cannot drift apart. The constexprs intentionally duplicate
+ * LEDConstants.h, which cannot be included here (it pulls in FastLED);
+ * LEDMatrixFeedback.cpp static_asserts the agreement.
+ */
+class LedLayout
+{
+public:
+  static constexpr uint8_t kWidth = 8;                             // LEDs/pads per row
+  static constexpr uint8_t kRowsPerBand = 2;                       // rows per voice band
+  static constexpr uint8_t kStepsPerBand = kWidth * kRowsPerBand;  // 16 steps per voice
+  static constexpr uint8_t kBandCount = 2;                         // voices visible at once
+  static constexpr uint8_t kLedCount = kStepsPerBand * kBandCount; // 32 LEDs
+
+  /** Band (0/1) of a selected voice (0..3, clamped like PadBank::pairFor). */
+  static constexpr uint8_t bandOfVoiceInPair(uint8_t selectedVoiceIndex)
+  {
+    if (selectedVoiceIndex >= 4)
+    {
+      selectedVoiceIndex = 0;
+    }
+    return static_cast<uint8_t>(selectedVoiceIndex & 1u);
+  }
+
+  /** Linear LED index for (band, step); -1 when out of range. */
+  static constexpr int linearIndex(uint8_t band, uint8_t step)
+  {
+    if (band >= kBandCount || step >= kStepsPerBand)
+    {
+      return -1;
+    }
+    return static_cast<int>(band * kStepsPerBand + step);
+  }
+
+  /** X column for a step; -1 when out of range. */
+  static constexpr int x(uint8_t step)
+  {
+    return (step < kStepsPerBand) ? static_cast<int>(step % kWidth) : -1;
+  }
+
+  /** Y row for (band, step); -1 when out of range. */
+  static constexpr int y(uint8_t band, uint8_t step)
+  {
+    if (band >= kBandCount || step >= kStepsPerBand)
+    {
+      return -1;
+    }
+    return static_cast<int>(band * kRowsPerBand + step / kWidth);
+  }
+};
+
+// ---------------------------------------------------------------------------
 // Shift latch semantics
 // ---------------------------------------------------------------------------
 

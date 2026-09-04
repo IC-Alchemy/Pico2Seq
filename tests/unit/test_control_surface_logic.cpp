@@ -154,6 +154,50 @@ TEST_CASE("PadBank clamps out-of-range pad indices", "[control_surface]")
 }
 
 // ---------------------------------------------------------------------------
+// LedLayout (pad-mirror LED geometry)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("LedLayout mirrors the touch-pad geometry", "[control_surface]")
+{
+    // The 8x4 LED panel mirrors the 4x8 touch matrix: band b covers LED
+    // linear indices b*16..b*16+15, and touch pads b*16..b*16+15 occupy
+    // rows 2b..2b+1. The same (band, step) must resolve to the same index
+    // on both surfaces.
+    for (uint8_t band = 0; band < LedLayout::kBandCount; ++band)
+    {
+        for (uint8_t step = 0; step < LedLayout::kStepsPerBand; ++step)
+        {
+            const uint8_t padRow = static_cast<uint8_t>(2 * band + step / LedLayout::kWidth);
+            const uint8_t padCol = static_cast<uint8_t>(step % LedLayout::kWidth);
+            const uint8_t padIndex = static_cast<uint8_t>(padRow * LedLayout::kWidth + padCol);
+            CHECK(LedLayout::linearIndex(band, step) == static_cast<int>(padIndex));
+            CHECK(LedLayout::x(step) == static_cast<int>(padCol));
+            CHECK(LedLayout::y(band, step) == static_cast<int>(padRow));
+        }
+    }
+    CHECK(LedLayout::kLedCount == 32);
+    CHECK(LedLayout::kStepsPerBand == 16);
+}
+
+TEST_CASE("LedLayout rejects out-of-range coordinates", "[control_surface]")
+{
+    CHECK(LedLayout::linearIndex(LedLayout::kBandCount, 0) == -1);
+    CHECK(LedLayout::linearIndex(0, LedLayout::kStepsPerBand) == -1);
+    CHECK(LedLayout::y(LedLayout::kBandCount, 0) == -1);
+    CHECK(LedLayout::y(0, LedLayout::kStepsPerBand) == -1);
+    CHECK(LedLayout::x(LedLayout::kStepsPerBand) == -1);
+}
+
+TEST_CASE("LedLayout maps selected voices onto pair bands", "[control_surface]")
+{
+    CHECK(LedLayout::bandOfVoiceInPair(0) == 0);
+    CHECK(LedLayout::bandOfVoiceInPair(1) == 1);
+    CHECK(LedLayout::bandOfVoiceInPair(2) == 0);
+    CHECK(LedLayout::bandOfVoiceInPair(3) == 1);
+    CHECK(LedLayout::bandOfVoiceInPair(4) == 0); // clamped like PadBank::pairFor
+}
+
+// ---------------------------------------------------------------------------
 // ShiftLatch
 // ---------------------------------------------------------------------------
 
