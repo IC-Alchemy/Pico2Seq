@@ -6,6 +6,7 @@
 #include "voice/Voice.h"
 #include "voice/VoicePresets.h"
 #include "scales/scales.h"
+#include "utils/DspMapping.h"
 
 using namespace Catch::Matchers;
 
@@ -339,6 +340,42 @@ TEST_CASE("Noise/Hypersaw slots are re-purposed on the audio-thread config", "[v
     vh.process();
     REQUIRE(vh.getConfig().oscDetuning[1] == 0.5f);
     REQUIRE(vh.getConfig().oscDetuning[2] == -0.5f);
+}
+
+TEST_CASE("Preset param sets and re-purposed slot names", "[voice][presets]") {
+    namespace VP = VoicePresets;
+    REQUIRE(VP::getPresetParamSet(0) == PARAMSET_STANDARD);
+    REQUIRE(VP::getPresetParamSet(8) == PARAMSET_STANDARD);
+    REQUIRE(VP::getPresetParamSet(9) == PARAMSET_WAVEGUIDE);
+    REQUIRE(VP::getPresetParamSet(12) == PARAMSET_WAVEGUIDE);
+    REQUIRE(VP::getPresetParamSet(13) == PARAMSET_HYPERSAW);
+    REQUIRE(VP::getPresetParamSet(14) == PARAMSET_NOISESTORM);
+    REQUIRE(VP::getPresetParamSet(200) == PARAMSET_STANDARD);
+
+    REQUIRE(std::string(VP::getSequencerParamName(9, ParamId::Filter)) == "Bright");
+    REQUIRE(std::string(VP::getSequencerParamName(9, ParamId::Attack)) == "Pick");
+    REQUIRE(std::string(VP::getSequencerParamName(9, ParamId::Decay)) == "T60");
+    REQUIRE(VP::getSequencerParamName(9, ParamId::Velocity) == nullptr);
+    REQUIRE(std::string(VP::getSequencerParamName(13, ParamId::Attack)) == "Detune");
+    REQUIRE(std::string(VP::getSequencerParamName(13, ParamId::Decay)) == "Drive");
+    REQUIRE(VP::getSequencerParamName(13, ParamId::Filter) == nullptr); // stays Cutoff
+    REQUIRE(std::string(VP::getSequencerParamName(14, ParamId::Filter)) == "Color");
+    REQUIRE(std::string(VP::getSequencerParamName(14, ParamId::Attack)) == "Regen");
+    REQUIRE(std::string(VP::getSequencerParamName(14, ParamId::Decay)) == "Chaos");
+    REQUIRE(VP::getSequencerParamName(0, ParamId::Filter) == nullptr);
+}
+
+TEST_CASE("presetIndexForPad maps pads 8..8+count-1", "[voice][presets]") {
+    REQUIRE(VoicePresets::presetIndexForPad(7, 15) == -1);
+    REQUIRE(VoicePresets::presetIndexForPad(8, 15) == 0);
+    REQUIRE(VoicePresets::presetIndexForPad(22, 15) == 14);
+    REQUIRE(VoicePresets::presetIndexForPad(23, 15) == -1);
+    REQUIRE(VoicePresets::presetIndexForPad(8, 0) == -1);
+
+    // Round-trip of the T60 seeding map
+    const float norm = VoicePresets::wgT60ToNormalized(3.2f);
+    REQUIRE_THAT(dspmap::fmap(norm, 0.05f, 10.0f, dspmap::Mapping::EXP),
+                 WithinAbs(3.2f, 0.01f));
 }
 
 TEST_CASE("Noise-FX engine produces finite textured output while gated", "[voice]") {

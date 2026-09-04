@@ -519,6 +519,72 @@ namespace VoicePresets
     return std::sqrt((t - 0.05f) / 9.95f);
   }
 
+  namespace
+  {
+    // Re-purposed slot display names per param set; nullptr = slot keeps its
+    // standard meaning. Order matters only for readability.
+    struct SlotName
+    {
+      ParamId id;
+      const char *wg;
+      const char *hy;
+      const char *ns;
+    };
+    constexpr SlotName kSlotNames[] = {
+        {ParamId::Filter, "Bright", nullptr, "Color"},
+        {ParamId::Attack, "Pick", "Detune", "Regen"},
+        {ParamId::Decay, "T60", "Drive", "Chaos"},
+    };
+  }
+
+  VoiceParamSet getPresetParamSet(uint8_t presetIndex) noexcept
+  {
+    if (presetIndex >= getPresetCount())
+    {
+      return PARAMSET_STANDARD;
+    }
+    return static_cast<VoiceParamSet>(getPresetConfig(presetIndex).paramSet);
+  }
+
+  const char *getSequencerParamName(uint8_t presetIndex, ParamId id) noexcept
+  {
+    const VoiceParamSet set = getPresetParamSet(presetIndex);
+    if (set == PARAMSET_STANDARD)
+    {
+      return nullptr;
+    }
+    for (const auto &slot : kSlotNames)
+    {
+      if (slot.id != id)
+      {
+        continue;
+      }
+      switch (set)
+      {
+      case PARAMSET_WAVEGUIDE:
+        return slot.wg;
+      case PARAMSET_HYPERSAW:
+        return slot.hy;
+      case PARAMSET_NOISESTORM:
+        return slot.ns;
+      default:
+        return nullptr;
+      }
+    }
+    return nullptr;
+  }
+
+  int presetIndexForPad(uint8_t padIndex, uint8_t presetCount) noexcept
+  {
+    constexpr uint8_t kBasePad = 8; // first preset pad in settings mode
+    if (presetCount == 0 || padIndex < kBasePad)
+    {
+      return -1;
+    }
+    const uint8_t idx = static_cast<uint8_t>(padIndex - kBasePad);
+    return (idx < presetCount) ? static_cast<int>(idx) : -1;
+  }
+
   const VoiceConfig &getPresetConfig(uint8_t presetIndex) noexcept
   {
     switch (presetIndex)
