@@ -172,7 +172,9 @@ TEST_CASE("New presets select the intended engines", "[voice][presets]") {
     REQUIRE(VoicePresets::getWaveguideNylonVoice().engine == ENGINE_WAVEGUIDE);
     REQUIRE(VoicePresets::getWaveguideBellVoice().engine == ENGINE_WAVEGUIDE);
     REQUIRE(VoicePresets::getWaveguideShimmerVoice().engine == ENGINE_WAVEGUIDE);
-    REQUIRE(VoicePresets::getHypersawVoice().engine == ENGINE_OSC);
+    REQUIRE(VoicePresets::getHypersawVoice().engine == ENGINE_HYPERSAW);
+    REQUIRE(VoicePresets::getHypersawVoice().oscillatorCount == 0);
+    REQUIRE_FALSE(VoicePresets::getHypersawVoice().hasOverdrive);
     REQUIRE(VoicePresets::getNoiseStormVoice().engine == ENGINE_NOISEFX);
 }
 
@@ -409,12 +411,12 @@ TEST_CASE("Noise/Hypersaw slots are re-purposed on the audio-thread config", "[v
 
     Voice vh(0, VoicePresets::getHypersawVoice());
     initVoiceWithScale(vh);
-    vs.attackTimeSeconds = 0.5f;  // Detune slot (semitones)
-    vs.decayTimeSeconds = 0.25f;  // Drive slot
+    vs.attackTimeSeconds = 0.5f;  // Native Hypersaw detune slot
+    vs.decayTimeSeconds = 0.25f;  // Native Hypersaw mix slot
     vh.updateParameters(vs);
     vh.process();
-    REQUIRE(vh.getConfig().oscDetuning[1] == 0.5f);
-    REQUIRE(vh.getConfig().oscDetuning[2] == -0.5f);
+    REQUIRE(vh.getConfig().hypersawDetune == 0.5f);
+    REQUIRE(vh.getConfig().hypersawMix == 0.25f);
 }
 
 TEST_CASE("Preset param sets and re-purposed slot names", "[voice][presets]") {
@@ -432,7 +434,7 @@ TEST_CASE("Preset param sets and re-purposed slot names", "[voice][presets]") {
     REQUIRE(std::string(VP::getSequencerParamName(9, ParamId::Decay)) == "T60");
     REQUIRE(VP::getSequencerParamName(9, ParamId::Velocity) == nullptr);
     REQUIRE(std::string(VP::getSequencerParamName(13, ParamId::Attack)) == "Detune");
-    REQUIRE(std::string(VP::getSequencerParamName(13, ParamId::Decay)) == "Drive");
+    REQUIRE(std::string(VP::getSequencerParamName(13, ParamId::Decay)) == "Mix");
     REQUIRE(VP::getSequencerParamName(13, ParamId::Filter) == nullptr); // stays Cutoff
     REQUIRE(std::string(VP::getSequencerParamName(14, ParamId::Filter)) == "Color");
     REQUIRE(std::string(VP::getSequencerParamName(14, ParamId::Attack)) == "Regen");

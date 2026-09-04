@@ -30,7 +30,7 @@ Adafruit_MPR121 touchSensor = Adafruit_MPR121();
 //   AUDIO SYSTEM CONSTANTS
 // =======================
 constexpr float SAMPLE_RATE = 48000.0f;
-constexpr size_t MAX_DELAY_SAMPLES = static_cast<size_t>(SAMPLE_RATE * 1.8f);
+constexpr size_t MAX_DELAY_SAMPLES = static_cast<size_t>(SAMPLE_RATE * .8f);
 constexpr int NUM_AUDIO_BUFFERS = 3;
 constexpr int SAMPLES_PER_BUFFER = 256;
 constexpr float INT16_MAX_AS_FLOAT = 32767.0f;
@@ -257,8 +257,8 @@ static void seedRepurposedParamTracks(uint8_t voiceIndex, const VoiceConfig &con
         slots[count++] = {ParamId::Decay, VoicePresets::wgT60ToNormalized(config.wgT60)};
         break;
     case PARAMSET_HYPERSAW:
-        slots[count++] = {ParamId::Attack, clamp01(config.oscDetuning[1])};
-        slots[count++] = {ParamId::Decay, clamp01(config.overdriveDrive)};
+        slots[count++] = {ParamId::Attack, clamp01(config.hypersawDetune)};
+        slots[count++] = {ParamId::Decay, clamp01(config.hypersawMix)};
         break;
     case PARAMSET_NOISESTORM:
         slots[count++] = {ParamId::Filter, clamp01(config.noiseSwarmColor)};
@@ -843,7 +843,6 @@ static void printAlchemyTileScanReport()
  */
 void setup1()
 {
-    delay(300); // Allow Core 0 audio system to stabilize
 
     // Initialize MIDI communication
     usb_midi.begin(MIDI_CHANNEL_OMNI);

@@ -60,6 +60,7 @@ enum VoiceEngine : uint8_t {
     ENGINE_OSC = 0,       // Up to 3 oscillators (or raw noise when oscillatorCount == 0)
     ENGINE_WAVEGUIDE = 1, // Karplus-Strong plucked string (rpdsp::PluckedStringVoice)
     ENGINE_NOISEFX = 2,   // Noise + chaos source through diffuser/swarm inserts
+    ENGINE_HYPERSAW = 3,  // One rpdsp::Hypersaw (internally seven detuned saw voices)
 };
 
 struct VoiceConfig {
@@ -72,7 +73,7 @@ struct VoiceConfig {
     int harmony[3] = {0, 0, 0};                                             // Harmony intervals in scale steps (-12 to +12)
 
     // Sound engine selection (VoiceEngine). Ignored fields stay at their defaults.
-    uint8_t engine = ENGINE_OSC;                                            // ENGINE_OSC, ENGINE_WAVEGUIDE, or ENGINE_NOISEFX
+    uint8_t engine = ENGINE_OSC;                                            // ENGINE_OSC, ENGINE_WAVEGUIDE, ENGINE_NOISEFX, or ENGINE_HYPERSAW
 
     // Waveguide engine parameters (ENGINE_WAVEGUIDE only)
     float wgT60 = 2.5f;                                                     // String tail T60 in seconds (0.05-10.0)
@@ -81,6 +82,10 @@ struct VoiceConfig {
     float wgPickHardness = 0.8f;                                            // Excitation burst: 0 soft felt .. 1 hard pick
     float wgStiffness = 0.0f;                                               // Inharmonic dispersion: 0 harmonic .. 1 bell-like
     float wgDetune = 6.0f;                                                  // Two-string course spread in cents (0.0-30.0)
+
+    // Hypersaw engine parameters (ENGINE_HYPERSAW only)
+    float hypersawDetune = 0.2f;                                            // Seven-voice detune amount (0.0-1.0)
+    float hypersawMix = 0.5f;                                               // Center/side mix amount (0.0-1.0)
 
     // Noise-FX engine parameters (ENGINE_NOISEFX only)
     float noiseDiffuseSize = 0.8f;                                          // Prime-tap diffuser smear (0.0-1.0)
@@ -354,7 +359,7 @@ Each preset is built by a `constexpr VoiceConfig makeXxx() noexcept` factory fun
 | **10** | **WgNylon** | waveguide | — (wg: T60 3.2s, bright 0.28, pick 0.42/0.22, stiff 0.05, det 9c) | — | — | — | **none** (`hasFilter=false`) | ladder bypassed; sub-shed HPF 66 Hz | Off | **none** (`hasEnvelope=false`; natural T60 ring) | `0.9` |
 | **11** | **WgBell** | waveguide | — (wg: T60 1.4s, bright 0.9, pick 0.08/1.0, stiff 0.88, det 0c) | — | — | — | **none** (`hasFilter=false`) | ladder + HPF bypassed | Off | **none** (`hasEnvelope=false`; natural T60 ring) | `0.75` |
 | **12** | **WgShimmer** | waveguide | — (wg: T60 6.5s, bright 0.55, pick 0.35/0.6, stiff 0.15, det 26c) | — | — | — | **none** (`hasFilter=false`) | ladder + HPF bypassed | Off | **none** (`hasEnvelope=false`; natural T60 ring) | `0.8` |
-| **13** | **Hypersaw** | osc | 3x `WAVE_BSP_SAW` | `[0.45, 0.3, 0.3]` | `[0.0, +0.21, -0.21]` | `[0, 0, +12]` | **LP24** (SVF) | Res: 0.35, SVF low-pass, HPF: 180 Hz | On (Gain: 0.85, Drive: 0.28) | `0.012s / 0.3s / 0.8 / 0.25s` | `0.5` |
+| **13** | **Hypersaw** | hypersaw | one `rpdsp::Hypersaw` (seven internal saws) | — | Detune: 0.2 (native 0–1) | — | **LP24** (SVF) | Res: 0.35, SVF low-pass, HPF: 180 Hz | Off | `0.012s / 0.3s / 0.8 / 0.25s` | `0.5` |
 | **14** | **NoiseStorm** | noise-FX | — (nf: diffuse 0.85/0.65, swarm 0.6/0.95, chaos 0.4) | — | — | — | **LP24** (SVF) | Res: 0.72, SVF low-pass, HPF: 220 Hz | On (Gain: 0.8, Drive: 0.4) | `0.003s / 0.5s / 0.55 / 0.45s` | `0.45` |
 
 Filter topology: only **Analog** and **Lead** still run the `rpdsp::LadderFilter`
@@ -365,7 +370,7 @@ under the envelope's cutoff sweeps and its resonant low-pass/band-pass character
 `filterMode` values (LP→lowpass, BP→bandpass), and it ignores `filterDrive`/
 `filterPassbandGain`.
 
-The eight presets added with the expansion bank: **SubFunk** — bouncy sub bass; a sine sub an octave down carries the weight, a triangle adds movement, and a resonant SVF low-pass plus warm overdrive grit gives the filtered-growl funk character. **RubberSub** — rubbery sub bass; a sub-octave square grinds under a sine through a resonant SVF band-pass ("rubbery honk"), with harder overdrive that spits on transients. **WgPluck** — classic Karplus-Strong plucked string: bright burst, harmonic loop, short natural tail. **WgNylon** — dark felt-soft nylon: heavily damped loop, gentle pick, long sympathetic tail. **WgBell** — stiff dispersive string whose inharmonic upper partials read as bell/kalimba; hard bridge pick, quick tail. **WgShimmer** — wide-detuned (26-cent) two-string course with a very long T60 tail; slow chorusing sustain turns the pluck into a ringing pad. **Hypersaw** — supersaw-style stack of three BSP saws (detune spread is a live sequencer slot) glued with mild overdrive under a wide-open SVF low-pass. **NoiseStorm** — noise-based texture: noise plus a pitch-tracked Lorenz chaos growl feed a prime-tap diffuser and a regenerative allpass swarm, then a resonant SVF low-pass pings with the envelope.
+The eight presets added with the expansion bank: **SubFunk** — bouncy sub bass; a sine sub an octave down carries the weight, a triangle adds movement, and a resonant SVF low-pass plus warm overdrive grit gives the filtered-growl funk character. **RubberSub** — rubbery sub bass; a sub-octave square grinds under a sine through a resonant SVF band-pass ("rubbery honk"), with harder overdrive that spits on transients. **WgPluck** — classic Karplus-Strong plucked string: bright burst, harmonic loop, short natural tail. **WgNylon** — dark felt-soft nylon: heavily damped loop, gentle pick, long sympathetic tail. **WgBell** — stiff dispersive string whose inharmonic upper partials read as bell/kalimba; hard bridge pick, quick tail. **WgShimmer** — wide-detuned (26-cent) two-string course with a very long T60 tail; slow chorusing sustain turns the pluck into a ringing pad. **Hypersaw** — one native seven-voice `rpdsp::Hypersaw`; its Detune and Mix sequencer slots drive the engine directly, under a wide-open SVF low-pass. **NoiseStorm** — noise-based texture: noise plus a pitch-tracked Lorenz chaos growl feed a prime-tap diffuser and a regenerative allpass swarm, then a resonant SVF low-pass pings with the envelope.
 
 Preset 9-12 use `engine = ENGINE_WAVEGUIDE` (`rpdsp::PluckedStringVoice`, 2048-sample
 delay): each gate rise (or retrigger) plucks the string at the current base pitch, and
@@ -376,6 +381,10 @@ bypassed, velocity scales the raw string output directly, and the string rings p
 gate fall on its own T60 (gate edges still arm plucks — see `computeEnvelope()`).
 WgPluck/WgNylon keep a gentle 55/66 Hz high-pass to shed subsonic rumble that
 Karplus tails otherwise accumulate; WgBell/WgShimmer bypass the high-pass too.
+Preset 13 uses `engine = ENGINE_HYPERSAW`: one `rpdsp::Hypersaw` instance supplies
+its internal seven saw voices. Its Attack and Decay sequencer slots are re-purposed
+as normalized Detune and Mix controls, respectively; Filter remains the live cutoff.
+
 Preset 14 uses `engine = ENGINE_NOISEFX`: `NoiseOscillator` plus a pitch-tracked
 `chaos_lorenz` growl feed `fx_diffuse` (prime-tap diffuser) and `fx_swarm` (regenerative
 allpass swarm) from `rpdsp/DSPFunctions.h`, pre-filter so the SVF shapes the texture.
@@ -393,7 +402,7 @@ re-purposed tracks with the preset's values (`seedRepurposedParamTracks()` in
 |---|---|---|---|---|
 | STANDARD | 0–8 | Cutoff (150 Hz–8 kHz, EXP) | Attack (0.002–0.75 s) | Decay (0.002–0.8 s, LOG) |
 | WAVEGUIDE | 9–12 | Brightness (0–1) | Pick hardness (0–1) | T60 (0.05–10 s, EXP; `wgT60ToNormalized` seeds tracks) |
-| HYPERSAW | 13 | Cutoff (live) | Detune spread (0–1 semitone, symmetric ±) | Overdrive drive (1–4) |
+| HYPERSAW | 13 | Cutoff (live) | Native seven-voice detune (0–1) | Native center/side mix (0–1) |
 | NOISESTORM | 14 | Swarm color | Swarm regen | Chaos level (the SVF keeps the preset's static `filterCutoffBase`) |
 
 For HYPERSAW/NOISESTORM the ADSR times come from the preset defaults (`applyEnvelopeDefaults_()`),
@@ -431,6 +440,7 @@ Each call to `Voice::process()` on Core 0 executes the following stages:
 │ 4. Source Stage & Slide Slew (mixOscillators)                                   │
 │    - Silence short-circuit: If E <= 0.0005, return 0.0 immediately              │
 │    - engine == ENGINE_WAVEGUIDE: pluck on gate rise; S_osc = waveguide_.process │
+│    - engine == ENGINE_HYPERSAW: S_osc = one native seven-voice Hypersaw         │
 │    - engine == ENGINE_NOISEFX: S_osc = noise + chaos_lorenz (fx inserts at 5)   │
 │    - ENGINE_OSC: commit pitch to hardware ONLY when isGateHigh == true          │
 │    - If slide active: Exponential slew via fmaf(delta, slideAlpha, currentFreq) │

@@ -5,6 +5,7 @@
 #include "../rpdsp/src/rpdsp/filter.h"
 #include "../rpdsp/src/rpdsp/envelope.h"
 #include "../rpdsp/src/rpdsp/effects.h"
+#include "../rpdsp/src/rpdsp/hypersaw.h"
 #include "../rpdsp/src/rpdsp/waveguide.h"
 #include "../rpdsp/src/rpdsp/DSPFunctions.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
@@ -37,6 +38,7 @@ enum VoiceEngine : uint8_t
   ENGINE_OSC = 0,       // Up to 3 oscillators (or raw noise when oscillatorCount == 0)
   ENGINE_WAVEGUIDE = 1, // Karplus-Strong plucked string (rpdsp::PluckedStringVoice)
   ENGINE_NOISEFX = 2,   // Noise + chaos source through diffuser/swarm inserts
+  ENGINE_HYPERSAW = 3,  // One rpdsp::Hypersaw (internally seven detuned saw voices)
 };
 
 // How the sequencer's Filter/Attack/Decay parameter slots are interpreted for
@@ -93,6 +95,10 @@ struct VoiceConfig
   float wgPickHardness = 0.8f; // Excitation burst: 0 soft felt .. 1 hard pick
   float wgStiffness = 0.0f;    // Inharmonic dispersion: 0 harmonic .. 1 bell-like
   float wgDetune = 6.0f;       // Two-string course spread in cents (0.0-30.0)
+
+  // Hypersaw engine parameters (ENGINE_HYPERSAW only)
+  float hypersawDetune = 0.2f; // Seven-voice detune amount (0.0-1.0)
+  float hypersawMix = 0.5f;    // Mix amount for the hypersaw layers (0.0-1.0)
 
   // Noise-FX engine parameters (ENGINE_NOISEFX only)
   float noiseDiffuseSize = 0.8f; // Prime-tap diffuser smear (0.0-1.0)
@@ -401,11 +407,14 @@ private:
   rpdsp::ADSR envelope;
   rpdsp::Waveshaper overdrive;
 
-  // Alternate engines. Both are fixed-storage members so Voice stays
-  // allocation-free; they only run when config.engine selects them.
+  // Alternate engines are fixed-storage members so Voice stays allocation-free;
+  // they only run when config.engine selects them.
   // Waveguide capacity 2048 samples ≈ 24 Hz minimum pitch at 48 kHz.
   static constexpr size_t kWaveguideCapacity = 2048;
   rpdsp::PluckedStringVoice<kWaveguideCapacity> waveguide_;
+  // A Hypersaw itself contains the seven saw voices. Keep exactly one instance
+  // per Voice rather than building a second unison stack from VoiceOscillator.
+  rpdsp::Hypersaw hypersaw_;
   // Noise-FX scratch (caller-owned state for the rpdsp DSPFunctions free
   // functions): 2048-tap diffuser ring plus diffuser/swarm/chaos state.
   static constexpr int kNoiseFxBufferSize = 2048;
@@ -419,6 +428,8 @@ private:
   // Set on gate rise/retrigger so the waveguide engine plucks with the pitch
   // already committed for this frame; consumed by mixOscillators().
   bool wgPluckPending_ = false;
+  // Hypersaw randomizes its internal phases on each gate rise/retrigger.
+  bool hypersawTriggerPending_ = false;
   // Cached engine (clamped config.engine), updated on config apply.
   uint8_t cachedEngine_ = ENGINE_OSC;
 
@@ -509,6 +520,7 @@ private:
     int8_t octaveOffset;
     int harmony[3];
     uint8_t oscCount;
+    bool usesHypersaw;
     uint32_t detuneVersion;
     bool hasSlide;
     // Snapshotted pitch controls to detect changes
@@ -530,6 +542,9 @@ private:
   // Generation counter: bumped after cache write; audio thread copies appliedPitchGen_
   std::atomic<uint32_t> pitchGen_{0};
   uint32_t appliedPitchGen_{0};
+  // Hypersaw consumes the shared pitch cache independently of the regular
+  // oscillator bank, which may be empty for ENGINE_HYPERSAW.
+  uint32_t hypersawAppliedPitchGen_{0};
 
   // Detune version: incremented when detune multipliers are recomputed
   uint32_t detuneVersion_{0};
@@ -636,6 +651,12 @@ private:
    * @return float Waveguide output
    */
   float processWaveguide_() noexcept;
+
+  /**
+   * @brief Process the single native seven-voice Hypersaw source
+   * @return float Hypersaw output
+   */
+  float processHypersaw_() noexcept;
 
   /**
    * @brief Noise-FX engine source stage: noise + pitch-tracked chaos growl

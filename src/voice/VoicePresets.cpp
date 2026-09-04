@@ -396,40 +396,29 @@ namespace VoicePresets
     return c;
   }
 
-  // Hypersaw: three saw stack - two detuned unisons plus an octave layer,
-  // glued with mild overdrive and a wide-open filter. Detune/Drive are
-  // sequencer slots (see getSequencerParamName).
+  // Hypersaw: one native seven-voice Super Saw under a wide-open filter.
+  // Detune/Mix are sequencer slots (see getSequencerParamName).
   constexpr VoiceConfig makeHypersaw() noexcept
   {
     VoiceConfig c{};
-    c.oscillatorCount = 3;
-    c.oscWaveforms[0] = WAVE_BSP_SAW;
+    c.oscillatorCount = 0;
+    c.engine = ENGINE_HYPERSAW;
     c.paramSet = PARAMSET_HYPERSAW;
-    c.oscWaveforms[1] = WAVE_BSP_SAW;
-    c.oscWaveforms[2] = WAVE_BSP_SAW;
-    c.oscAmplitudes[0] = 0.45f;
-    c.oscAmplitudes[1] = 0.3f;
-    c.oscAmplitudes[2] = 0.3f;
-    c.oscDetuning[0] = 0.0f;
-
-    c.harmony[0] = 0;
-    c.harmony[1] = 0;
-    c.harmony[2] = 12;         // octave layer on top
+    c.hypersawDetune = 0.2f;
+    c.hypersawMix = 0.5f;
 
     c.filterRes = 0.35f;
     c.filterType = FILTER_SVF; // wide-open clean low-pass
     c.highPassFreq = 180.0f;
     c.filterMode = rpdsp::LadderFilter::Mode::LP24; // SVF response: low-pass
 
-    c.hasOverdrive = true;
-    c.overdriveGain = 0.85f;
-    c.overdriveDrive = 0.28f; // density glue
+    c.hasOverdrive = false;
 
     c.defaultAttack = 0.012f;
     c.defaultDecay = 0.3f;
     c.defaultSustain = 0.8f;
     c.defaultRelease = 0.25f;
-    c.outputLevel = 0.5f;     // 3 saws + OD run hot
+    c.outputLevel = 0.5f;
     return c;
   }
 
@@ -529,7 +518,7 @@ namespace VoicePresets
     constexpr SlotName kSlotNames[] = {
         {ParamId::Filter, "Bright", nullptr, "Color"},
         {ParamId::Attack, "Pick", "Detune", "Regen"},
-        {ParamId::Decay, "T60", "Drive", "Chaos"},
+        {ParamId::Decay, "T60", "Mix", "Chaos"},
     };
   }
 

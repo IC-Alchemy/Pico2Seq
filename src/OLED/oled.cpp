@@ -523,7 +523,7 @@ String OLEDDisplay::formatParameterValue(ParamId paramId, float value, uint8_t p
 {
   // Re-purposed slots under a non-standard param set get their own units:
   // everything is a 0..1 percentage except the waveguide T60 (seconds, via
-  // the same EXP map the DSP uses) and the hypersaw detune (semitones).
+  // the same EXP map the DSP uses).
   const VoiceParamSet paramSet = VoicePresets::getPresetParamSet(presetIndex);
   if (paramSet != PARAMSET_STANDARD &&
       VoicePresets::getSequencerParamName(presetIndex, paramId) != nullptr)
@@ -531,10 +531,6 @@ String OLEDDisplay::formatParameterValue(ParamId paramId, float value, uint8_t p
     if (paramSet == PARAMSET_WAVEGUIDE && paramId == ParamId::Decay)
     {
       return String((int)dspmap::fmap(value, 0.05f, 10.0f, dspmap::Mapping::EXP)) + "s";
-    }
-    if (paramSet == PARAMSET_HYPERSAW && paramId == ParamId::Attack)
-    {
-      return String(value, 2) + "st";
     }
     return String((int)(value * 100)) + "%";
   }
