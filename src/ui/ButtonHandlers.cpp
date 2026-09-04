@@ -74,12 +74,16 @@ void handleRandomizeButton(int voiceIndex, UIState &state)
     //   Serial.print("Seq ");
     //  Serial.print(voiceIndex + 1);
     //  Serial.println(" randomized by short press");
+
+    // Transient OLED confirmation (replaces the old control-LED flash)
+    state.oledNoticeKind = UIState::OledNoticeKind::Randomized;
+    state.oledNoticeVoice = static_cast<uint8_t>(voiceIndex);
+    state.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
   }
 
   // Reset state and UI flashes common to all randomize buttons
   endRandomizePress(voiceIndex, state);
   state.selectedStepForEdit = -1;
-  state.flash31Until = millis() + CONTROL_LED_FLASH_DURATION_MS;
 }
 
 // Helper to cycle encoder parameter selection and report
@@ -215,7 +219,6 @@ void handleControlButton(int buttonId, UIState &state)
         state.inPresetSelection = false;
         state.selectedStepForEdit = -1;
       }
-      state.flash25Until = millis() + CONTROL_LED_FLASH_DURATION_MS;
     }
     break;
 
@@ -252,7 +255,9 @@ void handleControlButton(int buttonId, UIState &state)
 
   {
     state.delayOn = !state.delayOn;
-    state.flash23Until = millis() + CONTROL_LED_FLASH_DURATION_MS;
+    // Transient OLED confirmation (replaces the old control-LED flash)
+    state.oledNoticeKind = state.delayOn ? UIState::OledNoticeKind::DelayOn : UIState::OledNoticeKind::DelayOff;
+    state.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
     if (state.delayOn)
     {
       state.currentEncoderParameter = EncoderParameterMode::DelayTime;

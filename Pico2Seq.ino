@@ -801,7 +801,6 @@ void setup1()
     randomSeed(analogRead(A0) + millis());
     ledMatrix.begin(100);
     setupLEDMatrixFeedback();
-    initLEDController();
 
     if (!distanceSensor.begin())
     {
@@ -1053,9 +1052,6 @@ void loop1()
 
         // Update OLED display
         display.update(uiState, seq1, seq2, seq3, seq4, voiceManager.get());
-
-        // Update control parameter LEDs
-        updateControlLEDs(ledMatrix, uiState);
 
         // Apply LED updates to hardware
         ledMatrix.show();

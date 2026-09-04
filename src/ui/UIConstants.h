@@ -39,7 +39,7 @@ constexpr uint8_t NUMBER_OF_STEP_BUTTONS = 16;
 // Long press threshold comes from ButtonManager to keep a single source
 // Additional UI-related timing windows below
 constexpr unsigned long ENCODER_DOUBLE_PRESS_WINDOW_MS = 300;      // ms: window for double press on encoder control
-constexpr unsigned long CONTROL_LED_FLASH_DURATION_MS = 250;       // ms: brief confirmation flash for control actions
+constexpr unsigned long OLED_NOTICE_DURATION_MS = 800;             // ms: transient OLED confirmation notice
 constexpr unsigned long VOICE_PARAMETER_DISPLAY_TIMEOUT_MS = 2000; // ms: how long to show voice parameter changes
 constexpr unsigned long SETTINGS_MODE_TIMEOUT_MS = 30000;          // ms: auto-exit settings mode after inactivity
 

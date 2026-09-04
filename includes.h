@@ -23,7 +23,6 @@
 // LED Matrix
 #include "src/LEDMatrix/ledMatrix.h"
 #include "src/LEDMatrix/LEDMatrixFeedback.h"
-#include "src/LEDMatrix/LEDController.h"
 
 // Sensors
 #include "src/sensors/SensorConstants.h"

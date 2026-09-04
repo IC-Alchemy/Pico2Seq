@@ -223,8 +223,8 @@ void resetEncoderBaseValues(UIState& uiState, bool currentVoiceOnly = true);
 void initEncoderBaseValues();
 
 // Global magnetic encoder driver (TMAG5273 on the Velocity Encoder board).
-// Defined in EncoderManager.cpp; LEDController and the main sketch access it
-// through this extern.
+// Defined in EncoderManager.cpp; the main sketch accesses it through this
+// extern.
 extern MagEncoder magEncoder;
 
 

@@ -91,10 +91,10 @@ void initButtonManager(UIState &uiState)
   uiState.isVoice2Mode = false;
   uiState.selectedStepForEdit = -1;
 
-  // Reset LED flash timing states
-  uiState.flash23Until = 0;
-  uiState.flash25Until = 0;
-  uiState.flash31Until = 0;
+  // Reset transient OLED notice state
+  uiState.oledNoticeUntil = 0;
+  uiState.oledNoticeKind = UIState::OledNoticeKind::None;
+  uiState.oledNoticeVoice = 0;
 
   // Reset button press timing states
   uiState.lastEncoderButtonPressTime = 0;

@@ -135,15 +135,14 @@ void AlchemyControlBridge::handleModeStrap(uint32_t nowMs, UIState &uiState)
 void AlchemyControlBridge::onModeFlip(uint32_t nowMs, UIState &uiState)
 {
   // Nothing sticks across a mode change: drop the latch and every derived
-  // hold, snap the fader deadband so the new mode's controls engage, flash a
-  // control LED and raise the OLED banner flag.
+  // hold, snap the fader deadband so the new mode's controls engage, and
+  // raise the OLED banner flag.
   latch_.reset();
   latch_.applyTo(uiState.parameterButtonHeld, PARAM_ID_COUNT);
   uiState.latchedParameter = -1;
   uiState.shiftHeld = false;
   faders_.resetDeadband();
   uiState.alchemyModeBannerUntil = nowMs + kModeBannerDurationMs;
-  uiState.flash31Until = nowMs + CONTROL_LED_FLASH_DURATION_MS;
 }
 
 // --- SliderModule buttons --------------------------------------------------------
