@@ -343,22 +343,47 @@ Each preset is built by a `constexpr VoiceConfig makeXxx() noexcept` factory fun
 | **6** | **Percussion** | osc | **0 oscs** (`WAVE_NOISE`, `NoiseOscillator`) | `[1.0]` | `[0.0]` | `[0]` | **LP24** | Res: 0.40, Drive: 2.3, Passband: 0.33, HPF: 200 Hz | Off (Gain: 0.45, Drive: 0.30) | `0.005s / 0.08s / 0.0 / 0.07s` | `0.5` |
 | **7** | **SubFunk** | osc | (`WAVE_SIN`, `WAVE_TRI`, `WAVE_SIN`) | `[1.0, 0.4, 0.25]` | `[-12.0, -12.0, 0.0]` | `[0, 0, 0]` | **LP12** | Res: 0.45, Drive: 3.6, Passband: 0.2, HPF: 55 Hz | On (Gain: 0.9, Drive: 0.35) | `0.004s / 0.22s / 0.35 / 0.12s` | `0.9` |
 | **8** | **RubberSub** | osc | (`WAVE_SIN`, `WAVE_BSP_SQUARE`, `WAVE_TRI`) | `[0.9, 0.3, 0.5]` | `[-12.0, -24.0, 0.0]` | `[0, 0, 0]` | **BP24** | Res: 0.62, Drive: 2.6, Passband: 0.3, HPF: 70 Hz | On (Gain: 1.0, Drive: 0.55) | `0.002s / 0.16s / 0.25 / 0.09s` | `0.85` |
-| **9** | **WgPluck** | waveguide | — (wg: T60 1.8s, bright 0.78, pick 0.26/0.85, stiff 0.0, det 4c) | — | — | — | **LP12** | Res: 0.2, Drive: 1.8, Passband: 0.25, HPF: 120 Hz | Off | `0.001s / 0.5s / 0.65 / 0.25s` | `0.75` |
-| **10** | **WgNylon** | waveguide | — (wg: T60 3.2s, bright 0.28, pick 0.42/0.22, stiff 0.05, det 9c) | — | — | — | **LP12** | Res: 0.15, Drive: 1.5, Passband: 0.25, HPF: 90 Hz | Off | `0.002s / 0.6s / 0.7 / 0.5s` | `0.8` |
-| **11** | **WgBell** | waveguide | — (wg: T60 1.4s, bright 0.9, pick 0.08/1.0, stiff 0.88, det 0c) | — | — | — | **LP24** | Res: 0.3, Drive: 2.0, Passband: 0.23, HPF: 250 Hz | Off | `0.001s / 0.45s / 0.4 / 0.3s` | `0.65` |
-| **12** | **WgShimmer** | waveguide | — (wg: T60 6.5s, bright 0.55, pick 0.35/0.6, stiff 0.15, det 26c) | — | — | — | **LP12** | Res: 0.2, Drive: 1.6, Passband: 0.23, HPF: 140 Hz | Off | `0.004s / 0.8s / 0.85 / 0.8s` | `0.7` |
+| **9** | **WgPluck** | waveguide | — (wg: T60 1.8s, bright 0.78, pick 0.26/0.85, stiff 0.0, det 4c) | — | — | — | **none** (`hasFilter=false`) | ladder + HPF bypassed | Off | **none** (`hasEnvelope=false`; natural T60 ring) | `0.85` |
+| **10** | **WgNylon** | waveguide | — (wg: T60 3.2s, bright 0.28, pick 0.42/0.22, stiff 0.05, det 9c) | — | — | — | **none** (`hasFilter=false`) | ladder + HPF bypassed | Off | **none** (`hasEnvelope=false`; natural T60 ring) | `0.9` |
+| **11** | **WgBell** | waveguide | — (wg: T60 1.4s, bright 0.9, pick 0.08/1.0, stiff 0.88, det 0c) | — | — | — | **none** (`hasFilter=false`) | ladder + HPF bypassed | Off | **none** (`hasEnvelope=false`; natural T60 ring) | `0.75` |
+| **12** | **WgShimmer** | waveguide | — (wg: T60 6.5s, bright 0.55, pick 0.35/0.6, stiff 0.15, det 26c) | — | — | — | **none** (`hasFilter=false`) | ladder + HPF bypassed | Off | **none** (`hasEnvelope=false`; natural T60 ring) | `0.8` |
 | **13** | **Hypersaw** | osc | 3x `WAVE_BSP_SAW` | `[0.45, 0.3, 0.3]` | `[0.0, +0.21, -0.21]` | `[0, 0, +12]` | **LP24** | Res: 0.35, Drive: 2.8, Passband: 0.25, HPF: 180 Hz | On (Gain: 0.85, Drive: 0.28) | `0.012s / 0.3s / 0.8 / 0.25s` | `0.5` |
 | **14** | **NoiseStorm** | noise-FX | — (nf: diffuse 0.85/0.65, swarm 0.6/0.95, chaos 0.4) | — | — | — | **LP24** | Res: 0.72, Drive: 3.2, Passband: 0.3, HPF: 220 Hz | On (Gain: 0.8, Drive: 0.4) | `0.003s / 0.5s / 0.55 / 0.45s` | `0.45` |
 
-The eight presets added with the expansion bank: **SubFunk** — bouncy sub bass; a sine sub an octave down carries the weight, a triangle adds movement, and a driven LP12 plus warm overdrive grit gives the filtered-growl funk character. **RubberSub** — rubbery sub bass; a sub-octave square grinds under a sine through a resonant BP24 ("rubbery honk"), with harder overdrive that spits on transients. **WgPluck** — classic Karplus-Strong plucked string: bright burst, harmonic loop, short natural tail. **WgNylon** — dark felt-soft nylon: heavily damped loop, gentle pick, long sympathetic tail. **WgBell** — stiff dispersive string whose inharmonic upper partials read as bell/kalimba; hard bridge pick, quick tail, HPF at 250 Hz keeps the shimmer. **WgShimmer** — wide-detuned (26-cent) two-string course with a very long T60 tail; slow chorusing sustain turns the pluck into a ringing pad. **Hypersaw** — supersaw-style stack of three BSP saws (two ±21-cent detuned unisons plus an octave-up layer) glued with mild overdrive under a wide-open LP24. **NoiseStorm** — noise-based texture: noise plus a pitch-tracked Lorenz chaos growl feed a prime-tap diffuser and a regenerative allpass swarm, then a resonant LP24 pings with the envelope.
+The eight presets added with the expansion bank: **SubFunk** — bouncy sub bass; a sine sub an octave down carries the weight, a triangle adds movement, and a driven LP12 plus warm overdrive grit gives the filtered-growl funk character. **RubberSub** — rubbery sub bass; a sub-octave square grinds under a sine through a resonant BP24 ("rubbery honk"), with harder overdrive that spits on transients. **WgPluck** — classic Karplus-Strong plucked string: bright burst, harmonic loop, short natural tail. **WgNylon** — dark felt-soft nylon: heavily damped loop, gentle pick, long sympathetic tail. **WgBell** — stiff dispersive string whose inharmonic upper partials read as bell/kalimba; hard bridge pick, quick tail. **WgShimmer** — wide-detuned (26-cent) two-string course with a very long T60 tail; slow chorusing sustain turns the pluck into a ringing pad. **Hypersaw** — supersaw-style stack of three BSP saws (detune spread is a live sequencer slot) glued with mild overdrive under a wide-open LP24. **NoiseStorm** — noise-based texture: noise plus a pitch-tracked Lorenz chaos growl feed a prime-tap diffuser and a regenerative allpass swarm, then a resonant LP24 pings with the envelope.
 
 Preset 9-12 use `engine = ENGINE_WAVEGUIDE` (`rpdsp::PluckedStringVoice`, 2048-sample
 delay): each gate rise (or retrigger) plucks the string at the current base pitch, and
 the `wg*` config fields tune T60, loop brightness, pick position/hardness, stiffness
-(inharmonic dispersion), and two-string course detune. Preset 14 uses
-`engine = ENGINE_NOISEFX`: `NoiseOscillator` plus a pitch-tracked `chaos_lorenz` growl
-feed `fx_diffuse` (prime-tap diffuser) and `fx_swarm` (regenerative allpass swarm)
-from `rpdsp/DSPFunctions.h`, pre-filter so the ladder shapes the texture.
+(inharmonic dispersion), and two-string course detune. The waveguide presets also set
+`hasFilter = false` and `hasEnvelope = false`: the ladder, high-pass, and ADSR are all
+bypassed, velocity scales the raw string output directly, and the string rings past
+gate fall on its own T60 (gate edges still arm plucks — see `computeEnvelope()`).
+Preset 14 uses `engine = ENGINE_NOISEFX`: `NoiseOscillator` plus a pitch-tracked
+`chaos_lorenz` growl feed `fx_diffuse` (prime-tap diffuser) and `fx_swarm` (regenerative
+allpass swarm) from `rpdsp/DSPFunctions.h`, pre-filter so the ladder shapes the texture.
+
+### Per-preset sequencer parameter sets
+
+`VoiceConfig::paramSet` (`VoiceParamSet` in `Voice.h`) re-purposes the sequencer's
+Filter/Attack/Decay slots per voice. `Voice::applyPendingParams_()` routes the slots on
+the audio thread; `VoicePresets::getSequencerParamName()` provides the OLED labels
+(fallback `paramName()` for standard slots); `applyVoicePreset()` re-seeds the
+re-purposed tracks with the preset's values (`seedRepurposedParamTracks()` in
+`Pico2Seq.ino`) so encoders/OLED/engine agree after a switch.
+
+| Param set | Presets | Filter slot | Attack slot | Decay slot |
+|---|---|---|---|---|
+| STANDARD | 0–8 | Cutoff (150 Hz–8 kHz, EXP) | Attack (0.002–0.75 s) | Decay (0.002–0.8 s, LOG) |
+| WAVEGUIDE | 9–12 | Brightness (0–1) | Pick hardness (0–1) | T60 (0.05–10 s, EXP; `wgT60ToNormalized` seeds tracks) |
+| HYPERSAW | 13 | Cutoff (live) | Detune spread (0–1 semitone, symmetric ±) | Overdrive drive (1–4) |
+| NOISESTORM | 14 | Swarm color | Swarm regen | Chaos level (ladder keeps the preset's static `filterCutoffBase`) |
+
+For HYPERSAW/NOISESTORM the ADSR times come from the preset defaults (`applyEnvelopeDefaults_()`),
+since the Attack/Decay tracks no longer carry envelope times. Live preset switches are
+gate-safe: scalar config applies immediately, but the oscillator rebuild and engine
+reset are deferred until the gate falls (`applyStructuralConfig_()`), so swapping
+presets while playing never clicks a held note or cuts a ringing tail.
 
 ---
 

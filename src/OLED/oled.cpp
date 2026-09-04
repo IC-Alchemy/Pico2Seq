@@ -375,9 +375,10 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     const Sequencer &currentSeq = (uiState.selectedVoiceIndex == 0) ? seq1 : (uiState.selectedVoiceIndex == 1) ? seq2
                                                                          : (uiState.selectedVoiceIndex == 2)   ? seq3
                                                                                                                : seq4;
+    const uint8_t presetIdx = (voice < UIState::MAX_VOICES) ? uiState.voicePresetIndices[voice] : 0;
     uint8_t currentStep = currentSeq.getCurrentStepForParameter(heldParamId);
     float currentValue = currentSeq.getStepParameterValue(heldParamId, currentStep);
-    displayParameterInfo(paramName(heldParamId), currentValue, voice, currentStep);
+    displayParameterInfo(heldParamId, currentValue, voice, currentStep, presetIdx);
   }
   else if (uiState.selectedStepForEdit != -1)
   {
@@ -389,9 +390,10 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
       const Sequencer &currentSeq = (uiState.selectedVoiceIndex == 0) ? seq1 : (uiState.selectedVoiceIndex == 1) ? seq2
                                                                            : (uiState.selectedVoiceIndex == 2)   ? seq3
                                                                                                                  : seq4;
+      const uint8_t presetIdx = (voice < UIState::MAX_VOICES) ? uiState.voicePresetIndices[voice] : 0;
       float currentValue = currentSeq.getStepParameterValue(uiState.currentEditParameter, uiState.selectedStepForEdit);
 
-      displayParameterInfo(paramName(uiState.currentEditParameter), currentValue, voice, uiState.selectedStepForEdit);
+      displayParameterInfo(uiState.currentEditParameter, currentValue, voice, uiState.selectedStepForEdit, presetIdx);
     }
     else
     {
@@ -456,10 +458,18 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
   displayHardware.display();
 }
 
-void OLEDDisplay::displayParameterInfo(const char *parameterName, float currentValue,
-                                       uint8_t voiceNumber, uint8_t stepIndex)
+void OLEDDisplay::displayParameterInfo(ParamId parameterId, float currentValue,
+                                       uint8_t voiceNumber, uint8_t stepIndex,
+                                       uint8_t presetIndex)
 {
-  // Parameter name display
+  // Parameter name — re-purposed slots use the preset's name for the slot
+  // (e.g. Filter → "Bright" on a waveguide voice), standard slots use the
+  // canonical paramName() table.
+  const char *parameterName = VoicePresets::getSequencerParamName(presetIndex, parameterId);
+  if (parameterName == nullptr)
+  {
+    parameterName = paramName(parameterId);
+  }
   displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, OLEDConstants::TEXT_MARGIN);
   displayHardware.setTextSize(2);
   displayHardware.print(parameterName);
@@ -482,20 +492,12 @@ void OLEDDisplay::displayParameterInfo(const char *parameterName, float currentV
   displayHardware.setTextSize(2);
   displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 32);
 
-  // Find the ParamId based on the parameter name for proper formatting
-  // (names round-trip through paramName()/paramIdFromName()).
-  ParamId parameterID = paramIdFromName(parameterName);
-  if (parameterID == ParamId::Count)
-  {
-    parameterID = ParamId::Note; // Default fallback for unknown names
-  }
-
-  String formattedParameterValue = formatParameterValue(parameterID, currentValue);
+  String formattedParameterValue = formatParameterValue(parameterId, currentValue, presetIndex);
   displayHardware.print(formattedParameterValue);
 
   // Progress bar for normalized parameters (exclude discrete parameters)
-  if (parameterID != ParamId::Note && parameterID != ParamId::Octave &&
-      parameterID != ParamId::Gate && parameterID != ParamId::Slide)
+  if (parameterId != ParamId::Note && parameterId != ParamId::Octave &&
+      parameterId != ParamId::Gate && parameterId != ParamId::Slide)
   {
 
     // Calculate progress bar dimensions
@@ -517,8 +519,26 @@ void OLEDDisplay::displayParameterInfo(const char *parameterName, float currentV
   }
 }
 
-String OLEDDisplay::formatParameterValue(ParamId paramId, float value)
+String OLEDDisplay::formatParameterValue(ParamId paramId, float value, uint8_t presetIndex)
 {
+  // Re-purposed slots under a non-standard param set get their own units:
+  // everything is a 0..1 percentage except the waveguide T60 (seconds, via
+  // the same EXP map the DSP uses) and the hypersaw detune (semitones).
+  const VoiceParamSet paramSet = VoicePresets::getPresetParamSet(presetIndex);
+  if (paramSet != PARAMSET_STANDARD &&
+      VoicePresets::getSequencerParamName(presetIndex, paramId) != nullptr)
+  {
+    if (paramSet == PARAMSET_WAVEGUIDE && paramId == ParamId::Decay)
+    {
+      return String((int)dspmap::fmap(value, 0.05f, 10.0f, dspmap::Mapping::EXP)) + "s";
+    }
+    if (paramSet == PARAMSET_HYPERSAW && paramId == ParamId::Attack)
+    {
+      return String(value, 2) + "st";
+    }
+    return String((int)(value * 100)) + "%";
+  }
+
   switch (paramId)
   {
   case ParamId::Note:
