@@ -95,9 +95,10 @@ static void encoderControlShortPressAction(UIState &uiState);
 // parameter target.
 static void encoderControlShortPressAction(UIState &uiState)
 {
-  // In Settings mode while stopped, the encoder button toggles between sub-modes.
+  // In Settings mode the encoder button toggles between sub-modes — this now
+  // also works while the transport runs, so presets can be browsed live.
   // Otherwise, keep the existing encoder parameter cycling behavior.
-  if (uiState.settingsMode && !isClockRunning)
+  if (uiState.settingsMode)
   {
     toggleSettingsSubMode(uiState);
     uiState.selectedStepForEdit = -1;
@@ -289,7 +290,7 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
    *
    * Settings mode allows configuration of voice presets and voice parameters.
    * Navigation uses raw pad indices (no bank resolution): pads 0-3 select a
-   * voice, pads 8-14 apply presets in the preset sub-mode.
+   * voice, pads 8 and up apply presets in the preset sub-mode.
    */
   if (uiState.settingsMode && evt.type == MATRIX_BUTTON_PRESSED)
   {
@@ -488,30 +489,27 @@ static void toggleSettingsSubMode(UIState &uiState)
 /**
  * Handle Preset Selection sub-mode.
  * - Buttons 0-3 (handled in caller) select current voice.
- * - Buttons 8..14 select and apply preset for selected voice.
+ * - Pads 8..8+presetCount-1 select and apply a preset for the selected voice
+ *   (all 15 presets with the current bank).
  * - Remain in Preset Selection mode after applying a preset.
+ * Safe while the transport runs: applyVoicePreset stages the config and the
+ * voice applies it without stopping playback.
  */
 static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState)
 {
   if (evt.type != MATRIX_BUTTON_PRESSED)
     return;
 
-  const uint8_t baseButton = 8;
-  const uint8_t presetCount = VoicePresets::getPresetCount();
-  const uint8_t maxAllowedButton = 14; // limit per spec (buttons 8-14)
-  const uint8_t maxButtonByPreset = static_cast<uint8_t>(baseButton + (presetCount ? presetCount - 1 : 0));
-  const uint8_t maxButton = (maxButtonByPreset < maxAllowedButton) ? maxButtonByPreset : maxAllowedButton;
-
-  if (evt.buttonIndex >= baseButton && evt.buttonIndex <= maxButton)
+  const int presetIndex = VoicePresets::presetIndexForPad(evt.buttonIndex,
+                                                          VoicePresets::getPresetCount());
+  if (presetIndex >= 0)
   {
-    const uint8_t presetIndex = static_cast<uint8_t>(evt.buttonIndex - baseButton);
-
     // Apply to currently selected voice (0..3 for applyVoicePreset)
     const uint8_t voiceIdx = uiState.selectedVoiceIndex;
     if (voiceIdx < UIEventConstants::MAX_VOICES)
     {
-      uiState.voicePresetIndices[voiceIdx] = presetIndex;
-      applyVoicePreset(voiceIdx, presetIndex);
+      uiState.voicePresetIndices[voiceIdx] = static_cast<uint8_t>(presetIndex);
+      applyVoicePreset(voiceIdx, static_cast<uint8_t>(presetIndex));
     }
 
     // Stay in Preset Selection mode; do not auto-switch.

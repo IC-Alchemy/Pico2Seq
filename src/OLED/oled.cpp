@@ -661,8 +661,10 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
     }
 
     // Prompt for preset selection buttons when in Preset sub-mode
+    // (pads 8 .. 8+presetCount-1, e.g. 8-22 for the 15-preset bank)
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 56);
-    displayHardware.print("Select Preset (8-14)");
+    displayHardware.print("Pads 8-");
+    displayHardware.print(7 + VoicePresets::getPresetCount());
   }
 }
 
