@@ -19,9 +19,9 @@ namespace VoicePresets
     c.oscWaveforms[0] = WAVE_BSP_SAW;
     c.oscWaveforms[1] = WAVE_BSP_SAW;
     c.oscWaveforms[2] = WAVE_BSP_SAW;
-    c.oscAmplitudes[0] = .5f;
-    c.oscAmplitudes[1] = .25f;
-    c.oscAmplitudes[2] = .25f;
+    c.oscAmplitudes[0] = .4f;
+    c.oscAmplitudes[1] = .35f;
+    c.oscAmplitudes[2] = .35f;
     c.oscDetuning[0] = 0.0f;
     c.oscDetuning[1] = 0.08f;  // Slight detune
     c.oscDetuning[2] = -0.08f; // Slight detune opposite
@@ -30,18 +30,18 @@ namespace VoicePresets
     c.harmony[2] = 0;          // Unison (no harmony)
 
     c.filterRes = 0.33f;
-    c.filterDrive = 3.1f;
+    c.filterDrive = 2.1f;
     c.filterMode = rpdsp::LadderFilter::Mode::LP24;
     c.filterPassbandGain = 0.23f;
-    c.highPassFreq = 150.0f;
+    c.highPassFreq = 120.0f;
 
     c.hasOverdrive = false;
     c.overdriveGain = 0.8f;
     c.overdriveDrive = 0.25f;
 
-    c.defaultAttack = 0.04f;
-    c.defaultDecay = 0.14f;
-    c.defaultSustain = 0.3f;
+    c.defaultAttack = 0.07f;
+    c.defaultDecay = 0.24f;
+    c.defaultSustain = 0.5f;
     c.defaultRelease = 0.1f;
     c.outputLevel = 0.5f;
     return c;
@@ -74,7 +74,7 @@ namespace VoicePresets
     c.defaultAttack = 0.015f;
     c.defaultDecay = 0.1f;
     c.defaultSustain = 0.5f;
-    c.defaultRelease = 0.1f;
+    c.defaultRelease = 0.3f;
     c.outputLevel = 0.5f;
     return c;
   }
@@ -89,23 +89,23 @@ namespace VoicePresets
     c.oscAmplitudes[0] = 1.f;
     c.oscAmplitudes[1] = 1.f;
     c.oscDetuning[0] = -12.0f;
-    c.oscDetuning[1] = -12.0f;
+    c.oscDetuning[1] = 0.0f;
     c.harmony[0] = 0; // Root note
     c.harmony[1] = 0; // Unison (bass typically monophonic)
     c.highPassRes = 0.4f;
     c.filterRes = 0.33f;
     c.filterDrive = 2.f;
     c.filterPassbandGain = 0.12f;
-    c.highPassFreq = 85.0f; // Lower for bass
+    c.highPassFreq = 45.0f; // Lower for bass
     c.filterMode = rpdsp::LadderFilter::Mode::LP12;
-    c.hasOverdrive = false;
-    c.overdriveGain = 0.95f;
+    c.hasOverdrive = true;
+    c.overdriveGain = 0.65f;
     c.overdriveDrive = 0.16f; // Subtle overdrive
     c.defaultAttack = 0.01f;
     c.defaultDecay = 0.3f;
-    c.defaultSustain = 0.55f;
+    c.defaultSustain = 0.85f;
     c.defaultRelease = 0.2f;
-    c.outputLevel = .95f;
+    c.outputLevel = .85f;
     return c;
   }
 
@@ -152,16 +152,16 @@ namespace VoicePresets
     c.filterDrive = 3.3f;
     c.filterPassbandGain = 0.33f;
     c.highPassFreq = 150.0f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP24;
+    c.filterMode = rpdsp::LadderFilter::Mode::BP24;
     c.hasOverdrive = false;
     c.overdriveGain = 0.75f;
     c.overdriveDrive = 0.35f;
 
     c.defaultAttack = 0.02f;
-    c.defaultDecay = 0.2f;
+    c.defaultDecay = 0.4f;
     c.defaultSustain = 0.0f;
-    c.defaultRelease = 0.15f;
-    c.outputLevel = .5f;
+    c.defaultRelease = 0.25f;
+    c.outputLevel = .56f;
     return c;
   }
 
@@ -176,8 +176,8 @@ namespace VoicePresets
     c.oscAmplitudes[1] = 0.33f;
     c.oscAmplitudes[2] = 0.33f;
     c.harmony[0] = 0;  // Root note
-    c.harmony[1] = -3; // Perfect Fifth
-    c.harmony[2] = 2;  // Major Third
+    c.harmony[1] = 4; // Perfect Fifth
+    c.harmony[2] = 9;  // Major Third
 
     c.filterRes = 0.3f;
     c.filterDrive = 2.2f;
@@ -233,8 +233,8 @@ namespace VoicePresets
     c.oscWaveforms[1] = WAVE_TRI;
     c.oscWaveforms[2] = WAVE_SIN;
     c.oscAmplitudes[0] = 1.0f;
-    c.oscAmplitudes[1] = 0.4f;
-    c.oscAmplitudes[2] = 0.25f;
+    c.oscAmplitudes[1] = 0.8f;
+    c.oscAmplitudes[2] = 0.65f;
     c.oscDetuning[0] = -12.0f; // sub octave
     c.oscDetuning[1] = -12.0f; // sub octave color
     c.oscDetuning[2] = 0.0f;   // fundamental body
@@ -273,7 +273,7 @@ namespace VoicePresets
     c.oscAmplitudes[1] = 0.3f;
     c.oscAmplitudes[2] = 0.5f;
     c.oscDetuning[0] = -12.0f; // sub octave
-    c.oscDetuning[1] = -24.0f; // two octaves down: harmonic grit
+    c.oscDetuning[1] = -12.0f; // two octaves down: harmonic grit
     c.oscDetuning[2] = 0.0f;   // fundamental body
     c.harmony[0] = 0;
     c.harmony[1] = 0;
@@ -426,8 +426,7 @@ namespace VoicePresets
     c.oscAmplitudes[1] = 0.3f;
     c.oscAmplitudes[2] = 0.3f;
     c.oscDetuning[0] = 0.0f;
-    c.oscDetuning[1] = 0.21f;  // ~21 cents up
-    c.oscDetuning[2] = -0.21f; // ~21 cents down
+
     c.harmony[0] = 0;
     c.harmony[1] = 0;
     c.harmony[2] = 12;         // octave layer on top
