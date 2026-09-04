@@ -6,7 +6,7 @@ The `src/matrix/` subsystem provides the capacitive touch step-input interface f
 
 > **Disambiguation Note:**
 > - `docs/matrix.md` (this document) describes the **MPR121 capacitive touch step-pad input subsystem** (`src/matrix/`).
-> - [`docs/LEDMatrix.md`](LEDMatrix.md) describes the **WS2812B 8×8 RGB LED visual output system** on GPIO 1 (`src/LEDMatrix/`).
+> - [`docs/LEDMatrix.md`](LEDMatrix.md) describes the **WS2812B 8×4 RGB LED visual output system** on GPIO 1 (`src/LEDMatrix/`).
 
 ---
 
@@ -163,7 +163,7 @@ src/matrix/
 
 ## Related Documentation
 
-- [`docs/LEDMatrix.md`](LEDMatrix.md) — 8×8 WS2812B visual feedback system
+- [`docs/LEDMatrix.md`](LEDMatrix.md) — 8×4 WS2812B visual feedback system (pad-mirror of this touch matrix)
 - [`docs/sensors.md`](sensors.md) — TMAG5273 encoder and VL53L1X distance sensor
 - [`docs/ButtonHandlers.md`](ButtonHandlers.md) — UI button event dispatching
 - [`docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`](superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md) — Alchemy tile control surface design spec

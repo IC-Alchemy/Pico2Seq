@@ -2,10 +2,12 @@
 
 ## Overview
 
-The `src/LEDMatrix/` subsystem provides comprehensive visual feedback for Pico2Seq through an 8×8 WS2812B RGB LED matrix (64 total LEDs) driven by the `FastLED` library on **GPIO pin 1**.
+The `src/LEDMatrix/` subsystem provides comprehensive visual feedback for Pico2Seq through an 8×4 WS2812B RGB LED matrix (32 total LEDs) driven by the `FastLED` library on **GPIO pin 1**.
+
+The panel **mirrors the touch matrix**: the MPR121 touch surface (`src/matrix/`) is 4 rows × 8 columns, and the LED panel is 8 wide × 4 tall, so **the same (band, step) always lands on the same physical index on both surfaces** — band 0 (the selected voice pair's low voice) at indices 0–15 (touch/LED rows 0–1) and band 1 (the pair's high voice) at indices 16–31 (touch/LED rows 2–3). All rendering goes through the host-tested `ControlSurface::LedLayout` helper (`src/ui/ControlSurfaceLogic.h`) so this alignment cannot drift.
 
 > **Disambiguation Note:**
-> - `docs/LEDMatrix.md` (this document) describes the **WS2812B 8×8 RGB LED visual output system** on GPIO 1 (`src/LEDMatrix/`).
+> - `docs/LEDMatrix.md` (this document) describes the **WS2812B 8×4 RGB LED visual output system** on GPIO 1 (`src/LEDMatrix/`).
 > - [`docs/matrix.md`](matrix.md) describes the **MPR121 capacitive touch input matrix** providing 32 dedicated step pads on I2C `Wire` @ `0x5A` (`src/matrix/`).
 
 ---
@@ -13,10 +15,22 @@ The `src/LEDMatrix/` subsystem provides comprehensive visual feedback for Pico2S
 ## Hardware Configuration & Pinout
 
 - **LED Type:** WS2812B Addressable RGB LEDs
-- **Matrix Dimensions:** 8 columns × 8 rows (64 total LEDs)
+- **Matrix Dimensions:** 8 columns × 4 rows (32 total LEDs)
 - **Data Pin:** `GPIO 1` (`LEDConstants::MATRIX_DATA_PIN`)
 - **Default Brightness:** 120 (on a 0–255 scale)
 - **Power Supply:** 5V rail capable of supplying up to ~1.5A for full-white illumination; internal brightness scaling is applied to limit peak current draw.
+
+---
+
+## Band Layout (pad-mirror)
+
+```
+                 cols 0 .. 7                    cols 0 .. 7
+touch rows 0-1 = pads  0-15  (pair low voice)  LED rows 0-1 = indices  0-15
+touch rows 2-3 = pads 16-31  (pair high voice) LED rows 2-3 = indices 16-31
+```
+
+Both bands always render the **selected** voice pair (`PadBank::pairFor(selectedVoiceIndex)`): voice 0/1 selected → voices 1+2, voice 2/3 selected → voices 3+4 (0-based internally).
 
 ---
 
@@ -28,37 +42,36 @@ The `src/LEDMatrix/` subsystem provides comprehensive visual feedback for Pico2S
                 |  (selectedVoiceIndex, modes, step selections, timers) |
                 +--------------------------+----------------------------+
                                            |
-                    +----------------------+---------------------+
-                    |                                            |
-                    v                                            v
-         +--------------------+                       +--------------------+
-         |   LEDController    |                       | LEDMatrixFeedback  |
-         | (Parameter & Voice |                       | (Step gates, play- |
-         |  indicators)       |                       |  heads, menus)     |
-         +----------+---------+                       +----------+---------+
-                    |                                            |
-                    +----------------------+---------------------+
-                                           |
                                            v
-                               +-----------------------+
-                               |       LEDMatrix       |
-                               | (FastLED abstraction) |
-                               +-----------+-----------+
-                                           |
-                                           v
-                             [ WS2812B 8x8 Grid @ GP1 ]
+                              +----------------------+
+                              |  LEDMatrixFeedback   |
+                              | (step gates, play-   |
+                              |  heads, menus, over- |
+                              |  lays via LedLayout) |
+                              +----------+-----------+
+                                         |
+                                         v
+                              +-----------------------+
+                              |       LEDMatrix       |
+                              | (FastLED abstraction) |
+                              +-----------+-----------+
+                                          |
+                                          v
+                            [ WS2812B 8x4 Grid @ GP1 ]
 ```
+
+Control indicators (parameter buttons, delay, voice pair, randomize) were moved off the matrix to the **OLED** (see below) — the panel is now 100% step-grid mirror.
 
 ### 1. `LEDConstants.h` & `LEDColors`
 
 Centralized namespace declarations for timing, layout geometry, color categories, and brightness levels:
 
 #### `namespace LEDConstants`
-- **Matrix Geometry:** `MATRIX_WIDTH = 8`, `MATRIX_HEIGHT = 8`, `MATRIX_DATA_PIN = 1`, `MATRIX_TOTAL_LEDS = 64`, `DEFAULT_BRIGHTNESS = 120`.
+- **Matrix Geometry:** `MATRIX_WIDTH = 8`, `MATRIX_HEIGHT = 4`, `MATRIX_DATA_PIN = 1`, `MATRIX_TOTAL_LEDS = 32`, `DEFAULT_BRIGHTNESS = 120`.
 - **Layout Offsets:**
-  - `TOP_HALF_OFFSET = 0` (Row 0: low voice step row)
-  - `BOTTOM_HALF_OFFSET = 24` (Row 4: high voice step row in 8×8 matrix)
-  - `VOICE_PAIR_SEPARATION = 3` (Rows between voice pair tracks)
+  - `TOP_HALF_OFFSET = 0` (Band 0 start: pair low voice)
+  - `BOTTOM_HALF_OFFSET = 16` (Band 1 start: pair high voice; touch rows 2–3)
+  - `VOICE_PAIR_SEPARATION = 1` (Rows between pair bands in an 8×4 matrix)
   - `MAX_STEP_BUTTONS = 16`
 - **Animation Timing:**
   - `PULSE_FREQUENCY = 0.006f`
@@ -101,8 +114,8 @@ Provides the direct hardware abstraction wrapping `FastLED`:
 class LEDMatrix {
 public:
   static constexpr uint8_t WIDTH = 8;
-  static constexpr uint8_t HEIGHT = 8;
-  static constexpr uint8_t NUM_LEDS = WIDTH * HEIGHT; // 64
+  static constexpr uint8_t HEIGHT = 4;
+  static constexpr uint8_t NUM_LEDS = WIDTH * HEIGHT; // 32
 
   LEDMatrix();
   void begin(uint8_t brightness = LEDConstants::DEFAULT_BRIGHTNESS);
@@ -116,35 +129,13 @@ public:
 
 ---
 
-### 3. `LEDController` (`LEDController.h`, `LEDController.cpp`)
+### 3. Control Indicators → OLED (formerly `LEDController`)
 
-Manages the visual state of control and indicator LEDs on the matrix surface.
+The old 8×8 control-cluster LEDs (parameter button LEDs, delay time/feedback, voice pair indicators, randomize/delay-toggle flashes at indices 40–59) do not exist on the 8×4 panel; that code was removed. The same information now appears on the OLED:
 
-#### 4-Voice Pair Indicator Logic
-The physical control surface provides two voice LEDs (`VOICE1_LED_INDEX` and `VOICE2_LED_INDEX`). In Pico2Seq's 4-voice architecture, these two LEDs dynamically reflect the currently active voice pair (Voices 0 & 1 vs. Voices 2 & 3):
-
-```cpp
-// Check if the selected voice is the first voice in its pair (Voice 0 or Voice 2)
-const bool selectedIsFirstInPair = (uiState.selectedVoiceIndex % 2) == 0;
-const CRGB selectedVoiceLEDColor = activeThemeColors->defaultActive;
-const CRGB partnerVoiceLEDColor = activeThemeColors->defaultInactive;
-
-setLEDByLinearIndex(ControlLEDIndices::VOICE1_LED_INDEX,
-                    selectedIsFirstInPair ? selectedVoiceLEDColor : partnerVoiceLEDColor);
-setLEDByLinearIndex(ControlLEDIndices::VOICE2_LED_INDEX,
-                    selectedIsFirstInPair ? partnerVoiceLEDColor : selectedVoiceLEDColor);
-```
-
-- **Voice 0 Selected:** Voice 1 LED is bright (active), Voice 2 LED is dim (partner).
-- **Voice 1 Selected:** Voice 1 LED is dim, Voice 2 LED is bright (active).
-- **Voice 2 Selected:** Voice 1 LED is bright (active), Voice 2 LED is dim (partner).
-- **Voice 3 Selected:** Voice 1 LED is dim, Voice 2 LED is bright (active).
-
-#### Parameter & Sensor Feedback
-- **Held Parameter Buttons:** Pulse dynamically using sine modulation (`PULSE_BASE_BRIGHTNESS + sinf(...) * PULSE_AMPLITUDE`).
-- **TMAG5273 Magnetic Encoder Assignment:** When an encoder parameter is selected (`Velocity`, `Filter`, `Attack`, `Decay`), the corresponding button LED scales brightness proportionally to the current normalized parameter value.
-- **Delay Controls:** Delay Time and Feedback LEDs scale with encoder values when selected.
-- **Flashing Indicators:** Randomize and Delay Toggle buttons support timed flash animations (`flash23Until`, `flash31Until`).
+- **Delay on/off and randomize confirmations** — transient full-screen notices (`DELAY ON` / `DELAY OFF` / `RANDOMIZED` + voice number), ~800 ms, rendered just below the PARAM/UTIL banner in `oled.cpp`, then the previous view resumes. Triggered from `handleControlButton(BUTTON_TOGGLE_DELAY)` and `handleRandomizeButton()` via the `UIState::oledNotice*` fields.
+- **Encoder parameter** — while the TMAG5273 encoder controls a parameter (`uiState.currentEncoderParameter`), the default status screen shows `ENC: <parameter> <value>`, replacing the old value-fade LED.
+- **Held parameter editing and voice selection** — were already OLED-covered (param info screen, status screen).
 
 ---
 
@@ -154,10 +145,10 @@ Implements the multi-mode sequencing and navigation visualizer:
 
 #### Display Modes
 1. **Idle Breathing Mode:** When sequencers are stopped, renders a smooth pulsing breathing wave across the matrix using `BREATHING_BLUE_BASE`.
-2. **Step Gate & Playhead Visualization:** Displays active gates for the current voice pair across rows 0–1 and 4–5, with a distinct `playheadAccent` indicating the current 16th-note playhead position.
+2. **Step Gate & Playhead Visualization:** Displays active gates for the current voice pair across band rows 0–1 (pair low voice) and 2–3 (pair high voice), with a distinct `playheadAccent` indicating the current 16th-note playhead position.
 3. **Polyrhythmic Track Overlays:** Visualizes independent parameter track step lengths and positions for Note, Velocity, and Filter tracks.
 4. **Parameter Edit Mode:** Shows step values, track lengths, and value adjustments when holding a parameter button or editing a step.
-5. **Settings & Preset Selection:** Shows voice configurations and allows scrolling through the 7 voice presets with cursor highlighting.
+5. **Settings & Preset Selection:** Shows voice configurations and allows scrolling through the 15 voice presets with cursor highlighting.
 
 #### 10 LED Color Themes (`enum class LEDTheme`)
 
@@ -192,8 +183,6 @@ Each theme defines colors for:
 ```
 src/LEDMatrix/
 ├── LEDConstants.h          # Hardware pins, timing, layout & OLED geometry constants
-├── LEDController.cpp       # Control LED mapping, pulsing & pair-based voice indicators
-├── LEDController.h         # Control LED public interface
 ├── LEDmatrix.cpp           # FastLED driver wrapper implementation
 ├── ledMatrix.h             # LEDMatrix class definition
 ├── LEDMatrixFeedback.cpp   # Multi-mode step rendering & theme implementations

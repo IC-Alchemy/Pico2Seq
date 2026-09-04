@@ -197,7 +197,7 @@ src/OLED/
 
 ## Related Documentation
 
-- [`docs/LEDMatrix.md`](LEDMatrix.md) — 8×8 WS2812B RGB LED matrix visualizer
+- [`docs/LEDMatrix.md`](LEDMatrix.md) — 8×4 WS2812B RGB LED matrix visualizer
 - [`docs/matrix.md`](matrix.md) — MPR121 32-pad touch input matrix
 - [`docs/architecture.md`](architecture.md) — Dual-core architecture and UI thread loop
 - [`docs/voice.md`](voice.md) — Voice parameters, presets, and VoiceManager architecture

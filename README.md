@@ -5,10 +5,12 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 ## Features
 
 ### Synthesis
-- **4 Independent Polyphonic Voices**: Each with complete DSP chain (band-limited oscillators, ladder filters, ADSR envelopes, overdrive distortion)
+- **4 Independent Polyphonic Voices**: Each with a complete DSP chain (B-spline oscillator bank, resonant ladder filter, ADSR envelope, overdrive distortion)
+- **Three Sound Engines per Voice**: A classic oscillator bank (up to 3 oscillators, or raw noise), a Karplus-Strong **waveguide** engine for plucked/nylon/bell/shimmer strings, and a **noise-FX texture** engine (prime-tap diffuser, regenerative allpass swarm, pitch-tracked Lorenz chaos growl)
 - **Professional Ladder Filters**: 24dB multi-mode ladder filters (LP12, LP24, LP36, BP12, BP24) with resonance and passband gain compensation
 - **Effects Processing**: Per-voice overdrive distortion
 - **ADSR Envelopes**: Fast, analog-modeled attack, decay, sustain, and release stages with microsecond accuracy
+- **15 Voice Presets**: Stored as `constexpr` tables in flash (.rodata), covering classic subtractive, sub-bass, waveguide string, hypersaw, and noise-texture sounds
 
 ### Advanced Sequencing
 - **Polymetric Sequencing**: Independent track step lengths for each parameter (Notes: 16 steps, Filter: 8 steps, Velocity: 12 steps, etc.)
@@ -23,13 +25,13 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **Real-time Sensors**: TMAG5273 magnetic encoder (Velocity Encoder board) for responsive parameter dialing
 - **Distance Control**: VL53L1X TOF sensor for hands-free optical parameter modulation (74–1400 mm range)
 - **Visual Feedback**: 128×64 SH1106G OLED display with 5-tier priority screen rendering
-- **LED Matrix**: 8×8 WS2812B RGB LED display with 10 vibrant color themes and playhead visualization
+- **LED Matrix**: 8×4 WS2812B RGB LED display (mirroring the 4×8 touch matrix) with 10 vibrant color themes and playhead visualization
 
 ### Architecture Highlights
 - **VoiceSystem Architecture**: Centralized, array-based voice management with safe accessor methods
 - **Dual-Core Asymmetric Design**: Core 0 dedicated exclusively to 48kHz audio synthesis; Core 1 handles UI, sensors, MIDI, clock, and display rendering
 - **Lock-Free Parameter Staging**: Atomic generation counters allow Core 1 to stage parameter changes without blocking Core 0 audio processing
-- **Host Test Suite**: Catch2 v3 unit test suite with hardware stubs executing in CI via CTest
+- **Host Test Suite**: Catch2 v3 unit test suite with hardware stubs, built and run locally via CTest
 
 ---
 
@@ -47,11 +49,10 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 │   │   └── sequencer/        # Sequencer, ParameterManager, SequencerDefs, ShuffleTemplates
 │   ├── rpdsp/                # Submodule: IC-Alchemy/RPDSP (header-only DSP algorithms)
 │   ├── VelocityEncoder/      # Submodule: IC-Alchemy/VelocityEncoder (TMAG5273 driver)
-│   ├── VL53L1X/              # Non-blocking VL53L1X TOF distance driver
 │   ├── voice/                # Synthesizer voices, VoiceSystem, and VoicePresets
 │   │   ├── Voice.h/.cpp      # Synthesizer voice DSP chain and staged parameters
 │   │   ├── VoiceSystem.h     # Centralized 4-voice container and accessors
-│   │   ├── VoicePresets.h/.cpp # 7 built-in synthesizer voice presets
+│   │   ├── VoicePresets.h/.cpp # 15 built-in voice presets as constexpr flash tables
 │   │   ├── VoiceOscillator.h # Variant-based oscillator dispatch
 │   │   └── VoiceManager.h    # Multi-voice lifecycle and master mix processing
 │   ├── ui/                   # UI state, button handling, and control surface logic
@@ -61,12 +62,12 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 │   │   ├── ButtonHandlers.h/.cpp      # Hardware button event handlers
 │   │   └── UIEventHandler.h/.cpp      # Sequencer step adapter logic
 │   ├── matrix/               # MPR121 4×8 touch matrix — 32 dedicated step pads
-│   ├── sensors/              # Sensor management (EncoderManager and DistanceSensor)
+│   ├── sensors/              # Sensor management (EncoderManager and VL53L1X DistanceSensor)
 │   ├── midi/                 # USB MIDI input/output, CC management, and clock
-│   ├── LEDMatrix/            # 8×8 WS2812B RGB visual feedback and 10 color themes
+│   ├── LEDMatrix/            # 8×4 WS2812B RGB visual feedback (pad-mirror) and 10 color themes
 │   ├── OLED/                 # 128×64 SH1106G OLED display manager and priority screens
 │   ├── utils/                # Debug logging utilities (Debug.h/.cpp)
-│   └── AlchemyUI/            # Submodule: Alchemy Modular UI tile library
+│   └── AlchemyUI/            # Vendored Alchemy Modular UI tile library (tracked in-repo)
 ├── docs/                     # Comprehensive architecture and subsystem documentation
 ├── tests/                    # Host-side Catch2 v3.5.2 unit test suite and stubs
 └── diagnostic.h             # Hardware diagnostics
@@ -87,7 +88,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - OLED display (128×64 SH1106G on I2C `Wire` @ `0x3C`)
 - Velocity Encoder board (TMAG5273A magnetic encoder on I2C `Wire` @ `0x35`)
 - VL53L1X time-of-flight distance sensor (I2C `Wire` @ `0x29`)
-- WS2812B RGB LED matrix (8×8 on GPIO pin 1)
+- WS2812B RGB LED matrix (8×4 on GPIO pin 1)
 
 **Software:**
 - Arduino IDE with RP2040/RP2350 board support installed
@@ -205,7 +206,7 @@ MIDI, displays, sensors, or controls on physical hardware.
 | **VL53L1X Distance Sensor** | `Wire` (I2C0) | GP4 (SDA), GP5 (SCL) | Address `0x29` (TOF optical sensor) |
 | **Alchemy Modular UI Tiles** | `Wire1` (I2C1) | GP14 (SDA), GP15 (SCL) | 100 kHz bus; SliderModule & ButtonModule8 |
 | **Mode Strap Switch** | GPIO | GP7 | LOW = Param mode, HIGH = Utility mode |
-| **WS2812B LED Matrix** | FastLED | GP1 | 8×8 RGB matrix data pin |
+| **WS2812B LED Matrix** | FastLED | GP1 | 8×4 RGB matrix data pin |
 
 ---
 
@@ -219,11 +220,12 @@ MIDI, displays, sensors, or controls on physical hardware.
 4. **Select a voice:** Press Voice 1–4 buttons on the SliderModule to switch active voices directly.
 5. **Adjust parameters:** Rotate the TMAG5273 magnetic encoder or move physical faders to dial parameter values with live OLED/LED feedback.
 6. **Real-time recording:** Hold (or Shift+tap to latch) a parameter button and touch step pads to record automation into the pattern.
-7. **Switch function sets:** Toggle the GP7 mode strap between **Param** (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Slide) and **Utility** (Play/Stop, Record, Scale, Shuffle, Mute, Clear, Preset, Settings).
+7. **Switch function sets:** Toggle the GP7 mode strap between **Param** (Note, Velocity, Filter, Attack, Decay, Octave, Slide, Shift) and **Utility** (Play/Stop, Delay, Scale, Swing, Theme, Encoder Target, Randomize, Shift).
 
 ### Preset System
 
-Each synthesizer voice supports 7 distinct built-in sound presets:
+Each synthesizer voice supports 15 built-in sound presets (held as `constexpr` tables in flash):
+
 1. **Analog** — Triple-saw classic subtractive synth with warm 24dB ladder filtering
 2. **Digital** — Square + triangle hybrid with sharp 12dB lowpass cutoff
 3. **Bass** — Deep sub-octave detuned sine/triangle bass
@@ -231,6 +233,14 @@ Each synthesizer voice supports 7 distinct built-in sound presets:
 5. **Square** — PWM pulse-width square wave with resonant bite
 6. **Pad** — Atmospheric 3-oscillator chord pad with slow attack and release
 7. **Percussion** — Fast-decaying noise-textured percussive transient
+8. **SubFunk** — Sub-octave sine/triangle sub bass with warm overdrive grit
+9. **RubberSub** — Rubbery sub bass: sub-octave square grind under a resonant band-pass honk, harder drive on transients
+10. **WgPluck** — Classic Karplus-Strong plucked string (waveguide engine); bright burst, short natural tail
+11. **WgNylon** — Dark, felt-soft nylon string; damped loop, gentle pick, long sympathetic tail
+12. **WgBell** — Stiff dispersive waveguide string; inharmonic bell/kalimba partials, quick tail
+13. **WgShimmer** — Wide-detuned two-string course with slow chorusing sustain and a very long, pad-like tail
+14. **Hypersaw** — Three-saw stack (two ±21-cent detuned unisons plus an octave layer) glued with mild overdrive
+15. **NoiseStorm** — Noise texture engine: pitch-tracked Lorenz chaos growl through a prime-tap diffuser and regenerative allpass swarm
 
 ---
 
@@ -268,8 +278,11 @@ Pico2Seq provides an automated host-side unit test suite powered by **Catch2 v3.
 cmake -B build_test -DCMAKE_BUILD_TYPE=Debug
 cmake --build build_test --parallel
 
-# Run all 7 test suites via CTest
+# Run the full suite (88 test cases) via CTest
 ctest --test-dir build_test/tests --output-on-failure
+
+# Or run/filter the test binary directly
+./build_test/tests/pico2seq_tests "[voice]"
 ```
 
 For more details on test stubs and writing unit tests, see [`docs/testing.md`](docs/testing.md).
@@ -286,7 +299,7 @@ Comprehensive subsystem documentation is maintained in the [`docs/`](docs/) dire
 - [`docs/sequencer.md`](docs/sequencer.md) — 4-voice step sequencer engine, polymetric parameter tracks, and uClock integration
 - [`docs/scales.md`](docs/scales.md) — 13 musical scales, semitone offsets, rank caching, and pitch mapping
 - [`docs/matrix.md`](docs/matrix.md) — MPR121 32-pad touch input matrix, bank resolution, and Alchemy tile interaction
-- [`docs/LEDMatrix.md`](docs/LEDMatrix.md) — WS2812B 8×8 RGB LED matrix visualizer, 10 themes, and pair-based voice indicators
+- [`docs/LEDMatrix.md`](docs/LEDMatrix.md) — WS2812B 8×4 RGB LED matrix visualizer, 10 themes, and pair-based voice indicators
 - [`docs/oled.md`](docs/oled.md) — 128×64 SH1106G OLED display, 5-tier priority rendering hierarchy, and UI state
 - [`docs/midi.md`](docs/midi.md) — USB MIDI note/CC management, 2-voice asymmetry, and realtime MIDI clock
 - [`docs/sensors.md`](docs/sensors.md) — TMAG5273 magnetic encoder and VL53L1X TOF distance sensor integration
@@ -294,6 +307,7 @@ Comprehensive subsystem documentation is maintained in the [`docs/`](docs/) dire
 - [`docs/testing.md`](docs/testing.md) — Host-side Catch2 v3 unit testing guide, CMake/CTest workflow, and header stubs
 - [`docs/alchemyui-tmag5273-migration.md`](docs/alchemyui-tmag5273-migration.md) — Migration and architectural transition notes for Alchemy tiles & TMAG5273
 - [`docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`](docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md) — Specification for Alchemy modular UI tile control surface
+- [`docs/superpowers/specs/2026-09-02-modifier-layer-restoration.md`](docs/superpowers/specs/2026-09-02-modifier-layer-restoration.md) — Plan (not yet implemented) for restoring the modifier layer on the tile control surface
 
 ---
 

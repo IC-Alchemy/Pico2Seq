@@ -51,7 +51,7 @@ Core 1 (UI, Sensors, Matrix, MIDI):
     +-- distanceSensor.update()  -> 1 ms poll (20 ms non-blocking read interval)
     +-- pollUIHeldButtons()      -> Promotes long-press states (randomize reset, gate seq length)
   loop1() Display Slice (LED_UPDATE_INTERVAL = 20 ms / 50 Hz):
-    +-- updateStepLEDs() / updateControlLEDs() / ledMatrix.show()
+    +-- updateStepLEDs() / ledMatrix.show()
     +-- display.update() (SH1106 OLED @ 0x3C)
 ```
 

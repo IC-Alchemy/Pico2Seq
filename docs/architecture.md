@@ -26,7 +26,7 @@ Pico2Seq/
 │   ├── VelocityEncoder/    # Submodule: TMAG5273 / AS5600 magnetic encoder driver
 │   ├── sensors/            # DistanceSensor (VL53L1X), EncoderManager, SensorConstants
 │   ├── matrix/             # MPR121 32-pad capacitive touch matrix scanning
-│   ├── LEDMatrix/          # 8x8 WS2812B FastLED matrix controller and visual feedback
+│   ├── LEDMatrix/          # 8x4 WS2812B FastLED matrix (mirrors the 4x8 touch matrix)
 │   ├── OLED/               # 128x64 SH1106G I2C OLED display driver and view hierarchy
 │   ├── midi/               # TinyUSB MIDI input/output, CC management, clock generation
 │   └── utils/              # Debug.h/.cpp lightweight logging utilities
@@ -71,7 +71,6 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
 |                                                    |  - 20ms Loop (50Hz Displays):      |
 |                                                    |      * updateStepLEDs()            |
 |                                                    |      * display.update() (OLED)     |
-|                                                    |      * updateControlLEDs()         |
 |                                                    |      * ledMatrix.show()            |
 +----------------------------------------------------+------------------------------------+
 ```
@@ -117,7 +116,7 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
   - `pollUIHeldButtons()`: Processes long-press events across all four sequencers (`seq1..seq4`).
 - **20ms (50Hz) Display Refresh Loop**:
   - OLED Display: `display.update(uiState, seq1..seq4, voiceManager)` refreshes the 128x64 SH1106G display on Wire @ 0x3C.
-  - LED Matrix: `updateStepLEDs()`, `updateControlLEDs()`, and `ledMatrix.show()` refresh the 8x8 WS2812B FastLED array on GPIO 1.
+  - LED Matrix: `updateStepLEDs()` and `ledMatrix.show()` refresh the 8x4 WS2812B FastLED array on GPIO 1; control indicators moved to the OLED (transient notices + encoder line).
 
 ---
 
@@ -327,7 +326,7 @@ Portable core with **no hardware, UI, or Arduino dependencies**:
 
 ### 6.5 `src/matrix/`, `src/LEDMatrix/`, `src/OLED/`, `src/sensors/`
 - `matrix/`: MPR121 driver scanning 32 capacitive touch pads.
-- `LEDMatrix/`: 8x8 WS2812B FastLED matrix controller providing real-time visual feedback.
+- `LEDMatrix/`: 8x4 WS2812B FastLED matrix controller providing real-time visual feedback; the grid mirrors the 4x8 touch matrix pad-for-pad via `ControlSurface::LedLayout`.
 - `OLED/`: 128x64 SH1106G display manager with hierarchical view rendering.
 - `sensors/`: `EncoderManager` (TMAG5273 magnetic encoder) and `DistanceSensor` (VL53L1X laser ToF).
 

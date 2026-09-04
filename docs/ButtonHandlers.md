@@ -210,7 +210,7 @@ void endRandomizePress(int voiceIndex, UIState &state);
 Processes randomize operations for a specific voice (0–3):
 - **Short Press** (`< 1000 ms`): Randomizes parameters across the target voice's sequencer (`seq->randomizeParameters()`).
 - **Long Press** (`≥ 1000 ms`): Promoted by `pollUIHeldButtons()` in `loop1()` to trigger complete parameter reset.
-- Triggers visual LED confirmation flash (`state.flash31Until`).
+- Short press raises a transient OLED confirmation notice (`UIState::oledNoticeKind = Randomized`).
 
 ### `handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)`
 Processes per-voice synthesizer configuration toggles:
@@ -257,7 +257,6 @@ case BUTTON_PLAY_STOP:
             state.inPresetSelection = false;
             state.selectedStepForEdit = -1;
         }
-        state.flash25Until = millis() + CONTROL_LED_FLASH_DURATION_MS;
     }
     break;
 ```
@@ -299,10 +298,11 @@ struct UIState {
     int8_t latchedParameter = -1;
     volatile unsigned long alchemyModeBannerUntil = 0;
 
-    // Visual Feedback Timers
-    volatile unsigned long flash23Until = 0;
-    volatile unsigned long flash25Until = 0;
-    volatile unsigned long flash31Until = 0;
+    // Transient OLED notice (delay toggle / randomize confirmations)
+    enum class OledNoticeKind : uint8_t { None = 0, DelayOn, DelayOff, Randomized };
+    volatile unsigned long oledNoticeUntil = 0;
+    volatile OledNoticeKind oledNoticeKind = OledNoticeKind::None;
+    volatile uint8_t oledNoticeVoice = 0;
 };
 ```
 
