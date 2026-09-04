@@ -373,7 +373,7 @@ float Voice::mixOscillators()
 
   // Very cheap per-voice silence short-circuit: if envelope is enabled and the cached
   // envelope value is effectively zero, skip oscillator/noise processing entirely.
-  if (config.hasEnvelope && lastEnvelopeValue <= 0.0005f)
+  if (config.hasEnvelope && lastEnvelopeValue <= 0.001f)
   {
     return 0.0f;
   }
@@ -582,7 +582,7 @@ inline void Voice::applyEnvelopeParameters() noexcept
   float attack =
       dspmap::fmap(state.attackTimeSeconds, 0.002f, 0.75f, dspmap::Mapping::LINEAR);
   float decay =
-      dspmap::fmap(state.decayTimeSeconds, 0.002f, 0.8f, dspmap::Mapping::LOG);
+      dspmap::fmap(state.decayTimeSeconds, 0.01f, 0.5f, dspmap::Mapping::LOG);
   // float release = decay; // Use decay for release in this implementation
 
   envelope.setAttack(attack);
@@ -868,7 +868,7 @@ void Voice::applyPendingParams_() noexcept
       waveguide_.setBrightness(std::clamp(state.filterCutoff, 0.0f, 1.0f));
       waveguide_.setPickHardness(std::clamp(state.attackTimeSeconds, 0.0f, 1.0f));
       waveguide_.setDecayTimeSeconds(
-          dspmap::fmap(state.decayTimeSeconds, 0.05f, 10.0f, dspmap::Mapping::EXP));
+          dspmap::fmap(state.decayTimeSeconds, 0.05f, 7.0f, dspmap::Mapping::EXP));
       break;
     case PARAMSET_HYPERSAW:
     {
@@ -890,7 +890,7 @@ void Voice::applyPendingParams_() noexcept
       filterFrequency = dspmap::fmap(config.filterCutoffBase, 150.0f, 8000.0f, dspmap::Mapping::EXP);
       break;
     default:
-      filterFrequency = dspmap::fmap(state.filterCutoff, 150.0f, 8000.0f, dspmap::Mapping::EXP);
+      filterFrequency = dspmap::fmap(state.filterCutoff, 120.0f, 5000.0f, dspmap::Mapping::EXP);
       applyEnvelopeParameters();
       break;
     }

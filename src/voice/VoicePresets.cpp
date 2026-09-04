@@ -319,7 +319,7 @@ namespace VoicePresets
     c.hasOverdrive = false;
     c.hasFilter = false;    // raw string; velocity scales the output directly
     c.hasEnvelope = false;  // natural T60 decay instead of a gated VCA
-    c.highPassFreq = 0.0f;  // bypass the high-pass too
+    c.highPassFreq = 55.0f;  // bypass the high-pass too
     c.highPassRes = 0.0f;
     c.outputLevel = 0.85f;  // two-string course sums hot
     return c;
@@ -343,7 +343,7 @@ namespace VoicePresets
     c.hasOverdrive = false;
     c.hasFilter = false;
     c.hasEnvelope = false;
-    c.highPassFreq = 0.0f;
+    c.highPassFreq = 66.0f;
     c.highPassRes = 0.0f;
     c.outputLevel = 0.9f;
     return c;
