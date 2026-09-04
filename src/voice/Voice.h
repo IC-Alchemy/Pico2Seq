@@ -29,6 +29,18 @@ enum VoiceEngine : uint8_t
   ENGINE_NOISEFX = 2,   // Noise + chaos source through diffuser/swarm inserts
 };
 
+// How the sequencer's Filter/Attack/Decay parameter slots are interpreted for
+// this voice. STANDARD = filter cutoff + ADSR times; the alternates re-purpose
+// the same slots for engine-specific parameters (routed in
+// Voice::applyPendingParams_(), named via VoicePresets::getSequencerParamName).
+enum VoiceParamSet : uint8_t
+{
+  PARAMSET_STANDARD = 0,
+  PARAMSET_WAVEGUIDE = 1,
+  PARAMSET_HYPERSAW = 2,
+  PARAMSET_NOISESTORM = 3,
+};
+
 /**
  * @brief Configuration structure for a voice
  *
@@ -51,6 +63,9 @@ struct VoiceConfig
   // Sound engine selection (VoiceEngine). Ignored fields stay at their defaults.
   uint8_t engine = ENGINE_OSC;
 
+  // Which sequencer parameter slots this voice re-purposes (VoiceParamSet).
+  uint8_t paramSet = PARAMSET_STANDARD;
+
   // Waveguide engine parameters (ENGINE_WAVEGUIDE only)
   float wgT60 = 2.5f;          // String tail T60 in seconds (0.05-10.0)
   float wgBrightness = 0.7f;   // Loop damping: 0 dark nylon .. 1 glassy (0.0-1.0)
@@ -71,6 +86,8 @@ struct VoiceConfig
   float filterDrive = 1.8f;          // Filter drive amount (0.0-4.0)
   float filterPassbandGain = 0.23f;  // Passband gain compensation (0.0-0.5)
   rpdsp::LadderFilter::Mode filterMode = rpdsp::LadderFilter::Mode::LP24; // Filter mode
+  float filterCutoffBase = 0.37f;    // Normalized static cutoff (0.0-1.0) used when
+                                     // paramSet re-purposes the Filter slot (e.g. NoiseStorm)
 
   // High-pass filter settings
   float highPassFreq = 80.0f; // High-pass cutoff frequency in Hz (20.0-20000.0)
@@ -79,6 +96,7 @@ struct VoiceConfig
   // Effects chain configuration
   bool hasOverdrive = false;     // Enable overdrive effect
   bool hasEnvelope = true;       // Enable envelope (recommended: true)
+  bool hasFilter = true;         // Enable the ladder filter (false = bypass, velocity scales output)
   float overdriveGain = 0.34f;   // Overdrive output gain (0.0-2.0)
   float overdriveDrive = 0.25f;  // Overdrive drive amount (0.0-1.0)
 

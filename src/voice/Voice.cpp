@@ -272,7 +272,10 @@ float Voice::process() noexcept
   lastEnvelopeValue = envelopeValue;
 
   // 2) Filter cutoff update (uses envelope)
-  updateFilter(envelopeValue);
+  if (config.hasFilter)
+  {
+    updateFilter(envelopeValue);
+  }
 
   // 3) Oscillator/engine mixing (+ slide updates)
   float mixed = mixOscillators();
@@ -285,16 +288,13 @@ float Voice::process() noexcept
 
 float Voice::computeEnvelope()
 {
-  // Track gate edges for the event-style ADSR (noteOn on rise, noteOff on fall)
+  // Track gate edges for the event-style ADSR (noteOn on rise, noteOff on fall).
+  // This must happen even when the ADSR is bypassed: hasEnvelope == false means
+  // "ring naturally" (waveguide pluck still arms on edges), not "ignore gates".
   const bool gateHigh = gate;
   const bool rising = gateHigh && !gateHighPrev_;
   const bool falling = !gateHigh && gateHighPrev_;
   gateHighPrev_ = gateHigh;
-
-  if (!config.hasEnvelope)
-  {
-    return 1.0f;
-  }
 
   // Retrigger restarts the attack from zero, matching the old soft-retrigger
   // behavior while gated. Consumed even when ungated so a stale flag cannot
@@ -304,18 +304,26 @@ float Voice::computeEnvelope()
     state.shouldRetrigger = false;
     if (gateHigh)
     {
-      envelope.noteOn();
+      if (config.hasEnvelope)
+        envelope.noteOn();
       wgPluckPending_ = true; // waveguide engine re-plucks on retriggers
     }
   }
   else if (rising)
   {
-    envelope.noteOn();
+    if (config.hasEnvelope)
+      envelope.noteOn();
     wgPluckPending_ = true;
   }
   else if (falling)
   {
-    envelope.noteOff();
+    if (config.hasEnvelope)
+      envelope.noteOff();
+  }
+
+  if (!config.hasEnvelope)
+  {
+    return 1.0f;
   }
 
   return envelope.process();
@@ -537,14 +545,16 @@ inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept
   //    VCA envelope is applied pre effects so that the overdrive sounds more dynamic
   applyEffects(preEffects);
 
-  // Apply ladder filter
-  float filteredSignal = filter.process(preEffects * state.velocityLevel);
+  // With the ladder bypassed, velocity scales the signal directly —
+  // the filter input was its only entry point.
+  const float shaped = config.hasFilter ? filter.process(preEffects * state.velocityLevel)
+                                        : (preEffects * state.velocityLevel);
 
   // Apply optional high-pass filter
-  float postHpf = filteredSignal;
+  float postHpf = shaped;
   if (!hpfBypass_)
   {
-    postHpf = highPassFilter.process(filteredSignal).highpass;
+    postHpf = highPassFilter.process(shaped).highpass;
   }
 
   float finalOutput = postHpf * config.outputLevel;

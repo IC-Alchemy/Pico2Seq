@@ -221,6 +221,54 @@ TEST_CASE("Waveguide engine plucks on gate rise and decays after gate fall", "[v
     REQUIRE(std::abs(v.process()) < 0.01f); // envelope release silences the tail
 }
 
+TEST_CASE("Bypassed envelope still plucks the waveguide on gate rise", "[voice]") {
+    VoiceConfig cfg = VoicePresets::getWaveguidePluckVoice();
+    cfg.hasEnvelope = false;
+    Voice v(0, cfg);
+    initVoiceWithScale(v);
+
+    v.setGate(true);
+    float maxAbs = 0.0f;
+    for (int i = 0; i < 8000; ++i)
+    {
+        const float s = v.process();
+        REQUIRE(std::isfinite(s));
+        maxAbs = std::max(maxAbs, std::abs(s));
+    }
+    REQUIRE(maxAbs > 0.02f); // pluck armed even with the ADSR bypassed
+}
+
+TEST_CASE("Bypassed filter scales output by velocity", "[voice]") {
+    VoiceConfig cfg = defaultConfig();
+    cfg.hasFilter = false;
+    cfg.hasEnvelope = false; // isolate the level path from the ADSR
+    Voice v(0, cfg);
+    initVoiceWithScale(v);
+
+    VoiceState vs;
+    vs.noteIndex = 0.0f;
+    vs.isGateHigh = true;
+
+    vs.velocityLevel = 1.0f;
+    v.updateParameters(vs);
+    v.setGate(true);
+    float loud = 0.0f;
+    for (int i = 0; i < 480; ++i)
+        loud = std::max(loud, std::abs(v.process()));
+
+    vs.velocityLevel = 0.25f;
+    v.updateParameters(vs);
+    // Discard the amplitude-step transient through the high-pass filter before
+    // measuring the settled level.
+    for (int i = 0; i < 2400; ++i)
+        v.process();
+    float quiet = 0.0f;
+    for (int i = 0; i < 480; ++i)
+        quiet = std::max(quiet, std::abs(v.process()));
+
+    REQUIRE(loud > quiet * 2.0f);
+}
+
 TEST_CASE("Noise-FX engine produces finite textured output while gated", "[voice]") {
     Voice v(0, VoicePresets::getNoiseStormVoice());
     v.init(48000.0f);
