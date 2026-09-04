@@ -13,7 +13,7 @@
 namespace LEDConstants {
   // LED Matrix Hardware Configuration
   static constexpr uint8_t MATRIX_WIDTH = 8;
-  static constexpr uint8_t MATRIX_HEIGHT = 8;
+  static constexpr uint8_t MATRIX_HEIGHT = 4; // 8x4 panel: mirrors the 4x8 touch matrix
   static constexpr uint8_t MATRIX_DATA_PIN = 1;
   static constexpr uint8_t MATRIX_TOTAL_LEDS = MATRIX_WIDTH * MATRIX_HEIGHT;
   static constexpr uint8_t DEFAULT_BRIGHTNESS = 120;
@@ -43,9 +43,9 @@ namespace LEDConstants {
   static constexpr uint8_t SUBTLE_BRIGHTNESS = 12;
 
   // LED Matrix Layout Constants
-  static constexpr uint8_t TOP_HALF_OFFSET = 0;
-  static constexpr uint8_t BOTTOM_HALF_OFFSET = 24;  // Row 4 start for 8x8 matrix
-  static constexpr uint8_t VOICE_PAIR_SEPARATION = 3;  // Rows between voice pairs
+  static constexpr uint8_t TOP_HALF_OFFSET = 0;       // Band 0 start (pair low voice)
+  static constexpr uint8_t BOTTOM_HALF_OFFSET = 16;   // Band 1 start (pair high voice; touch rows 2-3)
+  static constexpr uint8_t VOICE_PAIR_SEPARATION = 1; // Rows between pair bands in an 8x4 matrix
   static constexpr uint8_t MAX_STEP_BUTTONS = 16;
 
   // Polyrhythmic Overlay Constants
