@@ -20,7 +20,7 @@
 
 ## 1. Historical Baseline Analysis & Assumptions
 
-**{confirmed}** The touch input is `Adafruit_MPR121` driving a custom 32-button scanner (`src/matrix/Matrix.cpp/h`, `MATRIX_BUTTON_COUNT = 32`), constructed in `Pico2Seq.ino` as `Adafruit_MPR121 touchSensor`, initialized in `setup1()` via `touchSensor.begin(0x5A)` + `Matrix_init(&touchSensor)`, polled every 1ms via `Matrix_scan()`, and dispatched through one callback registered with `Matrix_setEventHandler()` that forwards `MatrixButtonEvent{buttonIndex, type}` into `matrixEventHandler()`.
+**{confirmed}** The touch input is `Adafruit_MPR121` driving a custom 32-button scanner (`src/matrix/Matrix.cpp/h`, `MATRIX_BUTTON_COUNT = 32`), constructed in `Pico2Seq.ino` as `Adafruit_MPR121 touchSensor`, initialized in `setup()` via `touchSensor.begin(0x5A)` + `Matrix_init(&touchSensor)`, polled every 1ms via `Matrix_scan()`, and dispatched through one callback registered with `Matrix_setEventHandler()` that forwards `MatrixButtonEvent{buttonIndex, type}` into `matrixEventHandler()`.
 
 **{confirmed}** The legacy 32 button indices were heavily overloaded by UI mode:
 - 0–15: step pads — also reinterpreted as voice-select (settings mode), preset picker (settings), voice-parameter toggles (voice-parameter sub-mode), and gate-track-length picker (while the encoder-control button was long-held).
@@ -76,7 +76,7 @@ Rather than using an adapter shim translating tile events into synthetic matrix 
    - `ShiftLatch`: Manages Shift + tap parameter latching and momentary holds.
    - `FaderMap`: Normalizes 12-bit counts (0–4095) with an 8-count deadband filter to eliminate bus traffic.
 2. **Hardware Bridge (`src/ui/AlchemyControlBridge.h/.cpp`)**:
-   - Direct master driver polling `AlchemyPanel` on `Wire1` @ 100 kHz within `loop1()` (1 ms slice).
+   - Direct master driver polling `AlchemyPanel` on `Wire1` @ 100 kHz within `loop()` (1 ms slice).
    - Invokes shared firmware handlers: `handleParameterButtonById`, `handleSlideModePress`, `handleControlButton`, `selectVoice`, `clearSequencerStep`.
 3. **Matrix Handler (`src/ui/UIEventHandler.cpp`)**:
    - Step pad events from `Matrix_scan()` resolve through `PadBank::resolve` and dispatch to `handleStepButtonEvent()`.
@@ -118,8 +118,8 @@ The full mechanical rename from `AS5600` to `Encoder` was executed across the co
    - Wire (GP4/5 @ 100 kHz) handles OLED, TMAG5273, VL53L1X, and MPR121.
    - Wire1 (GP14/15 @ 100 kHz) handles SliderModule (0x08) and ButtonModule8 (0x0B).
 3. **Dual-Core Safety**:
-   - Audio synthesis remains 100% isolated on Core 0.
-   - All sensor acquisition, matrix scanning, and tile polling run non-blocking in Core 1's 1 ms control loop.
+   - Audio synthesis remains 100% isolated on Core 1.
+   - All sensor acquisition, matrix scanning, and tile polling run non-blocking in Core 0's 1 ms control loop.
 
 ---
 

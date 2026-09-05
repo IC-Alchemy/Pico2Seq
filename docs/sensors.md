@@ -8,7 +8,7 @@ The sensors module provides real-time physical input and parameter modulation fo
 2. **VL53L1X Distance Sensor**: Time-of-Flight (ToF) infrared optical distance measurement for hands-free parameter modulation and real-time step recording.
 3. **MPR121 Capacitive Touch Matrix**: 32-pad capacitive touch grid configured as two 16-step sequencer voice banks for step programming, voice selection, and note input.
 
-All sensor acquisition and processing runs exclusively on **Core 1** inside a 1 ms non-blocking control slice (`loop1()`), ensuring zero interference or jitter with Core 0 real-time I2S audio synthesis (48 kHz stereo).
+All sensor acquisition and processing runs exclusively on **Core 0** inside a 1 ms non-blocking control slice (`loop()`), ensuring zero interference or jitter with Core 1 real-time I2S audio synthesis (48 kHz stereo).
 
 ---
 
@@ -38,19 +38,19 @@ The Pico2Seq hardware separates sensors, displays, and control surfaces across t
 The firmware implements a strict dual-core separation:
 
 ```
-Core 0 (Real-Time Audio):
+Core 1 (Real-Time Audio):
   fill_audio_buffer() @ 48 kHz stereo I2S (GP10 BCLK, GP11 LRCK, GP12 DATA)
   -> 0% I2C / sensor involvement -> Never blocks, no dynamic allocations
 
-Core 1 (UI, Sensors, Matrix, MIDI):
-  loop1() Control Slice (CONTROL_UPDATE_INTERVAL = 1 ms):
+Core 0 (UI, Sensors, Matrix, MIDI):
+  loop() Control Slice (CONTROL_UPDATE_INTERVAL = 1 ms):
     +-- Matrix_scan()            -> 1 ms MPR121 32-pad touch scanning
     +-- alchemyBridge.update()   -> 1 ms Alchemy tile polling (Wire1 @ 100 kHz)
     +-- magEncoder.update()      -> 1 ms poll (5 ms internal throttle in driver)
     +-- updateEncoderBaseValues()-> Applies rotary increments to active params
     +-- distanceSensor.update()  -> 1 ms poll (20 ms non-blocking read interval)
     +-- pollUIHeldButtons()      -> Promotes long-press states (randomize reset, gate seq length)
-  loop1() Display Slice (LED_UPDATE_INTERVAL = 20 ms / 50 Hz):
+  loop() Display Slice (LED_UPDATE_INTERVAL = 20 ms / 50 Hz):
     +-- updateStepLEDs() / ledMatrix.show()
     +-- display.update() (SH1106 OLED @ 0x3C)
 ```
@@ -306,7 +306,7 @@ float shiftAndScale(float seqValue, float encoderOffset) {
 ```cpp
 #include "includes.h"
 
-void setup1() {
+void setup() {
     // 1. Configure main I2C bus pins and initialize Wire
     Wire.setSDA(PIN_WIRE_SDA); // GP4
     Wire.setSCL(PIN_WIRE_SCL); // GP5
@@ -333,7 +333,7 @@ void setup1() {
     Matrix_init(&touchSensor);
 }
 
-void loop1() {
+void loop() {
     unsigned long currentMillis = millis();
 
     // 1 ms Control Loop Slice
@@ -371,7 +371,7 @@ void loop1() {
 ### TMAG5273 Magnetic Encoder
 - **Device Not Detected (`0x35`)**: Check Wire connections (GP4/GP5), 3.3V power, and verify the Velocity Encoder board I2C pull-ups. Pico2Seq is configured for a TMAG5273A; use the matching `TMAG5273::ADDRESS_*` constant if a different factory-programmed part is fitted.
 - **Erratic Angle Readings**: Confirm an on-axis diametric magnet is centered directly over the TMAG5273 package with ~1–3mm air gap.
-- **Sluggish Response**: Check if `magEncoder.update()` is called regularly every 1 ms in `loop1()`.
+- **Sluggish Response**: Check if `magEncoder.update()` is called regularly every 1 ms in `loop()`.
 
 ### VL53L1X Distance Sensor
 - **Initialization Fails (`0x29`)**: Verify I2C bus address and 50 ms stabilization delay (`I2C_STABILIZATION_DELAY_MS`).

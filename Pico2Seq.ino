@@ -184,7 +184,7 @@ void onClockStop()
  * Sets up global audio effects, delay processing, and voice management system.
  * Creates 4 voices with default presets and attaches them to sequencers.
  *
- * @note Called during setup() on Core 0 before audio processing begins
+ * @note Called during setup1() on Core 1 before audio processing begins
  */
 void initOscillators()
 {
@@ -638,9 +638,9 @@ static inline int16_t FloatToPcm16(float s) noexcept
     return (int16_t)__SSAT(i, 16);
 }
 /**
- * @brief Main audio buffer processing function (Core 0 - Real-time critical)
+ * @brief Main audio buffer processing function (Core 1 - Real-time critical)
  *
- * This function runs on Core 0 and must maintain real-time performance.
+ * This function runs on Core 1 and must maintain real-time performance.
  * It processes all voices through the VoiceManager and applies global delay effects.
  *
  * @param buffer Audio buffer to fill with processed samples
@@ -746,100 +746,18 @@ void setupI2SAudio(audio_format_t *audioFormat, audio_i2s_config_t *i2sConfig)
 }
 
 // =======================
-//   CORE 0 SETUP (AUDIO PROCESSING)
+//   CORE 0 SETUP (UI, MIDI, SENSORS)
 // =======================
 /**
- * @brief Core 0 initialization - Audio system setup
- *
- * Initializes the audio synthesis system, configures I2S hardware interface,
- * and sets up audio buffer management. This core is dedicated to real-time
- * audio processing only.
- *
- * @note Runs on Core 0 - Keep minimal for real-time performance
- */
-void setup()
-{
-    delay(100); // Allow system stabilization
-
-    // Initialize audio synthesis system
-    initOscillators();
-
-    // Configure audio format (48kHz, 16-bit stereo)
-    static audio_format_t audioFormat = {
-        .sample_freq = static_cast<uint32_t>(SAMPLE_RATE),
-        .format = AUDIO_BUFFER_FORMAT_PCM_S16,
-        .channel_count = 2};
-
-    // Configure audio buffer format
-    static audio_buffer_format_t bufferFormat = {
-        .format = &audioFormat,
-        .sample_stride = 4 // 2 channels * 2 bytes per sample
-    };
-
-    // Create audio buffer pool
-    producer_pool = audio_new_producer_pool(&bufferFormat, NUM_AUDIO_BUFFERS, SAMPLES_PER_BUFFER);
-
-    // Configure I2S hardware interface
-    audio_i2s_config_t i2sConfig = {
-        .data_pin = PICO_AUDIO_I2S_DATA_PIN,
-        .clock_pin_base = PICO_AUDIO_I2S_CLOCK_PIN_BASE,
-        .dma_channel = 0,
-        .pio_sm = 0};
-
-    // Initialize I2S audio system
-    setupI2SAudio(&audioFormat, &i2sConfig);
-}
-
-/**
- * @brief Print what the Alchemy tile scan actually found.
- *
- * A tile that does not answer at begin() is never re-probed (the hot-plug
- * path needs an address claimed during the scan), and a missing slider tile
- * shifts the button tile into slot 0 — both are silent failures without this
- * report. Type 0x01 is the SliderModule, 0x02 the ButtonModule.
- */
-static void printAlchemyTileScanReport()
-{
-    const AlchemyTiles &tiles = alchemyBridge.tiles();
-    Serial.print("[ALCHEMY] tiles found: ");
-    Serial.println(tiles.presentTileCount());
-    for (int slot = 0; slot < tiles.tileCount(); ++slot)
-    {
-        const AlchemyTiles::TileInfo &info = tiles.info(slot);
-        if (!info.present)
-            continue;
-        Serial.print("[ALCHEMY]   slot ");
-        Serial.print(slot);
-        Serial.print(" addr 0x");
-        Serial.print(info.address, HEX);
-        Serial.print(" type 0x");
-        Serial.print(info.identity.typeId, HEX);
-        Serial.print(" dataLen ");
-        Serial.println(info.identity.dataLen);
-    }
-    if (!tiles.hasSlider())
-    {
-        Serial.println("[ALCHEMY] no slider tile - faders and voice selects dead");
-    }
-    if (tiles.firstSlotOfType(alchemy::kTypeButton4) < 0)
-    {
-        Serial.println("[ALCHEMY] no button tile - param/utility buttons dead");
-    }
-}
-
-// =======================
-//   CORE 1 SETUP (UI, MIDI, SENSORS)
-// =======================
-/**
- * @brief Core 1 initialization - UI and control systems
+ * @brief Core 0 initialization - UI and control systems
  *
  * Initializes all non-audio systems including MIDI, sensors, display,
  * LED matrix, and user interface components. This core handles all
  * user interaction and system control.
  */
-void setup1()
+void setup()
 {
-    delay(300); // Allow Core 0 audio system to stabilize
+    delay(300); // Allow Core 1 audio system to stabilize
 
     // Initialize MIDI communication
     usb_midi.begin(MIDI_CHANNEL_OMNI);
@@ -850,7 +768,7 @@ void setup1()
 
     //  Debug::setLevel(Debug::Level::Info);
 
-    Serial.print("[CORE1] Setup starting... ");
+    Serial.print("[CORE0] Setup starting... ");
 
     // Pin the main I2C bus (OLED, MPR121, TMAG5273, VL53L1X) before any
     // sensor/display begin() runs.
@@ -968,44 +886,103 @@ void setup1()
     seq1.start();
     seq2.start();
 
-    Serial.println("[CORE1] Setup complete!");
+    Serial.println("[CORE0] Setup complete!");
 }
 
 // =======================
-//   CORE 0 MAIN LOOP (AUDIO PROCESSING)
+//   CORE 1 SETUP (AUDIO PROCESSING)
 // =======================
 /**
- * @brief Core 0 main loop - Real-time audio processing
+ * @brief Core 1 initialization - Audio system setup
  *
- * Continuously processes audio buffers for I2S output. This loop must maintain
- * real-time performance to prevent audio dropouts. Only audio processing
- * occurs on this core.
+ * Initializes the audio synthesis system, configures I2S hardware interface,
+ * and sets up audio buffer management. This core is dedicated to real-time
+ * audio processing only.
  *
- * @note Dual-core architecture: UI, MIDI, and sensors handled on Core 1
+ * @note Runs on Core 1 - Keep minimal for real-time performance
  */
-void loop()
+void setup1()
 {
-    audio_buffer_t *audioBuffer = take_audio_buffer(producer_pool, true);
+    delay(100); // Allow system stabilization
 
-    if (audioBuffer)
+    // Initialize audio synthesis system
+    initOscillators();
+
+    // Configure audio format (48kHz, 16-bit stereo)
+    static audio_format_t audioFormat = {
+        .sample_freq = static_cast<uint32_t>(SAMPLE_RATE),
+        .format = AUDIO_BUFFER_FORMAT_PCM_S16,
+        .channel_count = 2};
+
+    // Configure audio buffer format
+    static audio_buffer_format_t bufferFormat = {
+        .format = &audioFormat,
+        .sample_stride = 4 // 2 channels * 2 bytes per sample
+    };
+
+    // Create audio buffer pool
+    producer_pool = audio_new_producer_pool(&bufferFormat, NUM_AUDIO_BUFFERS, SAMPLES_PER_BUFFER);
+
+    // Configure I2S hardware interface
+    audio_i2s_config_t i2sConfig = {
+        .data_pin = PICO_AUDIO_I2S_DATA_PIN,
+        .clock_pin_base = PICO_AUDIO_I2S_CLOCK_PIN_BASE,
+        .dma_channel = 0,
+        .pio_sm = 0};
+
+    // Initialize I2S audio system
+    setupI2SAudio(&audioFormat, &i2sConfig);
+}
+
+/**
+ * @brief Print what the Alchemy tile scan actually found.
+ *
+ * A tile that does not answer at begin() is never re-probed (the hot-plug
+ * path needs an address claimed during the scan), and a missing slider tile
+ * shifts the button tile into slot 0 — both are silent failures without this
+ * report. Type 0x01 is the SliderModule, 0x02 the ButtonModule.
+ */
+static void printAlchemyTileScanReport()
+{
+    const AlchemyTiles &tiles = alchemyBridge.tiles();
+    Serial.print("[ALCHEMY] tiles found: ");
+    Serial.println(tiles.presentTileCount());
+    for (int slot = 0; slot < tiles.tileCount(); ++slot)
     {
-        fill_audio_buffer(audioBuffer);
-        give_audio_buffer(producer_pool, audioBuffer);
+        const AlchemyTiles::TileInfo &info = tiles.info(slot);
+        if (!info.present)
+            continue;
+        Serial.print("[ALCHEMY]   slot ");
+        Serial.print(slot);
+        Serial.print(" addr 0x");
+        Serial.print(info.address, HEX);
+        Serial.print(" type 0x");
+        Serial.print(info.identity.typeId, HEX);
+        Serial.print(" dataLen ");
+        Serial.println(info.identity.dataLen);
+    }
+    if (!tiles.hasSlider())
+    {
+        Serial.println("[ALCHEMY] no slider tile - faders and voice selects dead");
+    }
+    if (tiles.firstSlotOfType(alchemy::kTypeButton4) < 0)
+    {
+        Serial.println("[ALCHEMY] no button tile - param/utility buttons dead");
     }
 }
 
 // =======================
-//   CORE 1 MAIN LOOP (UI, MIDI, SENSORS)
+//   CORE 0 MAIN LOOP (UI, MIDI, SENSORS)
 // =======================
 /**
- * @brief Core 1 main loop - User interface and control processing
+ * @brief Core 0 main loop - User interface and control processing
  *
  * Handles all non-audio processing including MIDI I/O, sensor reading,
  * button matrix scanning, LED updates, and display rendering.
  *
- * @note Dual-core architecture: Audio processing handled on Core 0
+ * @note Dual-core architecture: Audio processing handled on Core 1
  */
-void loop1()
+void loop()
 {
     // Process MIDI input/output
     usb_midi.read();
@@ -1115,5 +1092,28 @@ void loop1()
 
         // Apply LED updates to hardware
         ledMatrix.show();
+    }
+}
+
+// =======================
+//   CORE 1 MAIN LOOP (AUDIO PROCESSING)
+// =======================
+/**
+ * @brief Core 1 main loop - Real-time audio processing
+ *
+ * Continuously processes audio buffers for I2S output. This loop must maintain
+ * real-time performance to prevent audio dropouts. Only audio processing
+ * occurs on Core 1.
+ *
+ * @note Dual-core architecture: UI, MIDI, and sensors handled on Core 0
+ */
+void loop1()
+{
+    audio_buffer_t *audioBuffer = take_audio_buffer(producer_pool, true);
+
+    if (audioBuffer)
+    {
+        fill_audio_buffer(audioBuffer);
+        give_audio_buffer(producer_pool, audioBuffer);
     }
 }

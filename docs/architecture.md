@@ -37,46 +37,47 @@ Pico2Seq/
 
 ## 2. Dual-Core Task Distribution & Lifecycle Model
 
-The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio synthesis strictly to Core 0 and all user interaction, sensors, sequencing, and communication to Core 1.
+The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio synthesis strictly to Core 1 and all user interaction, sensors, sequencing, and communication to Core 0. This split (flipped from the original audio-on-Core-0 layout on 2026-09-04) is shaped by a constraint of the stock `uClock` library: its repeating-alarm timer always fires on **Core 0**, regardless of which core calls `uClock.init()`. Running the control plane on Core 0 puts that 16th-note ISR burst (sequencer advance, MIDI sends) next to the UI that tolerates jitter, while audio stays isolated on Core 1.
 
 ```
 +-----------------------------------------------------------------------------------------+
 |                                    RP2350 DUAL-CORE SPLIT                               |
 +----------------------------------------------------+------------------------------------+
 |                      CORE 0                        |               CORE 1               |
-|            Real-Time Audio Synthesis               |   UI, Sensors, MIDI & Sequencer    |
+|            UI, Sensors, MIDI & Sequencer           |      Real-Time Audio Synthesis     |
 +----------------------------------------------------+------------------------------------+
 | setup():                                           | setup1():                          |
-|  - initOscillators()                               |  - delay(300) [stabilize Core 0]   |
-|      * VoiceManager(4) construction                |  - usb_midi.begin()                |
-|      * Add 4 preset voices                         |  - Wire (I2C0 GP4/GP5): OLED,      |
-|      * Attach seq1..seq4 to voice IDs              |    MPR121, TMAG5273, VL53L1X       |
-|  - audio_new_producer_pool(3 buffers, 256 samples) |  - Wire1 (I2C1 GP14/GP15 @ 100kHz):|
-|  - audio_i2s_setup(48kHz, stereo S16, GP10-12)    |    Alchemy tile control panel      |
-|  - audio_i2s_set_enabled(true)                     |  - ledMatrix.begin(100) (GP1)      |
-|                                                    |  - uClock.init(90 BPM, 480 PPQN)   |
+|  - delay(300) [stabilize Core 1 audio]             |  - delay(100) [stabilize]          |
+|  - usb_midi.begin()                                |  - initOscillators()               |
+|  - Wire (I2C0 GP4/GP5): OLED,                      |      * VoiceManager(4) construction|
+|    MPR121, TMAG5273, VL53L1X                       |      * Add 4 preset voices         |
+|  - Wire1 (I2C1 GP14/GP15 @ 100kHz):                |      * Attach seq1..seq4 to voices |
+|    Alchemy tile control panel                      |  - audio_new_producer_pool         |
+|  - ledMatrix.begin(100) (GP1)                      |    (3 buffers, 256 samples)        |
+|  - uClock.init(90 BPM, 480 PPQN)                   |  - audio_i2s_setup(48kHz, S16,     |
+|  - seq1/seq2.start()                               |    GP10-12, DMA ch0, PIO SM0)      |
+|                                                    |  - audio_i2s_set_enabled(true)     |
 | loop():                                            |                                    |
-|  - take_audio_buffer(producer_pool, true)          | loop1():                           |
-|  - fill_audio_buffer(audioBuffer):                 |  - usb_midi.read()                 |
-|      for i = 0 .. 255:                             |  - pollUIHeldButtons(uiState, ...) |
-|        s = voiceManager->processAllVoices()        |  - Drain PPQN ticks (uClock):      |
-|        pcm16 = FloatToPcm16(s)  [__SSAT]           |      * midiNoteManager.update()    |
-|        out[2*i] = pcm16; out[2*i+1] = pcm16;       |      * seq1..seq4.tickNoteDuration()|
-|  - give_audio_buffer(producer_pool, audioBuffer)   |      * voiceSystem.tickAllGateTimers()|
-|                                                    |  - 1ms Loop (Control & Sensors):   |
-|                                                    |      * Matrix_scan() (32 step pads)|
-|                                                    |      * alchemyBridge.update()      |
-|                                                    |      * magEncoder.update()         |
-|                                                    |      * distanceSensor.update()     |
-|                                                    |  - 20ms Loop (50Hz Displays):      |
-|                                                    |      * updateStepLEDs()            |
-|                                                    |      * display.update() (OLED)     |
-|                                                    |      * ledMatrix.show()            |
+|  - usb_midi.read()                                 | loop1():                           |
+|  - pollUIHeldButtons(uiState, ...)                 |  - take_audio_buffer(pool, true)   |
+|  - Drain PPQN ticks (uClock):                      |  - fill_audio_buffer(audioBuffer): |
+|      * midiNoteManager.updateTiming()              |      for i = 0 .. 255:             |
+|      * seq1..seq4.tickNoteDuration()               |        s = processAllVoices()      |
+|      * voiceSystem.tickAllGateTimers()             |        pcm16 = FloatToPcm16(s)     |
+|  - 1ms Loop (Control & Sensors):                   |        out[2i]=pcm16; out[2i+1]=.. |
+|      * Matrix_scan() (32 step pads)                |  - give_audio_buffer(pool, buffer) |
+|      * alchemyBridge.update()                      |                                    |
+|      * magEncoder.update()                         |                                    |
+|      * distanceSensor.update()                     |                                    |
+|  - 20ms Loop (50Hz Displays):                      |                                    |
+|      * updateStepLEDs()                            |                                    |
+|      * display.update() (OLED)                     |                                    |
+|      * ledMatrix.show()                            |                                    |
 +----------------------------------------------------+------------------------------------+
 ```
 
-### 2.1 Core 0: Real-Time Audio Engine
-- **Dedicated Execution**: Runs standard Arduino `setup()` and `loop()`. No UI, serial processing, or sensor polling is ever executed on Core 0.
+### 2.1 Core 1: Real-Time Audio Engine
+- **Dedicated Execution**: Runs standard Arduino `setup1()` and `loop1()`. No UI, serial processing, or sensor polling is ever executed on Core 1. `loop1()` blocks on `take_audio_buffer(producer_pool, true)` — that blocking *is* the pacing; never add anything else to this core.
 - **Buffer Pool**: Configured with `audio_new_producer_pool(&bufferFormat, 3, 256)`:
   - 3 producer buffers in the pool.
   - 256 samples per buffer @ 48kHz ($\approx 5.33\text{ ms}$ real-time budget per buffer).
@@ -97,14 +98,26 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
   Uses the ARM Cortex-M33 hardware saturation instruction `__SSAT` to clamp the scaled 32-bit integer into signed 16-bit range in a single cycle.
 - **Mono-to-Stereo Replication**: The mono voice mix is duplicated across both channels: `out[2*i] = pcm16; out[2*i+1] = pcm16;`.
 
-### 2.2 Core 1: System Control, UI, Sensors, MIDI & Clock
-- **Execution**: Runs Arduino `setup1()` and `loop1()`.
+### 2.2 Core 0: System Control, UI, Sensors, MIDI & Clock
+- **Execution**: Runs Arduino `setup()` and `loop()`.
 - **Clock Engine (`uClock`)**:
-  - Default tempo: 90 BPM; resolution: 480 PPQN (`PPQN_480`).
-  - Shuffle: Built-in `uClock.setShuffle(true)` using templates from `ShuffleTemplates.h`.
-  - Interrupt / callback writes: `onOutputPPQNCallback` increments `ppqnTicksPending`, and `onStepCallback` fires every 16th note step to advance sequencers and update `VoiceState`.
-- **PPQN Drain Loop**:
-  - Drains `ppqnTicksPending` inside `loop1()`.
+  - Library: the stock `<uClock.h>` (2.x). There is no vendored fork anymore — an earlier
+    alarm-pool patch (fork bound to core 1) was reverted; instead the cores were swapped so
+    the ISR's home core (0) is the control core.
+  - Default tempo: 90 BPM; resolution: 480 PPQN (`PPQN_480`); shuffle on via
+    `uClock.setShuffle(true)` using templates from `ShuffleTemplates.h`.
+  - Initialized in `setup()` on Core 0, so the timer ISR fires on Core 0.
+  - ISR-context callbacks: `onStepCallback` fires every 16th note and does the full step
+    work inline (advances all four sequencers, routes sensor values, pushes `VoiceState`s
+    into `voiceSystem`, stages voice parameters, sends gate/MIDI note events);
+    `onSync24Callback` sends the USB MIDI Clock directly from the ISR;
+    `onOutputPPQNCallback` increments `ppqnTicksPending`.
+    *Known sharp edge:* those ISR-context `usb_midi.send*` calls share the TinyUSB endpoint
+    with `tud_task` on the same core — packets can be silently dropped under contention.
+    The older code used count-and-drain (`midiClockTicksPending`) to avoid this; restoring
+    that discipline on Core 0 is the recommended hardening step.
+- **PPQN Drain Loop** (in `loop()`, same core as the ISR):
+  - Drains `ppqnTicksPending` (the only counter-drain still in use).
   - Advances `midiNoteManager.updateTiming(globalTickCounter)`.
   - Advances sequencer note durations (`seq1..seq4.tickNoteDuration()`).
   - Ticks gate countdown timers (`voiceSystem.tickAllGateTimers()`).
@@ -122,11 +135,11 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
 
 ## 3. Concurrency Model & Lock-Free Staging
 
-To maintain real-time audio deadlines on Core 0 without priority inversion, lock contention, or memory corruption, Pico2Seq uses lock-free atomic generation counters and `volatile` communication flags instead of mutexes or blocking primitives.
+To maintain real-time audio deadlines on Core 1 without priority inversion, lock contention, or memory corruption, Pico2Seq uses lock-free atomic generation counters and `volatile` communication flags instead of mutexes or blocking primitives.
 
 ```
-Core 1 (Control Thread)                           Core 0 (Audio Thread @ 48kHz)
------------------------                           -----------------------------
+Core 0 (Control Thread / uClock ISR)              Core 1 (Audio Thread @ 48kHz)
+---------------------------------------           -----------------------------
 Voice::updateParameters(newState)                 Voice::process()
   │                                                 │
   ├── stagedState_ = newState                       ├── applyPendingConfig_() [acquire]
@@ -151,22 +164,22 @@ Voice::updatePitchCache_()                          │
 
 ### 3.1 Lock-Free Staging Mechanisms
 1. **Parameter Staging (`paramsGen_` / `appliedParamsGen_`)**:
-   - Written by Core 1 in `Voice::updateParameters()`.
-   - Core 1 updates `stagedState_` and bumps `paramsGen_.fetch_add(1, std::memory_order_seq_cst)`.
-   - Core 0 checks `applyPendingParams_()` at the start of `Voice::process()`. If `paramsGen_ != appliedParamsGen_`, it safely copies `stagedState_` into active `state` and updates envelope and filter parameters.
+   - Written by Core 0 in `Voice::updateParameters()` (from the uClock step callback and live parameter recording).
+   - Core 0 updates `stagedState_` and bumps `paramsGen_.fetch_add(1, std::memory_order_seq_cst)`.
+   - Core 1 checks `applyPendingParams_()` at the start of `Voice::process()`. If `paramsGen_ != appliedParamsGen_`, it safely copies `stagedState_` into active `state` and updates envelope and filter parameters.
 2. **Config Staging (`configPending_`)**:
-   - Written by Core 1 in `Voice::setConfig()`.
-   - Core 1 writes `stagedConfig_` and sets `configPending_.store(true, std::memory_order_release)`.
-   - Core 0 checks `applyPendingConfig_()` with `memory_order_acquire`, reconfigures oscillator slots, filter modes, detune multipliers, and clears the pending flag.
+   - Written by Core 0 in `Voice::setConfig()`.
+   - Core 0 writes `stagedConfig_` and sets `configPending_.store(true, std::memory_order_release)`.
+   - Core 1 checks `applyPendingConfig_()` with `memory_order_acquire`, reconfigures oscillator slots, filter modes, detune multipliers, and clears the pending flag.
 3. **Pitch Staging (`pitchGen_` / `appliedPitchGen_`)**:
-   - Precomputed by Core 1 in `Voice::updatePitchCache_()` and cached in `pitchCache_`.
+   - Precomputed by Core 0 in `Voice::updatePitchCache_()` and cached in `pitchCache_`.
    - `pitchGen_.fetch_add(1, std::memory_order_seq_cst)` is bumped.
-   - Core 0 commits oscillator frequencies inside `Voice::mixOscillators()` **only when `state.isGateHigh == true`**. This prevents pitch glitching during note release.
+   - Core 1 commits oscillator frequencies inside `Voice::mixOscillators()` **only when `state.isGateHigh == true`**. This prevents pitch glitching during note release.
    - Frequency changes are threshold-gated by `ShouldApplyFreq_` (~0.017 cent threshold) to eliminate redundant oscillator calculations.
 4. **Volatile Shared State**:
-   - `volatile bool gates[2]`: Gate state for hardware-gated voices 0–1.
-   - `volatile uint32_t ppqnTicksPending`: Pending clock ticks incremented by timer callback, decremented by Core 1.
-   - `volatile bool touchFlag`, `volatile bool g_audioOK`, `volatile bool g_errorState`: System status flags.
+   - `volatile bool gates[2]`: Gate state for hardware-gated voices 0–1 (Core 0 only: written by the step callback, ticked by `loop()`).
+   - `volatile uint32_t ppqnTicksPending`: Pending clock ticks incremented by the uClock timer ISR and drained by `loop()` — both on Core 0.
+   - `volatile bool touchFlag`, `volatile bool g_audioOK`, `volatile bool g_errorState`: System status flags (set by Core 1 audio setup, consumed by Core 0 UI).
 
 ---
 
@@ -208,7 +221,7 @@ extern VoiceSystem voiceSystem;
 ```
 
 ### 4.2 Voice Count & Hardware Asymmetry
-- **4 Polyphonic Voices (`MAX_VOICES = 4`)**: All 4 voices are fully synthesized in real time on Core 0 via `voiceManager->processAllVoices()`.
+- **4 Polyphonic Voices (`MAX_VOICES = 4`)**: All 4 voices are fully synthesized in real time on Core 1 via `voiceManager->processAllVoices()`.
 - **2-Channel Hardware Gate / MIDI Asymmetry**:
   - **Voices 0 and 1**: Fully equipped with USB MIDI note on/off and CC transmission, and `GateTimer` duration countdowns.
   - **Voices 2 and 3**: Audio-only synthesis voices. They are driven by `seq3` and `seq4` and synthesized by `VoiceManager`, but have no USB MIDI output routing.
@@ -224,7 +237,7 @@ extern VoiceSystem voiceSystem;
 All DSP components reside in the `rpdsp` namespace from `src/rpdsp/` (tracked as a Git submodule from `IC-Alchemy/RPDSP`).
 
 ```
-                              Voice::process() (Core 0 @ 48kHz)
+                              Voice::process() (Core 1 @ 48kHz)
                                               │
                     ┌─────────────────────────┴─────────────────────────┐
                     │ 1. applyPendingConfig_() & applyPendingParams_()  │
@@ -361,7 +374,7 @@ DBG_VERBOSE("Sensor distance: %u mm", distanceMm);
 ## 8. Data Flow Architecture
 
 ```
-Physical Inputs (Core 1)
+Physical Inputs (Core 0)
 ├── MPR121 32 Step Pads (Wire: GP4/GP5 @ 0x5A)
 ├── Alchemy Tile Panel: 4 Faders + 12 Buttons (Wire1: GP14/GP15 @ 100kHz)
 ├── TMAG5273A Velocity Encoder (Wire @ 0x35)
@@ -382,7 +395,7 @@ VoiceSystem (voiceStates[4], gates[2], gateTimers[2])
          │
          ├──────────────────────────────────────────┐
          ▼ (Lock-Free Staging)                      ▼
-VoiceManager / 4x Voice DSP Chains (Core 0)    USB MIDI Out & Gate Timing (Core 1)
+VoiceManager / 4x Voice DSP Chains (Core 1)    USB MIDI Out & Gate Timing (Core 0)
          │
          ▼ (fill_audio_buffer @ 48kHz)
 FloatToPcm16() [ARM Cortex-M33 __SSAT]
@@ -414,8 +427,8 @@ I2S Stereo Audio Out (GP10 / GP11 / GP12)
 | Audio Sample Rate | 48,000 Hz, 16-bit stereo | Hardware I2S clock configuration (`Pico2Seq.ino`) |
 | Audio Buffer Size | 256 samples ($5.33\text{ ms}$) $\times$ 3 buffers | `audio_new_producer_pool` inspection |
 | Audio Latency | $\approx 10.66\text{ ms}$ (2 buffers) | DMA producer pool sizing |
-| Core 0 Allocation | 0 bytes dynamic allocation in `loop()` | Static buffer and fixed array audit |
-| Core 1 Control Scan | 1,000 Hz (1 ms interval) | `loop1()` timing loop verification |
-| Core 1 Display Refresh | 50 Hz (20 ms interval) | `loop1()` timing loop verification |
+| Core 1 Allocation | 0 bytes dynamic allocation in `loop1()` | Static buffer and fixed array audit |
+| Core 0 Control Scan | 1,000 Hz (1 ms interval) | `loop()` timing loop verification |
+| Core 0 Display Refresh | 50 Hz (20 ms interval) | `loop()` timing loop verification |
 | Sequencer Resolution | 480 PPQN @ 90 BPM default | `uClock.init()` verification |
 | Unit Test Coverage | Catch2 v3.5.2 host test suite | `ctest --test-dir build_test` |

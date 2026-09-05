@@ -155,10 +155,10 @@ public:
     const VoiceConfig& getConfig() const noexcept;
     VoiceConfig& getConfig() noexcept;
 
-    // Real-time audio processing (runs on Core 0 @ 48kHz)
+    // Real-time audio processing (runs on Core 1 @ 48kHz)
     float process() noexcept;
 
-    // Parameter updates (called on Core 1 control thread)
+    // Parameter updates (called on Core 0 control thread — uClock ISR or live recording)
     void updateParameters(const VoiceState& newState);
 
     // Sequencer integration
@@ -406,14 +406,14 @@ presets while playing never clicks a held note or cuts a ringing tail.
 
 ## 4. DSP Processing Pipeline & Signal Flow
 
-Each call to `Voice::process()` on Core 0 executes the following stages:
+Each call to `Voice::process()` on Core 1 executes the following stages:
 
 ```
 [Sequencer / UI Parameters]
            │
            ▼ (Lock-Free Staging: paramsGen_, configPending_, pitchGen_)
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│ Voice::process() (Core 0 @ 48kHz)                                               │
+│ Voice::process() (Core 1 @ 48kHz)                                               │
 │                                                                                 │
 │ 1. Apply Pending Updates                                                        │
 │    - applyPendingConfig_(): Reconfigures filters, waveforms, detune multipliers  │
@@ -508,7 +508,7 @@ voiceManager.init(48000.0f);
 ### 6.2 Updating Voice State from Sequencer Step
 
 ```cpp
-// Called on Core 1 when sequencer triggers a step
+// Called on Core 0 when sequencer triggers a step (uClock ISR context)
 VoiceState newState;
 newState.noteIndex = 12.0f;           // 12th step in scale
 newState.velocityLevel = 0.85f;       // 85% velocity
@@ -521,10 +521,10 @@ newState.gateLengthTicks = 60;        // 60 PPQN ticks
 voiceManager.updateVoiceState(v1, newState);
 ```
 
-### 6.3 Real-Time Per-Sample Audio Loop (Core 0)
+### 6.3 Real-Time Per-Sample Audio Loop (Core 1)
 
 ```cpp
-// Called per sample inside fill_audio_buffer() on Core 0
+// Called per sample inside fill_audio_buffer() on Core 1
 float sample = voiceManager.processAllVoices();
 int16_t pcm16 = FloatToPcm16(sample);
 ```

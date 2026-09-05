@@ -193,7 +193,7 @@ src/LEDMatrix/
 
 ## Performance & Concurrency Considerations
 
-- **Dual-Core Execution:** All LED rendering occurs exclusively on **Core 1** (`loop1()`) at a ~50 Hz (20 ms) update rate, leaving Core 0 dedicated to real-time 48 kHz audio processing.
+- **Dual-Core Execution:** All LED rendering occurs exclusively on **Core 0** (`loop()`) at a ~50 Hz (20 ms) update rate, leaving Core 1 dedicated to real-time 48 kHz audio processing.
 - **Batching:** Frame changes are drawn into an internal buffer and updated to hardware with a single `ledMatrix.show()` call per frame.
 - **Zero Heap Allocations:** All color calculations, blending tables, and state trackers use static memory.
 

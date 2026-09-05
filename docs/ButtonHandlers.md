@@ -18,7 +18,7 @@ The Pico2Seq control surface operates on a **Dual-Surface Architecture** that pa
 The firmware partitions the control surface implementation into two distinct layers:
 - **`src/ui/ControlSurfaceLogic.h/.cpp`**: Pure, portable C++ decision logic (no Arduino dependencies, 100% unit-tested in `tests/unit/test_control_surface_logic.cpp`).
 - The Alchemy tile wire-format decoder (`src/AlchemyUI/src/AlchemyProto.h`) is likewise host-tested in `tests/unit/test_alchemy_proto.cpp` (per-tile-TYPE DATA block offsets, frame checksum, identity decoding, `TileButton` press/hold/tap).
-- **`src/ui/AlchemyControlBridge.h/.cpp`**: Hardware-bound translation glue on Core 1 that polls `AlchemyPanel` on Wire1, debounces GP7, and invokes the shared handler entry points in `ButtonHandlers.cpp` and `UIEventHandler.cpp`.
+- **`src/ui/AlchemyControlBridge.h/.cpp`**: Hardware-bound translation glue on Core 0 that polls `AlchemyPanel` on Wire1, debounces GP7, and invokes the shared handler entry points in `ButtonHandlers.cpp` and `UIEventHandler.cpp`.
 
 ---
 
@@ -26,7 +26,7 @@ The firmware partitions the control surface implementation into two distinct lay
 
 ```
                        +---------------------------------------+
-                       |           Core 1 Control Loop         |
+                       |           Core 0 Control Loop         |
                        |       (1 ms non-blocking slice)       |
                        +---------------------------------------+
                                   /                \
@@ -209,7 +209,7 @@ void endRandomizePress(int voiceIndex, UIState &state);
 ### `handleRandomizeButton(int voiceIndex, UIState &state)`
 Processes randomize operations for a specific voice (0–3):
 - **Short Press** (`< 1000 ms`): Randomizes parameters across the target voice's sequencer (`seq->randomizeParameters()`).
-- **Long Press** (`≥ 1000 ms`): Promoted by `pollUIHeldButtons()` in `loop1()` to trigger complete parameter reset.
+- **Long Press** (`≥ 1000 ms`): Promoted by `pollUIHeldButtons()` in `loop()` to trigger complete parameter reset.
 - Short press raises a transient OLED confirmation notice (`UIState::oledNoticeKind = Randomized`).
 
 ### `handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)`

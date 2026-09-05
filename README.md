@@ -29,8 +29,8 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 
 ### Architecture Highlights
 - **VoiceSystem Architecture**: Centralized, array-based voice management with safe accessor methods
-- **Dual-Core Asymmetric Design**: Core 0 dedicated exclusively to 48kHz audio synthesis; Core 1 handles UI, sensors, MIDI, clock, and display rendering
-- **Lock-Free Parameter Staging**: Atomic generation counters allow Core 1 to stage parameter changes without blocking Core 0 audio processing
+- **Dual-Core Asymmetric Design**: Core 1 dedicated exclusively to 48kHz audio synthesis; Core 0 handles UI, sensors, MIDI, clock, and display rendering
+- **Lock-Free Parameter Staging**: Atomic generation counters allow Core 0 to stage parameter changes without blocking Core 1 audio processing
 - **Host Test Suite**: Catch2 v3 unit test suite with hardware stubs, built and run locally via CTest
 
 ---
@@ -251,21 +251,21 @@ Pico2Seq leverages the dual ARM Cortex-M33 cores of the RP2350:
 ```
 +------------------------------------+    +------------------------------------+
 |               CORE 0               |    |               CORE 1               |
-|       (Real-Time Audio DSP)        |    |       (UI, Sensors & MIDI)         |
+|       (UI, Sensors & MIDI)         |    |       (Real-Time Audio DSP)        |
 +------------------------------------+    +------------------------------------+
-| • fill_audio_buffer() loop         |    | • 1ms sensor poll (TMAG, VL53L1X)   |
-| • VoiceManager::processAllVoices() |    | • MPR121 32-pad touch matrix scan  |
-| • 4-voice synthesis chain          |    | • Alchemy tile panel polling (I2C1)|
-| • Master bus compression           |    | • 50Hz OLED & WS2812B LED updates  |
-| • FloatToPcm16() with __SSAT       |    | • uClock sequencer step ticking    |
-| • Non-blocking I2S DMA @ 48kHz     |    | • USB MIDI I/O & Realtime Clock    |
+| • 1ms sensor poll (TMAG, VL53L1X)   |    | • fill_audio_buffer() loop         |
+| • MPR121 32-pad touch matrix scan  |    | • VoiceManager::processAllVoices() |
+| • Alchemy tile panel polling (I2C1)|    | • 4-voice synthesis chain          |
+| • 50Hz OLED & WS2812B LED updates  |    | • FloatToPcm16() with __SSAT       |
+| • uClock sequencer step ticking    |    | • Non-blocking I2S DMA @ 48kHz     |
+| • USB MIDI I/O & Realtime Clock    |    |                                    |
 +------------------------------------+    +------------------------------------+
                    \                                /
                     +---[ Lock-Free Staging State ]-+
 ```
 
-- **Core 0 (Audio Thread):** Strict real-time constraints. Never allocates heap memory, never performs blocking I2C transactions, and never touches USB endpoints.
-- **Core 1 (System & Control):** Scans inputs, updates state machines, coordinates MIDI note/CC/clock transmission, and renders visual feedback.
+- **Core 1 (Audio Thread):** Strict real-time constraints. Never allocates heap memory, never performs blocking I2C transactions, and never touches USB endpoints.
+- **Core 0 (System & Control):** Scans inputs, updates state machines, coordinates MIDI note/CC/clock transmission, and renders visual feedback. Also hosts the uClock timer ISR (the stock library's alarm always fires on core 0), which is why audio lives on core 1.
 
 ---
 

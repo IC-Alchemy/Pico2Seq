@@ -64,13 +64,19 @@ CRGB current_COLOR_RANDOMIZE_FLASH;
 CRGB current_COLOR_RANDOMIZE_IDLE;
 
 const LEDThemeColors ALL_THEMES[] = {
-    {CRGB(0, 188, 0), CRGB(0, 22, 5), CRGB(188, 94, 0), CRGB(0, 12, 12), CRGB(0, 8, 8),
+    { // DEFAULT - blue-green progression
+     {CRGB(0, 148, 188), CRGB(0, 172, 178), CRGB(16, 180, 160), CRGB(32, 188, 132)},
+     {CRGB(34, 2, 54), CRGB(40, 2, 58), CRGB(48, 3, 60), CRGB(56, 5, 62)},
+     CRGB(0, 44, 54),
      CRGB(0, 0, 94), CRGB(0, 0, 12), CRGB(0, 0, 12), CRGB(128, 94, 0), CRGB(32, 24, 0),
      CRGB(94, 0, 94), CRGB(12, 0, 12), CRGB(0, 94, 188), CRGB(0, 24, 48), CRGB(188, 64, 0),
      CRGB(48, 16, 0), CRGB(128, 0, 0), CRGB(32, 0, 0), CRGB(0, 128, 64), CRGB(0, 32, 16),
      CRGB(188, 0, 188), CRGB(48, 0, 48), CRGB(64, 64, 128), CRGB(16, 16, 32), CRGB(128, 64, 0),
      CRGB(32, 16, 0), CRGB(94, 0, 64), CRGB(24, 0, 16), CRGB(64, 94, 94), CRGB(16, 24, 24)},
-    {CRGB(0, 90, 188), CRGB(0, 12, 24), CRGB(12, 156, 122), CRGB(0, 4, 12), CRGB(0, 18, 12),
+    { // OCEANIC - deep blue through seafoam
+     {CRGB(0, 112, 188), CRGB(0, 138, 190), CRGB(0, 162, 184), CRGB(0, 176, 148)},
+     {CRGB(16, 8, 54), CRGB(22, 8, 60), CRGB(28, 10, 64), CRGB(34, 12, 66)},
+     CRGB(0, 38, 48),
      CRGB(0, 48, 144), CRGB(0, 5, 17), CRGB(0, 12, 17), CRGB(0, 144, 188), CRGB(0, 15, 22),
      CRGB(64, 144, 188), CRGB(13, 29, 38), CRGB(94, 0, 188), CRGB(11, 0, 24), CRGB(188, 144, 0),
      CRGB(38, 29, 0), CRGB(144, 188, 94), CRGB(29, 38, 19), CRGB(188, 0, 94), CRGB(17, 0, 11),
@@ -78,11 +84,9 @@ const LEDThemeColors ALL_THEMES[] = {
      CRGB(0, 33, 38), CRGB(144, 0, 188), CRGB(15, 0, 22), CRGB(0, 188, 166), CRGB(0, 22, 15)},
     {
         // VOLCANIC theme - red/orange fire on near-black
-        CRGB(220, 80, 20),   // gateOnV1 - ember red-orange
-        CRGB(10, 4, 2),      // gateOffV1 - near-black
-        CRGB(255, 140, 40),  // gateOnV2 - bright flame orange
-        CRGB(8, 3, 2),       // gateOffV2 - deep dark
-        CRGB(60, 18, 4),     // playheadAccent - dark lava accent
+        {CRGB(220, 65, 20), CRGB(235, 88, 20), CRGB(245, 112, 25), CRGB(255, 138, 35)},
+        {CRGB(55, 3, 8), CRGB(60, 5, 8), CRGB(66, 7, 10), CRGB(72, 10, 12)},
+        CRGB(62, 22, 4),     // playheadAccent - dark lava accent
         CRGB(50, 20, 8),     // idleBreathingBlue - warm ember glow
         CRGB(12, 6, 4),      // editModeDimBlueV1 - very dark warm slate
         CRGB(14, 8, 5),      // editModeDimBlueV2
@@ -111,11 +115,9 @@ const LEDThemeColors ALL_THEMES[] = {
     },
     {
         // FOREST theme - greens and warm browns on dark moss
-        CRGB(30, 160, 60),   // gateOnV1 - vivid leaf green
-        CRGB(3, 10, 4),      // gateOffV1 - near-black green tint
-        CRGB(120, 200, 80),  // gateOnV2 - pale moss accent
-        CRGB(4, 10, 3),      // gateOffV2 - deep dark
-        CRGB(10, 40, 14),    // playheadAccent - deep forest accent
+        {CRGB(28, 150, 55), CRGB(48, 162, 62), CRGB(38, 172, 82), CRGB(72, 182, 68)},
+        {CRGB(36, 14, 3), CRGB(42, 18, 3), CRGB(44, 22, 4), CRGB(48, 26, 5)},
+        CRGB(12, 55, 20),    // playheadAccent - deep forest accent
         CRGB(16, 36, 18),    // idleBreathingBlue - deep moss breathing
         CRGB(6, 12, 7),      // editModeDimBlueV1 - dark green slate
         CRGB(8, 14, 9),      // editModeDimBlueV2
@@ -144,11 +146,9 @@ const LEDThemeColors ALL_THEMES[] = {
     },
     {
         // NEON theme - bright cyan/magenta on dark
-        CRGB(0, 230, 230),   // gateOnV1 - electric cyan
-        CRGB(0, 12, 14),     // gateOffV1 - near-black cyan tint
-        CRGB(255, 0, 180),   // gateOnV2 - hot magenta accent
-        CRGB(14, 0, 10),     // gateOffV2 - deep dark
-        CRGB(0, 60, 80),     // playheadAccent - deep cyan accent
+        {CRGB(0, 220, 235), CRGB(0, 232, 205), CRGB(0, 225, 165), CRGB(34, 235, 125)},
+        {CRGB(45, 0, 65), CRGB(52, 0, 70), CRGB(56, 0, 75), CRGB(60, 4, 76)},
+        CRGB(0, 55, 65),     // playheadAccent - deep cyan accent
         CRGB(0, 30, 60),     // idleBreathingBlue - neon blue breathing
         CRGB(0, 10, 16),     // editModeDimBlueV1 - dark cyan slate
         CRGB(10, 0, 12),     // editModeDimBlueV2
@@ -177,11 +177,9 @@ const LEDThemeColors ALL_THEMES[] = {
     },
     // DARK_NOCTIS theme - deep charcoal with cool blue/cyan accents
     {
-        CRGB(20, 90, 140),   // gateOnV1 - cool cyan-blue (visible on dark)
-        CRGB(6, 6, 8),       // gateOffV1 - near-black
-        CRGB(40, 55, 160),   // gateOnV2 - desaturated light blue accent
-        CRGB(8, 4, 10),      // gateOffV2 - very dark maroon-ish
-        CRGB(24, 48, 80),    // playheadAccent - deep navy accent
+        {CRGB(25, 85, 140), CRGB(30, 103, 150), CRGB(35, 118, 158), CRGB(48, 126, 170)},
+        {CRGB(28, 5, 46), CRGB(32, 6, 50), CRGB(36, 7, 54), CRGB(40, 9, 56)},
+        CRGB(18, 52, 85),    // playheadAccent - deep navy accent
         CRGB(18, 30, 50),    // idleBreathingBlue - muted navy
         CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
         CRGB(10, 14, 18),    // editModeDimBlueV2
@@ -210,10 +208,8 @@ const LEDThemeColors ALL_THEMES[] = {
     },
     {
         // DARK_EMBER theme - deep charcoal with warm amber ember accents
-        CRGB(200, 120, 60),  // gateOnV1 - ember orange
-        CRGB(8, 9, 4),       // gateOffV1 - near-black
-        CRGB(255, 180, 110), // gateOnV2 - warm amber highlight
-        CRGB(10, 6, 5),      // gateOffV2 - deep dark
+        {CRGB(200, 100, 40), CRGB(215, 120, 46), CRGB(230, 140, 56), CRGB(245, 160, 70)},
+        {CRGB(55, 4, 8), CRGB(62, 5, 9), CRGB(68, 7, 11), CRGB(74, 10, 13)},
         CRGB(40, 24, 18),    // playheadAccent - dark warm accent
         CRGB(28, 22, 20),    // idleBreathingBlue - warm slate for breathing (amber-tinted)
         CRGB(10, 8, 8),      // editModeDimBlueV1 - very dark warm slate
@@ -244,11 +240,9 @@ const LEDThemeColors ALL_THEMES[] = {
 
     {
         // MODERN theme - muted, high-legibility palette with warm accent
-        CRGB(48, 177, 111),  // gateOnV1 - soft teal
-        CRGB(3, 8, 10),      // gateOffV1 - muted dark teal
-        CRGB(222, 130, 66),  // gateOnV2 - warm coral accent
-        CRGB(15, 6, 5),      // gateOffV2 - deep muted maroon
-        CRGB(20, 24, 66),    // playheadAccent base dark (will be brightened when added)
+        {CRGB(48, 170, 120), CRGB(56, 178, 138), CRGB(68, 176, 112), CRGB(84, 184, 132)},
+        {CRGB(42, 16, 42), CRGB(46, 18, 44), CRGB(50, 20, 45), CRGB(54, 22, 46)},
+        CRGB(20, 55, 54),    // playheadAccent - muted teal accent
         CRGB(60, 84, 110),   // idleBreathingBlue - slate blue for breathing
         CRGB(12, 16, 20),    // editModeDimBlueV1 - dim slate
         CRGB(18, 22, 26),    // editModeDimBlueV2 - slightly lighter slate
@@ -277,11 +271,9 @@ const LEDThemeColors ALL_THEMES[] = {
     },
     {
         // BLUE theme - high-contrast cool blues and cyan accents
-        CRGB(40, 122, 188),  // gateOnV1 - vivid cyan-blue
-        CRGB(6, 8, 12),      // gateOffV1 - almost black
-        CRGB(120, 100, 200), // gateOnV2 - soft sky blue
-        CRGB(8, 6, 10),      // gateOffV2 - deep charcoal
-        CRGB(32, 99, 12),    // playheadAccent - strong blue accent
+        {CRGB(30, 105, 185), CRGB(35, 124, 195), CRGB(45, 142, 205), CRGB(64, 154, 212)},
+        {CRGB(22, 5, 55), CRGB(28, 6, 62), CRGB(34, 8, 68), CRGB(40, 10, 72)},
+        CRGB(18, 60, 105),   // playheadAccent - strong blue accent
         CRGB(16, 36, 80),    // idleBreathingBlue - deep ocean blue
         CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
         CRGB(12, 16, 20),    // editModeDimBlueV2
@@ -310,11 +302,9 @@ const LEDThemeColors ALL_THEMES[] = {
     },
     {
         // GREEN theme - lush greens with clean high-contrast accents
-        CRGB(40, 150, 80),   // gateOnV1 - vivid green
-        CRGB(2, 8, 12),      // gateOffV1 - near-black green tint
-        CRGB(39, 180, 122),  // gateOnV2 - pale mint accent
-        CRGB(1, 12, 6),      // gateOffV2 - deep dark
-        CRGB(0, 110, 60),    // playheadAccent - strong forest accent
+        {CRGB(35, 145, 75), CRGB(40, 160, 90), CRGB(45, 174, 105), CRGB(55, 184, 120)},
+        {CRGB(38, 16, 4), CRGB(44, 20, 5), CRGB(50, 24, 6), CRGB(56, 28, 7)},
+        CRGB(12, 68, 38),    // playheadAccent - strong forest accent
         CRGB(18, 44, 28),    // idleBreathingBlue - deep forest for breathing
         CRGB(8, 12, 10),     // editModeDimBlueV1 - very dark green slate
         CRGB(12, 16, 14),    // editModeDimBlueV2
@@ -342,7 +332,16 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(10, 12, 10)     // randomizeIdle - very dark idle tone
     }};
 
+static_assert(sizeof(ALL_THEMES) / sizeof(ALL_THEMES[0]) == static_cast<int>(LEDTheme::COUNT),
+              "Every LED theme needs one palette entry");
+
 static const LEDThemeColors *activeThemeColors = &ALL_THEMES[static_cast<int>(LEDTheme::DEFAULT)];
+
+static const CRGB &getVoiceGateColor(const LEDThemeColors &themeColors, uint8_t voiceIndex, bool gateActive)
+{
+    const uint8_t clampedVoiceIndex = voiceIndex < LED_THEME_VOICE_COUNT ? voiceIndex : 0;
+    return gateActive ? themeColors.gateOn[clampedVoiceIndex] : themeColors.gateOff[clampedVoiceIndex];
+}
 
 void setLEDTheme(LEDTheme theme)
 {
@@ -479,9 +478,9 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState)
         const uint8_t totalPresets = VoicePresets::getPresetCount();
         const uint8_t presetCount = (totalPresets < SEQ_STEPS) ? totalPresets : SEQ_STEPS;
 
-        // Define preset colors based on voice being configured
-        CRGB selectedColor = (uiState.settingsMenuIndex == 0) ? activeThemeColors->gateOnV1 : activeThemeColors->gateOnV2;
-        CRGB availableColor = (uiState.settingsMenuIndex == 0) ? activeThemeColors->gateOffV1 : activeThemeColors->gateOffV2;
+        // Keep preset selection in the hue assigned to the configured voice.
+        CRGB selectedColor = getVoiceGateColor(*activeThemeColors, uiState.settingsMenuIndex, true);
+        CRGB availableColor = getVoiceGateColor(*activeThemeColors, uiState.settingsMenuIndex, false);
 
         // Show presets in first 6 step positions (0-5)
         for (uint8_t i = 0; i < presetCount && i < SEQ_STEPS; i++)
@@ -489,7 +488,10 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState)
             CRGB color;
 
             // Highlight currently selected preset
-            uint8_t currentPresetIndex = (uiState.settingsMenuIndex == 0) ? uiState.voicePresetIndices[0] : uiState.voicePresetIndices[1];
+            const uint8_t voiceIndex = uiState.settingsMenuIndex < UIState::MAX_VOICES
+                                           ? uiState.settingsMenuIndex
+                                           : 0;
+            const uint8_t currentPresetIndex = uiState.voicePresetIndices[voiceIndex];
 
             if (i == currentPresetIndex)
             {
@@ -518,17 +520,8 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState)
         // Show all 4 voice options in first row
         for (int voiceIndex = 0; voiceIndex < 4; voiceIndex++)
         {
-            CRGB voiceColor;
-            if (voiceIndex < 2)
-            {
-                // Voice 1 & 2 colors
-                voiceColor = (voiceIndex == 0) ? ((uiState.settingsMenuIndex == voiceIndex) ? activeThemeColors->gateOnV1 : activeThemeColors->gateOffV1) : ((uiState.settingsMenuIndex == voiceIndex) ? activeThemeColors->gateOnV2 : activeThemeColors->gateOffV2);
-            }
-            else
-            {
-                // Voice 3 & 4 colors (using same theme colors as V1/V2 for now)
-                voiceColor = (voiceIndex == 2) ? ((uiState.settingsMenuIndex == voiceIndex) ? activeThemeColors->gateOnV1 : activeThemeColors->gateOffV1) : ((uiState.settingsMenuIndex == voiceIndex) ? activeThemeColors->gateOnV2 : activeThemeColors->gateOffV2);
-            }
+            CRGB voiceColor = getVoiceGateColor(*activeThemeColors, static_cast<uint8_t>(voiceIndex),
+                                                 uiState.settingsMenuIndex == voiceIndex);
 
             // Add pulsing effect for selected option
             if (uiState.settingsMenuIndex == voiceIndex)
@@ -584,7 +577,7 @@ void updateVoiceParameterLEDs(LEDMatrix &ledMatrix, const UIState &uiState)
         paramColor = uiState.isVoice2Mode ? activeThemeColors->modOctaveActive : activeThemeColors->modNoteActive;
         break;
     case 12: // Filter Mode
-        paramColor = uiState.isVoice2Mode ? activeThemeColors->gateOnV2 : activeThemeColors->gateOnV1;
+        paramColor = getVoiceGateColor(*activeThemeColors, uiState.selectedVoiceIndex, true);
         break;
     case 13: // Filter Resonance
         paramColor = uiState.isVoice2Mode ? activeThemeColors->modSlideActive : activeThemeColors->modParamModeActive;
@@ -619,6 +612,7 @@ void updateVoiceParameterLEDs(LEDMatrix &ledMatrix, const UIState &uiState)
  * @param ledMatrix Reference to LED matrix for output
  * @param firstVoiceSequencer First voice sequencer (band 0)
  * @param secondVoiceSequencer Second voice sequencer (band 1)
+ * @param firstVoiceIndex Index of the first voice in the pair (0 or 2)
  * @param themeColors Pointer to active theme colors
  * @param band Band index (0-based) of the pair's first voice in the matrix
  */
@@ -627,6 +621,7 @@ static void renderVoicePair(
     const Sequencer &firstVoiceSequencer,
     const Sequencer &secondVoiceSequencer,
     const LEDThemeColors *themeColors,
+    uint8_t firstVoiceIndex,
     uint8_t band)
 {
     // Validate sequencer gate step counts
@@ -653,7 +648,7 @@ static void renderVoicePair(
                                            firstVoiceSequencer.isRunning());
 
         // Determine base color based on gate state
-        CRGB firstVoiceColor = firstVoiceStep.isGateActive ? themeColors->gateOnV1 : themeColors->gateOffV1;
+        CRGB firstVoiceColor = getVoiceGateColor(*themeColors, firstVoiceIndex, firstVoiceStep.isGateActive);
 
         // Add slide effect if active for this step
         if (firstVoiceSequencer.getStepParameterValue(ParamId::Slide, stepIndex) > 0)
@@ -679,7 +674,8 @@ static void renderVoicePair(
                                             secondVoiceSequencer.isRunning());
 
         // Determine base color based on gate state
-        CRGB secondVoiceColor = secondVoiceStep.isGateActive ? themeColors->gateOnV2 : themeColors->gateOffV2;
+        CRGB secondVoiceColor = getVoiceGateColor(
+            *themeColors, static_cast<uint8_t>(firstVoiceIndex + 1), secondVoiceStep.isGateActive);
 
         // Add slide effect if active for this step
         if (secondVoiceSequencer.getStepParameterValue(ParamId::Slide, stepIndex) > 0)
@@ -751,9 +747,7 @@ void updateStepLEDs(
         const Sequencer &activeSeq = *seqPtr;
 
         const uint8_t selBand = ControlSurface::LedLayout::bandOfVoiceInPair(uiState.selectedVoiceIndex);
-        const bool isSecondInPair = selBand == 1;
-        const CRGB withinColorBase = isSecondInPair ? getActiveThemeColors()->gateOnV2
-                                                    : getActiveThemeColors()->gateOnV1;
+        const CRGB withinColorBase = getVoiceGateColor(*getActiveThemeColors(), uiState.selectedVoiceIndex, true);
 
         // Simple blink state
         static bool blinkState = false;
@@ -949,11 +943,11 @@ void updateStepLEDs(
         // Render either voices 1/2 (page 1) or 3/4 (page 2)
         if (showFirstPair)
         {
-            renderVoicePair(ledMatrix, seq1, seq2, theme, 0);
+            renderVoicePair(ledMatrix, seq1, seq2, theme, 0, 0);
         }
         else
         {
-            renderVoicePair(ledMatrix, seq3, seq4, theme, 0);
+            renderVoicePair(ledMatrix, seq3, seq4, theme, 2, 0);
         }
 
         // Polyrhythmic overlays for the visible pair only
