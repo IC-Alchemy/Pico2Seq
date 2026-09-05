@@ -99,12 +99,26 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
 
 ### 2.2 Core 1: System Control, UI, Sensors, MIDI & Clock
 - **Execution**: Runs Arduino `setup1()` and `loop1()`.
-- **Clock Engine (`uClock`)**:
+- **Clock Engine (`uClock` — vendored fork in `src/vendor/uClock/`)**:
   - Default tempo: 90 BPM; resolution: 480 PPQN (`PPQN_480`).
   - Shuffle: Built-in `uClock.setShuffle(true)` using templates from `ShuffleTemplates.h`.
-  - Interrupt / callback writes: `onOutputPPQNCallback` increments `ppqnTicksPending`, and `onStepCallback` fires every 16th note step to advance sequencers and update `VoiceState`.
-- **PPQN Drain Loop**:
-  - Drains `ppqnTicksPending` inside `loop1()`.
+  - **Core-1 timer ISR**: the vendored `platforms/rp2040.h` replaces upstream's
+    `add_repeating_timer_us()` (default alarm pool → ISR on core 0) with
+    `alarm_pool_create(2, 16)` + `alarm_pool_add_repeating_timer_us()` in
+    `initTimer()`. `alarm_pool_create` binds the pool to the calling core, and
+    `uClock.init()` runs in `setup1()`, so the uClock ISR fires on **core 1**
+    and never interrupts audio.
+  - ISR-minimal callbacks: `onOutputPPQNCallback` increments `ppqnTicksPending`,
+    `onSync24Callback` increments `midiClockTicksPending`, and `onStepCallback`
+    enqueues the step number into `pendingUclockSteps` (`StepTickQueue`). None
+    of them touch `usb_midi` or the sequencers — TinyUSB endpoint state is
+    claimed by `tud_task` on core 1 and is not interrupt-safe.
+- **ISR Handoff Drains (`loop1()` thread context)**:
+  - Sends queued 24-PPQN `midi::Clock` bytes (`midiClockTicksPending`), then
+    drains `pendingUclockSteps` into `processSequencerStep()` (advances all 4
+    sequencers, applies encoder base values, updates `VoiceState`, sends MIDI
+    note-ons/CCs).
+  - Drains `ppqnTicksPending`.
   - Advances `midiNoteManager.updateTiming(globalTickCounter)`.
   - Advances sequencer note durations (`seq1..seq4.tickNoteDuration()`).
   - Ticks gate countdown timers (`voiceSystem.tickAllGateTimers()`).
@@ -166,6 +180,8 @@ Voice::updatePitchCache_()                          │
 4. **Volatile Shared State**:
    - `volatile bool gates[2]`: Gate state for hardware-gated voices 0–1.
    - `volatile uint32_t ppqnTicksPending`: Pending clock ticks incremented by timer callback, decremented by Core 1.
+   - `volatile uint32_t midiClockTicksPending`: Queued 24-PPQN clock-out pulses; ISR counts, `loop1()` sends the `usb_midi` bytes in thread context.
+   - `StepTickQueue pendingUclockSteps`: SPSC ring (`src/pico2seq-core/sequencer/StepTickQueue.h`); ISR enqueues step numbers, `loop1()` drains into `processSequencerStep()`.
    - `volatile bool touchFlag`, `volatile bool g_audioOK`, `volatile bool g_errorState`: System status flags.
 
 ---

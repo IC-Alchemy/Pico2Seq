@@ -1,4 +1,4 @@
-.vscode/c_cpp_properties.json
+.vscode/*
 build/*
 .editorconfig
 .clang-format
@@ -11,3 +11,4 @@ AGENTS.md
 .agents/*
 
 CLAUDE.md
+build_fw/*

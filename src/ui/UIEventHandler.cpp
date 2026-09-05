@@ -11,7 +11,7 @@
 #include "ButtonHandlers.h"
 #include "ControlSurfaceLogic.h"
 #include "UIConstants.h"
-#include <uClock.h>
+#include "../vendor/uClock/uClock.h" // vendored fork — never <uClock.h>, see src/vendor/uClock/README.md
 
 // =======================
 //   UI EVENT CONSTANTS

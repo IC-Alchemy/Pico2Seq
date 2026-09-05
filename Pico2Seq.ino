@@ -6,6 +6,7 @@
 #include "src/voice/Voice.h"
 #include "src/utils/Debug.h"
 #include "src/pico2seq-core/scales/scales.h"
+#include "src/pico2seq-core/sequencer/StepTickQueue.h"
 #include "src/voice/VoicePresets.h"
 #include "src/voice/VoiceSystem.h"
 
@@ -89,6 +90,7 @@ void initOscillators();
 void updateParametersForStep(uint8_t stepToUpdate);
 void updateParametersForStepNormalized(uint8_t stepToUpdate, float normalizedValue);
 void onStepCallback(uint32_t uClockCurrentStep);
+void processSequencerStep(uint32_t uClockCurrentStep);
 void setupI2SAudio(audio_format_t *audioFormat, audio_i2s_config_t *i2sConfig);
 void setup();
 void setup1();
@@ -116,6 +118,16 @@ volatile bool touchFlag = false;
 bool isClockRunning = true;
 unsigned long previousMillis = 0;
 uint32_t ppqnTicksPending = 0;
+// 24-PPQN MIDI-clock-out handoff. The uClock ISR (core-1 alarm pool) only
+// counts; loop1() sends the usb_midi real-time bytes in thread context.
+// TinyUSB endpoint state is claimed by tud_task on this same core and is not
+// interrupt-safe, so usb_midi.send* must never run in the ISR.
+volatile uint32_t midiClockTicksPending = 0;
+// uClock step handoff, ISR -> loop1(). The advanceSequencerStep /
+// updateVoiceMIDI chain is far too heavy for interrupt context.
+StepTickQueue pendingUclockSteps;
+// TEMP DEBUG (clock-isr): total step callbacks fired by the ISR since boot.
+volatile uint32_t dbgClockStepsFired = 0;
 
 // =======================
 //   AUDIO PROCESSING HELPER FUNCTIONS
@@ -134,9 +146,12 @@ float delayTimeSmoothing(float currentDelay, float targetDelay, float slewRate)
 }
 
 // --- Clock Callbacks ---
+// onSync24/onStep/onOutputPPQN run in uClock ISR context (core-1 alarm pool,
+// see src/vendor/uClock/platforms/rp2040.h). Keep them minimal: counters and
+// queue writes only. loop1() drains them in thread context.
 void onSync24Callback(uint32_t tick)
 {
-    usb_midi.sendRealTime(midi::Clock);
+    midiClockTicksPending++;
 }
 void muteOscillators()
 {
@@ -561,8 +576,17 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
     // Serial.println(stepIndex);
 }
 
-//  This gets called every 16th note
+//  This gets called every 16th note — in uClock ISR context. Record the step
+//  number and let loop1() do the real work (processSequencerStep below).
 void onStepCallback(uint32_t uClockCurrentStep)
+{
+    dbgClockStepsFired++; // TEMP DEBUG (clock-isr)
+    pendingUclockSteps.push(uClockCurrentStep);
+}
+
+// Advance all four sequencers for one uClock step and push the results into
+// the voices + MIDI. Drained in loop1() thread context.
+void processSequencerStep(uint32_t uClockCurrentStep)
 {
     currentSequencerStep = static_cast<uint8_t>(uClockCurrentStep); // Raw uClock step, sequencers handle their own modulo
 
@@ -957,6 +981,10 @@ void setup1()
         Sequencer* seqs[] = { &seq1, &seq2, &seq3, &seq4 };
         matrixEventHandler(evt, uiState, seqs, 4, midiNoteManager); });
 
+    // uClock.init() -> initTimer() creates the alarm pool on hardware alarm 2
+    // bound to THIS core (core 1), so the uClock ISR never fires on the audio
+    // core. Callbacks registered below must stay ISR-minimal; loop1() drains
+    // them (midiClockTicksPending / pendingUclockSteps).
     uClock.init();
     uClock.setOnSync24(onSync24Callback);
     uClock.setOnClockStart(onClockStart);
@@ -969,6 +997,8 @@ void setup1()
     uClock.setShuffle(true);
     seq1.start();
     seq2.start();
+
+    Serial.printf("[CLOCK] uClock started, setup1 core=%u\n", (unsigned)get_core_num()); // TEMP DEBUG (clock-isr)
 
     Serial.println("[CORE1] Setup complete!");
 }
@@ -1012,7 +1042,43 @@ void loop1()
     // Process MIDI input/output
     usb_midi.read();
 
+    // =======================
+    //   uClock ISR HANDOFFS (drained here, in thread context)
+    // =======================
+    // The uClock ISR (core-1 alarm pool) only counts/queues ticks. Everything
+    // touching usb_midi or the sequencers happens here because TinyUSB
+    // endpoint state is claimed by tud_task on this same core and is not
+    // interrupt-safe. Clock pulses go out first (they mark the beat for
+    // synced gear), then the step work, then the note-off timing below.
+    while (midiClockTicksPending > 0)
+    {
+        midiClockTicksPending--;
+        usb_midi.sendRealTime(midi::Clock);
+    }
+
+    uint32_t drainedStep = 0;
+    while (pendingUclockSteps.pop(drainedStep))
+    {
+        processSequencerStep(drainedStep);
+    }
+
     unsigned long currentMillis = millis();
+
+    // TEMP DEBUG (clock-isr): 1 Hz clock-health report; remove after diagnosis.
+    static uint32_t lastClockDebugMs = 0;
+    if (currentMillis - lastClockDebugMs >= 1000)
+    {
+        lastClockDebugMs = currentMillis;
+        Serial.printf("[CLOCK] core=%u fired=%lu stepQ=%u ppqn=%lu clk24=%lu running=%d tempo=%.1f\n",
+                      (unsigned)get_core_num(),
+                      (unsigned long)dbgClockStepsFired,
+                      (unsigned)pendingUclockSteps.size(),
+                      (unsigned long)ppqnTicksPending,
+                      (unsigned long)midiClockTicksPending,
+                      (int)isClockRunning,
+                      uClock.getTempo());
+    }
+
     // All four sequencers so tile randomize long-press resets reach voices 3/4.
     pollUIHeldButtons(uiState, seq1, seq2, seq3, seq4);
 

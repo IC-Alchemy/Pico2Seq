@@ -111,11 +111,11 @@ const LEDThemeColors ALL_THEMES[] = {
     },
     {
         // FOREST theme - greens and warm browns on dark moss
-        CRGB(30, 160, 60),   // gateOnV1 - vivid leaf green
-        CRGB(3, 10, 4),      // gateOffV1 - near-black green tint
-        CRGB(120, 200, 80),  // gateOnV2 - pale moss accent
-        CRGB(4, 10, 3),      // gateOffV2 - deep dark
-        CRGB(10, 40, 14),    // playheadAccent - deep forest accent
+        CRGB(0, 0, 120),   // gateOnV1 - vivid leaf green
+        CRGB(0, 10, 0),      // gateOffV1 - near-black green tint
+        CRGB(0, 120, 20),  // gateOnV2 - pale moss accent
+        CRGB(0, 3, 10),      // gateOffV2 - deep dark
+        CRGB(10, 0, 60),    // playheadAccent - deep forest accent
         CRGB(16, 36, 18),    // idleBreathingBlue - deep moss breathing
         CRGB(6, 12, 7),      // editModeDimBlueV1 - dark green slate
         CRGB(8, 14, 9),      // editModeDimBlueV2
@@ -144,10 +144,10 @@ const LEDThemeColors ALL_THEMES[] = {
     },
     {
         // NEON theme - bright cyan/magenta on dark
-        CRGB(0, 230, 230),   // gateOnV1 - electric cyan
-        CRGB(0, 12, 14),     // gateOffV1 - near-black cyan tint
-        CRGB(255, 0, 180),   // gateOnV2 - hot magenta accent
-        CRGB(14, 0, 10),     // gateOffV2 - deep dark
+        CRGB(0, 230, 55),   // gateOnV1 - electric cyan5
+        CRGB(0, 5, 15),     // gateOffV1 - near-black cyan tint
+        CRGB(200, 0, 55),   // gateOnV2 - hot magenta accent
+        CRGB(5, 0, 15),     // gateOffV2 - deep dark
         CRGB(0, 60, 80),     // playheadAccent - deep cyan accent
         CRGB(0, 30, 60),     // idleBreathingBlue - neon blue breathing
         CRGB(0, 10, 16),     // editModeDimBlueV1 - dark cyan slate
@@ -178,10 +178,10 @@ const LEDThemeColors ALL_THEMES[] = {
     // DARK_NOCTIS theme - deep charcoal with cool blue/cyan accents
     {
         CRGB(20, 90, 140),   // gateOnV1 - cool cyan-blue (visible on dark)
-        CRGB(6, 6, 8),       // gateOffV1 - near-black
-        CRGB(40, 55, 160),   // gateOnV2 - desaturated light blue accent
-        CRGB(8, 4, 10),      // gateOffV2 - very dark maroon-ish
-        CRGB(24, 48, 80),    // playheadAccent - deep navy accent
+        CRGB(6, 12, 0),       // gateOffV1 - near-black
+        CRGB(40, 33, 160),   // gateOnV2 - desaturated light blue accent
+        CRGB(12, 6, 0),      // gateOffV2 - very dark maroon-ish
+        CRGB(66, 12, 0),    // playheadAccent - deep navy accent
         CRGB(18, 30, 50),    // idleBreathingBlue - muted navy
         CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
         CRGB(10, 14, 18),    // editModeDimBlueV2
@@ -210,10 +210,10 @@ const LEDThemeColors ALL_THEMES[] = {
     },
     {
         // DARK_EMBER theme - deep charcoal with warm amber ember accents
-        CRGB(200, 120, 60),  // gateOnV1 - ember orange
-        CRGB(8, 9, 4),       // gateOffV1 - near-black
+        CRGB(200, 120, 44),  // gateOnV1 - ember orange
+        CRGB(0, 9, 4),       // gateOffV1 - near-black
         CRGB(255, 180, 110), // gateOnV2 - warm amber highlight
-        CRGB(10, 6, 5),      // gateOffV2 - deep dark
+        CRGB(0, 6, 15),      // gateOffV2 - deep dark
         CRGB(40, 24, 18),    // playheadAccent - dark warm accent
         CRGB(28, 22, 20),    // idleBreathingBlue - warm slate for breathing (amber-tinted)
         CRGB(10, 8, 8),      // editModeDimBlueV1 - very dark warm slate
@@ -245,10 +245,10 @@ const LEDThemeColors ALL_THEMES[] = {
     {
         // MODERN theme - muted, high-legibility palette with warm accent
         CRGB(48, 177, 111),  // gateOnV1 - soft teal
-        CRGB(3, 8, 10),      // gateOffV1 - muted dark teal
+        CRGB(13, 2, 2),      // gateOffV1 - muted dark teal
         CRGB(222, 130, 66),  // gateOnV2 - warm coral accent
-        CRGB(15, 6, 5),      // gateOffV2 - deep muted maroon
-        CRGB(20, 24, 66),    // playheadAccent base dark (will be brightened when added)
+        CRGB(2, 1, 15),      // gateOffV2 - deep muted maroon
+        CRGB(66, 4, 66),    // playheadAccent base dark (will be brightened when added)
         CRGB(60, 84, 110),   // idleBreathingBlue - slate blue for breathing
         CRGB(12, 16, 20),    // editModeDimBlueV1 - dim slate
         CRGB(18, 22, 26),    // editModeDimBlueV2 - slightly lighter slate
@@ -278,9 +278,9 @@ const LEDThemeColors ALL_THEMES[] = {
     {
         // BLUE theme - high-contrast cool blues and cyan accents
         CRGB(40, 122, 188),  // gateOnV1 - vivid cyan-blue
-        CRGB(6, 8, 12),      // gateOffV1 - almost black
+        CRGB(3, 18, 0),      // gateOffV1 - almost black
         CRGB(120, 100, 200), // gateOnV2 - soft sky blue
-        CRGB(8, 6, 10),      // gateOffV2 - deep charcoal
+        CRGB(8, 6, 2),      // gateOffV2 - deep charcoal
         CRGB(32, 99, 12),    // playheadAccent - strong blue accent
         CRGB(16, 36, 80),    // idleBreathingBlue - deep ocean blue
         CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
@@ -311,9 +311,9 @@ const LEDThemeColors ALL_THEMES[] = {
     {
         // GREEN theme - lush greens with clean high-contrast accents
         CRGB(40, 150, 80),   // gateOnV1 - vivid green
-        CRGB(2, 8, 12),      // gateOffV1 - near-black green tint
+        CRGB(2, 5, 3),      // gateOffV1 - near-black green tint
         CRGB(39, 180, 122),  // gateOnV2 - pale mint accent
-        CRGB(1, 12, 6),      // gateOffV2 - deep dark
+        CRGB(1, 7, 1),      // gateOffV2 - deep dark
         CRGB(0, 110, 60),    // playheadAccent - strong forest accent
         CRGB(18, 44, 28),    // idleBreathingBlue - deep forest for breathing
         CRGB(8, 12, 10),     // editModeDimBlueV1 - very dark green slate
