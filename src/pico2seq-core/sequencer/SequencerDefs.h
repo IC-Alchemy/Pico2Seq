@@ -208,7 +208,10 @@ constexpr ParameterDefinition CORE_PARAMETERS[] = {
 struct VoiceState
 {
   float noteIndex = 0.0f;                                                   // Scale step index (0-21) for scale array lookup
-  float velocityLevel = 0.8f;                                               // Voice amplitude (0.0-1.0)
+  // Matches CORE_PARAMETERS' neutral Velocity default. Hard-sync presets use
+  // this centered value as zero slave-frequency offset, so their slave follows
+  // the master until a Slave value is recorded.
+  float velocityLevel = 0.5f;
   float filterCutoff = 0.37f;                                               // Filter cutoff frequency (0.0-1.0)
   float attackTimeSeconds = 0.01f;                                          // Envelope attack time (0.0-1.0 seconds)
   float decayTimeSeconds = 0.01f;                                           // Envelope decay time (0.0-1.0 seconds)

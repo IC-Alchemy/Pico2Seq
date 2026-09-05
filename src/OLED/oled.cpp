@@ -160,11 +160,10 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
       break;
     case 11: // Filter Mode
     {
-      const char *filterModeNames[] = {"LP12", "LP24", "LP36", "BP12", "BP24"};
       const int filterModeIndex = static_cast<int>(voiceConfiguration->filterMode);
-      if (filterModeIndex >= 0 && filterModeIndex < 5)
+      if (filterModeIndex >= 0 && filterModeIndex < voiceui::kFilterModeCount)
       {
-        displayHardware.print(filterModeNames[filterModeIndex]);
+        displayHardware.print(voiceui::kFilterModeNames[filterModeIndex]);
       }
       else
       {
@@ -523,18 +522,21 @@ String OLEDDisplay::formatParameterValue(ParamId paramId, float value, uint8_t p
 {
   // Re-purposed slots under a non-standard param set get their own units:
   // everything is a 0..1 percentage except the waveguide T60 (seconds, via
-  // the same EXP map the DSP uses) and the hypersaw detune (semitones).
+  // the same EXP map the DSP uses).
   const VoiceParamSet paramSet = VoicePresets::getPresetParamSet(presetIndex);
   if (paramSet != PARAMSET_STANDARD &&
       VoicePresets::getSequencerParamName(presetIndex, paramId) != nullptr)
   {
+    if (paramSet == PARAMSET_HARDSYNC && paramId == ParamId::Velocity)
+    {
+      // The Slave lane is centered at 0.5, which yields an exact 1:1 master/
+      // slave ratio. Its full range is +/- 24 semitones.
+      const int offsetSemitones = static_cast<int>(lroundf((value - 0.5f) * 48.0f));
+      return String(offsetSemitones >= 0 ? "+" : "") + String(offsetSemitones) + "st";
+    }
     if (paramSet == PARAMSET_WAVEGUIDE && paramId == ParamId::Decay)
     {
       return String((int)dspmap::fmap(value, 0.05f, 10.0f, dspmap::Mapping::EXP)) + "s";
-    }
-    if (paramSet == PARAMSET_HYPERSAW && paramId == ParamId::Attack)
-    {
-      return String(value, 2) + "st";
     }
     return String((int)(value * 100)) + "%";
   }
@@ -740,11 +742,10 @@ void OLEDDisplay::displayVoiceParameterInfo(const UIState &uiState, VoiceManager
   case 11:
   {
     paramName = "Filter Mode";
-    const char *filterNames[] = {"LP12", "LP24", "LP36", "BP12", "BP24"};
     int mode = static_cast<int>(config->filterMode);
-    if (mode >= 0 && mode < 5)
+    if (mode >= 0 && mode < voiceui::kFilterModeCount)
     {
-      paramValue = filterNames[mode];
+      paramValue = voiceui::kFilterModeNames[mode];
     }
     else
     {

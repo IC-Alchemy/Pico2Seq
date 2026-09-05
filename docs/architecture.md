@@ -107,17 +107,30 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
   - Default tempo: 90 BPM; resolution: 480 PPQN (`PPQN_480`); shuffle on via
     `uClock.setShuffle(true)` using templates from `ShuffleTemplates.h`.
   - Initialized in `setup()` on Core 0, so the timer ISR fires on Core 0.
-  - ISR-context callbacks: `onStepCallback` fires every 16th note and does the full step
-    work inline (advances all four sequencers, routes sensor values, pushes `VoiceState`s
-    into `voiceSystem`, stages voice parameters, sends gate/MIDI note events);
-    `onSync24Callback` sends the USB MIDI Clock directly from the ISR;
+  - ISR-context callbacks stage events only — no work (2026-09-05 deferral refactor):
+    `onStepCallback` enqueues the 16th-note step number into a 16-deep SPSC ring
+    (`stepQueue`, ISR writes head / `loop()` reads tail; overflow counts into
+    `droppedStepCount`); `onSync24Callback` increments `sync24TicksPending`;
     `onOutputPPQNCallback` increments `ppqnTicksPending`.
-    *Known sharp edge:* those ISR-context `usb_midi.send*` calls share the TinyUSB endpoint
-    with `tud_task` on the same core — packets can be silently dropped under contention.
-    The older code used count-and-drain (`midiClockTicksPending`) to avoid this; restoring
-    that discipline on Core 0 is the recommended hardening step.
+  - Thread-context callbacks: `onClockStart` / `onClockStop` keep their full bodies
+    inline — `uClock.start()/stop()` are called from `setup()`/UI handlers (thread),
+    never the ISR (uClock is master, no external clock input), so nothing there
+    preempts.
+- **Clock Event Drain** (in `loop()`, same core as the ISR):
+  - `processClockEvents()` runs first in the timing section: dequeues steps into
+    `processSequencerStep()` (the full 16th-note work — advances all four sequencers,
+    routes sensor values, pushes `VoiceState`s into `voiceSystem`, stages voice
+    parameters, sends gate/MIDI note events), then sends queued USB MIDI Clock
+    messages (`sync24TicksPending`).
+  - With this, all `usb_midi.send*` traffic lives in thread context: TinyUSB's MIDI
+    endpoint has exactly one producer, closing the old ISR-vs-`tud_task` packet-drop
+    and FIFO-race sharp edge.
+  - Sequencer/midiNoteManager state is also single-context now (the old same-core
+    ISR-preempts-thread reentrancy hazard on these structures is gone; a step can
+    only be processed between `loop()` iterations, adding at most one loop-cycle of
+    latency to note timing).
 - **PPQN Drain Loop** (in `loop()`, same core as the ISR):
-  - Drains `ppqnTicksPending` (the only counter-drain still in use).
+  - Drains `ppqnTicksPending`.
   - Advances `midiNoteManager.updateTiming(globalTickCounter)`.
   - Advances sequencer note durations (`seq1..seq4.tickNoteDuration()`).
   - Ticks gate countdown timers (`voiceSystem.tickAllGateTimers()`).
@@ -130,6 +143,21 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
 - **20ms (50Hz) Display Refresh Loop**:
   - OLED Display: `display.update(uiState, seq1..seq4, voiceManager)` refreshes the 128x64 SH1106G display on Wire @ 0x3C.
   - LED Matrix: `updateStepLEDs()` and `ledMatrix.show()` refresh the 8x4 WS2812B FastLED array on GPIO 1; control indicators moved to the OLED (transient notices + encoder line).
+- **Freeze Forensics (`src/utils/FreezeWatchdog.h`, added 2026-09-05)**:
+  - `freezeWatchdogArm()` (in `setup()`, after `Wire.begin()`) arms the hardware
+    watchdog (2s — worst `loop()` iteration is ~0.5s) and installs a hard-fault
+    handler; every `setup()` stage and every `loop()` slice feeds it with the
+    phase that is *about to run* (`freezeWatchdogFeed`).
+  - On a Core-0 hang or fault the board reboots within ~2s and
+    `freezeWatchdogBootCheck()` prints a `[FREEZE] POST-MORTEM` on Serial (phase,
+    uptime at freeze, processed-step count, and fault PC/LR for hard faults),
+    decoded from the watchdog scratch registers (which survive a warm reset, not
+    power-on). Scratch[4] is reserved by pico-sdk's `watchdog_enable` marker.
+  - Coverage gap by design: a Core-1-only hang is not caught (Core 0 keeps
+    feeding). The audio-path hang class was closed separately in 2026-09-05 by
+    masking interrupts around the `src/audio/audio.cpp` buffer-list spin locks
+    (the audio DMA IRQ and `loop1()` share those locks on Core 1, and
+    `spin_lock_blocking` does not mask interrupts).
 
 ---
 

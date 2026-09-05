@@ -60,6 +60,7 @@ enum VoiceEngine : uint8_t {
     ENGINE_OSC = 0,       // Up to 3 oscillators (or raw noise when oscillatorCount == 0)
     ENGINE_WAVEGUIDE = 1, // Karplus-Strong plucked string (rpdsp::PluckedStringVoice)
     ENGINE_NOISEFX = 2,   // Noise + chaos source through diffuser/swarm inserts
+    ENGINE_HYPERSAW = 3,  // One rpdsp::Hypersaw (internally seven detuned saw voices)
 };
 
 struct VoiceConfig {
@@ -72,7 +73,7 @@ struct VoiceConfig {
     int harmony[3] = {0, 0, 0};                                             // Harmony intervals in scale steps (-12 to +12)
 
     // Sound engine selection (VoiceEngine). Ignored fields stay at their defaults.
-    uint8_t engine = ENGINE_OSC;                                            // ENGINE_OSC, ENGINE_WAVEGUIDE, or ENGINE_NOISEFX
+    uint8_t engine = ENGINE_OSC;                                            // ENGINE_OSC, ENGINE_WAVEGUIDE, ENGINE_NOISEFX, or ENGINE_HYPERSAW
 
     // Waveguide engine parameters (ENGINE_WAVEGUIDE only)
     float wgT60 = 2.5f;                                                     // String tail T60 in seconds (0.05-10.0)
@@ -81,6 +82,10 @@ struct VoiceConfig {
     float wgPickHardness = 0.8f;                                            // Excitation burst: 0 soft felt .. 1 hard pick
     float wgStiffness = 0.0f;                                               // Inharmonic dispersion: 0 harmonic .. 1 bell-like
     float wgDetune = 6.0f;                                                  // Two-string course spread in cents (0.0-30.0)
+
+    // Hypersaw engine parameters (ENGINE_HYPERSAW only)
+    float hypersawDetune = 0.2f;                                            // Seven-voice detune amount (0.0-1.0)
+    float hypersawMix = 0.5f;                                               // Center/side mix amount (0.0-1.0)
 
     // Noise-FX engine parameters (ENGINE_NOISEFX only)
     float noiseDiffuseSize = 0.8f;                                          // Prime-tap diffuser smear (0.0-1.0)
@@ -91,13 +96,13 @@ struct VoiceConfig {
 
     // Filter settings. filterType picks the topology; filterDrive and
     // filterPassbandGain only affect the ladder and are ignored by the SVF.
-    // filterMode selects the ladder response and doubles as the SVF response
-    // (LP* -> lowpass out, BP* -> bandpass out, HP* -> highpass out).
+    // filterMode is voice-owned: ladder voices map it to a native ladder
+    // mode, while SVF voices select the matching LP/BP/HP output.
     uint8_t filterType = FILTER_LADDER;                                     // Main filter topology (FILTER_LADDER or FILTER_SVF)
     float filterRes = 0.2f;                                                 // Filter resonance (0.0-1.0)
     float filterDrive = 1.8f;                                               // Ladder drive amount (0.0-4.0; SVF ignores)
     float filterPassbandGain = 0.23f;                                       // Ladder passband gain compensation (0.0-0.5; SVF ignores)
-    rpdsp::LadderFilter::Mode filterMode = rpdsp::LadderFilter::Mode::LP24; // Filter mode (LP24, LP12, BP24, BP12, HP24, HP12)
+    VoiceFilterMode filterMode = VoiceFilterMode::LP24;                     // Filter mode (LP24, LP12, BP24, BP12, HP24, HP12)
 
     // High-pass filter settings
     float highPassFreq = 80.0f;                                             // High-pass cutoff frequency in Hz (20.0-20000.0)
@@ -124,10 +129,10 @@ struct VoiceConfig {
 #### UI Filter Modes (`voiceui` namespace)
 ```cpp
 namespace voiceui {
-inline constexpr rpdsp::LadderFilter::Mode kFilterModes[] = {
-    rpdsp::LadderFilter::Mode::LP24, rpdsp::LadderFilter::Mode::LP12,
-    rpdsp::LadderFilter::Mode::BP24, rpdsp::LadderFilter::Mode::BP12,
-    rpdsp::LadderFilter::Mode::HP24, rpdsp::LadderFilter::Mode::HP12
+inline constexpr VoiceFilterMode kFilterModes[] = {
+    VoiceFilterMode::LP24, VoiceFilterMode::LP12,
+    VoiceFilterMode::BP24, VoiceFilterMode::BP12,
+    VoiceFilterMode::HP24, VoiceFilterMode::HP12
 };
 inline constexpr const char* kFilterModeNames[] = {"LP24", "LP12", "BP24", "BP12", "HP24", "HP12"};
 inline constexpr int kFilterModeCount = 6;
@@ -341,7 +346,7 @@ Each preset is built by a `constexpr VoiceConfig makeXxx() noexcept` factory fun
 
 | # | Preset Name | Engine | Oscillators | Amplitudes | Detune (Semis) | Harmony | Filter Mode | Filter Settings | Overdrive | Envelope (A/D/S/R) | Output Level |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| **0** | **Analog** | osc | 3x `WAVE_BSP_SAW` | `[0.5, 0.25, 0.25]` | `[0.0, +0.08, -0.08]` | `[0, 0, 0]` | **LP24** (ladder) | Res: 0.33, Drive: 3.1, Passband: 0.23, HPF: 150 Hz | Off (Gain: 0.8, Drive: 0.25) | `0.04s / 0.14s / 0.3 / 0.1s` | `0.5` |
+| **0** | **Analog** | osc | 1x `WAVE_HARDSYNC_SAW` | `[1.0]` | `[0.0]` | `[0]` | **LP24** (ladder) | Res: 0.33, Drive: 2.1, Passband: 0.23, HPF: 120 Hz | Off (Gain: 0.8, Drive: 0.25) | `0.07s / 0.24s / 0.5 / 0.1s` | `0.5` |
 | **1** | **Digital** | osc | 2x (`WAVE_BSP_SQUARE`, `WAVE_TRI`) | `[0.75, 1.0]` | `[0.0, +12.0]` | `[0, 0]` | **LP12** (SVF) | Res: 0.40, SVF low-pass, HPF: 111 Hz (Res: 0.15) | Off (Gain: 0.7, Drive: 0.51) | `0.015s / 0.1s / 0.5 / 0.1s` | `0.5` |
 | **2** | **Bass** | osc | 2x (`WAVE_SIN`, `WAVE_TRI`) | `[1.0, 1.0]` | `[-12.0, -12.0]` | `[0, 0]` | **LP12** (SVF) | Res: 0.45, SVF low-pass, HPF: 45 Hz (Res: 0.4) | Off (Gain: 0.95, Drive: 0.16) | `0.01s / 0.3s / 0.55 / 0.2s` | `0.95` |
 | **3** | **Lead** | osc | 2x `WAVE_BSP_SAW` | `[0.6, 0.4]` | `[0.0, 0.0]` | `[0, 3]` | **LP12** (ladder) | Res: 0.40, Drive: 3.0, Passband: 0.23, HPF: 160 Hz | Off (Gain: 0.7, Drive: 0.45) | `0.02s / 0.2s / 0.5 / 0.15s` | `0.5` |
@@ -354,7 +359,7 @@ Each preset is built by a `constexpr VoiceConfig makeXxx() noexcept` factory fun
 | **10** | **WgNylon** | waveguide | — (wg: T60 3.2s, bright 0.28, pick 0.42/0.22, stiff 0.05, det 9c) | — | — | — | **none** (`hasFilter=false`) | ladder bypassed; sub-shed HPF 66 Hz | Off | **none** (`hasEnvelope=false`; natural T60 ring) | `0.9` |
 | **11** | **WgBell** | waveguide | — (wg: T60 1.4s, bright 0.9, pick 0.08/1.0, stiff 0.88, det 0c) | — | — | — | **none** (`hasFilter=false`) | ladder + HPF bypassed | Off | **none** (`hasEnvelope=false`; natural T60 ring) | `0.75` |
 | **12** | **WgShimmer** | waveguide | — (wg: T60 6.5s, bright 0.55, pick 0.35/0.6, stiff 0.15, det 26c) | — | — | — | **none** (`hasFilter=false`) | ladder + HPF bypassed | Off | **none** (`hasEnvelope=false`; natural T60 ring) | `0.8` |
-| **13** | **Hypersaw** | osc | 3x `WAVE_BSP_SAW` | `[0.45, 0.3, 0.3]` | `[0.0, +0.21, -0.21]` | `[0, 0, +12]` | **LP24** (SVF) | Res: 0.35, SVF low-pass, HPF: 180 Hz | On (Gain: 0.85, Drive: 0.28) | `0.012s / 0.3s / 0.8 / 0.25s` | `0.5` |
+| **13** | **Hypersaw** | hypersaw | one `rpdsp::Hypersaw` (seven internal saws) | — | Detune: 0.2 (native 0–1) | — | **LP24** (SVF) | Res: 0.35, SVF low-pass, HPF: 180 Hz | Off | `0.012s / 0.3s / 0.8 / 0.25s` | `0.5` |
 | **14** | **NoiseStorm** | noise-FX | — (nf: diffuse 0.85/0.65, swarm 0.6/0.95, chaos 0.4) | — | — | — | **LP24** (SVF) | Res: 0.72, SVF low-pass, HPF: 220 Hz | On (Gain: 0.8, Drive: 0.4) | `0.003s / 0.5s / 0.55 / 0.45s` | `0.45` |
 
 Filter topology: only **Analog** and **Lead** still run the `rpdsp::LadderFilter`
@@ -362,10 +367,10 @@ Filter topology: only **Analog** and **Lead** still run the `rpdsp::LadderFilter
 filtered presets use the TPT `rpdsp::StateVariableFilter` — chosen for stability
 under the envelope's cutoff sweeps and its resonant low-pass/band-pass character
 (especially on the three bass presets); its response is selected by the same
-`filterMode` values (LP→lowpass, BP→bandpass), and it ignores `filterDrive`/
+`VoiceFilterMode` values (LP→lowpass, BP→bandpass, HP→highpass), and it ignores `filterDrive`/
 `filterPassbandGain`.
 
-The eight presets added with the expansion bank: **SubFunk** — bouncy sub bass; a sine sub an octave down carries the weight, a triangle adds movement, and a resonant SVF low-pass plus warm overdrive grit gives the filtered-growl funk character. **RubberSub** — rubbery sub bass; a sub-octave square grinds under a sine through a resonant SVF band-pass ("rubbery honk"), with harder overdrive that spits on transients. **WgPluck** — classic Karplus-Strong plucked string: bright burst, harmonic loop, short natural tail. **WgNylon** — dark felt-soft nylon: heavily damped loop, gentle pick, long sympathetic tail. **WgBell** — stiff dispersive string whose inharmonic upper partials read as bell/kalimba; hard bridge pick, quick tail. **WgShimmer** — wide-detuned (26-cent) two-string course with a very long T60 tail; slow chorusing sustain turns the pluck into a ringing pad. **Hypersaw** — supersaw-style stack of three BSP saws (detune spread is a live sequencer slot) glued with mild overdrive under a wide-open SVF low-pass. **NoiseStorm** — noise-based texture: noise plus a pitch-tracked Lorenz chaos growl feed a prime-tap diffuser and a regenerative allpass swarm, then a resonant SVF low-pass pings with the envelope.
+The eight presets added with the expansion bank: **SubFunk** — bouncy sub bass; a sine sub an octave down carries the weight, a triangle adds movement, and a resonant SVF low-pass plus warm overdrive grit gives the filtered-growl funk character. **RubberSub** — rubbery sub bass; a sub-octave square grinds under a sine through a resonant SVF band-pass ("rubbery honk"), with harder overdrive that spits on transients. **WgPluck** — classic Karplus-Strong plucked string: bright burst, harmonic loop, short natural tail. **WgNylon** — dark felt-soft nylon: heavily damped loop, gentle pick, long sympathetic tail. **WgBell** — stiff dispersive string whose inharmonic upper partials read as bell/kalimba; hard bridge pick, quick tail. **WgShimmer** — wide-detuned (26-cent) two-string course with a very long T60 tail; slow chorusing sustain turns the pluck into a ringing pad. **Hypersaw** — one native seven-voice `rpdsp::Hypersaw`; its Detune and Mix sequencer slots drive the engine directly, under a wide-open SVF low-pass. **NoiseStorm** — noise-based texture: noise plus a pitch-tracked Lorenz chaos growl feed a prime-tap diffuser and a regenerative allpass swarm, then a resonant SVF low-pass pings with the envelope.
 
 Preset 9-12 use `engine = ENGINE_WAVEGUIDE` (`rpdsp::PluckedStringVoice`, 2048-sample
 delay): each gate rise (or retrigger) plucks the string at the current base pitch, and
@@ -376,25 +381,36 @@ bypassed, velocity scales the raw string output directly, and the string rings p
 gate fall on its own T60 (gate edges still arm plucks — see `computeEnvelope()`).
 WgPluck/WgNylon keep a gentle 55/66 Hz high-pass to shed subsonic rumble that
 Karplus tails otherwise accumulate; WgBell/WgShimmer bypass the high-pass too.
+Preset 13 uses `engine = ENGINE_HYPERSAW`: one `rpdsp::Hypersaw` instance supplies
+its internal seven saw voices. Its Attack and Decay sequencer slots are re-purposed
+as normalized Detune and Mix controls, respectively; Filter remains the live cutoff.
+
+Preset 0, Analog, uses one `WAVE_HARDSYNC_SAW`. Its Note/Master track sets the
+master frequency. Its Velocity/Slave track is centered at 0.5 and maps to a
+slave offset of -24 to +24 semitones: the untouched/default value of 0.5 is a
+zero offset, so the slave follows the master exactly. Hard-sync presets do not
+apply that re-purposed lane as VCA velocity.
+
 Preset 14 uses `engine = ENGINE_NOISEFX`: `NoiseOscillator` plus a pitch-tracked
 `chaos_lorenz` growl feed `fx_diffuse` (prime-tap diffuser) and `fx_swarm` (regenerative
 allpass swarm) from `rpdsp/DSPFunctions.h`, pre-filter so the SVF shapes the texture.
 
 ### Per-preset sequencer parameter sets
 
-`VoiceConfig::paramSet` (`VoiceParamSet` in `Voice.h`) re-purposes the sequencer's
-Filter/Attack/Decay slots per voice. `Voice::applyPendingParams_()` routes the slots on
+`VoiceConfig::paramSet` (`VoiceParamSet` in `Voice.h`) re-purposes sequencer
+slots per voice. `Voice::applyPendingParams_()` routes the slots on
 the audio thread; `VoicePresets::getSequencerParamName()` provides the OLED labels
 (fallback `paramName()` for standard slots); `applyVoicePreset()` re-seeds the
 re-purposed tracks with the preset's values (`seedRepurposedParamTracks()` in
 `Pico2Seq.ino`) so encoders/OLED/engine agree after a switch.
 
-| Param set | Presets | Filter slot | Attack slot | Decay slot |
-|---|---|---|---|---|
-| STANDARD | 0–8 | Cutoff (150 Hz–8 kHz, EXP) | Attack (0.002–0.75 s) | Decay (0.002–0.8 s, LOG) |
-| WAVEGUIDE | 9–12 | Brightness (0–1) | Pick hardness (0–1) | T60 (0.05–10 s, EXP; `wgT60ToNormalized` seeds tracks) |
-| HYPERSAW | 13 | Cutoff (live) | Detune spread (0–1 semitone, symmetric ±) | Overdrive drive (1–4) |
-| NOISESTORM | 14 | Swarm color | Swarm regen | Chaos level (the SVF keeps the preset's static `filterCutoffBase`) |
+| Param set | Presets | Note / Velocity slots | Filter slot | Attack slot | Decay slot |
+|---|---|---|---|---|---|
+| HARDSYNC | 0 | Master pitch / Slave offset (-24..+24 st; 0.5 = follow master) | Cutoff | Attack | Decay |
+| STANDARD | 1–8 | Note / velocity | Cutoff (150 Hz–8 kHz, EXP) | Attack (0.002–0.75 s) | Decay (0.002–0.8 s, LOG) |
+| WAVEGUIDE | 9–12 | Note / velocity | Brightness (0–1) | Pick hardness (0–1) | T60 (0.05–10 s, EXP; `wgT60ToNormalized` seeds tracks) |
+| HYPERSAW | 13 | Note / velocity | Cutoff (live) | Native seven-voice detune (0–1) | Native center/side mix (0–1) |
+| NOISESTORM | 14 | Note / velocity | Swarm color | Swarm regen | Chaos level (the SVF keeps the preset's static `filterCutoffBase`) |
 
 For HYPERSAW/NOISESTORM the ADSR times come from the preset defaults (`applyEnvelopeDefaults_()`),
 since the Attack/Decay tracks no longer carry envelope times. Live preset switches are
@@ -431,6 +447,7 @@ Each call to `Voice::process()` on Core 1 executes the following stages:
 │ 4. Source Stage & Slide Slew (mixOscillators)                                   │
 │    - Silence short-circuit: If E <= 0.0005, return 0.0 immediately              │
 │    - engine == ENGINE_WAVEGUIDE: pluck on gate rise; S_osc = waveguide_.process │
+│    - engine == ENGINE_HYPERSAW: S_osc = one native seven-voice Hypersaw         │
 │    - engine == ENGINE_NOISEFX: S_osc = noise + chaos_lorenz (fx inserts at 5)   │
 │    - ENGINE_OSC: commit pitch to hardware ONLY when isGateHigh == true          │
 │    - If slide active: Exponential slew via fmaf(delta, slideAlpha, currentFreq) │

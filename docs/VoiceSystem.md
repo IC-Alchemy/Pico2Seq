@@ -119,7 +119,9 @@ struct UIState {
 ```
 
 ### 4.3 Sequencer Step Integration
-When `uClock` triggers `onStepCallback` on Core 0 (uClock timer ISR context) for a 16th note step:
+When `uClock` fires `onStepCallback` on Core 0 (timer ISR) the step number is only
+enqueued into `stepQueue`; `loop()` drains it via `processClockEvents()` →
+`processSequencerStep()` (thread context), which does the per-step work:
 ```cpp
 // Advance sequencers for all 4 voices
 Sequencer* sequencers[VoiceSystem::MAX_VOICES] = {&seq1, &seq2, &seq3, &seq4};

@@ -21,10 +21,7 @@ Sequencer seq4(4); // Channel 4 for fourth sequencer
 LEDMatrix ledMatrix;
 AlchemyControlBridge alchemyBridge; // Alchemy tile panel -> firmware UI glue
 
-// --- MIDI & Clock ---
-Adafruit_USBD_MIDI raw_usb_midi;
-midi::SerialMIDI<Adafruit_USBD_MIDI> serial_usb_midi(raw_usb_midi);
-midi::MidiInterface<midi::SerialMIDI<Adafruit_USBD_MIDI>> usb_midi(serial_usb_midi);
+
 Adafruit_MPR121 touchSensor = Adafruit_MPR121();
 
 // =======================
@@ -170,7 +167,7 @@ void unmuteOscillators()
 void onClockStart()
 {
     // Serial.println("[uClock] onClockStart()");
-    usb_midi.sendRealTime(midi::Start);
+
     // Start all four sequencers so  LEDs and audio advance for 3/4 as well
     seq1.start();
     seq2.start();
@@ -181,7 +178,6 @@ void onClockStart()
 
 void onClockStop()
 {
-    usb_midi.sendRealTime(midi::Stop);
     // Stop all four sequencers
     seq1.stop();
     seq2.stop();
@@ -189,7 +185,6 @@ void onClockStop()
     seq4.stop();
 
     // Use MidiNoteManager for comprehensive cleanup
-    midiNoteManager.onSequencerStop();
 
     // Legacy allNotesOff() call for sequencer state cleanup
     isClockRunning = false;
@@ -252,11 +247,11 @@ static inline float clamp01(float v)
 /**
  * @brief Seed the sequencer tracks that a preset's param set re-purposes
  *
- * Non-standard presets reinterpret selected slots (e.g. WgPluck's Decay slot
- * is the string T60 and Analog's Velocity slot is a HardSyncSaw slave-pitch
- * offset). Without seeding, stale values would stomp a preset's tuned engine
- * values on the first step after a switch. Filter stays untouched for
- * Hypersaw because it remains a live cutoff there.
+ * Non-standard presets reinterpret the Filter/Attack/Decay slots (e.g.
+ * WgPluck's Decay slot is the string T60). Without seeding, the stale track
+ * values (filter 0.5 / attack 0.01 / decay 0.3 defaults) would stomp the
+ * preset's tuned engine values on the first step after a switch. Filter stays
+ * untouched for Hypersaw (it remains a live cutoff there).
  */
 static void seedRepurposedParamTracks(uint8_t voiceIndex, const VoiceConfig &config)
 {
@@ -279,18 +274,13 @@ static void seedRepurposedParamTracks(uint8_t voiceIndex, const VoiceConfig &con
         slots[count++] = {ParamId::Decay, VoicePresets::wgT60ToNormalized(config.wgT60)};
         break;
     case PARAMSET_HYPERSAW:
-        slots[count++] = {ParamId::Attack, clamp01(config.hypersawDetune)};
-        slots[count++] = {ParamId::Decay, clamp01(config.hypersawMix)};
+        slots[count++] = {ParamId::Attack, clamp01(config.oscDetuning[1])};
+        slots[count++] = {ParamId::Decay, clamp01(config.overdriveDrive)};
         break;
     case PARAMSET_NOISESTORM:
         slots[count++] = {ParamId::Filter, clamp01(config.noiseSwarmColor)};
         slots[count++] = {ParamId::Attack, clamp01(config.noiseSwarmRegen)};
         slots[count++] = {ParamId::Decay, clamp01(config.noiseChaosLevel)};
-        break;
-    case PARAMSET_HARDSYNC:
-        // The centered Velocity default is zero slave offset: the slave
-        // follows the master until the Slave parameter is recorded.
-        slots[count++] = {ParamId::Velocity, 0.5f};
         break;
     default:
         return; // STANDARD presets keep their existing tracks
@@ -414,13 +404,7 @@ void updateParametersForStepNormalized(uint8_t stepToUpdate, float normalizedVal
         activeSeq.setStepParameterValue(heldParamId, stepToUpdate, valueToSet);
         parametersWereUpdated = true;
 
-        // Send immediate MIDI CC for real-time parameter recording (voices 1/2 only)
-        uint8_t midiVoiceId = (uiState.selectedVoiceIndex == 0) ? 0 : (uiState.selectedVoiceIndex == 1) ? 1
-                                                                                                        : 255;
-        if (midiVoiceId != 255)
-        {
-            midiNoteManager.updateParameterCC(midiVoiceId, heldParamId, valueToSet);
-        }
+       
 
         // Debug print if needed
         //  Serial.print("  -> Set ");
@@ -538,15 +522,7 @@ void updateVoiceMIDI(
     // Push full state to voice (Voice computes frequencies internally on gate HIGH)
     voiceManager->updateVoiceState(voiceId, state);
 
-    // Send MIDI CC only for voices 0 and 1
-    if (voiceIndex <= 1)
-    {
-        uint8_t midiVoiceId = voiceIndex; // 0 or 1
-        midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Filter, state.filterCutoff);
-        midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Attack, state.attackTimeSeconds);
-        midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Decay, state.decayTimeSeconds);
-        midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Octave, state.octaveOffset);
-    }
+    
 
     // Voice separation verified - distance sensor now voice-specific
 }

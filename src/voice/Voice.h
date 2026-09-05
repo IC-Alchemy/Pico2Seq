@@ -5,6 +5,7 @@
 #include "../rpdsp/src/rpdsp/filter.h"
 #include "../rpdsp/src/rpdsp/envelope.h"
 #include "../rpdsp/src/rpdsp/effects.h"
+#include "../rpdsp/src/rpdsp/hypersaw.h"
 #include "../rpdsp/src/rpdsp/waveguide.h"
 #include "../rpdsp/src/rpdsp/DSPFunctions.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
@@ -27,11 +28,12 @@ enum VoiceEngine : uint8_t
   ENGINE_OSC = 0,       // Up to 3 oscillators (or raw noise when oscillatorCount == 0)
   ENGINE_WAVEGUIDE = 1, // Karplus-Strong plucked string (rpdsp::PluckedStringVoice)
   ENGINE_NOISEFX = 2,   // Noise + chaos source through diffuser/swarm inserts
+  ENGINE_HYPERSAW = 3,  // One rpdsp::Hypersaw (internally seven detuned saw voices)
 };
 
-// How the sequencer's Filter/Attack/Decay parameter slots are interpreted for
-// this voice. STANDARD = filter cutoff + ADSR times; the alternates re-purpose
-// the same slots for engine-specific parameters (routed in
+// How the sequencer's parameter slots are interpreted for this voice. STANDARD
+// = velocity + filter cutoff + ADSR times; the alternates re-purpose selected
+// slots for engine-specific parameters (routed in
 // Voice::applyPendingParams_(), named via VoicePresets::getSequencerParamName).
 enum VoiceParamSet : uint8_t
 {
@@ -39,6 +41,7 @@ enum VoiceParamSet : uint8_t
   PARAMSET_WAVEGUIDE = 1,
   PARAMSET_HYPERSAW = 2,
   PARAMSET_NOISESTORM = 3,
+  PARAMSET_HARDSYNC = 4,
 };
 
 // Topology of the voice's main filter (when hasFilter is set). The ladder is
@@ -49,6 +52,20 @@ enum VoiceFilterType : uint8_t
 {
   FILTER_LADDER = 0,
   FILTER_SVF = 1,
+};
+
+// Voice-owned response names.  They deliberately do not expose a LadderFilter
+// type: ladder voices map all six values to their native modes, while SVF
+// voices map LP/BP/HP to the appropriate simultaneous SVF output.  The 12/24
+// labels remain available to the UI even though the current SVF is two-pole.
+enum class VoiceFilterMode : uint8_t
+{
+  LP24 = 0,
+  LP12,
+  BP24,
+  BP12,
+  HP24,
+  HP12,
 };
 
 /**
@@ -84,6 +101,10 @@ struct VoiceConfig
   float wgStiffness = 0.0f;    // Inharmonic dispersion: 0 harmonic .. 1 bell-like
   float wgDetune = 6.0f;       // Two-string course spread in cents (0.0-30.0)
 
+  // Hypersaw engine parameters (ENGINE_HYPERSAW only)
+  float hypersawDetune = 0.2f; // Seven-voice detune amount (0.0-1.0)
+  float hypersawMix = 0.5f;    // Mix amount for the hypersaw layers (0.0-1.0)
+
   // Noise-FX engine parameters (ENGINE_NOISEFX only)
   float noiseDiffuseSize = 0.8f; // Prime-tap diffuser smear (0.0-1.0)
   float noiseDiffuseMix = 0.7f;  // Diffuser wet amount (0.0-1.0)
@@ -93,13 +114,13 @@ struct VoiceConfig
 
   // Filter settings. filterType picks the topology; filterDrive and
   // filterPassbandGain only affect the ladder and are ignored by the SVF.
-  // filterMode selects the ladder response, and doubles as the SVF response
-  // (LP* -> lowpass out, BP* -> bandpass out, HP* -> highpass out).
+  // filterMode is topology-neutral: it selects a native ladder mode or the
+  // matching SVF output (LP*, BP*, HP*).
   uint8_t filterType = FILTER_LADDER; // Main filter topology (VoiceFilterType)
   float filterRes = 0.2f;            // Filter resonance (0.0-1.0)
   float filterDrive = 1.8f;          // Ladder drive amount (0.0-4.0; SVF ignores)
   float filterPassbandGain = 0.23f;  // Ladder passband gain compensation (0.0-0.5; SVF ignores)
-  rpdsp::LadderFilter::Mode filterMode = rpdsp::LadderFilter::Mode::LP24; // Filter mode
+  VoiceFilterMode filterMode = VoiceFilterMode::LP24;
   float filterCutoffBase = 0.37f;    // Normalized static cutoff (0.0-1.0) used when
                                      // paramSet re-purposes the Filter slot (e.g. NoiseStorm)
 
@@ -118,7 +139,7 @@ struct VoiceConfig
   float defaultAttack = 0.04f; // Default attack time in seconds (0.001-10.0)
   float defaultDecay = 0.14f;  // Default decay time in seconds (0.001-10.0)
   float defaultSustain = 0.5f; // Default sustain level (0.0-1.0)
-  float defaultRelease = 0.1f; // Default release time in seconds (0.001-10.0)
+  float defaultRelease = 0.2f; // Default release time in seconds (0.001-10.0)
 
   // Voice mixing
   float outputLevel = 0.6f; // Voice output level (0.0-1.0)
@@ -129,10 +150,10 @@ struct VoiceConfig
 // Cycling code must use these tables together so labels and enum values can
 // never disagree (the old UI hardcoded a name list that mismatched the enum).
 namespace voiceui {
-inline constexpr rpdsp::LadderFilter::Mode kFilterModes[] = {
-    rpdsp::LadderFilter::Mode::LP24, rpdsp::LadderFilter::Mode::LP12,
-    rpdsp::LadderFilter::Mode::BP24, rpdsp::LadderFilter::Mode::BP12,
-    rpdsp::LadderFilter::Mode::HP24, rpdsp::LadderFilter::Mode::HP12};
+inline constexpr VoiceFilterMode kFilterModes[] = {
+    VoiceFilterMode::LP24, VoiceFilterMode::LP12,
+    VoiceFilterMode::BP24, VoiceFilterMode::BP12,
+    VoiceFilterMode::HP24, VoiceFilterMode::HP12};
 inline constexpr const char *kFilterModeNames[] = {"LP24", "LP12", "BP24",
                                                    "BP12", "HP24", "HP12"};
 inline constexpr int kFilterModeCount = 6;
@@ -352,6 +373,14 @@ public:
    */
   float getCachedFrequency(uint8_t oscIndex) const;
 
+  /**
+   * @brief Read the current slave pitch for a HardSyncSaw oscillator.
+   *
+   * Returns the master pitch for ordinary oscillators, allowing callers and
+   * tests to inspect the cached routing without special-case reads.
+   */
+  float getCachedSlaveFrequency(uint8_t oscIndex) const;
+
 private:
   // Voice identification and configuration
   uint8_t voiceId;
@@ -391,11 +420,14 @@ private:
   rpdsp::ADSR envelope;
   rpdsp::Waveshaper overdrive;
 
-  // Alternate engines. Both are fixed-storage members so Voice stays
-  // allocation-free; they only run when config.engine selects them.
+  // Alternate engines are fixed-storage members so Voice stays allocation-free;
+  // they only run when config.engine selects them.
   // Waveguide capacity 2048 samples ≈ 24 Hz minimum pitch at 48 kHz.
   static constexpr size_t kWaveguideCapacity = 2048;
   rpdsp::PluckedStringVoice<kWaveguideCapacity> waveguide_;
+  // A Hypersaw itself contains the seven saw voices. Keep exactly one instance
+  // per Voice rather than building a second unison stack from VoiceOscillator.
+  rpdsp::Hypersaw hypersaw_;
   // Noise-FX scratch (caller-owned state for the rpdsp DSPFunctions free
   // functions): 2048-tap diffuser ring plus diffuser/swarm/chaos state.
   static constexpr int kNoiseFxBufferSize = 2048;
@@ -409,6 +441,8 @@ private:
   // Set on gate rise/retrigger so the waveguide engine plucks with the pitch
   // already committed for this frame; consumed by mixOscillators().
   bool wgPluckPending_ = false;
+  // Hypersaw randomizes its internal phases on each gate rise/retrigger.
+  bool hypersawTriggerPending_ = false;
   // Cached engine (clamped config.engine), updated on config apply.
   uint8_t cachedEngine_ = ENGINE_OSC;
 
@@ -495,6 +529,9 @@ private:
     int8_t octaveOffset;
     int harmony[3];
     uint8_t oscCount;
+    bool usesHypersaw;
+    bool usesHardSync;
+    float hardSyncSlaveControl;
     uint32_t detuneVersion;
     bool hasSlide;
     // Snapshotted pitch controls to detect changes
@@ -507,6 +544,7 @@ private:
     float baseFreq;
     float harmonyFreq[3];
     float finalFreq[3];
+    float slaveFreq[3];
   };
 
   PitchSnapshot pitchSnapshot_{};
@@ -516,6 +554,9 @@ private:
   // Generation counter: bumped after cache write; audio thread copies appliedPitchGen_
   std::atomic<uint32_t> pitchGen_{0};
   uint32_t appliedPitchGen_{0};
+  // Hypersaw consumes the shared pitch cache independently of the regular
+  // oscillator bank, which may be empty for ENGINE_HYPERSAW.
+  uint32_t hypersawAppliedPitchGen_{0};
 
   // Detune version: incremented when detune multipliers are recomputed
   uint32_t detuneVersion_{0};
@@ -593,7 +634,7 @@ private:
   float mixOscillators();
 
   /**
-   * @brief Apply engine-specific configuration (waveguide tuning, noise state)
+   * @brief Apply engine-specific configuration (waveguide and Hypersaw tuning)
    *        Called from init() and applyPendingConfig_() at control rate.
    */
   void applyEngineConfig_();
@@ -603,6 +644,12 @@ private:
    * @return float Waveguide output
    */
   float processWaveguide_() noexcept;
+
+  /**
+   * @brief Process the single native seven-voice Hypersaw source
+   * @return float Hypersaw output
+   */
+  float processHypersaw_() noexcept;
 
   /**
    * @brief Noise-FX engine source stage: noise + pitch-tracked chaos growl

@@ -49,15 +49,21 @@ All CC messages are transmitted on **MIDI Channel 1** (`CC_MIDI_CHANNEL = 1`). E
 
 ## Realtime MIDI Clock Transmission
 
-Pico2Seq acts as a USB MIDI master clock source. Realtime clock messages are generated on **Core 0** directly from `uClock` timer callbacks (the stock library's alarm ISR fires on Core 0) in `Pico2Seq.ino` — note that `onSync24Callback` sends from ISR context:
+Pico2Seq acts as a USB MIDI master clock source. The uClock timer alarm fires on **Core 0**, but its ISR-context callbacks only stage events: `onSync24Callback` increments `sync24TicksPending`, and `loop()` drains the counter in thread context (`processClockEvents()`), so every `usb_midi.send*` is single-producer and never runs in ISR context:
 
 ```cpp
-// 24 PPQN Clock Tick Callback
+// 24 PPQN Clock Tick Callback (ISR context — stage only)
 void onSync24Callback(uint32_t tick) {
+    sync24TicksPending++;
+}
+
+// Drained in loop() (thread context):
+while (sync24TicksPending > 0) {
+    sync24TicksPending--;
     usb_midi.sendRealTime(midi::Clock);
 }
 
-// Sequencer Playback Start
+// Sequencer Playback Start (thread context — uClock.start() from UI handlers)
 void onClockStart() {
     usb_midi.sendRealTime(midi::Start);
     seq1.start();
