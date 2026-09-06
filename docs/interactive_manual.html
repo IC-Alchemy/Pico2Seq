@@ -641,7 +641,7 @@
             </div>
             <div class="p-2.5 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-300">
               <div class="font-bold">6. MASTER DELAY</div>
-              <div class="text-[10px] text-emerald-400/80 mt-1">In code, currently commented out of the firmware audio path (simulated here)</div>
+              <div class="text-[10px] text-emerald-400/80 mt-1">Compiled out by PICO2SEQ_ENABLE_DELAY_EFFECT=0 (simulated here)</div>
             </div>
           </div>
         </div>
@@ -847,7 +847,7 @@
                 <span class="font-bold text-cyan-300 font-mono">Utility Mode (GP7 HIGH)</span>
                 <ul class="space-y-1 text-slate-400">
                   <li>• <b>Btn 1 (Play/Stop)</b>: Starts/stops transport; opens Settings when stopped.</li>
-                  <li>• <b>Btn 2 (Delay)</b>: Toggle the delay state/notice (the delay insert is commented out of the firmware audio path, so no delay is audible).</li>
+                  <li>• <b>Btn 2 (Delay)</b>: Toggle the delay state/notice (the delay insert is compiled out via PICO2SEQ_ENABLE_DELAY_EFFECT=0, so no delay is audible).</li>
                   <li>• <b>Btn 3 (Scale)</b>: Cycle 13 musical scales.</li>
                   <li>• <b>Btn 4 (Swing)</b>: Cycle 16 shuffle templates.</li>
                   <li>• <b>Btn 5 (Theme)</b>: Cycle 10 LED matrix color themes.</li>

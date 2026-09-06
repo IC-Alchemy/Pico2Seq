@@ -40,7 +40,6 @@ Run a single tag/group instead of the full suite:
 ```bash
 ./build_test/tests/pico2seq_tests "[rpdsp]"
 ./build_test/tests/pico2seq_tests "[sequencer]"
-./build_test/tests/pico2seq_tests "[steptick]"
 ./build_test/tests/pico2seq_tests "[voice]"
 ./build_test/tests/pico2seq_tests "[voiceosc]"
 ./build_test/tests/pico2seq_tests "[control_surface]"
@@ -105,12 +104,12 @@ real header paths exactly — a stub for `pico/sync.h` must live at `tests/stubs
 
 What's tested vs. not, per `tests/CMakeLists.txt`:
 - **Tested** (compiled into `pico2seq_tests`): `src/rpdsp/` additions via
-  `tests/unit/test_rpdsp_additions.cpp` (wavefolder, fmap/Mapping, Waveshaper, vendored
-  DSPFunctions smoke tests), `src/voice/VoiceOscillator.h` via `test_voiceoscillator.cpp`,
+  `tests/unit/test_rpdsp_additions.cpp` and `test_dsp_recipe_regressions.cpp`,
+  `src/voice/VoiceOscillator.h` via `test_voiceoscillator.cpp`,
   `src/pico2seq-core/scales/scales.cpp`,
-  `src/pico2seq-core/sequencer/{ParameterManager,Sequencer}.cpp` and
-  `sequencer/StepTickQueue.h` via `tests/unit/test_step_tick_queue.cpp`,
-  `src/voice/{Voice,VoicePresets}.cpp`,
+  `src/pico2seq-core/sequencer/{ParameterManager,Sequencer}.cpp`,
+  `src/voice/{Voice,VoicePresets,VoiceManager}.cpp` (incl. the `SpscQueue`
+  control handoff via `test_voice_transfer.cpp`),
   `src/ui/ControlSurfaceLogic.cpp` via `tests/unit/test_control_surface_logic.cpp`,
   `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` via `tests/unit/test_alchemy_proto.cpp`.
 - **Not tested, by design** (hardware-bound glue — keep logic out of these):
@@ -170,8 +169,9 @@ Matrix/TMAG5273/VL53L1X/MIDI input  (Core 0)
   → UIEventHandler / ButtonHandlers  → UIState (single struct, no loose globals)
   → 4 independent Sequencer instances (seq1..seq4, one per voice, polymetric: each
     ParamId track can have its own step count, e.g. Note:16 steps, Filter:8 steps)
-  → VoiceState produced per step (the uClock ISR only queues the step into
-    StepTickQueue; loop1() drains it and runs processSequencerStep)
+  → VoiceState produced per step (the uClock ISR only stages the step into
+    the stepQueue SpscQueue; loop() drains it via processClockEvents() and
+    runs processSequencerStep)
   → VoiceSystem (gate timing, MIDI note on/off via MidiNoteManager) → VoiceManager
   → Voice DSP chain (oscillators → ladder filter → ADSR → overdrive/wavefolder)
   → fill_audio_buffer()  (Core 1)  → I2S @ 48kHz

@@ -7,7 +7,7 @@ The `src/midi/` subsystem handles USB MIDI communication for Pico2Seq using **Ad
 The MIDI subsystem provides:
 1. **Monophonic MIDI Note-On / Note-Off generation** synchronized with sequencer gate timing.
 2. **Continuous Controller (CC) output** for real-time synthesis parameter changes.
-3. **Realtime MIDI Clock transmission** (`Clock`, `Start`, `Stop`) synchronized with `uClock` at 24 PPQN.
+3. **No MIDI realtime clock output** — uClock drives only the internal sequencer; no `Clock`, `Start`, or `Stop` bytes are transmitted (removed 2026-09-06).
 
 ---
 
@@ -47,46 +47,20 @@ All CC messages are transmitted on **MIDI Channel 1** (`CC_MIDI_CHANNEL = 1`). E
 
 ---
 
-## Realtime MIDI Clock Transmission
+## MIDI Clock: Not Transmitted
 
-Pico2Seq acts as a USB MIDI master clock source. The uClock timer alarm fires on **Core 0**, but its ISR-context callbacks only stage events: `onSync24Callback` increments `sync24TicksPending`, and `loop()` drains the counter in thread context (`processClockEvents()`), so every `usb_midi.send*` is single-producer and never runs in ISR context:
+Pico2Seq does **not** act as a USB MIDI master clock. The uClock tempo clock is
+internal-only: it drives the four sequencers and the internal 480-PPQN timing
+stream, but no `Clock`, `Start`, or `Stop` realtime bytes are sent over USB MIDI
+(the `setOnSync24` hook and the clock-sends drain were removed 2026-09-06).
+`onClockStart`/`onClockStop` still start/stop all four sequencers and run
+`midiNoteManager.onSequencerStop()` for clean note state — they just send no MIDI.
 
-```cpp
-// 24 PPQN Clock Tick Callback (ISR context — stage only)
-void onSync24Callback(uint32_t tick) {
-    sync24TicksPending++;
-}
-
-// Drained in loop() (thread context):
-while (sync24TicksPending > 0) {
-    sync24TicksPending--;
-    usb_midi.sendRealTime(midi::Clock);
-}
-// (loop1() drains the counter in thread context:
-//  while (midiClockTicksPending > 0) { midiClockTicksPending--; usb_midi.sendRealTime(midi::Clock); })
-
-// Sequencer Playback Start (thread context — uClock.start() from UI handlers)
-void onClockStart() {
-    usb_midi.sendRealTime(midi::Start);
-    seq1.start();
-    seq2.start();
-    seq3.start();
-    seq4.start();
-    isClockRunning = true;
-}
-
-// Sequencer Playback Stop
-void onClockStop() {
-    usb_midi.sendRealTime(midi::Stop);
-    seq1.stop();
-    seq2.stop();
-    seq3.stop();
-    seq4.stop();
-    midiNoteManager.onSequencerStop();
-    isClockRunning = false;
-}
-```
-
+All remaining `usb_midi` traffic (note on/off and CC for voices 0–1) originates
+from `loop()`/UI-handler **thread context on Core 0** — the same core TinyUSB's
+`tud_task` runs on — so the MIDI endpoint keeps exactly one producer. The uClock
+ISR (also core 0) only stages events (the `stepQueue` `SpscQueue` +
+`ppqnTicksPending`), which `processClockEvents()` drains in `loop()`.
 ---
 
 ## Note Lifecycle & Monophonic Tracking
@@ -185,7 +159,7 @@ extern midi::MidiInterface<midi::SerialMIDI<Adafruit_USBD_MIDI>> usb_midi;
 
 ## Dual-Core Execution Model
 
-- **Core 0 Execution:** All MIDI polling (`usb_midi.read()`), note transmission (`noteOn`/`noteOff`), CC updates, and clock broadcasts (`sendRealTime`) run on **Core 0** — note that the 24-PPQN clock sends and step-time note/CC sends from the uClock callback chain happen in **ISR context** and share the TinyUSB endpoint with `tud_task` on the same core (packets can be dropped under contention; a count-and-drain refactor is the known hardening path).
+- **Core 0 Execution:** All MIDI polling (`usb_midi.read()`) and every transmission (`noteOn`/`noteOff` note and CC output) run in **thread context on Core 0** — the same core TinyUSB's `tud_task` runs on, so the MIDI endpoint keeps exactly one producer. The uClock ISR (also core 0) only stages events; it sends no MIDI.
 - **Core 1 Isolation:** Core 1 runs purely audio synthesis DSP and I2S buffer filling. It never blocks on USB MIDI endpoints.
 - **Volatile Shared State:** Synchronization between the sequencer ticks and gate trackers uses `volatile` variables and atomic begin/end locks.
 

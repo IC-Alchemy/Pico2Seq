@@ -47,7 +47,7 @@ To enable rapid, automated regression testing, Pico2Seq employs a **host-side un
 
 ---
 
-## 9 Host Unit Test Suites
+## 10 Host Unit Test Suites
 
 The host test executable (`pico2seq_tests`) links all unit suites under `tests/unit/`:
 
@@ -55,13 +55,14 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 |---|---|---|---|
 | 1 | `tests/unit/test_helpers.cpp` | Global Test Helper Symbols | Provides single definition of extern symbols (`slideMode`, `MAX_DELAY_SAMPLES`) |
 | 2 | `tests/unit/test_rpdsp_additions.cpp` | `rpdsp` DSP Extensions | `dspmap::fmap` curves (local carry-over), Waveshaper transfer functions, DSPFunctions |
-| 3 | `tests/unit/test_scales.cpp` | Musical Scale Lookup Tables | 13 scales monotonic ordering, root notes at 0, MIDI boundary validation, chromatic fallback |
-| 4 | `tests/unit/test_sequencer.cpp` | Core Step Sequencer | `ParameterTrack<N>` wrapping, `NoteDurationTracker` countdowns, start/stop, gate toggling |
-| 5 | `tests/unit/test_step_tick_queue.cpp` | `StepTickQueue` ISR→loop handoff ring | FIFO push/pop order, full-queue drop behavior, empty/size invariants (`[steptick]`) |
+| 3 | `tests/unit/test_dsp_recipe_regressions.cpp` | `rpdsp` Recipe Regressions | ADSR envelope curves and retriggers, compressor across sample rates, vowel/tape/frequency-shifter/buffer recipes (`[recipe_regression]`) |
+| 4 | `tests/unit/test_scales.cpp` | Musical Scale Lookup Tables | 13 scales monotonic ordering, root notes at 0, MIDI boundary validation, chromatic fallback |
+| 5 | `tests/unit/test_sequencer.cpp` | Core Step Sequencer | `ParameterTrack<N>` wrapping, `NoteDurationTracker` countdowns, start/stop, gate toggling |
 | 6 | `tests/unit/test_voice.cpp` | Synthesizer Voice Engine | Voice state transitions, staged parameter application on `process()`, scale injection, filter sweep, preset registry (15 named presets, engine selection, finite bounded audio per preset), waveguide / noise-FX engine behavior |
-| 7 | `tests/unit/test_voiceoscillator.cpp` | Voice Oscillator Dispatch | `VoiceOscillator` variant dispatch, band-limited waveforms, pulse width modulation, pitch changes |
-| 8 | `tests/unit/test_control_surface_logic.cpp` | Tile UI Decision Logic | `ModeStabilizer` debouncing, `PadBank` voice-pair resolution, `ShiftLatch` latching, `FaderMap` deadband |
-| 9 | `tests/unit/test_alchemy_proto.cpp` | Alchemy Tile Wire Format | Per-tile-type button block offsets (slider DATA 8..10 vs button DATA 0..2), fader decode, SEQ/STATUS decode, frame checksum, identity validation, `TileButton` press/hold/tap |
+| 7 | `tests/unit/test_voice_transfer.cpp` | `Voice` control→audio handoff | `SpscQueue` FIFO ordering, no torn multiword payloads under concurrent transfers, queued gate edges reach samples (`[voice_transfer]`) |
+| 8 | `tests/unit/test_voiceoscillator.cpp` | Voice Oscillator Dispatch | `VoiceOscillator` variant dispatch, band-limited waveforms, pulse width modulation, pitch changes |
+| 9 | `tests/unit/test_control_surface_logic.cpp` | Tile UI Decision Logic | `ModeStabilizer` debouncing, `PadBank` voice-pair resolution, `ShiftLatch` latching, `FaderMap` deadband |
+| 10 | `tests/unit/test_alchemy_proto.cpp` | Alchemy Tile Wire Format | Per-tile-type button block offsets (slider DATA 8..10 vs button DATA 0..2), fader decode, SEQ/STATUS decode, frame checksum, identity validation, `TileButton` press/hold/tap |
 
 ---
 
@@ -129,8 +130,8 @@ ctest --test-dir build_test --output-on-failure
 # Run only sequencer tests
 ./build_test/tests/pico2seq_tests "[sequencer]"
 
-# Run only StepTickQueue handoff-ring tests
-./build_test/tests/pico2seq_tests "[steptick]"
+# Run only voice-transfer (SpscQueue control handoff) tests
+./build_test/tests/pico2seq_tests "[voice_transfer]"
 
 # Run only voice oscillator tests
 ./build_test/tests/pico2seq_tests "[voiceosc]"
@@ -181,7 +182,6 @@ When testing files that declare `extern` globals (e.g. `slideMode` or `MAX_DELAY
 
 | Target Module | Functionality to Cover |
 |---|---|
-| `src/voice/VoiceManager.cpp` | Multi-voice routing (`addVoice`, `processAllVoices`), global preset application |
 | `src/pico2seq-core/sequencer/Sequencer.cpp` | `advanceStep()` polyrhythmic step progression across independent tracks |
 | `src/voice/VoicePresets.cpp` | Boundary assertion that all preset parameter values stay within [0.0, 1.0] |
 | `src/rpdsp/` `Compressor` | Master mix gain reduction verification on high-amplitude audio streams |

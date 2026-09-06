@@ -283,10 +283,10 @@ void advanceSequencerStep(Sequencer &seq, uint8_t current_uclock_step, int mm_di
 // ISR context — stage only
 void onStepCallback(uint32_t uClockCurrentStep)
 {
-    uint8_t next = (uint8_t)((stepQueueHead + 1) & (STEP_QUEUE_LEN - 1));
-    if (next == stepQueueTail) { droppedStepCount++; return; }
-    stepQueue[stepQueueHead] = uClockCurrentStep;
-    stepQueueHead = next;
+    if (!stepQueue.tryPush(uClockCurrentStep))
+    {
+        droppedStepCount++; // loop() stalled longer than the queue
+    }
 }
 
 // Thread context — drained by processClockEvents() in loop()
@@ -315,7 +315,9 @@ void processSequencerStep(uint32_t uClockCurrentStep)
     {
         applyEncoderBaseValues(&tempStates[voiceIndex], voiceIndex);
     }
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
     applyEncoderDelayValues();
+#endif
 
     // 3. Update VoiceSystem and MIDI hardware
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++)

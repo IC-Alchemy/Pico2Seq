@@ -122,7 +122,7 @@ record into the armed step while a step is in Step Edit:
 |---|---|
 | 1 | Master tempo (uClock BPM, 45–200) |
 | 2 | Swing amount (continuous shuffle depth) |
-| 3 | Delay feedback mix (0 – 0.91) |
+| 3 | Delay feedback mix (0 – 0.91; inert while the delay effect is compiled out — see §4.1) |
 | 4 | Gate length across the selected voice's active steps |
 
 ### 1.4 Voice buttons (V1–V4)
@@ -135,7 +135,7 @@ Next to the faders: four buttons for **direct voice selection** in both modes.
   - **Shift + V1** — Play / Stop transport
   - **Shift + V2** — Randomize the selected voice
   - **Shift + V3** — Cycle musical scale
-  - **Shift + V4** — Toggle the delay effect on/off
+  - **Shift + V4** — Toggle the delay effect on/off (no-op while the delay is compiled out — see §4.1)
 
 ### 1.5 The 8-button function set & the mode switch
 
@@ -145,7 +145,7 @@ Eight buttons (ButtonModule8) change meaning with the **mode switch** on GPIO 7:
 | # | Param mode | Utility mode |
 |---|---|---|
 | 1 | Note | Play / Stop |
-| 2 | Velocity | Delay on/off |
+| 2 | Velocity | Delay on/off (no-op while the delay is compiled out) |
 | 3 | Filter | Scale cycle |
 | 4 | Attack | Swing pattern cycle |
 | 5 | Decay | LED theme cycle |
@@ -163,8 +163,8 @@ turn it slowly for ultra-fine single-step adjustments, quickly to sweep a whole 
 range. It edits whatever the **encoder target** is — cycle targets with the Utility-mode
 "Encoder target" button. The target order is:
 
-**Velocity → Filter → Attack → Decay → Note → Delay Time → Delay Feedback → Slide Time →
-(back to Velocity)**
+**Velocity → Filter → Attack → Decay → Note → Octave → Delay Time → Delay Feedback →
+Slide Time → (back to Velocity)**
 
 - Voice targets (Velocity/Filter/Attack/Decay/Note) act as offsets on the selected voice.
   Note: at step time these base offsets are applied to **all four voices** (per-voice
@@ -208,7 +208,8 @@ five-tier hierarchy:
 5. **Status screen** (default) — scale name, shuffle template name, selected voice (shown
    0-based as `Voice: 0`–`Voice: 3`), and a beat-synchronized playhead dot row.
 
-Transient confirmations (`DELAY ON`, `DELAY OFF`, `RANDOMIZED` + voice) also appear here,
+Transient confirmations (`RANDOMIZED` + voice — and `DELAY ON/OFF` only when the delay
+effect is compiled in, see §4.1) also appear here,
 as does the `ENC: <param> <value>` line while the encoder is active.
 
 ### 1.9 LED matrix (pad mirror)
@@ -261,8 +262,8 @@ pins were reassigned to the I2S audio output. "Gate" now means the internal gate
 7. **Try polymeter** — hold a parameter button (e.g. Filter) and tap pad 5: the Filter
    track is now 5 steps long and cycles against the 16-step Gate track.
 8. **Change key feel** — hold Shift and tap V3 to cycle through the 13 scales.
-9. **Groove** — flip the mode switch to **Utility**: fader 1 sets tempo, button 4 cycles
-   swing templates, button 2 toggles the delay.
+9. **Groove** — flip the mode switch to **Utility**: fader 1 sets tempo and button 4
+   cycles swing templates.
 10. **Stop/start** — Utility button 1, or Shift + V1 from anywhere. Stopping opens the
     OLED **preset browser** ("Sound Buffet"); starting again resumes and closes it. A
     long-press of Play toggles the browser without stopping the transport.
@@ -385,7 +386,8 @@ Each voice runs a full synthesis chain at 48 kHz on the audio core:
         v
  SOURCE STAGE (one of four engines, chosen by the preset)
    - Oscillator bank: up to 3 oscillators — band-limited B-spline saw/pulse,
-     sine, triangle, naive saw/square, or raw white noise; per-osc detune
+     band-limited hard-sync saw (master/slave pair), sine, triangle, naive
+     saw/square, or raw white noise; per-osc detune
      (semitones) and harmony (scale steps)
    - Waveguide: Karplus-Strong plucked string (T60 tail, brightness, pick
      position/hardness, stiffness, two-string detune)
@@ -413,12 +415,11 @@ Each voice runs a full synthesis chain at 48 kHz on the audio core:
  voice output level -> summed with the other 3 voices -> Stereo Out
 ```
 
-A **global delay effect** is on by default (boot time 667 ms, feedback 0.45); toggle it
-with Utility button 2 or Shift + V4, set its feedback with Utility fader 3 and its
-time/feedback with the encoder's Delay Time / Delay Feedback targets.
-(Currently compiled out: `PICO2SEQ_ENABLE_DELAY_EFFECT = 0` in `src/FeatureConfig.h`
-removes the effect and all of the controls above to reclaim ~338 KiB of RAM. Set the
-switch to 1 and rebuild to bring them back.)
+**No delay effect is compiled in** by default: `PICO2SEQ_ENABLE_DELAY_EFFECT = 0` in
+`src/FeatureConfig.h` removes the effect (a global delay line, boot parameters 667 ms /
+feedback 0.45) together with every control that drives it — Utility button 2, Shift + V4,
+Utility fader 3, and the encoder's Delay Time / Delay Feedback targets — reclaiming
+~338 KiB of RAM. Set the switch to 1 and rebuild to bring the whole feature back.
 
 Filter **mode** (LP24 … HP12) and **resonance** are cycled/set from the OLED Settings
 screen's voice-parameter page; envelope and overdrive can be switched off per voice there
@@ -429,9 +430,9 @@ only **Analog** and **Lead** still run the true ladder filter.
 
 | # | Preset | Character |
 |---|---|---|
-| 1 | **Analog** | Triple-saw classic subtractive synth through a warm 24 dB ladder filter |
-| 2 | **Digital** | Square + triangle hybrid (osc 2 up an octave), sharp 12 dB lowpass |
-| 3 | **Bass** | Deep sub-octave detuned sine/triangle bass |
+| 1 | **Analog** | Single band-limited hard-sync saw (master/slave pair) through a warm 24 dB ladder filter; sequencer Velocity re-purposed as slave pitch |
+| 2 | **Digital** | Dual band-limited square pair (near-unison detune), sharp 12 dB lowpass |
+| 3 | **Bass** | Sub-octave sine + triangle bass with subtle overdrive |
 | 4 | **Lead** | Dual-saw lead with a scale-harmony layer on the second oscillator |
 | 5 | **Square** | Narrow PWM pulse (20 % width) with resonant bite; no sustain |
 | 6 | **Pad** | Atmospheric 3-oscillator chord pad (harmonies 0/+4/+9), slow attack & release |
@@ -476,7 +477,7 @@ between the preset browser and the voice-parameter toggles.
 |---|---|---|
 | 1 | Filter cutoff (selected voice) | Tempo (45–200 BPM) |
 | 2 | Attack time | Swing amount |
-| 3 | Decay time | Delay feedback (0–0.91) |
+| 3 | Decay time | Delay feedback (0–0.91; inert while the delay is compiled out) |
 | 4 | Velocity | Gate length across active steps |
 
 With a step in Step Edit and the matching parameter button armed, moving a fader writes
@@ -496,7 +497,7 @@ the value into that step.
 | Button | Action |
 |---|---|
 | 1 Play / Stop | Start/stop the transport (and all 4 sequencers). Stopping opens the OLED Settings/preset browser; starting closes it. Long-press toggles Settings without stopping |
-| 2 Delay | Toggle the master delay; also sets the encoder target to Delay Time |
+| 2 Delay | Toggle the master delay (no-op while the delay is compiled out — see §4.1) |
 | 3 Scale | Cycle forward through the 13 scales |
 | 4 Swing | Cycle through the 16 shuffle templates |
 | 5 Theme | Cycle the 10 LED matrix color themes |
@@ -512,14 +513,14 @@ the value into that step.
 | Shift + V1 | Play / Stop |
 | Shift + V2 | Randomize selected voice (short-press behavior) |
 | Shift + V3 | Cycle scale |
-| Shift + V4 | Toggle delay |
+| Shift + V4 | Toggle delay (no-op while the delay is compiled out) |
 
 ### Sensors & encoder
 
 | Gesture | Result |
 |---|---|
 | Turn magnetic encoder | Adjust the active encoder target; slow = fine, fast = coarse (velocity-sensitive) |
-| Utility button 6 | Change encoder target (Velocity → Filter → Attack → Decay → Note → Delay Time → Delay Feedback → Slide Time) |
+| Utility button 6 | Change encoder target (Velocity → Filter → Attack → Decay → Note → Octave → Delay Time → Delay Feedback → Slide Time; the delay targets are inert while the delay is compiled out) |
 | Hold Utility button 6 | Gate Sequence Length mode |
 | Move hand over VL53L1X while a parameter is armed | Hands-free live recording of that parameter into the current step of the selected voice |
 | Mode switch (GPIO 7) | Select Param (LOW) or Utility (HIGH) button set; shows a banner on flip |
@@ -565,8 +566,9 @@ on Core 0 (the control core), so it never disturbs the audio synthesis on Core 1
 | Attack time | CC 73 | CC 77 |
 | Filter cutoff | CC 74 | CC 78 |
 
-- **MIDI clock out**: Pico2Seq acts as a **master clock**, sending realtime Clock (24
-  PPQN), Start and Stop messages from the uClock transport.
+- **No MIDI clock out**: uClock drives only the internal sequencer. No realtime
+  `Clock`, `Start`, or `Stop` bytes are transmitted over USB MIDI (removed 2026-09-06),
+  so Pico2Seq cannot sync external gear.
 - **MIDI in**: the USB MIDI read loop runs on Core 0. **[unverified: no user-facing MIDI-in
   feature (note/CC mapping into the sequencer) is documented; treat MIDI-in as
   infrastructure only.]**
@@ -597,9 +599,9 @@ external gear, use voices 1–2 over USB MIDI into a MIDI-to-CV/gate converter. 
   - Adafruit SH110X 2.1.15
   - Adafruit TinyUSB Library 3.7.7
   - FastLED 3.9.20
-  - uClock is **not** installed from the library manager — the firmware compiles a
-    vendored uClock 2.2.1 fork from `src/vendor/uClock/` (alarm-pool patch; 2.3.0 removed
-    `setOnSync24`, which this firmware uses)
+  - uClock **2.2.1 from the Arduino library manager** (stock `<uClock.h>`; its rp2040
+    backend runs the timer ISR on core 0 — the control core. Upstream 2.3.0 changed the
+    callback API; re-verify before upgrading.)
   - MIDI Library 5.0.2
 - Clone with `git clone --recurse-submodules` (`src/rpdsp/` and `src/VelocityEncoder/` are
   submodules).
@@ -642,8 +644,9 @@ cmake --build build_test --parallel
   full brightness can cause optical jitter.
 - **ToF recorded value stuck at one end** — the raw distance is normalized as
   `mm − 74`, so the nearest usable position (74 mm) maps to 0.
-- **Delay feedback runaway** — feedback is capped at 0.91; if things howl, tap Utility
-  button 2 (or Shift + V4) off and re-set fader 3.
+- **Delay feedback runaway** (only when the delay effect is compiled in) — feedback is
+  capped at 0.91; if things howl, tap Utility button 2 (or Shift + V4) off and re-set
+  fader 3.
 - **Fader "jumps" after a mode flip** — on the first sample after a mode change the fader
   re-sends its position, so the parameter snaps to where the fader physically is. Move the
   fader through its travel to re-take the parameter.
@@ -684,7 +687,7 @@ cmake --build build_test --parallel
 | **Param / Utility mode** | The GP7 mode switch's two button function sets on the 8-button tile |
 | **ParamId** | The nine automatable per-step parameters (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide) |
 | **Polymetric / polymeter** | Parameter tracks of different lengths cycling against each other on the same voice |
-| **PPQN** | Pulses per quarter note; the internal clock runs at 480 PPQN, MIDI clock out at 24 PPQN |
+| **PPQN** | Pulses per quarter note; the internal clock runs at 480 PPQN (no MIDI clock is transmitted) |
 | **Preset** | One of 15 factory voice configurations (§4.2) |
 | **Shuffle template** | One of 16 per-16th-note micro-timing groove tables |
 | **Slide** | Per-step portamento flag: no envelope retrigger, pitch glides over the Slide Time |

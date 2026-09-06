@@ -134,13 +134,13 @@
   <section id="stage">
     <svg id="panel" viewBox="0 0 1200 560" xmlns="http://www.w3.org/2000/svg"></svg>
     <div class="flow" id="flow">
-      <div class="fnode" id="fn-sens"><b>SENSORS · CORE 1</b>MPR121 pads · TMAG5273 dial · VL53L1X ToF · tiles</div>
+      <div class="fnode" id="fn-sens"><b>SENSORS · CORE 0</b>MPR121 pads · TMAG5273 dial · VL53L1X ToF · tiles</div>
       <span class="farrow">→</span>
-      <div class="fnode" id="fn-core1"><b>CORE 1 · UI + SEQ</b>UIState · 4× Sequencer · uClock 16ths</div>
+      <div class="fnode" id="fn-core1"><b>CORE 0 · UI + SEQ</b>UIState · 4× Sequencer · uClock 16ths</div>
       <span class="farrow">→</span>
       <div class="fnode" id="fn-vs"><b>VOICESYSTEM</b>gates · preset + param staging</div>
       <span class="farrow">→</span>
-      <div class="fnode core0" id="fn-core0"><b>CORE 0 · AUDIO</b>4× osc → ladder/SVF main filter → ADSR → drive</div>
+      <div class="fnode core0" id="fn-core0"><b>CORE 1 · AUDIO</b>4× osc → ladder/SVF main filter → ADSR → drive</div>
       <span class="farrow">→</span>
       <div class="fnode core0" id="fn-i2s"><b>I2S OUT</b>48 kHz stereo</div>
     </div>
@@ -287,7 +287,7 @@ const INFO={
  gate:{t:'Gate Input jack',s:'panel legend',b:
   `<p>Labeled jack on the wooden panel. <span class="uv">Unverified:</span> no gate-input / external-clock code exists in the current firmware (the old GPIO gate outputs were removed 2026-09-01 when gates moved to the PIO I2S stream). Present on the panel; treated as non-functional in firmware.</p>`},
  out:{t:'Stereo Out — I2S 48 kHz',s:'docs/sensors.md · src/audio',b:
-  `<p>Stereo I2S output on GP10 (BCLK) / GP11 (LRCK) / GP12 (DATA), filled by Core 0's <span style="font-family:var(--mono)">fill_audio_buffer()</span>. A global delay exists in the codebase (boot: 667 ms, feedback 0.45, cap 0.91) but its processing call is currently commented out of the audio path — DLY toggles the OLED/LED state only, no delay is audible.</p>`},
+  `<p>Stereo I2S output on GP10 (BCLK) / GP11 (LRCK) / GP12 (DATA), filled by Core 1's <span style="font-family:var(--mono)">fill_audio_buffer()</span>. The global delay (boot: 667 ms, feedback 0.45, cap 0.91) is compiled out by <span style="font-family:var(--mono)">PICO2SEQ_ENABLE_DELAY_EFFECT = 0</span> (<span style="font-family:var(--mono)">src/FeatureConfig.h</span>) — the DLY control ships disabled.</p>`},
  param:{t:'Parameter buttons',s:'UIState · ShiftLatch',b:
   `<p>Hold (or Shift-latch) a parameter, then the pads/OLED become its editor; each ParamId is its own polymetric track with an independent step count. Waveguide presets re-purpose the Filter/Attack/Decay slots (e.g. Bright/Pick/T60) and the OLED follows the re-purposed names.</p>`},
  play:{t:'PLAY / Stop',s:'UIState · docs/oled.md',b:

@@ -74,6 +74,7 @@ struct VoiceConfig {
 
     // Sound engine selection (VoiceEngine). Ignored fields stay at their defaults.
     uint8_t engine = ENGINE_OSC;                                            // ENGINE_OSC, ENGINE_WAVEGUIDE, ENGINE_NOISEFX, or ENGINE_HYPERSAW
+    uint8_t paramSet = PARAMSET_STANDARD;                                   // Sequencer-slot re-purposing (STANDARD/WAVEGUIDE/HYPERSAW/NOISESTORM/HARDSYNC)
 
     // Waveguide engine parameters (ENGINE_WAVEGUIDE only)
     float wgT60 = 2.5f;                                                     // String tail T60 in seconds (0.05-10.0)
@@ -103,6 +104,7 @@ struct VoiceConfig {
     float filterDrive = 1.8f;                                               // Ladder drive amount (0.0-4.0; SVF ignores)
     float filterPassbandGain = 0.23f;                                       // Ladder passband gain compensation (0.0-0.5; SVF ignores)
     VoiceFilterMode filterMode = VoiceFilterMode::LP24;                     // Filter mode (LP24, LP12, BP24, BP12, HP24, HP12)
+    float filterCutoffBase = 0.37f;                                         // Normalized static cutoff used when paramSet re-purposes the Filter slot
 
     // High-pass filter settings
     float highPassFreq = 80.0f;                                             // High-pass cutoff frequency in Hz (20.0-20000.0)
@@ -111,6 +113,7 @@ struct VoiceConfig {
     // Effects chain configuration
     bool hasOverdrive = false;                                              // Enable overdrive effect
     bool hasEnvelope = true;                                                // Enable envelope (recommended: true)
+    bool hasFilter = true;                                                  // Enable the main filter (false = bypass, velocity scales output)
     float overdriveGain = 0.34f;                                            // Overdrive output gain (0.0-2.0)
     float overdriveDrive = 0.25f;                                           // Overdrive drive amount (0.0-1.0)
 
@@ -118,7 +121,7 @@ struct VoiceConfig {
     float defaultAttack = 0.04f;                                            // Default attack time in seconds (0.001-10.0)
     float defaultDecay = 0.14f;                                             // Default decay time in seconds (0.001-10.0)
     float defaultSustain = 0.5f;                                            // Default sustain level (0.0-1.0)
-    float defaultRelease = 0.1f;                                            // Default release time in seconds (0.001-10.0)
+    float defaultRelease = 0.2f;                                            // Default release time in seconds (0.001-10.0)
 
     // Voice mixing
     float outputLevel = 0.6f;                                               // Voice output level (0.0-1.0)
@@ -163,7 +166,8 @@ public:
     // Real-time audio processing (runs on Core 1 @ 48kHz)
     float process() noexcept;
 
-    // Parameter updates (called on Core 0 control thread — uClock ISR or live recording)
+    // Parameter updates (called on the Core 0 control thread — uClock step drain
+    // in processClockEvents(), or live recording)
     void updateParameters(const VoiceState& newState);
 
     // Sequencer integration
@@ -211,8 +215,8 @@ Defined in `src/pico2seq-core/sequencer/SequencerDefs.h`:
 
 ```cpp
 struct VoiceState {
-    float noteIndex = 0.0f;                                                   // Scale step index (0-47)
-    float velocityLevel = 0.8f;                                               // Voice amplitude (0.0-1.0)
+    float noteIndex = 0.0f;                                                   // Scale step index (0-21)
+    float velocityLevel = 0.5f;                                               // Voice amplitude (0.0-1.0); hard-sync presets use this centered value as zero slave-frequency offset
     float filterCutoff = 0.37f;                                               // Filter cutoff frequency (0.0-1.0 normalized)
     float attackTimeSeconds = 0.01f;                                          // Envelope attack time (0.0-1.0s)
     float decayTimeSeconds = 0.01f;                                           // Envelope decay time (0.0-1.0s)
@@ -237,6 +241,7 @@ inline constexpr uint8_t WAVE_SAW = 2;
 inline constexpr uint8_t WAVE_SQUARE = 3;
 inline constexpr uint8_t WAVE_BSP_SAW = 4;     // Band-limited 2nd-order B-spline saw
 inline constexpr uint8_t WAVE_BSP_SQUARE = 5;  // Band-limited 2nd-order B-spline pulse (with PWM)
+inline constexpr uint8_t WAVE_HARDSYNC_SAW = 6; // Band-limited master/slave hard-sync saw
 inline constexpr uint8_t WAVE_NOISE = 255;    // White noise generator marker
 
 class VoiceOscillator {
@@ -256,6 +261,7 @@ private:
         rpdsp::TriangleOscillator,
         rpdsp::SawOsc,
         rpdsp::SquareOsc,
+        rpdsp::HardSyncSaw,
         rpdsp::NoiseOscillator
     >;
     // ...
@@ -346,9 +352,9 @@ Each preset is built by a `constexpr VoiceConfig makeXxx() noexcept` factory fun
 
 | # | Preset Name | Engine | Oscillators | Amplitudes | Detune (Semis) | Harmony | Filter Mode | Filter Settings | Overdrive | Envelope (A/D/S/R) | Output Level |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| **0** | **Analog** | osc | 1x `WAVE_HARDSYNC_SAW` | `[1.0]` | `[0.0]` | `[0]` | **LP24** (ladder) | Res: 0.33, Drive: 2.1, Passband: 0.23, HPF: 120 Hz | Off (Gain: 0.8, Drive: 0.25) | `0.07s / 0.24s / 0.5 / 0.1s` | `0.5` |
-| **1** | **Digital** | osc | 2x (`WAVE_BSP_SQUARE`, `WAVE_TRI`) | `[0.75, 1.0]` | `[0.0, +12.0]` | `[0, 0]` | **LP12** (SVF) | Res: 0.40, SVF low-pass, HPF: 111 Hz (Res: 0.15) | Off (Gain: 0.7, Drive: 0.51) | `0.015s / 0.1s / 0.5 / 0.1s` | `0.5` |
-| **2** | **Bass** | osc | 2x (`WAVE_SIN`, `WAVE_TRI`) | `[1.0, 1.0]` | `[-12.0, -12.0]` | `[0, 0]` | **LP12** (SVF) | Res: 0.45, SVF low-pass, HPF: 45 Hz (Res: 0.4) | Off (Gain: 0.95, Drive: 0.16) | `0.01s / 0.3s / 0.55 / 0.2s` | `0.95` |
+| **0** | **Analog** | osc | 1x `WAVE_HARDSYNC_SAW` | `[1.0]` | `[0.0]` | `[0]` | **LP24** (ladder) | Res: 0.33, Drive: 2.1, Passband: 0.23, HPF: 120 Hz | Off (Gain: 0.8, Drive: 0.25) | `0.07s / 0.24s / 0.5 / 0.16s` | `0.5` |
+| **1** | **Digital** | osc | 2x `WAVE_BSP_SQUARE` | `[0.75, 0.65]` | `[0.0, +0.01]` | `[0, 0]` | **LP12** (SVF) | Res: 0.40, SVF low-pass, HPF: 111 Hz (Res: 0.15) | Off (Gain: 0.7, Drive: 0.51) | `0.015s / 0.1s / 0.5 / 0.15s` | `0.5` |
+| **2** | **Bass** | osc | 2x (`WAVE_SIN`, `WAVE_TRI`) | `[1.0, 1.0]` | `[-12.0, 0.0]` | `[0, 0]` | **LP12** (SVF) | Res: 0.45, SVF low-pass, HPF: 45 Hz (Res: 0.4) | On (Gain: 0.95, Drive: 0.16) | `0.01s / 0.3s / 0.85 / 0.2s` | `0.85` |
 | **3** | **Lead** | osc | 2x `WAVE_BSP_SAW` | `[0.6, 0.4]` | `[0.0, 0.0]` | `[0, 3]` | **LP12** (ladder) | Res: 0.40, Drive: 3.0, Passband: 0.23, HPF: 160 Hz | Off (Gain: 0.7, Drive: 0.45) | `0.02s / 0.2s / 0.5 / 0.15s` | `0.5` |
 | **4** | **Square** | osc | 1x `WAVE_BSP_SQUARE` (PW: 0.2) | `[1.0]` | `[0.0]` | `[0]` | **BP24** (SVF) | Res: 0.60, SVF band-pass, HPF: 150 Hz | Off (Gain: 0.75, Drive: 0.35) | `0.02s / 0.4s / 0.0 / 0.25s` | `0.56` |
 | **5** | **Pad** | osc | 3x `WAVE_BSP_SAW` | `[0.33, 0.33, 0.33]` | `[0.0, 0.0, 0.0]` | `[0, +4, +9]` | **LP12** (SVF) | Res: 0.30, SVF low-pass, HPF: 140 Hz (Res: 0.08) | Off (Gain: 0.85, Drive: 0.25) | `0.02s / 0.2s / 0.5 / 0.5s` | `0.5` |
@@ -407,8 +413,8 @@ re-purposed tracks with the preset's values (`seedRepurposedParamTracks()` in
 | Param set | Presets | Note / Velocity slots | Filter slot | Attack slot | Decay slot |
 |---|---|---|---|---|---|
 | HARDSYNC | 0 | Master pitch / Slave offset (-24..+24 st; 0.5 = follow master) | Cutoff | Attack | Decay |
-| STANDARD | 1–8 | Note / velocity | Cutoff (150 Hz–8 kHz, EXP) | Attack (0.002–0.75 s) | Decay (0.002–0.8 s, LOG) |
-| WAVEGUIDE | 9–12 | Note / velocity | Brightness (0–1) | Pick hardness (0–1) | T60 (0.05–10 s, EXP; `wgT60ToNormalized` seeds tracks) |
+| STANDARD | 1–8 | Note / velocity | Cutoff (120 Hz–5 kHz, EXP) | Attack (0.002–0.75 s) | Decay (0.01–0.5 s, LOG) |
+| WAVEGUIDE | 9–12 | Note / velocity | Brightness (0–1) | Pick hardness (0–1) | T60 (0.05–7 s at runtime, EXP; `wgT60ToNormalized` seeding assumes a 0.05–10 s curve) |
 | HYPERSAW | 13 | Note / velocity | Cutoff (live) | Native seven-voice detune (0–1) | Native center/side mix (0–1) |
 | NOISESTORM | 14 | Note / velocity | Swarm color | Swarm regen | Chaos level (the SVF keeps the preset's static `filterCutoffBase`) |
 
@@ -455,7 +461,7 @@ Each call to `Voice::process()` on Core 1 executes the following stages:
 │    - Throttled filter.setFreq() update every 8 samples (relative eps > 0.2%)    │
 │                                                                                 │
 │ 4. Source Stage & Slide Slew (mixOscillators)                                   │
-│    - Silence short-circuit: If E <= 0.0005, return 0.0 immediately              │
+│    - Silence short-circuit: If E <= 0.001 (and the envelope is enabled), return 0.0 immediately              │
 │    - engine == ENGINE_WAVEGUIDE: pluck on gate rise; S_osc = waveguide_.process │
 │    - engine == ENGINE_HYPERSAW: S_osc = one native seven-voice Hypersaw         │
 │    - engine == ENGINE_NOISEFX: S_osc = noise + chaos_lorenz (fx inserts at 5)   │
@@ -472,8 +478,8 @@ Each call to `Voice::process()` on Core 1 executes the following stages:
 │ 6. Main Filter & High-Pass Filtering                                            │
 │    - Ladder or SVF per filterType; SVF reads lowpass/bandpass/highpass          │
 │      out per filterMode (response cached in svfOutputSel_)                      │
-│    - S_filt = filter.process(S_vca * velocityLevel)                             │
-│    - S_hpf = highPassFilter.process(S_filt).highpass (or bypassed if <= 20Hz)   │
+│    - S_filt = filter.process(S_vca * velocityLevel) — fixed at 1.0 for HARDSYNC presets                             │
+│    - S_hpf = highPassFilter.process(S_filt).highpass (or bypassed if <= 20 Hz (and resonance <= 0.01))   │
 │                                                                                 │
 │ 7. Output Scaling                                                               │
 │    - S_out = S_hpf * outputLevel                                                │

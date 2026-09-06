@@ -8,6 +8,7 @@
 
 #include "src/voice/Voice.h"
 #include "src/utils/Debug.h"
+#include "src/utils/SpscQueue.h"
 #include "src/utils/FreezeWatchdog.h"
 #include "src/pico2seq-core/scales/scales.h"
 #include "src/voice/VoicePresets.h"
@@ -137,11 +138,8 @@ uint32_t ppqnTicksPending = 0;
 // events here; loop() drains them in thread context (processClockEvents), so
 // USB MIDI traffic, sequencer advances and note lifecycle work stay
 // single-context and TinyUSB's MIDI endpoint keeps exactly one producer.
-constexpr uint8_t STEP_QUEUE_LEN = 16; // power of two, modulo-indexed
-volatile uint32_t stepQueue[STEP_QUEUE_LEN];
-volatile uint8_t stepQueueHead = 0; // written by the ISR only
-volatile uint8_t stepQueueTail = 0; // written by loop() only
-volatile uint32_t sync24TicksPending = 0;
+// 16-entry SPSC ring (src/utils/SpscQueue.h); a full queue drops the new step.
+SpscQueue<uint32_t, 16> stepQueue;
 volatile uint32_t droppedStepCount = 0; // loop() stalled longer than the queue
 
 // =======================
@@ -163,14 +161,10 @@ float delayTimeSmoothing(float currentDelay, float targetDelay, float slewRate)
 #endif // PICO2SEQ_ENABLE_DELAY_EFFECT
 
 // --- Clock Callbacks ---
-// onSync24Callback / onStepCallback / onOutputPPQNCallback run in the uClock
-// timer alarm ISR: stage events only, no work.
+// onStepCallback / onOutputPPQNCallback run in the uClock timer alarm ISR:
+// stage events only, no work.
 // onClockStart / onClockStop run in thread context (uClock.start()/stop() are
 // called from setup()/UI handlers; uClock is master, no external clock input).
-void onSync24Callback(uint32_t tick)
-{
-    sync24TicksPending++;
-}
 void muteOscillators()
 {
 }
@@ -181,7 +175,6 @@ void unmuteOscillators()
 void onClockStart()
 {
     // Serial.println("[uClock] onClockStart()");
-    usb_midi.sendRealTime(midi::Start);
     // Start all four sequencers so  LEDs and audio advance for 3/4 as well
     seq1.start();
     seq2.start();
@@ -192,7 +185,6 @@ void onClockStart()
 
 void onClockStop()
 {
-    usb_midi.sendRealTime(midi::Stop);
     // Stop all four sequencers
     seq1.stop();
     seq2.stop();
@@ -605,14 +597,10 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
 //  thread-context processing in processClockEvents().
 void onStepCallback(uint32_t uClockCurrentStep)
 {
-    uint8_t next = (uint8_t)((stepQueueHead + 1) & (STEP_QUEUE_LEN - 1));
-    if (next == stepQueueTail)
+    if (!stepQueue.tryPush(uClockCurrentStep))
     {
-        droppedStepCount++;
-        return;
+        droppedStepCount++; // loop() stalled longer than the queue
     }
-    stepQueue[stepQueueHead] = uClockCurrentStep;
-    stepQueueHead = next;
 }
 
 //  The full 16th-note step work, drained from the ISR queue by
@@ -674,17 +662,10 @@ void processSequencerStep(uint32_t uClockCurrentStep)
 //  ahead of the slow I2C/display slices so step latency stays low.
 void processClockEvents()
 {
-    while (stepQueueTail != stepQueueHead)
+    uint32_t step = 0;
+    while (stepQueue.tryPop(step))
     {
-        uint32_t step = stepQueue[stepQueueTail];
-        stepQueueTail = (uint8_t)((stepQueueTail + 1) & (STEP_QUEUE_LEN - 1));
         processSequencerStep(step);
-    }
-
-    while (sync24TicksPending > 0)
-    {
-        sync24TicksPending--;
-        usb_midi.sendRealTime(midi::Clock);
     }
 }
 
@@ -733,6 +714,19 @@ void fill_audio_buffer(audio_buffer_t *buffer)
     int N = buffer->max_sample_count;
     int16_t *out = reinterpret_cast<int16_t *>(buffer->buffer->bytes);
     float finalVoiceOutput;
+
+    if (!voiceManager)
+    {
+        // Boot race: core 1 starts filling buffers before setup() (core 0)
+        // reaches initOscillators(). Stay silent until the voices exist.
+        for (int i = 0; i < N; ++i)
+        {
+            out[2 * i + 0] = 0;
+            out[2 * i + 1] = 0;
+        }
+        buffer->sample_count = N;
+        return;
+    }
 
 #if PICO2SEQ_ENABLE_DELAY_EFFECT
     // Determine target gains based on delay state
@@ -974,10 +968,8 @@ void setup()
         Sequencer* seqs[] = { &seq1, &seq2, &seq3, &seq4 };
         matrixEventHandler(evt, uiState, seqs, 4, midiNoteManager); });
 
-    // Initialize audio synthesis system
     freezeWatchdogFeed(FW_SETUP_UCLOCK);
     uClock.init();
-    uClock.setOnSync24(onSync24Callback);
     uClock.setOnClockStart(onClockStart);
     uClock.setOnClockStop(onClockStop);
     uClock.setOutputPPQN(uClock.PPQN_480);

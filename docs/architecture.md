@@ -101,17 +101,19 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
 ### 2.2 Core 0: System Control, UI, Sensors, MIDI & Clock
 - **Execution**: Runs Arduino `setup()` and `loop()`.
 - **Clock Engine (`uClock`)**:
-  - Library: the stock `<uClock.h>` (2.x). There is no vendored fork anymore — an earlier
-    alarm-pool patch (fork bound to core 1) was reverted; instead the cores were swapped so
-    the ISR's home core (0) is the control core.
+  - Library: the stock `<uClock.h>` (2.2.1 installed from the library manager; upstream
+    2.3.0 changed the callback API — re-verify before upgrading). An earlier alarm-pool
+    fork (bound to core 1) was removed 2026-09-06: with the control plane on core 0, the
+    stock default alarm pool already puts the ISR where it belongs.
   - Default tempo: 90 BPM; resolution: 480 PPQN (`PPQN_480`); shuffle on via
     `uClock.setShuffle(true)` using templates from `ShuffleTemplates.h`.
   - Initialized in `setup()` on Core 0, so the timer ISR fires on Core 0.
   - ISR-context callbacks stage events only — no work (2026-09-05 deferral refactor):
     `onStepCallback` enqueues the 16th-note step number into a 16-deep SPSC ring
-    (`stepQueue`, ISR writes head / `loop()` reads tail; overflow counts into
-    `droppedStepCount`); `onSync24Callback` increments `sync24TicksPending`;
-    `onOutputPPQNCallback` increments `ppqnTicksPending`.
+    `stepQueue`, a `SpscQueue<uint32_t, 16>` from `src/utils/`; a full ring drops the
+    new step and counts into `droppedStepCount`); `onOutputPPQNCallback` increments
+    `ppqnTicksPending`. The firmware sends **no MIDI realtime clock output** — no Clock,
+    Start, or Stop bytes go out over USB MIDI.
   - Thread-context callbacks: `onClockStart` / `onClockStop` keep their full bodies
     inline — `uClock.start()/stop()` are called from `setup()`/UI handlers (thread),
     never the ISR (uClock is master, no external clock input), so nothing there
@@ -120,8 +122,7 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
   - `processClockEvents()` runs first in the timing section: dequeues steps into
     `processSequencerStep()` (the full 16th-note work — advances all four sequencers,
     routes sensor values, pushes `VoiceState`s into `voiceSystem`, stages voice
-    parameters, sends gate/MIDI note events), then sends queued USB MIDI Clock
-    messages (`sync24TicksPending`).
+    parameters, sends gate/MIDI note events).
   - With this, all `usb_midi.send*` traffic lives in thread context: TinyUSB's MIDI
     endpoint has exactly one producer, closing the old ISR-vs-`tud_task` packet-drop
     and FIFO-race sharp edge.
@@ -132,7 +133,7 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
 - **PPQN Drain Loop** (in `loop()`, same core as the ISR):
   - Drains `ppqnTicksPending`.
   - Advances `midiNoteManager.updateTiming(globalTickCounter)`.
-  - Advances sequencer note durations (`seq1..seq4.tickNoteDuration()`).
+  - Advances sequencer note durations (`seq1/seq2.tickNoteDuration()`).
   - Ticks gate countdown timers (`voiceSystem.tickAllGateTimers()`).
 - **1ms Sensor and Control Loop**:
   - `Matrix_scan()`: Scans MPR121 32 capacitive touch step pads over I2C0 (Wire: GP4/GP5 @ 0x5A).

@@ -11,7 +11,7 @@
 #include "UIState.h"
 #include "../FeatureConfig.h"
 
-#include "../vendor/uClock/uClock.h" // vendored fork — never <uClock.h>, see src/vendor/uClock/README.md
+#include <uClock.h>
 
 // External flags and helpers used by UI
 extern bool isClockRunning;

@@ -13,7 +13,7 @@
 #include "ControlSurfaceLogic.h"
 #include "UIConstants.h"
 #include "../FeatureConfig.h"
-#include "../vendor/uClock/uClock.h" // vendored fork — never <uClock.h>, see src/vendor/uClock/README.md
+#include <uClock.h>
 
 // =======================
 //   UI EVENT CONSTANTS

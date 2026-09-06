@@ -65,6 +65,8 @@ constexpr uint8_t PIN_ALCHEMY_MODE_SWITCH = 7;
 #include <Wire.h>
 #include <cmath>
 #include <cstdint>
-// Vendored uClock fork (alarm-pool patch, core-1 ISR) — never <uClock.h>, see
-// src/vendor/uClock/README.md.
-#include "src/vendor/uClock/uClock.h"
+// Stock uClock from the library manager (installed: 2.2.1; upstream 2.3.0
+// changed the callback API — re-verify before upgrading). Its rp2040 backend
+// runs the tick timer in the SDK default alarm pool, so the uClock ISR always
+// fires on core 0 — the control core.
+#include <uClock.h>

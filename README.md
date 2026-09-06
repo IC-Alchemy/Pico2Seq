@@ -67,7 +67,6 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 │   ├── LEDMatrix/            # 8×4 WS2812B RGB visual feedback (pad-mirror) and 10 color themes
 │   ├── OLED/                 # 128×64 SH1106G OLED display manager and priority screens
 │   ├── utils/                # Debug logging utilities (Debug.h/.cpp)
-│   ├── vendor/               # Vendored uClock 2.2.1 fork (core-1 alarm-pool patch)
 │   └── AlchemyUI/            # Vendored Alchemy Modular UI tile library (tracked in-repo)
 ├── docs/                     # Comprehensive architecture and subsystem documentation
 ├── tests/                    # Host-side Catch2 v3.5.2 unit test suite and stubs
@@ -101,12 +100,11 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
   - `Adafruit SH110X` 2.1.15
   - `Adafruit TinyUSB Library` 3.7.7
   - `FastLED` 3.9.20
+  - `uClock` 2.2.1 (stock library-manager install; the rp2040 backend runs the
+    uClock timer in the SDK default alarm pool, so the ISR fires on core 0 — the
+    control core. Upstream 2.3.0 changed the callback API; re-verify before
+    upgrading.)
   - `MIDI Library` 5.0.2
-
-  uClock is **not** installed from the library manager: the firmware compiles a
-  vendored uClock 2.2.1 fork from `src/vendor/uClock/` (alarm-pool patch; the
-  stock library must not be installed or the link fails with duplicate
-  definitions — see `includes.h`).
 
 ### Installation & Flashing
 
@@ -263,14 +261,14 @@ Pico2Seq leverages the dual ARM Cortex-M33 cores of the RP2350:
 | • Alchemy tile panel polling (I2C1)|    | • 4-voice synthesis chain          |
 | • 50Hz OLED & WS2812B LED updates  |    | • FloatToPcm16() with __SSAT       |
 | • uClock sequencer step ticking    |    | • Non-blocking I2S DMA @ 48kHz     |
-| • USB MIDI I/O & Realtime Clock    |    |                                    |
+| • USB MIDI I/O (notes & CC)         |    |                                    |
 +------------------------------------+    +------------------------------------+
                    \                                /
                     +---[ Lock-Free Staging State ]-+
 ```
 
 - **Core 1 (Audio Thread):** Strict real-time constraints. Never allocates heap memory, never performs blocking I2C transactions, and never touches USB endpoints.
-- **Core 0 (System & Control):** Scans inputs, updates state machines, coordinates MIDI note/CC/clock transmission, and renders visual feedback. Also hosts the uClock timer ISR (the stock library's alarm always fires on core 0), which is why audio lives on core 1.
+- **Core 0 (System & Control):** Scans inputs, updates state machines, coordinates MIDI note/CC output, and renders visual feedback. Also hosts the uClock timer ISR (the stock library's alarm always fires on core 0), which is why audio lives on core 1.
 
 ---
 
