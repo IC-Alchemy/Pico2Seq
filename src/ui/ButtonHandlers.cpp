@@ -11,7 +11,7 @@
 #include "UIState.h"
 #include "../FeatureConfig.h"
 
-#include <uClock.h>
+#include "../vendor/uClock/uClock.h" // vendored fork — never <uClock.h>, see src/vendor/uClock/README.md
 
 // External flags and helpers used by UI
 extern bool isClockRunning;
@@ -108,7 +108,7 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)
 
   uint8_t currentVoiceId = voiceSystem.getVoiceId(voiceIndex);
 
-  VoiceConfig *liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
+  const VoiceConfig *liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
   if (!liveCfg)
     return;
   // Work on a local copy to avoid mutating live config from UI thread

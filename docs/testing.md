@@ -188,11 +188,11 @@ jobs:
 ## Key Testing Pitfalls & Gotchas
 
 ### 1. Staged Parameter Updates in `Voice`
-`Voice::updateParameters()` does not immediately overwrite active synthesis state; changes are staged into `stagedState_` and committed during the next `Voice::process()` execution. In unit tests, always invoke `process()` before asserting against `getState()`:
+`Voice::updateParameters()` does not immediately overwrite active synthesis state; changes enter a bounded queue, and each `Voice::process()` consumes at most one update. If several setters run first, render enough samples to consume them in order. Setters before `init()` establish initial state. In unit tests, always invoke `process()` before asserting against `getState()`:
 
 ```cpp
 voice.updateParameters(voiceState);
-voice.process();  // Commits stagedState_ -> state_
+voice.process();  // Consumes one queued update into audio-owned state
 REQUIRE(voice.getState().velocityLevel == 0.5f);
 ```
 
@@ -226,3 +226,13 @@ When testing files that declare `extern` globals (e.g. `slideMode` or `MAX_DELAY
 - [`docs/voice.md`](voice.md) — Voice synthesis and DSP chain documentation
 - [`docs/sequencer.md`](sequencer.md) — Sequencer engine and polymetric parameter tracks
 - [`docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`](superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md) — ControlSurfaceLogic design specification
+
+### Voice ownership regression suite
+
+Build `pico2seq_voice_tests` and run `build_test/tests/pico2seq_voice_tests`
+(`.exe` on Windows). This focused target includes voice/oscillator tests,
+VoiceManager integration, queue wrap/full cases, gate ordering, and concurrent
+producer/consumer stress. Use `[voice_transfer]` for ownership tests only.
+The full `pico2seq_tests` target includes these tests and the DSP recipe suite;
+a passing focused target does not imply the full suite builds. Hardware audio
+timing and listening remain bench checks.

@@ -6,6 +6,7 @@
 #include <vector>
 #include <memory>
 #include <functional>
+#include <string>
 
 /**
  * VoiceManager - Manages multiple voices for polyphonic/multitimbral synthesis
@@ -38,11 +39,12 @@ public:
     // Voice Configuration
     bool setVoiceConfig(uint8_t voiceId, const VoiceConfig &config);
     bool setVoicePreset(uint8_t voiceId, const std::string &presetName);
-    VoiceConfig *getVoiceConfig(uint8_t voiceId);
+    const VoiceConfig *getVoiceConfig(uint8_t voiceId);
 
     // Voice State Management
     bool updateVoiceState(uint8_t voiceId, const VoiceState &state);
-    VoiceState *getVoiceState(uint8_t voiceId);
+    const VoiceState *getVoiceState(uint8_t voiceId);
+    void flushControlUpdates(); // control thread, every loop including idle passes
 
     // Sequencer Management
     bool attachSequencer(uint8_t voiceId, std::unique_ptr<Sequencer> sequencer);
@@ -77,8 +79,8 @@ public:
     static VoiceConfig getPresetConfig(const std::string &presetName);
 
     // Global Voice Parameters
-    void setGlobalVolume(float volume) { globalVolume = volume; }
-    float getGlobalVolume() const { return globalVolume; }
+    void setGlobalVolume(float volume) { globalVolume.store(volume, std::memory_order_relaxed); }
+    float getGlobalVolume() const { return globalVolume.load(std::memory_order_relaxed); }
 
     void setVoiceMix(uint8_t voiceId, float mix);
     float getVoiceMix(uint8_t voiceId) const;
@@ -97,8 +99,8 @@ private:
     {
         std::unique_ptr<Voice> voice;
         uint8_t id;
-        bool enabled;
-        float mixLevel;
+        bool enabled; // control-thread status; Voice queues the audio enable state
+        std::atomic<float> mixLevel;
         uint8_t outputChannel;
 
         ManagedVoice(std::unique_ptr<Voice> v, uint8_t voiceId)
@@ -109,7 +111,8 @@ private:
     uint8_t maxVoiceCount;
     uint8_t nextVoiceId;
     float sampleRate;
-    float globalVolume;
+    std::atomic<float> globalVolume;
+    static_assert(std::atomic<float>::is_always_lock_free, "Mixer gains must be lock-free");
 
     // Dynamics processing (configured but currently bypassed in the mix path;
     // see processAllVoices())

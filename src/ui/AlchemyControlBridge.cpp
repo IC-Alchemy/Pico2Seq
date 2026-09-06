@@ -12,7 +12,7 @@
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../pico2seq-core/sequencer/ShuffleTemplates.h"
 
-#include <uClock.h>
+#include "../vendor/uClock/uClock.h" // vendored fork — never <uClock.h>, see src/vendor/uClock/README.md
 
 // Globals from the main sketch the bridge feeds (same externs the matrix
 // handlers used).

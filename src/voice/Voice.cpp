@@ -124,10 +124,28 @@ Voice::Voice(uint8_t id, const VoiceConfig &cfg)
   state.isGateHigh = false;
   state.hasSlide = false;
   state.shouldRetrigger = false;
+  controls_.config = cfg;
+  controls_.state = state;
 }
 
 void Voice::init(float sr)
 {
+  // Setup only: neither core may access this Voice concurrently with init().
+  // Fold any pre-init setters into the initial state without running DSP early.
+  ControlUpdate unused;
+  while (controlQueue_.tryPop(unused)) {}
+  controls_.scaleIndex = currentScalePtr_ ? *currentScalePtr_ : 0;
+  controls_.changes = 0;
+  config = controls_.config;
+  state = controls_.state;
+  gate = state.isGateHigh;
+  scaleTable = controls_.scaleTable;
+  scaleTableCount = controls_.scaleCount;
+  audioScaleIndex_ = controls_.scaleIndex;
+  slideTimeSeconds = controls_.slideSeconds;
+  pitchBendSemitones_ = controls_.bendSemitones;
+  pitchModSemitones_ = controls_.modulationSemitones;
+  filterFrequency = controls_.filterHz;
   sampleRate = sr;
   // Changing sample rate can affect tuning in downstream modules; ensure base frequency recompute
   baseFreqDirty_ = true;
@@ -207,39 +225,115 @@ void Voice::init(float sr)
 
 void Voice::setConfig(const VoiceConfig &cfg)
 {
-  // Control-thread: stage config and apply on audio thread to avoid races
-  stagedConfig_ = cfg;
-  configPending_.store(true, std::memory_order_release);
+  controls_.config = cfg;
+  controls_.changes |= ConfigChanged;
+  flushControlUpdates();
 }
 
-// Injected scale-data setters (defined out-of-line)
 void Voice::setScaleTable(const int (*table)[48], size_t scaleCount)
 {
-  // External owner keeps owning the memory; the pitch path reads the table
-  // directly, so there is nothing to precompute here.
-  scaleTable = table;
-  scaleTableCount = scaleCount;
-  // Scale/tuning data impacts static pitch mapping; mark base cache dirty.
-  baseFreqDirty_ = true;
+  controls_.scaleTable = table;
+  controls_.scaleCount = scaleCount;
+  controls_.changes |= ScaleChanged;
+  flushControlUpdates();
 }
 
 void Voice::setCurrentScalePointer(const uint8_t *ptr)
 {
-  currentScalePtr = ptr;
-  // Changing active scale changes static note->semitone mapping.
-  baseFreqDirty_ = true;
+  currentScalePtr_ = ptr; // dereferenced by the control thread only
+  controls_.changes |= ScaleChanged;
+  flushControlUpdates();
+}
+
+bool Voice::flushControlUpdates() noexcept
+{
+  const size_t scaleIndex = currentScalePtr_ ? *currentScalePtr_ : 0;
+  if (scaleIndex != controls_.scaleIndex)
+  {
+    controls_.scaleIndex = scaleIndex;
+    controls_.changes |= ScaleChanged;
+  }
+  if (controls_.changes == 0)
+    return true;
+  if (!controlQueue_.tryPush(controls_))
+    return false; // keep the producer-owned update for the next control pass
+  controls_.changes = 0;
+  controls_.state.shouldRetrigger = false; // event belongs to the published copy
+  return true;
+}
+
+void Voice::setGate(bool gateState)
+{
+  controls_.state.isGateHigh = gateState;
+  if (!gateState)
+    controls_.state.shouldRetrigger = false;
+  controls_.changes |= GateChanged;
+  flushControlUpdates();
+}
+
+void Voice::setFilterFrequency(float frequency)
+{
+  controls_.filterHz = frequency;
+  controls_.changes |= FilterChanged;
+  flushControlUpdates();
+}
+
+void Voice::setEnabled(bool enabled)
+{
+  controls_.config.enabled = enabled;
+  controls_.changes |= ConfigChanged;
+  flushControlUpdates();
+}
+
+void Voice::applyControlUpdate_() noexcept
+{
+  ControlUpdate update;
+  if (!controlQueue_.tryPop(update))
+    return;
+
+  // Work is bounded to one update per sample. FIFO gate changes therefore
+  // each reach envelope processing, even when several arrived between samples.
+  const uint32_t changes = update.changes;
+  if (changes & ScaleChanged)
+  {
+    scaleTable = update.scaleTable;
+    scaleTableCount = update.scaleCount;
+    audioScaleIndex_ = update.scaleIndex;
+    baseFreqDirty_ = true;
+  }
+  if (changes & SlideChanged)
+  {
+    slideTimeSeconds = update.slideSeconds;
+    slideAlpha = makeSmoothingAlpha(slideTimeSeconds, sampleRate);
+  }
+  if (changes & BendChanged)
+    pitchBendSemitones_ = update.bendSemitones;
+  if (changes & ModulationChanged)
+    pitchModSemitones_ = update.modulationSemitones;
+  if (changes & ConfigChanged)
+    applyConfig_(update.config);
+  if (changes & ParametersChanged)
+    applyParameters_(update.state);
+  else if (changes & GateChanged)
+  {
+    gate = update.state.isGateHigh;
+    state.isGateHigh = gate;
+    state.shouldRetrigger = false;
+  }
+  if (changes & (ScaleChanged | BendChanged | ModulationChanged | PitchRefresh))
+    updatePitchCache_();
+  if (changes & FrequencyChanged)
+    applyFrequency_(update.frequency);
+  if (changes & FilterChanged)
+    filterFrequency = update.filterHz;
 }
 
 float Voice::process() noexcept
 {
+  // Consume controls even while disabled, so queued re-enables can take effect.
+  applyControlUpdate_();
   if (!config.enabled)
-  {
     return 0.0f;
-  }
-
-  // Apply any pending cross-core parameter/config changes at the audio rate.
-  applyPendingConfig_();
-  applyPendingParams_();
 
   // 1) Envelope
   float envelopeValue = computeEnvelope();
@@ -324,30 +418,19 @@ void Voice::updateFilter(float envelopeValue)
 
   // Throttle setFreq to avoid per-sample work if change is tiny (setFreq is
   // polynomial in rpdsp, but the throttle also caps coefficient churn)
-  const bool useSvf = (config.filterType == FILTER_SVF);
-  if (filterUpdateInterval == 0)
+  if (filterUpdateCounter == 0)
   {
-    if (useSvf)
-      filterSvf_.setCutoff(filterCutoffCurrent);
-    else
-      filter.setFreq(filterCutoffCurrent);
-    lastAppliedFilterCutoff = filterCutoffCurrent;
-  }
-  else
-  {
-    if (filterUpdateCounter == 0)
+    if (ShouldApplyFilterFreq_(filterCutoffCurrent, lastAppliedFilterCutoff))
     {
-      if (ShouldApplyFilterFreq_(filterCutoffCurrent, lastAppliedFilterCutoff))
-      {
-        if (useSvf)
-          filterSvf_.setCutoff(filterCutoffCurrent);
-        else
-          filter.setFreq(filterCutoffCurrent);
-        lastAppliedFilterCutoff = filterCutoffCurrent;
-      }
+      if (config.filterType == FILTER_SVF)
+        filterSvf_.setCutoff(filterCutoffCurrent);
+      else
+        filter.setFreq(filterCutoffCurrent);
+      lastAppliedFilterCutoff = filterCutoffCurrent;
     }
-    filterUpdateCounter = static_cast<uint8_t>((filterUpdateCounter + 1) % filterUpdateInterval);
   }
+  // Mask wrap: kFilterUpdateInterval is a power of two (static_assert in Voice.h)
+  filterUpdateCounter = static_cast<uint8_t>((filterUpdateCounter + 1) & (kFilterUpdateInterval - 1));
 }
 
 void Voice::configureMainFilterFromConfig_() noexcept
@@ -400,10 +483,10 @@ float Voice::mixOscillators()
 
   // Audio-thread commit of frequency changes:
   // - Only when gate HIGH (no repitch during release)
-  // - Lock-free via generation counter
+  // - Audio-local cache version prevents redundant commits
   if (oscCount > 0 && state.isGateHigh)
   {
-    const uint32_t gen = pitchGen_.load(std::memory_order_seq_cst);
+    const uint32_t gen = pitchGen_;
     if (!state.hasSlide && gen != appliedPitchGen_)
     {
       // Commit immediate frequencies (no slide)
@@ -549,7 +632,7 @@ float Voice::processHypersaw_() noexcept
   // intentionally empty.
   if (state.isGateHigh)
   {
-    const uint32_t gen = pitchGen_.load(std::memory_order_seq_cst);
+    const uint32_t gen = pitchGen_;
     if (!state.hasSlide && gen != hypersawAppliedPitchGen_)
     {
       const float frequency = pitchCache_.finalFreq[0];
@@ -658,8 +741,8 @@ inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept
 void Voice::updateOscillatorFrequencies()
 {
   // Deprecated path for direct control-thread commits; retained for backward compatibility.
-  // New flow stages frequencies via updateFrequencyIfNeeded() and commits on audio thread.
-  updateFrequencyIfNeeded();
+  // Both cache refresh and oscillator commits remain on the audio thread.
+  refreshPitch_();
 }
 
 inline void Voice::applyEnvelopeParameters() noexcept
@@ -688,7 +771,7 @@ size_t Voice::effectiveScaleIndex_() const noexcept
 {
   if (scaleTable == nullptr || scaleTableCount == 0)
     return 0;
-  const size_t idx = currentScalePtr ? static_cast<size_t>(*currentScalePtr) : 0;
+  const size_t idx = audioScaleIndex_;
   return (idx >= scaleTableCount) ? scaleTableCount - 1 : idx;
 }
 
@@ -755,60 +838,43 @@ void Voice::processFrequencySlew(uint8_t oscIndex, float targetFreq)
 
 void Voice::setFrequency(float frequency)
 {
-  // Control-thread: do not call setFreq directly. Stage targets and cache only.
-  for (uint8_t i = 0; i < config.oscillatorCount && i < 3; i++)
+  controls_.frequency = frequency;
+  controls_.changes |= FrequencyChanged;
+  flushControlUpdates();
+}
+
+void Voice::applyFrequency_(float frequency)
+{
+  // Explicit Hz requests use the same gate/slide commit path as sequenced pitch.
+  pitchCache_.baseFreq = frequency;
+  for (uint8_t i = 0; i < 3; ++i)
   {
-    const float targetFreq = frequency * detuneMul[i];
-    // Update slew state; audio thread will commit via mixOscillators()
-    if (state.hasSlide)
-    {
-      freqSlew[i].targetFreq = targetFreq;
-    }
-    else
-    {
-      // Keep local state consistent but avoid SetFreq here
-      freqSlew[i].currentFreq = targetFreq;
-      freqSlew[i].targetFreq = targetFreq;
-    }
+    const float previous = pitchCache_.finalFreq[i];
+    const float ratio = previous > 0.0f ? pitchCache_.slaveFreq[i] / previous : 1.0f;
+    pitchCache_.finalFreq[i] = frequency * detuneMul[i];
+    pitchCache_.slaveFreq[i] = pitchCache_.finalFreq[i] * ratio;
   }
-  // Mark staging dirty so audio thread commits on next frame
-  markPitchDirty();
+  ++pitchGen_;
 }
 
 void Voice::setSlideTime(float slideTime)
 {
-  // Clamp to reasonable range [0, 10] seconds; 0 means instantaneous
-  if (slideTime < 0.0f)
-    slideTime = 0.0f;
-  if (slideTime > 10.0f)
-    slideTime = 10.0f;
-
-  slideTimeSeconds = slideTime;
-
-  // Recompute per-sample coefficient using current sample rate
-  if (slideTimeSeconds <= 0.0f || sampleRate <= 0.0f)
-  {
-    slideAlpha = 1.0f; // jump to target in one sample when slide enabled
-  }
-  else
-  {
-    const float invTauFs = 1.0f / (slideTimeSeconds * sampleRate);
-    slideAlpha = 1.0f - std::exp(-invTauFs);
-  }
-  // Slide parameter affects commit behavior; mark pitch staging
-  markPitchDirty();
+  controls_.slideSeconds = std::clamp(slideTime, 0.0f, 10.0f);
+  controls_.changes |= SlideChanged;
+  flushControlUpdates();
 }
 
 void Voice::updateParameters(const VoiceState &newState)
 {
-  // Control-thread: stage state and bump generation counter for audio-thread application
-  stagedState_ = newState;
-  // Base pitch may change due to note/octave. Mark dirty based on previous staged state.
-  if (stagedState_.noteIndex != state.noteIndex || stagedState_.octaveOffset != state.octaveOffset)
-  {
-    baseFreqDirty_ = true;
-  }
-  paramsGen_.fetch_add(1u, std::memory_order_seq_cst);
+  // Only unpublished updates can coalesce. Preserve a pending retrigger while
+  // its gate stays high; a later gate-off always wins during overload.
+  const bool pendingRetrigger = (controls_.changes & ParametersChanged) &&
+                                controls_.state.shouldRetrigger;
+  controls_.state = newState;
+  controls_.state.shouldRetrigger = newState.isGateHigh &&
+                                   (newState.shouldRetrigger || pendingRetrigger);
+  controls_.changes |= ParametersChanged;
+  flushControlUpdates();
 }
 
 // Voice Presets moved to src/voice/VoicePresets.cpp
@@ -816,7 +882,7 @@ void Voice::updateParameters(const VoiceState &newState)
 // -------- Pitch optimization: change detection, cache, and API --------
 // Fields watched: noteIndex, octaveOffset, harmony[0..oscCount-1], oscCount, detuneVersion_,
 // hasSlide, pitch bend/mod in semitones.
-// Generation-based staging: control thread recomputes cache and bumps pitchGen_;
+// Audio-local versioning: recompute the cache and bump pitchGen_;
 // audio thread commits in mixOscillators() when pitchGen_ != appliedPitchGen_.
 // setFreq gating: ShouldApplyFreq_ uses kPitchRelEps and kPitchAbsEpsHz (≈0.017 cent minimum)
 // to cut redundant oscillator.setFreq calls, including during slide slews.
@@ -844,7 +910,7 @@ bool Voice::pitchParamsChanged_(const VoiceState &newState) const
     return true;
   if (pitchSnapshot_.octaveOffset != newState.octaveOffset)
     return true;
-  // The UI re-points *currentScalePtr at runtime; a scale switch must retrigger
+  // A queued scale switch must refresh pitch
   // even when the note itself is unchanged.
   if (pitchSnapshot_.scaleIndex != effectiveScaleIndex_())
     return true;
@@ -917,7 +983,7 @@ void Voice::updatePitchCache_()
   // Update snapshot
   pitchSnapshot_.noteIndex = state.noteIndex;
   pitchSnapshot_.octaveOffset = state.octaveOffset;
-  pitchSnapshot_.scaleIndex = static_cast<uint8_t>(effectiveScaleIndex_());
+  pitchSnapshot_.scaleIndex = effectiveScaleIndex_();
   pitchSnapshot_.oscCount = oscCount;
   pitchSnapshot_.usesHypersaw = usesHypersaw;
   pitchSnapshot_.usesHardSync = false;
@@ -935,37 +1001,40 @@ void Voice::updatePitchCache_()
     pitchSnapshot_.harmony[i] = config.harmony[i];
   }
 
-  // Bump generation after fully writing cache/snapshot (seq_cst)
-  pitchGen_.fetch_add(1u, std::memory_order_seq_cst);
+  // Advance the audio-local cache version after recomputing pitch
+  ++pitchGen_;
 }
 
 // Public API
 void Voice::setPitchBend(float semitones)
 {
-  pitchBendSemitones_ = semitones;
-  // Dynamic change; do not mark base dirty. Recompute final frequencies only.
-  markPitchDirty();
+  controls_.bendSemitones = semitones;
+  controls_.changes |= BendChanged;
+  flushControlUpdates();
 }
 
 void Voice::setModulationDepth(float semitones)
 {
-  pitchModSemitones_ = semitones;
-  // Dynamic change; do not mark base dirty. Recompute final frequencies only.
-  markPitchDirty();
+  controls_.modulationSemitones = semitones;
+  controls_.changes |= ModulationChanged;
+  flushControlUpdates();
 }
 
 void Voice::markPitchDirty()
 {
-  // Force recompute now; audio thread will commit via generation counter.
-  updatePitchCache_();
+  controls_.changes |= PitchRefresh;
+  flushControlUpdates();
 }
 
 void Voice::updateFrequencyIfNeeded()
 {
-  const bool changed = pitchParamsChanged_(state);
-  if (!changed)
-    return;
-  updatePitchCache_();
+  markPitchDirty();
+}
+
+void Voice::refreshPitch_()
+{
+  if (baseFreqDirty_ || pitchParamsChanged_(state))
+    updatePitchCache_();
 }
 
 float Voice::getCachedFrequency(uint8_t oscIndex) const
@@ -998,66 +1067,59 @@ void Voice::setSequencer(Sequencer *seq)
   sequencer = seq;
 }
 
-// Apply staged VoiceState updates from control thread (UI/Sequencer)
-void Voice::applyPendingParams_() noexcept
+// Audio thread only: compare with its own previous state, then update DSP.
+void Voice::applyParameters_(const VoiceState &newState) noexcept
 {
-  const uint32_t gen = paramsGen_.load(std::memory_order_seq_cst);
-  if (gen != appliedParamsGen_)
+  if (newState.noteIndex != state.noteIndex || newState.octaveOffset != state.octaveOffset)
+    baseFreqDirty_ = true;
+  state = newState;
+  gate = state.isGateHigh;
+
+  // Route the sequencer's Filter/Attack/Decay slots by param set: standard
+  // voices read cutoff + ADSR times; alternate param sets re-purpose the
+  // same 0..1 slots for engine-specific parameters. All targets here are
+  // audio-thread-owned (config copy, waveguide_, hypersaw_, overdrive), same class of
+  // access as applyConfig_().
+  switch (config.paramSet)
   {
-    // Copy staged state and apply changes that require immediate DSP updates
-    state = stagedState_;
-
-    // Synchronize ADSR gate
-    setGate(state.isGateHigh);
-
-    // Route the sequencer's Filter/Attack/Decay slots by param set: standard
-    // voices read cutoff + ADSR times; alternate param sets re-purpose the
-    // same 0..1 slots for engine-specific parameters. All targets here are
-    // audio-thread-owned (config copy, waveguide_, hypersaw_, overdrive), same class of
-    // access as applyPendingConfig_().
-    switch (config.paramSet)
-    {
-    case PARAMSET_WAVEGUIDE:
-      waveguide_.setBrightness(std::clamp(state.filterCutoff, 0.0f, 1.0f));
-      waveguide_.setPickHardness(std::clamp(state.attackTimeSeconds, 0.0f, 1.0f));
-      waveguide_.setDecayTimeSeconds(
-          dspmap::fmap(state.decayTimeSeconds, 0.05f, 7.0f, dspmap::Mapping::EXP));
-      break;
-    case PARAMSET_HYPERSAW:
-    {
-      config.hypersawDetune = std::clamp(state.attackTimeSeconds, 0.0f, 1.0f);
-      config.hypersawMix = std::clamp(state.decayTimeSeconds, 0.0f, 1.0f);
-      hypersaw_.setDetune(config.hypersawDetune);
-      hypersaw_.setMix(config.hypersawMix);
-      filterFrequency = dspmap::fmap(state.filterCutoff, 150.0f, 8000.0f, dspmap::Mapping::EXP);
-      break;
-    }
-    case PARAMSET_NOISESTORM:
-      config.noiseSwarmColor = std::clamp(state.filterCutoff, 0.0f, 1.0f);
-      config.noiseSwarmRegen = std::clamp(state.attackTimeSeconds, 0.0f, 1.0f);
-      config.noiseChaosLevel = std::clamp(state.decayTimeSeconds, 0.0f, 1.0f);
-      // The main filter stays on the preset's static cutoff (the Filter slot
-      // now carries swarm color); the envelope still moves it.
-      filterFrequency = dspmap::fmap(config.filterCutoffBase, 150.0f, 8000.0f, dspmap::Mapping::EXP);
-      break;
-    case PARAMSET_HARDSYNC:
-      // Velocity is the centered slave-pitch control for HardSyncSaw. Pitch
-      // cache generation below converts it to a slave-frequency offset from
-      // the master; cutoff and ADSR otherwise retain their normal routing.
-      filterFrequency = dspmap::fmap(state.filterCutoff, 120.0f, 5000.0f, dspmap::Mapping::EXP);
-      applyEnvelopeParameters();
-      break;
-    default:
-      filterFrequency = dspmap::fmap(state.filterCutoff, 120.0f, 5000.0f, dspmap::Mapping::EXP);
-      applyEnvelopeParameters();
-      break;
-    }
-
-    // Stage pitch recompute; audio thread will commit oscillator freq via mixOscillators
-    updateFrequencyIfNeeded();
-
-    appliedParamsGen_ = gen;
+  case PARAMSET_WAVEGUIDE:
+    waveguide_.setBrightness(std::clamp(state.filterCutoff, 0.0f, 1.0f));
+    waveguide_.setPickHardness(std::clamp(state.attackTimeSeconds, 0.0f, 1.0f));
+    waveguide_.setDecayTimeSeconds(
+        dspmap::fmap(state.decayTimeSeconds, 0.05f, 7.0f, dspmap::Mapping::EXP));
+    break;
+  case PARAMSET_HYPERSAW:
+  {
+    config.hypersawDetune = std::clamp(state.attackTimeSeconds, 0.0f, 1.0f);
+    config.hypersawMix = std::clamp(state.decayTimeSeconds, 0.0f, 1.0f);
+    hypersaw_.setDetune(config.hypersawDetune);
+    hypersaw_.setMix(config.hypersawMix);
+    filterFrequency = dspmap::fmap(state.filterCutoff, 150.0f, 8000.0f, dspmap::Mapping::EXP);
+    break;
   }
+  case PARAMSET_NOISESTORM:
+    config.noiseSwarmColor = std::clamp(state.filterCutoff, 0.0f, 1.0f);
+    config.noiseSwarmRegen = std::clamp(state.attackTimeSeconds, 0.0f, 1.0f);
+    config.noiseChaosLevel = std::clamp(state.decayTimeSeconds, 0.0f, 1.0f);
+    // The main filter stays on the preset's static cutoff (the Filter slot
+    // now carries swarm color); the envelope still moves it.
+    filterFrequency = dspmap::fmap(config.filterCutoffBase, 150.0f, 8000.0f, dspmap::Mapping::EXP);
+    break;
+  case PARAMSET_HARDSYNC:
+    // Velocity is the centered slave-pitch control for HardSyncSaw. Pitch
+    // cache generation below converts it to a slave-frequency offset from
+    // the master; cutoff and ADSR otherwise retain their normal routing.
+    filterFrequency = dspmap::fmap(state.filterCutoff, 120.0f, 5000.0f, dspmap::Mapping::EXP);
+    applyEnvelopeParameters();
+    break;
+  default:
+    filterFrequency = dspmap::fmap(state.filterCutoff, 120.0f, 5000.0f, dspmap::Mapping::EXP);
+    applyEnvelopeParameters();
+    break;
+  }
+
+  // Stage pitch recompute; audio thread will commit oscillator freq via mixOscillators
+  refreshPitch_();
 }
 
 // Apply staged structural config (oscillator bank + engine) on the audio
@@ -1089,65 +1151,60 @@ void Voice::applyStructuralConfig_() noexcept
   appliedPitchGen_ = 0;
   // The selected source can change the pitch-cache shape (Hypersaw needs
   // finalFreq[0] even though its regular oscillator count is zero).
-  updateFrequencyIfNeeded();
+  refreshPitch_();
   structuralPending_ = false;
 }
 
-// Apply staged VoiceConfig changes from control thread safely on audio thread
-void Voice::applyPendingConfig_() noexcept
+// Audio thread only: queue slots have already been released after a local copy.
+void Voice::applyConfig_(const VoiceConfig &newConfig) noexcept
 {
-  if (configPending_.load(std::memory_order_acquire))
+  config = newConfig;
+
+  // Update filters (scalar; safe mid-note)
+  if (config.hasFilter)
   {
-    config = stagedConfig_;
-
-    // Update filters (scalar; safe mid-note)
-    if (config.hasFilter)
-    {
-      filter.setRes(config.filterRes);
-      filter.setInputDrive(config.filterDrive);
-      filter.setPassbandGain(config.filterPassbandGain);
-      filter.setMode(ladderModeFromVoiceMode(config.filterMode));
-      configureMainFilterFromConfig_();
-    }
-
-    highPassFilter.setCutoff(config.highPassFreq);
-    highPassFilter.setResonance(config.highPassRes);
-    hpfBypass_ = (config.highPassFreq <= 20.0f && config.highPassRes <= 0.01f);
-
-    // Update effects
-    overdrive.setDrive(1.0f + (config.overdriveDrive * 3.0f)); // map 0-1 drive to 1-4
-
-    // Stage the structural part (oscillator bank rebuild + engine switch).
-    // Applied immediately only when nothing is sounding, so a live preset
-    // swap is click-free.
-    stagedOscCount_ = static_cast<uint8_t>(std::min<size_t>(3, config.oscillatorCount));
-    for (size_t i = 0; i < 3; ++i)
-    {
-      stagedWaveforms_[i] = config.oscWaveforms[i];
-      stagedPulseWidth_[i] = config.oscPulseWidth[i];
-    }
-    stagedEngine_ = (config.engine <= static_cast<uint8_t>(ENGINE_HYPERSAW))
-                        ? config.engine
-                        : static_cast<uint8_t>(ENGINE_OSC);
-    structuralPending_ = true;
-    if (!gate)
-    {
-      applyStructuralConfig_();
-    }
-
-    // Engine tuning (waveguide/Hypersaw/noise scalars) is safe to apply mid-note
-    applyEngineConfig_();
-
-    // Envelope segment times: for standard voices the next staged state
-    // re-maps them; for re-purposed slots the preset defaults define the shape.
-    applyEnvelopeDefaults_();
-
-    // Detune multipliers depend on config
-    recomputeDetuneMultipliers();
-
-    // Pitch depends on harmony, etc.
-    updateFrequencyIfNeeded();
-
-    configPending_.store(false, std::memory_order_release);
+    filter.setRes(config.filterRes);
+    filter.setInputDrive(config.filterDrive);
+    filter.setPassbandGain(config.filterPassbandGain);
+    filter.setMode(ladderModeFromVoiceMode(config.filterMode));
+    configureMainFilterFromConfig_();
   }
+
+  highPassFilter.setCutoff(config.highPassFreq);
+  highPassFilter.setResonance(config.highPassRes);
+  hpfBypass_ = (config.highPassFreq <= 20.0f && config.highPassRes <= 0.01f);
+
+  // Update effects
+  overdrive.setDrive(1.0f + (config.overdriveDrive * 3.0f)); // map 0-1 drive to 1-4
+
+  // Stage the structural part (oscillator bank rebuild + engine switch).
+  // Applied immediately only when nothing is sounding, so a live preset
+  // swap is click-free.
+  stagedOscCount_ = static_cast<uint8_t>(std::min<size_t>(3, config.oscillatorCount));
+  for (size_t i = 0; i < 3; ++i)
+  {
+    stagedWaveforms_[i] = config.oscWaveforms[i];
+    stagedPulseWidth_[i] = config.oscPulseWidth[i];
+  }
+  stagedEngine_ = (config.engine <= static_cast<uint8_t>(ENGINE_HYPERSAW))
+                      ? config.engine
+                      : static_cast<uint8_t>(ENGINE_OSC);
+  structuralPending_ = true;
+  if (!gate)
+  {
+    applyStructuralConfig_();
+  }
+
+  // Engine tuning (waveguide/Hypersaw/noise scalars) is safe to apply mid-note
+  applyEngineConfig_();
+
+  // Envelope segment times: for standard voices the next staged state
+  // re-maps them; for re-purposed slots the preset defaults define the shape.
+  applyEnvelopeDefaults_();
+
+  // Detune multipliers depend on config
+  recomputeDetuneMultipliers();
+
+  // Pitch depends on harmony, etc.
+  refreshPitch_();
 }

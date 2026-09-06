@@ -47,7 +47,7 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
 |            UI, Sensors, MIDI & Sequencer           |      Real-Time Audio Synthesis     |
 +----------------------------------------------------+------------------------------------+
 | setup():                                           | setup1():                          |
-|  - delay(300) [stabilize Core 1 audio]             |  - delay(100) [stabilize]          |
+|  - wait for voicesReady [acquire]                 |  - delay(100) [stabilize]          |
 |  - usb_midi.begin()                                |  - initOscillators()               |
 |  - Wire (I2C0 GP4/GP5): OLED,                      |      * VoiceManager(4) construction|
 |    MPR121, TMAG5273, VL53L1X                       |      * Add 4 preset voices         |
@@ -161,53 +161,54 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
 
 ---
 
-## 3. Concurrency Model & Lock-Free Staging
+## 3. Cross-core ownership and bounded queues
 
-To maintain real-time audio deadlines on Core 1 without priority inversion, lock contention, or memory corruption, Pico2Seq uses lock-free atomic generation counters and `volatile` communication flags instead of mutexes or blocking primitives.
+Each `Voice` has one control-core producer and one audio-core consumer.
+`SpscQueue<ControlUpdate, 8>` holds eight complete updates in FIFO order, using
+fixed storage and lock-free 32-bit indices. Neither side blocks or allocates.
 
-```
-Core 0 (Control Thread / uClock ISR)              Core 1 (Audio Thread @ 48kHz)
----------------------------------------           -----------------------------
-Voice::updateParameters(newState)                 Voice::process()
-  │                                                 │
-  ├── stagedState_ = newState                       ├── applyPendingConfig_() [acquire]
-  └── paramsGen_.fetch_add(1) ────────────────────> ├── applyPendingParams_()
-                                                    │     if (paramsGen_ != appliedParamsGen_) {
-Voice::setConfig(newConfig)                         │       state = stagedState_;
-  │                                                 │       appliedParamsGen_ = paramsGen_;
-  ├── stagedConfig_ = newConfig                     │     }
-  └── configPending_.store(true, release) ────────> │
-                                                    ├── computeEnvelope()
-Voice::updatePitchCache_()                          │
-  │                                                 ├── updateFilter()
-  ├── Compute base & per-osc harmony                │
-  ├── pitchCache_.finalFreq[i] = ...                ├── mixOscillators()
-  └── pitchGen_.fetch_add(1) ─────────────────────> │     if (isGateHigh && pitchGen_ != appliedPitchGen_) {
-                                                    │       oscillators[i].setFreq(pitchCache_.finalFreq[i]);
-                                                    │       appliedPitchGen_ = pitchGen_;
-                                                    │     }
-                                                    │
-                                                    └── finalizeOutput()
-```
+1. Core 0 updates its own requested config, parameters, or scalar controls.
+2. It copies the update into a free slot, then publishes the write index with
+   release ordering. A published slot belongs to Core 1.
+3. Core 1 acquires the write index and copies one update locally at the start
+   of `Voice::process()`.
+4. Only after copying does Core 1 release the read index. Core 0 acquires that
+   index before reusing the slot.
+5. Core 1 applies the local copy to its DSP state, then renders a sample.
 
-### 3.1 Lock-Free Staging Mechanisms
-1. **Parameter Staging (`paramsGen_` / `appliedParamsGen_`)**:
-   - Written by Core 0 in `Voice::updateParameters()` (from the uClock step callback and live parameter recording).
-   - Core 0 updates `stagedState_` and bumps `paramsGen_.fetch_add(1, std::memory_order_seq_cst)`.
-   - Core 1 checks `applyPendingParams_()` at the start of `Voice::process()`. If `paramsGen_ != appliedParamsGen_`, it safely copies `stagedState_` into active `state` and updates envelope and filter parameters.
-2. **Config Staging (`configPending_`)**:
-   - Written by Core 0 in `Voice::setConfig()`.
-   - Core 0 writes `stagedConfig_` and sets `configPending_.store(true, std::memory_order_release)`.
-   - Core 1 checks `applyPendingConfig_()` with `memory_order_acquire`, reconfigures oscillator slots, filter modes, detune multipliers, and clears the pending flag.
-3. **Pitch Staging (`pitchGen_` / `appliedPitchGen_`)**:
-   - Precomputed by Core 0 in `Voice::updatePitchCache_()` and cached in `pitchCache_`.
-   - `pitchGen_.fetch_add(1, std::memory_order_seq_cst)` is bumped.
-   - Core 1 commits oscillator frequencies inside `Voice::mixOscillators()` **only when `state.isGateHigh == true`**. This prevents pitch glitching during note release.
-   - Frequency changes are threshold-gated by `ShouldApplyFreq_` (~0.017 cent threshold) to eliminate redundant oscillator calculations.
-4. **Volatile Shared State**:
-   - `volatile bool gates[2]`: Gate state for hardware-gated voices 0–1 (Core 0 only: written by the step callback, ticked by `loop()`).
-   - `volatile uint32_t ppqnTicksPending`: Pending clock ticks incremented by the uClock timer ISR and drained by `loop()` — both on Core 0.
-   - `volatile bool touchFlag`, `volatile bool g_audioOK`, `volatile bool g_errorState`: System status flags (set by Core 1 audio setup, consumed by Core 0 UI).
+One update per sample bounds the drain and lets each queued gate edge reach the
+envelope. Updates still drain while disabled, so queued re-enables can take
+effect. Config, pitch caches, dirty flags, filter/slide coefficients, and gates
+are audio-owned. The pitch version is now ordinary single-core state.
+
+### Full queues
+
+The producer never overwrites occupied slots. Setters retain unpublished changes
+in a producer-owned pending update when full. `loop()` calls
+`VoiceManager::flushControlUpdates()` every pass, including idle passes, to retry.
+Unpublished values coalesce to the latest value; a pending retrigger stays set
+while the gate remains high, and a later gate-off wins. Published events remain
+FIFO. Sustained overload can coalesce intermediate unpublished notes/edges; this
+is bounded latest-state recovery, not an unlimited event history. Final gate-off
+and preset changes are retried even when no new input arrives.
+
+### Readers and lifecycle
+
+`VoiceManager::getVoiceConfig()` and `getVoiceState()` return const pointers to
+control-owned requested copies, so consecutive UI edits include earlier edits
+before audio consumes them. They are not audio telemetry. Applied-state getters
+on `Voice` are restricted to the audio thread or quiescent tests.
+
+Scale selection is sampled on Core 0 by setters and `flushControlUpdates()`;
+audio reads only the copied index. Injected scale tables must stay immutable and
+alive until both cores stop using the voice. Mixer gain scalars use lock-free
+atomics. Construct/init, attach, add/remove, and destruction require both cores
+to be quiescent. `voicesReady` publishes the complete boot-time collection with
+release/acquire ordering before Core 0 accesses it.
+
+Clock ISR callbacks still stage clock events only. They must never call voice
+setters: the producer is Core 0's ordinary `loop()` context. Existing clock and
+diagnostic flags are separate from the voice queue protocol.
 
 ---
 
@@ -268,7 +269,7 @@ All DSP components reside in the `rpdsp` namespace from `src/rpdsp/` (tracked as
                               Voice::process() (Core 1 @ 48kHz)
                                               │
                     ┌─────────────────────────┴─────────────────────────┐
-                    │ 1. applyPendingConfig_() & applyPendingParams_()  │
+                    │ 1. applyConfig_() & applyParameters_()  │
                     └─────────────────────────┬─────────────────────────┘
                                               │
                                               ▼

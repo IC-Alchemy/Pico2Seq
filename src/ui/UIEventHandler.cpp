@@ -13,7 +13,7 @@
 #include "ControlSurfaceLogic.h"
 #include "UIConstants.h"
 #include "../FeatureConfig.h"
-#include <uClock.h>
+#include "../vendor/uClock/uClock.h" // vendored fork — never <uClock.h>, see src/vendor/uClock/README.md
 
 // =======================
 //   UI EVENT CONSTANTS
@@ -526,7 +526,7 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
   // Resolve current voice configuration
   const uint8_t selectedVoiceIndex = uiState.selectedVoiceIndex;
   const uint8_t currentVoiceId = voiceSystem.getVoiceId(selectedVoiceIndex);
-  VoiceConfig *liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
+  const VoiceConfig *liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
   if (!liveCfg)
     return;
   // Work on a local copy to avoid mutating live config from UI thread

@@ -65,10 +65,14 @@ TEST_CASE("Voice gate starts low", "[voice]") {
 
 TEST_CASE("Voice gate toggles via setGate", "[voice]") {
     Voice v(0, defaultConfig());
+    v.init(48000.0f);
     v.setGate(true);
+    REQUIRE_FALSE(v.getGate());
+    v.process();
     REQUIRE(v.getGate());
     REQUIRE(v.getState().isGateHigh);
     v.setGate(false);
+    v.process();
     REQUIRE_FALSE(v.getGate());
     REQUIRE_FALSE(v.getState().isGateHigh);
 }
@@ -77,7 +81,9 @@ TEST_CASE("Voice gate toggles via setGate", "[voice]") {
 
 TEST_CASE("Voice filter frequency can be set and read back", "[voice]") {
     Voice v(0, defaultConfig());
+    v.init(48000.0f);
     v.setFilterFrequency(2000.0f);
+    v.process();
     REQUIRE_THAT(v.getFilterFrequency(), WithinAbs(2000.0f, 0.01f));
 }
 

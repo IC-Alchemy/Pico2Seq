@@ -289,11 +289,11 @@ public:
     // Voice Configuration
     bool setVoiceConfig(uint8_t voiceId, const VoiceConfig& config);
     bool setVoicePreset(uint8_t voiceId, const std::string& presetName);
-    VoiceConfig* getVoiceConfig(uint8_t voiceId);
+    const VoiceConfig* getVoiceConfig(uint8_t voiceId);
 
     // Voice State Management
     bool updateVoiceState(uint8_t voiceId, const VoiceState& state);
-    VoiceState* getVoiceState(uint8_t voiceId);
+    const VoiceState* getVoiceState(uint8_t voiceId);
 
     // Sequencer Attachment
     bool attachSequencer(uint8_t voiceId, std::unique_ptr<Sequencer> sequencer);
@@ -342,7 +342,7 @@ public:
 
 Defined in `src/voice/VoicePresets.h` and implemented in `src/voice/VoicePresets.cpp`. All 15 presets are verified verbatim against firmware source code.
 
-Each preset is built by a `constexpr VoiceConfig makeXxx() noexcept` factory function, and the factories are assembled into a `constexpr std::array<VoiceConfig, 15> kPresets` — the whole bank is compile-time data (.rodata, XIP flash on RP2350) and costs no SRAM; accessors hand out `const` references, and the caller's `VoiceConfig`/`stagedConfig_` copy is the only RAM instance. `static_assert`s keep the preset name table and preset table in sync. Index-based accessors: `getPresetName(uint8_t)` (returns `"Unknown"` out of range), `getPresetConfig(uint8_t)` (returns Analog out of range), and `getPresetCount()`, plus per-preset getters (`getAnalogVoice()` … `getNoiseStormVoice()`). `VoiceManager::getAvailablePresets()` / `setVoicePreset()` expose the same bank by lowercase name and fall back to Analog for unknown names.
+Each preset is built by a `constexpr VoiceConfig makeXxx() noexcept` factory function, and the factories are assembled into a `constexpr std::array<VoiceConfig, 15> kPresets` — the whole bank is compile-time data (.rodata, XIP flash on RP2350) and costs no SRAM; accessors hand out `const` references, and the caller's `VoiceConfig` copies and bounded control queues occupy RAM. `static_assert`s keep the preset name table and preset table in sync. Index-based accessors: `getPresetName(uint8_t)` (returns `"Unknown"` out of range), `getPresetConfig(uint8_t)` (returns Analog out of range), and `getPresetCount()`, plus per-preset getters (`getAnalogVoice()` … `getNoiseStormVoice()`). `VoiceManager::getAvailablePresets()` / `setVoicePreset()` expose the same bank by lowercase name and fall back to Analog for unknown names.
 
 | # | Preset Name | Engine | Oscillators | Amplitudes | Detune (Semis) | Harmony | Filter Mode | Filter Settings | Overdrive | Envelope (A/D/S/R) | Output Level |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -398,7 +398,7 @@ allpass swarm) from `rpdsp/DSPFunctions.h`, pre-filter so the SVF shapes the tex
 ### Per-preset sequencer parameter sets
 
 `VoiceConfig::paramSet` (`VoiceParamSet` in `Voice.h`) re-purposes sequencer
-slots per voice. `Voice::applyPendingParams_()` routes the slots on
+slots per voice. `Voice::applyParameters_()` routes the slots on
 the audio thread; `VoicePresets::getSequencerParamName()` provides the OLED labels
 (fallback `paramName()` for standard slots); `applyVoicePreset()` re-seeds the
 re-purposed tracks with the preset's values (`seedRepurposedParamTracks()` in
@@ -422,18 +422,28 @@ presets while playing never clicks a held note or cuts a ringing tail.
 
 ## 4. DSP Processing Pipeline & Signal Flow
 
+Control setters enqueue snapshots without reading or mutating applied DSP state.
+Each `process()` consumes at most one update, even when disabled. Control code
+calls `flushControlUpdates()` every loop to retry full queues and sample scale
+selection. Only unpublished updates may coalesce under overload; published slots
+cannot be overwritten until audio finishes copying them. See
+[cross-core ownership](architecture.md#3-cross-core-ownership-and-bounded-queues)
+for overflow policy, table lifetimes, and getter ownership. UI getters on
+`VoiceManager` return const requested copies; applied getters on `Voice` are
+restricted to the audio thread or quiescent tests.
+
 Each call to `Voice::process()` on Core 1 executes the following stages:
 
 ```
 [Sequencer / UI Parameters]
            │
-           ▼ (Lock-Free Staging: paramsGen_, configPending_, pitchGen_)
+           ▼ (Bounded Control Queue: complete owned slots)
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │ Voice::process() (Core 1 @ 48kHz)                                               │
 │                                                                                 │
 │ 1. Apply Pending Updates                                                        │
-│    - applyPendingConfig_(): Reconfigures filters, waveforms, detune multipliers  │
-│    - applyPendingParams_(): Applies staged VoiceState, ADSR parameters, filter f │
+│    - applyConfig_(): Reconfigures filters, waveforms, detune multipliers  │
+│    - applyParameters_(): Applies staged VoiceState, ADSR parameters, filter f │
 │                                                                                 │
 │ 2. Envelope Processing (computeEnvelope)                                        │
 │    - rpdsp::ADSR: noteOn() on gate rise / retrigger; noteOff() on gate fall     │
@@ -528,7 +538,7 @@ voiceManager.init(48000.0f);
 ### 6.2 Updating Voice State from Sequencer Step
 
 ```cpp
-// Called on Core 0 when sequencer triggers a step (uClock ISR context)
+// Called on Core 0 when loop() drains a sequencer step (never the ISR)
 VoiceState newState;
 newState.noteIndex = 12.0f;           // 12th step in scale
 newState.velocityLevel = 0.85f;       // 85% velocity

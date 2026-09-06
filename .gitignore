@@ -1,4 +1,4 @@
-.vscode/c_cpp_properties.json
+.vscode/*
 build/*
 build_fw/*
 build_fw_on/*
@@ -13,3 +13,4 @@ AGENTS.md
 .agents/*
 
 CLAUDE.md
+build_fw/*

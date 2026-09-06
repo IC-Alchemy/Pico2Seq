@@ -56,7 +56,7 @@ namespace LEDConstants {
 namespace LEDColors {
   // Standard LED Colors for Common Use
   static constexpr CRGB BLACK = CRGB::Black;
-  static constexpr CRGB WHITE = CRGB::White;
+  static constexpr CRGB WHITE = CRGB(66, 66, 66);
   
   // Delay Effect Colors
   static constexpr CRGB DELAY_INDICATOR = CRGB(0, 166, 55);
@@ -69,9 +69,9 @@ namespace LEDColors {
   static constexpr uint8_t BREATHING_MAX_INTENSITY = 80;
   
   // Polyrhythmic Overlay Colors
-  static constexpr CRGB POLYRHYTHM_NOTE = CRGB(0, 32, 32);      // Cyan tint
-  static constexpr CRGB POLYRHYTHM_VELOCITY = CRGB(0, 32, 0);   // Green tint
-  static constexpr CRGB POLYRHYTHM_FILTER = CRGB(0, 0, 32);     // Blue tint
+  static constexpr CRGB POLYRHYTHM_NOTE = CRGB(0, 32, 66);      // Cyan tint
+  static constexpr CRGB POLYRHYTHM_VELOCITY = CRGB(0, 66, 0);   // Green tint
+  static constexpr CRGB POLYRHYTHM_FILTER = CRGB(0, 0, 66);     // Blue tint
 }
 
 namespace OLEDConstants {

@@ -69,7 +69,7 @@ The magnetic encoder subsystem consists of two architectural layers:
   - Dynamic velocity-sensitive acceleration (400x dynamic range: 0.008x to 3.2x scaling factor).
   - Adaptive low-pass speed filtering.
 - **`EncoderManager` (`src/sensors/EncoderManager.h/.cpp`)**: High-level parameter management subsystem bridging encoder delta increments to the synthesizer data model. Handles:
-  - Base parameter updates across Voice 1 and Voice 2 (`applyEncoderBaseValues`).
+  - Per-voice base parameter updates across all four voices (`applyEncoderBaseValues`, one base-value set per voice).
   - Global effects modulation (`applyEncoderDelayValues`, `applyEncoderSlideTimeValues`).
   - Individual step parameter editing (`updateEncoderStepParameterValues`).
   - Bidirectional "Shift and Scale" mapping.
