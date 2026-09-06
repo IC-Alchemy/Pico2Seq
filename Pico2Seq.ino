@@ -44,6 +44,7 @@ constexpr float FEEDBACK_FADE_RATE = 0.01f;
 // =======================
 // Voice Management System
 std::unique_ptr<VoiceManager> voiceManager;
+std::atomic<bool> voicesReady{false}; // publishes the fully constructed voice collection
 VoiceSystem voiceSystem; // Consolidated voice system
 
 // Global Audio Effects (shared between voices)
@@ -239,7 +240,7 @@ void initOscillators()
         voiceManager->attachSequencer(voiceSystem.getVoiceId(i), sequencers[i]);
     }
 
-    // Note: OLED display registration occurs in setup1() after display initialization
+    voicesReady.store(true, std::memory_order_release);
 }
 
 // Clamp to the 0..1 range of the re-purposed sequencer slots (no <algorithm>
@@ -821,7 +822,9 @@ void setup()
     // If the previous run died, print where before doing anything else.
     freezeWatchdogBootCheck();
 
-    delay(300); // Allow Core 1 audio system to stabilize
+    // Setup-only handoff: control code cannot touch voices while Core 1 builds them.
+    while (!voicesReady.load(std::memory_order_acquire))
+        delay(1);
 
     // Initialize MIDI communication
     usb_midi.begin(MIDI_CHANNEL_OMNI);
@@ -1057,6 +1060,8 @@ static void printAlchemyTileScanReport()
  */
 void loop()
 {
+    // Retry deferred controls even when no new input arrives; also snapshot scale changes.
+    voiceManager->flushControlUpdates();
     // Process MIDI input/output
     freezeWatchdogFeed(FW_LOOP_USB_READ);
     usb_midi.read();
@@ -1073,6 +1078,23 @@ void loop()
     // before the PPQN timing pass and the slow I2C/display slices.
     freezeWatchdogFeed(FW_LOOP_CLOCK_EVENTS);
     processClockEvents();
+
+    // TEMP DEBUG: cross-core voice-registration probe (remove after bench).
+    // Prints Core 0's view of the voice-id table Core 1 writes in
+    // initOscillators(), plus the manager's own voice count.
+    static uint32_t lastVoiceDiag = 0;
+    if (currentMillis - lastVoiceDiag >= 2000)
+    {
+        lastVoiceDiag = currentMillis;
+        if (Serial)
+        {
+            Serial.printf("[DIAG C0] ids=%u,%u,%u,%u mgrVoices=%u warmBoots=%lu\n",
+                          voiceSystem.getVoiceId(0), voiceSystem.getVoiceId(1),
+                          voiceSystem.getVoiceId(2), voiceSystem.getVoiceId(3),
+                          (unsigned)(voiceManager ? voiceManager->getVoiceCount() : 0),
+                          (unsigned long)watchdog_hw->scratch[2]);
+        }
+    }
 
     // Process all pending PPQN ticks
     freezeWatchdogFeed(FW_LOOP_PPQN);
@@ -1198,5 +1220,24 @@ void loop1()
     {
         fill_audio_buffer(audioBuffer);
         give_audio_buffer(producer_pool, audioBuffer);
+    }
+
+    // TEMP DEBUG: Core-1 liveness heartbeat + Core 1's own view of the voice-id
+    // table (remove after bench). Heartbeat stopping means Core 1 died or the
+    // audio pipeline stalled; compare ids against [DIAG C0] on Core 0.
+    static uint32_t c1BufCount = 0;
+    static uint32_t c1LastBeat = 0;
+    c1BufCount++;
+    const uint32_t c1Now = millis();
+    if (c1Now - c1LastBeat >= 2000)
+    {
+        c1LastBeat = c1Now;
+        if (Serial)
+        {
+            Serial.printf("[DIAG C1] alive bufs=%lu ids=%u,%u,%u,%u\n",
+                          (unsigned long)c1BufCount,
+                          voiceSystem.getVoiceId(0), voiceSystem.getVoiceId(1),
+                          voiceSystem.getVoiceId(2), voiceSystem.getVoiceId(3));
+        }
     }
 }

@@ -112,7 +112,7 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
 
   // Map selected voice index to actual voice ID
   const uint8_t currentVoiceID = voiceSystem.getVoiceId(uiState.selectedVoiceIndex);
-  VoiceConfig *voiceConfiguration = voiceManager->getVoiceConfig(currentVoiceID);
+  const VoiceConfig *voiceConfiguration = voiceManager->getVoiceConfig(currentVoiceID);
 
   if (!voiceConfiguration)
   {
@@ -705,7 +705,7 @@ void OLEDDisplay::displayVoiceParameterInfo(const UIState &uiState, VoiceManager
   uint8_t selected = uiState.selectedVoiceIndex;
   uint8_t currentVoiceId = (selected == 0) ? leadVoiceId : (selected == 1) ? bassVoiceId
                                                                            : voiceSystem.getVoiceId(selected);
-  VoiceConfig *config = voiceManager->getVoiceConfig(currentVoiceId);
+  const VoiceConfig *config = voiceManager->getVoiceConfig(currentVoiceId);
 
   if (!config)
   {

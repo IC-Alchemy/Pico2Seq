@@ -8,7 +8,7 @@ namespace VoicePresets
   // Preset storage: constexpr factories build the whole table at compile time,
   // so it lands in .rodata. On RP2350 (XIP flash) that means the presets cost
   // zero SRAM; every accessor hands out a const reference into flash and the
-  // caller's VoiceConfig / stagedConfig_ copy is the only RAM instance.
+  // runtime config copies and bounded control queues occupy RAM.
   //
   // Field assignments below are the single source of truth. Fields a factory
   // does not assign keep their VoiceConfig default-member value, exactly like

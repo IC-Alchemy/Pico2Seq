@@ -155,3 +155,20 @@ TEST_CASE("Sequencer getCurrentStep returns 0 after construction", "[sequencer]"
     Sequencer seq(0);
     REQUIRE(seq.getCurrentStep() == 0);
 }
+
+// ─── advanceStep against the global uClock counter ───────────────────────────
+
+TEST_CASE("advanceStep phase follows global step modulo across the 8-bit wrap", "[sequencer]") {
+    Sequencer seq(0);
+    seq.start();
+    seq.setParameterStepCount(ParamId::Gate, 12);
+    seq.setParameterStepCount(ParamId::Note, 12);
+    VoiceState voiceState;
+    for (uint32_t step = 0; step <= 512; ++step) {
+        seq.advanceStep(step, -1, false, false, false, false, false, false, -1, &voiceState);
+        // 256 % 12 == 4: a counter truncated to uint8_t before the modulo would
+        // land on 0 here instead.
+        REQUIRE(seq.getCurrentStep() == step % 12);
+        REQUIRE(seq.getCurrentStepForParameter(ParamId::Note) == step % 12);
+    }
+}

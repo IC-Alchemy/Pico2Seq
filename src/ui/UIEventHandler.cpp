@@ -523,7 +523,7 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
   // Resolve current voice configuration
   const uint8_t selectedVoiceIndex = uiState.selectedVoiceIndex;
   const uint8_t currentVoiceId = voiceSystem.getVoiceId(selectedVoiceIndex);
-  VoiceConfig *liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
+  const VoiceConfig *liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
   if (!liveCfg)
     return;
   // Work on a local copy to avoid mutating live config from UI thread
@@ -822,7 +822,7 @@ void clearSequencerStep(Sequencer &sequencer, uint8_t stepIdx)
   }
 }
 
-void advanceSequencerStep(Sequencer &seq, uint8_t current_uclock_step, int mm_distance,
+void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_distance,
                           const UIState &uiState, VoiceState *voiceState)
 {
   seq.advanceStep(current_uclock_step, mm_distance,

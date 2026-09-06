@@ -180,7 +180,7 @@ void Sequencer::resetAllSteps()
         }
     }
 }
-void Sequencer::advanceStep(uint8_t current_uclock_step, int mm_distance,
+void Sequencer::advanceStep(uint32_t current_uclock_step, int mm_distance,
                             bool is_note_button_held, bool is_velocity_button_held,
                             bool is_filter_button_held, bool is_attack_button_held,
                             bool is_decay_button_held, bool is_octave_button_held,
@@ -196,7 +196,9 @@ void Sequencer::advanceStep(uint8_t current_uclock_step, int mm_distance,
     uint8_t sequenceLength = getParameterStepCount(ParamId::Gate);
     if (sequenceLength > 0)
     {
-        currentStep = current_uclock_step % sequenceLength;
+        // Modulo the full-width counter first; narrowing before the modulo would
+        // alias every 256 steps (uint8_t wrap) onto pattern position 0.
+        currentStep = static_cast<uint8_t>(current_uclock_step % sequenceLength);
     }
     else
     {
@@ -213,7 +215,7 @@ void Sequencer::advanceStep(uint8_t current_uclock_step, int mm_distance,
         if (paramStepCount > 0)
         {
             // Use efficient increment and wrap instead of modulo for performance
-            currentStepPerParam[i] = current_uclock_step % paramStepCount;
+            currentStepPerParam[i] = static_cast<uint8_t>(current_uclock_step % paramStepCount);
         }
         else
         {

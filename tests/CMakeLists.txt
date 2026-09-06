@@ -21,6 +21,7 @@ add_executable(pico2seq_tests
   unit/test_scales.cpp
   unit/test_sequencer.cpp
   unit/test_voice.cpp
+  unit/test_voice_transfer.cpp
   unit/test_voiceoscillator.cpp
   unit/test_control_surface_logic.cpp
   unit/test_alchemy_proto.cpp
@@ -35,6 +36,7 @@ add_executable(pico2seq_tests
   # Voice synthesis (DSP comes from header-only src/rpdsp)
   ${SRC_DIR}/voice/Voice.cpp
   ${SRC_DIR}/voice/VoicePresets.cpp
+  ${SRC_DIR}/voice/VoiceManager.cpp
 
   # Alchemy tile control surface decision logic (pure C++)
   ${SRC_DIR}/ui/ControlSurfaceLogic.cpp
@@ -49,7 +51,9 @@ target_include_directories(pico2seq_tests PRIVATE
   ${RPDSP_DIR}
 )
 
-target_link_libraries(pico2seq_tests PRIVATE Catch2::Catch2WithMain)
+find_package(Threads REQUIRED)
+target_link_libraries(pico2seq_tests PRIVATE Catch2::Catch2WithMain Threads::Threads)
+target_compile_definitions(pico2seq_tests PRIVATE AUG_DEBUG_COMPILED=0)
 
 target_compile_options(pico2seq_tests PRIVATE
   -Wall
@@ -59,3 +63,24 @@ target_compile_options(pico2seq_tests PRIVATE
 include(CTest)
 include(Catch)
 catch_discover_tests(pico2seq_tests)
+
+# Focused voice/ownership suite can run independently of the DSP recipe tests.
+add_executable(pico2seq_voice_tests
+  unit/test_helpers.cpp
+  unit/test_voice.cpp
+  unit/test_voiceoscillator.cpp
+  unit/test_voice_transfer.cpp
+  ${CORE_DIR}/scales/scales.cpp
+  ${CORE_DIR}/sequencer/ParameterManager.cpp
+  ${CORE_DIR}/sequencer/Sequencer.cpp
+  ${SRC_DIR}/voice/Voice.cpp
+  ${SRC_DIR}/voice/VoicePresets.cpp
+  ${SRC_DIR}/voice/VoiceManager.cpp
+)
+target_include_directories(pico2seq_voice_tests PRIVATE
+  ${STUB_DIR} ${PROJECT_SOURCE_DIR} ${SRC_DIR} ${CORE_DIR} ${RPDSP_DIR})
+target_link_libraries(pico2seq_voice_tests PRIVATE Catch2::Catch2WithMain Threads::Threads)
+target_compile_definitions(pico2seq_voice_tests PRIVATE AUG_DEBUG_COMPILED=0)
+target_compile_options(pico2seq_voice_tests PRIVATE -Wall -Wno-unused-parameter)
+catch_discover_tests(pico2seq_voice_tests TEST_PREFIX "voice-focused: "
+  PROPERTIES TIMEOUT 60)
