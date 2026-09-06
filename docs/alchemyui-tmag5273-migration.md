@@ -93,7 +93,7 @@ The full mechanical rename from `AS5600` to `Encoder` was executed across the co
 | `AS5600BaseValues` / `AS5600BaseValuesVoice1` (structs) | `EncoderBaseValues` / `EncoderBaseValuesVoice1` | `SequencerDefs.h` | ✅ Renamed |
 | `src/sensors/AS5600Manager.cpp/h` | `src/sensors/EncoderManager.cpp/h` | Files | ✅ Renamed |
 | `as5600Sensor` (global `AS5600Sensor`) | `magEncoder` (global `MagEncoder`) | `Pico2Seq.ino`, `EncoderManager.h` | ✅ Renamed |
-| `as5600BaseValuesVoice1` / `as5600BaseValuesVoice2` | `encoderBaseValuesVoice1` / `encoderBaseValuesVoice2` | `EncoderManager.cpp` | ✅ Renamed |
+| `as5600BaseValuesVoice1` / `as5600BaseValuesVoice2` | `encoderBaseValues[VoiceSystem::MAX_VOICES]` (per-voice array) + `encoderDelayValues` | `EncoderManager.cpp` | ✅ Renamed (superseded again 2026-09-04 by commit 5a6f9a0's per-voice array) |
 | `applyAS5600BaseValues` | `applyEncoderBaseValues` | `EncoderManager.cpp/h` | ✅ Renamed |
 | `applyAS5600DelayValues` / `applyAS5600SlideTimeValues` | `applyEncoderDelayValues` / `applyEncoderSlideTimeValues` | `EncoderManager.cpp/h` | ✅ Renamed |
 | `updateAS5600BaseValues` / `updateAS5600StepParameterValues` | `updateEncoderBaseValues` / `updateEncoderStepParameterValues` | `EncoderManager.cpp/h` | ✅ Renamed |

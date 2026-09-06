@@ -788,8 +788,7 @@ void setup()
 {
     delay(100); // Allow system stabilization
 
-    // Initialize audio synthesis system
-    initOscillators();
+    
 
     // Configure audio format (48kHz, 16-bit stereo)
     static audio_format_t audioFormat = {
@@ -930,7 +929,8 @@ void setup1()
     // Initialize OLED display
     display.begin();
     Serial.println("OLED display initialized");
-
+// Initialize audio synthesis system
+    initOscillators();
     // Register OLED display as observer for voice parameter changes
     if (voiceManager)
     {
@@ -995,9 +995,7 @@ void setup1()
     uClock.setTempo(90);
     uClock.start();
     uClock.setShuffle(true);
-    seq1.start();
-    seq2.start();
-
+ 
     Serial.printf("[CLOCK] uClock started, setup1 core=%u\n", (unsigned)get_core_num()); // TEMP DEBUG (clock-isr)
 
     Serial.println("[CORE1] Setup complete!");

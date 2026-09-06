@@ -167,8 +167,8 @@ range. It edits whatever the **encoder target** is — cycle targets with the Ut
 (back to Velocity)**
 
 - Voice targets (Velocity/Filter/Attack/Decay/Note) act as offsets on the selected voice.
-  Note: at step time these base offsets are applied to **voices 1 and 2 only** (the two
-  MIDI/gate-equipped voices) — see §9.
+  Note: at step time these base offsets are applied to **all four voices** (per-voice
+  `encoderBaseValues` in `EncoderManager`) — see §9.
 - Delay Time / Delay Feedback edit the global master delay.
 - Slide Time sets the portamento glide time.
 - While the encoder is controlling a parameter, the OLED status screen shows
@@ -193,10 +193,12 @@ A 128x64 monochrome OLED (SH1106G). It renders the highest-priority active view 
 five-tier hierarchy:
 
 1. **Mode banner** — transient `PARAM` / `UTIL` splash when the mode switch flips.
-2. **Settings & presets** — active whenever the transport is stopped: a preset browser for
+2. **Settings & presets** — a preset browser for
    the selected voice (current name in large type, `<`/`>` neighbors, "Sound Buffet" list
    of all four voices' presets) and voice-architecture toggles (envelope on/off, overdrive
-   on/off, filter mode, filter resonance).
+   on/off, filter mode, filter resonance). Reached by stopping the transport or by
+   long-pressing Play, which toggles Settings without stopping playback (preset applies
+   are staged and click-safe while running).
 3. **Gate Sequence Length gauge** — while Gate Length mode is held: voice number, length
    value, and a proportional bar.
 4. **Parameter edit screens** — when a parameter button is held/latched or a step is in
@@ -229,7 +231,7 @@ Ten color themes are available (cycle with Utility button 5) — see §6.
 
 | Connector | Function |
 |---|---|
-| **Stereo Out** (3.5 mm jack pair on the panel's left) | The main audio output: 48 kHz, 16-bit stereo I2S audio from the PIO/I2S pins (BCLK GP10, LRCK GP11, DATA GP12), e.g. to a PCM5102A-class DAC. All four voices are mixed here (mono mix duplicated to both channels), optionally through the master delay. |
+| **Stereo Out** (3.5 mm jack pair on the panel's left) | The main audio output: 48 kHz, 16-bit stereo I2S audio from the PIO/I2S pins (BCLK GP10, LRCK GP11, DATA GP12), e.g. to a PCM5102A-class DAC. All four voices are mixed here (mono mix duplicated to both channels). |
 | **Gate Input** (panel label) | **[unverified]** No gate/external-clock input is referenced anywhere in the firmware source or docs. Treat this panel hole as non-functional in the current firmware. |
 | **USB** (Pico 2) | Power + USB MIDI (see §7) + serial diagnostics console at 115200 baud. |
 | **Bottom-edge jack row** | Mounting/connector positions for the wired peripherals (I2S DAC, I2C buses, tile bus). **[unverified: exact per-hole assignments are a build-time wiring matter, see `README.md` wiring table.]** |
@@ -262,7 +264,8 @@ pins were reassigned to the I2S audio output. "Gate" now means the internal gate
 9. **Groove** — flip the mode switch to **Utility**: fader 1 sets tempo, button 4 cycles
    swing templates, button 2 toggles the delay.
 10. **Stop/start** — Utility button 1, or Shift + V1 from anywhere. Stopping opens the
-    OLED **preset browser** ("Sound Buffet"); starting again resumes and closes it.
+    OLED **preset browser** ("Sound Buffet"); starting again resumes and closes it. A
+    long-press of Play toggles the browser without stopping the transport.
 
 ---
 
@@ -380,7 +383,7 @@ Each voice runs a full synthesis chain at 48 kHz on the audio core:
  sequencer step values (pitch, velocity, envelope, gate, slide)
         |
         v
- SOURCE STAGE (one of three engines, chosen by the preset)
+ SOURCE STAGE (one of four engines, chosen by the preset)
    - Oscillator bank: up to 3 oscillators — band-limited B-spline saw/pulse,
      sine, triangle, naive saw/square, or raw white noise; per-osc detune
      (semitones) and harmony (scale steps)
@@ -388,6 +391,8 @@ Each voice runs a full synthesis chain at 48 kHz on the audio core:
      position/hardness, stiffness, two-string detune)
    - Noise-FX texture: noise + pitch-tracked Lorenz chaos growl through a
      prime-tap diffuser and a regenerative allpass swarm
+   - Hypersaw: one rpdsp::Hypersaw (seven internal detuned saw voices;
+     detune and mix driven by the re-purposed sequencer slots)
         |
         v
  ADSR ENVELOPE (pre-filter VCA; attack/decay edited per step or live)
@@ -405,12 +410,15 @@ Each voice runs a full synthesis chain at 48 kHz on the audio core:
  HIGH-PASS filter (per preset, tames lows)
         |
         v
- voice output level -> summed with the other 3 voices -> master delay -> Stereo Out
+ voice output level -> summed with the other 3 voices -> Stereo Out
 ```
 
-A **global delay effect** is on by default (boot time 667 ms, feedback 0.45); toggle it
-with Utility button 2 or Shift + V4, set its feedback with Utility fader 3 and its
-time/feedback with the encoder's Delay Time / Delay Feedback targets.
+A **global delay effect** exists in the codebase (boot parameters 667 ms, feedback 0.45);
+toggle it with Utility button 2 or Shift + V4, set its feedback with Utility fader 3 and
+its time/feedback with the encoder's Delay Time / Delay Feedback targets. Note: the delay
+insert is currently **commented out of the audio path** in `Pico2Seq.ino`
+(`processDelayEffect` call disabled), so the toggle changes the OLED/LED state only — no
+delay is audible in the current firmware.
 
 Filter **mode** (LP24 … HP12) and **resonance** are cycled/set from the OLED Settings
 screen's voice-parameter page; envelope and overdrive can be switched off per voice there
@@ -426,7 +434,7 @@ only **Analog** and **Lead** still run the true ladder filter.
 | 3 | **Bass** | Deep sub-octave detuned sine/triangle bass |
 | 4 | **Lead** | Dual-saw lead with a scale-harmony layer on the second oscillator |
 | 5 | **Square** | Narrow PWM pulse (20 % width) with resonant bite; no sustain |
-| 6 | **Pad** | Atmospheric 3-oscillator chord pad (harmonies 0/−3/+2), slow attack & release |
+| 6 | **Pad** | Atmospheric 3-oscillator chord pad (harmonies 0/+4/+9), slow attack & release |
 | 7 | **Percussion** | Fast-decaying noise-textured hit (no oscillators, pure noise burst) |
 | 8 | **SubFunk** | Sub-octave sine/triangle sub bass with warm overdrive grit |
 | 9 | **RubberSub** | Rubbery sub bass: sub-octave square grind under a resonant band-pass "honk", harder drive on transients |
@@ -434,12 +442,13 @@ only **Analog** and **Lead** still run the true ladder filter.
 | 11 | **WgNylon** | Dark, felt-soft nylon string; heavily damped, gentle pick, long sympathetic tail |
 | 12 | **WgBell** | Stiff dispersive waveguide; inharmonic bell/kalimba partials, hard pick, quick tail |
 | 13 | **WgShimmer** | Wide-detuned (26 ¢) two-string course; slow chorusing sustain, very long pad-like tail |
-| 14 | **Hypersaw** | Supersaw stack — two ±21 ¢ detuned unisons plus an octave-up saw, glued with mild overdrive |
+| 14 | **Hypersaw** | Native seven-voice `rpdsp::Hypersaw` stack — one engine voice, wide detune range, no overdrive |
 | 15 | **NoiseStorm** | Noise-texture engine: pitch-tracked Lorenz chaos growl through a prime-tap diffuser and regenerative allpass swarm, pinged by a resonant lowpass |
 
-Presets 1–9 are oscillator-engine sounds; 10–13 are waveguide strings; 14 is a stacked
-oscillator lead; 15 is the noise-FX texture engine. Presets live in flash and are changed
-per voice from the **preset browser** (stop the transport to open Settings on the OLED).
+Presets 1–9 are oscillator-engine sounds; 10–13 are waveguide strings; 14 is the seven-voice
+hypersaw stack; 15 is the noise-FX texture engine. Presets live in flash and are changed
+per voice from the **preset browser** (long-press Play, or stop the transport to open
+Settings on the OLED).
 In the browser, touch **pads 8–22** — exactly the pads lit on the LED mirror — to apply
 presets 1–15 to the selected voice; tap **pads 0–3** (or the V1–V4 buttons) to switch the
 target voice without leaving the browser. The encoder button toggles the Settings screen
@@ -486,7 +495,7 @@ the value into that step.
 
 | Button | Action |
 |---|---|
-| 1 Play / Stop | Start/stop the transport (and all 4 sequencers). Stopping opens the OLED Settings/preset browser; starting closes it |
+| 1 Play / Stop | Start/stop the transport (and all 4 sequencers). Stopping opens the OLED Settings/preset browser; starting closes it. Long-press toggles Settings without stopping |
 | 2 Delay | Toggle the master delay; also sets the encoder target to Delay Time |
 | 3 Scale | Cycle forward through the 13 scales |
 | 4 Swing | Cycle through the 16 shuffle templates |
@@ -588,7 +597,9 @@ external gear, use voices 1–2 over USB MIDI into a MIDI-to-CV/gate converter. 
   - Adafruit SH110X 2.1.15
   - Adafruit TinyUSB Library 3.7.7
   - FastLED 3.9.20
-  - uClock **2.2.1** (not 2.3.0 — the firmware uses `setOnSync24`, removed in 2.3.0)
+  - uClock is **not** installed from the library manager — the firmware compiles a
+    vendored uClock 2.2.1 fork from `src/vendor/uClock/` (alarm-pool patch; 2.3.0 removed
+    `setOnSync24`, which this firmware uses)
   - MIDI Library 5.0.2
 - Clone with `git clone --recurse-submodules` (`src/rpdsp/` and `src/VelocityEncoder/` are
   submodules).
@@ -616,17 +627,16 @@ cmake --build build_test --parallel
 - **Voices 3 and 4 are audio-only.** No USB MIDI notes, no gate timers — only voices 1–2
   talk MIDI. Internal voice indices are 0-based (0–3); the OLED shows `Voice: 0`–`Voice: 3`
   and `V0`–`V3` on edit screens, while the voice buttons and this manual say V1–V4.
-- **Encoder base offsets apply to voices 1 and 2 only** at step time (`applyEncoderBaseValues`
-  is only called for internal voices 0 and 1 in `onStepCallback`). Turning the encoder
-  while voice 3/4 is selected may not audibly change those voices — this is current
-  firmware behavior, not a broken pot.
+- **Encoder base offsets apply to all four voices** at step time (`applyEncoderBaseValues`
+  runs per voice in `processSequencerStep()`, backed by the per-voice `encoderBaseValues[4]`
+  array in `EncoderManager`).
 - **Can't program a pitch into a step?** Note edits are rejected on gate-off steps. Toggle
   the step on first.
 - **Pad does something unexpected** — check the context: a held parameter button turns pad
   presses into track-length setting; Gate Length mode turns them into Gate length; Shift
   turns them into clear-step. All pads are step pads; there is no pad "menu".
-- **Stopping the transport opens the preset browser** on the OLED. That is intentional;
-  press Play to leave it.
+- **Stopping the transport opens the preset browser** on the OLED (a Play long-press
+  toggles it without stopping). That is intentional; press Play to leave it.
 - **Distance sensor dead?** It reads 74–1400 mm only; closer or farther returns an invalid
   reading (shown as -1 internally) and does nothing. Bright sunlight or the LED matrix at
   full brightness can cause optical jitter.

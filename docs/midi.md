@@ -49,15 +49,20 @@ All CC messages are transmitted on **MIDI Channel 1** (`CC_MIDI_CHANNEL = 1`). E
 
 ## Realtime MIDI Clock Transmission
 
-Pico2Seq acts as a USB MIDI master clock source. Realtime clock messages are generated on **Core 1** directly from `uClock` timer callbacks in `Pico2Seq.ino`:
+Pico2Seq acts as a USB MIDI master clock source. The `uClock` timer callback runs in ISR
+context, so it only stages a counter; the actual `usb_midi.sendRealTime` calls happen in
+`loop1()` (Core 1) thread context, because TinyUSB endpoint state is claimed by `tud_task`
+on that core and is not interrupt-safe:
 
 ```cpp
-// 24 PPQN Clock Tick Callback
+// 24 PPQN Clock Tick Callback (uClock ISR — counter only, no usb_midi calls here)
 void onSync24Callback(uint32_t tick) {
-    usb_midi.sendRealTime(midi::Clock);
+    midiClockTicksPending++;
 }
+// (loop1() drains the counter in thread context:
+//  while (midiClockTicksPending > 0) { midiClockTicksPending--; usb_midi.sendRealTime(midi::Clock); })
 
-// Sequencer Playback Start
+// Sequencer Playback Start (rare event; sent directly, as in the current firmware)
 void onClockStart() {
     usb_midi.sendRealTime(midi::Start);
     seq1.start();

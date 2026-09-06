@@ -119,31 +119,28 @@ struct UIState {
 ```
 
 ### 4.3 Sequencer Step Integration
-When `uClock` triggers `onStepCallback` on Core 1 for a 16th note step:
-```cpp
-// Advance sequencers for all 4 voices
-Sequencer* sequencers[VoiceSystem::MAX_VOICES] = {&seq1, &seq2, &seq3, &seq4};
+The `uClock` ISR triggers `onStepCallback` on Core 1 for each 16th note step, but the
+callback is stage-only — it pushes the step number into `pendingUclockSteps` (a
+`StepTickQueue` SPSC ring). `loop1()` drains the queue and runs `processSequencerStep()`,
+which advances the sequencers via the `advanceSequencerStep()` adapter and updates the
+voice states:
 
-for (uint8_t v = 0; v < VoiceSystem::MAX_VOICES; v++) {
-    sequencers[v]->advanceStep();
-    VoiceState& state = voiceSystem.getVoiceState(v);
-    
-    // Read active polymetric tracks
-    state.noteIndex = sequencers[v]->getParameterValue(ParamId::Note);
-    state.velocityLevel = sequencers[v]->getParameterValue(ParamId::Velocity);
-    state.filterCutoff = sequencers[v]->getParameterValue(ParamId::Filter);
-    state.isGateHigh = (sequencers[v]->getParameterValue(ParamId::Gate) > 0.5f);
-    
-    // Update Voice instance (lock-free staging to Core 0)
-    uint8_t voiceId = voiceSystem.getVoiceId(v);
-    voiceManager->updateVoiceState(voiceId, state);
-    
-    // Gated voices (0 and 1) trigger hardware gates and timers
-    if (v < 2 && state.isGateHigh) {
-        voiceSystem.getGate(v) = true;
-        uint16_t durationTicks = static_cast<uint16_t>(sequencers[v]->getParameterValue(ParamId::GateLength));
-        voiceSystem.getGateTimer(v).start(durationTicks);
-    }
+```cpp
+// ISR side: stage-only
+void onStepCallback(uint32_t uClockCurrentStep) {
+    pendingUclockSteps.push(uClockCurrentStep);
+}
+
+// loop1() thread context:
+uint32_t drainedStep = 0;
+while (pendingUclockSteps.pop(drainedStep)) {
+    processSequencerStep(drainedStep);
+    // Inside processSequencerStep(), for each voice v (0..3):
+    //   advanceSequencerStep(seq_v, step, distance, uiState, &tempState)
+    //   produces a VoiceState from the active polymetric tracks;
+    //   updateVoiceMIDI(...) updates gates/timers (voices 0-1) and MIDI;
+    //   voiceSystem.getVoiceState(v) = tempState;
+    //   voiceManager->updateVoiceState(voiceId, state) stages it to Core 0.
 }
 ```
 
@@ -157,11 +154,9 @@ while (ppqnTicksPending > 0) {
     // Update MIDI note durations
     midiNoteManager.updateTiming(globalTickCounter);
     
-    // Advance sequencer note duration countdowns
-    seq1.tickNoteDuration();
-    seq2.tickNoteDuration();
-    seq3.tickNoteDuration();
-    seq4.tickNoteDuration();
+    // Advance sequencer note duration countdowns (voices 0 and 1)
+    seq1.tickNoteDuration(&voiceSystem.getVoiceState(0));
+    seq2.tickNoteDuration(&voiceSystem.getVoiceState(1));
     
     // Tick gate countdown timers and clear expired gates
     voiceSystem.tickAllGateTimers();

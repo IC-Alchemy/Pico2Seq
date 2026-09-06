@@ -4,7 +4,7 @@
 
 The `src/OLED/` subsystem manages the 128×64 monochrome OLED display for Pico2Seq using an **Adafruit SH1106G** driver over I2C (`Wire` @ `0x3C`).
 
-The OLED provides real-time visualization of parameter values, sequence lengths, settings sub-menus, voice presets, and system status through a deterministic **5-tier priority rendering hierarchy**.
+The OLED provides real-time visualization of parameter values, sequence lengths, settings sub-menus, voice presets, and system status through a deterministic **6-tier priority rendering hierarchy**.
 
 ---
 
@@ -33,7 +33,14 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
                                     | (if expired)
                                     v
 +-------------------------------------------------------------------------+
-| Priority 2: Settings & Preset Management Screen                         |
+| Priority 2: Transitory Confirmation Notice                              |
+| (Active when millis() < uiState.oledNoticeUntil: "DELAY ON"/"DELAY OFF"/|
+|  "RANDOMIZED" + voice, replacing the old control-cluster LED flashes)   |
++-------------------------------------------------------------------------+
+                                    | (if expired)
+                                    v
++-------------------------------------------------------------------------+
+| Priority 3: Settings & Preset Management Screen                         |
 | (Active when uiState.settingsMode == true)                              |
 |   ├── SubMode VOICE_PARAMETER: Parameter toggles (Filter/Env/Drive)     |
 |   └── SubMode PRESET_SELECTION: Preset browser & Sound Buffet 4-voice   |
@@ -41,20 +48,20 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
                                     | (if inactive)
                                     v
 +-------------------------------------------------------------------------+
-| Priority 3: Gate Sequence Length Gauge                                  |
+| Priority 4: Gate Sequence Length Gauge                                  |
 | (Active when uiState.gateSeqLengthMode == true - holding encoder)       |
 +-------------------------------------------------------------------------+
                                     | (if inactive)
                                     v
 +-------------------------------------------------------------------------+
-| Priority 4: Parameter Editing Screens                                   |
+| Priority 5: Parameter Editing Screens                                   |
 |   ├── Held Parameter Button (heldParamId != ParamId::Count)             |
 |   └── Step Edit Mode (uiState.selectedStepForEdit != -1)                |
 +-------------------------------------------------------------------------+
                                     | (if inactive)
                                     v
 +-------------------------------------------------------------------------+
-| Priority 5: Default System Status Screen                                |
+| Priority 6: Default System Status Screen                                |
 | (Scale name, Shuffle template, 0-based Voice index, Step indicators)    |
 +-------------------------------------------------------------------------+
 ```
@@ -68,12 +75,16 @@ Triggered for a brief timeout window whenever the hardware GP7 mode strap change
 - **PARAM Mode:** Displays centered size-3 **"PARAM"** with subtitle `> params <`.
 - **UTIL Mode:** Displays centered size-3 **"UTIL"** with subtitle `> utility <`.
 
-#### 2. Settings & Preset Menus (Priority 2)
+#### 2. Transitory Confirmation Notice (Priority 2)
+Shown for a short window after delay/randomize actions (replacing the old control-cluster LED flashes):
+- `DELAY ON` / `DELAY OFF` in size-2 text, or `RANDOMIZED` with a `Voice N` sub-line (1-based).
+
+#### 3. Settings & Preset Menus (Priority 3)
 Activated when `uiState.settingsMode` is true:
 - **Voice Parameter Sub-Mode (`SettingsSubMode::VOICE_PARAMETER`):** Shows toggle states for voice architecture:
   - Envelope (ON/OFF)
   - Overdrive (ON/OFF)
-  - Filter Mode (`LP12`, `LP24`, `LP36`, `BP12`, `BP24`)
+  - Filter Mode (`LP24`, `LP12`, `BP24`, `BP12`, `HP24`, `HP12`)
   - Filter Resonance (%)
 - **Preset Selection Sub-Mode (`SettingsSubMode::PRESET_SELECTION`):**
   - Reachable while the transport runs (long-press Play/Stop toggles settings; short-press while running inside settings exits without stopping).
@@ -88,14 +99,14 @@ Filter/Attack/Decay slots (`VoiceConfig::paramSet`), the OLED shows the slot's r
 name (e.g. Bright/Pick/T60 on a waveguide voice, via `VoicePresets::getSequencerParamName`)
 and formats the value in its own unit (%, seconds for T60, semitones for detune).
 
-#### 3. Gate Sequence Length Gauge (Priority 3)
+#### 4. Gate Sequence Length Gauge (Priority 4)
 Activated when `uiState.gateSeqLengthMode` is active (holding the encoder while rotating):
 - Header: `"Sequence Length"`
 - Voice: `0..3` (0-based indexing)
 - Length: Numeric sequence length (1–16) displayed in size-2 font.
 - Visual Gauge: Proportional horizontal bar across the bottom displaying length relative to 16 steps.
 
-#### 4. Parameter Edit Screen (Priority 4)
+#### 5. Parameter Edit Screen (Priority 5)
 Displayed when a parameter button is held (`heldParamId`) or a step is selected for editing (`selectedStepForEdit`):
 - **Header:** Parameter name (`Note`, `Velocity`, `Filter`, `Attack`, `Decay`, `Octave`, `GateLength`, `Slide`) in size-2 text.
 - **Indicators:** Voice ID (`V0`–`V3`) and Step Index (`S1`–`S16`) in top right.
@@ -110,12 +121,13 @@ Displayed when a parameter button is held (`heldParamId`) or a step is selected 
   - `Gate` / `Slide`: `ON` / `OFF`
 - **Progress Bar:** 10px tall bordered progress bar for continuous parameters (Velocity, Filter, Attack, Decay, GateLength).
 
-#### 5. Default Status Screen (Priority 5 — Lowest)
+#### 6. Default Status Screen (Priority 6 — Lowest)
 Displayed when no transient, settings, or edit modes are active:
 - **Scale:** Name of active musical scale (e.g., `Chromatic`, `Major`, `Minor`, `Dorian`, `Pentatonic Major`, etc.).
 - **Shuffle:** Active shuffle template name (e.g., `No Shuffle`, `Classic 16th`, `Light Swing`).
 - **Voice Index:** Active voice displayed in 0-based format (`Voice: 0` through `Voice: 3`) in large size-3 typography.
 - **Step Indicators:** Real-time beat-synchronized dot playhead indicators across the bottom for the active voice sequencer.
+- **Encoder Line:** `ENC: <parameter> <value>` appears while the magnetic encoder is controlling a parameter.
 
 ---
 
@@ -176,6 +188,8 @@ public:
   void onVoiceParameterChanged(uint8_t voiceId, const VoiceState &state) override;
   void onVoiceSwitched(uint8_t newVoiceId) override;
   void onVoiceSwitched(const UIState &uiState, VoiceManager *voiceManager);
+
+private:
   void forceUpdate(const UIState &uiState, VoiceManager *voiceManager);
 };
 

@@ -47,21 +47,22 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
 |            Real-Time Audio Synthesis               |   UI, Sensors, MIDI & Sequencer    |
 +----------------------------------------------------+------------------------------------+
 | setup():                                           | setup1():                          |
-|  - initOscillators()                               |  - delay(300) [stabilize Core 0]   |
-|      * VoiceManager(4) construction                |  - usb_midi.begin()                |
+|  - initOscillators()                               |  - usb_midi.begin()                |
+|      * VoiceManager(4) construction                |  - delay(100) [stabilization]      |
 |      * Add 4 preset voices                         |  - Wire (I2C0 GP4/GP5): OLED,      |
 |      * Attach seq1..seq4 to voice IDs              |    MPR121, TMAG5273, VL53L1X       |
 |  - audio_new_producer_pool(3 buffers, 256 samples) |  - Wire1 (I2C1 GP14/GP15 @ 100kHz):|
 |  - audio_i2s_setup(48kHz, stereo S16, GP10-12)    |    Alchemy tile control panel      |
 |  - audio_i2s_set_enabled(true)                     |  - ledMatrix.begin(100) (GP1)      |
-|                                                    |  - uClock.init(90 BPM, 480 PPQN)   |
+|                                                    |  - uClock.init(); setTempo(90);    |
+|                                                    |    setOutputPPQN(PPQN_480)         |
 | loop():                                            |                                    |
 |  - take_audio_buffer(producer_pool, true)          | loop1():                           |
 |  - fill_audio_buffer(audioBuffer):                 |  - usb_midi.read()                 |
 |      for i = 0 .. 255:                             |  - pollUIHeldButtons(uiState, ...) |
 |        s = voiceManager->processAllVoices()        |  - Drain PPQN ticks (uClock):      |
-|        pcm16 = FloatToPcm16(s)  [__SSAT]           |      * midiNoteManager.update()    |
-|        out[2*i] = pcm16; out[2*i+1] = pcm16;       |      * seq1..seq4.tickNoteDuration()|
+|        pcm16 = FloatToPcm16(s)  [__SSAT]           |      * midiNoteManager.updateTiming()  |
+|        out[2*i] = pcm16; out[2*i+1] = pcm16;       |      * seq1/seq2.tickNoteDuration()|
 |  - give_audio_buffer(producer_pool, audioBuffer)   |      * voiceSystem.tickAllGateTimers()|
 |                                                    |  - 1ms Loop (Control & Sensors):   |
 |                                                    |      * Matrix_scan() (32 step pads)|
@@ -277,7 +278,8 @@ All DSP components reside in the `rpdsp` namespace from `src/rpdsp/` (tracked as
                     │    - Overdrive: rpdsp::Waveshaper (if enabled)    │
                     │    - Main filter per filterType:                  │
                     │      Ladder (Analog/Lead) or StateVariableFilter  │
-                    │      (LP24, LP12, BP24, BP12, HP24, HP12)         │
+                    │      (SVF: LP, BP or HP output per filterMode —   │
+                    │       12 dB; the 24 dB modes are ladder-only)     │
                     │    - High-Pass: rpdsp::StateVariableFilter (HPF)  │
                     │    - Scaling: S_out = S_hpf * outputLevel         │
                     └─────────────────────────┬─────────────────────────┘

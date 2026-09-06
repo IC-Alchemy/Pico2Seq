@@ -141,7 +141,7 @@ inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset, int 
 - **Pitch Range**:
   - Minimum step (0 semitones, -12 octave offset): MIDI note 36 (C2 = 65.41 Hz).
   - Nominal root (0 semitones, 0 octave offset): MIDI note 48 (C3 = 130.81 Hz).
-  - High step (72 semitones, +12 octave offset): MIDI note 132 (clamped by lookup table to 127 = G9 = 12.54 kHz).
+  - High step (72 semitones, +12 octave offset): MIDI note 132 — beyond the table's 128 entries; sequencer parameter ranges keep the computed note inside the table (there is no runtime clamp on this synthesis path).
 - **Rationale**: Internal oscillator waveforms and ladder filter character are voiced to sound full and punchy centered in the C3 octave.
 
 ### 4.2 External MIDI Output: C2 Base (+36)

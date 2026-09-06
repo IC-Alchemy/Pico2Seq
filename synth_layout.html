@@ -140,7 +140,7 @@
       <span class="farrow">→</span>
       <div class="fnode" id="fn-vs"><b>VOICESYSTEM</b>gates · preset + param staging</div>
       <span class="farrow">→</span>
-      <div class="fnode core0" id="fn-core0"><b>CORE 0 · AUDIO</b>4× osc → ladder filter → ADSR → drive</div>
+      <div class="fnode core0" id="fn-core0"><b>CORE 0 · AUDIO</b>4× osc → ladder/SVF main filter → ADSR → drive</div>
       <span class="farrow">→</span>
       <div class="fnode core0" id="fn-i2s"><b>I2S OUT</b>48 kHz stereo</div>
     </div>
@@ -273,7 +273,7 @@ const INFO={
   <p><span class="uv">The physical panel shows a fifth slot; firmware maps exactly four channels (kChannelCount = 4). The fifth is unverified/spare.</span></p>`},
  voicebtns:{t:'V1–V4 voice selects',s:'ButtonMap.h (SliderModule buttons)',b:
   `<p>The four buttons of the SliderModule directly select voices 1–4 in <b>both</b> modes. The selected voice keeps its own pad bank; the partner voice takes the other bank.</p>
-   <p><span class="uv">Note:</span> the magnetic encoder's base-parameter application (velocity/filter/attack/decay) currently reaches voices 1–2 only (<span style="font-family:var(--mono)">applyEncoderBaseValues</span> on tempState1/2).</p>`},
+   <p><span class="uv">Note:</span> the magnetic encoder's base-parameter application (velocity/filter/attack/decay) reaches all four voices at step time (per-voice <span style="font-family:var(--mono)">encoderBaseValues[4]</span>, applied in <span style="font-family:var(--mono)">processSequencerStep()</span>).</p>`},
  module8:{t:'ButtonModule8 — 8 buttons (slot 1)',s:'ButtonMap.h · ShiftLatch',b:
   `<p>One physical 8-button tile carries two function sets; GP7 picks which is live. Shift (bit 7) is shared.</p>
    <ul><li><b>Param</b>: NOTE VEL FILT ATT DEC OCT SLIDE + SHIFT. Hold = momentary; <b>Shift+press latches</b> the parameter so it stays held (one latch at a time).</li>
@@ -287,7 +287,7 @@ const INFO={
  gate:{t:'Gate Input jack',s:'panel legend',b:
   `<p>Labeled jack on the wooden panel. <span class="uv">Unverified:</span> no gate-input / external-clock code exists in the current firmware (the old GPIO gate outputs were removed 2026-09-01 when gates moved to the PIO I2S stream). Present on the panel; treated as non-functional in firmware.</p>`},
  out:{t:'Stereo Out — I2S 48 kHz',s:'docs/sensors.md · src/audio',b:
-  `<p>Stereo I2S output on GP10 (BCLK) / GP11 (LRCK) / GP12 (DATA), filled by Core 0's <span style="font-family:var(--mono)">fill_audio_buffer()</span>. A global delay (boot: 667 ms, feedback 0.45, cap 0.91) sits on the bus — DLY toggles it.</p>`},
+  `<p>Stereo I2S output on GP10 (BCLK) / GP11 (LRCK) / GP12 (DATA), filled by Core 0's <span style="font-family:var(--mono)">fill_audio_buffer()</span>. A global delay exists in the codebase (boot: 667 ms, feedback 0.45, cap 0.91) but its processing call is currently commented out of the audio path — DLY toggles the OLED/LED state only, no delay is audible.</p>`},
  param:{t:'Parameter buttons',s:'UIState · ShiftLatch',b:
   `<p>Hold (or Shift-latch) a parameter, then the pads/OLED become its editor; each ParamId is its own polymetric track with an independent step count. Waveguide presets re-purpose the Filter/Attack/Decay slots (e.g. Bright/Pick/T60) and the OLED follows the re-purposed names.</p>`},
  play:{t:'PLAY / Stop',s:'UIState · docs/oled.md',b:

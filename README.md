@@ -24,7 +24,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **Hardware Mode Strap (GP7)**: Instant hardware toggle between Parameter mode and Utility mode
 - **Real-time Sensors**: TMAG5273 magnetic encoder (Velocity Encoder board) for responsive parameter dialing
 - **Distance Control**: VL53L1X TOF sensor for hands-free optical parameter modulation (74–1400 mm range)
-- **Visual Feedback**: 128×64 SH1106G OLED display with 5-tier priority screen rendering
+- **Visual Feedback**: 128×64 SH1106G OLED display with 6-tier priority screen rendering
 - **LED Matrix**: 8×4 WS2812B RGB LED display (mirroring the 4×8 touch matrix) with 10 vibrant color themes and playhead visualization
 
 ### Architecture Highlights
@@ -67,6 +67,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 │   ├── LEDMatrix/            # 8×4 WS2812B RGB visual feedback (pad-mirror) and 10 color themes
 │   ├── OLED/                 # 128×64 SH1106G OLED display manager and priority screens
 │   ├── utils/                # Debug logging utilities (Debug.h/.cpp)
+│   ├── vendor/               # Vendored uClock 2.2.1 fork (core-1 alarm-pool patch)
 │   └── AlchemyUI/            # Vendored Alchemy Modular UI tile library (tracked in-repo)
 ├── docs/                     # Comprehensive architecture and subsystem documentation
 ├── tests/                    # Host-side Catch2 v3.5.2 unit test suite and stubs
@@ -100,8 +101,12 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
   - `Adafruit SH110X` 2.1.15
   - `Adafruit TinyUSB Library` 3.7.7
   - `FastLED` 3.9.20
-  - `uClock` 2.2.1 (the firmware uses `setOnSync24`, which is not available in 2.3.0)
   - `MIDI Library` 5.0.2
+
+  uClock is **not** installed from the library manager: the firmware compiles a
+  vendored uClock 2.2.1 fork from `src/vendor/uClock/` (alarm-pool patch; the
+  stock library must not be installed or the link fails with duplicate
+  definitions — see `includes.h`).
 
 ### Installation & Flashing
 
@@ -145,7 +150,7 @@ function Copy-StageTree {
 
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     foreach ($item in Get-ChildItem -LiteralPath $Source -Force) {
-        if ($item.Name -in @('.git', 'build', 'build_test', 'vendor')) { continue }
+        if ($item.Name -in @('.git', 'build', 'build_test', 'build_fw', 'build_fw_on')) { continue }
 
         $target = Join-Path $Destination $item.Name
         if ($item.PSIsContainer) {
@@ -278,7 +283,7 @@ Pico2Seq provides an automated host-side unit test suite powered by **Catch2 v3.
 cmake -B build_test -DCMAKE_BUILD_TYPE=Debug
 cmake --build build_test --parallel
 
-# Run the full suite (88 test cases) via CTest
+# Run the full suite via CTest
 ctest --test-dir build_test/tests --output-on-failure
 
 # Or run/filter the test binary directly
@@ -300,7 +305,7 @@ Comprehensive subsystem documentation is maintained in the [`docs/`](docs/) dire
 - [`docs/scales.md`](docs/scales.md) — 13 musical scales, semitone offsets, rank caching, and pitch mapping
 - [`docs/matrix.md`](docs/matrix.md) — MPR121 32-pad touch input matrix, bank resolution, and Alchemy tile interaction
 - [`docs/LEDMatrix.md`](docs/LEDMatrix.md) — WS2812B 8×4 RGB LED matrix visualizer, 10 themes, and pair-based voice indicators
-- [`docs/oled.md`](docs/oled.md) — 128×64 SH1106G OLED display, 5-tier priority rendering hierarchy, and UI state
+- [`docs/oled.md`](docs/oled.md) — 128×64 SH1106G OLED display, 6-tier priority rendering hierarchy, and UI state
 - [`docs/midi.md`](docs/midi.md) — USB MIDI note/CC management, 2-voice asymmetry, and realtime MIDI clock
 - [`docs/sensors.md`](docs/sensors.md) — TMAG5273 magnetic encoder and VL53L1X TOF distance sensor integration
 - [`docs/ButtonHandlers.md`](docs/ButtonHandlers.md) — UI button event dispatching and debounce logic

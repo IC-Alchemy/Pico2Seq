@@ -29,7 +29,7 @@ The Pico2Seq hardware separates sensors, displays, and control surfaces across t
 - `PIN_ALCHEMY_WIRE1_SDA` = `14` (GP14)
 - `PIN_ALCHEMY_WIRE1_SCL` = `15` (GP15)
 - `PIN_ALCHEMY_MODE_SWITCH` = `7` (GP7, `INPUT_PULLUP`)
-- `PIN_TOUCH_IRQ` = `10` (Legacy / diagnostic touch interrupt)
+- Legacy touch-IRQ pin: **removed**. GP10–GP12 are now owned by the I2S audio output (BCLK/LRCK/DATA).
 
 ---
 
@@ -151,7 +151,9 @@ extern const size_t MAX_DELAY_SAMPLES;
 class MagEncoder {
 public:
     enum class Sensor { AS5600, TMAG5273 };
-    explicit MagEncoder(Sensor sensor = Sensor::AS5600, uint8_t i2cAddress = 0);
+    MagEncoder();
+explicit MagEncoder(Sensor sensor);
+explicit MagEncoder(const Config &config); // i2cAddress and response tuning via Config
     bool begin(TwoWire &wire = Wire);                // Initialize I2C and verify sensor identity
     void update();                                   // Throttled sensor read (5ms interval)
     uint16_t getRawAngle() const;                    // Native counts (0-5759 on TMAG5273)

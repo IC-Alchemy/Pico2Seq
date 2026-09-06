@@ -40,6 +40,7 @@ Run a single tag/group instead of the full suite:
 ```bash
 ./build_test/tests/pico2seq_tests "[rpdsp]"
 ./build_test/tests/pico2seq_tests "[sequencer]"
+./build_test/tests/pico2seq_tests "[steptick]"
 ./build_test/tests/pico2seq_tests "[voice]"
 ./build_test/tests/pico2seq_tests "[voiceosc]"
 ./build_test/tests/pico2seq_tests "[control_surface]"
@@ -50,12 +51,11 @@ Other useful invocations:
 ```bash
 ./build_test/tests/pico2seq_tests --list-tests        # list all tests without running
 ./build_test/tests/pico2seq_tests --reporter console -s  # full detail on failures
-ctest --test-dir build_test --output-on-failure       # what CI runs
+ctest --test-dir build_test --output-on-failure       # same tests, via CTest
 ```
 
-CI (`.github/workflows/tests.yml`) runs on every push/PR: `cmake -B build`, `cmake --build build
---parallel`, then `ctest --test-dir build --output-on-failure`.
-
+There is currently no CI workflow — the old `.github/workflows/tests.yml` was removed, so
+run the suite locally (the commands above) after any change under `src/` or `tests/`.
 
 ## Testing strategy — read this before touching anything under `src/`
 
@@ -71,7 +71,8 @@ What's tested vs. not, per `tests/CMakeLists.txt`:
   `tests/unit/test_rpdsp_additions.cpp` (wavefolder, fmap/Mapping, Waveshaper, vendored
   DSPFunctions smoke tests), `src/voice/VoiceOscillator.h` via `test_voiceoscillator.cpp`,
   `src/pico2seq-core/scales/scales.cpp`,
-  `src/pico2seq-core/sequencer/{ParameterManager,Sequencer}.cpp`,
+  `src/pico2seq-core/sequencer/{ParameterManager,Sequencer}.cpp` and
+  `sequencer/StepTickQueue.h` via `tests/unit/test_step_tick_queue.cpp`,
   `src/voice/{Voice,VoicePresets}.cpp`,
   `src/ui/ControlSurfaceLogic.cpp` via `tests/unit/test_control_surface_logic.cpp`,
   `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` via `tests/unit/test_alchemy_proto.cpp`.
@@ -135,7 +136,8 @@ Matrix/TMAG5273/VL53L1X/MIDI input  (Core 1)
   → UIEventHandler / ButtonHandlers  → UIState (single struct, no loose globals)
   → 4 independent Sequencer instances (seq1..seq4, one per voice, polymetric: each
     ParamId track can have its own step count, e.g. Note:16 steps, Filter:8 steps)
-  → VoiceState produced per step (onStepCallback, called by uClock on each 16th note)
+  → VoiceState produced per step (the uClock ISR only queues the step into
+    StepTickQueue; loop1() drains it and runs processSequencerStep)
   → VoiceSystem (gate timing, MIDI note on/off via MidiNoteManager) → VoiceManager
   → Voice DSP chain (oscillators → ladder filter → ADSR → overdrive/wavefolder)
   → fill_audio_buffer()  (Core 0)  → I2S @ 48kHz
@@ -170,7 +172,7 @@ is what makes "Note track at 16 steps, Filter track at 8 steps" possible on the 
   conventions before adding a new processor rather than pulling in DaisySP fresh.
 - **External modules (`src/rpdsp/` and `src/VelocityEncoder/`) are Git submodules.** When cloning,
   use `git clone --recurse-submodules` or run `git submodule update --init --recursive`.
-- Project naming history: some older sub-READMEs (`src/matrix/README.md`, `src/midi/README.md`)
-  still say "Mudras Sequencer"/"PicoMudrasSequencer" from before the project was renamed to
-  Pico2Seq, and reference a `PROGRAMMERS_MANUAL.md` that no longer exists. Don't treat those as
-  current naming — `Pico2Seq.ino` and the root `README.md` are authoritative.
+- Project naming history: a few code comments (`src/midi/MidiManager.h`, `src/OLED/oled.h`,
+  `src/ui/UIState.h`, ...) still say "Mudras Sequencer"/"PicoMudrasSequencer" from before the
+  project was renamed to Pico2Seq. Don't treat those as current naming — `Pico2Seq.ino` and
+  the root `README.md` are authoritative.

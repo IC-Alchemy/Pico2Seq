@@ -17,7 +17,7 @@ The panel **mirrors the touch matrix**: the MPR121 touch surface (`src/matrix/`)
 - **LED Type:** WS2812B Addressable RGB LEDs
 - **Matrix Dimensions:** 8 columns × 4 rows (32 total LEDs)
 - **Data Pin:** `GPIO 1` (`LEDConstants::MATRIX_DATA_PIN`)
-- **Default Brightness:** 120 (on a 0–255 scale)
+- **Default Brightness:** `LEDConstants::DEFAULT_BRIGHTNESS` = 120 (on a 0–255 scale); the sketch initializes the matrix with `ledMatrix.begin(100)` in `setup1()`, so runtime brightness is 100.
 - **Power Supply:** 5V rail capable of supplying up to ~1.5A for full-white illumination; internal brightness scaling is applied to limit peak current draw.
 
 ---
@@ -96,13 +96,13 @@ Centralized namespace declarations for timing, layout geometry, color categories
 - **Polyrhythmic Overlays:** `POLYRHYTHM_INTENSITY = 32`, `POLYRHYTHM_PARAM_COUNT = 3`.
 
 #### `namespace LEDColors`
-- **Standard:** `BLACK = CRGB::Black`, `WHITE = CRGB::White`.
+- **Standard:** `BLACK = CRGB::Black`, `WHITE = CRGB(66, 66, 66)` (dimmed white).
 - **Delay Effects:** `DELAY_INDICATOR = CRGB(0, 166, 55)`, `DELAY_TIME_BASE = CRGB(0, 44, 33)`, `DELAY_FEEDBACK_BASE = CRGB(0, 55, 22)`.
 - **Breathing Animation:** `BREATHING_BLUE_BASE = CRGB(0, 0, 94)`, `BREATHING_MIN_INTENSITY = 16`, `BREATHING_MAX_INTENSITY = 80`.
 - **Polyrhythmic Track Accents:**
-  - `POLYRHYTHM_NOTE = CRGB(0, 32, 32)` (Cyan tint)
-  - `POLYRHYTHM_VELOCITY = CRGB(0, 32, 0)` (Green tint)
-  - `POLYRHYTHM_FILTER = CRGB(0, 0, 32)` (Blue tint)
+  - `POLYRHYTHM_NOTE = CRGB(0, 32, 66)` (Cyan tint)
+  - `POLYRHYTHM_VELOCITY = CRGB(0, 66, 0)` (Green tint)
+  - `POLYRHYTHM_FILTER = CRGB(0, 0, 66)` (Blue tint)
 
 ---
 
@@ -119,7 +119,7 @@ public:
 
   LEDMatrix();
   void begin(uint8_t brightness = LEDConstants::DEFAULT_BRIGHTNESS);
-  void setLED(uint8_t x, uint8_t y, const CRGB& color);
+  void setLED(int x, int y, const CRGB& color);
   void setAll(const CRGB& color);
   void show();
   void clear();
