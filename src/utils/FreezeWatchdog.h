@@ -120,6 +120,17 @@ static inline void freezeWatchdogArm()
 // for a serial host so the post-mortem is not dropped.
 static inline void freezeWatchdogBootCheck()
 {
+    // A warm reset WITHOUT the watchdog flag still matters (reset pin, debug
+    // reset, a crash-reboot path that never marked FW_FAULT). scratch[2]
+    // survives warm resets and is cleared by power-on, so > 1 proves a
+    // warm-reset chain. No serial wait - best effort, next boot repeats it.
+    if (!watchdog_caused_reboot() && watchdog_hw->scratch[2] > 1)
+    {
+        Serial.begin(115200);
+        Serial.print("[FREEZE] warm reset #");
+        Serial.println(watchdog_hw->scratch[2]);
+    }
+
     if (!watchdog_caused_reboot())
     {
         return;

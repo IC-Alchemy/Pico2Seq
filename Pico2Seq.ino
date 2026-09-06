@@ -1074,6 +1074,23 @@ void loop()
     freezeWatchdogFeed(FW_LOOP_CLOCK_EVENTS);
     processClockEvents();
 
+    // TEMP DEBUG: cross-core voice-registration probe (remove after bench).
+    // Prints Core 0's view of the voice-id table Core 1 writes in
+    // initOscillators(), plus the manager's own voice count.
+    static uint32_t lastVoiceDiag = 0;
+    if (currentMillis - lastVoiceDiag >= 2000)
+    {
+        lastVoiceDiag = currentMillis;
+        if (Serial)
+        {
+            Serial.printf("[DIAG C0] ids=%u,%u,%u,%u mgrVoices=%u warmBoots=%lu\n",
+                          voiceSystem.getVoiceId(0), voiceSystem.getVoiceId(1),
+                          voiceSystem.getVoiceId(2), voiceSystem.getVoiceId(3),
+                          (unsigned)(voiceManager ? voiceManager->getVoiceCount() : 0),
+                          (unsigned long)watchdog_hw->scratch[2]);
+        }
+    }
+
     // Process all pending PPQN ticks
     freezeWatchdogFeed(FW_LOOP_PPQN);
     static uint16_t globalTickCounter = 0; // Global tick counter for MidiNoteManager
@@ -1198,5 +1215,24 @@ void loop1()
     {
         fill_audio_buffer(audioBuffer);
         give_audio_buffer(producer_pool, audioBuffer);
+    }
+
+    // TEMP DEBUG: Core-1 liveness heartbeat + Core 1's own view of the voice-id
+    // table (remove after bench). Heartbeat stopping means Core 1 died or the
+    // audio pipeline stalled; compare ids against [DIAG C0] on Core 0.
+    static uint32_t c1BufCount = 0;
+    static uint32_t c1LastBeat = 0;
+    c1BufCount++;
+    const uint32_t c1Now = millis();
+    if (c1Now - c1LastBeat >= 2000)
+    {
+        c1LastBeat = c1Now;
+        if (Serial)
+        {
+            Serial.printf("[DIAG C1] alive bufs=%lu ids=%u,%u,%u,%u\n",
+                          (unsigned long)c1BufCount,
+                          voiceSystem.getVoiceId(0), voiceSystem.getVoiceId(1),
+                          voiceSystem.getVoiceId(2), voiceSystem.getVoiceId(3));
+        }
     }
 }
