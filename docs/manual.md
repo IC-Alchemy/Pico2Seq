@@ -542,7 +542,7 @@ from the firmware; display names are as documented in `docs/LEDMatrix.md`:
 ### USB MIDI
 
 The Pico 2 enumerates as a USB MIDI class device (Adafruit TinyUSB stack). All MIDI runs
-on Core 1 so it never disturbs audio.
+on Core 0 (the control core), so it never disturbs the audio synthesis on Core 1.
 
 - **MIDI out — notes**: voices **1 and 2 only** (internal indices 0 and 1) transmit
   monophonic note on/off on **channel 1**, gate-length accurate and synced to the
@@ -558,7 +558,7 @@ on Core 1 so it never disturbs audio.
 
 - **MIDI clock out**: Pico2Seq acts as a **master clock**, sending realtime Clock (24
   PPQN), Start and Stop messages from the uClock transport.
-- **MIDI in**: the USB MIDI read loop runs on Core 1. **[unverified: no user-facing MIDI-in
+- **MIDI in**: the USB MIDI read loop runs on Core 0. **[unverified: no user-facing MIDI-in
   feature (note/CC mapping into the sequencer) is documented; treat MIDI-in as
   infrastructure only.]**
 

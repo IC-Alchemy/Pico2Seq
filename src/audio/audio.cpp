@@ -75,13 +75,21 @@ inline static void list_append_with_tail(audio_buffer_t **phead, audio_buffer_t 
     }
 }
 
+// The buffer-list spin locks are taken from both thread code (loop1's
+// take/give) and the audio DMA IRQ (which frees/refills buffers) on the same
+// core. spin_lock_blocking does not mask interrupts, so an IRQ firing while the
+// thread holds a lock would spin on it forever - mask interrupts around every
+// lock window. Never mask across the __wfe() wait: the woken event comes from
+// the DMA IRQ itself.
 audio_buffer_t *get_free_audio_buffer(audio_buffer_pool_t *context, bool block) {
     audio_buffer_t *ab;
 
     do {
+        uint32_t irq_save = save_and_disable_interrupts();
         uint32_t save = spin_lock_blocking(context->free_list_spin_lock);
         ab = list_remove_head(&context->free_list);
         spin_unlock(context->free_list_spin_lock, save);
+        restore_interrupts(irq_save);
         if (ab || !block) break;
         __wfe();
     } while (true);
@@ -90,9 +98,11 @@ audio_buffer_t *get_free_audio_buffer(audio_buffer_pool_t *context, bool block) 
 
 void queue_free_audio_buffer(audio_buffer_pool_t *context, audio_buffer_t *ab) {
     assert(!ab->next);
+    uint32_t irq_save = save_and_disable_interrupts();
     uint32_t save = spin_lock_blocking(context->free_list_spin_lock);
     list_prepend(&context->free_list, ab);
     spin_unlock(context->free_list_spin_lock, save);
+    restore_interrupts(irq_save);
     __sev();
 }
 
@@ -100,9 +110,11 @@ audio_buffer_t *get_full_audio_buffer(audio_buffer_pool_t *context, bool block) 
     audio_buffer_t *ab;
 
     do {
+        uint32_t irq_save = save_and_disable_interrupts();
         uint32_t save = spin_lock_blocking(context->prepared_list_spin_lock);
         ab = list_remove_head_with_tail(&context->prepared_list, &context->prepared_list_tail);
         spin_unlock(context->prepared_list_spin_lock, save);
+        restore_interrupts(irq_save);
         if (ab || !block) break;
         __wfe();
     } while (true);
@@ -111,9 +123,11 @@ audio_buffer_t *get_full_audio_buffer(audio_buffer_pool_t *context, bool block) 
 
 void queue_full_audio_buffer(audio_buffer_pool_t *context, audio_buffer_t *ab) {
     assert(!ab->next);
+    uint32_t irq_save = save_and_disable_interrupts();
     uint32_t save = spin_lock_blocking(context->prepared_list_spin_lock);
     list_append_with_tail(&context->prepared_list, &context->prepared_list_tail, ab);
     spin_unlock(context->prepared_list_spin_lock, save);
+    restore_interrupts(irq_save);
     __sev();
 }
 

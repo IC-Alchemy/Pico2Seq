@@ -133,7 +133,7 @@ void VoiceManager::removeAllVoices()
  * @param config New VoiceConfig structure with updated parameters
  * @return bool True if voice found and updated, false if voice ID not found
  *
- * Immediately applies new configuration to the voice's DSP components
+ * Queues configuration for application on the audio thread
  */
 bool VoiceManager::setVoiceConfig(uint8_t voiceId, const VoiceConfig &config)
 {
@@ -170,7 +170,7 @@ bool VoiceManager::setVoicePreset(uint8_t voiceId, const std::string &presetName
 }
 
 /**
- * Retrieves the current configuration of a voice
+ * Retrieves the latest requested configuration on the control thread
  * Provides read-only access to a voice's current oscillator/filter/envelope settings
  *
  * @param voiceId Voice to query
@@ -178,12 +178,12 @@ bool VoiceManager::setVoicePreset(uint8_t voiceId, const std::string &presetName
  *
  * Useful for UI display or debugging voice parameters
  */
-VoiceConfig *VoiceManager::getVoiceConfig(uint8_t voiceId)
+const VoiceConfig *VoiceManager::getVoiceConfig(uint8_t voiceId)
 {
     ManagedVoice *managedVoice = findVoice(voiceId);
     if (managedVoice && managedVoice->voice)
     {
-        return &managedVoice->voice->getConfig();
+        return &managedVoice->voice->getRequestedConfig();
     }
     DBG_WARN("VoiceManager: getVoiceConfig id=%u not found", voiceId);
     return nullptr;
@@ -193,23 +193,16 @@ VoiceConfig *VoiceManager::getVoiceConfig(uint8_t voiceId)
  * Updates real-time voice parameters like frequency, gate, velocity
  * Used for live performance control and MIDI input handling
  *
- * Pitch/frequency handling:
- * - Pitch calculation, change detection, and oscillator SetFreq are gated inside Voice.
- * - Voice::updateParameters(state) stages pitch inputs and caches frequency via updateFrequencyIfNeeded().
- * - Actual Oscillator::SetFreq is committed on the audio thread inside Voice::process() using
- *   ShouldApplyFreq_ gating and sample-rate version checks. See Voice.cpp for details.
- * - VoiceManager must NOT call oscillator-level SetFreq or recompute pitch here.
- *
- * Optional micro-optimization:
- * - A manager-side snapshot to skip identical static pitch updates is intentionally NOT implemented here
- *   because it would require modifying VoiceManager headers to add per-voice fields.
- * - We rely on Voice-side gating for correctness and efficiency.
+ * The control thread copies the requested state into the voice's bounded queue.
+ * Voice::process() applies it and computes pitch on the audio thread.
+ * The callback receives the requested state on the control thread.
+ * A full queue retains pending controls for flushControlUpdates() to retry.
  *
  * @param voiceId Voice to update
  * @param state VoiceState structure containing frequency, gate, velocity, etc.
  * @return bool True if voice found and updated, false otherwise
  *
- * Immediately applies new state to voice, triggers note on/off, pitch changes
+ * Queues note/gate/pitch changes without touching the live DSP state
  * Notifies registered callbacks about the voice update
  */
 bool VoiceManager::updateVoiceState(uint8_t voiceId, const VoiceState &state)
@@ -218,8 +211,7 @@ bool VoiceManager::updateVoiceState(uint8_t voiceId, const VoiceState &state)
     if (managedVoice && managedVoice->voice)
     {
         managedVoice->voice->updateParameters(state);
-        // Frequency updates are consolidated inside Voice::updateParameters()
-        // which stages pitch cache and defers Oscillator::SetFreq to the audio thread.
+        // No audio-owned state is read or changed on this path.
         DBG_VERBOSE("VoiceManager: updateVoiceState id=%u note=%.1f vel=%.2f gate=%d filt=%.2f", voiceId, state.noteIndex, state.velocityLevel, state.isGateHigh ? 1 : 0, state.filterCutoff);
         notifyVoiceUpdated(voiceId, state);
         return true;
@@ -229,7 +221,7 @@ bool VoiceManager::updateVoiceState(uint8_t voiceId, const VoiceState &state)
 }
 
 /**
- * Retrieves the current real-time state of a voice
+ * Retrieves the latest requested state on the control thread
  * Provides access to live parameters like current frequency, gate status, velocity
  *
  * @param voiceId Voice to query
@@ -237,12 +229,12 @@ bool VoiceManager::updateVoiceState(uint8_t voiceId, const VoiceState &state)
  *
  * Useful for UI feedback, visualizations, or debugging voice behavior
  */
-VoiceState *VoiceManager::getVoiceState(uint8_t voiceId)
+const VoiceState *VoiceManager::getVoiceState(uint8_t voiceId)
 {
     ManagedVoice *managedVoice = findVoice(voiceId);
     if (managedVoice && managedVoice->voice)
     {
-        return &managedVoice->voice->getState();
+        return &managedVoice->voice->getRequestedState();
     }
     return nullptr;
 }
@@ -363,14 +355,14 @@ float VoiceManager::processAllVoices() noexcept
     //   guarded by ShouldApplyFreq_. Do not set oscillator frequencies from VoiceManager.
     for (auto &managedVoice : voices)
     {
-        if (managedVoice->enabled && managedVoice->voice)
+        if (managedVoice->voice)
         {
             float voiceOutput = managedVoice->voice->process();
-            mixedOutput += voiceOutput * managedVoice->mixLevel;
+            mixedOutput += voiceOutput * managedVoice->mixLevel.load(std::memory_order_relaxed);
         }
     }
 
-    return mixedOutput * globalVolume;
+    return mixedOutput * globalVolume.load(std::memory_order_relaxed);
     /*
          // Master-bus compression (currently disabled, matching the pre-rpdsp
          // behavior). If enabled, call rpdsp::Compressor::process() per sample
@@ -396,9 +388,10 @@ float VoiceManager::processAllVoices() noexcept
 float VoiceManager::processVoice(uint8_t voiceId)
 {
     ManagedVoice *managedVoice = findVoice(voiceId);
-    if (managedVoice && managedVoice->enabled && managedVoice->voice)
+    if (managedVoice && managedVoice->voice)
     {
-        return managedVoice->voice->process() * managedVoice->mixLevel * globalVolume;
+        return managedVoice->voice->process() * managedVoice->mixLevel.load(std::memory_order_relaxed) *
+               globalVolume.load(std::memory_order_relaxed);
     }
     return 0.0f;
 }
@@ -419,6 +412,7 @@ void VoiceManager::enableVoice(uint8_t voiceId, bool enabled)
     if (managedVoice)
     {
         managedVoice->enabled = enabled;
+        managedVoice->voice->setEnabled(enabled);
         DBG_INFO("VoiceManager: %s id=%u", enabled ? "enabled" : "disabled", voiceId);
     }
     else
@@ -699,4 +693,19 @@ void VoiceManager::setVoiceSlide(uint8_t voiceId, float slideTime)
         managedVoice->voice->setSlideTime(slideTime);
     }
     DBG_VERBOSE("VoiceManager: setVoiceSlide id=%u t=%.3f", voiceId, slideTime);
+}
+
+// Runs on the control core only; an idle pass can deliver a pending gate-off.
+void VoiceManager::flushControlUpdates()
+{
+    for (auto &managedVoice : voices)
+        managedVoice->voice->flushControlUpdates();
+}
+
+const VoiceManager::ManagedVoice *VoiceManager::findVoice(uint8_t voiceId) const
+{
+    for (const auto &managedVoice : voices)
+        if (managedVoice->id == voiceId)
+            return managedVoice.get();
+    return nullptr;
 }

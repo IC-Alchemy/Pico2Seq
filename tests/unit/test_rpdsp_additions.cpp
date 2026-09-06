@@ -184,3 +184,185 @@ TEST_CASE("DSPFunctions comp_feedback tames loud input", "[rpdsp][vendored]") {
     REQUIRE(settledPeak < 0.85f);
     REQUIRE(settledPeak > 0.3f);
 }
+
+// New recipes: test spectral, energy, history and timing contracts rather
+// than just checking that a few output samples are finite.
+
+TEST_CASE("Prism isolates the selected harmonic with narrow focus", "[rpdsp][recipes]") {
+    constexpr double pi = 3.14159265358979323846;
+    for (int harmonic : {1, 3, 6}) {
+        for (float direction : {-1.0f, 1.0f}) {
+            CAPTURE(harmonic, direction);
+            std::array<float, 1> state{};
+            for (int i = 0; i < 1024; ++i) {
+                const float y = rpdsp::osc_prism(direction / 256.0f,
+                                                (harmonic - 1) / 5.0f, 0.0f, state.data());
+                const double reference = std::sin(2.0 * pi * direction * harmonic * (i + 1) / 256.0);
+                REQUIRE_THAT(y, WithinAbs(reference, 3e-6));
+            }
+        }
+    }
+}
+
+TEST_CASE("Prism fades partials approaching Nyquist and bounds modulation", "[rpdsp][recipes]") {
+    std::array<float, 1> state{};
+    for (int i = 0; i < 32; ++i) {
+        // Harmonic 2 of fs/4 is at Nyquist and must be omitted.
+        REQUIRE(rpdsp::osc_prism(0.25f, 0.2f, 0.0f, state.data()) == 0.0f);
+    }
+    state.fill(0.0f);
+    // A fundamental at 0.475 cycles/sample is halfway through its fade.
+    const float faded = rpdsp::osc_prism(0.475f, 0.0f, 0.0f, state.data());
+    REQUIRE_THAT(faded, WithinAbs(0.5 * std::sin(2.0 * 3.141592653589793 * 0.475), 2e-6));
+    for (int i = 0; i < 8192; ++i) {
+        const float inc = 0.75f * std::sin(i * 0.017f);
+        const float y = rpdsp::osc_prism(inc, 1.5f * std::sin(i * 0.011f),
+                                       1.5f * std::cos(i * 0.007f), state.data());
+        REQUIRE(std::isfinite(y));
+        REQUIRE(std::fabs(y) <= 1.000003f);
+        REQUIRE(state[0] >= 0.0f);
+        REQUIRE(state[0] < 1.0f);
+    }
+}
+
+TEST_CASE("Braid decouples into an accurately tuned damped mode", "[rpdsp][recipes]") {
+    constexpr double pi = 3.14159265358979323846;
+    for (double fs : {44100.0, 48000.0, 96000.0}) {
+        CAPTURE(fs);
+        std::array<float, 4> state{};
+        const float g = static_cast<float>(std::tan(pi * 440.0 / fs));
+        constexpr float loss = 0.002f;
+        for (int i = 0; i < 2048; ++i) {
+            const float y = rpdsp::res_braid(i == 0 ? 1.0f : 0.0f, g, 0.2f,
+                                           loss, 0.0f, state.data());
+            const double reference = std::sqrt(0.5) * std::pow(1.0 - loss, i + 1)
+                                   * std::cos(2.0 * pi * 440.0 * (i + 1) / fs);
+            REQUIRE_THAT(y, WithinAbs(reference, 2e-5));
+            REQUIRE(state[2] == 0.0f);
+            REQUIRE(state[3] == 0.0f);
+        }
+    }
+}
+
+TEST_CASE("Braid transfers energy without adding it during modulation", "[rpdsp][recipes]") {
+    std::array<float, 4> state{};
+    double previousEnergy = 1.0;
+    float secondModePeak = 0.0f;
+    for (int i = 0; i < 16384; ++i) {
+        const float y = rpdsp::res_braid(i == 0 ? 1.0f : 0.0f,
+            0.5f + 0.5f * std::sin(i * 0.013f), 0.5f + 0.5f * std::cos(i * 0.021f),
+            0.001f, 0.1f * std::sin(i * 0.019f), state.data());
+        double energy = 0.0;
+        for (float s : state) {
+            REQUIRE(std::isfinite(s));
+            energy += static_cast<double>(s) * s;
+        }
+        REQUIRE(energy <= previousEnergy * 0.99801 + 1e-25);
+        REQUIRE(std::fabs(y) <= 1.000001f);
+        previousEnergy = energy;
+        secondModePeak = std::max(secondModePeak, std::fabs(state[2]));
+    }
+    REQUIRE(secondModePeak > 0.05f);
+    REQUIRE(previousEnergy < 1e-12);
+    REQUIRE(rpdsp::res_braid(1.0f, 0.1f, 0.2f, 1.0f, 0.1f, state.data()) == 0.0f);
+}
+
+TEST_CASE("Braid control endpoints remain finite on sustained excitation", "[rpdsp][recipes]") {
+    for (float loss : {0.0f, 0.00001f, 0.1f, 1.0f}) {
+        for (float couple : {-0.1f, 0.0f, 0.1f}) {
+            CAPTURE(loss, couple);
+            std::array<float, 4> state{};
+            for (int i = 0; i < 4096; ++i) {
+                const float y = rpdsp::res_braid(0.1f, 0.0f, 1.0f, loss, couple, state.data());
+                REQUIRE(std::isfinite(y));
+                for (float s : state) REQUIRE(std::isfinite(s));
+            }
+        }
+    }
+}
+
+TEST_CASE("Memoryfold is transparent at minimum drive without memory", "[rpdsp][recipes]") {
+    std::array<float, 1> state{};
+    for (int i = -1000; i <= 1000; ++i) {
+        const float x = i / 1000.0f;
+        REQUIRE_THAT(rpdsp::fx_memoryfold(x, 1.0f, 0.0f, 0.1f, state.data()), WithinAbs(x, 2e-7));
+    }
+}
+
+TEST_CASE("Memoryfold responds to history and stays bounded through silence", "[rpdsp][recipes]") {
+    std::array<float, 1> rising{{-0.8f}}, falling{{0.8f}};
+    const float a = rpdsp::fx_memoryfold(0.1f, 4.0f, 1.0f, 0.0f, rising.data());
+    const float b = rpdsp::fx_memoryfold(0.1f, 4.0f, 1.0f, 0.0f, falling.data());
+    REQUIRE(std::fabs(a - b) > 0.1f);
+
+    for (float drive : {1.0f, 4.0f, 8.0f}) {
+        for (float memory : {0.0f, 0.5f, 1.0f}) {
+            for (float rate : {0.0f, 0.001f, 1.0f}) {
+                CAPTURE(drive, memory, rate);
+                std::array<float, 1> state{};
+                for (int i = 0; i < 2048; ++i) {
+                    const float x = 2.0f * std::sin(i * 0.037f);
+                    const float y = rpdsp::fx_memoryfold(x, drive, memory, rate, state.data());
+                    REQUIRE(std::isfinite(y));
+                    REQUIRE(std::fabs(y) <= 1.000001f);
+                }
+                for (int i = 0; i < 256; ++i) {
+                    REQUIRE_THAT(rpdsp::fx_memoryfold(0.0f, drive, memory, rate, state.data()),
+                                 WithinAbs(0.0, 2e-7));
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("Hesitate holds then glides monotonically on the segment clock", "[rpdsp][recipes]") {
+    std::array<float, 4> state{};
+    uint32_t rng = 0;
+    // Dyadic increment gives exact sample boundaries, independent of roundoff.
+    for (int i = 0; i < 64; ++i) {
+        REQUIRE(rpdsp::lfo_hesitate(1.0f / 128.0f, 0.5f, 0.0f, &rng, state.data()) == 0.0f);
+    }
+    const uint32_t firstRandom = rng;
+    REQUIRE(firstRandom != 0u);
+    float previous = 0.0f;
+    for (int i = 64; i < 128; ++i) {
+        const float y = rpdsp::lfo_hesitate(1.0f / 128.0f, 0.5f, 0.0f, &rng, state.data());
+        REQUIRE(y <= previous + 1e-6f);  // Seed 0's first target is negative.
+        REQUIRE(y >= -1.0f);
+        if (i < 127) REQUIRE(rng == firstRandom);
+        previous = y;
+    }
+    REQUIRE(previous < -0.1f);
+    REQUIRE(rng != firstRandom);
+    for (int i = 0; i < 64; ++i) {
+        REQUIRE_THAT(rpdsp::lfo_hesitate(1.0f / 128.0f, 0.5f, 0.0f, &rng, state.data()),
+                     WithinAbs(previous, 1e-7));
+    }
+    const uint32_t pausedRandom = rng;
+    for (int i = 0; i < 256; ++i) {
+        REQUIRE_THAT(rpdsp::lfo_hesitate(0.0f, 0.5f, 0.0f, &rng, state.data()),
+                     WithinAbs(previous, 1e-7));
+        REQUIRE(rng == pausedRandom);
+    }
+}
+
+TEST_CASE("Hesitate is deterministic and bounded for both memory polarities", "[rpdsp][recipes]") {
+    for (float memory : {-0.99f, 0.0f, 0.99f}) {
+        for (float linger : {0.0f, 0.5f, 0.95f}) {
+            CAPTURE(memory, linger);
+            std::array<float, 4> a{}, b{}, other{};
+            uint32_t seedA = 0, seedB = 0, seedOther = 7;
+            float difference = 0.0f;
+            for (int i = 0; i < 8192; ++i) {
+                const float rate = (i % 5 == 0) ? 1.0f : 1.0f / 128.0f;
+                const float y = rpdsp::lfo_hesitate(rate, linger, memory, &seedA, a.data());
+                REQUIRE(y == rpdsp::lfo_hesitate(rate, linger, memory, &seedB, b.data()));
+                REQUIRE(std::isfinite(y));
+                REQUIRE(std::fabs(y) <= 1.000001f);
+                const float z = rpdsp::lfo_hesitate(rate, linger, memory, &seedOther, other.data());
+                difference = std::max(difference, std::fabs(y - z));
+            }
+            REQUIRE(difference > 0.001f);
+        }
+    }
+}

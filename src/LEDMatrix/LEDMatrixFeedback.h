@@ -43,6 +43,8 @@ enum class LEDTheme
   COUNT        // Keep last - used for theme count
 };
 
+static constexpr uint8_t LED_THEME_VOICE_COUNT = 4;
+
 /**
  * @brief LED Theme Color Structure
  *
@@ -52,10 +54,11 @@ enum class LEDTheme
 struct LEDThemeColors
 {
   // Voice gate state colors
-  CRGB gateOnV1;  // Voice 1 gate active color
-  CRGB gateOffV1; // Voice 1 gate inactive color
-  CRGB gateOnV2;  // Voice 2 gate active color
-  CRGB gateOffV2; // Voice 2 gate inactive color
+  // Every voice keeps its own nearby hue in a theme. Gate-off uses a darker
+  // secondary hue from that theme, making gate state distinct by both colour
+  // and brightness without introducing an unrelated palette.
+  CRGB gateOn[LED_THEME_VOICE_COUNT];
+  CRGB gateOff[LED_THEME_VOICE_COUNT];
 
   // Playhead and accent colors
   CRGB playheadAccent;    // Current step playhead highlight

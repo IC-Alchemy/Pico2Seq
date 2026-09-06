@@ -96,13 +96,13 @@ struct VoiceConfig {
 
     // Filter settings. filterType picks the topology; filterDrive and
     // filterPassbandGain only affect the ladder and are ignored by the SVF.
-    // filterMode selects the ladder response and doubles as the SVF response
-    // (LP* -> lowpass out, BP* -> bandpass out, HP* -> highpass out).
+    // filterMode is voice-owned: ladder voices map it to a native ladder
+    // mode, while SVF voices select the matching LP/BP/HP output.
     uint8_t filterType = FILTER_LADDER;                                     // Main filter topology (FILTER_LADDER or FILTER_SVF)
     float filterRes = 0.2f;                                                 // Filter resonance (0.0-1.0)
     float filterDrive = 1.8f;                                               // Ladder drive amount (0.0-4.0; SVF ignores)
     float filterPassbandGain = 0.23f;                                       // Ladder passband gain compensation (0.0-0.5; SVF ignores)
-    rpdsp::LadderFilter::Mode filterMode = rpdsp::LadderFilter::Mode::LP24; // Filter mode (LP24, LP12, BP24, BP12, HP24, HP12)
+    VoiceFilterMode filterMode = VoiceFilterMode::LP24;                     // Filter mode (LP24, LP12, BP24, BP12, HP24, HP12)
 
     // High-pass filter settings
     float highPassFreq = 80.0f;                                             // High-pass cutoff frequency in Hz (20.0-20000.0)
@@ -129,10 +129,10 @@ struct VoiceConfig {
 #### UI Filter Modes (`voiceui` namespace)
 ```cpp
 namespace voiceui {
-inline constexpr rpdsp::LadderFilter::Mode kFilterModes[] = {
-    rpdsp::LadderFilter::Mode::LP24, rpdsp::LadderFilter::Mode::LP12,
-    rpdsp::LadderFilter::Mode::BP24, rpdsp::LadderFilter::Mode::BP12,
-    rpdsp::LadderFilter::Mode::HP24, rpdsp::LadderFilter::Mode::HP12
+inline constexpr VoiceFilterMode kFilterModes[] = {
+    VoiceFilterMode::LP24, VoiceFilterMode::LP12,
+    VoiceFilterMode::BP24, VoiceFilterMode::BP12,
+    VoiceFilterMode::HP24, VoiceFilterMode::HP12
 };
 inline constexpr const char* kFilterModeNames[] = {"LP24", "LP12", "BP24", "BP12", "HP24", "HP12"};
 inline constexpr int kFilterModeCount = 6;
@@ -160,10 +160,10 @@ public:
     const VoiceConfig& getConfig() const noexcept;
     VoiceConfig& getConfig() noexcept;
 
-    // Real-time audio processing (runs on Core 0 @ 48kHz)
+    // Real-time audio processing (runs on Core 1 @ 48kHz)
     float process() noexcept;
 
-    // Parameter updates (called on Core 1 control thread)
+    // Parameter updates (called on Core 0 control thread — uClock ISR or live recording)
     void updateParameters(const VoiceState& newState);
 
     // Sequencer integration
@@ -289,11 +289,11 @@ public:
     // Voice Configuration
     bool setVoiceConfig(uint8_t voiceId, const VoiceConfig& config);
     bool setVoicePreset(uint8_t voiceId, const std::string& presetName);
-    VoiceConfig* getVoiceConfig(uint8_t voiceId);
+    const VoiceConfig* getVoiceConfig(uint8_t voiceId);
 
     // Voice State Management
     bool updateVoiceState(uint8_t voiceId, const VoiceState& state);
-    VoiceState* getVoiceState(uint8_t voiceId);
+    const VoiceState* getVoiceState(uint8_t voiceId);
 
     // Sequencer Attachment
     bool attachSequencer(uint8_t voiceId, std::unique_ptr<Sequencer> sequencer);
@@ -342,11 +342,11 @@ public:
 
 Defined in `src/voice/VoicePresets.h` and implemented in `src/voice/VoicePresets.cpp`. All 15 presets are verified verbatim against firmware source code.
 
-Each preset is built by a `constexpr VoiceConfig makeXxx() noexcept` factory function, and the factories are assembled into a `constexpr std::array<VoiceConfig, 15> kPresets` — the whole bank is compile-time data (.rodata, XIP flash on RP2350) and costs no SRAM; accessors hand out `const` references, and the caller's `VoiceConfig`/`stagedConfig_` copy is the only RAM instance. `static_assert`s keep the preset name table and preset table in sync. Index-based accessors: `getPresetName(uint8_t)` (returns `"Unknown"` out of range), `getPresetConfig(uint8_t)` (returns Analog out of range), and `getPresetCount()`, plus per-preset getters (`getAnalogVoice()` … `getNoiseStormVoice()`). `VoiceManager::getAvailablePresets()` / `setVoicePreset()` expose the same bank by lowercase name and fall back to Analog for unknown names.
+Each preset is built by a `constexpr VoiceConfig makeXxx() noexcept` factory function, and the factories are assembled into a `constexpr std::array<VoiceConfig, 15> kPresets` — the whole bank is compile-time data (.rodata, XIP flash on RP2350) and costs no SRAM; accessors hand out `const` references, and the caller's `VoiceConfig` copies and bounded control queues occupy RAM. `static_assert`s keep the preset name table and preset table in sync. Index-based accessors: `getPresetName(uint8_t)` (returns `"Unknown"` out of range), `getPresetConfig(uint8_t)` (returns Analog out of range), and `getPresetCount()`, plus per-preset getters (`getAnalogVoice()` … `getNoiseStormVoice()`). `VoiceManager::getAvailablePresets()` / `setVoicePreset()` expose the same bank by lowercase name and fall back to Analog for unknown names.
 
 | # | Preset Name | Engine | Oscillators | Amplitudes | Detune (Semis) | Harmony | Filter Mode | Filter Settings | Overdrive | Envelope (A/D/S/R) | Output Level |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| **0** | **Analog** | osc | 3x `WAVE_BSP_SAW` | `[0.5, 0.25, 0.25]` | `[0.0, +0.08, -0.08]` | `[0, 0, 0]` | **LP24** (ladder) | Res: 0.33, Drive: 3.1, Passband: 0.23, HPF: 150 Hz | Off (Gain: 0.8, Drive: 0.25) | `0.04s / 0.14s / 0.3 / 0.1s` | `0.5` |
+| **0** | **Analog** | osc | 1x `WAVE_HARDSYNC_SAW` | `[1.0]` | `[0.0]` | `[0]` | **LP24** (ladder) | Res: 0.33, Drive: 2.1, Passband: 0.23, HPF: 120 Hz | Off (Gain: 0.8, Drive: 0.25) | `0.07s / 0.24s / 0.5 / 0.1s` | `0.5` |
 | **1** | **Digital** | osc | 2x (`WAVE_BSP_SQUARE`, `WAVE_TRI`) | `[0.75, 1.0]` | `[0.0, +12.0]` | `[0, 0]` | **LP12** (SVF) | Res: 0.40, SVF low-pass, HPF: 111 Hz (Res: 0.15) | Off (Gain: 0.7, Drive: 0.51) | `0.015s / 0.1s / 0.5 / 0.1s` | `0.5` |
 | **2** | **Bass** | osc | 2x (`WAVE_SIN`, `WAVE_TRI`) | `[1.0, 1.0]` | `[-12.0, -12.0]` | `[0, 0]` | **LP12** (SVF) | Res: 0.45, SVF low-pass, HPF: 45 Hz (Res: 0.4) | Off (Gain: 0.95, Drive: 0.16) | `0.01s / 0.3s / 0.55 / 0.2s` | `0.95` |
 | **3** | **Lead** | osc | 2x `WAVE_BSP_SAW` | `[0.6, 0.4]` | `[0.0, 0.0]` | `[0, 3]` | **LP12** (ladder) | Res: 0.40, Drive: 3.0, Passband: 0.23, HPF: 160 Hz | Off (Gain: 0.7, Drive: 0.45) | `0.02s / 0.2s / 0.5 / 0.15s` | `0.5` |
@@ -367,7 +367,7 @@ Filter topology: only **Analog** and **Lead** still run the `rpdsp::LadderFilter
 filtered presets use the TPT `rpdsp::StateVariableFilter` — chosen for stability
 under the envelope's cutoff sweeps and its resonant low-pass/band-pass character
 (especially on the three bass presets); its response is selected by the same
-`filterMode` values (LP→lowpass, BP→bandpass), and it ignores `filterDrive`/
+`VoiceFilterMode` values (LP→lowpass, BP→bandpass, HP→highpass), and it ignores `filterDrive`/
 `filterPassbandGain`.
 
 The eight presets added with the expansion bank: **SubFunk** — bouncy sub bass; a sine sub an octave down carries the weight, a triangle adds movement, and a resonant SVF low-pass plus warm overdrive grit gives the filtered-growl funk character. **RubberSub** — rubbery sub bass; a sub-octave square grinds under a sine through a resonant SVF band-pass ("rubbery honk"), with harder overdrive that spits on transients. **WgPluck** — classic Karplus-Strong plucked string: bright burst, harmonic loop, short natural tail. **WgNylon** — dark felt-soft nylon: heavily damped loop, gentle pick, long sympathetic tail. **WgBell** — stiff dispersive string whose inharmonic upper partials read as bell/kalimba; hard bridge pick, quick tail. **WgShimmer** — wide-detuned (26-cent) two-string course with a very long T60 tail; slow chorusing sustain turns the pluck into a ringing pad. **Hypersaw** — one native seven-voice `rpdsp::Hypersaw`; its Detune and Mix sequencer slots drive the engine directly, under a wide-open SVF low-pass. **NoiseStorm** — noise-based texture: noise plus a pitch-tracked Lorenz chaos growl feed a prime-tap diffuser and a regenerative allpass swarm, then a resonant SVF low-pass pings with the envelope.
@@ -385,25 +385,32 @@ Preset 13 uses `engine = ENGINE_HYPERSAW`: one `rpdsp::Hypersaw` instance suppli
 its internal seven saw voices. Its Attack and Decay sequencer slots are re-purposed
 as normalized Detune and Mix controls, respectively; Filter remains the live cutoff.
 
+Preset 0, Analog, uses one `WAVE_HARDSYNC_SAW`. Its Note/Master track sets the
+master frequency. Its Velocity/Slave track is centered at 0.5 and maps to a
+slave offset of -24 to +24 semitones: the untouched/default value of 0.5 is a
+zero offset, so the slave follows the master exactly. Hard-sync presets do not
+apply that re-purposed lane as VCA velocity.
+
 Preset 14 uses `engine = ENGINE_NOISEFX`: `NoiseOscillator` plus a pitch-tracked
 `chaos_lorenz` growl feed `fx_diffuse` (prime-tap diffuser) and `fx_swarm` (regenerative
 allpass swarm) from `rpdsp/DSPFunctions.h`, pre-filter so the SVF shapes the texture.
 
 ### Per-preset sequencer parameter sets
 
-`VoiceConfig::paramSet` (`VoiceParamSet` in `Voice.h`) re-purposes the sequencer's
-Filter/Attack/Decay slots per voice. `Voice::applyPendingParams_()` routes the slots on
+`VoiceConfig::paramSet` (`VoiceParamSet` in `Voice.h`) re-purposes sequencer
+slots per voice. `Voice::applyParameters_()` routes the slots on
 the audio thread; `VoicePresets::getSequencerParamName()` provides the OLED labels
 (fallback `paramName()` for standard slots); `applyVoicePreset()` re-seeds the
 re-purposed tracks with the preset's values (`seedRepurposedParamTracks()` in
 `Pico2Seq.ino`) so encoders/OLED/engine agree after a switch.
 
-| Param set | Presets | Filter slot | Attack slot | Decay slot |
-|---|---|---|---|---|
-| STANDARD | 0–8 | Cutoff (150 Hz–8 kHz, EXP) | Attack (0.002–0.75 s) | Decay (0.002–0.8 s, LOG) |
-| WAVEGUIDE | 9–12 | Brightness (0–1) | Pick hardness (0–1) | T60 (0.05–10 s, EXP; `wgT60ToNormalized` seeds tracks) |
-| HYPERSAW | 13 | Cutoff (live) | Native seven-voice detune (0–1) | Native center/side mix (0–1) |
-| NOISESTORM | 14 | Swarm color | Swarm regen | Chaos level (the SVF keeps the preset's static `filterCutoffBase`) |
+| Param set | Presets | Note / Velocity slots | Filter slot | Attack slot | Decay slot |
+|---|---|---|---|---|---|
+| HARDSYNC | 0 | Master pitch / Slave offset (-24..+24 st; 0.5 = follow master) | Cutoff | Attack | Decay |
+| STANDARD | 1–8 | Note / velocity | Cutoff (150 Hz–8 kHz, EXP) | Attack (0.002–0.75 s) | Decay (0.002–0.8 s, LOG) |
+| WAVEGUIDE | 9–12 | Note / velocity | Brightness (0–1) | Pick hardness (0–1) | T60 (0.05–10 s, EXP; `wgT60ToNormalized` seeds tracks) |
+| HYPERSAW | 13 | Note / velocity | Cutoff (live) | Native seven-voice detune (0–1) | Native center/side mix (0–1) |
+| NOISESTORM | 14 | Note / velocity | Swarm color | Swarm regen | Chaos level (the SVF keeps the preset's static `filterCutoffBase`) |
 
 For HYPERSAW/NOISESTORM the ADSR times come from the preset defaults (`applyEnvelopeDefaults_()`),
 since the Attack/Decay tracks no longer carry envelope times. Live preset switches are
@@ -415,18 +422,28 @@ presets while playing never clicks a held note or cuts a ringing tail.
 
 ## 4. DSP Processing Pipeline & Signal Flow
 
-Each call to `Voice::process()` on Core 0 executes the following stages:
+Control setters enqueue snapshots without reading or mutating applied DSP state.
+Each `process()` consumes at most one update, even when disabled. Control code
+calls `flushControlUpdates()` every loop to retry full queues and sample scale
+selection. Only unpublished updates may coalesce under overload; published slots
+cannot be overwritten until audio finishes copying them. See
+[cross-core ownership](architecture.md#3-cross-core-ownership-and-bounded-queues)
+for overflow policy, table lifetimes, and getter ownership. UI getters on
+`VoiceManager` return const requested copies; applied getters on `Voice` are
+restricted to the audio thread or quiescent tests.
+
+Each call to `Voice::process()` on Core 1 executes the following stages:
 
 ```
 [Sequencer / UI Parameters]
            │
-           ▼ (Lock-Free Staging: paramsGen_, configPending_, pitchGen_)
+           ▼ (Bounded Control Queue: complete owned slots)
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│ Voice::process() (Core 0 @ 48kHz)                                               │
+│ Voice::process() (Core 1 @ 48kHz)                                               │
 │                                                                                 │
 │ 1. Apply Pending Updates                                                        │
-│    - applyPendingConfig_(): Reconfigures filters, waveforms, detune multipliers  │
-│    - applyPendingParams_(): Applies staged VoiceState, ADSR parameters, filter f │
+│    - applyConfig_(): Reconfigures filters, waveforms, detune multipliers  │
+│    - applyParameters_(): Applies staged VoiceState, ADSR parameters, filter f │
 │                                                                                 │
 │ 2. Envelope Processing (computeEnvelope)                                        │
 │    - rpdsp::ADSR: noteOn() on gate rise / retrigger; noteOff() on gate fall     │
@@ -485,9 +502,12 @@ extern uint8_t currentScale;
 voice->setScaleTable(scale, SCALES_COUNT);
 voice->setCurrentScalePointer(&currentScale);
 ```
+- **Single pitch lookup path**: `calculateNoteFrequency()` reads the **injected** table through `scaleTable[effectiveScaleIndex_()][noteIndex + harmony]`. With no table injected (`nullptr`), it falls back to **chromatic mapping** (scale step = semitone above C3).
 - **Synthesis Pitch Offset**: Scale degrees are centered around C3 (+48) with octave offset:
-  $$\text{midiNote} = \text{scale}[\text{scaleIndex}][\text{noteIndex} + \text{harmony}] + 48 + \text{static\_cast<int>}(\text{octaveOffset})$$
-- **Scale Degree Unique-Rank Cache**: `setScaleTable()` precomputes `scaleUniqueCounts`, `scaleIndexToRank`, and `scaleUniqueIndexList` during non-realtime setup to enable $O(1)$ scale degree traversal without runtime search loops.
+  $$\text{midiNote} = \text{scaleTable}[\text{scaleIndex}][\text{noteIndex} + \text{harmony}] + 48 + \text{static\_cast<int>}(\text{octaveOffset})$$
+- **Index clamping**: `noteIndex + harmony` is clamped to `0..47` and the resulting MIDI note is saturated to `0..127` before the lookup-table read, so extreme harmony/octave values cannot index out of bounds.
+- **Live scale switches**: the effective scale row is part of the pitch snapshot (`PitchSnapshot::scaleIndex`); a runtime `currentScale` change invalidates the static base frequency on the next pitch recompute (repeated notes repitch too).
+- No per-scale preprocessing happens at injection time — `setScaleTable()` only stores the pointer and marks the base frequency dirty (the former unique-rank caches were write-only and were removed 2026-09-05).
 
 ### 5.3 Gate-Controlled Pitch Commit
 To prevent audible pitch clicks and glitches when release tails ring out after a sequencer step transition, pitch changes are **committed to oscillators only when `state.isGateHigh == true`**. When the gate is low, the active voice rings out at its last assigned frequency.
@@ -518,7 +538,7 @@ voiceManager.init(48000.0f);
 ### 6.2 Updating Voice State from Sequencer Step
 
 ```cpp
-// Called on Core 1 when sequencer triggers a step
+// Called on Core 0 when loop() drains a sequencer step (never the ISR)
 VoiceState newState;
 newState.noteIndex = 12.0f;           // 12th step in scale
 newState.velocityLevel = 0.85f;       // 85% velocity
@@ -531,10 +551,10 @@ newState.gateLengthTicks = 60;        // 60 PPQN ticks
 voiceManager.updateVoiceState(v1, newState);
 ```
 
-### 6.3 Real-Time Per-Sample Audio Loop (Core 0)
+### 6.3 Real-Time Per-Sample Audio Loop (Core 1)
 
 ```cpp
-// Called per sample inside fill_audio_buffer() on Core 0
+// Called per sample inside fill_audio_buffer() on Core 1
 float sample = voiceManager.processAllVoices();
 int16_t pcm16 = FloatToPcm16(sample);
 ```

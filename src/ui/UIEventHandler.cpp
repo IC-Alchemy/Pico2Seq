@@ -1,5 +1,6 @@
 #include "UIEventHandler.h"
 #include "../midi/MidiManager.h"
+#include "../sensors/EncoderManager.h"
 #include "../pico2seq-core/scales/scales.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../pico2seq-core/sequencer/ShuffleTemplates.h"
@@ -232,8 +233,10 @@ void handleParameterButtonById(uint8_t paramId, bool pressed, UIState &uiState)
   }
   const ParamId currentParamId = static_cast<ParamId>(paramId);
 
-  // Automatically select encoder parameter for real-time control (except Note parameter)
-  if (pressed && currentParamId != ParamId::Note)
+  // A record-button press also selects that parameter's base control. This
+  // applies before step-edit handling so a normal hold and a step-edit press
+  // behave identically.
+  if (pressed)
   {
     autoSelectEncoderParameter(currentParamId, uiState);
   }
@@ -436,32 +439,12 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
 static void autoSelectEncoderParameter(ParamId paramId, UIState &uiState)
 {
   EncoderParameterMode newEncoderParam;
-  bool isValid = true;
-  switch (paramId)
-  {
-  case ParamId::Note:
-    newEncoderParam = EncoderParameterMode::Note;
-    break;
-  case ParamId::Velocity:
-    newEncoderParam = EncoderParameterMode::Velocity;
-    break;
-  case ParamId::Filter:
-    newEncoderParam = EncoderParameterMode::Filter;
-    break;
-  case ParamId::Attack:
-    newEncoderParam = EncoderParameterMode::Attack;
-    break;
-  case ParamId::Decay:
-    newEncoderParam = EncoderParameterMode::Decay;
-    break;
-  default:
-    isValid = false;
-    break;
-  }
-
-  if (isValid && newEncoderParam != uiState.currentEncoderParameter)
+  if (ControlSurface::encoderBaseModeForRecordParam(paramId, newEncoderParam) &&
+      newEncoderParam != uiState.currentEncoderParameter)
   {
     uiState.currentEncoderParameter = newEncoderParam;
+    // A turn made for the previous target must not carry over to this one.
+    magEncoder.clearPendingTicks();
     // Serial.print("Encoder auto-selected: ");
     // Serial.println(CORE_PARAMETERS[static_cast<int>(paramId)].name);
   }
@@ -540,7 +523,7 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
   // Resolve current voice configuration
   const uint8_t selectedVoiceIndex = uiState.selectedVoiceIndex;
   const uint8_t currentVoiceId = voiceSystem.getVoiceId(selectedVoiceIndex);
-  VoiceConfig *liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
+  const VoiceConfig *liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
   if (!liveCfg)
     return;
   // Work on a local copy to avoid mutating live config from UI thread
@@ -839,7 +822,7 @@ void clearSequencerStep(Sequencer &sequencer, uint8_t stepIdx)
   }
 }
 
-void advanceSequencerStep(Sequencer &seq, uint8_t current_uclock_step, int mm_distance,
+void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_distance,
                           const UIState &uiState, VoiceState *voiceState)
 {
   seq.advanceStep(current_uclock_step, mm_distance,

@@ -104,8 +104,8 @@ extern VoiceSystem voiceSystem;
 ## 4. Subsystem Integration
 
 ### 4.1 Dual-Core Role Division
-- **Core 0 (Audio Thread)**: Synthesizes audio samples via `voiceManager->processAllVoices()`. It does not access `voiceSystem.gates` directly; parameter and pitch updates are staged lock-free from `VoiceState` into each `Voice` instance.
-- **Core 1 (Control Thread)**: Updates `voiceSystem.voiceStates` on sequencer steps, toggles `voiceSystem.gates`, updates `voiceSystem.gateTimers`, and routes MIDI events.
+- **Core 1 (Audio Thread)**: Synthesizes audio samples via `voiceManager->processAllVoices()`. It does not access `voiceSystem.gates` directly; parameter and pitch updates are staged lock-free from `VoiceState` into each `Voice` instance.
+- **Core 0 (Control Thread)**: Updates `voiceSystem.voiceStates` on sequencer steps, toggles `voiceSystem.gates`, updates `voiceSystem.gateTimers`, and routes MIDI events.
 
 ### 4.2 UIState Integration
 `UIState` (`src/ui/UIState.h`) mirrors `VoiceSystem`'s array-based model:
@@ -119,7 +119,9 @@ struct UIState {
 ```
 
 ### 4.3 Sequencer Step Integration
-When `uClock` triggers `onStepCallback` on Core 1 for a 16th note step:
+When `uClock` fires `onStepCallback` on Core 0 (timer ISR) the step number is only
+enqueued into `stepQueue`; `loop()` drains it via `processClockEvents()` →
+`processSequencerStep()` (thread context), which does the per-step work:
 ```cpp
 // Advance sequencers for all 4 voices
 Sequencer* sequencers[VoiceSystem::MAX_VOICES] = {&seq1, &seq2, &seq3, &seq4};
@@ -134,7 +136,7 @@ for (uint8_t v = 0; v < VoiceSystem::MAX_VOICES; v++) {
     state.filterCutoff = sequencers[v]->getParameterValue(ParamId::Filter);
     state.isGateHigh = (sequencers[v]->getParameterValue(ParamId::Gate) > 0.5f);
     
-    // Update Voice instance (lock-free staging to Core 0)
+    // Update Voice instance (lock-free staging to Core 1 audio)
     uint8_t voiceId = voiceSystem.getVoiceId(v);
     voiceManager->updateVoiceState(voiceId, state);
     
@@ -148,7 +150,7 @@ for (uint8_t v = 0; v < VoiceSystem::MAX_VOICES; v++) {
 ```
 
 ### 4.4 Timing & PPQN Tick Processing
-Inside `loop1()` on Core 1, pending clock ticks drain from `ppqnTicksPending`:
+Inside `loop()` on Core 0, pending clock ticks drain from `ppqnTicksPending`:
 ```cpp
 while (ppqnTicksPending > 0) {
     ppqnTicksPending--;

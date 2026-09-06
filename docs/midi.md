@@ -17,10 +17,10 @@ Pico2Seq features 4 internal polyphonic synthesizer voices (`VoiceSystem::MAX_VO
 
 | Voice Index | Voice Name | Audio Synthesis | MIDI Note / CC Output |
 |---|---|---|---|
-| **Voice 0** | Voice 1 | Yes (Core 0 @ 48kHz) | **Yes** (Channel 1, CC 71–74) |
-| **Voice 1** | Voice 2 | Yes (Core 0 @ 48kHz) | **Yes** (Channel 1, CC 75–78) |
-| **Voice 2** | Voice 3 | Yes (Core 0 @ 48kHz) | **No** (Audio-only synthesis) |
-| **Voice 3** | Voice 4 | Yes (Core 0 @ 48kHz) | **No** (Audio-only synthesis) |
+| **Voice 0** | Voice 1 | Yes (Core 1 @ 48kHz) | **Yes** (Channel 1, CC 71–74) |
+| **Voice 1** | Voice 2 | Yes (Core 1 @ 48kHz) | **Yes** (Channel 1, CC 75–78) |
+| **Voice 2** | Voice 3 | Yes (Core 1 @ 48kHz) | **No** (Audio-only synthesis) |
+| **Voice 3** | Voice 4 | Yes (Core 1 @ 48kHz) | **No** (Audio-only synthesis) |
 
 > **Key Architectural Constraint:**
 > `MidiNoteManager` explicitly tracks **only Voices 0 and 1** (`voice1Tracker` and `voice2Tracker`). Voices 2 and 3 are internal audio synthesis voices and do not emit MIDI note events, CC messages, or hardware gate triggers.
@@ -49,15 +49,21 @@ All CC messages are transmitted on **MIDI Channel 1** (`CC_MIDI_CHANNEL = 1`). E
 
 ## Realtime MIDI Clock Transmission
 
-Pico2Seq acts as a USB MIDI master clock source. Realtime clock messages are generated on **Core 1** directly from `uClock` timer callbacks in `Pico2Seq.ino`:
+Pico2Seq acts as a USB MIDI master clock source. The uClock timer alarm fires on **Core 0**, but its ISR-context callbacks only stage events: `onSync24Callback` increments `sync24TicksPending`, and `loop()` drains the counter in thread context (`processClockEvents()`), so every `usb_midi.send*` is single-producer and never runs in ISR context:
 
 ```cpp
-// 24 PPQN Clock Tick Callback
+// 24 PPQN Clock Tick Callback (ISR context — stage only)
 void onSync24Callback(uint32_t tick) {
+    sync24TicksPending++;
+}
+
+// Drained in loop() (thread context):
+while (sync24TicksPending > 0) {
+    sync24TicksPending--;
     usb_midi.sendRealTime(midi::Clock);
 }
 
-// Sequencer Playback Start
+// Sequencer Playback Start (thread context — uClock.start() from UI handlers)
 void onClockStart() {
     usb_midi.sendRealTime(midi::Start);
     seq1.start();
@@ -177,8 +183,8 @@ extern midi::MidiInterface<midi::SerialMIDI<Adafruit_USBD_MIDI>> usb_midi;
 
 ## Dual-Core Execution Model
 
-- **Core 1 Execution:** All MIDI polling (`usb_midi.read()`), note transmission (`noteOn`/`noteOff`), CC updates, and clock broadcasts (`sendRealTime`) run strictly on **Core 1**.
-- **Core 0 Isolation:** Core 0 runs purely audio synthesis DSP and I2S buffer filling. It never blocks on USB MIDI endpoints.
+- **Core 0 Execution:** All MIDI polling (`usb_midi.read()`), note transmission (`noteOn`/`noteOff`), CC updates, and clock broadcasts (`sendRealTime`) run on **Core 0** — note that the 24-PPQN clock sends and step-time note/CC sends from the uClock callback chain happen in **ISR context** and share the TinyUSB endpoint with `tud_task` on the same core (packets can be dropped under contention; a count-and-drain refactor is the known hardening path).
+- **Core 1 Isolation:** Core 1 runs purely audio synthesis DSP and I2S buffer filling. It never blocks on USB MIDI endpoints.
 - **Volatile Shared State:** Synchronization between the sequencer ticks and gate trackers uses `volatile` variables and atomic begin/end locks.
 
 ---

@@ -18,7 +18,7 @@ The `src/matrix/` subsystem provides the capacitive touch step-input interface f
   - `SCL`: GP5
 - **I2C Address:** `0x5A` (default)
 - **Matrix Topology:** 4 Row electrodes (Electrodes 0–3) × 8 Column electrodes (Electrodes 4–11), multiplexed to sense 32 discrete touch pads.
-- **Scanning Frequency:** Polled on Core 1 in `loop1()` every 1 ms with automatic debouncing.
+- **Scanning Frequency:** Polled on Core 0 in `loop()` every 1 ms with automatic debouncing.
 
 ---
 
@@ -117,7 +117,7 @@ typedef struct {
 
 Adafruit_MPR121 capSensor;
 
-void setup1() {
+void setup() {
     Wire.setSDA(4);
     Wire.setSCL(5);
     Wire.begin();
@@ -135,8 +135,8 @@ void setup1() {
     });
 }
 
-void loop1() {
-    Matrix_scan(); // Polled non-blocking on Core 1
+void loop() {
+    Matrix_scan(); // Polled non-blocking on Core 0
 }
 ```
 

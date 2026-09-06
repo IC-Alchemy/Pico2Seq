@@ -138,7 +138,8 @@ public:
      * 4. Update VoiceState with current parameter values
      * 5. Apply magnetic encoder modifications (done in main loop)
      *
-     * @param current_uclock_step Global step counter from UClock
+     * @param current_uclock_step Global step counter from UClock (full 32-bit range;
+     *                            truncated to uint8_t only after per-track modulo)
      * @param mm_distance Distance sensor reading (0-400mm range)
      * @param is_note_button_held Button 16 state for Note parameter recording
      * @param is_velocity_button_held Button 17 state for Velocity parameter recording
@@ -149,7 +150,7 @@ public:
      * @param current_selected_step_for_edit Selected step for editing (-1 for real-time mode)
      * @param voiceState Output voice state structure for audio synthesis
      */
-    void advanceStep(uint8_t current_uclock_step, int mm_distance,
+    void advanceStep(uint32_t current_uclock_step, int mm_distance,
                      bool is_note_button_held, bool is_velocity_button_held,
                      bool is_filter_button_held, bool is_attack_button_held,
                      bool is_decay_button_held, bool is_octave_button_held,

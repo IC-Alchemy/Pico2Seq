@@ -10,8 +10,8 @@
 #include "../rpdsp/src/rpdsp/DSPFunctions.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
+#include "../utils/SpscQueue.h"
 #include <array>
-#include <vector>
 #include <memory>
 
 #include <cstddef>
@@ -41,16 +41,17 @@ enum VoiceEngine : uint8_t
   ENGINE_HYPERSAW = 3,  // One rpdsp::Hypersaw (internally seven detuned saw voices)
 };
 
-// How the sequencer's Filter/Attack/Decay parameter slots are interpreted for
-// this voice. STANDARD = filter cutoff + ADSR times; the alternates re-purpose
-// the same slots for engine-specific parameters (routed in
-// Voice::applyPendingParams_(), named via VoicePresets::getSequencerParamName).
+// How the sequencer's parameter slots are interpreted for this voice. STANDARD
+// = velocity + filter cutoff + ADSR times; the alternates re-purpose selected
+// slots for engine-specific parameters (routed in
+// Voice::applyParameters_(), named via VoicePresets::getSequencerParamName).
 enum VoiceParamSet : uint8_t
 {
   PARAMSET_STANDARD = 0,
   PARAMSET_WAVEGUIDE = 1,
   PARAMSET_HYPERSAW = 2,
   PARAMSET_NOISESTORM = 3,
+  PARAMSET_HARDSYNC = 4,
 };
 
 // Topology of the voice's main filter (when hasFilter is set). The ladder is
@@ -61,6 +62,20 @@ enum VoiceFilterType : uint8_t
 {
   FILTER_LADDER = 0,
   FILTER_SVF = 1,
+};
+
+// Voice-owned response names.  They deliberately do not expose a LadderFilter
+// type: ladder voices map all six values to their native modes, while SVF
+// voices map LP/BP/HP to the appropriate simultaneous SVF output.  The 12/24
+// labels remain available to the UI even though the current SVF is two-pole.
+enum class VoiceFilterMode : uint8_t
+{
+  LP24 = 0,
+  LP12,
+  BP24,
+  BP12,
+  HP24,
+  HP12,
 };
 
 /**
@@ -109,13 +124,13 @@ struct VoiceConfig
 
   // Filter settings. filterType picks the topology; filterDrive and
   // filterPassbandGain only affect the ladder and are ignored by the SVF.
-  // filterMode selects the ladder response, and doubles as the SVF response
-  // (LP* -> lowpass out, BP* -> bandpass out, HP* -> highpass out).
+  // filterMode is topology-neutral: it selects a native ladder mode or the
+  // matching SVF output (LP*, BP*, HP*).
   uint8_t filterType = FILTER_LADDER; // Main filter topology (VoiceFilterType)
   float filterRes = 0.2f;            // Filter resonance (0.0-1.0)
   float filterDrive = 1.8f;          // Ladder drive amount (0.0-4.0; SVF ignores)
   float filterPassbandGain = 0.23f;  // Ladder passband gain compensation (0.0-0.5; SVF ignores)
-  rpdsp::LadderFilter::Mode filterMode = rpdsp::LadderFilter::Mode::LP24; // Filter mode
+  VoiceFilterMode filterMode = VoiceFilterMode::LP24;
   float filterCutoffBase = 0.37f;    // Normalized static cutoff (0.0-1.0) used when
                                      // paramSet re-purposes the Filter slot (e.g. NoiseStorm)
 
@@ -134,7 +149,7 @@ struct VoiceConfig
   float defaultAttack = 0.04f; // Default attack time in seconds (0.001-10.0)
   float defaultDecay = 0.14f;  // Default decay time in seconds (0.001-10.0)
   float defaultSustain = 0.5f; // Default sustain level (0.0-1.0)
-  float defaultRelease = 0.1f; // Default release time in seconds (0.001-10.0)
+  float defaultRelease = 0.2f; // Default release time in seconds (0.001-10.0)
 
   // Voice mixing
   float outputLevel = 0.6f; // Voice output level (0.0-1.0)
@@ -145,10 +160,10 @@ struct VoiceConfig
 // Cycling code must use these tables together so labels and enum values can
 // never disagree (the old UI hardcoded a name list that mismatched the enum).
 namespace voiceui {
-inline constexpr rpdsp::LadderFilter::Mode kFilterModes[] = {
-    rpdsp::LadderFilter::Mode::LP24, rpdsp::LadderFilter::Mode::LP12,
-    rpdsp::LadderFilter::Mode::BP24, rpdsp::LadderFilter::Mode::BP12,
-    rpdsp::LadderFilter::Mode::HP24, rpdsp::LadderFilter::Mode::HP12};
+inline constexpr VoiceFilterMode kFilterModes[] = {
+    VoiceFilterMode::LP24, VoiceFilterMode::LP12,
+    VoiceFilterMode::BP24, VoiceFilterMode::BP12,
+    VoiceFilterMode::HP24, VoiceFilterMode::HP12};
 inline constexpr const char *kFilterModeNames[] = {"LP24", "LP12", "BP24",
                                                    "BP12", "HP24", "HP12"};
 inline constexpr int kFilterModeCount = 6;
@@ -193,6 +208,10 @@ public:
    */
   ~Voice() = default;
 
+  // Ownership: construct/init and attach sequencers before concurrent use.
+  // Then only the control thread calls setters / flushControlUpdates(), and
+  // only the audio thread calls process() or reads applied-state getters.
+  // Never add/remove voices or reinitialize them while either core is using them.
   // Initialization and configuration
   /**
    * @brief Initialize the voice with the given sample rate
@@ -212,11 +231,16 @@ public:
    */
   const VoiceConfig &getConfig() const noexcept { return config; }
 
-  /**
-   * @brief Get mutable reference to voice configuration
-   * @return VoiceConfig& Reference to voice configuration
-   */
-  VoiceConfig &getConfig() noexcept { return config; }
+  // Applied-state getters are audio-thread only (or tests while audio is stopped).
+  // UI code reads these separate producer-owned copies instead.
+  const VoiceConfig &getRequestedConfig() const noexcept { return controls_.config; }
+  const VoiceState &getRequestedState() const noexcept { return controls_.state; }
+
+  // Control thread: retry a full queue and sample the control-owned scale index.
+  // Call every loop even when no new knob/note events arrive.
+  bool flushControlUpdates() noexcept;
+  bool hasPendingControlUpdates() const noexcept { return controls_.changes != 0; }
+  static constexpr size_t CONTROL_QUEUE_CAPACITY = 8;
 
   // Audio processing
   /**
@@ -258,8 +282,9 @@ public:
    * @brief Inject a pointer to the current scale index used with the injected table
    * @param currentScalePtr Pointer to an externally managed current-scale index (0-scaleCount-1)
    *
-   * The pointed value is read at note-calculation time. If nullptr (or out of bounds),
-   * Voice falls back to chromatic mapping.
+   * The control core samples this pointer in setters / flushControlUpdates().
+   * Audio reads only the queued index. Null selects row 0; indices clamp to the
+   * last row. The table must remain immutable and alive throughout playback.
    */
   void setCurrentScalePointer(const uint8_t *currentScalePtr);
 
@@ -269,13 +294,7 @@ public:
    */
   Sequencer *getSequencer() noexcept { return sequencer; }
 
-  // State management
-  /**
-   * @brief Get reference to current voice state
-   * @return VoiceState& Reference to voice state containing current parameters
-   */
-  VoiceState &getState() noexcept { return state; }
-
+  // Applied state is read only by the audio thread (or tests after it stops).
   /**
    * @brief Get const reference to current voice state
    * @return const VoiceState& Const reference to voice state
@@ -286,11 +305,7 @@ public:
    * @brief Set gate state for this voice
    * @param gateState True for gate on (note triggered), false for gate off (note released)
    */
-  void setGate(bool gateState)
-  {
-    gate = gateState;
-    state.isGateHigh = gateState; // Synchronize both gate variables
-  }
+  void setGate(bool gateState);
 
   /**
    * @brief Get current gate state
@@ -303,7 +318,7 @@ public:
    * @brief Set filter cutoff frequency
    * @param freq Frequency in Hz (20.0-20000.0)
    */
-  void setFilterFrequency(float freq) { filterFrequency = freq; }
+  void setFilterFrequency(float freq);
 
   /**
    * @brief Get current filter frequency
@@ -322,13 +337,13 @@ public:
    * @brief Check if voice is enabled
    * @return bool True if voice is enabled and will process audio
    */
-  bool isEnabled() const noexcept { return config.enabled; }
+  bool isEnabled() const noexcept { return controls_.config.enabled; }
 
   /**
    * @brief Enable or disable the voice
    * @param enabled True to enable voice processing, false to disable
    */
-  void setEnabled(bool enabled) { config.enabled = enabled; }
+  void setEnabled(bool enabled);
 
   /**
    * @brief Set the base frequency for all oscillators
@@ -359,7 +374,7 @@ public:
   void markPitchDirty();
 
   /**
-   * @brief Consolidated recompute entry; called from control thread after state changes
+   * @brief Request pitch refresh on the audio thread
    */
   void updateFrequencyIfNeeded();
 
@@ -367,6 +382,14 @@ public:
    * @brief Read-only accessor for cached final oscillator frequency
    */
   float getCachedFrequency(uint8_t oscIndex) const;
+
+  /**
+   * @brief Read the current slave pitch for a HardSyncSaw oscillator.
+   *
+   * Returns the master pitch for ordinary oscillators, allowing callers and
+   * tests to inspect the cached routing without special-case reads.
+   */
+  float getCachedSlaveFrequency(uint8_t oscIndex) const;
 
 private:
   // Voice identification and configuration
@@ -383,20 +406,7 @@ private:
   // scaleTable is a pointer to an array of 48-step scales; scaleTableCount is number of scales.
   const int (*scaleTable)[48] = nullptr;
   size_t scaleTableCount = 0;
-  const uint8_t *currentScalePtr = nullptr; // Pointer to externally managed current-scale index
-
-  // Cached per-scale preprocessing to accelerate unique-degree traversal.
-  // These are populated by setScaleTable() (non-realtime) and used in
-  // calculateNoteFrequency() to replace the iterative advanceDegrees loop
-  // with constant-time arithmetic and a few indexed lookups.
-  //
-  // Layout:
-  // - scaleUniqueCounts[s]                        => number of unique degree entries for scale s
-  // - scaleIndexToRank[s * 48 + i]               => maps original scale index i (0..47) to its unique-rank (0..uniqueCount-1)
-  // - scaleUniqueIndexList[s * 48 + r]           => original scale index (0..47) of the r-th unique degree for scale s
-  std::vector<uint8_t> scaleUniqueCounts;    // size == scaleCount (populated on setScaleTable)
-  std::vector<uint8_t> scaleIndexToRank;     // size == scaleCount * 48
-  std::vector<uint8_t> scaleUniqueIndexList; // size == scaleCount * 48 (padded)
+  size_t audioScaleIndex_ = 0; // Copied through the queue; never reads UI globals
 
   // Audio processing components
   std::array<VoiceOscillator, 3> oscillators;
@@ -463,7 +473,7 @@ private:
   // Cached envelope value updated each frame to allow a very cheap silence short-circuit.
   float lastEnvelopeValue = 0.0f;
   VoiceSlewParams freqSlew[3]; // For slide functionality
-  volatile bool gate;
+  bool gate; // audio thread only
   // Cached active oscillator count (0..3), updated on config apply to avoid per-sample min()
   uint8_t cachedOscCount_ = 0;
   // Bypass flags computed on config apply to avoid unnecessary DSP work
@@ -483,25 +493,44 @@ private:
   // detuneMul[i] = 2^(oscDetuning[i] / 12)
   float detuneMul[3] = {1.0f, 1.0f, 1.0f};
 
-  // Static pitch cache (control-thread staging + audio-thread commit):
+  // Pitch caches and dirty flags are entirely audio-thread-owned.
   // - cachedBaseFreqHz_ stores base from static pitch inputs (note, octave/transpose, scale/tuning).
   // - baseFreqDirty_ flags when base must be recomputed.
   // - lastSentBaseFreqHz_ reserved for micro-gating comparisons.
-  // Generation-based staging:
-  // - updatePitchCache_ computes PitchCache/PitchSnapshot on the control thread and bumps pitchGen_.
-  // - mixOscillators() commits staged frequencies on the audio thread only, comparing pitchGen_ vs appliedPitchGen_.
+  // - updatePitchCache_ computes PitchCache/PitchSnapshot on the audio thread.
+  // - mixOscillators() uses a local version to avoid redundant frequency commits.
   // - ShouldApplyFreq_ gates redundant per-sample SetFreq calls (eps ~= 0.017 cent via kPitchRelEps).
   float cachedBaseFreqHz_ = 440.0f;
   bool baseFreqDirty_ = true;
   float lastSentBaseFreqHz_ = -1.0f;
 
-  // -------- Parameter & config staging (lock-free cross-core) --------
-  VoiceState stagedState_{};           // control-thread writes
-  std::atomic<uint32_t> paramsGen_{0}; // bump on stagedState_ update
-  uint32_t appliedParamsGen_{0};       // audio-thread applied version
-
-  VoiceConfig stagedConfig_{};             // control-thread writes
-  std::atomic<bool> configPending_{false}; // set true when a new config is staged
+  enum ControlChange : uint32_t
+  {
+    ParametersChanged = 1u << 0, ConfigChanged = 1u << 1,
+    GateChanged = 1u << 2, ScaleChanged = 1u << 3,
+    SlideChanged = 1u << 4, BendChanged = 1u << 5,
+    ModulationChanged = 1u << 6, FrequencyChanged = 1u << 7,
+    FilterChanged = 1u << 8, PitchRefresh = 1u << 9
+  };
+  struct ControlUpdate
+  {
+    VoiceState state{};
+    VoiceConfig config{};
+    const int (*scaleTable)[48] = nullptr; // immutable, outlives queued use
+    size_t scaleCount = 0;
+    size_t scaleIndex = 0;
+    float slideSeconds = 0.06f;
+    float bendSemitones = 0.0f;
+    float modulationSemitones = 0.0f;
+    float frequency = 440.0f;
+    float filterHz = 1000.0f;
+    uint32_t changes = 0;
+  };
+  // Only the control thread touches controls_ / currentScalePtr_. If full,
+  // pending changes coalesce here without touching any published queue slot.
+  ControlUpdate controls_{};
+  const uint8_t *currentScalePtr_ = nullptr;
+  SpscQueue<ControlUpdate, CONTROL_QUEUE_CAPACITY> controlQueue_;
 
   // Structural config staging (oscillator bank rebuild + engine switch).
   // Applied only while the gate is low so a live preset swap never clicks a
@@ -513,14 +542,17 @@ private:
   float stagedPulseWidth_[3] = {0.5f, 0.5f, 0.5f};
 
   // -------- Pitch change-detection & caching --------
-  // Staging cache computed on control thread, committed on audio thread.
+  // Audio-thread-local change detection.
   struct PitchSnapshot
   {
     float noteIndex;
     int8_t octaveOffset;
+    size_t scaleIndex; // effective row of the injected table at last recompute
     int harmony[3];
     uint8_t oscCount;
     bool usesHypersaw;
+    bool usesHardSync;
+    float hardSyncSlaveControl;
     uint32_t detuneVersion;
     bool hasSlide;
     // Snapshotted pitch controls to detect changes
@@ -533,14 +565,15 @@ private:
     float baseFreq;
     float harmonyFreq[3];
     float finalFreq[3];
+    float slaveFreq[3];
   };
 
   PitchSnapshot pitchSnapshot_{};
   PitchCache pitchCache_{};
   float lastAppliedOscFreq_[3] = {-1.0f, -1.0f, -1.0f};
 
-  // Generation counter: bumped after cache write; audio thread copies appliedPitchGen_
-  std::atomic<uint32_t> pitchGen_{0};
+  // Audio-thread-local version; no cross-core synchronization needed here.
+  uint32_t pitchGen_{0};
   uint32_t appliedPitchGen_{0};
   // Hypersaw consumes the shared pitch cache independently of the regular
   // oscillator bank, which may be empty for ENGINE_HYPERSAW.
@@ -577,34 +610,18 @@ private:
    */
   void processEffectsChain(float &signal);
 
-  // Cross-core application helpers (called on audio thread at start of
-  // process). The per-sample checks are inline so the common "nothing
-  // pending" case costs one load and one branch; the bodies stay in Voice.cpp.
-  PICO2SEQ_HOT_INLINE void applyPendingParams_() noexcept
-  {
-    const uint32_t gen = paramsGen_.load(std::memory_order_seq_cst);
-    if (gen != appliedParamsGen_)
-    {
-      applyPendingParamsSlow_(gen);
-    }
-  }
-  PICO2SEQ_HOT_INLINE void applyPendingConfig_() noexcept
-  {
-    if (configPending_.load(std::memory_order_acquire))
-    {
-      applyPendingConfigSlow_();
-    }
-  }
-  void applyPendingParamsSlow_(uint32_t gen) noexcept;
-  void applyPendingConfigSlow_() noexcept;
-  // Structural part of a config change (oscillator bank rebuild + engine
-  // switch); process() applies it only while the gate is low.
+  // Cross-core application helpers (called on audio thread at start of process)
+  void applyControlUpdate_() noexcept;
+  void applyParameters_(const VoiceState &newState) noexcept;
+  void applyConfig_(const VoiceConfig &newConfig) noexcept;
+  void refreshPitch_();
+  void applyFrequency_(float frequency);
   void applyStructuralConfig_() noexcept;
 
-  // Pitch recompute helpers (staging on control thread; commit on audio thread)
+  // Pitch recompute helpers (audio thread only)
   // Detects changes in note/octave/harmony/osc count/detune version/sample-rate version/slide/bend/mod.
   bool pitchParamsChanged_(const VoiceState &newState) const;
-  // Recomputes pitchCache_ and updates pitchSnapshot_, then bumps pitchGen_ atomically.
+  // Recomputes pitchCache_ and updates pitchSnapshot_, then increments its audio-local version.
   void updatePitchCache_();
 
   // Private DSP stages used by process()
@@ -615,6 +632,12 @@ private:
   PICO2SEQ_HOT_INLINE float computeEnvelope();
 
   /**
+   * @brief Mark the static base cache dirty if the effective scale row changed
+   *        since the last recompute (the control core queues scale changes).
+   */
+  void checkScaleIndexChanged_() noexcept;
+
+  /**
    * @brief Update filter parameters based on envelope and voice state
    * @param envelopeValue Current envelope value (0.0-1.0)
    */
@@ -623,7 +646,7 @@ private:
   /**
    * @brief Push topology-dependent filter config (resonance, SVF response)
    *        into the state-variable path. Control-rate: called from init() and
-   *        applyPendingConfig_(); cutoff itself is updated per-sample by
+   *        applyConfig_(); cutoff itself is updated per-sample by
    *        updateFilter().
    */
   void configureMainFilterFromConfig_() noexcept;
@@ -641,8 +664,8 @@ private:
   PICO2SEQ_HOT_INLINE float mixOscillators();
 
   /**
-   * @brief Apply engine-specific configuration (waveguide tuning, noise state)
-   *        Called from init() and applyPendingConfig_() at control rate.
+   * @brief Apply engine-specific configuration (waveguide and Hypersaw tuning)
+   *        Called from init() and applyConfig_() at control rate.
    */
   void applyEngineConfig_();
 
@@ -708,15 +731,24 @@ private:
 
   /**
    * @brief Calculate frequency for a given note with octave offset
-   * @param note Note value (0-21 for scale array lookup, 0-127 for chromatic)
+   * @param note Scale-step index (clamped to 0..SCALE_STEPS-1)
    * @param octaveOffset Octave offset in semitones (-24 to +24)
    * @param harmony Harmony value in scale steps (-12 to +12)
-   * @return float Frequency in Hz (20.0-20000.0)
+   * @return float Frequency in Hz
    *
-   * Uses MIDI_BASE_OFFSET (36) to center around C2. Implements gate-controlled
-   * architecture to prevent audio glitches during parameter changes.
+   * Single pitch lookup path: resolves the step via the injected scale table
+   * (chromatic mapping when no table was injected) to a MIDI note centered at
+   * C3 (48), clamped to the 128-entry frequency lookup table.
    */
   float calculateNoteFrequency(float note, int8_t octaveOffset, int harmony) noexcept;
+
+  /**
+   * @brief Effective row of the injected scale table the pitch path reads now
+   *
+   * Returns 0 when no table is injected (chromatic path). Clamps an
+   * out-of-range queued scale index to the last row.
+   */
+  size_t effectiveScaleIndex_() const noexcept;
 
   // Recompute cached base frequency (static pitch only). No dynamic modulators.
   void recomputeBaseFreqIfDirty_();

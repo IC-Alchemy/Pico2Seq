@@ -186,7 +186,7 @@ extern OLEDDisplay oledDisplay;
 
 ## Concurrency & Performance
 
-- **Core 1 Execution:** All OLED drawing, formatting, and I2C transmission occur on **Core 1** inside `loop1()` at a dedicated 50 Hz frame rate (~20 ms interval).
+- **Core 0 Execution:** All OLED drawing, formatting, and I2C transmission occur on **Core 0** inside `loop()` at a dedicated 50 Hz frame rate (~20 ms interval).
 - **Single-Frame Buffer:** Geometry and text operations write into Adafruit GFX's 1024-byte RAM buffer, followed by a single non-blocking `display()` burst over I2C.
 - **Zero Heap Allocations:** Frame rendering avoids dynamic strings in the hot path, utilizing static buffers and integer math.
 

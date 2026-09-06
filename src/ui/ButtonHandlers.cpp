@@ -107,7 +107,7 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)
 
   uint8_t currentVoiceId = voiceSystem.getVoiceId(voiceIndex);
 
-  VoiceConfig *liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
+  const VoiceConfig *liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
   if (!liveCfg)
     return;
   // Work on a local copy to avoid mutating live config from UI thread

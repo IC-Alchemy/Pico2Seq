@@ -8,7 +8,7 @@ namespace VoicePresets
   // Preset storage: constexpr factories build the whole table at compile time,
   // so it lands in .rodata. On RP2350 (XIP flash) that means the presets cost
   // zero SRAM; every accessor hands out a const reference into flash and the
-  // caller's VoiceConfig / stagedConfig_ copy is the only RAM instance.
+  // runtime config copies and bounded control queues occupy RAM.
   //
   // Field assignments below are the single source of truth. Fields a factory
   // does not assign keep their VoiceConfig default-member value, exactly like
@@ -17,25 +17,20 @@ namespace VoicePresets
   constexpr VoiceConfig makeAnalog() noexcept
   {
     VoiceConfig c{};
-    c.oscillatorCount = 3;
-    c.oscWaveforms[0] = WAVE_BSP_SAW;
-    c.oscWaveforms[1] = WAVE_BSP_SAW;
-    c.oscWaveforms[2] = WAVE_BSP_SAW;
-    c.oscAmplitudes[0] = .4f;
-    c.oscAmplitudes[1] = .35f;
-    c.oscAmplitudes[2] = .35f;
+    // A single hard-sync pair supplies both the analog-style saw body and a
+    // dedicated slave pitch that can be sequenced independently.
+    c.oscillatorCount = 1;
+    c.oscWaveforms[0] = WAVE_HARDSYNC_SAW;
+    c.oscAmplitudes[0] = 1.0f;
     c.oscDetuning[0] = 0.0f;
-    c.oscDetuning[1] = 0.08f;  // Slight detune
-    c.oscDetuning[2] = -0.08f; // Slight detune opposite
     c.harmony[0] = 0;          // Root note
-    c.harmony[1] = 0;          // Unison (no harmony)
-    c.harmony[2] = 0;          // Unison (no harmony)
+    c.paramSet = PARAMSET_HARDSYNC;
 
     c.filterRes = 0.33f;
     c.filterDrive = 2.1f;
     // Ladder on purpose: this is one of only two presets still using it
     // (with Lead); the test suite pins that count.
-    c.filterMode = rpdsp::LadderFilter::Mode::LP24;
+    c.filterMode = VoiceFilterMode::LP24;
     c.filterPassbandGain = 0.23f;
     c.highPassFreq = 120.0f;
 
@@ -46,7 +41,7 @@ namespace VoicePresets
     c.defaultAttack = 0.07f;
     c.defaultDecay = 0.24f;
     c.defaultSustain = 0.5f;
-    c.defaultRelease = 0.1f;
+    c.defaultRelease = 0.16f;
     c.outputLevel = 0.5f;
     return c;
   }
@@ -57,19 +52,19 @@ namespace VoicePresets
     c.oscillatorCount = 2;
     c.oscWaveforms[0] = WAVE_BSP_SQUARE;
     c.oscWaveforms[1] = // Naive triangle: continuous waveform, band-limited enough without splines
-        WAVE_TRI;
+        WAVE_BSP_SQUARE;
 
     c.oscAmplitudes[0] = .75f;
-    c.oscAmplitudes[1] = 1.f;
+    c.oscAmplitudes[1] = .65f;
     c.oscDetuning[0] = 0.0f; // Fixed duplicate assignment
-    c.oscDetuning[1] = 12.0f;  // Fixed duplicate assignment
+    c.oscDetuning[1] = 0.01f;  // Fixed duplicate assignment
 
     c.harmony[0] = 0; // Root note
     c.filterRes = 0.4f;
     c.filterType = FILTER_SVF; // clean resonant low-pass replaces the ladder
     c.highPassFreq = 111.0f;
     c.highPassRes = 0.15f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12; // SVF response: low-pass
+    c.filterMode = VoiceFilterMode::LP12; // SVF response: low-pass
 
     c.hasOverdrive = false;
     c.overdriveGain = 0.7f;
@@ -77,7 +72,7 @@ namespace VoicePresets
     c.defaultAttack = 0.015f;
     c.defaultDecay = 0.1f;
     c.defaultSustain = 0.5f;
-    c.defaultRelease = 0.3f;
+    c.defaultRelease = 0.15f;
     c.outputLevel = 0.5f;
     return c;
   }
@@ -99,9 +94,9 @@ namespace VoicePresets
     c.filterRes = 0.45f; // SVF resonance carries the growl (no ladder drive)
     c.filterType = FILTER_SVF; // TPT state-variable low-pass: tight, stable bass
     c.highPassFreq = 45.0f; // Lower for bass
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12; // SVF response: low-pass
+    c.filterMode = VoiceFilterMode::LP12; // SVF response: low-pass
     c.hasOverdrive = true;
-    c.overdriveGain = 0.65f;
+    c.overdriveGain = 0.95f;
     c.overdriveDrive = 0.16f; // Subtle overdrive
     c.defaultAttack = 0.01f;
     c.defaultDecay = 0.3f;
@@ -122,7 +117,7 @@ namespace VoicePresets
     c.oscDetuning[0] = 0.0f;
     c.oscDetuning[1] = 0.00f;
     c.harmony[0] = 0; // Root note
-    c.harmony[1] = 3; // Unison (lead typically monophonic)
+    c.harmony[1] = 3; 
 
     c.filterRes = 0.4f;
     c.filterDrive = 3.f;
@@ -130,7 +125,8 @@ namespace VoicePresets
     c.highPassFreq = 160.0f;
     // Ladder on purpose: this is one of only two presets still using it
     // (with Analog); the test suite pins that count.
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12;
+    c.filterType = FILTER_LADDER; // Use ladder filter for lead
+    c.filterMode = VoiceFilterMode::LP12;
     c.hasOverdrive = false;
     c.overdriveGain = 0.7f;
     c.overdriveDrive = 0.45f;
@@ -152,10 +148,10 @@ namespace VoicePresets
     c.harmony[0] = 0; // Root note
     c.oscPulseWidth[0] = 0.2f;
 
-    c.filterRes = 0.6f; // resonant SVF band-pass honk
+    c.filterRes = 0.6f; // 
     c.filterType = FILTER_SVF;
     c.highPassFreq = 150.0f;
-    c.filterMode = rpdsp::LadderFilter::Mode::BP24; // SVF response: band-pass
+    c.filterMode = VoiceFilterMode::BP24; // SVF response: band-pass
     c.hasOverdrive = false;
     c.overdriveGain = 0.75f;
     c.overdriveDrive = 0.35f;
@@ -186,7 +182,7 @@ namespace VoicePresets
     c.filterType = FILTER_SVF; // smooth state-variable low-pass
     c.highPassFreq = 140.0f;
     c.highPassRes = 0.08f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12; // SVF response: low-pass
+    c.filterMode = VoiceFilterMode::LP12; // SVF response: low-pass
 
     c.hasOverdrive = false;
     c.overdriveGain = 0.85f;
@@ -209,7 +205,7 @@ namespace VoicePresets
     c.filterRes = 0.4f;
     c.filterType = FILTER_SVF;
     c.highPassFreq = 200.0f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP24; // SVF response: low-pass
+    c.filterMode = VoiceFilterMode::LP24; // SVF response: low-pass
 
     c.hasOverdrive = false;
     c.overdriveGain = 0.45f;
@@ -245,7 +241,7 @@ namespace VoicePresets
 
     c.filterRes = 0.5f;
     c.filterType = FILTER_SVF; // resonant low-pass keeps the sub stable under env sweeps
-    c.filterMode = rpdsp::LadderFilter::Mode::LP12; // SVF response: low-pass
+    c.filterMode = VoiceFilterMode::LP12; // SVF response: low-pass
     c.highPassFreq = 55.0f; // keep the sub, shed the rumble
 
     c.hasOverdrive = true;
@@ -282,7 +278,7 @@ namespace VoicePresets
 
     c.filterRes = 0.7f; // SVF band-pass honk (2-pole: higher Q than the old BP24 ladder)
     c.filterType = FILTER_SVF;
-    c.filterMode = rpdsp::LadderFilter::Mode::BP24; // SVF response: band-pass
+    c.filterMode = VoiceFilterMode::BP24; // SVF response: band-pass
     c.highPassFreq = 70.0f;
 
     c.hasOverdrive = true;
@@ -410,7 +406,7 @@ namespace VoicePresets
     c.filterRes = 0.35f;
     c.filterType = FILTER_SVF; // wide-open clean low-pass
     c.highPassFreq = 180.0f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP24; // SVF response: low-pass
+    c.filterMode = VoiceFilterMode::LP24; // SVF response: low-pass
 
     c.hasOverdrive = false;
 
@@ -441,7 +437,7 @@ namespace VoicePresets
     c.filterRes = 0.72f;      // resonant filter pings with the env
     c.filterType = FILTER_SVF;
     c.highPassFreq = 220.0f;
-    c.filterMode = rpdsp::LadderFilter::Mode::LP24; // SVF response: low-pass
+    c.filterMode = VoiceFilterMode::LP24; // SVF response: low-pass
 
     c.hasOverdrive = true;
     c.overdriveGain = 0.8f;
@@ -514,11 +510,14 @@ namespace VoicePresets
       const char *wg;
       const char *hy;
       const char *ns;
+      const char *hs;
     };
     constexpr SlotName kSlotNames[] = {
-        {ParamId::Filter, "Bright", nullptr, "Color"},
-        {ParamId::Attack, "Pick", "Detune", "Regen"},
-        {ParamId::Decay, "T60", "Mix", "Chaos"},
+        {ParamId::Note, nullptr, nullptr, nullptr, "Master"},
+        {ParamId::Velocity, nullptr, nullptr, nullptr, "Slave"},
+        {ParamId::Filter, "Bright", nullptr, "Color", nullptr},
+        {ParamId::Attack, "Pick", "Detune", "Regen", nullptr},
+        {ParamId::Decay, "T60", "Mix", "Chaos", nullptr},
     };
   }
 
@@ -552,6 +551,8 @@ namespace VoicePresets
         return slot.hy;
       case PARAMSET_NOISESTORM:
         return slot.ns;
+      case PARAMSET_HARDSYNC:
+        return slot.hs;
       default:
         return nullptr;
       }
