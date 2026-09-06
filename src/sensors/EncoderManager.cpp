@@ -138,7 +138,7 @@ float getParameterMaxValue(EncoderParameterMode param)
     return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
 
   case EncoderParameterMode::DelayTime:
-    return MAX_DELAY_SAMPLES * 0.85f; // 85% of the 1.8s delay line (~1.53s at 48kHz)
+    return MAX_DELAY_SAMPLES * 0.85f; // 85% of the delay line (~0.68s at 48kHz with the current 0.8s buffer)
 
   case EncoderParameterMode::DelayFeedback:
     return SensorConstants::MagneticEncoder::DELAY_FEEDBACK_MAX; // Maximum 91% feedback to prevent excessive feedback
@@ -522,7 +522,7 @@ void applyEncoderDelayValues()
   // Global delay parameters live in their own store (delay is not per-voice)
   const EncoderBaseValues *baseValues = &encoderDelayValues;
 
-  // Apply delay time directly (already clamped to 2.5ms-1.53s range in updateEncoderBaseValues)
+  // Apply delay time directly (already clamped to 85% of MAX_DELAY_SAMPLES in updateEncoderBaseValues)
   delayTarget = baseValues->delayTime;
 
   // Apply delay feedback directly (already clamped to 0.0-0.91 range in updateEncoderBaseValues)
@@ -633,10 +633,12 @@ void initEncoderBaseValues()
   // Initialize voice parameters to neutral position for all voices
   for (uint8_t voiceIndex = 0; voiceIndex < VoiceSystem::MAX_VOICES; voiceIndex++)
   {
+    encoderBaseValues[voiceIndex].note = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
     encoderBaseValues[voiceIndex].velocity = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
     encoderBaseValues[voiceIndex].filter = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
     encoderBaseValues[voiceIndex].attack = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
     encoderBaseValues[voiceIndex].decay = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
+    encoderBaseValues[voiceIndex].octave = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
   }
 
   // Initialize global delay parameters with reasonable defaults
