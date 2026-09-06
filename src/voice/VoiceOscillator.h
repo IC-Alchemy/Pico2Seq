@@ -16,6 +16,7 @@ inline constexpr uint8_t WAVE_SAW = 2;
 inline constexpr uint8_t WAVE_SQUARE = 3;
 inline constexpr uint8_t WAVE_BSP_SAW = 4;     // band-limited (was WAVE_POLYBLEP_SAW)
 inline constexpr uint8_t WAVE_BSP_SQUARE = 5;  // band-limited (was WAVE_POLYBLEP_SQUARE)
+inline constexpr uint8_t WAVE_HARDSYNC_SAW = 6; // band-limited master/slave hard-sync saw
 inline constexpr uint8_t WAVE_NOISE = 255;
 
 // One oscillator slot in a Voice: decouples the waveform byte in VoiceConfig
@@ -41,6 +42,7 @@ class VoiceOscillator {
     std::visit([this](auto& osc) {
       prepareIfTuned(osc);
       setFreqIfTuned(osc);
+      setSlaveFreqIfHardSync(osc);
       setPwmIfPulse(osc);
     }, osc_);
   }
@@ -49,6 +51,17 @@ class VoiceOscillator {
     freqHz_ = hz;
     std::visit([this](auto& osc) { setFreqIfTuned(osc); }, osc_);
   }
+
+  // For WAVE_HARDSYNC_SAW, setFreq() above is the master pitch. The slave
+  // pitch is independent and can be sequenced without rebuilding the
+  // oscillator. Other waveforms intentionally ignore this setter.
+  void setSlaveFrequency(float hz) {
+    slaveFrequencyHz_ = hz;
+    std::visit([this](auto& osc) { setSlaveFreqIfHardSync(osc); }, osc_);
+  }
+
+  float masterFrequency() const { return freqHz_; }
+  float slaveFrequency() const { return slaveFrequencyHz_; }
 
   void setPulseWidth(float width) {
     pulseWidth_ = width;
@@ -63,10 +76,11 @@ class VoiceOscillator {
 
  private:
   using Osc = std::variant<rpdsp::BSplineSawOsc,
-                          rpdsp::BSplineSquareOsc,
-                          rpdsp::SineOscillator, rpdsp::TriangleOscillator,
-                          rpdsp::SawOsc, rpdsp::SquareOsc,
-                          rpdsp::NoiseOscillator>;
+                           rpdsp::BSplineSquareOsc,
+                           rpdsp::SineOscillator, rpdsp::TriangleOscillator,
+                           rpdsp::SawOsc, rpdsp::SquareOsc,
+                           rpdsp::HardSyncSaw,
+                           rpdsp::NoiseOscillator>;
 
   template <typename T, typename = void>
   struct HasPwm : std::false_type {};
@@ -82,6 +96,7 @@ class VoiceOscillator {
       case WAVE_SQUARE:
       case WAVE_BSP_SAW:
       case WAVE_BSP_SQUARE:
+      case WAVE_HARDSYNC_SAW:
       case WAVE_NOISE:
         return waveform;
       default:
@@ -103,6 +118,8 @@ class VoiceOscillator {
         return rpdsp::SquareOsc{};
       case WAVE_BSP_SQUARE:
         return rpdsp::BSplineSquareOsc{};
+      case WAVE_HARDSYNC_SAW:
+        return rpdsp::HardSyncSaw{};
       case WAVE_NOISE:
         return rpdsp::NoiseOscillator{};
       case WAVE_BSP_SAW:
@@ -120,8 +137,17 @@ class VoiceOscillator {
 
   template <typename T>
   void setFreqIfTuned(T& osc) {
-    if constexpr (!std::is_same_v<T, rpdsp::NoiseOscillator>) {
+    if constexpr (std::is_same_v<T, rpdsp::HardSyncSaw>) {
+      osc.setMasterFrequency(freqHz_);
+    } else if constexpr (!std::is_same_v<T, rpdsp::NoiseOscillator>) {
       osc.setFreq(freqHz_);
+    }
+  }
+
+  template <typename T>
+  void setSlaveFreqIfHardSync(T& osc) {
+    if constexpr (std::is_same_v<T, rpdsp::HardSyncSaw>) {
+      osc.setSlaveFrequency(slaveFrequencyHz_);
     }
   }
 
@@ -134,6 +160,7 @@ class VoiceOscillator {
 
   float sampleRate_ = 48000.0f;
   float freqHz_ = 440.0f;
+  float slaveFrequencyHz_ = 440.0f;
   float pulseWidth_ = 0.5f;
   uint8_t waveform_ = WAVE_BSP_SAW;
   Osc osc_{rpdsp::BSplineSawOsc{}};

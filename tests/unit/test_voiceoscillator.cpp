@@ -30,7 +30,8 @@ int countTransitions(VoiceOscillator &osc, int n) {
 
 TEST_CASE("VoiceOscillator produces non-zero bounded output per waveform", "[voiceosc]") {
     const uint8_t waveforms[] = {WAVE_SIN, WAVE_TRI, WAVE_SAW, WAVE_SQUARE,
-                                 WAVE_BSP_SAW, WAVE_BSP_SQUARE, WAVE_NOISE};
+                                 WAVE_BSP_SAW, WAVE_BSP_SQUARE, WAVE_HARDSYNC_SAW,
+                                 WAVE_NOISE};
 
     for (uint8_t wf : waveforms) {
         CAPTURE(wf);
@@ -98,6 +99,22 @@ TEST_CASE("VoiceOscillator setFreq changes pitch", "[voiceosc]") {
     REQUIRE(slowTransitions > 0);
     REQUIRE_THAT(static_cast<float>(fastTransitions),
                  WithinRel(2.0f * slowTransitions, 0.15f));
+}
+
+TEST_CASE("VoiceOscillator hard-sync saw keeps independent master and slave pitches", "[voiceosc]") {
+    VoiceOscillator osc;
+    osc.prepare(kSampleRate);
+    osc.setWaveform(WAVE_HARDSYNC_SAW);
+    osc.setFreq(110.0f);              // setFreq is the hard-sync master
+    osc.setSlaveFrequency(220.0f);    // independent slave
+
+    REQUIRE_THAT(osc.masterFrequency(), WithinAbs(110.0f, 0.001f));
+    REQUIRE_THAT(osc.slaveFrequency(), WithinAbs(220.0f, 0.001f));
+    for (int i = 0; i < 2048; ++i) {
+        const float sample = osc.process();
+        REQUIRE(std::isfinite(sample));
+        REQUIRE(std::fabs(sample) <= 1.5f);
+    }
 }
 
 TEST_CASE("VoiceOscillator pulse width sets square duty cycle", "[voiceosc]") {

@@ -413,12 +413,12 @@ Each voice runs a full synthesis chain at 48 kHz on the audio core:
  voice output level -> summed with the other 3 voices -> Stereo Out
 ```
 
-A **global delay effect** exists in the codebase (boot parameters 667 ms, feedback 0.45);
-toggle it with Utility button 2 or Shift + V4, set its feedback with Utility fader 3 and
-its time/feedback with the encoder's Delay Time / Delay Feedback targets. Note: the delay
-insert is currently **commented out of the audio path** in `Pico2Seq.ino`
-(`processDelayEffect` call disabled), so the toggle changes the OLED/LED state only — no
-delay is audible in the current firmware.
+A **global delay effect** is on by default (boot time 667 ms, feedback 0.45); toggle it
+with Utility button 2 or Shift + V4, set its feedback with Utility fader 3 and its
+time/feedback with the encoder's Delay Time / Delay Feedback targets.
+(Currently compiled out: `PICO2SEQ_ENABLE_DELAY_EFFECT = 0` in `src/FeatureConfig.h`
+removes the effect and all of the controls above to reclaim ~338 KiB of RAM. Set the
+switch to 1 and rebuild to bring them back.)
 
 Filter **mode** (LP24 … HP12) and **resonance** are cycled/set from the OLED Settings
 screen's voice-parameter page; envelope and overdrive can be switched off per voice there
@@ -551,7 +551,7 @@ from the firmware; display names are as documented in `docs/LEDMatrix.md`:
 ### USB MIDI
 
 The Pico 2 enumerates as a USB MIDI class device (Adafruit TinyUSB stack). All MIDI runs
-on Core 1 so it never disturbs audio.
+on Core 0 (the control core), so it never disturbs the audio synthesis on Core 1.
 
 - **MIDI out — notes**: voices **1 and 2 only** (internal indices 0 and 1) transmit
   monophonic note on/off on **channel 1**, gate-length accurate and synced to the
@@ -567,7 +567,7 @@ on Core 1 so it never disturbs audio.
 
 - **MIDI clock out**: Pico2Seq acts as a **master clock**, sending realtime Clock (24
   PPQN), Start and Stop messages from the uClock transport.
-- **MIDI in**: the USB MIDI read loop runs on Core 1. **[unverified: no user-facing MIDI-in
+- **MIDI in**: the USB MIDI read loop runs on Core 0. **[unverified: no user-facing MIDI-in
   feature (note/CC mapping into the sequencer) is documented; treat MIDI-in as
   infrastructure only.]**
 

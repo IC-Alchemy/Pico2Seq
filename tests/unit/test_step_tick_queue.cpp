@@ -1,6 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <limits>
+
+#define private public
 #include "sequencer/StepTickQueue.h"
+#undef private
 
 TEST_CASE("StepTickQueue starts empty", "[steptick]")
 {
@@ -52,6 +56,27 @@ TEST_CASE("StepTickQueue wraps cleanly past capacity", "[steptick]")
         }
         REQUIRE(q.empty());
     }
+}
+
+TEST_CASE("StepTickQueue handles uint32_t index wraparound", "[steptick]")
+{
+    StepTickQueue q;
+    q.head_ = std::numeric_limits<uint32_t>::max() - 1;
+    q.tail_ = q.head_;
+
+    REQUIRE(q.empty());
+    REQUIRE(q.push(123));
+    REQUIRE(q.push(456));
+    REQUIRE(q.size() == 2);
+
+    uint32_t step = 0;
+    REQUIRE(q.pop(step));
+    REQUIRE(step == 123);
+    REQUIRE(q.size() == 1);
+    REQUIRE(q.pop(step));
+    REQUIRE(step == 456);
+    REQUIRE(q.empty());
+    REQUIRE(q.size() == 0);
 }
 
 TEST_CASE("StepTickQueue drops new ticks when full", "[steptick]")

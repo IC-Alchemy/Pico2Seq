@@ -6,6 +6,7 @@
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 #include "../utils/DspMapping.h" // dspmap::fmap for filter Hz display
 #include "../ui/UIState.h"
+#include "../FeatureConfig.h"
 
 // Forward declarations
 struct VoiceState;
@@ -93,17 +94,11 @@ void updateEncoderStepParameterValues(UIState& uiState);
  */
 void applyEncoderBaseValues(VoiceState *voiceState, uint8_t voiceId);
 
-/**
- * @brief Apply encoder values to global delay effect parameters
- *
- * Updates global delay time and feedback parameters using direct parameter
- * control. Delay parameters use full range without the bidirectional scaling
- * applied to voice parameters.
- *
- * @note Delay parameters are global and not per-voice
- * @note Thread-safe for Core0 audio processing communication
- */
+// Delay-effect controls: only exist when the delay feature is compiled in
+// (src/FeatureConfig.h); these drive globals owned by Pico2Seq.ino.
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
 void applyEncoderDelayValues();
+#endif
 
 /**
  * @brief Apply encoder slide time values to active voice
@@ -229,10 +224,12 @@ extern MagEncoder magEncoder;
 
 
 
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
 extern float delayTarget;
 extern float feedbackAmmount;
 
 extern const size_t MAX_DELAY_SAMPLES;
+#endif
 
 
 #endif // ENCODER_MANAGER_H

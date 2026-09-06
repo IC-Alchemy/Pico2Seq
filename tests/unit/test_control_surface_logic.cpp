@@ -10,6 +10,39 @@
 
 using namespace ControlSurface;
 
+TEST_CASE("Parameter record buttons select their matching encoder base", "[control_surface]")
+{
+    struct Mapping {
+        ParamId param;
+        EncoderParameterMode mode;
+    };
+    constexpr Mapping mappings[] = {
+        {ParamId::Note, EncoderParameterMode::Note},
+        {ParamId::Velocity, EncoderParameterMode::Velocity},
+        {ParamId::Filter, EncoderParameterMode::Filter},
+        {ParamId::Attack, EncoderParameterMode::Attack},
+        {ParamId::Decay, EncoderParameterMode::Decay},
+        {ParamId::Octave, EncoderParameterMode::Octave},
+    };
+
+    for (const auto &mapping : mappings)
+    {
+        EncoderParameterMode mode = EncoderParameterMode::COUNT;
+        CAPTURE(static_cast<int>(mapping.param));
+        REQUIRE(encoderBaseModeForRecordParam(mapping.param, mode));
+        CHECK(mode == mapping.mode);
+    }
+
+    for (const ParamId nonRecordParam : {ParamId::GateLength, ParamId::Gate,
+                                         ParamId::Slide, ParamId::Count})
+    {
+        EncoderParameterMode mode = EncoderParameterMode::COUNT;
+        CAPTURE(static_cast<int>(nonRecordParam));
+        CHECK_FALSE(encoderBaseModeForRecordParam(nonRecordParam, mode));
+        CHECK(mode == EncoderParameterMode::COUNT);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // ModeStabilizer
 // ---------------------------------------------------------------------------

@@ -71,10 +71,11 @@ enum class EncoderParameterMode : uint8_t
   Attack = 2,        // Envelope attack time control
   Decay = 3,         // Envelope decay time control
   Note = 4,          // Note/pitch control
-  DelayTime = 5,     // Global delay time control
-  DelayFeedback = 6, // Global delay feedback control
-  SlideTime = 7,     // Portamento/slide time control
-  COUNT = 8          // Total mode count
+  Octave = 5,        // Octave offset control
+  DelayTime = 6,     // Global delay time control
+  DelayFeedback = 7, // Global delay feedback control
+  SlideTime = 8,     // Portamento/slide time control
+  COUNT = 9          // Total mode count
 };
 
 /**
@@ -85,10 +86,14 @@ enum class EncoderParameterMode : uint8_t
  */
 struct EncoderBaseValues
 {
+  // These bases are normalized bipolar offsets. They are combined with the
+  // sequencer value by shiftAndScale() when a step is played.
+  float note = 0.0f;          // Base note/pitch offset (normalized 0.0-1.0 domain)
   float velocity = 0.0f;      // Base velocity (0.0-1.0)
   float filter = 0.0f;        // Base filter cutoff (0.0-1.0)
   float attack = 0.0f;        // Base attack time (0.0-1.0 seconds)
   float decay = 0.0f;         // Base decay time (0.0-1.0 seconds)
+  float octave = 0.0f;        // Base octave offset (normalized 0.0-1.0 domain)
   float delayTime = 0.0f;     // Delay time offset for global delay
   float delayFeedback = 0.0f; // Delay feedback offset for global delay
   float slideTime = 0.0f;     // Slide time in seconds for voice glide
@@ -208,7 +213,10 @@ constexpr ParameterDefinition CORE_PARAMETERS[] = {
 struct VoiceState
 {
   float noteIndex = 0.0f;                                                   // Scale step index (0-21) for scale array lookup
-  float velocityLevel = 0.8f;                                               // Voice amplitude (0.0-1.0)
+  // Matches CORE_PARAMETERS' neutral Velocity default. Hard-sync presets use
+  // this centered value as zero slave-frequency offset, so their slave follows
+  // the master until a Slave value is recorded.
+  float velocityLevel = 0.5f;
   float filterCutoff = 0.37f;                                               // Filter cutoff frequency (0.0-1.0)
   float attackTimeSeconds = 0.01f;                                          // Envelope attack time (0.0-1.0 seconds)
   float decayTimeSeconds = 0.01f;                                           // Envelope decay time (0.0-1.0 seconds)

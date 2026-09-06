@@ -295,7 +295,7 @@ void Voice::setScaleTable(const int (*table)[48], size_t scaleCount)
 
 By precalculating these arrays on initialization:
 - Degree stepping (e.g. transposing up by $N$ scale degrees regardless of scale step padding) is executed with simple array indexing.
-- Eliminates loops and dynamic branching on Core 0 during real-time sample processing.
+- Eliminates loops and dynamic branching on Core 1 during real-time sample processing.
 - Guaranteed deterministic $O(1)$ computation time per sample.
 
 ---

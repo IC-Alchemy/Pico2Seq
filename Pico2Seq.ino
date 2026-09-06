@@ -1,12 +1,15 @@
 #include "includes.h"
 #include "diagnostic.h"
+#include "src/FeatureConfig.h"
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
 #include "src/rpdsp/src/rpdsp/delay_line.h"
+#endif
 #include "RP2350.h"
 
 #include "src/voice/Voice.h"
 #include "src/utils/Debug.h"
+#include "src/utils/FreezeWatchdog.h"
 #include "src/pico2seq-core/scales/scales.h"
-#include "src/pico2seq-core/sequencer/StepTickQueue.h"
 #include "src/voice/VoicePresets.h"
 #include "src/voice/VoiceSystem.h"
 
@@ -31,22 +34,27 @@ Adafruit_MPR121 touchSensor = Adafruit_MPR121();
 //   AUDIO SYSTEM CONSTANTS
 // =======================
 constexpr float SAMPLE_RATE = 48000.0f;
-constexpr size_t MAX_DELAY_SAMPLES = static_cast<size_t>(SAMPLE_RATE * .8f);
 constexpr int NUM_AUDIO_BUFFERS = 3;
 constexpr int SAMPLES_PER_BUFFER = 256;
 constexpr float INT16_MAX_AS_FLOAT = 32767.0f;
 constexpr float INT16_MIN_AS_FLOAT = -32768.0f;
 constexpr float OSC_DETUNE_FACTOR = 0.001f;
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
+constexpr size_t MAX_DELAY_SAMPLES = static_cast<size_t>(SAMPLE_RATE * 1.8f);
 constexpr float FEEDBACK_FADE_RATE = 0.01f;
+#endif // PICO2SEQ_ENABLE_DELAY_EFFECT
 
 // =======================
 //   AUDIO SYSTEM VARIABLES
 // =======================
 // Voice Management System
 std::unique_ptr<VoiceManager> voiceManager;
+std::atomic<bool> voicesReady{false}; // publishes the fully constructed voice collection
 VoiceSystem voiceSystem; // Consolidated voice system
 
-// Global Audio Effects (shared between voices)
+// Global Audio Effects (shared between voices) — the delay effect's storage
+// lives and dies with PICO2SEQ_ENABLE_DELAY_EFFECT (see src/FeatureConfig.h).
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
 rpdsp::StateVariableFilter delLowPass;
 rpdsp::DelayLine<MAX_DELAY_SAMPLES> del1;
 float feedbackGain1 = 0.65f;
@@ -55,6 +63,7 @@ float currentFeedbackGain = 0.0f;    // For smooth delay feedback fade
 float delayTarget = 48000.0f * 0.15f;
 float currentDelay = 48000.0f * 0.15f;
 float feedbackAmmount = 0.45f; // Safer initial feedback level
+#endif // PICO2SEQ_ENABLE_DELAY_EFFECT
 
 // Audio Buffer Management
 audio_buffer_pool_t *producer_pool = nullptr;
@@ -91,6 +100,7 @@ void updateParametersForStep(uint8_t stepToUpdate);
 void updateParametersForStepNormalized(uint8_t stepToUpdate, float normalizedValue);
 void onStepCallback(uint32_t uClockCurrentStep);
 void processSequencerStep(uint32_t uClockCurrentStep);
+void processClockEvents();
 void setupI2SAudio(audio_format_t *audioFormat, audio_i2s_config_t *i2sConfig);
 void setup();
 void setup1();
@@ -101,6 +111,7 @@ void loop1();
 //   SEQUENCER STATE VARIABLES
 // =======================
 uint8_t currentSequencerStep = 0;
+uint32_t g_processedStepCount = 0; // monotonic, for freeze forensics (FreezeWatchdog.h)
 // Gate states and timers are now in voiceSystem
 
 // =======================
@@ -118,20 +129,25 @@ volatile bool touchFlag = false;
 bool isClockRunning = true;
 unsigned long previousMillis = 0;
 uint32_t ppqnTicksPending = 0;
-// 24-PPQN MIDI-clock-out handoff. The uClock ISR (core-1 alarm pool) only
-// counts; loop1() sends the usb_midi real-time bytes in thread context.
-// TinyUSB endpoint state is claimed by tud_task on this same core and is not
-// interrupt-safe, so usb_midi.send* must never run in the ISR.
-volatile uint32_t midiClockTicksPending = 0;
-// uClock step handoff, ISR -> loop1(). The advanceSequencerStep /
-// updateVoiceMIDI chain is far too heavy for interrupt context.
-StepTickQueue pendingUclockSteps;
-// TEMP DEBUG (clock-isr): total step callbacks fired by the ISR since boot.
-volatile uint32_t dbgClockStepsFired = 0;
+
+// =======================
+//   ISR -> THREAD CLOCK EVENT QUEUES
+// =======================
+// uClock fires its callbacks from the core-0 timer alarm ISR. They only stage
+// events here; loop() drains them in thread context (processClockEvents), so
+// USB MIDI traffic, sequencer advances and note lifecycle work stay
+// single-context and TinyUSB's MIDI endpoint keeps exactly one producer.
+constexpr uint8_t STEP_QUEUE_LEN = 16; // power of two, modulo-indexed
+volatile uint32_t stepQueue[STEP_QUEUE_LEN];
+volatile uint8_t stepQueueHead = 0; // written by the ISR only
+volatile uint8_t stepQueueTail = 0; // written by loop() only
+volatile uint32_t sync24TicksPending = 0;
+volatile uint32_t droppedStepCount = 0; // loop() stalled longer than the queue
 
 // =======================
 //   AUDIO PROCESSING HELPER FUNCTIONS
 // =======================
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
 /**
  * @brief Smooth parameter transitions to prevent audio artifacts
  * @param currentDelay Current delay time value
@@ -144,14 +160,16 @@ float delayTimeSmoothing(float currentDelay, float targetDelay, float slewRate)
     float difference = targetDelay - currentDelay;
     return currentDelay + (difference * slewRate);
 }
+#endif // PICO2SEQ_ENABLE_DELAY_EFFECT
 
 // --- Clock Callbacks ---
-// onSync24/onStep/onOutputPPQN run in uClock ISR context (core-1 alarm pool,
-// see src/vendor/uClock/platforms/rp2040.h). Keep them minimal: counters and
-// queue writes only. loop1() drains them in thread context.
+// onSync24Callback / onStepCallback / onOutputPPQNCallback run in the uClock
+// timer alarm ISR: stage events only, no work.
+// onClockStart / onClockStop run in thread context (uClock.start()/stop() are
+// called from setup()/UI handlers; uClock is master, no external clock input).
 void onSync24Callback(uint32_t tick)
 {
-    midiClockTicksPending++;
+    sync24TicksPending++;
 }
 void muteOscillators()
 {
@@ -199,10 +217,11 @@ void onClockStop()
  * Sets up global audio effects, delay processing, and voice management system.
  * Creates 4 voices with default presets and attaches them to sequencers.
  *
- * @note Called during setup() on Core 0 before audio processing begins
+ * @note Called during setup1() on Core 1 before audio processing begins
  */
 void initOscillators()
 {
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
     // Initialize global delay effect low-pass filter.
     // (rpdsp's SVF has no drive parameter; the old Svf drive is not carried over.)
     delLowPass.prepare(SAMPLE_RATE);
@@ -218,6 +237,7 @@ void initOscillators()
 
     // Initialize delay target to match initial delay
     delayTarget = static_cast<float>(delaySamples);
+#endif // PICO2SEQ_ENABLE_DELAY_EFFECT
 
     // Initialize Voice Manager with maximum 4 concurrent voices
     voiceManager = std::make_unique<VoiceManager>(4);
@@ -232,7 +252,7 @@ void initOscillators()
         voiceManager->attachSequencer(voiceSystem.getVoiceId(i), sequencers[i]);
     }
 
-    // Note: OLED display registration occurs in setup1() after display initialization
+    voicesReady.store(true, std::memory_order_release);
 }
 
 // Clamp to the 0..1 range of the re-purposed sequencer slots (no <algorithm>
@@ -245,11 +265,11 @@ static inline float clamp01(float v)
 /**
  * @brief Seed the sequencer tracks that a preset's param set re-purposes
  *
- * Non-standard presets reinterpret the Filter/Attack/Decay slots (e.g.
- * WgPluck's Decay slot is the string T60). Without seeding, the stale track
- * values (filter 0.5 / attack 0.01 / decay 0.3 defaults) would stomp the
- * preset's tuned engine values on the first step after a switch. Filter stays
- * untouched for Hypersaw (it remains a live cutoff there).
+ * Non-standard presets reinterpret selected slots (e.g. WgPluck's Decay slot
+ * is the string T60 and Analog's Velocity slot is a HardSyncSaw slave-pitch
+ * offset). Without seeding, stale values would stomp a preset's tuned engine
+ * values on the first step after a switch. Filter stays untouched for
+ * Hypersaw because it remains a live cutoff there.
  */
 static void seedRepurposedParamTracks(uint8_t voiceIndex, const VoiceConfig &config)
 {
@@ -279,6 +299,11 @@ static void seedRepurposedParamTracks(uint8_t voiceIndex, const VoiceConfig &con
         slots[count++] = {ParamId::Filter, clamp01(config.noiseSwarmColor)};
         slots[count++] = {ParamId::Attack, clamp01(config.noiseSwarmRegen)};
         slots[count++] = {ParamId::Decay, clamp01(config.noiseChaosLevel)};
+        break;
+    case PARAMSET_HARDSYNC:
+        // The centered Velocity default is zero slave offset: the slave
+        // follows the master until the Slave parameter is recorded.
+        slots[count++] = {ParamId::Velocity, 0.5f};
         break;
     default:
         return; // STANDARD presets keep their existing tracks
@@ -576,18 +601,25 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
     // Serial.println(stepIndex);
 }
 
-//  This gets called every 16th note — in uClock ISR context. Record the step
-//  number and let loop1() do the real work (processSequencerStep below).
+//  Called every 16th note from the uClock ISR: stage the step for
+//  thread-context processing in processClockEvents().
 void onStepCallback(uint32_t uClockCurrentStep)
 {
-    dbgClockStepsFired++; // TEMP DEBUG (clock-isr)
-    pendingUclockSteps.push(uClockCurrentStep);
+    uint8_t next = (uint8_t)((stepQueueHead + 1) & (STEP_QUEUE_LEN - 1));
+    if (next == stepQueueTail)
+    {
+        droppedStepCount++;
+        return;
+    }
+    stepQueue[stepQueueHead] = uClockCurrentStep;
+    stepQueueHead = next;
 }
 
-// Advance all four sequencers for one uClock step and push the results into
-// the voices + MIDI. Drained in loop1() thread context.
+//  The full 16th-note step work, drained from the ISR queue by
+//  processClockEvents() in loop() thread context - never the ISR.
 void processSequencerStep(uint32_t uClockCurrentStep)
 {
+    g_processedStepCount++;
     currentSequencerStep = static_cast<uint8_t>(uClockCurrentStep); // Raw uClock step, sequencers handle their own modulo
 
     // 2. Advance sequencers and get their new state into local temporary variables.
@@ -614,7 +646,9 @@ void processSequencerStep(uint32_t uClockCurrentStep)
     }
 
     // Apply encoder base values to global delay effect parameters
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
     applyEncoderDelayValues();
+#endif
 
     // 4. Update synth hardware (voices 1/2 with gates + MIDI; 3/4 audio only)
 
@@ -633,6 +667,24 @@ void processSequencerStep(uint32_t uClockCurrentStep)
 
         // Store state
         voiceSystem.getVoiceState(i) = tempStates[i];
+    }
+}
+
+//  Drain everything the uClock ISR staged. Runs in loop() thread context,
+//  ahead of the slow I2C/display slices so step latency stays low.
+void processClockEvents()
+{
+    while (stepQueueTail != stepQueueHead)
+    {
+        uint32_t step = stepQueue[stepQueueTail];
+        stepQueueTail = (uint8_t)((stepQueueTail + 1) & (STEP_QUEUE_LEN - 1));
+        processSequencerStep(step);
+    }
+
+    while (sync24TicksPending > 0)
+    {
+        sync24TicksPending--;
+        usb_midi.sendRealTime(midi::Clock);
     }
 }
 
@@ -665,10 +717,11 @@ static inline int16_t FloatToPcm16(float s) noexcept
     return (int16_t)__SSAT(i, 16);
 }
 /**
- * @brief Main audio buffer processing function (Core 0 - Real-time critical)
+ * @brief Main audio buffer processing function (Core 1 - Real-time critical)
  *
- * This function runs on Core 0 and must maintain real-time performance.
- * It processes all voices through the VoiceManager and applies global delay effects.
+ * This function runs on Core 1 and must maintain real-time performance.
+ * It processes all voices through the VoiceManager and, when
+ * PICO2SEQ_ENABLE_DELAY_EFFECT is on, applies the global delay effect.
  *
  * @param buffer Audio buffer to fill with processed samples
  *
@@ -681,17 +734,18 @@ void fill_audio_buffer(audio_buffer_t *buffer)
     int16_t *out = reinterpret_cast<int16_t *>(buffer->buffer->bytes);
     float finalVoiceOutput;
 
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
     // Determine target gains based on delay state
-    // float targetDelayOutputGain = uiState.delayOn ? 1.0f : 0.0f;
-    // float targetFeedbackGain = uiState.delayOn ? feedbackAmmount : 0.0f;
+    float targetDelayOutputGain = uiState.delayOn ? 1.0f : 0.0f;
+    float targetFeedbackGain = uiState.delayOn ? feedbackAmmount : 0.0f;
 
     // Smooth parameters once per buffer to reduce CPU load
-    //  currentFeedbackGain = delayTimeSmoothing(currentFeedbackGain, targetFeedbackGain, FEEDBACK_FADE_RATE);
-    // currentDelayOutputGain = delayTimeSmoothing(currentDelayOutputGain, targetDelayOutputGain, FEEDBACK_FADE_RATE);
-    // currentDelay = delayTimeSmoothing(currentDelay, delayTarget, 0.0001f);
-
-    // Set delay time once per buffer for efficiency
-    //  del1.SetDelay(currentDelay);
+    currentFeedbackGain = delayTimeSmoothing(currentFeedbackGain, targetFeedbackGain, FEEDBACK_FADE_RATE);
+    currentDelayOutputGain = delayTimeSmoothing(currentDelayOutputGain, targetDelayOutputGain, FEEDBACK_FADE_RATE);
+    currentDelay = delayTimeSmoothing(currentDelay, delayTarget, 0.0001f);
+    // Delay time is applied per tap read (del1.readLinear in processDelayEffect);
+    // rpdsp's DelayLine has no SetDelay — the old DaisySP call here was stale.
+#endif // PICO2SEQ_ENABLE_DELAY_EFFECT
 
     // Process each sample in the buffer
     for (int i = 0; i < N; ++i)
@@ -699,8 +753,10 @@ void fill_audio_buffer(audio_buffer_t *buffer)
         // Process all voices through VoiceManager (voice states updated by sequencer callbacks)
         finalVoiceOutput = voiceManager->processAllVoices();
 
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
         // Apply global delay effect
-        //  processedOutput = processDelayEffect(finalVoiceOutput);
+        finalVoiceOutput = processDelayEffect(finalVoiceOutput);
+#endif
 
         // Convert once for both channels (mono -> stereo)
         int16_t convertedSample = FloatToPcm16(finalVoiceOutput);
@@ -711,6 +767,7 @@ void fill_audio_buffer(audio_buffer_t *buffer)
     buffer->sample_count = N;
 }
 
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
 /**
  * @brief Process delay effect with feedback and filtering
  *
@@ -739,6 +796,7 @@ float processDelayEffect(float inputSignal)
     // Mix dry and wet signals based on current delay output gain
     return inputSignal + (delayOutput * currentDelayOutputGain);
 }
+#endif // PICO2SEQ_ENABLE_DELAY_EFFECT
 
 /**
  * @brief Configure and initialize I2S audio hardware interface
@@ -773,22 +831,182 @@ void setupI2SAudio(audio_format_t *audioFormat, audio_i2s_config_t *i2sConfig)
 }
 
 // =======================
-//   CORE 0 SETUP (AUDIO PROCESSING)
+//   CORE 0 SETUP (UI, MIDI, SENSORS)
 // =======================
 /**
- * @brief Core 0 initialization - Audio system setup
+ * @brief Core 0 initialization - UI and control systems
+ *
+ * Initializes all non-audio systems including MIDI, sensors, display,
+ * LED matrix, and user interface components. This core handles all
+ * user interaction and system control.
+ */
+void setup()
+{
+    // If the previous run died, print where before doing anything else.
+    freezeWatchdogBootCheck();
+
+    // Setup-only handoff: control code cannot touch voices while Core 1 builds them.
+    while (!voicesReady.load(std::memory_order_acquire))
+        delay(1);
+
+    // Initialize MIDI communication
+    usb_midi.begin(MIDI_CHANNEL_OMNI);
+
+    delay(100);
+
+    Serial.begin(115200);
+
+    //  Debug::setLevel(Debug::Level::Info);
+
+    Serial.print("[CORE0] Setup starting... ");
+
+    // Pin the main I2C bus (OLED, MPR121, TMAG5273, VL53L1X) before any
+    // sensor/display begin() runs.
+    Wire.setSDA(PIN_WIRE_SDA);
+    Wire.setSCL(PIN_WIRE_SCL);
+    Wire.begin();
+
+    // From here on, any Core-0 hang or hard fault reboots within ~2s and the
+    // post-mortem prints at the next boot (src/utils/FreezeWatchdog.h).
+    freezeWatchdogArm();
+    freezeWatchdogFeed(FW_SETUP_BUS);
+
+    randomSeed(analogRead(A0) + millis());
+    ledMatrix.begin(100);
+    setupLEDMatrixFeedback();
+
+    freezeWatchdogFeed(FW_SETUP_SENSORS);
+    if (!distanceSensor.begin())
+    {
+        Serial.println("[ERROR] Distance sensor initialization failed!");
+    }
+    else
+    {
+        Serial.println("Distance sensor initialized successfully");
+    }
+
+    // Initialize TMAG5273A magnetic encoder (Velocity Encoder board, I2C 0x35)
+    if (!magEncoder.begin())
+    {
+        Serial.println("[ERROR] TMAG5273 magnetic encoder initialization failed!");
+    }
+    else
+    {
+        Serial.println("TMAG5273 magnetic encoder initialized successfully");
+    }
+
+    // Initialize encoder base values with proper defaults
+    initEncoderBaseValues();
+
+    freezeWatchdogFeed(FW_SETUP_MPR121);
+    if (!touchSensor.begin(0x5A))
+    {
+        Serial.println("MPR121 not found, check wiring?");
+        while (1)
+            ;
+    }
+    else
+    {
+        Serial.println("MPR121 found and initialized");
+        touchSensor.setAutoconfig(true);
+
+        // Configure MPR121 touch thresholds.
+        // Using the original, more conservative thresholds.
+        touchSensor.setThresholds(55, 22); // touch, release thresholds
+        // Serial.println("MPR121 thresholds configured to 155/55");
+    }
+
+    // Initialize OLED display
+    freezeWatchdogFeed(FW_SETUP_OLED);
+    display.begin();
+    Serial.println("OLED display initialized");
+// Initialize audio synthesis system
+    initOscillators();
+    // Register OLED display as observer for voice parameter changes
+    if (voiceManager)
+    {
+        display.setVoiceManager(voiceManager.get());
+
+        // Use VoiceManager's callback system for parameter updates
+        voiceManager->setVoiceUpdateCallback([](uint8_t voiceId, const VoiceState &state)
+                                             { display.onVoiceParameterChanged(voiceId, state); });
+
+        Serial.println("OLED display registered as voice parameter observer");
+    }
+    else
+    {
+        Serial.println("[ERROR] VoiceManager not initialized - cannot register OLED observer");
+    }
+
+    freezeWatchdogFeed(FW_SETUP_MATRIX);
+    Matrix_init(&touchSensor);
+    Serial.println("Matrix initialized");
+
+    // Force a matrix scan to test the system
+    Serial.println("Forcing initial matrix scan...");
+    Matrix_scan();
+    // Matrix_printState();
+
+    // =======================
+    //   ALCHEMY TILE CONTROL SURFACE (Wire1 bank + GP7 mode strap)
+    // =======================
+    // SliderModule + ButtonModule8 live on their own Wire1 bank; Wire1 pin
+    // constants are bench-adjustable in includes.h. Standard mode (100 kHz),
+    // not fast mode: 400 kHz stalls tile transfers on this rig, which is the
+    // rate the working Pico_DSP_Garden sketches run these same tiles at.
+    freezeWatchdogFeed(FW_SETUP_ALCHEMY);
+    pinMode(PIN_ALCHEMY_MODE_SWITCH, INPUT_PULLUP);
+    Wire1.setSDA(PIN_ALCHEMY_WIRE1_SDA);
+    Wire1.setSCL(PIN_ALCHEMY_WIRE1_SCL);
+    Wire1.begin();
+    Wire1.setClock(100000);
+    alchemyBridge.setModeSwitchPin(PIN_ALCHEMY_MODE_SWITCH);
+    alchemyBridge.begin(Wire1, /*bankB=*/nullptr, millis());
+    printAlchemyTileScanReport();
+
+    // Use a lambda to capture the context needed by the event handler
+    Matrix_setEventHandler([](const MatrixButtonEvent &evt)
+                           {
+        Serial.print("Matrix event: button ");
+        Serial.print(evt.buttonIndex);
+        Serial.print(evt.type == MATRIX_BUTTON_PRESSED ? " pressed" : " released");
+        Serial.println();
+        Sequencer* seqs[] = { &seq1, &seq2, &seq3, &seq4 };
+        matrixEventHandler(evt, uiState, seqs, 4, midiNoteManager); });
+
+    freezeWatchdogFeed(FW_SETUP_UCLOCK);
+    uClock.init();
+    uClock.setOnSync24(onSync24Callback);
+    uClock.setOnClockStart(onClockStart);
+    uClock.setOnClockStop(onClockStop);
+    uClock.setOutputPPQN(uClock.PPQN_480);
+    uClock.setOnStep(onStepCallback);
+    uClock.setOnOutputPPQN(onOutputPPQNCallback);
+    uClock.setTempo(90);
+    uClock.start();
+    uClock.setShuffle(true);
+  
+    Serial.println("[CORE0] Setup complete!");
+}
+
+// =======================
+//   CORE 1 SETUP (AUDIO PROCESSING)
+// =======================
+/**
+ * @brief Core 1 initialization - Audio system setup
  *
  * Initializes the audio synthesis system, configures I2S hardware interface,
  * and sets up audio buffer management. This core is dedicated to real-time
  * audio processing only.
  *
- * @note Runs on Core 0 - Keep minimal for real-time performance
+ * @note Runs on Core 1 - Keep minimal for real-time performance
  */
-void setup()
+void setup1()
 {
     delay(100); // Allow system stabilization
 
-    
+    // Initialize audio synthesis system
+    initOscillators();
 
     // Configure audio format (48kHz, 16-bit stereo)
     static audio_format_t audioFormat = {
@@ -854,236 +1072,57 @@ static void printAlchemyTileScanReport()
 }
 
 // =======================
-//   CORE 1 SETUP (UI, MIDI, SENSORS)
+//   CORE 0 MAIN LOOP (UI, MIDI, SENSORS)
 // =======================
 /**
- * @brief Core 1 initialization - UI and control systems
- *
- * Initializes all non-audio systems including MIDI, sensors, display,
- * LED matrix, and user interface components. This core handles all
- * user interaction and system control.
- */
-void setup1()
-{
-
-    // Initialize MIDI communication
-    usb_midi.begin(MIDI_CHANNEL_OMNI);
-
-    delay(100);
-
-    Serial.begin(115200);
-
-    //  Debug::setLevel(Debug::Level::Info);
-
-    Serial.print("[CORE1] Setup starting... ");
-
-    // Pin the main I2C bus (OLED, MPR121, TMAG5273, VL53L1X) before any
-    // sensor/display begin() runs.
-    Wire.setSDA(PIN_WIRE_SDA);
-    Wire.setSCL(PIN_WIRE_SCL);
-    Wire.begin();
-
-    randomSeed(analogRead(A0) + millis());
-    ledMatrix.begin(100);
-    setupLEDMatrixFeedback();
-
-    if (!distanceSensor.begin())
-    {
-        Serial.println("[ERROR] Distance sensor initialization failed!");
-    }
-    else
-    {
-        Serial.println("Distance sensor initialized successfully");
-    }
-
-    // Initialize TMAG5273A magnetic encoder (Velocity Encoder board, I2C 0x35)
-    if (!magEncoder.begin())
-    {
-        Serial.println("[ERROR] TMAG5273 magnetic encoder initialization failed!");
-    }
-    else
-    {
-        Serial.println("TMAG5273 magnetic encoder initialized successfully");
-    }
-
-    // Initialize encoder base values with proper defaults
-    initEncoderBaseValues();
-
-    if (!touchSensor.begin(0x5A))
-    {
-        Serial.println("MPR121 not found, check wiring?");
-        while (1)
-            ;
-    }
-    else
-    {
-        Serial.println("MPR121 found and initialized");
-        touchSensor.setAutoconfig(true);
-
-        // Configure MPR121 touch thresholds.
-        // Using the original, more conservative thresholds.
-        touchSensor.setThresholds(55, 22); // touch, release thresholds
-        // Serial.println("MPR121 thresholds configured to 155/55");
-    }
-
-    // Initialize OLED display
-    display.begin();
-    Serial.println("OLED display initialized");
-// Initialize audio synthesis system
-    initOscillators();
-    // Register OLED display as observer for voice parameter changes
-    if (voiceManager)
-    {
-        display.setVoiceManager(voiceManager.get());
-
-        // Use VoiceManager's callback system for parameter updates
-        voiceManager->setVoiceUpdateCallback([](uint8_t voiceId, const VoiceState &state)
-                                             { display.onVoiceParameterChanged(voiceId, state); });
-
-        Serial.println("OLED display registered as voice parameter observer");
-    }
-    else
-    {
-        Serial.println("[ERROR] VoiceManager not initialized - cannot register OLED observer");
-    }
-
-    Matrix_init(&touchSensor);
-    Serial.println("Matrix initialized");
-
-    // Force a matrix scan to test the system
-    Serial.println("Forcing initial matrix scan...");
-    Matrix_scan();
-    // Matrix_printState();
-
-    // =======================
-    //   ALCHEMY TILE CONTROL SURFACE (Wire1 bank + GP7 mode strap)
-    // =======================
-    // SliderModule + ButtonModule8 live on their own Wire1 bank; Wire1 pin
-    // constants are bench-adjustable in includes.h. Standard mode (100 kHz),
-    // not fast mode: 400 kHz stalls tile transfers on this rig, which is the
-    // rate the working Pico_DSP_Garden sketches run these same tiles at.
-    pinMode(PIN_ALCHEMY_MODE_SWITCH, INPUT_PULLUP);
-    Wire1.setSDA(PIN_ALCHEMY_WIRE1_SDA);
-    Wire1.setSCL(PIN_ALCHEMY_WIRE1_SCL);
-    Wire1.begin();
-    Wire1.setClock(100000);
-    alchemyBridge.setModeSwitchPin(PIN_ALCHEMY_MODE_SWITCH);
-    alchemyBridge.begin(Wire1, /*bankB=*/nullptr, millis());
-    printAlchemyTileScanReport();
-
-    // Use a lambda to capture the context needed by the event handler
-    Matrix_setEventHandler([](const MatrixButtonEvent &evt)
-                           {
-        Serial.print("Matrix event: button ");
-        Serial.print(evt.buttonIndex);
-        Serial.print(evt.type == MATRIX_BUTTON_PRESSED ? " pressed" : " released");
-        Serial.println();
-        Sequencer* seqs[] = { &seq1, &seq2, &seq3, &seq4 };
-        matrixEventHandler(evt, uiState, seqs, 4, midiNoteManager); });
-
-    // uClock.init() -> initTimer() creates the alarm pool on hardware alarm 2
-    // bound to THIS core (core 1), so the uClock ISR never fires on the audio
-    // core. Callbacks registered below must stay ISR-minimal; loop1() drains
-    // them (midiClockTicksPending / pendingUclockSteps).
-    uClock.init();
-    uClock.setOnSync24(onSync24Callback);
-    uClock.setOnClockStart(onClockStart);
-    uClock.setOnClockStop(onClockStop);
-    uClock.setOutputPPQN(uClock.PPQN_480);
-    uClock.setOnStep(onStepCallback);
-    uClock.setOnOutputPPQN(onOutputPPQNCallback);
-    uClock.setTempo(90);
-    uClock.start();
-    uClock.setShuffle(true);
- 
-    Serial.printf("[CLOCK] uClock started, setup1 core=%u\n", (unsigned)get_core_num()); // TEMP DEBUG (clock-isr)
-
-    Serial.println("[CORE1] Setup complete!");
-}
-
-// =======================
-//   CORE 0 MAIN LOOP (AUDIO PROCESSING)
-// =======================
-/**
- * @brief Core 0 main loop - Real-time audio processing
- *
- * Continuously processes audio buffers for I2S output. This loop must maintain
- * real-time performance to prevent audio dropouts. Only audio processing
- * occurs on this core.
- *
- * @note Dual-core architecture: UI, MIDI, and sensors handled on Core 1
- */
-void loop()
-{
-    audio_buffer_t *audioBuffer = take_audio_buffer(producer_pool, true);
-
-    if (audioBuffer)
-    {
-        fill_audio_buffer(audioBuffer);
-        give_audio_buffer(producer_pool, audioBuffer);
-    }
-}
-
-// =======================
-//   CORE 1 MAIN LOOP (UI, MIDI, SENSORS)
-// =======================
-/**
- * @brief Core 1 main loop - User interface and control processing
+ * @brief Core 0 main loop - User interface and control processing
  *
  * Handles all non-audio processing including MIDI I/O, sensor reading,
  * button matrix scanning, LED updates, and display rendering.
  *
- * @note Dual-core architecture: Audio processing handled on Core 0
+ * @note Dual-core architecture: Audio processing handled on Core 1
  */
-void loop1()
+void loop()
 {
+    // Retry deferred controls even when no new input arrives; also snapshot scale changes.
+    voiceManager->flushControlUpdates();
     // Process MIDI input/output
+    freezeWatchdogFeed(FW_LOOP_USB_READ);
     usb_midi.read();
-
-    // =======================
-    //   uClock ISR HANDOFFS (drained here, in thread context)
-    // =======================
-    // The uClock ISR (core-1 alarm pool) only counts/queues ticks. Everything
-    // touching usb_midi or the sequencers happens here because TinyUSB
-    // endpoint state is claimed by tud_task on this same core and is not
-    // interrupt-safe. Clock pulses go out first (they mark the beat for
-    // synced gear), then the step work, then the note-off timing below.
-    while (midiClockTicksPending > 0)
-    {
-        midiClockTicksPending--;
-        usb_midi.sendRealTime(midi::Clock);
-    }
-
-    uint32_t drainedStep = 0;
-    while (pendingUclockSteps.pop(drainedStep))
-    {
-        processSequencerStep(drainedStep);
-    }
 
     unsigned long currentMillis = millis();
 
-    // TEMP DEBUG (clock-isr): 1 Hz clock-health report; remove after diagnosis.
-    static uint32_t lastClockDebugMs = 0;
-    if (currentMillis - lastClockDebugMs >= 1000)
-    {
-        lastClockDebugMs = currentMillis;
-        Serial.printf("[CLOCK] core=%u fired=%lu stepQ=%u ppqn=%lu clk24=%lu running=%d tempo=%.1f\n",
-                      (unsigned)get_core_num(),
-                      (unsigned long)dbgClockStepsFired,
-                      (unsigned)pendingUclockSteps.size(),
-                      (unsigned long)ppqnTicksPending,
-                      (unsigned long)midiClockTicksPending,
-                      (int)isClockRunning,
-                      uClock.getTempo());
-    }
-
     // All four sequencers so tile randomize long-press resets reach voices 3/4.
+    freezeWatchdogFeed(FW_LOOP_HELD_BUTTONS);
     pollUIHeldButtons(uiState, seq1, seq2, seq3, seq4);
 
     // =======================
     //   TIMING AND SEQUENCER PROCESSING
     // =======================
+    // Drain the uClock ISR's staged events (queued steps + MIDI clock out)
+    // before the PPQN timing pass and the slow I2C/display slices.
+    freezeWatchdogFeed(FW_LOOP_CLOCK_EVENTS);
+    processClockEvents();
+
+    // TEMP DEBUG: cross-core voice-registration probe (remove after bench).
+    // Prints Core 0's view of the voice-id table Core 1 writes in
+    // initOscillators(), plus the manager's own voice count.
+    static uint32_t lastVoiceDiag = 0;
+    if (currentMillis - lastVoiceDiag >= 2000)
+    {
+        lastVoiceDiag = currentMillis;
+        if (Serial)
+        {
+            Serial.printf("[DIAG C0] ids=%u,%u,%u,%u mgrVoices=%u warmBoots=%lu\n",
+                          voiceSystem.getVoiceId(0), voiceSystem.getVoiceId(1),
+                          voiceSystem.getVoiceId(2), voiceSystem.getVoiceId(3),
+                          (unsigned)(voiceManager ? voiceManager->getVoiceCount() : 0),
+                          (unsigned long)watchdog_hw->scratch[2]);
+        }
+    }
+
     // Process all pending PPQN ticks
+    freezeWatchdogFeed(FW_LOOP_PPQN);
     static uint16_t globalTickCounter = 0; // Global tick counter for MidiNoteManager
 
     while (ppqnTicksPending > 0)
@@ -1120,6 +1159,7 @@ void loop1()
     if ((currentMillis - lastControlUpdate >= CONTROL_UPDATE_INTERVAL))
     {
         lastControlUpdate = currentMillis;
+        freezeWatchdogFeed(FW_LOOP_CONTROL);
 
         // Check if any parameter buttons are held for real-time recording
         bool parameterRecordingActive = isAnyParameterButtonHeld(uiState);
@@ -1162,6 +1202,7 @@ void loop1()
     if (currentMillis - lastLEDUpdate >= LED_UPDATE_INTERVAL)
     {
         lastLEDUpdate = currentMillis;
+        freezeWatchdogFeed(FW_LOOP_DISPLAY);
 
         // =======================
         //   DISPLAY AND LED PROCESSING
@@ -1181,5 +1222,47 @@ void loop1()
 
         // Apply LED updates to hardware
         ledMatrix.show();
+    }
+}
+
+// =======================
+//   CORE 1 MAIN LOOP (AUDIO PROCESSING)
+// =======================
+/**
+ * @brief Core 1 main loop - Real-time audio processing
+ *
+ * Continuously processes audio buffers for I2S output. This loop must maintain
+ * real-time performance to prevent audio dropouts. Only audio processing
+ * occurs on Core 1.
+ *
+ * @note Dual-core architecture: UI, MIDI, and sensors handled on Core 0
+ */
+void loop1()
+{
+    audio_buffer_t *audioBuffer = take_audio_buffer(producer_pool, true);
+
+    if (audioBuffer)
+    {
+        fill_audio_buffer(audioBuffer);
+        give_audio_buffer(producer_pool, audioBuffer);
+    }
+
+    // TEMP DEBUG: Core-1 liveness heartbeat + Core 1's own view of the voice-id
+    // table (remove after bench). Heartbeat stopping means Core 1 died or the
+    // audio pipeline stalled; compare ids against [DIAG C0] on Core 0.
+    static uint32_t c1BufCount = 0;
+    static uint32_t c1LastBeat = 0;
+    c1BufCount++;
+    const uint32_t c1Now = millis();
+    if (c1Now - c1LastBeat >= 2000)
+    {
+        c1LastBeat = c1Now;
+        if (Serial)
+        {
+            Serial.printf("[DIAG C1] alive bufs=%lu ids=%u,%u,%u,%u\n",
+                          (unsigned long)c1BufCount,
+                          voiceSystem.getVoiceId(0), voiceSystem.getVoiceId(1),
+                          voiceSystem.getVoiceId(2), voiceSystem.getVoiceId(3));
+        }
     }
 }

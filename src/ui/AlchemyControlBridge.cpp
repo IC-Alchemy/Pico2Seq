@@ -8,6 +8,7 @@
 #include "UIEventHandler.h"
 #include "../AlchemyUI/src/ButtonMap.h"
 #include "../midi/MidiManager.h"
+#include "../FeatureConfig.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../pico2seq-core/sequencer/ShuffleTemplates.h"
 
@@ -16,7 +17,9 @@
 // Globals from the main sketch the bridge feeds (same externs the matrix
 // handlers used).
 extern bool isClockRunning;
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
 extern float feedbackAmmount;
+#endif
 
 // Shared lidar/fader step-recording path (implemented in Pico2Seq.ino).
 extern void updateParametersForStepNormalized(uint8_t stepToUpdate,
@@ -400,7 +403,9 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
     }
 
     case ControlSurface::FaderTarget::DelayMix:
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
       feedbackAmmount = normalized * kDelayFeedbackMax;
+#endif
       break;
 
     case ControlSurface::FaderTarget::GateLength:

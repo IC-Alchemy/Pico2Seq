@@ -9,6 +9,7 @@
 #include "ButtonManager.h"
 #include "UIConstants.h"
 #include "UIState.h"
+#include "../FeatureConfig.h"
 
 #include "../vendor/uClock/uClock.h" // vendored fork — never <uClock.h>, see src/vendor/uClock/README.md
 
@@ -107,7 +108,7 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)
 
   uint8_t currentVoiceId = voiceSystem.getVoiceId(voiceIndex);
 
-  VoiceConfig *liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
+  const VoiceConfig *liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
   if (!liveCfg)
     return;
   // Work on a local copy to avoid mutating live config from UI thread
@@ -268,6 +269,7 @@ void handleControlButton(int buttonId, UIState &state)
   case BUTTON_TOGGLE_DELAY:
 
   {
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
     state.delayOn = !state.delayOn;
     // Transient OLED confirmation (replaces the old control-LED flash)
     state.oledNoticeKind = state.delayOn ? UIState::OledNoticeKind::DelayOn : UIState::OledNoticeKind::DelayOff;
@@ -276,6 +278,7 @@ void handleControlButton(int buttonId, UIState &state)
     {
       state.currentEncoderParameter = EncoderParameterMode::DelayTime;
     }
+#endif
   }
   break;
 

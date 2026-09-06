@@ -27,7 +27,7 @@ Keep it that way.)
 
 ## Commands
 
-### Run the unit test suite (the only thing you can actually build/run from a CLI)
+### Run the unit test suite
 
 ```bash
 cmake -B build_test -DCMAKE_BUILD_TYPE=Debug
@@ -54,8 +54,45 @@ Other useful invocations:
 ctest --test-dir build_test --output-on-failure       # same tests, via CTest
 ```
 
-There is currently no CI workflow — the old `.github/workflows/tests.yml` was removed, so
-run the suite locally (the commands above) after any change under `src/` or `tests/`.
+### Firmware build + flash via arduino-cli (headless)
+
+`arduino-cli` can build and flash the firmware too. The FQBN/options below must match
+`.vscode/arduino.json` (`usbstack=tinyusb` is required for `Adafruit_TinyUSB.h`; the
+extension's `buildPreferences` `-ffast-math` is not read by the CLI, so it is passed
+via `--build-property`):
+
+```bash
+PICO2_FQBN='rp2040:rp2040:rpipico2:flash=4194304_0,arch=arm,freq=225,opt=Optimize3,profile=Disabled,rtti=Disabled,stackprotect=Disabled,exceptions=Disabled,dbgport=Disabled,dbglvl=None,usbstack=tinyusb,ipbtstack=ipv4only,uploadmethod=default'
+
+arduino-cli compile --fqbn "$PICO2_FQBN" \
+  --build-property "build.extra_flags=-ffast-math" \
+  --output-dir build_fw .
+```
+
+Output lands in `build_fw/`: `Pico2Seq.ino.uf2` (flashable image) and `Pico2Seq.ino.elf`
+(keep it — freeze post-mortem fault PC/LR addresses are decoded against this with
+`arm-none-eabi-addr2line -e build_fw/Pico2Seq.ino.elf <addr>`).
+
+Two ways to flash:
+
+1. **Serial upload, no button — board running and its COM port visible:**
+
+   ```bash
+   arduino-cli board list                     # confirm the port, e.g. COM3
+   arduino-cli upload -p COM3 --input-dir build_fw --fqbn "$PICO2_FQBN"
+   ```
+
+   The CLI signals the running arduino-pico firmware over the serial port to reboot
+   into its bootloader, then transfers the image. Only works while the old firmware's
+   USB serial stack is alive — `arduino-cli board list` showing no ports means the
+   board is wedged or unplugged.
+
+2. **BOOTSEL drag-drop — always works** (hardware-level): hold BOOTSEL while plugging
+   in, copy `build_fw/Pico2Seq.ino.uf2` onto the `RP2350` drive.
+
+Rule of thumb after a freeze: watchdog rebooted (post-mortem printed) → method 1 works;
+hard-froze with no reboot → use method 2.
+
 
 ## Testing strategy — read this before touching anything under `src/`
 
@@ -106,12 +143,9 @@ sensors,ButtonHandlers}.md` cover each subsystem. The essentials:
 
 ### Dual-core split (the most important thing to keep in mind for any change)
 
-- **Core 0** (`setup()`/`loop()` in `Pico2Seq.ino`): audio synthesis only. Pulls a buffer,
-  calls `voiceManager->processAllVoices()` per-sample, writes I2S output. Nothing else should
-  run here — this is real-time critical and must never block or allocate.
-- **Core 1** (`setup1()`/`loop1()`): everything else — MIDI I/O, TMAG5273 magnetic encoder and VL53L1X
-  distance sensor polling, MPR121 touch matrix scanning, `uClock` sequencer step ticking, LED
-  matrix and OLED updates, UI state.
+-
+- **Core 0** (`setup()`/`loop()`): everything else — MIDI I/O, TMAG5273 magnetic encoder and VL53L1X, distance sensor polling, MPR121 touch matrix scanning, `uClock` sequencer step ticking, LED matrix and OLED updates, UI state.
+- **Core 1** (`setup1()`/`loop1()` in `Pico2Seq.ino`): audio synthesis only. Pulls a buffer, calls `voiceManager->processAllVoices()` per-sample, writes I2S output. Nothing else should run here — this is real-time critical and must never block or allocate.
 - Cross-core communication is via `volatile` globals (e.g. `VoiceSystem::gates`,
   `ppqnTicksPending`) — there are no mutexes. When touching shared state, check whether it's
   read/written from both cores and keep the existing `volatile` discipline.
@@ -132,7 +166,7 @@ this only applies to voices 0/1, since 2/3 never had gates or MIDI wired up.
 ### Data flow (input → sound)
 
 ```
-Matrix/TMAG5273/VL53L1X/MIDI input  (Core 1)
+Matrix/TMAG5273/VL53L1X/MIDI input  (Core 0)
   → UIEventHandler / ButtonHandlers  → UIState (single struct, no loose globals)
   → 4 independent Sequencer instances (seq1..seq4, one per voice, polymetric: each
     ParamId track can have its own step count, e.g. Note:16 steps, Filter:8 steps)
@@ -140,7 +174,7 @@ Matrix/TMAG5273/VL53L1X/MIDI input  (Core 1)
     StepTickQueue; loop1() drains it and runs processSequencerStep)
   → VoiceSystem (gate timing, MIDI note on/off via MidiNoteManager) → VoiceManager
   → Voice DSP chain (oscillators → ladder filter → ADSR → overdrive/wavefolder)
-  → fill_audio_buffer()  (Core 0)  → I2S @ 48kHz
+  → fill_audio_buffer()  (Core 1)  → I2S @ 48kHz
 ```
 
 `Sequencer::ParameterTrack<N>` (in `SequencerDefs.h`) is the polymetric building block: each

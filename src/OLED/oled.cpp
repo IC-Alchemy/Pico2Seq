@@ -112,7 +112,7 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
 
   // Map selected voice index to actual voice ID
   const uint8_t currentVoiceID = voiceSystem.getVoiceId(uiState.selectedVoiceIndex);
-  VoiceConfig *voiceConfiguration = voiceManager->getVoiceConfig(currentVoiceID);
+  const VoiceConfig *voiceConfiguration = voiceManager->getVoiceConfig(currentVoiceID);
 
   if (!voiceConfiguration)
   {
@@ -160,11 +160,10 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
       break;
     case 11: // Filter Mode
     {
-      const char *filterModeNames[] = {"LP12", "LP24", "LP36", "BP12", "BP24"};
       const int filterModeIndex = static_cast<int>(voiceConfiguration->filterMode);
-      if (filterModeIndex >= 0 && filterModeIndex < 5)
+      if (filterModeIndex >= 0 && filterModeIndex < voiceui::kFilterModeCount)
       {
-        displayHardware.print(filterModeNames[filterModeIndex]);
+        displayHardware.print(voiceui::kFilterModeNames[filterModeIndex]);
       }
       else
       {
@@ -194,6 +193,7 @@ static const char *encoderParamName(EncoderParameterMode mode)
   case EncoderParameterMode::Attack:        return "Attack";
   case EncoderParameterMode::Decay:         return "Decay";
   case EncoderParameterMode::Note:          return "Note";
+  case EncoderParameterMode::Octave:        return "Octave";
   case EncoderParameterMode::DelayTime:     return "DelayTime";
   case EncoderParameterMode::DelayFeedback: return "DelayFdbk";
   case EncoderParameterMode::SlideTime:     return "SlideTime";
@@ -528,6 +528,13 @@ String OLEDDisplay::formatParameterValue(ParamId paramId, float value, uint8_t p
   if (paramSet != PARAMSET_STANDARD &&
       VoicePresets::getSequencerParamName(presetIndex, paramId) != nullptr)
   {
+    if (paramSet == PARAMSET_HARDSYNC && paramId == ParamId::Velocity)
+    {
+      // The Slave lane is centered at 0.5, which yields an exact 1:1 master/
+      // slave ratio. Its full range is +/- 24 semitones.
+      const int offsetSemitones = static_cast<int>(lroundf((value - 0.5f) * 48.0f));
+      return String(offsetSemitones >= 0 ? "+" : "") + String(offsetSemitones) + "st";
+    }
     if (paramSet == PARAMSET_WAVEGUIDE && paramId == ParamId::Decay)
     {
       return String((int)dspmap::fmap(value, 0.05f, 10.0f, dspmap::Mapping::EXP)) + "s";
@@ -701,7 +708,7 @@ void OLEDDisplay::displayVoiceParameterInfo(const UIState &uiState, VoiceManager
   uint8_t selected = uiState.selectedVoiceIndex;
   uint8_t currentVoiceId = (selected == 0) ? leadVoiceId : (selected == 1) ? bassVoiceId
                                                                            : voiceSystem.getVoiceId(selected);
-  VoiceConfig *config = voiceManager->getVoiceConfig(currentVoiceId);
+  const VoiceConfig *config = voiceManager->getVoiceConfig(currentVoiceId);
 
   if (!config)
   {
@@ -739,11 +746,10 @@ void OLEDDisplay::displayVoiceParameterInfo(const UIState &uiState, VoiceManager
   case 11:
   {
     paramName = "Filter Mode";
-    const char *filterNames[] = {"LP12", "LP24", "LP36", "BP12", "BP24"};
     int mode = static_cast<int>(config->filterMode);
-    if (mode >= 0 && mode < 5)
+    if (mode >= 0 && mode < voiceui::kFilterModeCount)
     {
-      paramValue = filterNames[mode];
+      paramValue = voiceui::kFilterModeNames[mode];
     }
     else
     {

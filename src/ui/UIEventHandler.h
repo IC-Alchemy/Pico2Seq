@@ -107,7 +107,7 @@ void clearSequencerStep(Sequencer &sequencer, uint8_t stepIdx);
  * reusable outside this firmware; this adapter keeps call sites in
  * Pico2Seq.ino unchanged.
  */
-void advanceSequencerStep(Sequencer &seq, uint8_t current_uclock_step, int mm_distance,
+void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_distance,
                           const UIState &uiState, VoiceState *voiceState);
 
 #endif // UI_EVENT_HANDLER_H

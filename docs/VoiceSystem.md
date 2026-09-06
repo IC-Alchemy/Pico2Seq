@@ -104,8 +104,8 @@ extern VoiceSystem voiceSystem;
 ## 4. Subsystem Integration
 
 ### 4.1 Dual-Core Role Division
-- **Core 0 (Audio Thread)**: Synthesizes audio samples via `voiceManager->processAllVoices()`. It does not access `voiceSystem.gates` directly; parameter and pitch updates are staged lock-free from `VoiceState` into each `Voice` instance.
-- **Core 1 (Control Thread)**: Updates `voiceSystem.voiceStates` on sequencer steps, toggles `voiceSystem.gates`, updates `voiceSystem.gateTimers`, and routes MIDI events.
+- **Core 1 (Audio Thread)**: Synthesizes audio samples via `voiceManager->processAllVoices()`. It does not access `voiceSystem.gates` directly; parameter and pitch updates are staged lock-free from `VoiceState` into each `Voice` instance.
+- **Core 0 (Control Thread)**: Updates `voiceSystem.voiceStates` on sequencer steps, toggles `voiceSystem.gates`, updates `voiceSystem.gateTimers`, and routes MIDI events.
 
 ### 4.2 UIState Integration
 `UIState` (`src/ui/UIState.h`) mirrors `VoiceSystem`'s array-based model:
@@ -119,33 +119,38 @@ struct UIState {
 ```
 
 ### 4.3 Sequencer Step Integration
-The `uClock` ISR triggers `onStepCallback` on Core 1 for each 16th note step, but the
-callback is stage-only — it pushes the step number into `pendingUclockSteps` (a
-`StepTickQueue` SPSC ring). `loop1()` drains the queue and runs `processSequencerStep()`,
-which advances the sequencers via the `advanceSequencerStep()` adapter and updates the
-voice states:
-
+When `uClock` fires `onStepCallback` on Core 0 (timer ISR) the step number is only
+enqueued into `stepQueue`; `loop()` drains it via `processClockEvents()` →
+`processSequencerStep()` (thread context), which does the per-step work:
 ```cpp
-// ISR side: stage-only
-void onStepCallback(uint32_t uClockCurrentStep) {
-    pendingUclockSteps.push(uClockCurrentStep);
-}
+// Advance sequencers for all 4 voices
+Sequencer* sequencers[VoiceSystem::MAX_VOICES] = {&seq1, &seq2, &seq3, &seq4};
 
-// loop1() thread context:
-uint32_t drainedStep = 0;
-while (pendingUclockSteps.pop(drainedStep)) {
-    processSequencerStep(drainedStep);
-    // Inside processSequencerStep(), for each voice v (0..3):
-    //   advanceSequencerStep(seq_v, step, distance, uiState, &tempState)
-    //   produces a VoiceState from the active polymetric tracks;
-    //   updateVoiceMIDI(...) updates gates/timers (voices 0-1) and MIDI;
-    //   voiceSystem.getVoiceState(v) = tempState;
-    //   voiceManager->updateVoiceState(voiceId, state) stages it to Core 0.
+for (uint8_t v = 0; v < VoiceSystem::MAX_VOICES; v++) {
+    sequencers[v]->advanceStep();
+    VoiceState& state = voiceSystem.getVoiceState(v);
+    
+    // Read active polymetric tracks
+    state.noteIndex = sequencers[v]->getParameterValue(ParamId::Note);
+    state.velocityLevel = sequencers[v]->getParameterValue(ParamId::Velocity);
+    state.filterCutoff = sequencers[v]->getParameterValue(ParamId::Filter);
+    state.isGateHigh = (sequencers[v]->getParameterValue(ParamId::Gate) > 0.5f);
+    
+    // Update Voice instance (lock-free staging to Core 1 audio)
+    uint8_t voiceId = voiceSystem.getVoiceId(v);
+    voiceManager->updateVoiceState(voiceId, state);
+    
+    // Gated voices (0 and 1) trigger hardware gates and timers
+    if (v < 2 && state.isGateHigh) {
+        voiceSystem.getGate(v) = true;
+        uint16_t durationTicks = static_cast<uint16_t>(sequencers[v]->getParameterValue(ParamId::GateLength));
+        voiceSystem.getGateTimer(v).start(durationTicks);
+    }
 }
 ```
 
 ### 4.4 Timing & PPQN Tick Processing
-Inside `loop1()` on Core 1, pending clock ticks drain from `ppqnTicksPending`:
+Inside `loop()` on Core 0, pending clock ticks drain from `ppqnTicksPending`:
 ```cpp
 while (ppqnTicksPending > 0) {
     ppqnTicksPending--;
