@@ -1,6 +1,9 @@
 #include "includes.h"
 #include "diagnostic.h"
+#include "src/FeatureConfig.h"
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
 #include "src/rpdsp/src/rpdsp/delay_line.h"
+#endif
 #include "RP2350.h"
 
 #include "src/voice/Voice.h"
@@ -31,13 +34,15 @@ Adafruit_MPR121 touchSensor = Adafruit_MPR121();
 //   AUDIO SYSTEM CONSTANTS
 // =======================
 constexpr float SAMPLE_RATE = 48000.0f;
-constexpr size_t MAX_DELAY_SAMPLES = static_cast<size_t>(SAMPLE_RATE * .8f);
 constexpr int NUM_AUDIO_BUFFERS = 3;
 constexpr int SAMPLES_PER_BUFFER = 256;
 constexpr float INT16_MAX_AS_FLOAT = 32767.0f;
 constexpr float INT16_MIN_AS_FLOAT = -32768.0f;
 constexpr float OSC_DETUNE_FACTOR = 0.001f;
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
+constexpr size_t MAX_DELAY_SAMPLES = static_cast<size_t>(SAMPLE_RATE * 1.8f);
 constexpr float FEEDBACK_FADE_RATE = 0.01f;
+#endif // PICO2SEQ_ENABLE_DELAY_EFFECT
 
 // =======================
 //   AUDIO SYSTEM VARIABLES
@@ -47,7 +52,9 @@ std::unique_ptr<VoiceManager> voiceManager;
 std::atomic<bool> voicesReady{false}; // publishes the fully constructed voice collection
 VoiceSystem voiceSystem; // Consolidated voice system
 
-// Global Audio Effects (shared between voices)
+// Global Audio Effects (shared between voices) — the delay effect's storage
+// lives and dies with PICO2SEQ_ENABLE_DELAY_EFFECT (see src/FeatureConfig.h).
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
 rpdsp::StateVariableFilter delLowPass;
 rpdsp::DelayLine<MAX_DELAY_SAMPLES> del1;
 float feedbackGain1 = 0.65f;
@@ -56,6 +63,7 @@ float currentFeedbackGain = 0.0f;    // For smooth delay feedback fade
 float delayTarget = 48000.0f * 0.15f;
 float currentDelay = 48000.0f * 0.15f;
 float feedbackAmmount = 0.45f; // Safer initial feedback level
+#endif // PICO2SEQ_ENABLE_DELAY_EFFECT
 
 // Audio Buffer Management
 audio_buffer_pool_t *producer_pool = nullptr;
@@ -139,6 +147,7 @@ volatile uint32_t droppedStepCount = 0; // loop() stalled longer than the queue
 // =======================
 //   AUDIO PROCESSING HELPER FUNCTIONS
 // =======================
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
 /**
  * @brief Smooth parameter transitions to prevent audio artifacts
  * @param currentDelay Current delay time value
@@ -151,6 +160,7 @@ float delayTimeSmoothing(float currentDelay, float targetDelay, float slewRate)
     float difference = targetDelay - currentDelay;
     return currentDelay + (difference * slewRate);
 }
+#endif // PICO2SEQ_ENABLE_DELAY_EFFECT
 
 // --- Clock Callbacks ---
 // onSync24Callback / onStepCallback / onOutputPPQNCallback run in the uClock
@@ -211,6 +221,7 @@ void onClockStop()
  */
 void initOscillators()
 {
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
     // Initialize global delay effect low-pass filter.
     // (rpdsp's SVF has no drive parameter; the old Svf drive is not carried over.)
     delLowPass.prepare(SAMPLE_RATE);
@@ -226,6 +237,7 @@ void initOscillators()
 
     // Initialize delay target to match initial delay
     delayTarget = static_cast<float>(delaySamples);
+#endif // PICO2SEQ_ENABLE_DELAY_EFFECT
 
     // Initialize Voice Manager with maximum 4 concurrent voices
     voiceManager = std::make_unique<VoiceManager>(4);
@@ -634,7 +646,9 @@ void processSequencerStep(uint32_t uClockCurrentStep)
     }
 
     // Apply encoder base values to global delay effect parameters
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
     applyEncoderDelayValues();
+#endif
 
     // 4. Update synth hardware (voices 1/2 with gates + MIDI; 3/4 audio only)
 
@@ -706,7 +720,8 @@ static inline int16_t FloatToPcm16(float s) noexcept
  * @brief Main audio buffer processing function (Core 1 - Real-time critical)
  *
  * This function runs on Core 1 and must maintain real-time performance.
- * It processes all voices through the VoiceManager and applies global delay effects.
+ * It processes all voices through the VoiceManager and, when
+ * PICO2SEQ_ENABLE_DELAY_EFFECT is on, applies the global delay effect.
  *
  * @param buffer Audio buffer to fill with processed samples
  *
@@ -719,17 +734,18 @@ void fill_audio_buffer(audio_buffer_t *buffer)
     int16_t *out = reinterpret_cast<int16_t *>(buffer->buffer->bytes);
     float finalVoiceOutput;
 
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
     // Determine target gains based on delay state
-    // float targetDelayOutputGain = uiState.delayOn ? 1.0f : 0.0f;
-    // float targetFeedbackGain = uiState.delayOn ? feedbackAmmount : 0.0f;
+    float targetDelayOutputGain = uiState.delayOn ? 1.0f : 0.0f;
+    float targetFeedbackGain = uiState.delayOn ? feedbackAmmount : 0.0f;
 
     // Smooth parameters once per buffer to reduce CPU load
-    //  currentFeedbackGain = delayTimeSmoothing(currentFeedbackGain, targetFeedbackGain, FEEDBACK_FADE_RATE);
-    // currentDelayOutputGain = delayTimeSmoothing(currentDelayOutputGain, targetDelayOutputGain, FEEDBACK_FADE_RATE);
-    // currentDelay = delayTimeSmoothing(currentDelay, delayTarget, 0.0001f);
-
-    // Set delay time once per buffer for efficiency
-    //  del1.SetDelay(currentDelay);
+    currentFeedbackGain = delayTimeSmoothing(currentFeedbackGain, targetFeedbackGain, FEEDBACK_FADE_RATE);
+    currentDelayOutputGain = delayTimeSmoothing(currentDelayOutputGain, targetDelayOutputGain, FEEDBACK_FADE_RATE);
+    currentDelay = delayTimeSmoothing(currentDelay, delayTarget, 0.0001f);
+    // Delay time is applied per tap read (del1.readLinear in processDelayEffect);
+    // rpdsp's DelayLine has no SetDelay — the old DaisySP call here was stale.
+#endif // PICO2SEQ_ENABLE_DELAY_EFFECT
 
     // Process each sample in the buffer
     for (int i = 0; i < N; ++i)
@@ -737,8 +753,10 @@ void fill_audio_buffer(audio_buffer_t *buffer)
         // Process all voices through VoiceManager (voice states updated by sequencer callbacks)
         finalVoiceOutput = voiceManager->processAllVoices();
 
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
         // Apply global delay effect
-        //  processedOutput = processDelayEffect(finalVoiceOutput);
+        finalVoiceOutput = processDelayEffect(finalVoiceOutput);
+#endif
 
         // Convert once for both channels (mono -> stereo)
         int16_t convertedSample = FloatToPcm16(finalVoiceOutput);
@@ -749,6 +767,7 @@ void fill_audio_buffer(audio_buffer_t *buffer)
     buffer->sample_count = N;
 }
 
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
 /**
  * @brief Process delay effect with feedback and filtering
  *
@@ -777,6 +796,7 @@ float processDelayEffect(float inputSignal)
     // Mix dry and wet signals based on current delay output gain
     return inputSignal + (delayOutput * currentDelayOutputGain);
 }
+#endif // PICO2SEQ_ENABLE_DELAY_EFFECT
 
 /**
  * @brief Configure and initialize I2S audio hardware interface

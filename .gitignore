@@ -1,6 +1,7 @@
 .vscode/*
 build/*
 build_fw/*
+build_fw_on/*
 .editorconfig
 .clang-format
 

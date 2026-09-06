@@ -138,7 +138,12 @@ float getParameterMaxValue(EncoderParameterMode param)
     return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
 
   case EncoderParameterMode::DelayTime:
-    return MAX_DELAY_SAMPLES * 0.85f; // 85% of the delay line (~0.68s at 48kHz with the current 0.8s buffer)
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
+    return MAX_DELAY_SAMPLES * 0.85f; // 85% of the 1.8s delay line (~1.53s at 48kHz)
+#endif
+    // Delay feature compiled out (src/FeatureConfig.h): this mode is
+    // unreachable, fall back to the generic maximum.
+    return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
 
   case EncoderParameterMode::DelayFeedback:
     return SensorConstants::MagneticEncoder::DELAY_FEEDBACK_MAX; // Maximum 91% feedback to prevent excessive feedback
@@ -507,6 +512,7 @@ void applyEncoderBaseValues(VoiceState *voiceState, uint8_t voiceId)
   voiceState->octaveOffset = shiftAndScale(voiceState->octaveOffset, baseValues->octave);
 }
 
+#if PICO2SEQ_ENABLE_DELAY_EFFECT
 /**
  * Apply magnetic encoder values to global delay effect parameters.
  * Direct parameter control: delay parameters use full range without restrictions.
@@ -528,6 +534,7 @@ void applyEncoderDelayValues()
   // Apply delay feedback directly (already clamped to 0.0-0.91 range in updateEncoderBaseValues)
   feedbackAmmount = baseValues->delayFeedback;
 }
+#endif // PICO2SEQ_ENABLE_DELAY_EFFECT
 
 // ----------------------
 // Apply slide time values from the magnetic encoder to the active voice
