@@ -10,7 +10,7 @@
 #include "UIConstants.h"
 #include "UIState.h"
 
-#include <uClock.h>
+#include "../vendor/uClock/uClock.h" // vendored fork — never <uClock.h>, see src/vendor/uClock/README.md
 
 // External flags and helpers used by UI
 extern bool isClockRunning;

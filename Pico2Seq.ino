@@ -31,7 +31,7 @@ Adafruit_MPR121 touchSensor = Adafruit_MPR121();
 //   AUDIO SYSTEM CONSTANTS
 // =======================
 constexpr float SAMPLE_RATE = 48000.0f;
-constexpr size_t MAX_DELAY_SAMPLES = static_cast<size_t>(SAMPLE_RATE * 1.8f);
+constexpr size_t MAX_DELAY_SAMPLES = static_cast<size_t>(SAMPLE_RATE * .8f);
 constexpr int NUM_AUDIO_BUFFERS = 3;
 constexpr int SAMPLES_PER_BUFFER = 256;
 constexpr float INT16_MAX_AS_FLOAT = 32767.0f;
@@ -579,11 +579,8 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
     // Update voice state with new step parameters + magnetic encoder modifications
     activeSeq.playStepNow(stepIndex, activeVoiceState);
 
-    // Apply encoder base values only for voices 0/1 (no mapping for 2/3 by design)
-    if (voiceIndex <= 1)
-    {
-        applyEncoderBaseValues(activeVoiceState, (voiceIndex == 1) ? 1 : 0);
-    }
+    // Apply encoder base values for the selected voice (mapping covers all four voices)
+    applyEncoderBaseValues(activeVoiceState, voiceIndex);
 
     // Update synth hardware for immediate audio feedback using the per-voice function
     updateVoiceMIDI(*activeVoiceState, voiceIndex);
@@ -628,16 +625,18 @@ void processSequencerStep(uint32_t uClockCurrentStep)
     advanceSequencerStep(seq3, uClockCurrentStep, v3Distance, uiState, &tempState3);
     advanceSequencerStep(seq4, uClockCurrentStep, v4Distance, uiState, &tempState4);
 
+    VoiceState tempStates[] = {tempState1, tempState2, tempState3, tempState4};
+
     // 3. Apply encoder base values per voice (only velocity/filter/attack/decay are affected)
-    applyEncoderBaseValues(&tempState1, 0);
-    applyEncoderBaseValues(&tempState2, 1);
-    // Voices 2/3 currently share no encoder mapping; leave as-is
+    for (uint8_t voiceIndex = 0; voiceIndex < VoiceSystem::MAX_VOICES; voiceIndex++)
+    {
+        applyEncoderBaseValues(&tempStates[voiceIndex], voiceIndex);
+    }
 
     // Apply encoder base values to global delay effect parameters
     applyEncoderDelayValues();
 
     // 4. Update synth hardware (voices 1/2 with gates + MIDI; 3/4 audio only)
-    VoiceState tempStates[] = {tempState1, tempState2, tempState3, tempState4};
 
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++)
     {
@@ -687,14 +686,18 @@ static inline float clampf(float v, float lo, float hi) noexcept
 
 static inline int16_t FloatToPcm16(float s) noexcept
 {
-    // Optional but recommended safety clamp to handle NaN/Inf and small overs
+    // Clamp first so the float->int conversion below is always in range
+    // (fminf/fmaxf inline to VMINNM/VMAXNM; NaN folds to a finite value)
     s = fminf(1.0f, fmaxf(-1.0f, s));
 
-    // Scale so -1.0 → -32768 and +1.0 → +32767 (after saturation below)
+    // Scale so -1.0 → -32768 and +1.0 → +32768 (saturated to +32767 below)
     const float scaled = s * 32768.0f;
 
-    // Round to nearest using hardware rounding (fast on M33 with FPU)
-    const int32_t i = (int32_t)lrintf(scaled);
+    // Truncate toward zero with a single VCVT. The previous lrintf() was a
+    // ~50-instruction newlib call per sample (GCC does not inline it, even
+    // with -ffast-math); truncation instead of round-to-nearest changes the
+    // output by at most 1 LSB (-96 dBFS).
+    const int32_t i = static_cast<int32_t>(scaled);
 
     // Saturate to int16 range [-32768, 32767] using single-cycle SSAT
     return (int16_t)__SSAT(i, 16);
@@ -1067,6 +1070,7 @@ void loop()
     usb_midi.read();
 
     unsigned long currentMillis = millis();
+
     // All four sequencers so tile randomize long-press resets reach voices 3/4.
     freezeWatchdogFeed(FW_LOOP_HELD_BUTTONS);
     pollUIHeldButtons(uiState, seq1, seq2, seq3, seq4);

@@ -644,11 +644,14 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
       displayHardware.print(" >");
     }
 
-    // Preset counter at bottom
+    // Preset counter + pad-range hint; pads 8..8+presetCount-1 are the only
+    // preset controls and are exactly the pads the LED matrix lights here
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 56);
     displayHardware.print(currentPresetIndex + 1);
     displayHardware.print("/");
     displayHardware.print(VoicePresets::getPresetCount());
+    displayHardware.print("  Pads 8-");
+    displayHardware.print(7 + VoicePresets::getPresetCount());
   }
   else
   {

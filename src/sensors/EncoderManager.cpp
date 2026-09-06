@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include "../voice/VoiceManager.h"
+#include "../voice/VoiceSystem.h" // VoiceSystem::MAX_VOICES
 
 // =======================
 //   EXTERNAL REFERENCES
@@ -42,8 +43,24 @@ MagEncoder magEncoder(makeMagEncoderConfig());
 // Definitions for encoder base value globals (previously declared as extern).
 // Centralize the definitions here so other translation units can reference them
 // via extern declarations if necessary (but header externs have been removed).
-EncoderBaseValuesVoice1 encoderBaseValuesVoice1;
-EncoderBaseValues encoderBaseValuesVoice2;
+// Per-voice encoder base values, indexed by voice 0..MAX_VOICES-1. The
+// delayTime/delayFeedback members are unused per voice; the global delay
+// effect reads from encoderDelayValues below.
+EncoderBaseValues encoderBaseValues[VoiceSystem::MAX_VOICES];
+
+// Global delay effect parameters (delay is engine-wide, not per voice).
+// Formerly parked in the voice-1 base value struct.
+EncoderBaseValues encoderDelayValues;
+
+namespace
+{
+// Base values for a voice index; out-of-range values fall back to voice 0
+// (matches VoiceSystem's clamped accessors).
+EncoderBaseValues &baseValuesForVoice(uint8_t voiceIndex)
+{
+  return encoderBaseValues[voiceIndex < VoiceSystem::MAX_VOICES ? voiceIndex : 0];
+}
+} // namespace
 
 namespace
 {
@@ -170,10 +187,13 @@ void updateEncoderBaseValues(UIState &uiState)
     return;
   }
 
-  // Get current encoder base values for the active voice
-  EncoderBaseValues *activeVoiceBaseValues = uiState.isVoice2Mode
-                                                ? (EncoderBaseValues *)&encoderBaseValuesVoice2
-                                                : (EncoderBaseValues *)&encoderBaseValuesVoice1;
+  // Delay parameters are global; everything else edits the selected voice's
+  // base values
+  EncoderBaseValues *activeVoiceBaseValues =
+      (uiState.currentEncoderParameter == EncoderParameterMode::DelayTime ||
+       uiState.currentEncoderParameter == EncoderParameterMode::DelayFeedback)
+          ? &encoderDelayValues
+          : &baseValuesForVoice(uiState.selectedVoiceIndex);
 
   // Calculate bidirectional velocity-sensitive parameter increment.
   // takeParameterIncrement drains the pending-tick accumulator filled once per
@@ -467,8 +487,12 @@ void applyEncoderBaseValues(VoiceState *voiceState, uint8_t voiceId)
     return;
   }
 
-  // Select the correct base values based on voice ID (0 = voice1, 1 = voice2)
-  const EncoderBaseValues *baseValues = (voiceId == 1) ? (const EncoderBaseValues *)&encoderBaseValuesVoice2 : (const EncoderBaseValues *)&encoderBaseValuesVoice1;
+  // Per-voice base values; out-of-range voice ids get no mapping
+  if (voiceId >= VoiceSystem::MAX_VOICES)
+  {
+    return;
+  }
+  const EncoderBaseValues *baseValues = &encoderBaseValues[voiceId];
 
   // Apply "Shift and Scale" for each parameter.
   // This maps the sequencer value into the dynamic range set by the encoder offset.
@@ -495,8 +519,8 @@ void applyEncoderDelayValues()
     return;
   }
 
-  // Use Voice 1 base values for global delay parameters (delay is not per-voice)
-  const EncoderBaseValuesVoice1 *baseValues = &encoderBaseValuesVoice1;
+  // Global delay parameters live in their own store (delay is not per-voice)
+  const EncoderBaseValues *baseValues = &encoderDelayValues;
 
   // Apply delay time directly (already clamped to 2.5ms-1.53s range in updateEncoderBaseValues)
   delayTarget = baseValues->delayTime;
@@ -515,10 +539,8 @@ void applyEncoderSlideTimeValues()
     return;
   }
 
-  // Determine which base values are active
-  EncoderBaseValues *activeBaseValues = uiState.isVoice2Mode
-                                           ? (EncoderBaseValues *)&encoderBaseValuesVoice2
-                                           : (EncoderBaseValues *)&encoderBaseValuesVoice1;
+  // Edit and apply both target the currently selected voice's base values
+  EncoderBaseValues *activeBaseValues = &baseValuesForVoice(uiState.selectedVoiceIndex);
 
   // Read encoder increment for SlideTime (unipolar 0.0 - 1.0 seconds)
   float minVal = getParameterMinValue(EncoderParameterMode::SlideTime);
@@ -555,7 +577,7 @@ float getEncoderParameterValue()
     return 0.0f;
   }
 
-  const EncoderBaseValues *activeBaseValues = uiState.isVoice2Mode ? &encoderBaseValuesVoice2 : &encoderBaseValuesVoice1;
+  const EncoderBaseValues *activeBaseValues = &baseValuesForVoice(uiState.selectedVoiceIndex);
   float value = 0.0f;
 
   // Retrieve the raw value for the current parameter
@@ -580,10 +602,10 @@ float getEncoderParameterValue()
     value = activeBaseValues->octave;
     break;
   case EncoderParameterMode::DelayTime:
-    value = activeBaseValues->delayTime;
+    value = encoderDelayValues.delayTime;
     break;
   case EncoderParameterMode::DelayFeedback:
-    value = activeBaseValues->delayFeedback;
+    value = encoderDelayValues.delayFeedback;
     break;
   case EncoderParameterMode::SlideTime:
     value = activeBaseValues->slideTime;
@@ -608,36 +630,26 @@ float getEncoderParameterValue()
 
 void initEncoderBaseValues()
 {
-  // Initialize voice parameters to neutral position for both voices
-  encoderBaseValuesVoice1.note = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-  encoderBaseValuesVoice1.velocity = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-  encoderBaseValuesVoice1.filter = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-  encoderBaseValuesVoice1.attack = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-  encoderBaseValuesVoice1.decay = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-  encoderBaseValuesVoice1.octave = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
+  // Initialize voice parameters to neutral position for all voices
+  for (uint8_t voiceIndex = 0; voiceIndex < VoiceSystem::MAX_VOICES; voiceIndex++)
+  {
+    encoderBaseValues[voiceIndex].velocity = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
+    encoderBaseValues[voiceIndex].filter = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
+    encoderBaseValues[voiceIndex].attack = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
+    encoderBaseValues[voiceIndex].decay = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
+  }
 
-  encoderBaseValuesVoice2.note = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-  encoderBaseValuesVoice2.velocity = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-  encoderBaseValuesVoice2.filter = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-  encoderBaseValuesVoice2.attack = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-  encoderBaseValuesVoice2.decay = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-  encoderBaseValuesVoice2.octave = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-
-  // Initialize delay parameters with reasonable defaults for both voices
-  encoderBaseValuesVoice1.delayTime = SensorConstants::MagneticEncoder::DEFAULT_DELAY_TIME_SAMPLES;
-  encoderBaseValuesVoice1.delayFeedback = SensorConstants::MagneticEncoder::DEFAULT_DELAY_FEEDBACK;
-  encoderBaseValuesVoice2.delayTime = SensorConstants::MagneticEncoder::DEFAULT_DELAY_TIME_SAMPLES;
-  encoderBaseValuesVoice2.delayFeedback = SensorConstants::MagneticEncoder::DEFAULT_DELAY_FEEDBACK;
+  // Initialize global delay parameters with reasonable defaults
+  encoderDelayValues.delayTime = SensorConstants::MagneticEncoder::DEFAULT_DELAY_TIME_SAMPLES;
+  encoderDelayValues.delayFeedback = SensorConstants::MagneticEncoder::DEFAULT_DELAY_FEEDBACK;
 }
 
 void resetEncoderBaseValues(UIState &uiState, bool currentVoiceOnly)
 {
   if (currentVoiceOnly)
   {
-    // Reset only the currently active voice to neutral position
-    EncoderBaseValues *activeVoiceBaseValues = uiState.isVoice2Mode
-                                                  ? (EncoderBaseValues *)&encoderBaseValuesVoice2
-                                                  : (EncoderBaseValues *)&encoderBaseValuesVoice1;
+    // Reset only the currently selected voice to neutral position
+    EncoderBaseValues *activeVoiceBaseValues = &baseValuesForVoice(uiState.selectedVoiceIndex);
 
     // Reset voice parameters to neutral position
     activeVoiceBaseValues->note = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;

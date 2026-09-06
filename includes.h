@@ -65,4 +65,6 @@ constexpr uint8_t PIN_ALCHEMY_MODE_SWITCH = 7;
 #include <Wire.h>
 #include <cmath>
 #include <cstdint>
-#include <uClock.h>
+// Vendored uClock fork (alarm-pool patch, core-1 ISR) — never <uClock.h>, see
+// src/vendor/uClock/README.md.
+#include "src/vendor/uClock/uClock.h"

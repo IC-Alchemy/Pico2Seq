@@ -88,8 +88,8 @@ void updateEncoderStepParameterValues(UIState& uiState);
  * sequencer output within the range defined by the encoder offset.
  *
  * @param voiceState Pointer to voice state structure to modify
- * @param voiceId Voice identifier (0 = voice1, 1 = voice2)
- * @note Uses different base value sets for each voice
+ * @param voiceId Voice index 0..3; each voice has its own base value set
+ * @note Out-of-range voice ids receive no mapping
  */
 void applyEncoderBaseValues(VoiceState *voiceState, uint8_t voiceId);
 

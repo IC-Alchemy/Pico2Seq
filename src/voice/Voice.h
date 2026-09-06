@@ -19,6 +19,16 @@
 #include <atomic>
 #include <cmath>
 
+// Force-inline the per-sample stages of Voice::process(). Even at -O3 GCC
+// left computeEnvelope/updateFilter/mixOscillators and the two pending-change
+// checks as out-of-line calls: 4-6 call/return pairs per voice per sample on
+// the RP2350. The bodies are private and only ever called from process().
+#if defined(__GNUC__)
+#define PICO2SEQ_HOT_INLINE inline __attribute__((always_inline))
+#else
+#define PICO2SEQ_HOT_INLINE inline
+#endif
+
 // Sound-generation engine selected by VoiceConfig::engine. Engines other than
 // the default still run the shared envelope -> filter -> output chain; only
 // the source stage (and, for the noise engine, the pre-filter effect inserts)
@@ -444,8 +454,12 @@ private:
   // Cache of last applied cutoff to avoid redundant filter.SetFreq calls in the hotpath.
   // Initialized to -1.0f in ctor/init to guarantee first SetFreq occurs.
   float lastAppliedFilterCutoff = -1.0f;
-  // Throttle expensive filter.SetFreq() updates
-  uint8_t filterUpdateInterval = 8;              // apply SetFreq at most once every 8 samples
+  // Throttle expensive filter.setFreq() updates: coefficients are recomputed
+  // at most once every kFilterUpdateInterval samples. Power of two so the
+  // rolling counter wraps with a mask instead of a per-sample UDIV.
+  static constexpr uint8_t kFilterUpdateInterval = 8;
+  static_assert((kFilterUpdateInterval & (kFilterUpdateInterval - 1)) == 0,
+                "kFilterUpdateInterval must be a power of two");
   uint8_t filterUpdateCounter = 0;               // rolling counter
   static constexpr float kFilterRelEps = 2e-3f;  // 0.2% relative change
   static constexpr float kFilterAbsEpsHz = 1.0f; // or at least 1 Hz change
@@ -615,7 +629,7 @@ private:
    * @brief Compute envelope value for current sample
    * @return float Envelope amplitude (0.0-1.0)
    */
-  float computeEnvelope();
+  PICO2SEQ_HOT_INLINE float computeEnvelope();
 
   /**
    * @brief Mark the static base cache dirty if the effective scale row changed
@@ -627,7 +641,7 @@ private:
    * @brief Update filter parameters based on envelope and voice state
    * @param envelopeValue Current envelope value (0.0-1.0)
    */
-  void updateFilter(float envelopeValue);
+  PICO2SEQ_HOT_INLINE void updateFilter(float envelopeValue);
 
   /**
    * @brief Push topology-dependent filter config (resonance, SVF response)
@@ -647,7 +661,7 @@ private:
    * @brief Mix and process oscillator outputs
    * @return float Mixed oscillator signal (-1.0 to +1.0)
    */
-  float mixOscillators();
+  PICO2SEQ_HOT_INLINE float mixOscillators();
 
   /**
    * @brief Apply engine-specific configuration (waveguide and Hypersaw tuning)
@@ -690,7 +704,7 @@ private:
    * @param envelopeValue Envelope amplitude (0.0-1.0)
    * @return float Final output signal (-1.0 to +1.0)
    */
-  float finalizeOutput(float signal, float envelopeValue) noexcept;
+  PICO2SEQ_HOT_INLINE float finalizeOutput(float signal, float envelopeValue) noexcept;
 
   /**
    * @brief Update oscillator frequencies based on current state

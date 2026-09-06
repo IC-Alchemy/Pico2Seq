@@ -418,30 +418,19 @@ void Voice::updateFilter(float envelopeValue)
 
   // Throttle setFreq to avoid per-sample work if change is tiny (setFreq is
   // polynomial in rpdsp, but the throttle also caps coefficient churn)
-  const bool useSvf = (config.filterType == FILTER_SVF);
-  if (filterUpdateInterval == 0)
+  if (filterUpdateCounter == 0)
   {
-    if (useSvf)
-      filterSvf_.setCutoff(filterCutoffCurrent);
-    else
-      filter.setFreq(filterCutoffCurrent);
-    lastAppliedFilterCutoff = filterCutoffCurrent;
-  }
-  else
-  {
-    if (filterUpdateCounter == 0)
+    if (ShouldApplyFilterFreq_(filterCutoffCurrent, lastAppliedFilterCutoff))
     {
-      if (ShouldApplyFilterFreq_(filterCutoffCurrent, lastAppliedFilterCutoff))
-      {
-        if (useSvf)
-          filterSvf_.setCutoff(filterCutoffCurrent);
-        else
-          filter.setFreq(filterCutoffCurrent);
-        lastAppliedFilterCutoff = filterCutoffCurrent;
-      }
+      if (config.filterType == FILTER_SVF)
+        filterSvf_.setCutoff(filterCutoffCurrent);
+      else
+        filter.setFreq(filterCutoffCurrent);
+      lastAppliedFilterCutoff = filterCutoffCurrent;
     }
-    filterUpdateCounter = static_cast<uint8_t>((filterUpdateCounter + 1) % filterUpdateInterval);
   }
+  // Mask wrap: kFilterUpdateInterval is a power of two (static_assert in Voice.h)
+  filterUpdateCounter = static_cast<uint8_t>((filterUpdateCounter + 1) & (kFilterUpdateInterval - 1));
 }
 
 void Voice::configureMainFilterFromConfig_() noexcept

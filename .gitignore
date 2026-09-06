@@ -1,4 +1,4 @@
-.vscode/c_cpp_properties.json
+.vscode/*
 build/*
 build_fw/*
 .editorconfig
@@ -12,3 +12,4 @@ AGENTS.md
 .agents/*
 
 CLAUDE.md
+build_fw/*
