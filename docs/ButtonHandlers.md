@@ -88,7 +88,7 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, effects, and sys
 | Bit / Button | Function | Behavior |
 |---|---|---|
 | **0** | `Play / Stop` | Starts/stops sequencer clock (stopping automatically opens Settings mode) |
-| **1** | `Delay Toggle` | Toggles global delay effect ON/OFF; sets encoder target to DelayTime |
+| **1** | `Delay Toggle` | Toggles global delay effect ON/OFF; sets encoder target to DelayTime. *Inert while the effect is compiled out (`PICO2SEQ_ENABLE_DELAY_EFFECT = 0` in `src/FeatureConfig.h`).* |
 | **2** | `Scale Cycle` | Cycles forward through the 13 musical scales |
 | **3** | `Swing Pattern` | Cycles through the 16 groove/shuffle templates in `ShuffleTemplates.h` |
 | **4** | `Theme Cycle` | Cycles visual LED color themes across `LEDTheme` presets |

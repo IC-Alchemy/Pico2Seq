@@ -411,6 +411,9 @@ Each voice runs a full synthesis chain at 48 kHz on the audio core:
 A **global delay effect** is on by default (boot time 667 ms, feedback 0.45); toggle it
 with Utility button 2 or Shift + V4, set its feedback with Utility fader 3 and its
 time/feedback with the encoder's Delay Time / Delay Feedback targets.
+(Currently compiled out: `PICO2SEQ_ENABLE_DELAY_EFFECT = 0` in `src/FeatureConfig.h`
+removes the effect and all of the controls above to reclaim ~338 KiB of RAM. Set the
+switch to 1 and rebuild to bring them back.)
 
 Filter **mode** (LP24 … HP12) and **resonance** are cycled/set from the OLED Settings
 screen's voice-parameter page; envelope and overdrive can be switched off per voice there
