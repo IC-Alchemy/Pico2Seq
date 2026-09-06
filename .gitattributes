@@ -1,2 +1,11 @@
-# Auto detect text files and perform LF normalization
+# Normalize all text files to LF in the repository; git auto-detects and
+# leaves binary files (e.g. *.uf2, *.pyc) untouched.
 * text=auto
+
+# Source and docs are checked out with LF everywhere, so Windows checkouts
+# never manufacture phantom whole-file diffs.
+*.md    text eol=lf
+*.html  text eol=lf
+*.ino   text eol=lf
+*.h     text eol=lf
+*.cpp   text eol=lf
