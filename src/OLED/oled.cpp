@@ -193,6 +193,7 @@ static const char *encoderParamName(EncoderParameterMode mode)
   case EncoderParameterMode::Attack:        return "Attack";
   case EncoderParameterMode::Decay:         return "Decay";
   case EncoderParameterMode::Note:          return "Note";
+  case EncoderParameterMode::Octave:        return "Octave";
   case EncoderParameterMode::DelayTime:     return "DelayTime";
   case EncoderParameterMode::DelayFeedback: return "DelayFdbk";
   case EncoderParameterMode::SlideTime:     return "SlideTime";

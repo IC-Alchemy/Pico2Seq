@@ -45,6 +45,101 @@ TEST_CASE("Analog ADSR coefficient endpoints hold or complete safely", "[rpdsp][
     REQUIRE(rpdsp::adsr_analog(0, 2, 1, 0.5f, 2, state.data()) == 0.0f);
 }
 
+TEST_CASE("Analog ADSR note events retrigger while a held gate sustains", "[rpdsp][recipe_regression]") {
+    rpdsp::AnalogAdsr envelope;
+    envelope.prepare(48000.0f);
+    envelope.setAttackCoefficient(0.1f);
+    envelope.setDecayCoefficient(1.0f);
+    envelope.setSustain(0.4f);
+    envelope.noteOn();
+    for (int i = 0; i < 64; ++i) envelope.process(true);
+    REQUIRE_THAT(envelope.process(true), WithinAbs(0.4, 1e-7));
+    envelope.trigger();
+    REQUIRE_THAT(envelope.process(), WithinAbs(0.49, 1e-7));
+    for (int i = 0; i < 64; ++i) envelope.process();
+    REQUIRE_THAT(envelope.process(), WithinAbs(0.4, 1e-7));
+    envelope.noteOn();
+    REQUIRE_THAT(envelope.process(), WithinAbs(0.49, 1e-7));
+}
+
+TEST_CASE("Analog ADSR seconds survive prepare and sample-rate changes", "[rpdsp][recipe_regression]") {
+    rpdsp::AnalogAdsr envelope;
+    // Configure all time constants before the first prepare().
+    envelope.set(0.02f, 0.03f, 0.5f, 0.04f);
+    for (float fs : {24000.0f, 48000.0f, 96000.0f}) {
+        CAPTURE(fs);
+        envelope.prepare(fs);
+        envelope.noteOn();
+        float level = 0.0f;
+        for (int i = 0; i < std::lround(fs * 0.02f); ++i) level = envelope.process();
+        REQUIRE_THAT(level, WithinAbs(1.3 * (1.0 - std::exp(-1.0)), 5e-5));
+        // Finish the attack, then measure one decay time constant from its peak.
+        int remaining = static_cast<int>(fs);
+        while (level < 1.0f && remaining-- > 0) level = envelope.process();
+        REQUIRE(level == 1.0f);
+        for (int i = 0; i < std::lround(fs * 0.03f); ++i) level = envelope.process();
+        REQUIRE_THAT(level, WithinAbs(0.5 + 0.5 * std::exp(-1.0), 5e-5));
+        const float beforeRelease = level;
+        envelope.noteOff();
+        for (int i = 0; i < std::lround(fs * 0.04f); ++i) level = envelope.process();
+        REQUIRE_THAT(level, WithinAbs(beforeRelease * std::exp(-1.0), 5e-5));
+    }
+}
+
+TEST_CASE("Analog ADSR coefficient setters override only their own stage timing", "[rpdsp][recipe_regression]") {
+    rpdsp::AnalogAdsr envelope;
+    envelope.set(0.02f, 0.03f, 0.4f, 0.04f);
+    envelope.setAttackCoefficient(1.0f);
+    envelope.setReleaseCoefficient(0.25f);
+    for (float fs : {24000.0f, 96000.0f}) {
+        CAPTURE(fs);
+        envelope.prepare(fs);
+        envelope.noteOn();
+        REQUIRE(envelope.process() == 1.0f);
+        float level = 1.0f;
+        for (int i = 0; i < std::lround(fs * 0.03f); ++i) level = envelope.process();
+        REQUIRE_THAT(level, WithinAbs(0.4 + 0.6 * std::exp(-1.0), 5e-5));
+        envelope.noteOff();
+        REQUIRE_THAT(envelope.process(), WithinAbs(level * 0.75f, 1e-7));
+    }
+    envelope.setDecayCoefficient(0.5f);
+    envelope.prepare(48000.0f);
+    envelope.noteOn();
+    REQUIRE(envelope.process() == 1.0f);
+    REQUIRE_THAT(envelope.process(), WithinAbs(0.7, 1e-7));
+    // Switching back to seconds must re-enable time-based conversion.
+    envelope.setAttackSeconds(0.02f);
+    envelope.prepare(96000.0f);
+    envelope.noteOn();
+    REQUIRE_THAT(envelope.process(), WithinAbs(1.3 * -std::expm1(-1.0 / 1920.0), 1e-8));
+}
+
+TEST_CASE("Analog ADSR long time constants retain a nonzero coefficient", "[rpdsp][recipe_regression]") {
+    rpdsp::AnalogAdsr envelope;
+    envelope.setAttackSeconds(1000.0f);
+    envelope.prepare(96000.0f);
+    envelope.noteOn();
+    const float first = envelope.process();
+    REQUIRE(first > 0.0f);
+    REQUIRE_THAT(first, WithinAbs(1.3 * -std::expm1(-1.0 / 96000000.0), 1e-14));
+    REQUIRE(envelope.process() > first);
+}
+
+TEST_CASE("Analog ADSR reset retains instantaneous time settings", "[rpdsp][recipe_regression]") {
+    rpdsp::AnalogAdsr envelope;
+    envelope.set(-1.0f, 0.0f, 0.3f, -1.0f);
+    envelope.prepare(96000.0f);
+    for (int repetition = 0; repetition < 2; ++repetition) {
+        envelope.reset();
+        REQUIRE(envelope.process() == 0.0f);
+        envelope.noteOn();
+        REQUIRE(envelope.process() == 1.0f);
+        REQUIRE_THAT(envelope.process(), WithinAbs(0.3, 1e-7));
+        envelope.noteOff();
+        REQUIRE(envelope.process() == 0.0f);
+    }
+}
+
 TEST_CASE("Recipe one-pole coefficients preserve elapsed-time decay", "[rpdsp][recipe_regression]") {
     for (float fs : {22050.0f, 44100.0f, 48000.0f, 96000.0f}) {
         CAPTURE(fs);

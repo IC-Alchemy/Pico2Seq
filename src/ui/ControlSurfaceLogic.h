@@ -10,7 +10,7 @@
 // them directly (tests/unit/test_control_surface_logic.cpp).
 //
 // The glue that talks to tiles/GP7/uClock lives in AlchemyControlBridge; the
-// four small policies here own everything worth unit-testing:
+// five small policies here own everything worth unit-testing:
 //
 //   ModeStabilizer — raw GP7 readings in, stable Mode out (20 ms), + edge.
 //   PadBank        — pad index + selected voice -> (voice, step).
@@ -18,6 +18,7 @@
 //                    with Shift+tap latching.
 //   FaderMap       — mode + fader channel -> control target, with a send
 //                    deadband so steady faders stay quiet.
+//   encoderBaseModeForRecordParam — record button -> encoder base target.
 
 namespace ControlSurface
 {
@@ -35,6 +36,40 @@ enum class Mode : uint8_t
 // GP7 level that selects Param mode. LOW = Param per the design; flip this
 // constant if the wired switch polarity turns out inverted (bench item).
 inline constexpr bool kModeParamLevel = false;
+
+/**
+ * Resolve a parameter-record button to the matching encoder base target.
+ *
+ * Only the six continuous parameters that have physical record buttons are
+ * eligible. Gate, GateLength, and Slide remain step/toggle controls.
+ */
+constexpr bool encoderBaseModeForRecordParam(ParamId paramId,
+                                             EncoderParameterMode &mode)
+{
+  switch (paramId)
+  {
+  case ParamId::Note:
+    mode = EncoderParameterMode::Note;
+    return true;
+  case ParamId::Velocity:
+    mode = EncoderParameterMode::Velocity;
+    return true;
+  case ParamId::Filter:
+    mode = EncoderParameterMode::Filter;
+    return true;
+  case ParamId::Attack:
+    mode = EncoderParameterMode::Attack;
+    return true;
+  case ParamId::Decay:
+    mode = EncoderParameterMode::Decay;
+    return true;
+  case ParamId::Octave:
+    mode = EncoderParameterMode::Octave;
+    return true;
+  default:
+    return false;
+  }
+}
 
 // A raw GP7 level must hold stable this long before the mode flips.
 inline constexpr uint32_t kModeStabilityMs = 20;

@@ -45,6 +45,25 @@ MagEncoder magEncoder(makeMagEncoderConfig());
 EncoderBaseValuesVoice1 encoderBaseValuesVoice1;
 EncoderBaseValues encoderBaseValuesVoice2;
 
+namespace
+{
+bool isBipolarVoiceBaseParameter(EncoderParameterMode param)
+{
+  switch (param)
+  {
+  case EncoderParameterMode::Note:
+  case EncoderParameterMode::Velocity:
+  case EncoderParameterMode::Filter:
+  case EncoderParameterMode::Attack:
+  case EncoderParameterMode::Decay:
+  case EncoderParameterMode::Octave:
+    return true;
+  default:
+    return false;
+  }
+}
+} // namespace
+
 // Flash speed zones configuration for dynamic boundary proximity feedback
 const FlashSpeedConfig FLASH_SPEED_ZONES[] = {
     {SensorConstants::MagneticEncoder::NORMAL_FLASH_SPEED,
@@ -66,14 +85,13 @@ float getParameterMinValue(EncoderParameterMode param)
   // Return the minimum valid value for each parameter type
   switch (param)
   {
+  case EncoderParameterMode::Note:
   case EncoderParameterMode::Velocity:
   case EncoderParameterMode::Filter:
   case EncoderParameterMode::Attack:
   case EncoderParameterMode::Decay:
+  case EncoderParameterMode::Octave:
     return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE;
-
-  case EncoderParameterMode::Note:
-    return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE; // Scale array indices (0-21)
 
   case EncoderParameterMode::DelayTime:
     return SensorConstants::MagneticEncoder::DELAY_TIME_MIN_SAMPLES; // 2.5ms minimum delay at 48kHz
@@ -94,14 +112,13 @@ float getParameterMaxValue(EncoderParameterMode param)
   // Return the maximum valid value for each parameter type
   switch (param)
   {
+  case EncoderParameterMode::Note:
   case EncoderParameterMode::Velocity:
   case EncoderParameterMode::Filter:
   case EncoderParameterMode::Attack:
   case EncoderParameterMode::Decay:
+  case EncoderParameterMode::Octave:
     return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
-
-  case EncoderParameterMode::Note:
-    return SensorConstants::MagneticEncoder::NOTE_PARAMETER_MAX; // Scale array indices (0-21)
 
   case EncoderParameterMode::DelayTime:
     return MAX_DELAY_SAMPLES * 0.85f; // 85% of the 1.8s delay line (~1.53s at 48kHz)
@@ -122,8 +139,9 @@ float getEncoderBaseValueRange(EncoderParameterMode param)
   // Calculate the full parameter range
   float fullParameterRange = getParameterMaxValue(param) - getParameterMinValue(param);
 
-  // Delay parameters use full range without restrictions
-  if (param == EncoderParameterMode::DelayTime || param == EncoderParameterMode::DelayFeedback || param == EncoderParameterMode::SlideTime)
+  // Voice bases are normalized bipolar offsets. Delay and slide time retain
+  // direct, unipolar controls over their physical ranges.
+  if (!isBipolarVoiceBaseParameter(param))
   {
     return fullParameterRange; // Full range for delay parameters
   }
@@ -253,6 +271,9 @@ void applyIncrementToParameter(EncoderBaseValues *baseValues, EncoderParameterMo
   // Select the appropriate parameter to modify
   switch (param)
   {
+  case EncoderParameterMode::Note:
+    targetParameterValue = &baseValues->note;
+    break;
   case EncoderParameterMode::Velocity:
     targetParameterValue = &baseValues->velocity;
     break;
@@ -264,6 +285,9 @@ void applyIncrementToParameter(EncoderBaseValues *baseValues, EncoderParameterMo
     break;
   case EncoderParameterMode::Decay:
     targetParameterValue = &baseValues->decay;
+    break;
+  case EncoderParameterMode::Octave:
+    targetParameterValue = &baseValues->octave;
     break;
   case EncoderParameterMode::DelayTime:
     targetParameterValue = &baseValues->delayTime;
@@ -287,7 +311,7 @@ void applyIncrementToParameter(EncoderBaseValues *baseValues, EncoderParameterMo
   float newParameterValue = *targetParameterValue + increment;
 
   // Apply appropriate clamping based on parameter type
-  if (param <= EncoderParameterMode::Decay)
+  if (isBipolarVoiceBaseParameter(param))
   {
     // Bidirectional parameters (voice parameters) use symmetric range
     float maxAllowedRange = getEncoderBaseValueRange(param);
@@ -324,6 +348,8 @@ ParamId convertEncoderParameterToParamId(EncoderParameterMode encoderParam)
 {
   switch (encoderParam)
   {
+  case EncoderParameterMode::Note:
+    return ParamId::Note;
   case EncoderParameterMode::Velocity:
     return ParamId::Velocity;
   case EncoderParameterMode::Filter:
@@ -332,8 +358,8 @@ ParamId convertEncoderParameterToParamId(EncoderParameterMode encoderParam)
     return ParamId::Attack;
   case EncoderParameterMode::Decay:
     return ParamId::Decay;
-  case EncoderParameterMode::Note:
-    return ParamId::Note;
+  case EncoderParameterMode::Octave:
+    return ParamId::Octave;
   case EncoderParameterMode::SlideTime:
     return ParamId::Count; // SlideTime is not a step parameter
   default:
@@ -446,10 +472,15 @@ void applyEncoderBaseValues(VoiceState *voiceState, uint8_t voiceId)
 
   // Apply "Shift and Scale" for each parameter.
   // This maps the sequencer value into the dynamic range set by the encoder offset.
+  const float normalizedNote = voiceState->noteIndex /
+                               SensorConstants::MagneticEncoder::NOTE_PARAMETER_MAX;
+  voiceState->noteIndex = shiftAndScale(normalizedNote, baseValues->note) *
+                          SensorConstants::MagneticEncoder::NOTE_PARAMETER_MAX;
   voiceState->velocityLevel = shiftAndScale(voiceState->velocityLevel, baseValues->velocity);
   voiceState->filterCutoff = shiftAndScale(voiceState->filterCutoff, baseValues->filter);
   voiceState->attackTimeSeconds = shiftAndScale(voiceState->attackTimeSeconds, baseValues->attack);
   voiceState->decayTimeSeconds = shiftAndScale(voiceState->decayTimeSeconds, baseValues->decay);
+  voiceState->octaveOffset = shiftAndScale(voiceState->octaveOffset, baseValues->octave);
 }
 
 /**
@@ -530,6 +561,9 @@ float getEncoderParameterValue()
   // Retrieve the raw value for the current parameter
   switch (uiState.currentEncoderParameter)
   {
+  case EncoderParameterMode::Note:
+    value = activeBaseValues->note;
+    break;
   case EncoderParameterMode::Velocity:
     value = activeBaseValues->velocity;
     break;
@@ -541,6 +575,9 @@ float getEncoderParameterValue()
     break;
   case EncoderParameterMode::Decay:
     value = activeBaseValues->decay;
+    break;
+  case EncoderParameterMode::Octave:
+    value = activeBaseValues->octave;
     break;
   case EncoderParameterMode::DelayTime:
     value = activeBaseValues->delayTime;
@@ -560,7 +597,7 @@ float getEncoderParameterValue()
 
   // For bipolar parameters (like velocity, filter, etc.), we need to handle the normalization differently.
   // Since they range from -maxRange to +maxRange, we can map this to 0.0-1.0.
-  if (uiState.currentEncoderParameter <= EncoderParameterMode::Decay) // Assuming these are the bipolar params
+  if (isBipolarVoiceBaseParameter(uiState.currentEncoderParameter))
   {
     float maxRange = getEncoderBaseValueRange(uiState.currentEncoderParameter);
     normalizedValue = (value + maxRange) / (2 * maxRange);
@@ -572,15 +609,19 @@ float getEncoderParameterValue()
 void initEncoderBaseValues()
 {
   // Initialize voice parameters to neutral position for both voices
+  encoderBaseValuesVoice1.note = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
   encoderBaseValuesVoice1.velocity = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
   encoderBaseValuesVoice1.filter = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
   encoderBaseValuesVoice1.attack = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
   encoderBaseValuesVoice1.decay = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
+  encoderBaseValuesVoice1.octave = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
 
+  encoderBaseValuesVoice2.note = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
   encoderBaseValuesVoice2.velocity = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
   encoderBaseValuesVoice2.filter = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
   encoderBaseValuesVoice2.attack = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
   encoderBaseValuesVoice2.decay = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
+  encoderBaseValuesVoice2.octave = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
 
   // Initialize delay parameters with reasonable defaults for both voices
   encoderBaseValuesVoice1.delayTime = SensorConstants::MagneticEncoder::DEFAULT_DELAY_TIME_SAMPLES;
@@ -599,10 +640,12 @@ void resetEncoderBaseValues(UIState &uiState, bool currentVoiceOnly)
                                                   : (EncoderBaseValues *)&encoderBaseValuesVoice1;
 
     // Reset voice parameters to neutral position
+    activeVoiceBaseValues->note = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
     activeVoiceBaseValues->velocity = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
     activeVoiceBaseValues->filter = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
     activeVoiceBaseValues->attack = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
     activeVoiceBaseValues->decay = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
+    activeVoiceBaseValues->octave = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
 
     // Note: Delay parameters are global and not reset with this function
   }

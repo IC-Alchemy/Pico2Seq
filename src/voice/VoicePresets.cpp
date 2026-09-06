@@ -41,7 +41,7 @@ namespace VoicePresets
     c.defaultAttack = 0.07f;
     c.defaultDecay = 0.24f;
     c.defaultSustain = 0.5f;
-    c.defaultRelease = 0.1f;
+    c.defaultRelease = 0.16f;
     c.outputLevel = 0.5f;
     return c;
   }
@@ -52,12 +52,12 @@ namespace VoicePresets
     c.oscillatorCount = 2;
     c.oscWaveforms[0] = WAVE_BSP_SQUARE;
     c.oscWaveforms[1] = // Naive triangle: continuous waveform, band-limited enough without splines
-        WAVE_TRI;
+        WAVE_BSP_SQUARE;
 
     c.oscAmplitudes[0] = .75f;
-    c.oscAmplitudes[1] = 1.f;
+    c.oscAmplitudes[1] = .65f;
     c.oscDetuning[0] = 0.0f; // Fixed duplicate assignment
-    c.oscDetuning[1] = 12.0f;  // Fixed duplicate assignment
+    c.oscDetuning[1] = 0.01f;  // Fixed duplicate assignment
 
     c.harmony[0] = 0; // Root note
     c.filterRes = 0.4f;
@@ -72,7 +72,7 @@ namespace VoicePresets
     c.defaultAttack = 0.015f;
     c.defaultDecay = 0.1f;
     c.defaultSustain = 0.5f;
-    c.defaultRelease = 0.3f;
+    c.defaultRelease = 0.15f;
     c.outputLevel = 0.5f;
     return c;
   }
@@ -96,7 +96,7 @@ namespace VoicePresets
     c.highPassFreq = 45.0f; // Lower for bass
     c.filterMode = VoiceFilterMode::LP12; // SVF response: low-pass
     c.hasOverdrive = true;
-    c.overdriveGain = 0.65f;
+    c.overdriveGain = 0.95f;
     c.overdriveDrive = 0.16f; // Subtle overdrive
     c.defaultAttack = 0.01f;
     c.defaultDecay = 0.3f;
@@ -125,6 +125,7 @@ namespace VoicePresets
     c.highPassFreq = 160.0f;
     // Ladder on purpose: this is one of only two presets still using it
     // (with Analog); the test suite pins that count.
+    c.filterType = FILTER_LADDER; // Use ladder filter for lead
     c.filterMode = VoiceFilterMode::LP12;
     c.hasOverdrive = false;
     c.overdriveGain = 0.7f;

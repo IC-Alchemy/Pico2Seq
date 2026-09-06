@@ -958,9 +958,7 @@ void setup()
     uClock.setTempo(90);
     uClock.start();
     uClock.setShuffle(true);
-    seq1.start();
-    seq2.start();
-
+  
     Serial.println("[CORE0] Setup complete!");
 }
 
