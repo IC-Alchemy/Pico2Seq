@@ -974,6 +974,7 @@ void setup()
         Sequencer* seqs[] = { &seq1, &seq2, &seq3, &seq4 };
         matrixEventHandler(evt, uiState, seqs, 4, midiNoteManager); });
 
+    // Initialize audio synthesis system
     freezeWatchdogFeed(FW_SETUP_UCLOCK);
     uClock.init();
     uClock.setOnSync24(onSync24Callback);
@@ -1005,8 +1006,6 @@ void setup1()
 {
     delay(100); // Allow system stabilization
 
-    // Initialize audio synthesis system
-    initOscillators();
 
     // Configure audio format (48kHz, 16-bit stereo)
     static audio_format_t audioFormat = {
@@ -1106,7 +1105,6 @@ void loop()
 
     // TEMP DEBUG: cross-core voice-registration probe (remove after bench).
     // Prints Core 0's view of the voice-id table Core 1 writes in
-    // initOscillators(), plus the manager's own voice count.
     static uint32_t lastVoiceDiag = 0;
     if (currentMillis - lastVoiceDiag >= 2000)
     {
