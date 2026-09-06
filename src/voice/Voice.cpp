@@ -11,6 +11,9 @@ static constexpr float FREQ_SLEW_RATE = 0.00035f; // Slide speed
 static constexpr float BASE_FREQ =
     110.0f; // Base frequency for note calculations
 
+// The injected scale rows are int[48]; keep the centralized constant in sync.
+static_assert(SCALE_STEPS == 48, "Voice expects 48-step scale rows");
+
 // Thread-safe one-time init guard for frequency table
 namespace
 {
@@ -212,73 +215,12 @@ void Voice::setConfig(const VoiceConfig &cfg)
 // Injected scale-data setters (defined out-of-line)
 void Voice::setScaleTable(const int (*table)[48], size_t scaleCount)
 {
-  // Assign pointers first (external owner still owns memory).
+  // External owner keeps owning the memory; the pitch path reads the table
+  // directly, so there is nothing to precompute here.
   scaleTable = table;
   scaleTableCount = scaleCount;
   // Scale/tuning data impacts static pitch mapping; mark base cache dirty.
   baseFreqDirty_ = true;
-
-  // Precompute per-scale unique-degree caches used by calculateNoteFrequency.
-  // This is intentionally done outside the realtime path and may allocate/free.
-  scaleUniqueCounts.clear();
-  scaleIndexToRank.clear();
-  scaleUniqueIndexList.clear();
-
-  if (scaleTable == nullptr || scaleTableCount == 0)
-  {
-    // Nothing to cache
-    return;
-  }
-
-  // Reserve memory for deterministic layout: scaleCount * 48 entries each
-  scaleUniqueCounts.resize(scaleCount);
-  scaleIndexToRank.resize(scaleCount * 48);
-  scaleUniqueIndexList.resize(scaleCount * 48);
-
-  for (size_t s = 0; s < scaleCount; ++s)
-  {
-    const int *row = scaleTable[s];
-
-    // Build list of unique starting indices (first occurrence of each semitone step)
-    uint8_t uniquePos[48];
-    uint8_t uniqueCount = 0;
-
-    // First unique is always index 0
-    uniquePos[uniqueCount++] = 0;
-    for (int i = 1; i < static_cast<int>(SCALE_STEPS); ++i)
-    {
-      if (row[i] != row[i - 1])
-      {
-        uniquePos[uniqueCount++] = static_cast<uint8_t>(i);
-      }
-    }
-
-    // Store unique count
-    scaleUniqueCounts[s] = uniqueCount;
-
-    // Write unique index list padded into the per-scale slot (first uniqueCount entries valid)
-    const size_t base = s * 48;
-    for (uint8_t u = 0; u < uniqueCount; ++u)
-    {
-      scaleUniqueIndexList[base + u] = uniquePos[u];
-    }
-    // Pad remaining with last value (safe, won't be referenced)
-    for (uint8_t u = uniqueCount; u < 48; ++u)
-    {
-      scaleUniqueIndexList[base + u] = uniquePos[uniqueCount - 1];
-    }
-
-    // Build index->rank mapping: for each original index j, find which unique segment it belongs to.
-    for (uint8_t u = 0; u < uniqueCount; ++u)
-    {
-      const uint8_t start = uniquePos[u];
-      const uint8_t end = (u + 1 < uniqueCount) ? static_cast<uint8_t>(uniquePos[u + 1] - 1) : static_cast<uint8_t>(SCALE_STEPS - 1);
-      for (uint8_t j = start; j <= end; ++j)
-      {
-        scaleIndexToRank[base + j] = u;
-      }
-    }
-  }
 }
 
 void Voice::setCurrentScalePointer(const uint8_t *ptr)
@@ -742,30 +684,54 @@ inline void Voice::applyEnvelopeDefaults_() noexcept
   envelope.setRelease(config.defaultRelease);
 }
 
+size_t Voice::effectiveScaleIndex_() const noexcept
+{
+  if (scaleTable == nullptr || scaleTableCount == 0)
+    return 0;
+  const size_t idx = currentScalePtr ? static_cast<size_t>(*currentScalePtr) : 0;
+  return (idx >= scaleTableCount) ? scaleTableCount - 1 : idx;
+}
+
 inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset,
                                            int harmony) noexcept
 {
-  // Clamp input note to valid range [0, SCALE_STEPS-1]
-  const int noteIndex = note;
+  // Keep note+harmony inside the 48-step scale row even with extreme values.
+  int noteWithHarmony = static_cast<int>(note) + harmony;
+  if (noteWithHarmony < 0)
+    noteWithHarmony = 0;
+  if (noteWithHarmony >= static_cast<int>(SCALE_STEPS))
+    noteWithHarmony = static_cast<int>(SCALE_STEPS) - 1;
 
-  // Resolve semitone via direct scale lookup:
-  // scaleIndex comes from currentScalePtr if present, otherwise 0.
-  uint8_t scaleIndex = 0;
-  if (currentScalePtr)
-    scaleIndex = *currentScalePtr;
+  // Single lookup path: the injected table when present, otherwise chromatic
+  // mapping (each scale step is one semitone above C3).
+  int scaleSemitone;
+  if (scaleTable != nullptr && scaleTableCount > 0)
+  {
+    scaleSemitone = scaleTable[effectiveScaleIndex_()][noteWithHarmony];
+  }
+  else
+  {
+    scaleSemitone = noteWithHarmony;
+  }
 
-  int noteWithHarmony = noteIndex + harmony;
-
-  // Lookup semitone directly from scale table (assumes scale[][] exists and is indexed as scale[scaleIndex][noteIndex])
-  int scaleSemitone = scale[scaleIndex][noteWithHarmony];
-
-  // Map to MIDI centered at 48 (C3) and apply octave offset
+  // Map to MIDI centered at 48 (C3) and saturate so the octave offset can
+  // never index past the 128-entry frequency lookup table.
   int midiNote = scaleSemitone + 48 + static_cast<int>(octaveOffset);
+  if (midiNote < 0)
+    midiNote = 0;
+  if (midiNote > 127)
+    midiNote = 127;
 
   return frequencyLookupTable[midiNote];
 }
 
-// Static base recompute: includes ONLY static contributors (note, octave/transpose,
+void Voice::checkScaleIndexChanged_() noexcept
+{
+  if (pitchSnapshot_.scaleIndex != effectiveScaleIndex_())
+    baseFreqDirty_ = true;
+}
+
+// Recompute cached base frequency (static pitch only). Includes ONLY static contributors (note, octave/transpose,
 // scale/tuning mapping). Dynamic modulators (vibrato LFOs, envelopes, glide/portamento,
 // and bend/mod depth) are applied later and are NOT baked into cachedBaseFreqHz_.
 void Voice::recomputeBaseFreqIfDirty_()
@@ -878,6 +844,10 @@ bool Voice::pitchParamsChanged_(const VoiceState &newState) const
     return true;
   if (pitchSnapshot_.octaveOffset != newState.octaveOffset)
     return true;
+  // The UI re-points *currentScalePtr at runtime; a scale switch must retrigger
+  // even when the note itself is unchanged.
+  if (pitchSnapshot_.scaleIndex != effectiveScaleIndex_())
+    return true;
   if (pitchSnapshot_.hasSlide != newState.hasSlide)
     return true;
   // Harmony
@@ -907,6 +877,9 @@ void Voice::updatePitchCache_()
   const float hardSyncSlaveOffsetSemitones =
       (std::clamp(state.velocityLevel, 0.0f, 1.0f) - 0.5f) *
       (2.0f * kHardSyncSlaveOffsetRangeSemitones);
+
+  // A runtime scale switch invalidates the static base before it is consulted.
+  checkScaleIndexChanged_();
 
   // Ensure static base is up to date; avoids redoing static work when only dynamics change.
   recomputeBaseFreqIfDirty_();
@@ -944,6 +917,7 @@ void Voice::updatePitchCache_()
   // Update snapshot
   pitchSnapshot_.noteIndex = state.noteIndex;
   pitchSnapshot_.octaveOffset = state.octaveOffset;
+  pitchSnapshot_.scaleIndex = static_cast<uint8_t>(effectiveScaleIndex_());
   pitchSnapshot_.oscCount = oscCount;
   pitchSnapshot_.usesHypersaw = usesHypersaw;
   pitchSnapshot_.usesHardSync = false;

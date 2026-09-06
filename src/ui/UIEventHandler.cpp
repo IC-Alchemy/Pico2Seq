@@ -822,7 +822,7 @@ void clearSequencerStep(Sequencer &sequencer, uint8_t stepIdx)
   }
 }
 
-void advanceSequencerStep(Sequencer &seq, uint8_t current_uclock_step, int mm_distance,
+void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_distance,
                           const UIState &uiState, VoiceState *voiceState)
 {
   seq.advanceStep(current_uclock_step, mm_distance,

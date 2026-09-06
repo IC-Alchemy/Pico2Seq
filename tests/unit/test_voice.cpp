@@ -95,6 +95,83 @@ TEST_CASE("Voice scale injection enables chromatic fallback when nullptr", "[voi
     REQUIRE_NOTHROW(v.init(48000.0f));
 }
 
+TEST_CASE("Pitch lookup honors the injected scale table over the global", "[voice]") {
+    // Two rows an octave apart whose step 0 maps to semitone 5. Every global
+    // scale row maps step 0 to semitone 0, so only the injected table can
+    // produce the expected pitches.
+    static int table[2][48];
+    for (int r = 0; r < 2; ++r)
+        for (int i = 0; i < 48; ++i)
+            table[r][i] = i + 5 + r * 12;
+
+    uint8_t scaleIdx = 0;
+    Voice v(0, defaultConfig());
+    v.setScaleTable(table, 2);
+    v.setCurrentScalePointer(&scaleIdx);
+    v.init(48000.0f);
+
+    VoiceState vs;
+    vs.isGateHigh = true;
+    vs.noteIndex = 0.0f;
+    v.updateParameters(vs);
+    v.process();
+    REQUIRE_THAT(v.getCachedFrequency(0),
+                 WithinRel(rpdsp::midiNoteToHz(53.0f), 0.001f)); // semitone 5
+
+    scaleIdx = 1; // one octave up in the injected table
+    v.updateParameters(vs);
+    v.process();
+    REQUIRE_THAT(v.getCachedFrequency(0),
+                 WithinRel(rpdsp::midiNoteToHz(65.0f), 0.001f)); // semitone 17
+}
+
+TEST_CASE("No injected table falls back to chromatic mapping", "[voice]") {
+    Voice v(0, defaultConfig());
+    v.setScaleTable(nullptr, 0);
+    v.setCurrentScalePointer(nullptr);
+    v.init(48000.0f);
+
+    VoiceState vs;
+    vs.isGateHigh = true;
+    vs.noteIndex = 4.0f;
+    v.updateParameters(vs);
+    v.process();
+    REQUIRE_THAT(v.getCachedFrequency(0),
+                 WithinRel(rpdsp::midiNoteToHz(52.0f), 0.001f)); // 4 semitones above C3
+}
+
+TEST_CASE("Pitch lookup clamps out-of-range indices", "[voice]") {
+    static int table[1][48];
+    for (int i = 0; i < 48; ++i)
+        table[0][i] = i + 20; // semitone offsets 20..67
+
+    VoiceConfig cfg = defaultConfig();
+    cfg.harmony[0] = 12;
+    Voice v(0, cfg);
+    v.setScaleTable(table, 1);
+    v.init(48000.0f);
+
+    VoiceState vs;
+    vs.isGateHigh = true;
+    vs.octaveOffset = 0;
+
+    // note 46 + harmony 12 clamps to the row's last entry: semitone 67, MIDI 115.
+    vs.noteIndex = 46.0f;
+    v.updateParameters(vs);
+    v.process();
+    REQUIRE_THAT(v.getCachedFrequency(0),
+                 WithinRel(rpdsp::midiNoteToHz(115.0f), 0.001f));
+
+    // A +24 octave shift on the top step would index MIDI 139; saturate at the
+    // frequency table's top instead of reading past it.
+    vs.noteIndex = 47.0f;
+    vs.octaveOffset = 24;
+    v.updateParameters(vs);
+    v.process();
+    REQUIRE_THAT(v.getCachedFrequency(0),
+                 WithinRel(rpdsp::midiNoteToHz(127.0f), 0.001f));
+}
+
 // ─── Audio processing ────────────────────────────────────────────────────────
 
 TEST_CASE("Voice process() returns finite float when gate is on", "[voice]") {

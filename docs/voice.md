@@ -492,9 +492,12 @@ extern uint8_t currentScale;
 voice->setScaleTable(scale, SCALES_COUNT);
 voice->setCurrentScalePointer(&currentScale);
 ```
+- **Single pitch lookup path**: `calculateNoteFrequency()` reads the **injected** table through `scaleTable[effectiveScaleIndex_()][noteIndex + harmony]`. With no table injected (`nullptr`), it falls back to **chromatic mapping** (scale step = semitone above C3).
 - **Synthesis Pitch Offset**: Scale degrees are centered around C3 (+48) with octave offset:
-  $$\text{midiNote} = \text{scale}[\text{scaleIndex}][\text{noteIndex} + \text{harmony}] + 48 + \text{static\_cast<int>}(\text{octaveOffset})$$
-- **Scale Degree Unique-Rank Cache**: `setScaleTable()` precomputes `scaleUniqueCounts`, `scaleIndexToRank`, and `scaleUniqueIndexList` during non-realtime setup to enable $O(1)$ scale degree traversal without runtime search loops.
+  $$\text{midiNote} = \text{scaleTable}[\text{scaleIndex}][\text{noteIndex} + \text{harmony}] + 48 + \text{static\_cast<int>}(\text{octaveOffset})$$
+- **Index clamping**: `noteIndex + harmony` is clamped to `0..47` and the resulting MIDI note is saturated to `0..127` before the lookup-table read, so extreme harmony/octave values cannot index out of bounds.
+- **Live scale switches**: the effective scale row is part of the pitch snapshot (`PitchSnapshot::scaleIndex`); a runtime `currentScale` change invalidates the static base frequency on the next pitch recompute (repeated notes repitch too).
+- No per-scale preprocessing happens at injection time — `setScaleTable()` only stores the pointer and marks the base frequency dirty (the former unique-rank caches were write-only and were removed 2026-09-05).
 
 ### 5.3 Gate-Controlled Pitch Commit
 To prevent audible pitch clicks and glitches when release tails ring out after a sequencer step transition, pitch changes are **committed to oscillators only when `state.isGateHigh == true`**. When the gate is low, the active voice rings out at its last assigned frequency.

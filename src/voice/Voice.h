@@ -11,7 +11,6 @@
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 #include <array>
-#include <vector>
 #include <memory>
 
 #include <cstddef>
@@ -398,19 +397,6 @@ private:
   size_t scaleTableCount = 0;
   const uint8_t *currentScalePtr = nullptr; // Pointer to externally managed current-scale index
 
-  // Cached per-scale preprocessing to accelerate unique-degree traversal.
-  // These are populated by setScaleTable() (non-realtime) and used in
-  // calculateNoteFrequency() to replace the iterative advanceDegrees loop
-  // with constant-time arithmetic and a few indexed lookups.
-  //
-  // Layout:
-  // - scaleUniqueCounts[s]                        => number of unique degree entries for scale s
-  // - scaleIndexToRank[s * 48 + i]               => maps original scale index i (0..47) to its unique-rank (0..uniqueCount-1)
-  // - scaleUniqueIndexList[s * 48 + r]           => original scale index (0..47) of the r-th unique degree for scale s
-  std::vector<uint8_t> scaleUniqueCounts;    // size == scaleCount (populated on setScaleTable)
-  std::vector<uint8_t> scaleIndexToRank;     // size == scaleCount * 48
-  std::vector<uint8_t> scaleUniqueIndexList; // size == scaleCount * 48 (padded)
-
   // Audio processing components
   std::array<VoiceOscillator, 3> oscillators;
   rpdsp::NoiseOscillator noise_;
@@ -527,6 +513,7 @@ private:
   {
     float noteIndex;
     int8_t octaveOffset;
+    uint8_t scaleIndex; // effective row of the injected table at last recompute
     int harmony[3];
     uint8_t oscCount;
     bool usesHypersaw;
@@ -606,6 +593,12 @@ private:
    * @return float Envelope amplitude (0.0-1.0)
    */
   float computeEnvelope();
+
+  /**
+   * @brief Mark the static base cache dirty if the effective scale row changed
+   *        since the last recompute (the UI can re-point *currentScalePtr).
+   */
+  void checkScaleIndexChanged_() noexcept;
 
   /**
    * @brief Update filter parameters based on envelope and voice state
@@ -701,15 +694,24 @@ private:
 
   /**
    * @brief Calculate frequency for a given note with octave offset
-   * @param note Note value (0-21 for scale array lookup, 0-127 for chromatic)
+   * @param note Scale-step index (clamped to 0..SCALE_STEPS-1)
    * @param octaveOffset Octave offset in semitones (-24 to +24)
    * @param harmony Harmony value in scale steps (-12 to +12)
-   * @return float Frequency in Hz (20.0-20000.0)
+   * @return float Frequency in Hz
    *
-   * Uses MIDI_BASE_OFFSET (36) to center around C2. Implements gate-controlled
-   * architecture to prevent audio glitches during parameter changes.
+   * Single pitch lookup path: resolves the step via the injected scale table
+   * (chromatic mapping when no table was injected) to a MIDI note centered at
+   * C3 (48), clamped to the 128-entry frequency lookup table.
    */
   float calculateNoteFrequency(float note, int8_t octaveOffset, int harmony) noexcept;
+
+  /**
+   * @brief Effective row of the injected scale table the pitch path reads now
+   *
+   * Returns 0 when no table is injected (chromatic path). Clamps an
+   * out-of-range *currentScalePtr value to the last row.
+   */
+  size_t effectiveScaleIndex_() const noexcept;
 
   // Recompute cached base frequency (static pitch only). No dynamic modulators.
   void recomputeBaseFreqIfDirty_();
