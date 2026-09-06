@@ -839,9 +839,10 @@ void setup()
     // If the previous run died, print where before doing anything else.
     freezeWatchdogBootCheck();
 
-    // Setup-only handoff: control code cannot touch voices while Core 1 builds them.
-    while (!voicesReady.load(std::memory_order_acquire))
-        delay(1);
+    // Voices are built later in this function (initOscillators, core 0); core 1's
+    // fill_audio_buffer() null-guards until they exist, so no cross-core wait here.
+    // (The old voicesReady spin deadlocked: initOscillators moved into setup() on
+    // 2026-09-06, so the flag it waits on is only published further down.)
 
     // Initialize MIDI communication
     usb_midi.begin(MIDI_CHANNEL_OMNI);
@@ -914,7 +915,7 @@ void setup()
     freezeWatchdogFeed(FW_SETUP_OLED);
     display.begin();
     Serial.println("OLED display initialized");
-// Initialize audio synthesis system
+    // Initialize audio synthesis system
     initOscillators();
     // Register OLED display as observer for voice parameter changes
     if (voiceManager)
