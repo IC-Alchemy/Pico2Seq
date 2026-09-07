@@ -4,10 +4,15 @@
 
 The `src/midi/` subsystem handles USB MIDI communication for Pico2Seq using **Adafruit TinyUSB** and the Arduino MIDI library (`midi::SerialMIDI<Adafruit_USBD_MIDI>`).
 
+**USB MIDI was removed entirely 2026-09-06.** The firmware transmits no MIDI at all —
+no notes, no CC, no clock. USB carries power and the TinyUSB CDC serial console only.
+The `MidiNoteManager` state machine is retained for internal gate/note lifecycle
+bookkeeping, but every transmission path is a stub; transmission references below are
+historical.
+
 The MIDI subsystem provides:
-1. **Monophonic MIDI Note-On / Note-Off generation** synchronized with sequencer gate timing.
-2. **Continuous Controller (CC) output** for real-time synthesis parameter changes.
-3. **No MIDI realtime clock output** — uClock drives only the internal sequencer; no `Clock`, `Start`, or `Stop` bytes are transmitted (removed 2026-09-06).
+1. **Internal monophonic note lifecycle state** synchronized with sequencer gate timing (no transmission).
+2. **No MIDI realtime clock output** — uClock drives only the internal sequencer.
 
 ---
 
@@ -56,11 +61,9 @@ stream, but no `Clock`, `Start`, or `Stop` realtime bytes are sent over USB MIDI
 `onClockStart`/`onClockStop` still start/stop all four sequencers and run
 `midiNoteManager.onSequencerStop()` for clean note state — they just send no MIDI.
 
-All remaining `usb_midi` traffic (note on/off and CC for voices 0–1) originates
-from `loop()`/UI-handler **thread context on Core 0** — the same core TinyUSB's
-`tud_task` runs on — so the MIDI endpoint keeps exactly one producer. The uClock
-ISR (also core 0) only stages events (the `stepQueue` `SpscQueue` +
-`ppqnTicksPending`), which `processClockEvents()` drains in `loop()`.
+There is no `usb_midi` traffic at all anymore (the interface was removed). The uClock
+ISR (core 0) only stages events (the `stepQueue` `SpscQueue` + `ppqnTicksPending`),
+which `processClockEvents()` drains in `loop()`.
 ---
 
 ## Note Lifecycle & Monophonic Tracking
@@ -159,7 +162,7 @@ extern midi::MidiInterface<midi::SerialMIDI<Adafruit_USBD_MIDI>> usb_midi;
 
 ## Dual-Core Execution Model
 
-- **Core 0 Execution:** All MIDI polling (`usb_midi.read()`) and every transmission (`noteOn`/`noteOff` note and CC output) run in **thread context on Core 0** — the same core TinyUSB's `tud_task` runs on, so the MIDI endpoint keeps exactly one producer. The uClock ISR (also core 0) only stages events; it sends no MIDI.
+- **Core 0 Execution:** The USB CDC serial console runs on Core 0. No MIDI polling or transmission exists (USB MIDI removed 2026-09-06). The uClock ISR (also core 0) only stages events; it sends nothing.
 - **Core 1 Isolation:** Core 1 runs purely audio synthesis DSP and I2S buffer filling. It never blocks on USB MIDI endpoints.
 - **Volatile Shared State:** Synchronization between the sequencer ticks and gate trackers uses `volatile` variables and atomic begin/end locks.
 

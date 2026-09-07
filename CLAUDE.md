@@ -143,7 +143,7 @@ sensors,ButtonHandlers}.md` cover each subsystem. The essentials:
 ### Dual-core split (the most important thing to keep in mind for any change)
 
 -
-- **Core 0** (`setup()`/`loop()`): everything else — MIDI I/O, TMAG5273 magnetic encoder and VL53L1X, distance sensor polling, MPR121 touch matrix scanning, `uClock` sequencer step ticking, LED matrix and OLED updates, UI state.
+- **Core 0** (`setup()`/`loop()`): everything else — USB CDC serial, TMAG5273 magnetic encoder and VL53L1X, distance sensor polling, MPR121 touch matrix scanning, `uClock` sequencer step ticking, LED matrix and OLED updates, UI state.
 - **Core 1** (`setup1()`/`loop1()` in `Pico2Seq.ino`): audio synthesis only. Pulls a buffer, calls `voiceManager->processAllVoices()` per-sample, writes I2S output. Nothing else should run here — this is real-time critical and must never block or allocate.
 - Cross-core communication is via `volatile` globals (e.g. `VoiceSystem::gates`,
   `ppqnTicksPending`) — there are no mutexes. When touching shared state, check whether it's
@@ -165,7 +165,7 @@ this only applies to voices 0/1, since 2/3 never had gates or MIDI wired up.
 ### Data flow (input → sound)
 
 ```
-Matrix/TMAG5273/VL53L1X/MIDI input  (Core 0)
+Matrix/TMAG5273/VL53L1X input  (Core 0)
   → UIEventHandler / ButtonHandlers  → UIState (single struct, no loose globals)
   → 4 independent Sequencer instances (seq1..seq4, one per voice, polymetric: each
     ParamId track can have its own step count, e.g. Note:16 steps, Filter:8 steps)

@@ -2,7 +2,6 @@
 #define MIDI_MANAGER_H
 
 #include <cstdint>
-#include <MIDI.h>
 #include <Adafruit_TinyUSB.h>
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For VoiceState and GateTimer definitions
 #include "MidiCCConfig.h"               // MIDI CC configuration constants
@@ -221,7 +220,7 @@ public:
      * @param value Current parameter value (normalized 0.0f - 1.0f)
      *
      * Implements change detection and rate limiting to ensure efficient
-     * MIDI transmission without overwhelming the USB MIDI buffer.
+     * MIDI transmission without overwhelming the (removed) USB MIDI buffer — rate limiting now vestigial.
      */
     void sendCCIfChanged(uint8_t voiceId, ParamId paramId, float value);
 
@@ -342,9 +341,7 @@ extern uint8_t currentScale;
 // Enhanced MIDI note management
 extern MidiNoteManager midiNoteManager;
 
-// USB MIDI interface
-extern midi::MidiInterface<midi::SerialMIDI<Adafruit_USBD_MIDI>> usb_midi;
-
+// (USB MIDI interface removed 2026-09-06 — no transmission.
 // Sequencer objects
 extern Sequencer seq1;
 extern Sequencer seq2;

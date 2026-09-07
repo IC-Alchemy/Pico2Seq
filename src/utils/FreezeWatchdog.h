@@ -52,7 +52,7 @@ static const char *freezeWatchdogPhaseName(uint32_t phase)
     switch (phase)
     {
     case FW_SETUP_BOOTCHECK: return "setup: boot check";
-    case FW_SETUP_USB:       return "setup: USB MIDI / serial";
+    case FW_SETUP_USB:       return "setup: USB CDC serial";
     case FW_SETUP_BUS:       return "setup: Wire/LED matrix";
     case FW_SETUP_SENSORS:   return "setup: VL53L1X + TMAG5273";
     case FW_SETUP_MPR121:    return "setup: MPR121";
@@ -60,7 +60,7 @@ static const char *freezeWatchdogPhaseName(uint32_t phase)
     case FW_SETUP_MATRIX:    return "setup: touch matrix";
     case FW_SETUP_ALCHEMY:   return "setup: Alchemy tiles";
     case FW_SETUP_UCLOCK:    return "setup: uClock start";
-    case FW_LOOP_USB_READ:   return "loop: usb_midi.read";
+    case FW_LOOP_USB_READ:   return "loop: housekeeping (midi read removed)";
     case FW_LOOP_HELD_BUTTONS: return "loop: pollUIHeldButtons";
     case FW_LOOP_CLOCK_EVENTS: return "loop: processClockEvents";
     case FW_LOOP_PPQN:       return "loop: PPQN drain";

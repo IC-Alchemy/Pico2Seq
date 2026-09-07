@@ -28,7 +28,7 @@ Pico2Seq/
 │   ├── matrix/             # MPR121 32-pad capacitive touch matrix scanning
 │   ├── LEDMatrix/          # 8x4 WS2812B FastLED matrix (mirrors the 4x8 touch matrix)
 │   ├── OLED/               # 128x64 SH1106G I2C OLED display driver and view hierarchy
-│   ├── midi/               # TinyUSB MIDI input/output, CC management, clock generation
+│   ├── midi/               # Internal MIDI note lifecycle (USB MIDI transmission removed 2026-09-06)
 │   └── utils/              # Debug.h/.cpp lightweight logging utilities
 └── tests/                  # Catch2 v3.5.2 host unit tests with hardware header stubs
 ```

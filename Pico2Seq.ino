@@ -25,10 +25,9 @@ Sequencer seq4(4); // Channel 4 for fourth sequencer
 LEDMatrix ledMatrix;
 AlchemyControlBridge alchemyBridge; // Alchemy tile panel -> firmware UI glue
 
-// --- MIDI & Clock ---
-Adafruit_USBD_MIDI raw_usb_midi;
-midi::SerialMIDI<Adafruit_USBD_MIDI> serial_usb_midi(raw_usb_midi);
-midi::MidiInterface<midi::SerialMIDI<Adafruit_USBD_MIDI>> usb_midi(serial_usb_midi);
+// --- Clock ---
+// USB MIDI removed 2026-09-06: no MIDI interface, no note/CC/clock transmission.
+// USB is used only for power and the TinyUSB CDC serial console (Serial).
 Adafruit_MPR121 touchSensor = Adafruit_MPR121();
 
 // =======================
@@ -136,7 +135,7 @@ uint32_t ppqnTicksPending = 0;
 // =======================
 // uClock fires its callbacks from the core-0 timer alarm ISR. They only stage
 // events here; loop() drains them in thread context (processClockEvents), so
-// USB MIDI traffic, sequencer advances and note lifecycle work stay
+// sequencer advances and note lifecycle work stay
 // single-context and TinyUSB's MIDI endpoint keeps exactly one producer.
 // 16-entry SPSC ring (src/utils/SpscQueue.h); a full queue drops the new step.
 SpscQueue<uint32_t, 16> stepQueue;
@@ -844,8 +843,7 @@ void setup()
     // (The old voicesReady spin deadlocked: initOscillators moved into setup() on
     // 2026-09-06, so the flag it waits on is only published further down.)
 
-    // Initialize MIDI communication
-    usb_midi.begin(MIDI_CHANNEL_OMNI);
+    // (USB MIDI removed 2026-09-06 — no usb_midi.begin; Serial below is TinyUSB CDC.)
 
     delay(100);
 
@@ -1078,9 +1076,9 @@ void loop()
 {
     // Retry deferred controls even when no new input arrives; also snapshot scale changes.
     voiceManager->flushControlUpdates();
-    // Process MIDI input/output
+    // (USB MIDI removed 2026-09-06 — nothing to read; breadcrumb kept for the
+    //  freeze post-mortem phase map.)
     freezeWatchdogFeed(FW_LOOP_USB_READ);
-    usb_midi.read();
 
     unsigned long currentMillis = millis();
 

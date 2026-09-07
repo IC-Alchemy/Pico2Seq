@@ -24,7 +24,7 @@ The `src/pico2seq-core/scales/` module defines the musical tuning system for the
               │             │ C3 Base (MIDI 48)        │     │             │ C2 Base (MIDI 36)         │
               │                                        │     │                                         │
               │  frequencyLookupTable[midiNote]        │     │  midiNoteManager.noteOn()               │
-              │  -> Oscillator Frequency in Hz         │     │  -> USB MIDI Note On (0-127 clamped)    │
+              │  -> Oscillator Frequency in Hz         │     │  -> Internal MIDI note (0-127 clamped)    │
               └────────────────────────────────────────┘     └─────────────────────────────────────────┘
 ```
 

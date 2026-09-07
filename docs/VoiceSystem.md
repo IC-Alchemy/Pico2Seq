@@ -91,7 +91,7 @@ extern VoiceSystem voiceSystem;
 1. **Centralized Voice Management**: All voice runtime state is grouped into one struct instance (`extern VoiceSystem voiceSystem`), eliminating scattered extern declarations.
 2. **Array-Based Access**: Index-based operations allow clean iteration across voices without `switch/case` branching or redundant per-voice code paths.
 3. **Hardware & MIDI Asymmetry Support**:
-   - **Voices 0 and 1**: Fully equipped with USB MIDI note on/off tracking and `GateTimer` PPQN countdowns.
+   - **Voices 0 and 1**: Fully equipped with internal note on/off tracking (`MidiNoteManager`; USB MIDI transmission removed 2026-09-06) and `GateTimer` PPQN countdowns.
    - **Voices 2 and 3**: Audio-only synthesis voices. They participate in full 4-voice audio mixing via `VoiceManager`, but have no MIDI note outputs.
 4. **Safe Dummy Access for Asymmetric Voices**:
    - Accessing `getGate(2)` or `getGate(3)` returns a safe reference to an internal `static volatile bool dummy = false`.

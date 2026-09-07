@@ -4,7 +4,8 @@
 #include <FastLED.h>
 #include <Adafruit_VL53L1X.h>
 #include <Adafruit_MPR121.h> // MAKE SURE TO ENABLE AUTOCONFIG IN MPR121.H
-#include <MIDI.h>
+// <MIDI.h> / USB MIDI removed 2026-09-06. Adafruit_TinyUSB.h stays: it provides
+// the TinyUSB CDC serial console (Serial); usbstack=tinyusb is still required.
 #include <Adafruit_TinyUSB.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
