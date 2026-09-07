@@ -65,6 +65,704 @@
     .led-glow {
       filter: drop-shadow(0 0 6px currentColor);
     }
+
+    /*
+      Vintage analog synth visual system.
+      This deliberately lives as a CSS layer so the simulator's JavaScript
+      contracts, dynamic class names, and canvas rendering remain untouched.
+    */
+    :root {
+      --background: #16130f;
+      --foreground: #f2eadb;
+      --card: #242018;
+      --content: #1b1812;
+      --border: #665b47;
+      --muted-foreground: #b9ad98;
+      --synth-ink: #f2eadb;
+      --synth-muted: #b9ad98;
+      --synth-subtle: #948977;
+      --synth-brass: #d9ad49;
+      --synth-brass-bright: #f2cf76;
+      --synth-teal: #72c4b8;
+      --synth-signal: #a8ca65;
+      --synth-danger: #d87858;
+      --synth-line: rgba(177, 154, 109, 0.42);
+      --synth-shadow-raised: 0 14px 30px rgba(6, 5, 3, 0.32), 0 2px 5px rgba(0, 0, 0, 0.28);
+      --synth-shadow-inset: inset 0 1px 0 rgba(255, 246, 220, 0.08), inset 0 -2px 5px rgba(0, 0, 0, 0.34);
+      --synth-focus: #f6d47e;
+      color-scheme: dark;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--background);
+      scroll-behavior: smooth;
+    }
+
+    body.custom-scroll {
+      background:
+        radial-gradient(1100px 560px at 8% -18%, rgba(190, 137, 48, 0.17), transparent 62%),
+        radial-gradient(760px 520px at 100% 10%, rgba(62, 129, 119, 0.12), transparent 64%),
+        linear-gradient(145deg, #201b14 0%, var(--background) 45%, #10100d 100%) !important;
+      color: var(--foreground);
+      font-family: "Segoe UI", "Avenir Next", Avenir, "Helvetica Neue", Arial, sans-serif;
+      letter-spacing: 0.005em;
+    }
+
+    body.custom-scroll::before {
+      content: "";
+      position: fixed;
+      z-index: 0;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.52;
+      background:
+        repeating-linear-gradient(0deg, rgba(255, 244, 214, 0.012) 0 1px, transparent 1px 4px),
+        repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.02) 0 1px, transparent 1px 6px);
+      mix-blend-mode: soft-light;
+    }
+
+    body.custom-scroll > :is(main, footer) {
+      position: relative;
+      z-index: 1;
+    }
+
+    ::selection {
+      color: #21180a;
+      background: var(--synth-brass-bright);
+    }
+
+    body .font-mono {
+      font-family: "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      letter-spacing: 0.018em;
+    }
+
+    body .text-white {
+      color: var(--synth-ink);
+    }
+
+    body [class*="text-slate-300"] {
+      color: #ddd3c0;
+    }
+
+    body [class*="text-slate-400"] {
+      color: #c0b5a1;
+    }
+
+    body [class*="text-slate-500"] {
+      color: #a99e8a;
+    }
+
+    body [class*="text-slate-600"] {
+      color: #928776;
+    }
+
+    body [class*="text-slate-700"] {
+      color: #9b907d;
+    }
+
+    body main [class*="text-[9px]"] {
+      font-size: 0.625rem;
+    }
+
+    body main [class*="text-[10px]"] {
+      font-size: 0.6875rem;
+    }
+
+    body [class*="text-amber-200"],
+    body [class*="text-amber-300"] {
+      color: var(--synth-brass-bright);
+    }
+
+    body [class*="text-amber-400"],
+    body [class*="text-amber-500"] {
+      color: var(--synth-brass);
+    }
+
+    body [class*="text-cyan-"] {
+      color: var(--synth-teal);
+    }
+
+    body [class*="text-emerald-"] {
+      color: var(--synth-signal);
+    }
+
+    body [class*="text-rose-"] {
+      color: var(--synth-danger);
+    }
+
+    body [class*="border-slate-800"] {
+      border-color: rgba(159, 141, 105, 0.34);
+    }
+
+    body [class*="border-slate-700"] {
+      border-color: rgba(186, 165, 124, 0.42);
+    }
+
+    body main [class*="bg-slate-950"] {
+      background: linear-gradient(160deg, #17140f 0%, #0f0e0b 100%);
+    }
+
+    body main [class*="bg-slate-900"] {
+      background: linear-gradient(155deg, #2a251c 0%, #1d1913 100%);
+    }
+
+    body main [class*="bg-slate-800"] {
+      background: linear-gradient(155deg, #393126 0%, #29231a 100%);
+    }
+
+    body main [class*="bg-black"] {
+      background: linear-gradient(155deg, #11110d 0%, #080907 100%);
+    }
+
+    body button,
+    body a,
+    body input,
+    body select {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body :is(button, a, input, select):focus-visible {
+      outline: 2px solid var(--synth-focus) !important;
+      outline-offset: 3px;
+      box-shadow: 0 0 0 5px rgba(246, 212, 126, 0.2) !important;
+    }
+
+    body :is(input[type="number"], input[type="text"], select) {
+      min-height: 2.15rem;
+      color: var(--synth-ink);
+      background: #15130f;
+      border-color: rgba(197, 173, 124, 0.56);
+      border-radius: 0.375rem;
+      box-shadow: var(--synth-shadow-inset);
+    }
+
+    body input[type="checkbox"] {
+      accent-color: var(--synth-signal);
+    }
+
+    body input[type="range"] {
+      appearance: none;
+      -webkit-appearance: none;
+      accent-color: var(--synth-brass);
+      background: transparent;
+    }
+
+    body input[type="range"]::-webkit-slider-runnable-track {
+      height: 0.38rem;
+      border: 1px solid rgba(184, 160, 111, 0.38);
+      border-radius: 999px;
+      background: linear-gradient(180deg, #0f0e0b, #282218);
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.82);
+    }
+
+    body input[type="range"]::-webkit-slider-thumb {
+      width: 0.92rem;
+      height: 0.92rem;
+      margin-top: -0.34rem;
+      appearance: none;
+      -webkit-appearance: none;
+      border: 2px solid #ffe4a0;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #f4d27b, #bd842e);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.72);
+    }
+
+    body input[type="range"]::-moz-range-track {
+      height: 0.38rem;
+      border: 1px solid rgba(184, 160, 111, 0.38);
+      border-radius: 999px;
+      background: linear-gradient(180deg, #0f0e0b, #282218);
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.82);
+    }
+
+    body input[type="range"]::-moz-range-thumb {
+      width: 0.8rem;
+      height: 0.8rem;
+      border: 2px solid #ffe4a0;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #f4d27b, #bd842e);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.72);
+    }
+
+    /* Header: transport and navigation now have deliberate, separate hierarchy. */
+    body.custom-scroll > header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 0.8rem 1.2rem;
+      padding: 0.82rem clamp(1rem, 2.2vw, 2rem);
+      border-top: 3px solid rgba(219, 177, 76, 0.82);
+      border-bottom-color: rgba(184, 157, 104, 0.5);
+      background:
+        linear-gradient(180deg, rgba(52, 45, 34, 0.96), rgba(28, 24, 18, 0.96)),
+        var(--card) !important;
+      box-shadow: 0 7px 26px rgba(3, 3, 2, 0.36), inset 0 -1px rgba(255, 243, 207, 0.05);
+      backdrop-filter: blur(12px);
+    }
+
+    body.custom-scroll > header > div:first-child {
+      min-width: 0;
+    }
+
+    body.custom-scroll > header > div:first-child > div:first-child {
+      border-radius: 0.45rem;
+      color: #241a09;
+      background: linear-gradient(145deg, #f1cd72, #b47b27);
+      border-color: #f7d98c;
+      box-shadow: inset 0 1px rgba(255, 248, 213, 0.56), 0 2px 5px rgba(0, 0, 0, 0.34);
+    }
+
+    body.custom-scroll > header h1 {
+      letter-spacing: 0.045em;
+      text-shadow: 0 1px rgba(0, 0, 0, 0.7);
+    }
+
+    body.custom-scroll > header > div:nth-child(2) {
+      justify-self: end;
+      border-color: rgba(189, 160, 105, 0.46);
+      border-radius: 0.55rem;
+      background: linear-gradient(145deg, rgba(21, 19, 14, 0.94), rgba(35, 29, 21, 0.94));
+      box-shadow: var(--synth-shadow-inset);
+    }
+
+    body.custom-scroll > header nav {
+      grid-column: 1 / -1;
+      width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      border-color: rgba(184, 157, 104, 0.38);
+      border-radius: 0.6rem;
+      background: rgba(13, 13, 10, 0.62);
+      box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.54);
+      scrollbar-color: #8b774e transparent;
+    }
+
+    body.custom-scroll > header nav::-webkit-scrollbar {
+      height: 4px;
+    }
+
+    body.custom-scroll > header nav::-webkit-scrollbar-thumb {
+      background: #8b774e;
+    }
+
+    body .nav-tab {
+      flex: 0 0 auto;
+      min-height: 2.3rem;
+      border: 1px solid transparent;
+      border-radius: 0.38rem;
+      color: var(--synth-muted);
+      letter-spacing: 0.018em;
+    }
+
+    body .nav-tab:hover {
+      color: var(--synth-ink);
+      background: rgba(217, 173, 73, 0.12);
+    }
+
+    body .nav-tab[class*="bg-amber-500"] {
+      color: #251b09;
+      border-color: #f2ce74;
+      background: linear-gradient(145deg, #f0cc70, #bd842f);
+      box-shadow: inset 0 1px rgba(255, 249, 222, 0.55), 0 2px 6px rgba(0, 0, 0, 0.36);
+    }
+
+    body #globalPlayBtn {
+      min-height: 2.3rem;
+      border: 1px solid rgba(232, 244, 183, 0.7);
+      border-radius: 0.42rem;
+      color: #132010;
+      box-shadow: inset 0 1px rgba(255, 255, 226, 0.54), 0 2px 6px rgba(0, 0, 0, 0.38);
+    }
+
+    body #globalPlayBtn[class*="bg-emerald"] {
+      background: linear-gradient(145deg, #b6d96e, #759c43);
+    }
+
+    body #globalPlayBtn[class*="bg-rose"] {
+      color: #fff0df;
+      border-color: #efae8e;
+      background: linear-gradient(145deg, #d87a58, #93422f);
+    }
+
+    /* Primary content cards and the physical twin have distinct material depth. */
+    body.custom-scroll main {
+      padding: clamp(1rem, 2.4vw, 2rem);
+    }
+
+    body main .tab-pane > div:not(.chassis-wood) {
+      border-color: rgba(181, 154, 103, 0.42);
+      border-radius: 0.8rem;
+      background:
+        linear-gradient(145deg, rgba(48, 42, 32, 0.98), rgba(30, 26, 20, 0.98)),
+        var(--card) !important;
+      box-shadow: var(--synth-shadow-raised), inset 0 1px rgba(255, 245, 220, 0.055);
+    }
+
+    .chassis-wood {
+      isolation: isolate;
+      overflow: hidden;
+      border: 1px solid #876745;
+      border-radius: 0.9rem;
+      background:
+        linear-gradient(116deg, rgba(255, 232, 178, 0.06), transparent 26%),
+        repeating-linear-gradient(7deg, rgba(255, 223, 163, 0.055) 0 1px, transparent 1px 8px),
+        repeating-linear-gradient(96deg, rgba(63, 34, 18, 0.28) 0 2px, transparent 2px 21px),
+        linear-gradient(135deg, #4a3020 0%, #24160f 46%, #372216 100%);
+      box-shadow: inset 0 1px rgba(255, 240, 205, 0.2), inset 0 -4px 10px rgba(0, 0, 0, 0.58), 0 18px 38px rgba(0, 0, 0, 0.42);
+    }
+
+    .chassis-wood::before {
+      content: "";
+      position: absolute;
+      z-index: 0;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.46;
+      background:
+        radial-gradient(circle at 14px 14px, #17100a 0 2px, #8a6843 2.5px 3.5px, transparent 4px),
+        radial-gradient(circle at calc(100% - 14px) 14px, #17100a 0 2px, #8a6843 2.5px 3.5px, transparent 4px),
+        radial-gradient(circle at 14px calc(100% - 14px), #17100a 0 2px, #8a6843 2.5px 3.5px, transparent 4px),
+        radial-gradient(circle at calc(100% - 14px) calc(100% - 14px), #17100a 0 2px, #8a6843 2.5px 3.5px, transparent 4px);
+    }
+
+    .chassis-wood > * {
+      position: relative;
+      z-index: 1;
+    }
+
+    .panel-aluminum {
+      border-color: rgba(193, 166, 110, 0.46);
+      border-radius: 0.62rem;
+      background:
+        repeating-linear-gradient(0deg, rgba(255, 250, 227, 0.024) 0 1px, transparent 1px 4px),
+        linear-gradient(145deg, #343029 0%, #211e18 49%, #2a251d 100%);
+      box-shadow: inset 0 1px rgba(255, 248, 224, 0.14), inset 0 -3px 8px rgba(0, 0, 0, 0.42), 0 4px 12px rgba(0, 0, 0, 0.23);
+    }
+
+    .oled-screen {
+      border-radius: 0.3rem;
+      border-color: rgba(105, 199, 183, 0.48);
+      background-color: #07110d;
+      box-shadow: inset 0 0 18px rgba(81, 203, 181, 0.17), 0 0 10px rgba(81, 203, 181, 0.12);
+    }
+
+    #encoderKnobContainer {
+      border: 1px solid rgba(222, 190, 120, 0.48);
+      border-radius: 999px;
+      box-shadow: 0 0 0 4px rgba(12, 11, 8, 0.42), 0 3px 8px rgba(0, 0, 0, 0.54);
+    }
+
+    .pad-grid-slot {
+      border-color: rgba(162, 139, 92, 0.44);
+      background:
+        repeating-linear-gradient(0deg, rgba(255, 242, 204, 0.018) 0 1px, transparent 1px 4px),
+        linear-gradient(155deg, #18150f, #0e0d0a);
+      box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.82), inset 0 0 0 1px rgba(242, 207, 118, 0.07);
+    }
+
+    .pad-button {
+      border-radius: 0.36rem;
+      text-shadow: 0 1px rgba(0, 0, 0, 0.48);
+      box-shadow: inset 0 1px rgba(255, 248, 216, 0.1), inset 0 -2px 3px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.42);
+    }
+
+    .pad-button[class*="bg-slate-900"] {
+      border-color: rgba(142, 124, 90, 0.42);
+      background: linear-gradient(145deg, #2d281f, #191611);
+    }
+
+    .pad-button[class*="bg-amber-500"] {
+      color: #fff3cf;
+      border-color: #f2cf76;
+      background: linear-gradient(145deg, #ad7527, #604116);
+      box-shadow: inset 0 1px rgba(255, 246, 202, 0.34), inset 0 -2px 3px rgba(0, 0, 0, 0.34), 0 0 10px rgba(232, 181, 66, 0.31);
+    }
+
+    .pad-button:hover:not(:active) {
+      border-color: var(--synth-brass-bright);
+      transform: translateY(-1px);
+    }
+
+    body .pad-button:active {
+      transform: scale(0.96);
+    }
+
+    .fader-track {
+      width: 0.78rem;
+      border: 1px solid rgba(177, 152, 104, 0.4);
+      background: linear-gradient(90deg, #0c0c09, #282219 48%, #0c0c09);
+      box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.88), inset 0 0 0 1px rgba(255, 237, 190, 0.05);
+    }
+
+    body main button[class*="bg-slate-"],
+    body #presetCardsGrid .assign-btn {
+      box-shadow: inset 0 1px rgba(255, 247, 221, 0.1), inset 0 -1px rgba(0, 0, 0, 0.24), 0 1px 2px rgba(0, 0, 0, 0.32);
+    }
+
+    body main button[class*="bg-slate-"]:hover,
+    body #presetCardsGrid .assign-btn:hover {
+      border-color: rgba(244, 207, 118, 0.7);
+      transform: translateY(-1px);
+    }
+
+    body .voice-btn[class*="bg-amber-500"],
+    body #strapParamBtn[class*="bg-amber-500"],
+    body #encoderHoldBtn[class*="bg-amber-500"],
+    body #funcButtonGrid button[class*="bg-amber-500"] {
+      color: #271b09;
+      border-color: #f5d57f;
+      background: linear-gradient(145deg, #efd072, #bd842e);
+      box-shadow: inset 0 1px rgba(255, 250, 220, 0.56), 0 2px 6px rgba(0, 0, 0, 0.34);
+    }
+
+    body #strapUtilBtn[class*="bg-cyan-400"],
+    body #funcButtonGrid button[class*="bg-cyan-500"] {
+      color: #08201d;
+      border-color: #a4e0d6;
+      background: linear-gradient(145deg, #8cdbcd, #4f9f94);
+      box-shadow: inset 0 1px rgba(238, 255, 249, 0.54), 0 2px 6px rgba(0, 0, 0, 0.34);
+    }
+
+    body #funcButtonGrid button[class*="bg-amber-600"] {
+      border-color: rgba(242, 207, 118, 0.82);
+      background: linear-gradient(145deg, #704d1e, #3f2b12);
+    }
+
+    body :is(#activePairBadge, #encoderTargetBadge, #tofDistanceBadge) {
+      border-radius: 0.3rem;
+      box-shadow: inset 0 1px rgba(255, 246, 218, 0.08);
+    }
+
+    #presetCardsGrid > div {
+      border-radius: 0.6rem;
+      box-shadow: var(--synth-shadow-inset);
+    }
+
+    #presetCardsGrid > div:hover {
+      border-color: rgba(242, 207, 118, 0.7);
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.26), var(--synth-shadow-inset);
+      transform: translateY(-2px);
+    }
+
+    #ledGridLow > div > span,
+    #ledGridHigh > div > span {
+      display: inline-grid;
+      min-width: 0.92rem;
+      min-height: 0.92rem;
+      padding-inline: 0.08rem;
+      place-items: center;
+      border-radius: 999px;
+      color: #fff7df;
+      background: rgba(7, 7, 5, 0.58);
+      font-size: 0.5rem;
+      line-height: 1;
+      text-shadow: 0 1px 1px rgba(0, 0, 0, 0.88);
+    }
+
+    #manualContent {
+      color: #e0d6c3;
+      font-size: 0.95rem;
+      line-height: 1.78;
+    }
+
+    #manualContent article {
+      scroll-margin-top: 10.5rem;
+    }
+
+    #manualContent table {
+      overflow: hidden;
+      border-color: rgba(180, 152, 99, 0.44);
+      border-radius: 0.45rem;
+      background: rgba(11, 10, 8, 0.22);
+    }
+
+    #manualContent :is(th, td) {
+      border-color: rgba(180, 152, 99, 0.28);
+    }
+
+    #tab-manual > div > div:nth-child(2) {
+      padding: 0.62rem;
+      border: 1px solid rgba(180, 152, 99, 0.34);
+      border-radius: 0.55rem;
+      background: rgba(14, 13, 10, 0.38);
+      box-shadow: var(--synth-shadow-inset);
+    }
+
+    #tab-manual > div > div:nth-child(2) a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 2rem;
+      border-radius: 0.32rem;
+    }
+
+    #tab-gotchas .grid > div {
+      border-left-width: 3px;
+      box-shadow: var(--synth-shadow-inset);
+    }
+
+    footer {
+      border-top-color: rgba(184, 157, 104, 0.42);
+      background: rgba(25, 22, 17, 0.9) !important;
+    }
+
+    @media (max-width: 56rem) {
+      body.custom-scroll > header {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      body.custom-scroll > header > div:nth-child(2) {
+        justify-self: stretch;
+        flex-wrap: wrap;
+        width: 100%;
+      }
+    }
+
+    @media (max-width: 40rem) {
+      body.custom-scroll > header {
+        gap: 0.7rem;
+        padding-inline: 0.85rem;
+      }
+
+      body.custom-scroll > header > div:nth-child(2) {
+        gap: 0.55rem;
+      }
+
+      body.custom-scroll > header > div:first-child {
+        align-items: flex-start;
+      }
+
+      body.custom-scroll > header > div:first-child > div:nth-child(2) > div:first-child,
+      body.custom-scroll > header h1 {
+        flex-wrap: wrap;
+      }
+
+      body.custom-scroll > header > div:nth-child(2) > .h-5 {
+        display: none;
+      }
+
+      body #globalPlayBtn {
+        flex: 1 0 100%;
+        justify-content: center;
+      }
+
+      body .nav-tab {
+        min-height: 2.5rem;
+      }
+
+      body.custom-scroll main {
+        padding: 0.85rem;
+      }
+
+      .chassis-wood,
+      body main .tab-pane > div:not(.chassis-wood) {
+        border-radius: 0.62rem;
+      }
+
+      #padGridLow,
+      #padGridHigh {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      #padGridLow .pad-button,
+      #padGridHigh .pad-button {
+        min-height: 3.1rem;
+      }
+
+      #ledGridLow,
+      #ledGridHigh {
+        grid-template-columns: repeat(8, minmax(0, 1fr));
+        gap: 0.2rem;
+      }
+
+      #ledGridLow > div,
+      #ledGridHigh > div {
+        width: 100%;
+        height: auto;
+        min-width: 0;
+        aspect-ratio: 1;
+      }
+
+      #ledGridLow > div > span,
+      #ledGridHigh > div > span {
+        display: none;
+      }
+
+      #polyGateCells,
+      #polyNoteCells,
+      #polyFilterCells,
+      #polyVelCells {
+        grid-template-columns: repeat(8, minmax(0, 1fr));
+        grid-auto-rows: 1.75rem;
+        height: auto;
+        gap: 0.25rem;
+      }
+
+      #tab-polymeter .flex.items-center {
+        flex-wrap: wrap;
+        row-gap: 0.45rem;
+      }
+
+      #tab-polymeter > div > div:last-child {
+        flex-wrap: wrap;
+      }
+
+      #manualContent article {
+        scroll-margin-top: 15rem;
+      }
+
+      #tab-manual > div > div:nth-child(2) {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+      }
+
+      #tab-manual > div > div:nth-child(2) a {
+        flex: 0 0 auto;
+      }
+    }
+
+    @media (pointer: coarse) {
+      body .nav-tab,
+      body #globalPlayBtn,
+      body #funcButtonGrid button,
+      body #presetCardsGrid button,
+      body .voice-btn {
+        min-height: 2.6rem;
+      }
+
+      body input[type="range"]:not([orient="vertical"]) {
+        min-height: 2.6rem;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+
+      *,
+      *::before,
+      *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+      }
+
+      body button:active,
+      body .pad-button:hover,
+      body main button[class*="bg-slate-"]:hover,
+      body #presetCardsGrid > div:hover {
+        transform: none !important;
+      }
+    }
   </style>
 </head>
 <body class="bg-[var(--background,#0b0f17)] text-[var(--foreground,#e2e8f0)] antialiased font-sans min-h-screen flex flex-col custom-scroll">
@@ -828,6 +1526,30 @@
             </div>
           </article>
 
+          <!-- Section 4 -->
+          <article id="man-sec-4" class="pt-6 space-y-3">
+            <h3 class="text-base font-bold text-amber-400 flex items-center gap-2">
+              <span class="font-mono text-xs px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-amber-300">§ 4</span>
+              Voices &amp; DSP
+            </h3>
+            <p>
+              Each of the four voices turns its independent step tracks into sound on the audio core. Presets select the source character while the sequencer supplies pitch, velocity, envelope, gate, and slide values.
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-800 space-y-1.5">
+                <span class="font-bold text-amber-300 font-mono">Sound families</span>
+                <p class="text-slate-400">The 15 factory presets span subtractive oscillator voices, physical-modelled waveguide strings, a native Hypersaw, and NoiseStorm texture voices.</p>
+              </div>
+              <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-800 space-y-1.5">
+                <span class="font-bold text-cyan-300 font-mono">Signal path</span>
+                <p class="text-slate-400">Source → envelope → optional drive → filter → high-pass cleanup → shared stereo output. Parameter updates are staged from the control core before the audio core applies them.</p>
+              </div>
+            </div>
+            <p class="text-xs text-slate-400">
+              Voices 1 and 2 also provide the external MIDI note path. Voices 3 and 4 remain internal-audio voices, so they can add layers without changing the external MIDI arrangement.
+            </p>
+          </article>
+
           <!-- Section 5 -->
           <article id="man-sec-5" class="pt-6 space-y-3">
             <h3 class="text-base font-bold text-amber-400 flex items-center gap-2">
@@ -856,6 +1578,103 @@
                 </ul>
               </div>
             </div>
+          </article>
+
+          <!-- Section 6 -->
+          <article id="man-sec-6" class="pt-6 space-y-3">
+            <h3 class="text-base font-bold text-amber-400 flex items-center gap-2">
+              <span class="font-mono text-xs px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-amber-300">§ 6</span>
+              LED Themes
+            </h3>
+            <p>
+              The 8×4 LED matrix mirrors the two visible 16-step voice banks. Change its palette with the Theme control in Utility mode; the current theme is also selectable in the simulator.
+            </p>
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs font-mono border-collapse border border-slate-800">
+                <thead class="bg-slate-900/80 text-amber-300">
+                  <tr><th class="p-2 border border-slate-800 text-left">#</th><th class="p-2 border border-slate-800 text-left">Theme</th><th class="p-2 border border-slate-800 text-left">Character</th></tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800">
+                  <tr><td class="p-2 border border-slate-800">0</td><td class="p-2 border border-slate-800 text-amber-400 font-bold">Standard</td><td class="p-2 border border-slate-800">Classic blue and green</td></tr>
+                  <tr><td class="p-2 border border-slate-800">1</td><td class="p-2 border border-slate-800 text-amber-400 font-bold">Oceanic</td><td class="p-2 border border-slate-800">Deep cyan and teal</td></tr>
+                  <tr><td class="p-2 border border-slate-800">2</td><td class="p-2 border border-slate-800 text-amber-400 font-bold">Volcanic</td><td class="p-2 border border-slate-800">Reds, oranges, and amber</td></tr>
+                  <tr><td class="p-2 border border-slate-800">3</td><td class="p-2 border border-slate-800 text-amber-400 font-bold">Forest</td><td class="p-2 border border-slate-800">Moss and warm earth tones</td></tr>
+                  <tr><td class="p-2 border border-slate-800">4</td><td class="p-2 border border-slate-800 text-amber-400 font-bold">Neon</td><td class="p-2 border border-slate-800">Magenta, purple, and cyan</td></tr>
+                  <tr><td class="p-2 border border-slate-800">5</td><td class="p-2 border border-slate-800 text-amber-400 font-bold">Modern</td><td class="p-2 border border-slate-800">Muted high-legibility colors</td></tr>
+                  <tr><td class="p-2 border border-slate-800">6</td><td class="p-2 border border-slate-800 text-amber-400 font-bold">Dark Noctis</td><td class="p-2 border border-slate-800">Low-light midnight blue</td></tr>
+                  <tr><td class="p-2 border border-slate-800">7</td><td class="p-2 border border-slate-800 text-amber-400 font-bold">Dark Ember</td><td class="p-2 border border-slate-800">Low-light warm ember</td></tr>
+                  <tr><td class="p-2 border border-slate-800">8</td><td class="p-2 border border-slate-800 text-amber-400 font-bold">Blue Contrast</td><td class="p-2 border border-slate-800">High-contrast blue</td></tr>
+                  <tr><td class="p-2 border border-slate-800">9</td><td class="p-2 border border-slate-800 text-amber-400 font-bold">Green Contrast</td><td class="p-2 border border-slate-800">High-contrast green</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <!-- Section 7 -->
+          <article id="man-sec-7" class="pt-6 space-y-3">
+            <h3 class="text-base font-bold text-amber-400 flex items-center gap-2">
+              <span class="font-mono text-xs px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-amber-300">§ 7</span>
+              MIDI &amp; Connectivity
+            </h3>
+            <p>
+              USB-C supplies power, serial diagnostics, and USB MIDI. The audio mix leaves through the stereo I2S DAC path, while the shared I2C bus connects the OLED, touch matrix, encoder, and distance sensor.
+            </p>
+            <ul class="list-disc pl-5 space-y-1.5 text-xs text-slate-300">
+              <li><b>USB MIDI notes:</b> Voices 1 and 2 send note and gate events on MIDI channel 1.</li>
+              <li><b>MIDI CC:</b> Filter, attack, decay, and octave changes are available as continuous controller output for those two external voices.</li>
+              <li><b>Internal layers:</b> Voices 3 and 4 enrich the stereo mix but do not emit external MIDI note events.</li>
+            </ul>
+          </article>
+
+          <!-- Section 8 -->
+          <article id="man-sec-8" class="pt-6 space-y-3">
+            <h3 class="text-base font-bold text-amber-400 flex items-center gap-2">
+              <span class="font-mono text-xs px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-amber-300">§ 8</span>
+              Firmware &amp; Development
+            </h3>
+            <p>
+              Pico2Seq is an Arduino sketch for the Raspberry Pi Pico 2 / RP2350. Firmware builds use the RP2040 Arduino core with the TinyUSB stack; the separate CMake project runs host-side logic tests.
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-800 space-y-1">
+                <span class="font-bold text-amber-300 font-mono">Firmware build</span>
+                <p class="text-slate-400">Use the documented Arduino workflow or the checked-in build helper. A successful compile verifies source integration, not connected hardware behavior.</p>
+              </div>
+              <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-800 space-y-1">
+                <span class="font-bold text-cyan-300 font-mono">Host validation</span>
+                <p class="text-slate-400">CMake builds the portable sequencer and DSP test suite; it does not flash the Pico or exercise the physical controls.</p>
+              </div>
+            </div>
+          </article>
+
+          <!-- Section 9 -->
+          <article id="man-sec-9" class="pt-6 space-y-3">
+            <h3 class="text-base font-bold text-amber-400 flex items-center gap-2">
+              <span class="font-mono text-xs px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-amber-300">§ 9</span>
+              Troubleshooting &amp; Gotchas
+            </h3>
+            <ul class="list-disc pl-5 space-y-1.5 text-xs text-slate-300">
+              <li><b>Step context matters:</b> Shift clears a pad, a held parameter sets a parameter-track length, and Gate Length mode changes the voice pattern length.</li>
+              <li><b>Pitch needs a gate:</b> Turn a step gate on before writing its Note value.</li>
+              <li><b>Voice numbering differs by surface:</b> The interface labels voices V1–V4 while internal firmware indices run 0–3.</li>
+              <li><b>Distance range is bounded:</b> The VL53L1X performance window is 74–1400 mm.</li>
+            </ul>
+          </article>
+
+          <!-- Section 10 -->
+          <article id="man-sec-10" class="pt-6 space-y-3">
+            <h3 class="text-base font-bold text-amber-400 flex items-center gap-2">
+              <span class="font-mono text-xs px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-amber-300">§ 10</span>
+              Glossary
+            </h3>
+            <dl class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 text-xs">
+              <div><dt class="font-mono font-bold text-amber-300">Gate</dt><dd class="text-slate-400 mt-0.5">The on/off trigger state of a step; its track length defines the voice pattern length.</dd></div>
+              <div><dt class="font-mono font-bold text-amber-300">Gate Length</dt><dd class="text-slate-400 mt-0.5">How much of a sixteenth-note step a triggered note is held.</dd></div>
+              <div><dt class="font-mono font-bold text-amber-300">Polymeter</dt><dd class="text-slate-400 mt-0.5">Parameter tracks with different lengths cycling against the same clock.</dd></div>
+              <div><dt class="font-mono font-bold text-amber-300">Shift latch</dt><dd class="text-slate-400 mt-0.5">A Shift + parameter tap that keeps the parameter armed without holding it.</dd></div>
+              <div><dt class="font-mono font-bold text-amber-300">Slide</dt><dd class="text-slate-400 mt-0.5">Per-step portamento that glides pitch without retriggering the envelope.</dd></div>
+              <div><dt class="font-mono font-bold text-amber-300">ToF</dt><dd class="text-slate-400 mt-0.5">Time-of-flight distance sensing from the VL53L1X performance sensor.</dd></div>
+            </dl>
           </article>
 
         </div>
