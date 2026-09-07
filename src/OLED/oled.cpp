@@ -35,6 +35,10 @@
 OLEDDisplay::OLEDDisplay() : displayHardware(OLEDConstants::SCREEN_WIDTH, OLEDConstants::SCREEN_HEIGHT, &Wire, OLEDConstants::RESET_PIN),
                              isDisplayInitialized(false)
 {
+  // The panel powers up with arbitrary RAM; 0xFF guarantees the first
+  // commitFrame() after begin() sees the cleared buffer as "changed" and
+  // actually transfers it.
+  memset(frameShadow_, 0xFF, kFrameBytes);
 }
 
 // begin():
@@ -75,7 +79,29 @@ void OLEDDisplay::clear()
   }
 
   displayHardware.clearDisplay();
+  commitFrame();
+}
+
+// Pushes the redrawn framebuffer to the panel only when its content differs
+// from the last physical transfer. Every view redraws the whole buffer after
+// clearDisplay(), which resets the library's dirty window, so without this gate
+// each update() pays a full ~1 KB I2C frame push even when the screen is
+// static — the single largest consumer of the core-0 loop budget.
+void OLEDDisplay::commitFrame()
+{
+  if (!isDisplayInitialized)
+  {
+    return;
+  }
+
+  const uint8_t *frame = displayHardware.getBuffer();
+  if (memcmp(frame, frameShadow_, kFrameBytes) == 0)
+  {
+    return; // Panel already shows this frame — skip the wire transfer.
+  }
+
   displayHardware.display();
+  memcpy(frameShadow_, frame, kFrameBytes);
 }
 
 void OLEDDisplay::setVoiceManager(VoiceManager *voiceManager)
@@ -118,7 +144,7 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
   {
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN - 3, 25);
     displayHardware.print("Voice config error");
-    displayHardware.display();
+    commitFrame();
     return;
   }
 
@@ -180,7 +206,7 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
     }
   }
 
-  displayHardware.display();
+  commitFrame();
 }
 
 // Short label for the parameter the magnetic encoder currently controls.
@@ -252,7 +278,7 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     displayHardware.setTextSize(1);
     displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - 10 * 6) / 2, 52);
     displayHardware.print(paramMode ? "> params <" : "> utility <");
-    displayHardware.display();
+    commitFrame();
     return;
   }
 
@@ -291,7 +317,7 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
       displayHardware.print(voiceLine);
     }
 
-    displayHardware.display();
+    commitFrame();
     return;
   }
 
@@ -311,14 +337,15 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     if (subParam && voiceManager)
     {
       displayVoiceParameterToggles(uiState, voiceManager);
-      displayHardware.display();
+      // displayVoiceParameterToggles() ends with its own commitFrame(); no
+      // second push needed here.
       return;
     }
 
     // Default to preset selection/main settings when in preset sub-mode
     // or when no voiceManager is provided.
     displaySettingsMenu(uiState);
-    displayHardware.display();
+    commitFrame();
     return;
   }
 
@@ -362,7 +389,7 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
       displayHardware.fillRect(left + 1, barY - 5, fillW, 4, SH110X_WHITE);
     }
 
-    displayHardware.display();
+    commitFrame();
     return;
   }
 
@@ -455,7 +482,7 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     drawStepIndicators(currentSequencerDefault, 63);
   }
 
-  displayHardware.display();
+  commitFrame();
 }
 
 void OLEDDisplay::displayParameterInfo(ParamId parameterId, float currentValue,
@@ -714,7 +741,7 @@ void OLEDDisplay::displayVoiceParameterInfo(const UIState &uiState, VoiceManager
   {
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 20);
     displayHardware.print("Voice config error");
-    displayHardware.display();
+    commitFrame();
     return;
   }
 
@@ -784,7 +811,7 @@ void OLEDDisplay::displayVoiceParameterInfo(const UIState &uiState, VoiceManager
   displayHardware.print("Button ");
   displayHardware.print(uiState.lastVoiceParameterButton);
 
-  displayHardware.display();
+  commitFrame();
 }
 
 void OLEDDisplay::forceUpdate(const UIState &uiState, VoiceManager *voiceManager)
@@ -818,7 +845,7 @@ void OLEDDisplay::forceUpdate(const UIState &uiState, VoiceManager *voiceManager
     {
       displaySettingsMenu(uiState);
     }
-    displayHardware.display();
+    commitFrame();
   }
 }
 
@@ -917,7 +944,7 @@ void OLEDDisplay::onVoiceSwitched(const UIState &uiState, VoiceManager *voiceMan
     {
       displaySettingsMenu(uiState);
     }
-    displayHardware.display();
+    commitFrame();
   }
 }
 
@@ -1006,7 +1033,7 @@ void OLEDDisplay::runStartupAnimation()
   for (int wipeWidth = 0; wipeWidth <= OLEDConstants::SCREEN_WIDTH; wipeWidth += 10)
   {
     displayHardware.fillRect(0, 0, wipeWidth, OLEDConstants::SCREEN_HEIGHT, SH110X_WHITE);
-    displayHardware.display();
+    commitFrame();
     delay(OLEDConstants::STARTUP_WIPE_DELAY_MS);
 
     // Clear and redraw border for scanning effect
@@ -1028,7 +1055,7 @@ void OLEDDisplay::runStartupAnimation()
     displayHardware.setTextSize(2);
     displayHardware.setCursor(titleCenterX, titleY);
     displayHardware.print(applicationTitle);
-    displayHardware.display();
+    commitFrame();
 
     delay(OLEDConstants::STARTUP_BOUNCE_DELAY_MS);
   }
@@ -1037,6 +1064,6 @@ void OLEDDisplay::runStartupAnimation()
   displayHardware.setTextSize(1);
   displayHardware.setCursor(18, 44);
   displayHardware.print("Let's play");
-  displayHardware.display();
+  commitFrame();
   delay(OLEDConstants::STARTUP_SETTLE_DELAY_MS);
 }
