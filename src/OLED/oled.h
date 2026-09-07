@@ -134,13 +134,24 @@ private:
   // the constructor so the first commitFrame() after begin() always pushes.
   uint8_t frameShadow_[kFrameBytes];
 
+  // millis() timestamp of the last physical frame transfer in commitFrame().
+  uint32_t lastFramePushMs = 0;
+
+  // Even an unchanged frame is re-pushed at this interval. The library's
+  // display() reports no I2C error feedback, so a corrupted transfer would
+  // otherwise freeze the panel permanently (shadow matches buffer, gate never
+  // re-pushes); a power glitch that resets the panel fails the same way.
+  static constexpr uint32_t kForcedRefreshMs = 2000;
+
   /**
    * @brief Push the framebuffer to the panel only when its content changed
    *
    * Every view redraws the whole buffer after clearDisplay(), which resets the
    * library's dirty window — Adafruit's partial-update transfer never engages
    * and each display() costs a full ~1 KB I2C frame push. Comparing against
-   * frameShadow_ skips that transfer whenever the screen is static.
+   * frameShadow_ skips that transfer whenever the screen is static, with a
+   * periodic forced refresh (kForcedRefreshMs) as a self-heal for corrupted
+   * pushes or panel resets that the shadow cannot observe.
    */
   void commitFrame();
 

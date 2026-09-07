@@ -87,6 +87,13 @@ void OLEDDisplay::clear()
 // clearDisplay(), which resets the library's dirty window, so without this gate
 // each update() pays a full ~1 KB I2C frame push even when the screen is
 // static — the single largest consumer of the core-0 loop budget.
+//
+// Self-heal: display() is fire-and-forget (no I2C ACK/error feedback), so if a
+// push is corrupted at the wire level the shadow ends up matching the buffer
+// while the panel shows garbage, and the gate would never re-push. A power
+// glitch that resets the panel fails identically. The kForcedRefreshMs
+// periodic re-push bounds either failure to a ~2 s visual artifact instead of
+// a permanent freeze; the 24 ms cost lands once per interval.
 void OLEDDisplay::commitFrame()
 {
   if (!isDisplayInitialized)
@@ -95,13 +102,16 @@ void OLEDDisplay::commitFrame()
   }
 
   const uint8_t *frame = displayHardware.getBuffer();
-  if (memcmp(frame, frameShadow_, kFrameBytes) == 0)
+  const uint32_t now = millis();
+  if (memcmp(frame, frameShadow_, kFrameBytes) == 0 &&
+      (now - lastFramePushMs) < kForcedRefreshMs)
   {
-    return; // Panel already shows this frame — skip the wire transfer.
+    return; // Panel already shows this frame (and recently confirmed) — skip.
   }
 
   displayHardware.display();
   memcpy(frameShadow_, frame, kFrameBytes);
+  lastFramePushMs = now;
 }
 
 void OLEDDisplay::setVoiceManager(VoiceManager *voiceManager)
