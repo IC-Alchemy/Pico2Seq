@@ -856,10 +856,21 @@ void setup()
     Serial.print("[CORE0] Setup starting... ");
 
     // Pin the main I2C bus (OLED, MPR121, TMAG5273, VL53L1X) before any
-    // sensor/display begin() runs.
+    // sensor/display begin() runs. Fast mode is opt-in (PICO2SEQ_I2C_FASTMODE
+    // in src/FeatureConfig.h, default OFF): the 2026-09-07 bench run showed
+    // constant OLED glitches and freezes at 400 kHz on this rig, matching the
+    // Wire1 tile-bank finding in 492bd3c. The OLED library still runs its own
+    // frame pushes at 400 kHz (preclk default) as it always has; this setting
+    // only extends fast mode to the idle/sensor traffic. NOTE: Adafruit_SH110X
+    // re-programs the bus to its postclk after every frame, so the durable
+    // setting is the postclk constructor argument in OLEDDisplay
+    // (src/OLED/oled.cpp); this call covers the window before the first frame.
     Wire.setSDA(PIN_WIRE_SDA);
     Wire.setSCL(PIN_WIRE_SCL);
     Wire.begin();
+#if PICO2SEQ_I2C_FASTMODE
+    Wire.setClock(400000);
+#endif
 
     // From here on, any Core-0 hang or hard fault reboots within ~2s and the
     // post-mortem prints at the next boot (src/utils/FreezeWatchdog.h).
