@@ -126,6 +126,24 @@ private:
   uint32_t lastAnimationFrameMs = 0;
   uint8_t borderAnimationPhase = 0;
 
+  // Size of one full SH1106G framebuffer in bytes (1 bit per pixel).
+  static constexpr uint16_t kFrameBytes =
+      OLEDConstants::SCREEN_WIDTH * OLEDConstants::SCREEN_HEIGHT / 8;
+
+  // Shadow of the framebuffer content the panel actually shows. Poisoned in
+  // the constructor so the first commitFrame() after begin() always pushes.
+  uint8_t frameShadow_[kFrameBytes];
+
+  /**
+   * @brief Push the framebuffer to the panel only when its content changed
+   *
+   * Every view redraws the whole buffer after clearDisplay(), which resets the
+   * library's dirty window — Adafruit's partial-update transfer never engages
+   * and each display() costs a full ~1 KB I2C frame push. Comparing against
+   * frameShadow_ skips that transfer whenever the screen is static.
+   */
+  void commitFrame();
+
   /**
    * @brief Display parameter editing information with progress bar
    * @param parameterId Parameter being edited
