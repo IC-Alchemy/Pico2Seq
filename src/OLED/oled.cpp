@@ -1,4 +1,5 @@
 #include "oled.h"
+#include "../FeatureConfig.h" // PICO2SEQ_I2C_FASTMODE
 #include "../voice/Voice.h"
 #include "../voice/VoicePresets.h"
 #include "../voice/VoiceSystem.h" // Added for complete VoiceSystem type
@@ -33,7 +34,12 @@
 //   - Where possible we reuse UIState/Sequencer data to avoid recomputation.
 // =======================================================================
 OLEDDisplay::OLEDDisplay() : displayHardware(OLEDConstants::SCREEN_WIDTH, OLEDConstants::SCREEN_HEIGHT, &Wire, OLEDConstants::RESET_PIN,
-                                                  /*preclk=*/400000, /*postclk=*/400000),
+#if PICO2SEQ_I2C_FASTMODE
+                                                  /*preclk=*/400000, /*postclk=*/400000
+#else
+                                                  /*preclk=*/400000, /*postclk=*/100000
+#endif
+                             ),
                              isDisplayInitialized(false)
 {
 }
