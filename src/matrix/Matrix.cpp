@@ -20,6 +20,9 @@ static void (*eventHandler)(const MatrixButtonEvent &) = nullptr;
 // Function pointer for the rising edge (button press) specific handler.
 static void (*risingEdgeHandler)(uint8_t buttonIndex) = nullptr;
 
+// MPR121 poll interval for Matrix_scan(), in milliseconds.
+static constexpr uint32_t SCAN_INTERVAL_MS = 4;
+
 // Sets up the mapping between linear button indices and matrix row/column inputs.
 static void setupMatrixMapping()
 {
@@ -100,9 +103,21 @@ void Matrix_init(Adafruit_MPR121 *sensor)
 }
 
 // Scans the matrix for button presses and updates the button states.
+// Throttled to SCAN_INTERVAL_MS: touched() is an I2C register read, and the
+// MPR121's internal electrode refresh is slower than the ~1 kHz rate the
+// control loop would otherwise poll at. 4 ms caps worst-case touch latency
+// far below perception while cutting the poll's bus duty ~4x.
 
 void Matrix_scan()
 {
+    static uint32_t lastScanMs = 0;
+    const uint32_t now = millis();
+    if (now - lastScanMs < SCAN_INTERVAL_MS)
+    {
+        return;
+    }
+    lastScanMs = now;
+
     if (!mpr121)
     {
         // This check is important, but let's not flood the serial port.
