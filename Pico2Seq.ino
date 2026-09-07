@@ -856,10 +856,16 @@ void setup()
     Serial.print("[CORE0] Setup starting... ");
 
     // Pin the main I2C bus (OLED, MPR121, TMAG5273, VL53L1X) before any
-    // sensor/display begin() runs.
+    // sensor/display begin() runs. 400 kHz fast mode: every device on this bus
+    // is rated for it, and the OLED library already runs the bus at 400 kHz
+    // during its frame pushes. NOTE: Adafruit_SH110X re-programs the bus to its
+    // postclk after every frame, so the durable setting is the postclk
+    // constructor argument in OLEDDisplay (src/OLED/oled.cpp); this call covers
+    // the window before the first frame push.
     Wire.setSDA(PIN_WIRE_SDA);
     Wire.setSCL(PIN_WIRE_SCL);
     Wire.begin();
+    Wire.setClock(400000);
 
     // From here on, any Core-0 hang or hard fault reboots within ~2s and the
     // post-mortem prints at the next boot (src/utils/FreezeWatchdog.h).
