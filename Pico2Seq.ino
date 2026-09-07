@@ -113,6 +113,9 @@ void loop1();
 // =======================
 uint8_t currentSequencerStep = 0;
 uint32_t g_processedStepCount = 0; // monotonic, for freeze forensics (FreezeWatchdog.h)
+// Core-1-only audio-activity probe: samples since the last [DIAG C1] heartbeat
+// that were not digital silence. Written in fill_audio_buffer, read+reset in loop1.
+uint32_t g_audioActiveSamples = 0;
 // Gate states and timers are now in voiceSystem
 
 // =======================
@@ -717,8 +720,9 @@ void fill_audio_buffer(audio_buffer_t *buffer)
 
     if (!voiceManager)
     {
-        // Boot race: core 1 starts filling buffers before setup() (core 0)
-        // reaches initOscillators(). Stay silent until the voices exist.
+        // Belt-and-braces: initOscillators() now runs first in setup1() on this
+        // same core, so this only fires if voice construction ever moves or
+        // fails. Stay silent until the voices exist.
         for (int i = 0; i < N; ++i)
         {
             out[2 * i + 0] = 0;
@@ -756,6 +760,15 @@ void fill_audio_buffer(audio_buffer_t *buffer)
         int16_t convertedSample = FloatToPcm16(finalVoiceOutput);
         out[2 * i + 0] = convertedSample; // Left channel
         out[2 * i + 1] = convertedSample; // Right channel
+
+        // Core-1 audio-activity probe (core-1-only static, reported by the
+        // loop1 heartbeat): counts samples that are not pure digital silence.
+        // If steps advance on core 0 but this stays 0, the voices are being
+        // driven but produce silence — a gate/pitch problem, not a clock one.
+        if (convertedSample < -2 || convertedSample > 2)
+        {
+            g_audioActiveSamples++;
+        }
     }
 
     buffer->sample_count = N;
@@ -839,11 +852,6 @@ void setup()
     // If the previous run died, print where before doing anything else.
     freezeWatchdogBootCheck();
 
-    // Voices are built later in this function (initOscillators, core 0); core 1's
-    // fill_audio_buffer() null-guards until they exist, so no cross-core wait here.
-    // (The old voicesReady spin deadlocked: initOscillators moved into setup() on
-    // 2026-09-06, so the flag it waits on is only published further down.)
-
     // Initialize MIDI communication
     usb_midi.begin(MIDI_CHANNEL_OMNI);
 
@@ -854,6 +862,33 @@ void setup()
     //  Debug::setLevel(Debug::Level::Info);
 
     Serial.print("[CORE0] Setup starting... ");
+
+    // Voice construction lives on the audio core (setup1 -> initOscillators),
+    // the topology every known-good audio build used. Wait for the
+    // voicesReady handoff before any control-side code touches voices — and
+    // wait HERE, after Serial.begin, so a stuck handshake is visible on the
+    // console instead of starving the USB port into a silently dead board.
+    // (The 2026-09-06 regression built voices on core 0 and let core 1 race
+    // ahead on a bare pointer check: unsynchronized, and it can deref the
+    // manager mid-construction.)
+    {
+        const uint32_t waitStart = millis();
+        uint32_t lastWaitLog = waitStart;
+        while (!voicesReady.load(std::memory_order_acquire))
+        {
+            delay(1);
+            if (millis() - lastWaitLog >= 1000)
+            {
+                lastWaitLog = millis();
+                Serial.println("[CORE0] waiting for voice construction on core 1...");
+            }
+        }
+        if (millis() - waitStart > 50)
+        {
+            Serial.printf("[CORE0] voices ready %lu ms after boot\n",
+                          static_cast<unsigned long>(millis()));
+        }
+    }
 
     // Pin the main I2C bus (OLED, MPR121, TMAG5273, VL53L1X) before any
     // sensor/display begin() runs. Fast mode is opt-in (PICO2SEQ_I2C_FASTMODE
@@ -926,8 +961,8 @@ void setup()
     freezeWatchdogFeed(FW_SETUP_OLED);
     display.begin();
     Serial.println("OLED display initialized");
-    // Initialize audio synthesis system
-    initOscillators();
+    // Voices were built on core 1 (setup1 -> initOscillators); the voicesReady
+    // handshake at the top of setup() guarantees they exist by this point.
     // Register OLED display as observer for voice parameter changes
     if (voiceManager)
     {
@@ -1010,6 +1045,12 @@ void setup1()
 {
     delay(100); // Allow system stabilization
 
+    // Initialize audio synthesis system — voices are built HERE, on the audio
+    // core, and published to core 0 via voicesReady (release). This is the
+    // topology every known-good audio build used; the 2026-09-06 attempt to
+    // build them on core 0 left core 1 consuming an unsynchronized,
+    // possibly-mid-construction pointer and produced boards with no audio.
+    initOscillators();
 
     // Configure audio format (48kHz, 16-bit stereo)
     static audio_format_t audioFormat = {
@@ -1115,11 +1156,13 @@ void loop()
         lastVoiceDiag = currentMillis;
         if (Serial)
         {
-            Serial.printf("[DIAG C0] ids=%u,%u,%u,%u mgrVoices=%u warmBoots=%lu\n",
+            Serial.printf("[DIAG C0] ids=%u,%u,%u,%u mgrVoices=%u warmBoots=%lu steps=%lu drop=%lu\n",
                           voiceSystem.getVoiceId(0), voiceSystem.getVoiceId(1),
                           voiceSystem.getVoiceId(2), voiceSystem.getVoiceId(3),
                           (unsigned)(voiceManager ? voiceManager->getVoiceCount() : 0),
-                          (unsigned long)watchdog_hw->scratch[2]);
+                          (unsigned long)watchdog_hw->scratch[2],
+                          (unsigned long)g_processedStepCount,
+                          (unsigned long)droppedStepCount);
         }
     }
 
@@ -1261,10 +1304,12 @@ void loop1()
         c1LastBeat = c1Now;
         if (Serial)
         {
-            Serial.printf("[DIAG C1] alive bufs=%lu ids=%u,%u,%u,%u\n",
+            Serial.printf("[DIAG C1] alive bufs=%lu ids=%u,%u,%u,%u active=%lu\n",
                           (unsigned long)c1BufCount,
                           voiceSystem.getVoiceId(0), voiceSystem.getVoiceId(1),
-                          voiceSystem.getVoiceId(2), voiceSystem.getVoiceId(3));
+                          voiceSystem.getVoiceId(2), voiceSystem.getVoiceId(3),
+                          (unsigned long)g_audioActiveSamples);
         }
+        g_audioActiveSamples = 0;
     }
 }
