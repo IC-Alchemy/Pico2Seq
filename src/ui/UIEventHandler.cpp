@@ -305,6 +305,7 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
     {
       uiState.selectedVoiceIndex = evt.buttonIndex;
       uiState.isVoice2Mode = (uiState.selectedVoiceIndex == UIEventConstants::VOICE_2_INDEX); // legacy compat
+      uiState.presetPage = uiState.voicePresetIndices[evt.buttonIndex] / VoicePresets::kPresetsPerPage;
       uiState.settingsMenuIndex = evt.buttonIndex;                                            // used by OLED/LED menus
       return true;
     }
@@ -475,8 +476,7 @@ static void toggleSettingsSubMode(UIState &uiState)
 /**
  * Handle Preset Selection sub-mode.
  * - Buttons 0-3 (handled in caller) select current voice.
- * - Pads 8..8+presetCount-1 select and apply a preset for the selected voice
- *   (all 15 presets with the current bank).
+ * - Pads 6/7 change page; pads 8..31 apply a preset on that page.
  * - Remain in Preset Selection mode after applying a preset.
  * Safe while the transport runs: applyVoicePreset stages the config and the
  * voice applies it without stopping playback.
@@ -486,8 +486,14 @@ static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState
   if (evt.type != MATRIX_BUTTON_PRESSED)
     return;
 
-  const int presetIndex = VoicePresets::presetIndexForPad(evt.buttonIndex,
-                                                          VoicePresets::getPresetCount());
+  const uint8_t count = VoicePresets::getPresetCount();
+  if (evt.buttonIndex == VoicePresets::kPreviousPagePad || evt.buttonIndex == VoicePresets::kNextPagePad)
+  {
+    uiState.presetPage = VoicePresets::changePresetPage(uiState.presetPage,
+        evt.buttonIndex == VoicePresets::kNextPagePad ? 1 : -1, count);
+    return;
+  }
+  const int presetIndex = VoicePresets::presetIndexForPad(evt.buttonIndex, count, uiState.presetPage);
   if (presetIndex >= 0)
   {
     // Apply to currently selected voice (0..3 for applyVoicePreset)

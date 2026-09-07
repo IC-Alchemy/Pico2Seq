@@ -206,9 +206,11 @@ void Voice::init(float sr)
 
   // Alternate engines: prepare + seed state, then apply tuning from config.
   // init() is setup-time, so the engine cache is set directly here.
-  cachedEngine_ = (config.engine <= static_cast<uint8_t>(ENGINE_HYPERSAW))
+  cachedEngine_ = (config.engine <= static_cast<uint8_t>(ENGINE_RECIPE))
                       ? config.engine
                       : static_cast<uint8_t>(ENGINE_OSC);
+  recipeEngine_.prepare(sampleRate);
+  recipeEngine_.select(config.recipe);
   waveguide_.prepare(sampleRate);
   hypersaw_.prepare(sampleRate);
   hypersaw_.reseed(0x9e3779b9u + static_cast<uint32_t>(voiceId) + 1u);
@@ -384,6 +386,7 @@ float Voice::computeEnvelope()
         envelope.noteOn();
       wgPluckPending_ = true; // waveguide engine re-plucks on retriggers
       hypersawTriggerPending_ = true;
+      recipeTriggerPending_ = true;
     }
   }
   else if (rising)
@@ -392,6 +395,7 @@ float Voice::computeEnvelope()
       envelope.noteOn();
     wgPluckPending_ = true;
     hypersawTriggerPending_ = true;
+    recipeTriggerPending_ = true;
   }
   else if (falling)
   {
@@ -469,9 +473,9 @@ float Voice::mixOscillators()
   {
     return processWaveguide_();
   }
-  if (cachedEngine_ == static_cast<uint8_t>(ENGINE_HYPERSAW))
+  if (cachedEngine_ == ENGINE_HYPERSAW || cachedEngine_ == ENGINE_RECIPE)
   {
-    return processHypersaw_();
+    return processPitchedEngine_();
   }
   if (cachedEngine_ == static_cast<uint8_t>(ENGINE_NOISEFX))
   {
@@ -593,17 +597,20 @@ void Voice::applyEngineConfig_()
   // so waveguide_.prepare() must have run first (init() guarantees this).
   // NOTE: cachedEngine_ is NOT updated here — the engine switch belongs to
   // applyStructuralConfig_() so a live swap waits for the gate to fall.
-  waveguide_.setDecayTimeSeconds(config.wgT60);
-  waveguide_.setBrightness(config.wgBrightness);
-  waveguide_.setPickPosition(config.wgPickPosition);
-  waveguide_.setPickHardness(config.wgPickHardness);
-  waveguide_.setStiffness(config.wgStiffness);
-  waveguide_.setDetuneCents(config.wgDetune);
+  if (cachedEngine_ == ENGINE_WAVEGUIDE) {
+    waveguide_.setDecayTimeSeconds(config.wgT60);
+    waveguide_.setBrightness(config.wgBrightness);
+    waveguide_.setPickPosition(config.wgPickPosition);
+    waveguide_.setPickHardness(config.wgPickHardness);
+    waveguide_.setStiffness(config.wgStiffness);
+    waveguide_.setDetuneCents(config.wgDetune);
+  } else if (cachedEngine_ == ENGINE_HYPERSAW) {
+    hypersaw_.setDetune(config.hypersawDetune);
+    hypersaw_.setMix(config.hypersawMix);
+  } else if (cachedEngine_ == ENGINE_RECIPE) {
+    recipeEngine_.configure(config);
+  }
 
-  // The native Hypersaw owns its internal seven-oscillator detune and mix.
-  // These setters are safe at control rate and clamp to the documented 0..1.
-  hypersaw_.setDetune(config.hypersawDetune);
-  hypersaw_.setMix(config.hypersawMix);
 }
 
 float Voice::processWaveguide_() noexcept
@@ -625,36 +632,41 @@ float Voice::processWaveguide_() noexcept
   return waveguide_.process();
 }
 
-float Voice::processHypersaw_() noexcept
+float Voice::processPitchedEngine_() noexcept
 {
-  // Hypersaw has one pitch input despite containing seven internal saws. It
-  // consumes the shared cache separately because its Voice oscillator bank is
-  // intentionally empty.
+  // Native Hypersaw and recipe patches share one pitch input, including
+  // harmony, pitch bend, octave and slide, with an empty oscillator bank.
   if (state.isGateHigh)
   {
     const uint32_t gen = pitchGen_;
-    if (!state.hasSlide && gen != hypersawAppliedPitchGen_)
+    if (!state.hasSlide && gen != engineAppliedPitchGen_)
     {
       const float frequency = pitchCache_.finalFreq[0];
       if (frequency > 0.0f)
       {
-        hypersaw_.setFreq(frequency);
+        if (cachedEngine_ == ENGINE_HYPERSAW) hypersaw_.setFreq(frequency);
         freqSlew[0].currentFreq = frequency;
         freqSlew[0].targetFreq = frequency;
       }
-      hypersawAppliedPitchGen_ = gen;
+      engineAppliedPitchGen_ = gen;
     }
-    else if (state.hasSlide && gen != hypersawAppliedPitchGen_)
+    else if (state.hasSlide && gen != engineAppliedPitchGen_)
     {
       freqSlew[0].targetFreq = pitchCache_.finalFreq[0];
-      hypersawAppliedPitchGen_ = gen;
+      engineAppliedPitchGen_ = gen;
     }
 
     if (state.hasSlide)
     {
       processFrequencySlew(0, freqSlew[0].targetFreq);
-      hypersaw_.setFreq(freqSlew[0].currentFreq);
+      if (cachedEngine_ == ENGINE_HYPERSAW) hypersaw_.setFreq(freqSlew[0].currentFreq);
     }
+  }
+
+  if (cachedEngine_ == ENGINE_RECIPE)
+  {
+    if (recipeTriggerPending_) { recipeTriggerPending_ = false; recipeEngine_.trigger(config); }
+    return recipeEngine_.process(freqSlew[0].currentFreq, config);
   }
 
   if (hypersawTriggerPending_)
@@ -681,11 +693,13 @@ float Voice::processNoiseFxSource_() noexcept
 
 void Voice::resetAlternateEngines_() noexcept
 {
+  recipeEngine_.reset();
+  recipeTriggerPending_ = false;
   waveguide_.reset();
   wgPluckPending_ = false;
   hypersaw_.reset();
   hypersawTriggerPending_ = false;
-  hypersawAppliedPitchGen_ = 0;
+  engineAppliedPitchGen_ = 0;
   noiseDiffuseState_[0] = 0.0f;
   for (float &s : noiseSwarmState_)
     s = 0.0f;
@@ -706,8 +720,7 @@ inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept
   // Hard-sync presets re-purpose Velocity as their slave-frequency lane, so
   // it must not also change the VCA level. Their fixed outputLevel remains
   // the gain control; all other voices keep the normal velocity response.
-  const float amplitude = (config.paramSet == PARAMSET_HARDSYNC) ? 1.0f
-                                                                   : state.velocityLevel;
+  const float amplitude = VoiceParameters::layout(config).velocityToAmplitude ? state.velocityLevel : 1.0f;
   const float filterInput = preEffects * amplitude;
   float shaped;
   if (!config.hasFilter)
@@ -892,7 +905,7 @@ void Voice::updateParameters(const VoiceState &newState)
 bool Voice::pitchParamsChanged_(const VoiceState &newState) const
 {
   const uint8_t oscCount = cachedOscCount_;
-  const bool usesHypersaw = cachedEngine_ == static_cast<uint8_t>(ENGINE_HYPERSAW);
+  const bool usesPitchedEngine = cachedEngine_ == ENGINE_HYPERSAW || cachedEngine_ == ENGINE_RECIPE;
   bool usesHardSync = false;
   for (uint8_t i = 0; i < oscCount; ++i)
   {
@@ -900,7 +913,7 @@ bool Voice::pitchParamsChanged_(const VoiceState &newState) const
   }
   if (pitchSnapshot_.oscCount != oscCount)
     return true;
-  if (pitchSnapshot_.usesHypersaw != usesHypersaw)
+  if (pitchSnapshot_.usesPitchedEngine != usesPitchedEngine)
     return true;
   if (pitchSnapshot_.usesHardSync != usesHardSync)
     return true;
@@ -939,7 +952,7 @@ bool Voice::pitchParamsChanged_(const VoiceState &newState) const
 void Voice::updatePitchCache_()
 {
   const uint8_t oscCount = cachedOscCount_;
-  const bool usesHypersaw = cachedEngine_ == static_cast<uint8_t>(ENGINE_HYPERSAW);
+  const bool usesPitchedEngine = cachedEngine_ == ENGINE_HYPERSAW || cachedEngine_ == ENGINE_RECIPE;
   const float hardSyncSlaveOffsetSemitones =
       (std::clamp(state.velocityLevel, 0.0f, 1.0f) - 0.5f) *
       (2.0f * kHardSyncSlaveOffsetRangeSemitones);
@@ -961,7 +974,7 @@ void Voice::updatePitchCache_()
   for (uint8_t i = 0; i < 3; ++i)
   {
     float hfreq = baseFreq;
-    if (i < oscCount || (usesHypersaw && i == 0))
+    if (i < oscCount || (usesPitchedEngine && i == 0))
     {
       const int h = config.harmony[i];
       hfreq = (h == 0) ? baseFreq : calculateNoteFrequency(state.noteIndex, state.octaveOffset, h);
@@ -985,7 +998,7 @@ void Voice::updatePitchCache_()
   pitchSnapshot_.octaveOffset = state.octaveOffset;
   pitchSnapshot_.scaleIndex = effectiveScaleIndex_();
   pitchSnapshot_.oscCount = oscCount;
-  pitchSnapshot_.usesHypersaw = usesHypersaw;
+  pitchSnapshot_.usesPitchedEngine = usesPitchedEngine;
   pitchSnapshot_.usesHardSync = false;
   for (uint8_t i = 0; i < oscCount; ++i)
   {
@@ -1075,48 +1088,14 @@ void Voice::applyParameters_(const VoiceState &newState) noexcept
   state = newState;
   gate = state.isGateHigh;
 
-  // Route the sequencer's Filter/Attack/Decay slots by param set: standard
-  // voices read cutoff + ADSR times; alternate param sets re-purpose the
-  // same 0..1 slots for engine-specific parameters. All targets here are
-  // audio-thread-owned (config copy, waveguide_, hypersaw_, overdrive), same class of
-  // access as applyConfig_().
-  switch (config.paramSet)
-  {
-  case PARAMSET_WAVEGUIDE:
-    waveguide_.setBrightness(std::clamp(state.filterCutoff, 0.0f, 1.0f));
-    waveguide_.setPickHardness(std::clamp(state.attackTimeSeconds, 0.0f, 1.0f));
-    waveguide_.setDecayTimeSeconds(
-        dspmap::fmap(state.decayTimeSeconds, 0.05f, 7.0f, dspmap::Mapping::EXP));
-    break;
-  case PARAMSET_HYPERSAW:
-  {
-    config.hypersawDetune = std::clamp(state.attackTimeSeconds, 0.0f, 1.0f);
-    config.hypersawMix = std::clamp(state.decayTimeSeconds, 0.0f, 1.0f);
-    hypersaw_.setDetune(config.hypersawDetune);
-    hypersaw_.setMix(config.hypersawMix);
-    filterFrequency = dspmap::fmap(state.filterCutoff, 150.0f, 8000.0f, dspmap::Mapping::EXP);
-    break;
-  }
-  case PARAMSET_NOISESTORM:
-    config.noiseSwarmColor = std::clamp(state.filterCutoff, 0.0f, 1.0f);
-    config.noiseSwarmRegen = std::clamp(state.attackTimeSeconds, 0.0f, 1.0f);
-    config.noiseChaosLevel = std::clamp(state.decayTimeSeconds, 0.0f, 1.0f);
-    // The main filter stays on the preset's static cutoff (the Filter slot
-    // now carries swarm color); the envelope still moves it.
-    filterFrequency = dspmap::fmap(config.filterCutoffBase, 150.0f, 8000.0f, dspmap::Mapping::EXP);
-    break;
-  case PARAMSET_HARDSYNC:
-    // Velocity is the centered slave-pitch control for HardSyncSaw. Pitch
-    // cache generation below converts it to a slave-frequency offset from
-    // the master; cutoff and ADSR otherwise retain their normal routing.
-    filterFrequency = dspmap::fmap(state.filterCutoff, 120.0f, 5000.0f, dspmap::Mapping::EXP);
+  VoiceParameters::apply(config, state);
+  const auto &parameters = VoiceParameters::layout(config);
+  const bool repurposedFilter = VoiceParameters::binding(config, ParamId::Filter).target != nullptr;
+  filterFrequency = dspmap::fmap(repurposedFilter ? config.filterCutoffBase : state.filterCutoff,
+                                parameters.cutoffMinimum, parameters.cutoffMaximum, dspmap::Mapping::EXP);
+  if (parameters.envelopeFromTracks)
     applyEnvelopeParameters();
-    break;
-  default:
-    filterFrequency = dspmap::fmap(state.filterCutoff, 120.0f, 5000.0f, dspmap::Mapping::EXP);
-    applyEnvelopeParameters();
-    break;
-  }
+  applyEngineConfig_();
 
   // Stage pitch recompute; audio thread will commit oscillator freq via mixOscillators
   refreshPitch_();
@@ -1146,6 +1125,8 @@ void Voice::applyStructuralConfig_() noexcept
     resetAlternateEngines_();
   }
   cachedEngine_ = stagedEngine_;
+  recipeEngine_.select(config.recipe);
+  applyEngineConfig_();
   // Every re-created oscillator needs its current cached pitch committed on
   // the next gate, even if no musical parameter changed during the swap.
   appliedPitchGen_ = 0;
@@ -1186,7 +1167,7 @@ void Voice::applyConfig_(const VoiceConfig &newConfig) noexcept
     stagedWaveforms_[i] = config.oscWaveforms[i];
     stagedPulseWidth_[i] = config.oscPulseWidth[i];
   }
-  stagedEngine_ = (config.engine <= static_cast<uint8_t>(ENGINE_HYPERSAW))
+  stagedEngine_ = (config.engine <= static_cast<uint8_t>(ENGINE_RECIPE))
                       ? config.engine
                       : static_cast<uint8_t>(ENGINE_OSC);
   structuralPending_ = true;

@@ -112,7 +112,7 @@ extern VoiceSystem voiceSystem;
 ```cpp
 struct UIState {
     static constexpr uint8_t MAX_VOICES = 4;
-    uint8_t voicePresetIndices[MAX_VOICES] = {4, 2, 1, 6}; // Default presets: Square, Bass, Digital, Percussion (indices into the 15-entry VoicePresets bank)
+    uint8_t voicePresetIndices[MAX_VOICES] = {4, 2, 1, 6}; // Default presets: Square, Bass, Digital, Percussion (indices into the VoicePresets bank)
     uint8_t selectedVoiceIndex = 0;                        // Currently focused voice (0-3)
     // ...
 };

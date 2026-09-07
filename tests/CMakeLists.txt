@@ -21,6 +21,7 @@ add_executable(pico2seq_tests
   unit/test_scales.cpp
   unit/test_sequencer.cpp
   unit/test_voice.cpp
+  unit/test_voice_recipes.cpp
   unit/test_voice_transfer.cpp
   unit/test_voiceoscillator.cpp
   unit/test_control_surface_logic.cpp
@@ -36,6 +37,7 @@ add_executable(pico2seq_tests
   # Voice synthesis (DSP comes from header-only src/rpdsp)
   ${SRC_DIR}/voice/Voice.cpp
   ${SRC_DIR}/voice/VoicePresets.cpp
+  ${SRC_DIR}/voice/VoiceParameters.cpp
   ${SRC_DIR}/voice/VoiceManager.cpp
 
   # Alchemy tile control surface decision logic (pure C++)
@@ -68,6 +70,7 @@ catch_discover_tests(pico2seq_tests)
 add_executable(pico2seq_voice_tests
   unit/test_helpers.cpp
   unit/test_voice.cpp
+  unit/test_voice_recipes.cpp
   unit/test_voiceoscillator.cpp
   unit/test_voice_transfer.cpp
   ${CORE_DIR}/scales/scales.cpp
@@ -75,6 +78,7 @@ add_executable(pico2seq_voice_tests
   ${CORE_DIR}/sequencer/Sequencer.cpp
   ${SRC_DIR}/voice/Voice.cpp
   ${SRC_DIR}/voice/VoicePresets.cpp
+  ${SRC_DIR}/voice/VoiceParameters.cpp
   ${SRC_DIR}/voice/VoiceManager.cpp
 )
 target_include_directories(pico2seq_voice_tests PRIVATE

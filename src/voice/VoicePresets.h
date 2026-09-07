@@ -1,9 +1,27 @@
 #pragma once
 
-#include "Voice.h"
+#include "VoiceConfig.h"
+#include "../pico2seq-core/sequencer/SequencerDefs.h"
+#include <string_view>
 #include <cstdint>
 
 namespace VoicePresets {
+  enum class Id : uint8_t {
+#define VOICE_PRESET(id, name, factory) id,
+#include "presets/PresetBank.h"
+#undef VOICE_PRESET
+    Count
+  };
+  inline constexpr uint8_t kFirstPresetPad = 8;
+  inline constexpr uint8_t kPresetsPerPage = 24; // 32-pad matrix, first row is navigation
+  inline constexpr uint8_t kPreviousPagePad = 6;
+  inline constexpr uint8_t kNextPagePad = 7;
+  int findPreset(std::string_view name) noexcept;
+  const VoiceConfig &getPresetConfigByName(std::string_view name) noexcept;
+  uint8_t presetPageCount(uint8_t count) noexcept;
+  uint8_t presetCountOnPage(uint8_t count, uint8_t page) noexcept;
+  uint8_t changePresetPage(uint8_t page, int direction, uint8_t count) noexcept;
+
   // Factory functions for common synthesizer voice types
   const VoiceConfig& getAnalogVoice() noexcept;
   const VoiceConfig& getDigitalVoice() noexcept;
@@ -44,5 +62,5 @@ namespace VoicePresets {
 
   // Settings-mode preset pads start at index 8; returns the preset index for
   // a matrix pad, or -1 when the pad is out of the preset range.
-  int presetIndexForPad(uint8_t padIndex, uint8_t presetCount) noexcept;
+  int presetIndexForPad(uint8_t padIndex, uint8_t presetCount, uint8_t page = 0) noexcept;
 }

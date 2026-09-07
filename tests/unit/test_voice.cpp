@@ -234,8 +234,9 @@ TEST_CASE("updateParameters updates state velocity", "[voice]") {
 
 // ─── Preset registry (15 presets) ─────────────────────────────────────────────
 
-TEST_CASE("Preset registry exposes 15 presets with stable names", "[voice][presets]") {
-    REQUIRE(VoicePresets::getPresetCount() == 15);
+TEST_CASE("Preset registry preserves legacy names and includes recipe voices", "[voice][presets]") {
+    REQUIRE(VoicePresets::getPresetCount() == static_cast<uint8_t>(VoicePresets::Id::Count));
+    REQUIRE(VoicePresets::getPresetCount() > static_cast<uint8_t>(VoicePresets::Id::ChaosPrism));
     REQUIRE(std::string(VoicePresets::getPresetName(0)) == "Analog");
     REQUIRE(std::string(VoicePresets::getPresetName(6)) == "Percussion");
     REQUIRE(std::string(VoicePresets::getPresetName(7)) == "SubFunk");
@@ -244,7 +245,7 @@ TEST_CASE("Preset registry exposes 15 presets with stable names", "[voice][prese
     REQUIRE(std::string(VoicePresets::getPresetName(12)) == "WgShimmer");
     REQUIRE(std::string(VoicePresets::getPresetName(13)) == "Hypersaw");
     REQUIRE(std::string(VoicePresets::getPresetName(14)) == "NoiseStorm");
-    REQUIRE(std::string(VoicePresets::getPresetName(15)) == "Unknown");
+    REQUIRE(std::string(VoicePresets::getPresetName(255)) == "Unknown");
     REQUIRE(&VoicePresets::getPresetConfig(200) == &VoicePresets::getAnalogVoice());
 }
 

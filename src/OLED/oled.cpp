@@ -1,6 +1,7 @@
 #include "oled.h"
 #include "../voice/Voice.h"
 #include "../voice/VoicePresets.h"
+#include "../voice/VoiceParameters.h"
 #include "../voice/VoiceSystem.h" // Added for complete VoiceSystem type
 #include "../../includes.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
@@ -521,26 +522,10 @@ void OLEDDisplay::displayParameterInfo(ParamId parameterId, float currentValue,
 
 String OLEDDisplay::formatParameterValue(ParamId paramId, float value, uint8_t presetIndex)
 {
-  // Re-purposed slots under a non-standard param set get their own units:
-  // everything is a 0..1 percentage except the waveguide T60 (seconds, via
-  // the same EXP map the DSP uses).
-  const VoiceParamSet paramSet = VoicePresets::getPresetParamSet(presetIndex);
-  if (paramSet != PARAMSET_STANDARD &&
-      VoicePresets::getSequencerParamName(presetIndex, paramId) != nullptr)
-  {
-    if (paramSet == PARAMSET_HARDSYNC && paramId == ParamId::Velocity)
-    {
-      // The Slave lane is centered at 0.5, which yields an exact 1:1 master/
-      // slave ratio. Its full range is +/- 24 semitones.
-      const int offsetSemitones = static_cast<int>(lroundf((value - 0.5f) * 48.0f));
-      return String(offsetSemitones >= 0 ? "+" : "") + String(offsetSemitones) + "st";
-    }
-    if (paramSet == PARAMSET_WAVEGUIDE && paramId == ParamId::Decay)
-    {
-      return String((int)dspmap::fmap(value, 0.05f, 10.0f, dspmap::Mapping::EXP)) + "s";
-    }
-    return String((int)(value * 100)) + "%";
-  }
+  char mappedValue[24];
+  if (VoiceParameters::formatValue(VoicePresets::getPresetConfig(presetIndex),
+                                   paramId, value, mappedValue, sizeof(mappedValue)))
+    return String(mappedValue);
 
   switch (paramId)
   {
@@ -626,32 +611,21 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
     // Navigation indicators
     displayHardware.setTextSize(1);
 
-    // Previous preset (if available)
-    if (currentPresetIndex > 0)
-    {
-      displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 45);
-      displayHardware.print("< ");
-      displayHardware.print(VoicePresets::getPresetName(currentPresetIndex - 1));
-    }
-
-    // Next preset (if available)
-    if (currentPresetIndex < VoicePresets::getPresetCount() - 1)
-    {
-      const char *nextPresetName = VoicePresets::getPresetName(currentPresetIndex + 1);
-      int nextTextWidth = strlen(nextPresetName) * 6 + 12; // 6 pixels per char + "> " width
-      displayHardware.setCursor(OLEDConstants::SCREEN_WIDTH - nextTextWidth, 45);
-      displayHardware.print(nextPresetName);
-      displayHardware.print(" >");
-    }
-
-    // Preset counter + pad-range hint; pads 8..8+presetCount-1 are the only
-    // preset controls and are exactly the pads the LED matrix lights here
-    displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 56);
+    displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 45);
+    displayHardware.print("Pads 8-");
+    displayHardware.print(7 + VoicePresets::presetCountOnPage(VoicePresets::getPresetCount(), uiState.presetPage));
+    displayHardware.print(" #");
     displayHardware.print(currentPresetIndex + 1);
     displayHardware.print("/");
     displayHardware.print(VoicePresets::getPresetCount());
-    displayHardware.print("  Pads 8-");
-    displayHardware.print(7 + VoicePresets::getPresetCount());
+
+    displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 56);
+    displayHardware.print("Page ");
+    displayHardware.print(uiState.presetPage + 1);
+    displayHardware.print("/");
+    displayHardware.print(VoicePresets::presetPageCount(VoicePresets::getPresetCount()));
+    displayHardware.print(" 6< >7");
+
   }
   else
   {
@@ -690,7 +664,7 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
     // (pads 8 .. 8+presetCount-1, e.g. 8-22 for the 15-preset bank)
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 56);
     displayHardware.print("Pads 8-");
-    displayHardware.print(7 + VoicePresets::getPresetCount());
+    displayHardware.print(7 + VoicePresets::presetCountOnPage(VoicePresets::getPresetCount(), uiState.presetPage));
   }
 }
 
