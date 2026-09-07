@@ -32,7 +32,8 @@
 //   - Geometry is computed with simple integer math to keep CPU usage low.
 //   - Where possible we reuse UIState/Sequencer data to avoid recomputation.
 // =======================================================================
-OLEDDisplay::OLEDDisplay() : displayHardware(OLEDConstants::SCREEN_WIDTH, OLEDConstants::SCREEN_HEIGHT, &Wire, OLEDConstants::RESET_PIN),
+OLEDDisplay::OLEDDisplay() : displayHardware(OLEDConstants::SCREEN_WIDTH, OLEDConstants::SCREEN_HEIGHT, &Wire, OLEDConstants::RESET_PIN,
+                                                  /*preclk=*/400000, /*postclk=*/400000),
                              isDisplayInitialized(false)
 {
 }
