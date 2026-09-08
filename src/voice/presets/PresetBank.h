@@ -1,0 +1,25 @@
+// Intentionally no include guard: expanded for IDs and registry data.
+// Use .h so Arduino copies this file into its sketch build directory.
+// Append entries to preserve existing preset IDs. Included with VOICE_PRESET defined.
+// ID, display name, factory. Count and both lookups derive from this list.
+VOICE_PRESET(Analog, "Analog", makeAnalog)
+VOICE_PRESET(Digital, "Digital", makeDigital)
+VOICE_PRESET(Bass, "Bass", makeBass)
+VOICE_PRESET(Lead, "Lead", makeLead)
+VOICE_PRESET(Square, "Square", makeSquare)
+VOICE_PRESET(Pad, "Pad", makePad)
+VOICE_PRESET(Percussion, "Percussion", makePercussion)
+VOICE_PRESET(SubFunk, "SubFunk", makeSubFunk)
+VOICE_PRESET(RubberSub, "RubberSub", makeRubberSub)
+VOICE_PRESET(WgPluck, "WgPluck", makeWaveguidePluck)
+VOICE_PRESET(WgNylon, "WgNylon", makeWaveguideNylon)
+VOICE_PRESET(WgBell, "WgBell", makeWaveguideBell)
+VOICE_PRESET(WgShimmer, "WgShimmer", makeWaveguideShimmer)
+VOICE_PRESET(Hypersaw, "Hypersaw", makeHypersaw)
+VOICE_PRESET(NoiseStorm, "NoiseStorm", makeNoiseStorm)
+VOICE_PRESET(FmGlass, "FMGlass", makeFmGlass)
+VOICE_PRESET(FmBass, "FMBass", makeFmBass)
+VOICE_PRESET(PhaseMorph, "PhaseMorph", makePhaseMorph)
+VOICE_PRESET(Spectral, "Spectral", makeSpectral)
+VOICE_PRESET(Prism, "Prism", makePrism)
+VOICE_PRESET(ChaosPrism, "ChaosPrism", makeChaosPrism)

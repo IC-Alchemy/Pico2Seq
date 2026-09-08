@@ -1,6 +1,8 @@
 // AlchemyControlBridge.cpp — see AlchemyControlBridge.h for the contract.
 
 #include "AlchemyControlBridge.h"
+#include "../app/AppState.h"
+#include "../app/StepPlayback.h"
 
 #include "ButtonHandlers.h"
 #include "ButtonManager.h"
@@ -14,16 +16,9 @@
 
 #include <uClock.h>
 
-// Globals from the main sketch the bridge feeds (same externs the matrix
-// handlers used).
-extern bool isClockRunning;
 #if PICO2SEQ_ENABLE_DELAY_EFFECT
 extern float feedbackAmmount;
 #endif
-
-// Shared lidar/fader step-recording path (implemented in Pico2Seq.ino).
-extern void updateParametersForStepNormalized(uint8_t stepToUpdate,
-                                              float normalizedValue);
 
 namespace
 {

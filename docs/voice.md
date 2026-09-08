@@ -1,5 +1,7 @@
 # Voice Module Documentation
 
+For adding sounds, start with the [voice and preset extension guide](../src/voice/README.md).
+
 ## 1. Overview
 
 The voice module provides a comprehensive synthesizer voice system with multi-oscillator synthesis, selectable ladder/state-variable filtering, effects processing, lock-free parameter staging, and preset management. It is designed specifically for the dual-core Raspberry Pi Pico 2 (RP2350) architecture and integrates with the sequencer, UI, and MIDI systems.
@@ -11,7 +13,7 @@ The voice system consists of several key components:
 - **`Voice`**: Individual synthesizer voice encapsulating oscillators, a main filter (ladder or state-variable, per `filterType`), high-pass filter, ADSR envelope, overdrive waveshaper, and lock-free parameter/pitch staging.
 - **`VoiceManager`**: Manages multiple voices with allocation, deallocation, master volume scaling, per-voice mix levels, and unified per-sample audio processing.
 - **`VoiceSystem`**: Centralized structure consolidating voice IDs, states, gates, and gate countdown timers into arrays for `MAX_VOICES = 4` voices.
-- **`VoicePresets`**: Factory namespace providing 15 voice presets (Analog, Digital, Bass, Lead, Square, Pad, Percussion, SubFunk, RubberSub, WgPluck, WgNylon, WgBell, WgShimmer, Hypersaw, NoiseStorm).
+- **`VoicePresets`**: Registry of 21 presets, built from grouped preset headers and one `PresetBank.h` list. Six recipe presets add FM, phase distortion, DSF and spectral/chaotic synthesis.
 - **`VoiceOscillator`**: Variant-based dispatcher decoupling numeric waveform IDs from `rpdsp` oscillator classes.
 - **Supporting Classes**: `VoiceManagerBuilder` and `VoiceFactory` for builder-pattern and pre-configured voice setups.
 
@@ -53,7 +55,7 @@ extern VoiceSystem voiceSystem;
 
 ### 2.1 `VoiceConfig` Structure
 
-Defined in `src/voice/Voice.h`:
+Defined in `src/voice/VoiceConfig.h`:
 
 ```cpp
 enum VoiceEngine : uint8_t {
@@ -61,6 +63,7 @@ enum VoiceEngine : uint8_t {
     ENGINE_WAVEGUIDE = 1, // Karplus-Strong plucked string (rpdsp::PluckedStringVoice)
     ENGINE_NOISEFX = 2,   // Noise + chaos source through diffuser/swarm inserts
     ENGINE_HYPERSAW = 3,  // One rpdsp::Hypersaw (internally seven detuned saw voices)
+    ENGINE_RECIPE = 4,    // Fixed-state rpdsp patch
 };
 
 struct VoiceConfig {
@@ -75,6 +78,10 @@ struct VoiceConfig {
     // Sound engine selection (VoiceEngine). Ignored fields stay at their defaults.
     uint8_t engine = ENGINE_OSC;                                            // ENGINE_OSC, ENGINE_WAVEGUIDE, ENGINE_NOISEFX, or ENGINE_HYPERSAW
     uint8_t paramSet = PARAMSET_STANDARD;                                   // Sequencer-slot re-purposing (STANDARD/WAVEGUIDE/HYPERSAW/NOISESTORM/HARDSYNC)
+
+    const VoiceParameterLayout *parameters = nullptr; // Immutable layout in flash
+    const VoiceRecipe *recipe = nullptr;              // Immutable patch descriptor
+    float macro1 = 0.5f, macro2 = 0.5f, macro3 = 0.5f; // Mapped recipe controls
 
     // Waveguide engine parameters (ENGINE_WAVEGUIDE only)
     float wgT60 = 2.5f;                                                     // String tail T60 in seconds (0.05-10.0)
@@ -346,9 +353,14 @@ public:
 
 ## 3. Verified Preset System
 
-Defined in `src/voice/VoicePresets.h` and implemented in `src/voice/VoicePresets.cpp`. All 15 presets are verified verbatim against firmware source code.
-
-Each preset is built by a `constexpr VoiceConfig makeXxx() noexcept` factory function, and the factories are assembled into a `constexpr std::array<VoiceConfig, 15> kPresets` — the whole bank is compile-time data (.rodata, XIP flash on RP2350) and costs no SRAM; accessors hand out `const` references, and the caller's `VoiceConfig` copies and bounded control queues occupy RAM. `static_assert`s keep the preset name table and preset table in sync. Index-based accessors: `getPresetName(uint8_t)` (returns `"Unknown"` out of range), `getPresetConfig(uint8_t)` (returns Analog out of range), and `getPresetCount()`, plus per-preset getters (`getAnalogVoice()` … `getNoiseStormVoice()`). `VoiceManager::getAvailablePresets()` / `setVoicePreset()` expose the same bank by lowercase name and fall back to Analog for unknown names.
+Declared in `src/voice/VoicePresets.h`; factories live in `src/voice/presets/`.
+The compile-time registry in `VoicePresets.cpp` expands `PresetBank.h` to pair
+names and configs in flash. Appending one bank entry updates count and lookups.
+Unknown indices/config names fall back to Analog; unknown display indices return
+"Unknown". Existing per-preset getters remain available. Name matching is
+case-insensitive, and `VoiceManager::getAvailablePresets()` derives its list from
+the same bank. The original 15 presets are listed below; the six new recipes and
+extension steps are described in the [extension guide](../src/voice/README.md).
 
 | # | Preset Name | Engine | Oscillators | Amplitudes | Detune (Semis) | Harmony | Filter Mode | Filter Settings | Overdrive | Envelope (A/D/S/R) | Output Level |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -403,12 +415,13 @@ allpass swarm) from `rpdsp/DSPFunctions.h`, pre-filter so the SVF shapes the tex
 
 ### Per-preset sequencer parameter sets
 
-`VoiceConfig::paramSet` (`VoiceParamSet` in `Voice.h`) re-purposes sequencer
-slots per voice. `Voice::applyParameters_()` routes the slots on
-the audio thread; `VoicePresets::getSequencerParamName()` provides the OLED labels
-(fallback `paramName()` for standard slots); `applyVoicePreset()` re-seeds the
-re-purposed tracks with the preset's values (`seedRepurposedParamTracks()` in
-`Pico2Seq.ino`) so encoders/OLED/engine agree after a switch.
+`VoiceParameters` owns the mapping, seeding and display metadata. Existing
+`VoiceConfig::paramSet` values select compatible layouts; new recipe presets
+provide an immutable `VoiceConfig::parameters` layout. `Voice::applyParameters_()`
+applies bindings on the audio thread. `VoicePresets::getSequencerParamName()` and
+`VoiceParameters::formatValue()` supply OLED labels/units. Startup and
+`applyVoicePreset()` call `VoiceParameters::seedTracks()` so a preset's mapped
+values survive the first sequencer update.
 
 | Param set | Presets | Note / Velocity slots | Filter slot | Attack slot | Decay slot |
 |---|---|---|---|---|---|

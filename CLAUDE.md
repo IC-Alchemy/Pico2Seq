@@ -212,7 +212,7 @@ this only applies to voices 0/1, since 2/3 never had gates or MIDI wired up.
 ### Data flow (input → sound)
 
 ```
-Matrix/TMAG5273/VL53L1X/MIDI input  (Core 0)
+Matrix/TMAG5273/VL53L1X input  (Core 0)
   → UIEventHandler / ButtonHandlers  → UIState (single struct, no loose globals)
   → 4 independent Sequencer instances (seq1..seq4, one per voice, polymetric: each
     ParamId track can have its own step count, e.g. Note:16 steps, Filter:8 steps)

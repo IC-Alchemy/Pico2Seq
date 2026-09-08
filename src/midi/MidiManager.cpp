@@ -7,7 +7,7 @@
 #include <cmath>                        // For mathematical functions
 
 // External references
-extern midi::MidiInterface<midi::SerialMIDI<Adafruit_USBD_MIDI>> usb_midi;
+// (usb_midi extern removed - USB MIDI transmission removed 2026-09-06.)
 extern Sequencer seq1, seq2;
 extern VoiceSystem voiceSystem;
 
@@ -39,7 +39,7 @@ void MidiNoteManager::sendMidiNoteOn(int8_t midiNote, uint8_t velocity, uint8_t 
 {
     if (midiNote >= 0 && midiNote <= 127)
     {
-        usb_midi.sendNoteOn(midiNote, velocity, channel);
+        // USB MIDI removed 2026-09-06 - nothing transmitted.
     }
 }
 
@@ -47,7 +47,7 @@ void MidiNoteManager::sendMidiNoteOff(int8_t midiNote, uint8_t channel)
 {
     if (midiNote >= 0 && midiNote <= 127)
     {
-        usb_midi.sendNoteOff(midiNote, 0, channel);
+        // USB MIDI removed 2026-09-06 - nothing transmitted.
     }
 }
 
@@ -189,7 +189,7 @@ void MidiNoteManager::allNotesOff()
     endAtomicUpdate(1);
 
     // Send MIDI All Notes Off message for safety
-    usb_midi.sendControlChange(123, 0, 1); // All Notes Off on channel 1
+    // USB MIDI removed 2026-09-06 - nothing transmitted.
 }
 
 void MidiNoteManager::voiceReset(uint8_t voiceId)
@@ -228,8 +228,8 @@ void MidiNoteManager::emergencyStop()
     voice2Tracker.reset();
 
     // Send MIDI panic messages
-    usb_midi.sendControlChange(120, 0, 1); // All Sound Off
-    usb_midi.sendControlChange(123, 0, 1); // All Notes Off
+    // USB MIDI removed 2026-09-06 - nothing transmitted.
+    // USB MIDI removed 2026-09-06 - nothing transmitted.
 }
 
 void MidiNoteManager::beginAtomicUpdate(uint8_t voiceId)
@@ -405,7 +405,7 @@ void MidiNoteManager::sendCC(uint8_t ccNumber, uint8_t value, uint8_t channel)
     }
 
     // Send MIDI CC message via USB
-    usb_midi.sendControlChange(ccNumber, value, channel);
+    // USB MIDI removed 2026-09-06 - nothing transmitted.
 }
 
 uint8_t MidiNoteManager::getParameterCCNumber(uint8_t voiceId, ParamId paramId)
