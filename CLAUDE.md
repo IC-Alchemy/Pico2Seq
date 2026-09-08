@@ -11,7 +11,7 @@ is no `main()`, no OS, and most code only makes sense in terms of the dual-core
 `Pico2Seq.ino`.
 
 Two build systems coexist and never touch each other:
-- **Arduino IDE** builds and flashes the actual firmware from `Pico2Seq.ino`.
+- **Arduino IDE / Arduino CLI** builds and flashes the actual firmware from `Pico2Seq.ino`.
 - **CMake** builds *only* the host-side unit test suite in `tests/`. It cannot build or flash
   the firmware itself.
 
@@ -43,7 +43,18 @@ Run a single tag/group instead of the full suite:
 ./build_test/tests/pico2seq_tests "[voice]"
 ./build_test/tests/pico2seq_tests "[voiceosc]"
 ./build_test/tests/pico2seq_tests "[control_surface]"
+./build_test/tests/pico2seq_tests "[ppqn]"
 ```
+
+The independent clock target needs no DSP sources or hardware stubs:
+
+```bash
+cmake --build build_test --target pico2seq_clock_tests --parallel
+./build_test/tests/pico2seq_clock_tests --reporter console
+```
+
+On Windows, append `.exe`; with a multi-configuration generator, build with
+`--config Debug`, use `tests/Debug/` for executables, and pass `-C Debug` to CTest.
 
 Other useful invocations:
 
@@ -55,24 +66,35 @@ ctest --test-dir build_test --output-on-failure       # same tests, via CTest
 
 ### Firmware build + flash via arduino-cli (headless)
 
-`arduino-cli` can build and flash the firmware too. The FQBN/options below must match
-`.vscode/arduino.json` (`usbstack=tinyusb` is required for `Adafruit_TinyUSB.h`; the
-extension's `buildPreferences` `-ffast-math` is not read by the CLI, so it is passed
-via `--build-property`):
+Prefer the checked-in PowerShell helper for compilation:
+
+```powershell
+.\scripts\build_pico2seq.ps1 -KeepStage
+```
+
+It stages a correctly named temporary sketch, excludes vendor sources and library
+examples, builds Pico 2 ARM firmware at 300 MHz with TinyUSB and `-ffast-math`, and
+checks UF2/ELF/BIN/MAP artifacts under `build/arduino-cli/Pico2Seq-current-<timestamp>/`.
+It does not upload. Keep the ELF that matches any firmware flashed to a board for
+fault-address decoding. The helper is authoritative for these build settings.
+
+For an intentional manual build, use the retained staging directory reported by
+the helper with these CLI options (replace `<staged-sketch-directory>`):
 
 ```bash
-PICO2_FQBN='rp2040:rp2040:rpipico2:flash=4194304_0,arch=arm,freq=225,opt=Optimize3,profile=Disabled,rtti=Disabled,stackprotect=Disabled,exceptions=Disabled,dbgport=Disabled,dbglvl=None,usbstack=tinyusb,ipbtstack=ipv4only,uploadmethod=default'
+PICO2_FQBN='rp2040:rp2040:rpipico2:flash=4194304_0,arch=arm,freq=300,opt=Optimize3,profile=Disabled,rtti=Disabled,stackprotect=Disabled,exceptions=Disabled,dbgport=Disabled,dbglvl=None,usbstack=tinyusb,ipbtstack=ipv4only,uploadmethod=default'
 
 arduino-cli compile --fqbn "$PICO2_FQBN" \
   --build-property "build.extra_flags=-ffast-math" \
-  --output-dir build_fw .
+  --output-dir build_fw "<staged-sketch-directory>"
 ```
 
 Output lands in `build_fw/`: `Pico2Seq.ino.uf2` (flashable image) and `Pico2Seq.ino.elf`
 (keep it — freeze post-mortem fault PC/LR addresses are decoded against this with
 `arm-none-eabi-addr2line -e build_fw/Pico2Seq.ino.elf <addr>`).
 
-Two ways to flash:
+Two ways to flash (examples use the manual build's `build_fw/`; substitute the
+helper's artifact directory when using its output):
 
 1. **Serial upload, no button — board running and its COM port visible:**
 
@@ -110,6 +132,8 @@ What's tested vs. not, per `tests/CMakeLists.txt`:
   `src/pico2seq-core/sequencer/{ParameterManager,Sequencer}.cpp`,
   `src/voice/{Voice,VoicePresets,VoiceManager}.cpp` (incl. the `SpscQueue`
   control handoff via `test_voice_transfer.cpp`),
+  `src/utils/PendingTickCounter.h` via `tests/unit/test_pending_tick_counter.cpp`
+  (also available through the independent `pico2seq_clock_tests` target),
   `src/ui/ControlSurfaceLogic.cpp` via `tests/unit/test_control_surface_logic.cpp`,
   `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` via `tests/unit/test_alchemy_proto.cpp`.
 - **Not tested, by design** (hardware-bound glue — keep logic out of these):
@@ -130,8 +154,8 @@ Untested modules that would benefit from coverage (per `docs/testing.md`):
 polyrhythmic behavior, `VoicePresets.cpp` range validation.
 
 Two real gotchas documented in `docs/testing.md`, worth knowing before you write voice tests:
-- `Voice::updateParameters()` stages changes into `stagedState_`; they only take effect after the
-  next `process()` call. Checking `getState()` right after `updateParameters()` sees stale data.
+- `Voice::updateParameters()` queues changes; each `process()` call consumes at most
+  one update. Render enough samples to consume queued changes before checking `getState()`.
 - `Voice` takes its scale table via `setScaleTable()`/`setCurrentScalePointer()` injection rather
   than reading globals — pass `nullptr` to both to exercise the chromatic fallback path.
 
@@ -142,12 +166,35 @@ sensors,ButtonHandlers}.md` cover each subsystem. The essentials:
 
 ### Dual-core split (the most important thing to keep in mind for any change)
 
--
 - **Core 0** (`setup()`/`loop()`): everything else — MIDI I/O, TMAG5273 magnetic encoder and VL53L1X, distance sensor polling, MPR121 touch matrix scanning, `uClock` sequencer step ticking, LED matrix and OLED updates, UI state.
 - **Core 1** (`setup1()`/`loop1()` in `Pico2Seq.ino`): audio synthesis only. Pulls a buffer, calls `voiceManager->processAllVoices()` per-sample, writes I2S output. Nothing else should run here — this is real-time critical and must never block or allocate.
-- Cross-core communication is via `volatile` globals (e.g. `VoiceSystem::gates`,
-  `ppqnTicksPending`) — there are no mutexes. When touching shared state, check whether it's
-  read/written from both cores and keep the existing `volatile` discipline.
+- Voice controls cross cores through per-voice `SpscQueue<ControlUpdate, 8>` queues;
+  the audio core owns applied DSP state. Mixer gains and readiness use atomics.
+  `volatile` does not provide synchronization. Check ownership before sharing state.
+- `ppqnTicksPending` is shared between the Core 0 timer ISR and Core 0 `loop()`,
+  not between cores. Keep its handoff atomic as described below.
+
+### PPQN interrupt handoff
+
+- `onStepCallback()` publishes step numbers to `stepQueue`; `processClockEvents()`
+  drains those steps in Core 0 thread context before the PPQN timing pass.
+- `onOutputPPQNCallback()` calls `ppqnTicksPending.post()` on the
+  `PendingTickCounter` from `src/utils/PendingTickCounter.h`. Its lock-free
+  `fetch_add(1)` counts each tick without blocking or allocating in the ISR.
+- Once per loop, `takeAll()` uses atomic `exchange(0)` to detach a batch. The loop
+  decrements only its local `ticksToProcess`, advancing MIDI note timing, sequencer
+  durations, and gate timers once per captured tick. Later arrivals remain pending
+  for the next iteration, adding at most one loop cycle before processing them.
+- Never replace the handoff with separate reads/writes, `volatile` increments, or
+  a plain shared decrement. An interrupt between a read and its write can erase
+  ticks. Relaxed atomics suffice because the counter publishes no other payload;
+  a compile-time assertion requires lock-free 32-bit atomics on the target.
+- Fewer than 2^32 ticks may accumulate between snapshots. This preserves the
+  original 32-bit backlog bound; the MIDI timing counter remains 16-bit.
+- Run `[ppqn]` or `pico2seq_clock_tests` after changing this path. Coverage includes
+  empty/single batches, a 70,000-tick backlog, arrivals during drain, and conservation
+  of 1,000,000 concurrently posted ticks. Also compile firmware to check target
+  atomic support. Host tests and compilation do not verify hardware timing.
 
 ### `VoiceSystem` — the central data structure
 

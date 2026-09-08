@@ -59,8 +59,12 @@ stream, but no `Clock`, `Start`, or `Stop` realtime bytes are sent over USB MIDI
 All remaining `usb_midi` traffic (note on/off and CC for voices 0–1) originates
 from `loop()`/UI-handler **thread context on Core 0** — the same core TinyUSB's
 `tud_task` runs on — so the MIDI endpoint keeps exactly one producer. The uClock
-ISR (also core 0) only stages events (the `stepQueue` `SpscQueue` +
-`ppqnTicksPending`), which `processClockEvents()` drains in `loop()`.
+ISR (also Core 0) only stages events: step numbers enter the `stepQueue`
+`SpscQueue`, and PPQN ticks enter the atomic `ppqnTicksPending` counter.
+`processClockEvents()` drains the step queue first. The following PPQN pass in
+`loop()` takes one batch with `ppqnTicksPending.takeAll()` and advances MIDI note
+timing once per captured tick. Ticks arriving after that snapshot remain pending
+for the next loop; an ISR increment cannot be erased by the consumer.
 ---
 
 ## Note Lifecycle & Monophonic Tracking

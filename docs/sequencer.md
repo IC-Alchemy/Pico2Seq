@@ -347,6 +347,16 @@ void processSequencerStep(uint32_t uClockCurrentStep)
 - **PPQN Standard**: 480 Pulses Per Quarter Note (`SequencerConstants::PULSES_PER_QUARTER_NOTE_PPQN = 480`).
 - **Ticks Per 16th Note Step**: `PULSES_PER_SEQUENCER_STEP_TICKS = 480 / 4 = 120` clock ticks.
 - **Default Tempo**: 90 BPM (configured during `uClock.init()` in `setup()`).
+- **ISR handoff**: On Core 0, `onStepCallback()` queues step numbers for
+  `processClockEvents()`, while `onOutputPPQNCallback()` posts to the lock-free
+  `PendingTickCounter` in `src/utils/PendingTickCounter.h`.
+- **PPQN drain**: After processing queued steps, `loop()` atomically takes one
+  pending-tick batch and advances MIDI note timing, sequencer note durations, and
+  gate timers from a local count. Ticks arriving during processing wait for the
+  next loop. The shared counter is never decremented by the loop, preventing an
+  interrupt from losing its increment during a consumer read/write.
+- **Regression coverage**: Run the `[ppqn]` tests or `pico2seq_clock_tests`; see
+  [the testing guide](testing.md#ppqn-tick-handoff-regression-suite).
 
 ### 5.2 `ShuffleTemplates.h` Groove Templates
 

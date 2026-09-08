@@ -20,6 +20,7 @@ add_executable(pico2seq_tests
   unit/test_dsp_recipe_regressions.cpp
   unit/test_scales.cpp
   unit/test_sequencer.cpp
+  unit/test_pending_tick_counter.cpp
   unit/test_voice.cpp
   unit/test_voice_transfer.cpp
   unit/test_voiceoscillator.cpp
@@ -63,6 +64,13 @@ target_compile_options(pico2seq_tests PRIVATE
 include(CTest)
 include(Catch)
 catch_discover_tests(pico2seq_tests)
+
+# Clock handoff regressions do not depend on DSP or hardware stubs.
+add_executable(pico2seq_clock_tests unit/test_pending_tick_counter.cpp)
+target_include_directories(pico2seq_clock_tests PRIVATE ${SRC_DIR})
+target_link_libraries(pico2seq_clock_tests PRIVATE Catch2::Catch2WithMain Threads::Threads)
+catch_discover_tests(pico2seq_clock_tests TEST_PREFIX "clock-focused: "
+  PROPERTIES TIMEOUT 60)
 
 # Focused voice/ownership suite can run independently of the DSP recipe tests.
 add_executable(pico2seq_voice_tests

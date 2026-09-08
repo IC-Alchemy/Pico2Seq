@@ -111,9 +111,9 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
   - ISR-context callbacks stage events only — no work (2026-09-05 deferral refactor):
     `onStepCallback` enqueues the 16th-note step number into a 16-deep SPSC ring
     `stepQueue`, a `SpscQueue<uint32_t, 16>` from `src/utils/`; a full ring drops the
-    new step and counts into `droppedStepCount`); `onOutputPPQNCallback` increments
-    `ppqnTicksPending`. The firmware sends **no MIDI realtime clock output** — no Clock,
-    Start, or Stop bytes go out over USB MIDI.
+    new step and counts into `droppedStepCount`); `onOutputPPQNCallback` posts to
+    `ppqnTicksPending`, a lock-free atomic `PendingTickCounter`. The firmware sends
+    **no MIDI realtime clock output** — no Clock, Start, or Stop bytes go out over USB MIDI.
   - Thread-context callbacks: `onClockStart` / `onClockStop` keep their full bodies
     inline — `uClock.start()/stop()` are called from `setup()`/UI handlers (thread),
     never the ISR (uClock is master, no external clock input), so nothing there
@@ -131,7 +131,11 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
     only be processed between `loop()` iterations, adding at most one loop-cycle of
     latency to note timing).
 - **PPQN Drain Loop** (in `loop()`, same core as the ISR):
-  - Drains `ppqnTicksPending`.
+  - Atomically takes one batch from `ppqnTicksPending` with `takeAll()` and drains
+    a local count. ISR increments cannot be overwritten by the drain; ticks arriving
+    after the snapshot remain pending for the next `loop()` iteration. Atomics use
+    relaxed ordering because the counter carries no associated payload. Fewer than
+    2^32 ticks may accumulate between snapshots.
   - Advances `midiNoteManager.updateTiming(globalTickCounter)`.
   - Advances sequencer note durations (`seq1/seq2.tickNoteDuration()`).
   - Ticks gate countdown timers (`voiceSystem.tickAllGateTimers()`).

@@ -9,6 +9,7 @@
 #include "src/voice/Voice.h"
 #include "src/utils/Debug.h"
 #include "src/utils/SpscQueue.h"
+#include "src/utils/PendingTickCounter.h"
 #include "src/utils/FreezeWatchdog.h"
 #include "src/pico2seq-core/scales/scales.h"
 #include "src/voice/VoicePresets.h"
@@ -129,7 +130,7 @@ volatile bool touchFlag = false;
 // =======================
 bool isClockRunning = true;
 unsigned long previousMillis = 0;
-uint32_t ppqnTicksPending = 0;
+PendingTickCounter ppqnTicksPending;
 
 // =======================
 //   ISR -> THREAD CLOCK EVENT QUEUES
@@ -355,8 +356,7 @@ int currentThemeIndex = static_cast<int>(LEDTheme::DEFAULT); // Global variable 
  */
 void onOutputPPQNCallback(uint32_t tick)
 {
-    // Increment counter to signal pending tick processing
-    ppqnTicksPending++;
+    ppqnTicksPending.post();
 }
 
 // =======================
@@ -1118,14 +1118,14 @@ void loop()
         }
     }
 
-    // Process all pending PPQN ticks
+    // Capture one batch; ticks arriving during processing wait for the next loop.
     freezeWatchdogFeed(FW_LOOP_PPQN);
     static uint16_t globalTickCounter = 0; // Global tick counter for MidiNoteManager
 
-    while (ppqnTicksPending > 0)
+    uint32_t ticksToProcess = ppqnTicksPending.takeAll();
+    while (ticksToProcess > 0)
     {
-        // Decrement the counter *before* processing the tick
-        ppqnTicksPending--;
+        --ticksToProcess;
         globalTickCounter++;
 
         // Update MidiNoteManager timing - this handles all MIDI note-off timing
