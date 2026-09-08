@@ -40,7 +40,7 @@ void onOutputPPQNCallback(uint32_t tick)
 
 void onClockStart()
 {
-    // Serial.println("[uClock] onClockStart()");
+     Serial.println("[uClock] onClockStart()");
     // Start all four sequencers so  LEDs and audio advance for 3/4 as well
     seq1.start();
     seq2.start();

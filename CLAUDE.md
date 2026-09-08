@@ -12,8 +12,7 @@ is no `main()`, no OS, and most code only makes sense in terms of the dual-core
 
 Two build systems coexist and never touch each other:
 - **Arduino IDE** builds and flashes the actual firmware from `Pico2Seq.ino`.
-- **CMake** builds *only* the host-side unit test suite in `tests/`. It cannot build or flash
-  the firmware itself.
+- **CMake** builds *only* the host-side unit test suite in `tests/`. It cannot build or flash the firmware itself.
 
 `src/pico2seq-core/` holds the sequencer (`Sequencer`, `ParameterManager`, `SequencerDefs.h`,
 `ShuffleTemplates.h`) and `scales/` (scale tables). Both are plain, portable C++ with no
