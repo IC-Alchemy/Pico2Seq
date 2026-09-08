@@ -76,11 +76,11 @@ struct VoiceConfig {
     int harmony[3] = {0, 0, 0};                                             // Harmony intervals in scale steps (-12 to +12)
 
     // Sound engine selection (VoiceEngine). Ignored fields stay at their defaults.
-    uint8_t engine = ENGINE_OSC;                                            // ENGINE_OSC, ENGINE_WAVEGUIDE, ENGINE_NOISEFX, or ENGINE_HYPERSAW
+    uint8_t engine = ENGINE_OSC;                                            // ENGINE_OSC, ENGINE_WAVEGUIDE, ENGINE_NOISEFX, ENGINE_HYPERSAW, or ENGINE_RECIPE
     uint8_t paramSet = PARAMSET_STANDARD;                                   // Sequencer-slot re-purposing (STANDARD/WAVEGUIDE/HYPERSAW/NOISESTORM/HARDSYNC)
 
-    const VoiceParameterLayout *parameters = nullptr; // Immutable layout in flash
-    const VoiceRecipe *recipe = nullptr;              // Immutable patch descriptor
+    const VoiceParameterLayout *parameters = nullptr; // Immutable layout in flash (null selects legacy paramSet)
+    const VoiceRecipe *recipe = nullptr;              // Immutable patch descriptor (ENGINE_RECIPE source)
     float macro1 = 0.5f, macro2 = 0.5f, macro3 = 0.5f; // Mapped recipe controls
 
     // Waveguide engine parameters (ENGINE_WAVEGUIDE only)
@@ -172,6 +172,12 @@ public:
 
     // Real-time audio processing (runs on Core 1 @ 48kHz)
     float process() noexcept;
+
+    // Control-side view (Core 0): producer-owned copies of requested
+    // config/state; applied DSP state is only readable on the audio thread
+    const VoiceConfig& getRequestedConfig() const noexcept;
+    const VoiceState& getRequestedState() const noexcept;
+    bool flushControlUpdates() noexcept;   // control thread: call every loop
 
     // Parameter updates (called on the Core 0 control thread — uClock step drain
     // in processClockEvents(), or live recording)
@@ -413,9 +419,23 @@ Preset 14 uses `engine = ENGINE_NOISEFX`: `NoiseOscillator` plus a pitch-tracked
 `chaos_lorenz` growl feed `fx_diffuse` (prime-tap diffuser) and `fx_swarm` (regenerative
 allpass swarm) from `rpdsp/DSPFunctions.h`, pre-filter so the SVF shapes the texture.
 
+Presets 15–20 use `engine = ENGINE_RECIPE`: small rpdsp patches running through the
+fixed-state `RecipeEngine` (`src/voice/engines/RecipeEngine.h`, 16-float state budget)
+instead of the osc-bank/waveguide engines. Each pairs a `VoiceRecipe` patch from
+`engines/RecipeSources.h` with an immutable `VoiceParameterLayout` from
+`presets/RecipePresets.h` that re-purposes Filter/Attack/Decay as three timbre controls:
+**FMGlass**/**FMBass** — feedback-FM (`osc_fbfm`, two operators) with Index/Ratio/Feedback;
+**PhaseMorph** — phase distortion blended with a morphing triangle (`osc_pdmorph` +
+`osc_morphtsq`) with Shape/Skew/Blend; **Spectral** — discrete summation formula plus a
+sub-octave PD layer (`osc_dsf`) with Bright/Spacing/Sub; **Prism**/**ChaosPrism** — the
+same `osc_prism` partial stack crossed with `osc_chaosdrift` drift, with Focus/Spread/Drift
+(the two presets differ in macro starting values and envelope shape). Recipe voices share the
+standard pitch/gate/slide handling and bypass the ADSR-by-tracks layout
+(`envelopeFromTracks = false`): the preset's own A/D/S/R defaults shape the note.
+
 ### Per-preset sequencer parameter sets
 
-`VoiceParameters` owns the mapping, seeding and display metadata. Existing
+`VoiceParameters` (`src/voice/VoiceParameters.h/.cpp`) owns the mapping, seeding and display metadata. Existing
 `VoiceConfig::paramSet` values select compatible layouts; new recipe presets
 provide an immutable `VoiceConfig::parameters` layout. `Voice::applyParameters_()`
 applies bindings on the audio thread. `VoicePresets::getSequencerParamName()` and
@@ -427,12 +447,16 @@ values survive the first sequencer update.
 |---|---|---|---|---|---|
 | HARDSYNC | 0 | Master pitch / Slave offset (-24..+24 st; 0.5 = follow master) | Cutoff | Attack | Decay |
 | STANDARD | 1–8 | Note / velocity | Cutoff (120 Hz–5 kHz, EXP) | Attack (0.002–0.75 s) | Decay (0.01–0.5 s, LOG) |
-| WAVEGUIDE | 9–12 | Note / velocity | Brightness (0–1) | Pick hardness (0–1) | T60 (0.05–7 s at runtime, EXP; `wgT60ToNormalized` seeding assumes a 0.05–10 s curve) |
-| HYPERSAW | 13 | Note / velocity | Cutoff (live) | Native seven-voice detune (0–1) | Native center/side mix (0–1) |
+| WAVEGUIDE | 9–12 | Note / velocity | Brightness (0–1) | Pick hardness (0–1) | T60 (0.05–10 s, EXP; one range shared by mapping, seeding and display) |
+| HYPERSAW | 13 | Note / velocity | Cutoff (150 Hz–8 kHz, EXP) | Native seven-voice detune (0–1) | Native center/side mix (0–1) |
 | NOISESTORM | 14 | Note / velocity | Swarm color | Swarm regen | Chaos level (the SVF keeps the preset's static `filterCutoffBase`) |
+| recipe layout (`config.parameters`) | 15–20 | Note / velocity | Timbre control 1 | Timbre control 2 | Timbre control 3 |
 
-For HYPERSAW/NOISESTORM the ADSR times come from the preset defaults (`applyEnvelopeDefaults_()`),
-since the Attack/Decay tracks no longer carry envelope times. Live preset switches are
+The last row's timbre bindings come from each preset's own `VoiceParameterLayout`
+(e.g. FMGlass: Index/Ratio/Feedback; PhaseMorph: Shape/Skew/Blend; Prism: Focus/Spread/Drift).
+For HYPERSAW/NOISESTORM and the recipe layouts the ADSR times come from the preset defaults
+(`applyEnvelopeDefaults_()`), since the Attack/Decay tracks no longer carry envelope times.
+Live preset switches are
 gate-safe: scalar config applies immediately, but the oscillator rebuild and engine
 reset are deferred until the gate falls (`applyStructuralConfig_()`), so swapping
 presets while playing never clicks a held note or cuts a ringing tail.
@@ -477,6 +501,8 @@ Each call to `Voice::process()` on Core 1 executes the following stages:
 │    - Silence short-circuit: If E <= 0.001 (and the envelope is enabled), return 0.0 immediately              │
 │    - engine == ENGINE_WAVEGUIDE: pluck on gate rise; S_osc = waveguide_.process │
 │    - engine == ENGINE_HYPERSAW: S_osc = one native seven-voice Hypersaw         │
+│    - engine == ENGINE_RECIPE: S_osc = RecipeEngine patch (16-float state;       │
+│      recipe->process(frequency / sampleRate, config, state); retrigger reset)   │
 │    - engine == ENGINE_NOISEFX: S_osc = noise + chaos_lorenz (fx inserts at 5)   │
 │    - ENGINE_OSC: commit pitch to hardware ONLY when isGateHigh == true          │
 │    - If slide active: Exponential slew via fmaf(delta, slideAlpha, currentFreq) │

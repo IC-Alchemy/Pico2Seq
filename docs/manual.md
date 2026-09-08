@@ -426,7 +426,7 @@ screen's voice-parameter page; envelope and overdrive can be switched off per vo
 too. On SVF voices the mode picks the response (LP→low-pass, BP→band-pass, HP→high-pass);
 only **Analog** and **Lead** still run the true ladder filter.
 
-### 4.2 The 15 presets
+### 4.2 The 21 presets
 
 | # | Preset | Character |
 |---|---|---|
@@ -445,13 +445,21 @@ only **Analog** and **Lead** still run the true ladder filter.
 | 13 | **WgShimmer** | Wide-detuned (26 ¢) two-string course; slow chorusing sustain, very long pad-like tail |
 | 14 | **Hypersaw** | Native seven-voice `rpdsp::Hypersaw` stack — one engine voice, wide detune range, no overdrive |
 | 15 | **NoiseStorm** | Noise-texture engine: pitch-tracked Lorenz chaos growl through a prime-tap diffuser and regenerative allpass swarm, pinged by a resonant lowpass |
+| 16 | **FMGlass** | Two-operator feedback FM (Index/Ratio/Feedback lanes); glassy bell/chime tones with no filter stage |
+| 17 | **FMBass** | The same feedback-FM patch tuned deep — growling FM bass |
+| 18 | **PhaseMorph** | Phase-distortion morph (Shape/Skew/Blend) crossfaded into a morphing triangle; sweeps pure tones into formant-ish timbres |
+| 19 | **Spectral** | DSF spectral stack (Bright/Spacing/Sub) blended with a sub-octave layer; shimmering harmonic series |
+| 20 | **Prism** | Refracted partial cloud (Focus/Spread/Drift) blended with a chaotic drift voice |
+| 21 | **ChaosPrism** | Prism driven harder into the chaos blend — unstable, clangorous textures |
 
 Presets 1–9 are oscillator-engine sounds; 10–13 are waveguide strings; 14 is the seven-voice
-hypersaw stack; 15 is the noise-FX texture engine. Presets live in flash and are changed
+hypersaw stack; 15 is the noise-FX texture engine; 16–21 are recipe-engine patches (small
+`rpdsp` patches running in the 16-float `RecipeEngine`). Presets live in flash and are changed
 per voice from the **preset browser** (long-press Play, or stop the transport to open
 Settings on the OLED).
-In the browser, touch **pads 8–22** — exactly the pads lit on the LED mirror — to apply
-presets 1–15 to the selected voice; tap **pads 0–3** (or the V1–V4 buttons) to switch the
+In the browser, touch **pads 8–28** — exactly the pads lit on the LED mirror — to apply
+presets 1–21 to the selected voice (the 24-per-page bank fits on one page; pads 6/7 page
+when it ever grows past 24); tap **pads 0–3** (or the V1–V4 buttons) to switch the
 target voice without leaving the browser. The encoder button toggles the Settings screen
 between the preset browser and the voice-parameter toggles.
 
@@ -469,7 +477,7 @@ between the preset browser and the voice-parameter toggles.
 | Hold a parameter button + tap pad | Set that parameter track's length to the pad number |
 | Hold (or Shift+latch) a parameter button + touch pads during playback | Record live values into the armed parameter of the current step (Note only on gate-on steps) |
 | Pad press while Gate Length mode is held | Set the selected voice's Gate track length (2–16 steps) |
-| Tap a pad while the preset browser is open | Apply that preset to the selected voice — pads 8–22 = presets 1–15; pads 0–3 switch the target voice |
+| Tap a pad while the preset browser is open | Apply that preset to the selected voice — pads 8–28 = presets 1–21; pads 0–3 switch the target voice |
 
 ### Faders
 

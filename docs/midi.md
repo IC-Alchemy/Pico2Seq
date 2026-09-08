@@ -2,13 +2,19 @@
 
 ## Overview
 
-The `src/midi/` subsystem handles USB MIDI communication for Pico2Seq using **Adafruit TinyUSB** and the Arduino MIDI library (`midi::SerialMIDI<Adafruit_USBD_MIDI>`).
+The `src/midi/` subsystem retains the **internal** note-lifecycle state machine for
+Pico2Seq. It performs no MIDI I/O of any kind.
 
-**USB MIDI was removed entirely 2026-09-06.** The firmware transmits no MIDI at all —
-no notes, no CC, no clock. USB carries power and the TinyUSB CDC serial console only.
-The `MidiNoteManager` state machine is retained for internal gate/note lifecycle
-bookkeeping, but every transmission path is a stub; transmission references below are
-historical.
+**USB MIDI was removed entirely 2026-09-06** (commit `bc66c8e`). The firmware
+transmits no MIDI — no notes, no CC, no clock — and receives none either: there
+is no `MIDI.read`/`usb_midi.read` call anywhere in `src/`, and no note-in
+handler. USB carries power and the TinyUSB CDC serial console only. The
+Arduino MIDI Library dependency (`<MIDI.h>`, `midi::SerialMIDI<Adafruit_USBD_MIDI>`)
+was dropped; the `usb_midi` interface object no longer exists. `MidiManager.h`
+still includes `<Adafruit_TinyUSB.h>` only because the sketch's TinyUSB CDC
+stack requires it. `MidiNoteManager` is retained for internal gate/note
+lifecycle bookkeeping; every transmission path is a stub. Transmission
+references below are historical.
 
 The MIDI subsystem provides:
 1. **Internal monophonic note lifecycle state** synchronized with sequencer gate timing (no transmission).
@@ -18,23 +24,24 @@ The MIDI subsystem provides:
 
 ## 4-Voice Asymmetry: 2-Voice MIDI vs 4-Voice Audio
 
-Pico2Seq features 4 internal polyphonic synthesizer voices (`VoiceSystem::MAX_VOICES = 4`), but exhibits an architectural asymmetry between internal audio synthesis and external MIDI routing (the former hardware gate pin outputs were removed when I2S took over their GPIOs):
+Pico2Seq features 4 internal polyphonic synthesizer voices (`VoiceSystem::MAX_VOICES = 4`), with an architectural asymmetry between the four audio voices and the two voices that have MIDI note/gate bookkeeping (the former hardware gate pin outputs were removed when I2S took over their GPIOs):
 
-| Voice Index | Voice Name | Audio Synthesis | MIDI Note / CC Output |
+| Voice Index | Voice Name | Audio Synthesis | Internal Note/CC Bookkeeping (`MidiNoteManager`) |
 |---|---|---|---|
-| **Voice 0** | Voice 1 | Yes (Core 1 @ 48kHz) | **Yes** (Channel 1, CC 71–74) |
-| **Voice 1** | Voice 2 | Yes (Core 1 @ 48kHz) | **Yes** (Channel 1, CC 75–78) |
+| **Voice 0** | Voice 1 | Yes (Core 1 @ 48kHz) | **Yes** (voice1Tracker, CC 71–74 state) |
+| **Voice 1** | Voice 2 | Yes (Core 1 @ 48kHz) | **Yes** (voice2Tracker, CC 75–78 state) |
 | **Voice 2** | Voice 3 | Yes (Core 1 @ 48kHz) | **No** (Audio-only synthesis) |
 | **Voice 3** | Voice 4 | Yes (Core 1 @ 48kHz) | **No** (Audio-only synthesis) |
 
 > **Key Architectural Constraint:**
-> `MidiNoteManager` explicitly tracks **only Voices 0 and 1** (`voice1Tracker` and `voice2Tracker`). Voices 2 and 3 are internal audio synthesis voices and do not emit MIDI note events, CC messages, or hardware gate triggers.
+> `MidiNoteManager` explicitly tracks **only Voices 0 and 1** (`voice1Tracker` and `voice2Tracker`). Voices 2 and 3 are internal audio synthesis voices and have no note tracker, no CC parameter state, and no hardware gate triggers. Nothing is transmitted on any channel — the channel/CC numbers below exist only as bookkeeping identifiers inside the retained state machine.
 
 ---
 
-## MIDI Continuous Controller (CC) Mappings
+## CC Number Registry (Vestigial, `MidiCCConfig.h`)
 
-All CC messages are transmitted on **MIDI Channel 1** (`CC_MIDI_CHANNEL = 1`). External DAWs and synthesizers differentiate voices through discrete CC number ranges:
+The historical CC map is retained unchanged in `MidiCCConfig.h` as bookkeeping
+for the (stubbed) transmission pipeline. No CC bytes leave the device.
 
 | Parameter | Voice 1 (Voice 0) CC | Voice 2 (Voice 1) CC | Range | Resolution |
 |---|---|---|---|---|
@@ -43,12 +50,14 @@ All CC messages are transmitted on **MIDI Channel 1** (`CC_MIDI_CHANNEL = 1`). E
 | **Attack Time** | **CC 73** | **CC 77** | 0–127 | Linear map (`0.0f`–`1.0f`) |
 | **Filter Cutoff** | **CC 74** | **CC 78** | 0–127 | Linear map (`0.0f`–`1.0f`) |
 
-*(CC 74 is the standard MIDI specification controller for Sound Brightness / Filter Cutoff).*
+*(CC 74 is the standard MIDI specification controller for Sound Brightness / Filter Cutoff.)*
 
-### Anti-Spam & Rate Limiting (`MidiCCConfig.h`)
-- **Minimum Interval:** `CC_MIN_INTERVAL_MS = 10` (transmissions spaced by at least 10 ms per parameter).
-- **Change Detection:** `CC_CHANGE_DETECTION_ENABLED = true` (CC messages are transmitted only when the quantized 7-bit MIDI value actually changes).
-- **State Array:** `CCParameterState ccStates[2][4]` tracks timestamp and value state across both MIDI voices and all 4 parameters.
+### Anti-Spam & Rate Limiting (`MidiCCConfig.h`) — now vestigial
+`StepPlayback.cpp` still calls `midiNoteManager.updateParameterCC(...)`, so the
+change-detection/rate-limiting machinery still runs — it just gates a stub:
+- **Minimum Interval:** `CC_MIN_INTERVAL_MS = 10` (would space transmissions by at least 10 ms per parameter).
+- **Change Detection:** `CC_CHANGE_DETECTION_ENABLED = true` (CC would be "sent" only when the quantized 7-bit MIDI value actually changes).
+- **State Array:** `CCParameterState ccStates[2][4]` tracks timestamp and value state across both tracked voices and all 4 parameters.
 
 ---
 
@@ -56,19 +65,41 @@ All CC messages are transmitted on **MIDI Channel 1** (`CC_MIDI_CHANNEL = 1`). E
 
 Pico2Seq does **not** act as a USB MIDI master clock. The uClock tempo clock is
 internal-only: it drives the four sequencers and the internal 480-PPQN timing
-stream, but no `Clock`, `Start`, or `Stop` realtime bytes are sent over USB MIDI
+stream, but no `Clock`, `Start`, or `Stop` realtime bytes are sent anywhere
 (the `setOnSync24` hook and the clock-sends drain were removed 2026-09-06).
-`onClockStart`/`onClockStop` still start/stop all four sequencers and run
+`onClockStart`/`onClockStop` (now in `src/app/ClockService.cpp`) still
+start/stop all four sequencers, and `onClockStop` runs
 `midiNoteManager.onSequencerStop()` for clean note state — they just send no MIDI.
 
-There is no `usb_midi` traffic at all anymore (the interface was removed). The uClock
-ISR (core 0) only stages events (the `stepQueue` `SpscQueue` + `ppqnTicksPending`),
-which `processClockEvents()` drains in `loop()`.
+There is no `usb_midi` object at all anymore (the interface was removed). The
+uClock ISR (core 0) only stages events into `ClockEvents` (`src/app/ClockService.cpp`):
+sequencer steps go into the `steps` `SpscQueue<uint32_t, 16>` (overflow counted in
+`droppedSteps`), and 480-PPQN ticks increment `ppqnTicksPending`.
+`Application::update()` drains both in thread context: `processClockEvents()`
+pops steps into `processSequencerStep()`, and `processPendingGateTicks()`
+decrements `ppqnTicksPending` per tick, advancing `gateTick`,
+`midiNoteManager.updateTiming(gateTick)`, `seq1/seq2.tickNoteDuration()`, and
+`voiceSystem.tickAllGateTimers()`.
+
+> **Known race, fix staged but not wired:** `ppqnTicksPending` is still a plain
+> `volatile uint32_t` incremented in the ISR and decremented in the loop — the
+> classic test-then-decrement lost-increment window is open. The tested
+> replacement, `src/utils/PendingTickCounter.h` (atomic fetch_add /
+> exchange-swap, covered by `tests/unit/test_pending_tick_counter.cpp`), is not
+> yet used by `ClockService.cpp`.
 ---
 
 ## Note Lifecycle & Monophonic Tracking
 
-`MidiNoteManager` enforces strict monophonic note tracking per MIDI voice:
+`MidiNoteManager` enforces strict monophonic note tracking per tracked voice.
+Call sites (all on core 0, thread context — the ISR only stages events):
+
+- `noteOn(...)` / `setGateState(...)` / `updateParameterCC(...)` — from
+  `processSequencerStep()` / `updateVoiceMIDI()` in `src/app/StepPlayback.cpp`,
+  drained from the clock step queue by `ClockService::processClockEvents()`.
+- `updateTiming(currentTick)` — from `ClockService::processPendingGateTicks()`,
+  once per drained 480-PPQN tick (see the clock section above).
+- `onSequencerStop()` — from `ClockService::onClockStop()`.
 
 ```
            [ Step Trigger / noteOn() ]
@@ -134,36 +165,45 @@ public:
     void noteOff(uint8_t voiceId);
     void updateTiming(uint16_t currentTick);
 
-    // Gate & State Queries
+    // Gate synchronization & state queries
     void setGateState(uint8_t voiceId, bool gateActive, uint16_t gateDuration = 0);
     bool isGateActive(uint8_t voiceId) const;
     bool isNoteActive(uint8_t voiceId) const;
     int8_t getActiveNote(uint8_t voiceId) const;
 
-    // Safety & Transport Cleanup
+    // Safety & transport cleanup
     void allNotesOff();
+    void voiceReset(uint8_t voiceId);
     void emergencyStop();
     void onSequencerStop();
     void onModeSwitch();
+    void onParameterChange(uint8_t voiceId);
+    void onTempoChange();
 
-    // CC Transmission
+    // Cross-thread safety (volatile updateInProgress flag)
+    void beginAtomicUpdate(uint8_t voiceId);
+    void endAtomicUpdate(uint8_t voiceId);
+
+    // CC bookkeeping (transmission stubbed; rate limiting vestigial)
     void updateParameterCC(uint8_t voiceId, ParamId paramId, float value);
     void sendCCIfChanged(uint8_t voiceId, ParamId paramId, float value);
     void sendCC(uint8_t ccNumber, uint8_t value, uint8_t channel = 1);
+    bool shouldTransmitCC(uint8_t voiceId, ParamId paramId, float value);
     uint8_t getParameterCCNumber(uint8_t voiceId, ParamId paramId);
     uint8_t scaleParameterToMidi(ParamId paramId, float value);
+    void resetCCStates();
 };
 
 extern MidiNoteManager midiNoteManager;
-extern midi::MidiInterface<midi::SerialMIDI<Adafruit_USBD_MIDI>> usb_midi;
+// No usb_midi object exists — the USB MIDI interface was removed 2026-09-06.
 ```
 
 ---
 
 ## Dual-Core Execution Model
 
-- **Core 0 Execution:** The USB CDC serial console runs on Core 0. No MIDI polling or transmission exists (USB MIDI removed 2026-09-06). The uClock ISR (also core 0) only stages events; it sends nothing.
-- **Core 1 Isolation:** Core 1 runs purely audio synthesis DSP and I2S buffer filling. It never blocks on USB MIDI endpoints.
+- **Core 0 Execution:** The USB CDC serial console runs on Core 0. No MIDI polling, transmission, or reception exists (USB MIDI removed 2026-09-06). The uClock ISR (also core 0) only stages events; it sends nothing.
+- **Core 1 Isolation:** Core 1 runs purely audio synthesis DSP and I2S buffer filling. It never touches USB endpoints or MIDI state.
 - **Volatile Shared State:** Synchronization between the sequencer ticks and gate trackers uses `volatile` variables and atomic begin/end locks.
 
 ---

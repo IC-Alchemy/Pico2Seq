@@ -205,7 +205,7 @@ public:
 
 private:
     uint8_t maxVoiceCount = 8;
-    float globalVolume = .75f;
+    float globalVolume = .55f;
     std::vector<std::string> voicePresets;
     std::vector<VoiceConfig> voiceConfigs;
     VoiceManager::VoiceCountCallback voiceCountCallback;

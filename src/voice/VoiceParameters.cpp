@@ -43,8 +43,8 @@ constexpr VoiceParameterLayout makeHypersaw()
 {
   VoiceParameterLayout p{};
   p.envelopeFromTracks = false;
-  p.cutoffMinimum = 150.0f;
-  p.cutoffMaximum = 8000.0f;
+  p.cutoffMinimum = 660.0f;
+  p.cutoffMaximum =4000.0f;
   p.slots[slot(ParamId::Attack)] = control("Detune", &VoiceConfig::hypersawDetune);
   p.slots[slot(ParamId::Decay)] = control("Mix", &VoiceConfig::hypersawMix);
   return p;

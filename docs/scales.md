@@ -18,11 +18,11 @@ The `src/pico2seq-core/scales/` module defines the musical tuning system for the
               │      Internal Audio Synthesis          │     │          External MIDI Output           │
               │         (src/voice/Voice.cpp)          │     │        (Pico2Seq.ino / MidiManager)     │
               │                                        │     │                                         │
-              │  scaleSemitone = scale[s][note+harm]   │     │  scaleSemitone = scale[s][note]         │
-              │  midiNote = scaleSemitone + 48 + oct   │     │  midiNote = scaleSemitone + 36 + oct    │
+              │  scaleTable[s][note+harm]  (injected)  │     │  scaleSemitone = scale[s][note]         │
+              │  midiNote = semitone + 48 + oct        │     │  midiNote = scaleSemitone + 36 + oct    │
               │             ▲                          │     │             ▲                           │
               │             │ C3 Base (MIDI 48)        │     │             │ C2 Base (MIDI 36)         │
-              │                                        │     │                                         │
+              │  (note+harm clamped 0..47, note 0..127)│     │                                         │
               │  frequencyLookupTable[midiNote]        │     │  midiNoteManager.noteOn()               │
               │  -> Oscillator Frequency in Hz         │     │  -> Internal MIDI note (0-127 clamped)    │
               └────────────────────────────────────────┘     └─────────────────────────────────────────┘
@@ -33,10 +33,8 @@ The `src/pico2seq-core/scales/` module defines the musical tuning system for the
 1. **Portability & Host Testability**:
    Like the sequencer core, `src/pico2seq-core/scales/` has zero Arduino or hardware dependencies. It is compiled directly into host unit test binaries (`tests/unit/test_scales.cpp`).
 2. **Decoupled Synthesis Injection**:
-   Synthesis components (such as `Voice`) do not read global scale variables directly. Instead, scale tables and active scale pointers are injected via `Voice::setScaleTable()` and `Voice::setCurrentScalePointer()`. Passing `nullptr` enables chromatic fallback, allowing unit tests to run without global state.
-3. **Precomputed Unique-Degree Rank Cache**:
-   `Voice::setScaleTable()` precomputes scale degree ranks (`scaleUniqueCounts`, `scaleIndexToRank`, `scaleUniqueIndexList`) outside the realtime path, enabling $O(1)$ indexed lookups for harmony and degree transposition during audio processing.
-4. **Dual Pitch Base Offsets**:
+   Synthesis components (such as `Voice`) do not read global scale variables directly. Instead, scale tables and active scale pointers are injected via `Voice::setScaleTable()` and `Voice::setCurrentScalePointer()`. Passing `nullptr` enables chromatic fallback, allowing unit tests to run without global state. Injection does no preprocessing: `setScaleTable()` stores the pointer and marks the cached base frequency dirty (the former precomputed unique-degree rank caches were write-only and were removed 2026-09-05).
+3. **Dual Pitch Base Offsets**:
    - **Internal Audio Synthesis**: Centered at **C3** (MIDI note 48, base +48).
    - **External MIDI Output**: Centered at **C2** (MIDI note 36, base +36).
 
@@ -120,18 +118,28 @@ In `src/voice/Voice.cpp` (`calculateNoteFrequency`):
 ```cpp
 inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset, int harmony) noexcept
 {
-  const int noteIndex = note;
-  uint8_t scaleIndex = 0;
-  if (currentScalePtr)
-    scaleIndex = *currentScalePtr;
+  // Keep note+harmony inside the 48-step scale row even with extreme values.
+  int noteWithHarmony = static_cast<int>(note) + harmony;
+  if (noteWithHarmony < 0)
+    noteWithHarmony = 0;
+  if (noteWithHarmony >= static_cast<int>(SCALE_STEPS))
+    noteWithHarmony = static_cast<int>(SCALE_STEPS) - 1;
 
-  int noteWithHarmony = noteIndex + harmony;
+  // Single lookup path: the injected table when present, otherwise chromatic
+  // mapping (each scale step is one semitone above C3).
+  int scaleSemitone;
+  if (scaleTable != nullptr && scaleTableCount > 0)
+    scaleSemitone = scaleTable[effectiveScaleIndex_()][noteWithHarmony];
+  else
+    scaleSemitone = noteWithHarmony;
 
-  // Lookup semitone directly from scale table
-  int scaleSemitone = scale[scaleIndex][noteWithHarmony];
-
-  // Map to MIDI centered at 48 (C3) and apply octave offset
+  // Map to MIDI centered at 48 (C3) and saturate so the octave offset can
+  // never index past the 128-entry frequency lookup table.
   int midiNote = scaleSemitone + 48 + static_cast<int>(octaveOffset);
+  if (midiNote < 0)
+    midiNote = 0;
+  if (midiNote > 127)
+    midiNote = 127;
 
   return frequencyLookupTable[midiNote];
 }
@@ -141,7 +149,7 @@ inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset, int 
 - **Pitch Range**:
   - Minimum step (0 semitones, -12 octave offset): MIDI note 36 (C2 = 65.41 Hz).
   - Nominal root (0 semitones, 0 octave offset): MIDI note 48 (C3 = 130.81 Hz).
-  - High step (72 semitones, +12 octave offset): MIDI note 132 — beyond the table's 128 entries; sequencer parameter ranges keep the computed note inside the table (there is no runtime clamp on this synthesis path).
+  - Extreme values saturate: an out-of-range MIDI note (e.g. 72 semitones with +12 octave offset = 132) is clamped to 0..127 before the lookup-table read, so the synthesis path can never index out of bounds.
 - **Rationale**: Internal oscillator waveforms and ladder filter character are voiced to sound full and punchy centered in the C3 octave.
 
 ### 4.2 External MIDI Output: C2 Base (+36)
@@ -197,11 +205,11 @@ int8_t mapFloatToOctaveOffset(float octaveValue)
 To prevent out-of-bounds memory access and undefined behavior:
 1. **Step Index Bounds**: `state.noteIndex` is clamped to `[0, SCALE_STEPS - 1]` (`0..47`).
 2. **MIDI Note Clamping**: The final MIDI note number is clamped to `[0, 127]`.
-3. **Scale Index Bounds**: `currentScale` is constrained to `[0, SCALES_COUNT - 1]` (`0..12`). Out-of-bounds pointers fall back to scale index 0.
+3. **Scale Index Bounds**: a missing `currentScale` pointer (or no injected table) selects row 0 of the injected table; an out-of-range queued scale index is clamped to the **last** row (`effectiveScaleIndex_()`), never read out of bounds.
 
 ---
 
-## 6. `Voice::setScaleTable` Precomputed Rank Cache
+## 6. Scale Injection in `Voice` (`setScaleTable` / `setCurrentScalePointer`)
 
 ### 6.1 Purpose & Decoupling
 
@@ -212,91 +220,33 @@ void Voice::setScaleTable(const int (*table)[48], size_t scaleCount);
 void Voice::setCurrentScalePointer(const uint8_t *currentScalePtr);
 ```
 
-When `setScaleTable()` is called during voice initialization, it precomputes lookup structures in `Voice.h` to optimize realtime degree manipulation (e.g. harmony shifts, modal transposition).
+Injection does **no preprocessing**: `setScaleTable()` only stores the table
+pointer and row count and marks the cached base frequency dirty
+(`baseFreqDirty_ = true`). The former precomputed unique-degree rank caches
+(`scaleUniqueCounts` / `scaleIndexToRank` / `scaleUniqueIndexList`) were
+write-only and were removed on 2026-09-05. `VoiceManager::addVoice` injects the
+`scale[]` globals at setup time; host tests pass `nullptr` to both setters to
+exercise the chromatic fallback path.
 
-### 6.2 Cache Data Structures (`Voice.h`)
+### 6.2 Runtime Lookup Behavior (`Voice.cpp`)
 
-```cpp
-std::vector<uint8_t> scaleUniqueCounts;    // Size: scaleCount
-std::vector<uint8_t> scaleIndexToRank;     // Size: scaleCount * 48
-std::vector<uint8_t> scaleUniqueIndexList; // Size: scaleCount * 48 (padded)
-```
-
-- `scaleUniqueCounts[s]`: The total count of distinct pitch degrees in scale `s`.
-- `scaleIndexToRank[s * 48 + i]`: Maps the original 48-step index `i` (`0..47`) to its unique degree rank `u` (`0..uniqueCount - 1`).
-- `scaleUniqueIndexList[s * 48 + r]`: The original scale index (`0..47`) where the `r`-th unique pitch degree begins.
-
-### 6.3 Precomputation Algorithm (`Voice.cpp`)
-
-```cpp
-void Voice::setScaleTable(const int (*table)[48], size_t scaleCount)
-{
-  scaleTable = table;
-  scaleTableCount = scaleCount;
-  baseFreqDirty_ = true;
-
-  scaleUniqueCounts.clear();
-  scaleIndexToRank.clear();
-  scaleUniqueIndexList.clear();
-
-  if (scaleTable == nullptr || scaleTableCount == 0) return;
-
-  scaleUniqueCounts.resize(scaleCount);
-  scaleIndexToRank.resize(scaleCount * 48);
-  scaleUniqueIndexList.resize(scaleCount * 48);
-
-  for (size_t s = 0; s < scaleCount; ++s)
-  {
-    const int *row = scaleTable[s];
-
-    // 1. Identify step boundaries where the pitch value changes
-    uint8_t uniquePos[48];
-    uint8_t uniqueCount = 0;
-    uniquePos[uniqueCount++] = 0; // First unique degree is always step 0
-
-    for (int i = 1; i < static_cast<int>(SCALE_STEPS); ++i)
-    {
-      if (row[i] != row[i - 1])
-      {
-        uniquePos[uniqueCount++] = static_cast<uint8_t>(i);
-      }
-    }
-
-    scaleUniqueCounts[s] = uniqueCount;
-
-    // 2. Populate padded unique index list
-    const size_t base = s * 48;
-    for (uint8_t u = 0; u < uniqueCount; ++u)
-    {
-      scaleUniqueIndexList[base + u] = uniquePos[u];
-    }
-    for (uint8_t u = uniqueCount; u < 48; ++u)
-    {
-      scaleUniqueIndexList[base + u] = uniquePos[uniqueCount - 1]; // Pad remainder
-    }
-
-    // 3. Build index-to-rank mapping
-    for (uint8_t u = 0; u < uniqueCount; ++u)
-    {
-      const uint8_t start = uniquePos[u];
-      const uint8_t end = (u + 1 < uniqueCount) 
-                            ? static_cast<uint8_t>(uniquePos[u + 1] - 1) 
-                            : static_cast<uint8_t>(SCALE_STEPS - 1);
-      for (uint8_t j = start; j <= end; ++j)
-      {
-        scaleIndexToRank[base + j] = u;
-      }
-    }
-  }
-}
-```
-
-### 6.4 Realtime Benefits
-
-By precalculating these arrays on initialization:
-- Degree stepping (e.g. transposing up by $N$ scale degrees regardless of scale step padding) is executed with simple array indexing.
-- Eliminates loops and dynamic branching on Core 1 during real-time sample processing.
-- Guaranteed deterministic $O(1)$ computation time per sample.
+- **Single lookup path**: `calculateNoteFrequency()` reads the **injected**
+  table via `scaleTable[effectiveScaleIndex_()][noteIndex + harmony]`. With no
+  table injected (`nullptr`), it falls back to **chromatic mapping** (scale
+  step = semitone above C3).
+- **Clamping**: `noteIndex + harmony` is clamped to `0..47` and the resulting
+  MIDI note is saturated to `0..127` before the lookup-table read (see section
+  4.1).
+- **Live scale switches**: the control core samples `currentScalePtr_` in
+  setters / `flushControlUpdates()` and queues the index through `Voice`'s
+  bounded control queue — the audio thread never reads the UI global. The
+  effective scale row is part of the pitch snapshot
+  (`PitchSnapshot::scaleIndex`), so a queued scale change marks the static base
+  frequency dirty and the next pitch recompute picks it up (repeated notes
+  repitch too).
+- Because there is no per-scale preprocessing, lookups stay a single array
+  index per sample; degree/harmony transposition indexes the row directly and
+  relies on the clamps above for safety.
 
 ---
 

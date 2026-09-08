@@ -16,8 +16,11 @@ To enable rapid, automated regression testing, Pico2Seq employs a **host-side un
 Application glue lives in `src/app/`; see the
 [firmware structure guide](firmware-structure.md). `test_app_runtime.cpp`
 checks every PCM16 level, clipping/truncation and hand-distance recording
-calibration (`[app]`). The Arduino build checks the hardware-bound app `.cpp`
-files; host CMake does not compile that startup/I2S/control glue.
+calibration (`[app]`). Two `src/app` headers are pure enough to host-test and
+are compiled in as exceptions: `Pcm16.h` (`AudioSamples::toPcm16`, `<cmath>`
+only) and `AppState.h`'s `PerformanceInput` (the rest of `AppState.h` resolves
+through existing stubs). The Arduino build checks the hardware-bound app
+`.cpp` files; host CMake does not compile that startup/I2S/control glue.
 
 ```
                      PICO2SEQ CODEBASE
@@ -43,33 +46,46 @@ files; host CMake does not compile that startup/I2S/control glue.
 | Tier | Subsystem | Files | Testing Approach |
 |---|---|---|---|
 | **Tier 1: Zero Deps** | DSP & Sound Synthesis | `src/rpdsp/`, `src/voice/VoiceOscillator.h` | Pure math, `<cmath>`, `<variant>`, `<array>`. Tested natively. |
+| **Tier 1: Zero Deps** | Audio Sample Conversion | `src/app/Pcm16.h` (`AudioSamples::toPcm16`) | Clamp → truncate → saturate math incl. the host `__SSAT` fallback. Tested natively. |
 | **Tier 1: Zero Deps** | Sequencer Core Templates | `src/pico2seq-core/sequencer/SequencerDefs.h` | Template data structures (`ParameterTrack<N>`). Tested natively. |
 | **Tier 1: Zero Deps** | UI Control Surface Logic | `src/ui/ControlSurfaceLogic.h/.cpp` | Pure state machines (`ModeStabilizer`, `PadBank`, `ShiftLatch`, `FaderMap`). Tested natively. |
 | **Tier 1: Zero Deps** | Alchemy Tile Wire Format | `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` | Pure C++ register/frame decoding — no Arduino, no Wire. Tested natively. |
 | **Tier 2: Light Stubs** | Musical Scales | `src/pico2seq-core/scales/scales.cpp` | Requires minimal `Arduino.h` type aliases (`uint8_t`, `String`). |
 | **Tier 2: Light Stubs** | Sequencer Logic | `src/pico2seq-core/sequencer/{Sequencer,ParameterManager}.cpp` | Requires `Arduino.h` and `pico/sync.h` spinlock stubs. |
-| **Tier 2: Light Stubs** | Voice & Presets | `src/voice/{Voice,VoicePresets}.cpp` | Requires staged parameter and scale table injection. |
-| **Tier 3: Hardware-Bound** | I2S, LED, OLED, MIDI, Sensors | `src/audio/`, `src/LEDMatrix/`, `src/OLED/`, `src/midi/`, `src/sensors/` | Hardware-dependent glue. Kept thin; validated on physical hardware. |
+| **Tier 2: Light Stubs** | Voice & Presets | `src/voice/{Voice,VoicePresets,VoiceParameters,VoiceManager}.cpp` | Requires staged parameter and scale table injection. |
+| **Tier 2: Light Stubs** | App Runtime Headers | `src/app/{Pcm16.h,AppState.h}` via `test_app_runtime.cpp` | `PerformanceInput` distance calibration + PCM16; `AppState.h` pulls UIState/Sequencer/VoiceManager headers (stubs). |
+| **Tier 2: Light Stubs** | Lock-free Tick Handoff | `src/utils/PendingTickCounter.h` via `test_pending_tick_counter.cpp` | `<atomic>` + `<thread>` only — the clock target needs no stubs at all. |
+| **Tier 3: Hardware-Bound** | I2S, LED, OLED, MIDI, Sensors, app glue | `src/audio/`, `src/LEDMatrix/`, `src/OLED/`, `src/midi/`, `src/sensors/`, `src/app/*.cpp` | Hardware-dependent glue. Kept thin; validated on physical hardware. |
 
 ---
 
 ## Host Unit Test Suites
 
-The host test executable (`pico2seq_tests`) links all unit suites under `tests/unit/`:
+`tests/CMakeLists.txt` defines **three test targets**:
+
+| Target | Contents | CTest prefix / timeout |
+|---|---|---|
+| `pico2seq_tests` | The full suite: all unit files below + scales, Sequencer, ParameterManager, Voice, VoicePresets, VoiceParameters, VoiceManager, ControlSurfaceLogic | (none) |
+| `pico2seq_clock_tests` | **Only** `test_pending_tick_counter.cpp` against `src/utils/PendingTickCounter.h`. Include path is `${SRC_DIR}` alone — **no stub directory**, no DSP, no Catch2-main extras. Runs wherever atomics + threads exist. | `clock-focused: `, 60 s |
+| `pico2seq_voice_tests` | Focused voice suite: `test_helpers`, `test_voice`, `test_voice_recipes`, `test_voiceoscillator`, `test_voice_transfer` + scales/Sequencer/ParameterManager and the four voice `.cpp` files | `voice-focused: `, 60 s |
+
+The main executable (`pico2seq_tests`) links all unit suites under `tests/unit/`:
 
 | # | Test Suite File | Tested Components | Key Test Areas |
 |---|---|---|---|
 | 1 | `tests/unit/test_helpers.cpp` | Global Test Helper Symbols | Provides single definition of extern symbols (`slideMode`, `MAX_DELAY_SAMPLES`) |
-| 2 | `tests/unit/test_rpdsp_additions.cpp` | `rpdsp` DSP Extensions | `dspmap::fmap` curves (local carry-over), Waveshaper transfer functions, DSPFunctions |
+| 2 | `tests/unit/test_rpdsp_additions.cpp` | `rpdsp` DSP Extensions | `dspmap::fmap` curves (local carry-over), Waveshaper transfer functions, DSPFunctions (`[rpdsp][recipes][vendored]`) |
 | 3 | `tests/unit/test_dsp_recipe_regressions.cpp` | `rpdsp` Recipe Regressions | ADSR envelope curves and retriggers, compressor across sample rates, vowel/tape/frequency-shifter/buffer recipes (`[recipe_regression]`) |
 | 4 | `tests/unit/test_scales.cpp` | Musical Scale Lookup Tables | 13 scales monotonic ordering, root notes at 0, MIDI boundary validation, chromatic fallback |
-| 5 | `tests/unit/test_sequencer.cpp` | Core Step Sequencer | `ParameterTrack<N>` wrapping, `NoteDurationTracker` countdowns, start/stop, gate toggling |
-| 6 | `tests/unit/test_voice.cpp` | Synthesizer Voice Engine | Voice state transitions, staged parameter application on `process()`, scale injection, filter sweep, preset registry (15 named presets, engine selection, finite bounded audio per preset), waveguide / noise-FX engine behavior |
-| 7 | `tests/unit/test_voice_transfer.cpp` | `Voice` control→audio handoff | `SpscQueue` FIFO ordering, no torn multiword payloads under concurrent transfers, queued gate edges reach samples (`[voice_transfer]`) |
-| 8 | `tests/unit/test_voiceoscillator.cpp` | Voice Oscillator Dispatch | `VoiceOscillator` variant dispatch, band-limited waveforms, pulse width modulation, pitch changes |
-| 9 | `tests/unit/test_control_surface_logic.cpp` | Tile UI Decision Logic | `ModeStabilizer` debouncing, `PadBank` voice-pair resolution, `ShiftLatch` latching, `FaderMap` deadband |
-| 10 | `tests/unit/test_alchemy_proto.cpp` | Alchemy Tile Wire Format | Per-tile-type button block offsets (slider DATA 8..10 vs button DATA 0..2), fader decode, SEQ/STATUS decode, frame checksum, identity validation, `TileButton` press/hold/tap |
-| 11 | `tests/unit/test_pending_tick_counter.cpp` | PPQN ISR Handoff | Empty/single batches, 70,000-tick backlog, arrivals during drain, concurrent conservation of 1,000,000 ticks (`[ppqn]`) |
+| 5 | `tests/unit/test_sequencer.cpp` | Core Step Sequencer | `ParameterTrack<N>` wrapping, `NoteDurationTracker` countdowns, start/stop, gate toggling (`[sequencer][paramtrack][duration][envelope_ctrl][seqdefs]`) |
+| 6 | `tests/unit/test_voice.cpp` | Synthesizer Voice Engine | Voice state transitions, staged parameter application on `process()`, scale injection, filter sweep, preset registry (21 named presets, engine selection, finite bounded audio per preset), waveguide / noise-FX engine behavior |
+| 7 | `tests/unit/test_voice_recipes.cpp` | Recipe voices & preset registry | Case-insensitive name lookup, preset paging across bank sizes, `VoiceParameters::seedTracks` preserving musical lanes, per-lane timbre response, bounded extremes across pitches/sample rates, gate-off/retrigger envelopes, recipe coefficient recalcs (`[voice][presets]`, `[voice][recipes]`) |
+| 8 | `tests/unit/test_voice_transfer.cpp` | `Voice` control→audio handoff | `SpscQueue` FIFO ordering, no torn multiword payloads under concurrent transfers, queued gate edges reach samples (`[voice_transfer]`) |
+| 9 | `tests/unit/test_voiceoscillator.cpp` | Voice Oscillator Dispatch | `VoiceOscillator` variant dispatch, band-limited waveforms, pulse width modulation, pitch changes |
+| 10 | `tests/unit/test_control_surface_logic.cpp` | Tile UI Decision Logic | `ModeStabilizer` debouncing, `PadBank` voice-pair resolution, `ShiftLatch` latching, `FaderMap` deadband |
+| 11 | `tests/unit/test_alchemy_proto.cpp` | Alchemy Tile Wire Format | Per-tile-type button block offsets (slider DATA 8..10 vs button DATA 0..2), fader decode, SEQ/STATUS decode, frame checksum, identity validation, `TileButton` press/hold/tap |
+| 12 | `tests/unit/test_pending_tick_counter.cpp` | Lock-free ISR tick handoff | Empty/single batches, 70,000-tick backlog, arrivals during drain, concurrent conservation of 1,000,000 ticks (`[ppqn]`, `[ppqn][concurrency]`) |
+| 13 | `tests/unit/test_app_runtime.cpp` | App runtime headers | `AudioSamples::toPcm16()` round-trips every PCM16 level; clamp/truncate-toward-zero/saturate semantics incl. the host `__SSAT` fallback (`[app][pcm]`); `AppState::PerformanceInput` distance calibration — 74 mm min / 1400 mm max, `recordingValue()` divides by MAX (not MAX−MIN, so max distance records ≈0.947, not 1.0), out-of-range readings reset to 0 (`[app][recording]`) |
 
 ---
 
@@ -140,8 +156,18 @@ ctest --test-dir build_test --output-on-failure
 # Run only voice-transfer (SpscQueue control handoff) tests
 ./build_test/tests/pico2seq_tests "[voice_transfer]"
 
-# Run only PPQN tick handoff tests
+# Run only lock-free PPQN tick handoff tests
 ./build_test/tests/pico2seq_tests "[ppqn]"
+# ...or from the stub-free focused binary (no DSP/hardware deps)
+./build_test/tests/pico2seq_clock_tests "[ppqn]"
+
+# Run only app-runtime header tests (PCM16 + hand-distance calibration)
+./build_test/tests/pico2seq_tests "[app]"
+./build_test/tests/pico2seq_tests "[pcm]"
+./build_test/tests/pico2seq_tests "[recording]"
+
+# Run only recipe-voice tests (engine recipes + preset registry/paging)
+./build_test/tests/pico2seq_tests "[recipes]"
 
 # Run only voice oscillator tests
 ./build_test/tests/pico2seq_tests "[voiceosc]"
@@ -161,6 +187,12 @@ ctest --test-dir build_test --output-on-failure
 # List all test cases without running
 ./build_test/tests/pico2seq_tests --list-tests
 ```
+
+Full tag map: `[alchemy_proto] [app] [concurrency] [control_surface]
+[duration] [envelope_ctrl] [paramtrack] [pcm] [presets] [ppqn]
+[recipe_regression] [recipes] [recording] [rpdsp] [scales] [seqdefs]
+[sequencer] [vendored] [voice] [voice_transfer] [voiceosc]`. There are **no**
+`[audio]`/`[midi]` tags — those dirs are untested by design (hardware-bound).
 
 ---
 
@@ -208,21 +240,34 @@ When testing files that declare `extern` globals (e.g. `slideMode` or `MAX_DELAY
 ### Voice ownership regression suite
 
 Build `pico2seq_voice_tests` and run `build_test/tests/pico2seq_voice_tests`
-(`.exe` on Windows). This focused target includes voice/oscillator tests,
-VoiceManager integration, queue wrap/full cases, gate ordering, and concurrent
-producer/consumer stress. Use `[voice_transfer]` for ownership tests only.
-The full `pico2seq_tests` target includes these tests and the DSP recipe suite;
-a passing focused target does not imply the full suite builds. Hardware audio
-timing and listening remain bench checks.
+(`.exe` on Windows; add `Debug/` with multi-configuration generators; CTest
+lists its cases under the `voice-focused: ` prefix, 60 s timeout). This focused
+target includes voice/oscillator tests, the recipe/preset registry suite
+(`test_voice_recipes.cpp`), VoiceManager integration, queue wrap/full cases,
+gate ordering, and concurrent producer/consumer stress. Use
+`[voice_transfer]` for ownership tests only. The full `pico2seq_tests` target
+includes these tests and the DSP recipe suite; a passing focused target does
+not imply the full suite builds. Hardware audio timing and listening remain
+bench checks.
 
 ### PPQN tick handoff regression suite
 
 Build `pico2seq_clock_tests` and run `build_test/tests/pico2seq_clock_tests`
-(`.exe` on Windows; add `Debug/` with multi-configuration generators). This target
-uses the same `PendingTickCounter` as the ISR and control loop without DSP or
-hardware dependencies. Coverage includes empty/single batches, a 70,000-tick
+(`.exe` on Windows; add `Debug/` with multi-configuration generators; CTest
+lists its cases under the `clock-focused: ` prefix, 60 s timeout). This target
+exercises `src/utils/PendingTickCounter.h` — a lock-free atomic counter
+(`post()` = `fetch_add(relaxed)`, `takeAll()` = `exchange(0, relaxed)`,
+`static_assert`ed lock-free) — without DSP or hardware dependencies; it needs
+no stub headers at all. Coverage includes empty/single batches, a 70,000-tick
 backlog, ISR arrivals during batch processing, and concurrent conservation of
 1,000,000 ticks. These tests also run in the full `pico2seq_tests` target.
+
+> **Wiring status:** `PendingTickCounter` is the *tested fix*, not the shipped
+> behavior — `ClockService.cpp` still stages PPQN ticks in a plain
+> `volatile uint32_t ppqnTicksPending` with increment/decrement, whose
+> lost-increment window remains open. Swapping the counter in is a deliberate
+> follow-up.
+
 Firmware compilation checks target atomic support; interrupt timing remains a
 hardware check.
 

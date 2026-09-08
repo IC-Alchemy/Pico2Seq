@@ -161,7 +161,7 @@ class VoiceOscillator {
   float sampleRate_ = 48000.0f;
   float freqHz_ = 440.0f;
   float slaveFrequencyHz_ = 440.0f;
-  float pulseWidth_ = 0.5f;
+  float pulseWidth_ = 0.53f;
   uint8_t waveform_ = WAVE_BSP_SAW;
   Osc osc_{rpdsp::BSplineSawOsc{}};
 };

@@ -24,9 +24,10 @@ work during each control-loop pass.
 | Step lengths, scales or sequencer rules | Portable `src/pico2seq-core/` |
 
 The app modules connect existing subsystems. USB MIDI is disabled in this
-checkout. `MidiNoteManager` compatibility calls still participate in software
-gate/note bookkeeping; changing them needs a separate musical-behavior review.
-There is no sketch-level persistence service.
+checkout — there is no MIDI input path either (`MidiManager` reads nothing; USB
+carries power and the CDC console only). `MidiNoteManager` compatibility calls
+still participate in software gate/note bookkeeping; changing them needs a
+separate musical-behavior review. There is no sketch-level persistence service.
 
 ## The order matters
 
@@ -48,7 +49,8 @@ Controls are due every 1 ms; displays every 20 ms (50 Hz). These are minimum
 intervals, not deadlines or catch-up loops. Slow bus/display work can extend a
 pass. Unsigned subtraction preserves timer-wrap behavior.
 
-`processSequencerStep()` advances all four voices in order, applies all four
+`processSequencerStep()` (`src/app/StepPlayback.cpp`) advances all four voices in
+order, applies all four
 encoder offsets, then stages voice updates. Only the selected voice receives
 hand-distance input. Voices 1/2 keep software gate timers; voices 3/4 retain
 their audio-only path (indices 0/1 and 2/3 in code). The clock step still goes
@@ -87,11 +89,14 @@ uses a four-entry SPSC queue: Core 1 snapshots IDs and a buffer counter;
 Core 0 prints the existing message. Full diagnostic queues drop new reports
 without delaying sound. Reports can be delayed by Core 0 work.
 
-uClock's Core 0 ISR only stages steps and PPQN ticks. The step queue retains
+uClock's Core 0 ISR only stages steps and PPQN ticks (all in
+`src/app/ClockService.cpp`). The step queue retains
 16 usable entries and drops new steps when full. PPQN pending state is now
 explicitly `volatile` for ISR visibility, but its **existing read/modify/write
 race remains**: an interrupt between a decrement's load and store can lose a
-tick. A separate counter-policy fix needs timing regression and bench tests.
+tick. A separate counter-policy fix (`src/utils/PendingTickCounter.h` — lock-free
+`post()`/`takeAll()`, already host-tested under `[ppqn]` and
+`pico2seq_clock_tests`) needs timing regression and bench tests before wiring in.
 
 The global delay remains disabled by `src/FeatureConfig.h`. Its optional DSP,
 defaults and control globals retain their original behavior. When enabled,
@@ -118,9 +123,10 @@ ctest --test-dir build_test --output-on-failure
 ```
 
 `[app]` tests cover PCM conversion and distance calibration. Existing tests
-cover voices/queues, sequencing, control-surface logic and tile protocol.
-Neither host tests nor compilation verify physical controls, bus timing,
-I2S timing or sound. See [testing.md](testing.md).
+cover voices/queues, sequencing, control-surface logic, the PPQN counter policy
+(`[ppqn]` tag, plus the standalone `pico2seq_clock_tests` target) and tile
+protocol. Neither host tests nor compilation verify physical controls, bus
+timing, I2S timing or sound. See [testing.md](testing.md).
 
 Before a performance, check cold/warm boot; play/stop and long runs across
 step wrap; all four voice selections and preset changes; gate/retrigger/slide

@@ -70,7 +70,7 @@ struct VoiceConfig
       WAVE_BSP_SAW,
       WAVE_BSP_SAW,
       WAVE_BSP_SAW};
-  float oscAmplitudes[3] = {0.5f, 0.5f, 0.5f}; // Oscillator amplitudes (0.0-1.0)
+  float oscAmplitudes[3] = {0.33f, 0.33f, 0.33f}; // Oscillator amplitudes (0.0-1.0)
   float oscDetuning[3] = {0.0f, 0.0f, 0.0f};   // Detuning in semitones (-12.0 to +12.0)
   float oscPulseWidth[3] = {0.5f, 0.5f, 0.5f}; // Pulse width for square/pulse waves (0.0-1.0)
   int harmony[3] = {0, 0, 0};                  // Harmony intervals in scale steps (-12 to +12)
@@ -106,7 +106,7 @@ struct VoiceConfig
   float noiseDiffuseMix = 0.7f;  // Diffuser wet amount (0.0-1.0)
   float noiseSwarmColor = 0.5f;  // Allpass swarm tone (0.0-1.0)
   float noiseSwarmRegen = 0.9f;  // Allpass swarm regeneration (0.0-1.2)
-  float noiseChaosLevel = 0.35f; // Pitch-tracked chaos_lorenz growl mix (0.0-1.0)
+  float noiseChaosLevel = 0.3f; // Pitch-tracked chaos_lorenz growl mix (0.0-1.0)
 
   // Filter settings. filterType picks the topology; filterDrive and
   // filterPassbandGain only affect the ladder and are ignored by the SVF.
@@ -132,13 +132,13 @@ struct VoiceConfig
   float overdriveDrive = 0.25f;  // Overdrive drive amount (0.0-1.0)
 
   // Envelope default settings
-  float defaultAttack = 0.04f; // Default attack time in seconds (0.001-10.0)
-  float defaultDecay = 0.14f;  // Default decay time in seconds (0.001-10.0)
+  float defaultAttack = 0.01f; // Default attack time in seconds (0.001-10.0)
+  float defaultDecay = 0.07f;  // Default decay time in seconds (0.001-10.0)
   float defaultSustain = 0.5f; // Default sustain level (0.0-1.0)
-  float defaultRelease = 0.2f; // Default release time in seconds (0.001-10.0)
+  float defaultRelease = 0.14f; // Default release time in seconds (0.001-10.0)
 
   // Voice mixing
-  float outputLevel = 0.6f; // Voice output level (0.0-1.0)
+  float outputLevel = 0.25f; // Voice output level (0.0-1.0)
   bool enabled = true;      // Voice enabled state
 };
 

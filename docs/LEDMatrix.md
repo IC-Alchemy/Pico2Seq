@@ -17,7 +17,7 @@ The panel **mirrors the touch matrix**: the MPR121 touch surface (`src/matrix/`)
 - **LED Type:** WS2812B Addressable RGB LEDs
 - **Matrix Dimensions:** 8 columns × 4 rows (32 total LEDs)
 - **Data Pin:** `GPIO 1` (`LEDConstants::MATRIX_DATA_PIN`)
-- **Default Brightness:** `LEDConstants::DEFAULT_BRIGHTNESS` = 120 (on a 0–255 scale); the sketch initializes the matrix with `ledMatrix.begin(100)` in `setup1()`, so runtime brightness is 100.
+- **Default Brightness:** `LEDConstants::DEFAULT_BRIGHTNESS` = 120 (on a 0–255 scale); boot calls `ledMatrix.begin(100)` (`kStartupLedBrightness` in `ControlIO::beginMainBusAndLeds()`, `src/app/ControlIO.cpp`), so runtime brightness is 100.
 - **Power Supply:** 5V rail capable of supplying up to ~1.5A for full-white illumination; internal brightness scaling is applied to limit peak current draw.
 
 ---
@@ -148,7 +148,7 @@ Implements the multi-mode sequencing and navigation visualizer:
 2. **Step Gate & Playhead Visualization:** Displays active gates for the current voice pair across band rows 0–1 (pair low voice) and 2–3 (pair high voice), with a distinct `playheadAccent` indicating the current 16th-note playhead position.
 3. **Polyrhythmic Track Overlays:** Visualizes independent parameter track step lengths and positions for Note, Velocity, and Filter tracks.
 4. **Parameter Edit Mode:** Shows step values, track lengths, and value adjustments when holding a parameter button or editing a step.
-5. **Settings & Preset Selection:** Shows voice configurations and allows scrolling through the 15 voice presets with cursor highlighting.
+5. **Settings & Preset Selection:** Shows voice configurations and allows scrolling through the 15 voice presets with cursor highlighting. Presets are paginated (`VoicePresets::kPresetsPerPage = 24`): the pads `8 .. 7 + presetCountOnPage()` light for the current page, and page-navigation pads 6/7 (`kPreviousPagePad`/`kNextPagePad`) light when a previous/next page exists (`updateSettingsModeLEDs` in `LEDMatrixFeedback.cpp`).
 
 #### 10 LED Color Themes (`enum class LEDTheme`)
 
@@ -193,7 +193,7 @@ src/LEDMatrix/
 
 ## Performance & Concurrency Considerations
 
-- **Dual-Core Execution:** All LED rendering occurs exclusively on **Core 0** (`loop()`) at a ~50 Hz (20 ms) update rate, leaving Core 1 dedicated to real-time 48 kHz audio processing.
+- **Dual-Core Execution:** All LED rendering occurs exclusively on **Core 0** — `updateStepLEDs(...)` + `ledMatrix.show()` run in `ControlIO::refreshDisplays(nowMs)` (`src/app/ControlIO.cpp`), called from `Application::update()` (Core 0 `loop()`) at a 20 ms (`kDisplayIntervalMs`) update rate, leaving Core 1 dedicated to real-time 48 kHz audio processing.
 - **Batching:** Frame changes are drawn into an internal buffer and updated to hardware with a single `ledMatrix.show()` call per frame.
 - **Zero Heap Allocations:** All color calculations, blending tables, and state trackers use static memory.
 

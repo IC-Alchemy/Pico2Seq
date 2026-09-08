@@ -18,6 +18,19 @@ The OLED provides real-time visualization of parameter values, sequence lengths,
 - **I2C Address:** `0x3C` (`OLEDConstants::I2C_ADDRESS`)
 - **Reset Pin:** `-1` (unconnected / software reset)
 - **Display Dimensions:** 128 pixels wide × 64 pixels high
+- **I2C Clock:** the `Adafruit_SH1106G` object is constructed with
+  `preclk=400000`, so every OLED frame push (`display()`) runs at 400 kHz fast
+  mode — it always has. The *durable* bus clock is the `postclk` constructor
+  argument, because `Adafruit_SH110X` re-programs `Wire` to `postclk` after
+  each frame: `100000` by default, `400000` when `PICO2SEQ_I2C_FASTMODE=1`
+  (see [`src/FeatureConfig.h`](../src/FeatureConfig.h)). The main `Wire` bus
+  itself has **no** `setClock()` call by default (arduino-pico default speed);
+  the opt-in flag adds `Wire.setClock(400000)` in
+  `ControlIO::beginMainBusAndLeds()` to cover the window before the first
+  frame push. Default is **OFF**: the 2026-09-07 bench run showed constant
+  OLED glitches and freezes with 400 kHz idle/sensor traffic on this rig
+  (matching the Wire1 tile-bus finding), so the flag exists to opt in per
+  build, not to enable by default.
 
 ---
 
@@ -89,9 +102,8 @@ Activated when `uiState.settingsMode` is true:
 - **Preset Selection Sub-Mode (`SettingsSubMode::PRESET_SELECTION`):**
   - Reachable while the transport runs (long-press Play/Stop toggles settings; short-press while running inside settings exits without stopping).
   - Displays currently selected preset name centered in size-2 text.
-  - Previous (`<`) and next (`>`) preset previews.
-  - Preset counter (`1/15` through `15/15`; dynamic from `VoicePresets::getPresetCount()`).
-  - All 15 presets are selectable on matrix pads 8–22 (`VoicePresets::presetIndexForPad`); the prompt line shows the live pad range (e.g. "Pads 8-22").
+  - Preset counter (`#1/21` through `#21/21` for the current 21-preset bank; dynamic from `VoicePresets::getPresetCount()`).
+  - Presets are paginated: `VoicePresets::kPresetsPerPage = 24` pads per page (pads 8–31, `VoicePresets::presetIndexForPad`), with `pad 6` = previous page and `pad 7` = next page (`kPreviousPagePad` / `kNextPagePad`). The prompt line shows the live pad range for the current page (`Pads 8-28` for the 21-preset bank, which fits on one page) plus `Page x/y 6< >7`.
   - When browsing root settings, displays the **"Sound Buffet"** listing current presets assigned across all 4 voices (0–3).
 
 The parameter name/value screens are preset-aware: for voices whose preset re-purposes the
@@ -191,6 +203,14 @@ public:
 
 private:
   void forceUpdate(const UIState &uiState, VoiceManager *voiceManager);
+
+  // Frame-shadow commit gate (see below)
+  static constexpr uint16_t kFrameBytes =
+      OLEDConstants::SCREEN_WIDTH * OLEDConstants::SCREEN_HEIGHT / 8; // 1024
+  uint8_t frameShadow_[kFrameBytes];   // poisoned to 0xFF in the constructor
+  uint32_t lastFramePushMs = 0;
+  static constexpr uint32_t kForcedRefreshMs = 2000;
+  void commitFrame();
 };
 
 extern OLEDDisplay oledDisplay;
@@ -198,10 +218,45 @@ extern OLEDDisplay oledDisplay;
 
 ---
 
+## Frame-Shadow Commit Gate (`commitFrame()`)
+
+Every view redraws the whole framebuffer after `clearDisplay()`, which resets
+Adafruit's dirty-window tracking — the library's partial-update transfer never
+engages and each `display()` costs a full ~1 KB I2C frame push, even when the
+screen is static. That push was the single largest consumer of the Core-0 loop
+budget, so `commitFrame()` gates every physical transfer:
+
+1. `memcmp` the live framebuffer (`displayHardware.getBuffer()`) against
+   `frameShadow_` (a copy of what the panel actually shows, `kFrameBytes` =
+   128×64/8 = 1024 bytes).
+2. If they match **and** less than `kForcedRefreshMs` (2000 ms) has passed
+   since the last push, skip the I2C transfer entirely.
+3. Otherwise call `display()` once, copy the buffer into `frameShadow_`, and
+   stamp `lastFramePushMs`.
+
+Two details make the gate safe:
+
+- `frameShadow_` is `memset` to `0xFF` in the constructor, so the first
+  `commitFrame()` after `begin()` always sees the freshly cleared buffer as
+  "changed" and actually transfers it.
+- **Self-heal forced refresh:** `display()` is fire-and-forget (no I2C
+  ACK/error feedback), so if a push is corrupted at the wire level the shadow
+  ends up matching the buffer while the panel shows garbage — and the gate
+  would never re-push. A power glitch that resets the panel fails identically.
+  The `kForcedRefreshMs` periodic re-push bounds either failure to a ~2 s
+  visual artifact instead of a permanent freeze; the ~24 ms cost lands once
+  per interval.
+
+All drawing paths funnel through `commitFrame()` (including `clear()`), so
+static screens cost zero I2C traffic.
+
+---
+
 ## Concurrency & Performance
 
-- **Core 0 Execution:** All OLED drawing, formatting, and I2C transmission occur on **Core 0** inside `loop()` at a dedicated 50 Hz frame rate (~20 ms interval).
-- **Single-Frame Buffer:** Geometry and text operations write into Adafruit GFX's 1024-byte RAM buffer, followed by a single non-blocking `display()` burst over I2C.
+- **Core 0 Execution:** All OLED drawing, formatting, and I2C transmission occur on **Core 0** inside `ControlIO::refreshDisplays(nowMs)` (called from `Application::update()`, which is `loop()`) at a 20 ms interval (`kDisplayIntervalMs`, 50 frames/s). Boot/init runs in `ControlIO::beginDisplay()`; the voice-change observer is registered in `ControlIO::observeVoiceChanges()`.
+- **Frame-Shadow Gate:** Unchanged frames skip the I2C push entirely (see above), so idle screens cost no bus time; only genuinely redrawn frames pay the ~1 KB transfer at the SH1106G's 400 kHz `preclk`.
+- **Single-Frame Buffer:** Geometry and text operations write into Adafruit GFX's 1024-byte RAM buffer, followed by at most one non-blocking `display()` burst over I2C per refresh.
 - **Zero Heap Allocations:** Frame rendering avoids dynamic strings in the hot path, utilizing static buffers and integer math.
 
 ---

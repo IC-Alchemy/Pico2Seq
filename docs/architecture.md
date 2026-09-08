@@ -34,7 +34,7 @@ Pico2Seq/
 │   ├── LEDMatrix/          # 8x4 WS2812B FastLED matrix (mirrors the 4x8 touch matrix)
 │   ├── OLED/               # 128x64 SH1106G I2C OLED display driver and view hierarchy
 │   ├── midi/               # Internal MIDI note lifecycle (USB MIDI transmission removed 2026-09-06)
-│   └── utils/              # Debug.h/.cpp lightweight logging utilities
+│   └── utils/              # Debug logging, SpscQueue, PendingTickCounter, FreezeWatchdog, DspMapping
 └── tests/                  # Catch2 v3.5.2 host unit tests with hardware header stubs
 ```
 
@@ -86,39 +86,53 @@ disabled; TinyUSB CDC remains available for the serial console.
     stock default alarm pool already puts the ISR where it belongs.
   - Default tempo: 90 BPM; resolution: 480 PPQN (`PPQN_480`); shuffle on via
     `uClock.setShuffle(true)` using templates from `ShuffleTemplates.h`.
-  - Initialized in `setup()` on Core 0, so the timer ISR fires on Core 0.
-  - ISR-context callbacks stage events only — no work (2026-09-05 deferral refactor):
-    `onStepCallback` enqueues the 16th-note step number into a 16-deep SPSC ring
-    `stepQueue`, a `SpscQueue<uint32_t, 16>` from `src/utils/`; a full ring drops the
-    new step and counts into `droppedStepCount`); `onOutputPPQNCallback` posts to
-    `ppqnTicksPending`, a lock-free atomic `PendingTickCounter`. The firmware sends
-    **no MIDI realtime clock output** — no Clock, Start, or Stop bytes go out over USB MIDI.
+  - Initialized from `Application::begin()` on Core 0 via `ClockService::initializeClock()`
+    (`src/app/ClockService.cpp`), so the timer ISR fires on Core 0.
+  - ISR-context callbacks stage events only — no work (2026-09-05 deferral refactor;
+    all clock staging lives in `src/app/ClockService.cpp`): `onStepCallback` enqueues
+    the 16th-note step number into a 16-deep SPSC ring (`clockEvents.steps`, a
+    `SpscQueue<uint32_t, 16>` from `src/utils/`); a full ring drops the new step and
+    counts into `clockEvents.droppedSteps`. `onOutputPPQNCallback` increments
+    `ppqnTicksPending` — a plain `volatile uint32_t`, **not** the lock-free
+    `PendingTickCounter`: that class exists (`src/utils/PendingTickCounter.h`,
+    host-tested under the `[ppqn]` tag and the standalone `pico2seq_clock_tests`
+    target) but is not wired into the clock path yet (see the PPQN Drain Loop below
+    and §3). The firmware sends **no MIDI at all** — no note, CC, or realtime-clock
+    bytes leave the device (USB MIDI removed 2026-09-06; USB carries power and the
+    CDC serial console only).
   - Thread-context callbacks: `onClockStart` / `onClockStop` keep their full bodies
-    inline — `uClock.start()/stop()` are called from `setup()`/UI handlers (thread),
-    never the ISR (uClock is master, no external clock input), so nothing there
-    preempts.
-- **Clock Event Drain** (in `loop()`, same core as the ISR):
-  - `processClockEvents()` runs first in the timing section: dequeues steps into
-    `processSequencerStep()` (the full 16th-note work — advances all four sequencers,
+    (start/stop all four sequencers, `midiNoteManager.onSequencerStop()`,
+    `isClockRunning`) — `uClock.start()/stop()` are called from thread context
+    (`Application::begin()` / UI handlers), never the ISR (uClock is master, no
+    external clock input), so nothing there preempts.
+- **Clock Event Drain** (`ClockService::processClockEvents()`, called from
+  `Application::update()` in `loop()`, same core as the ISR):
+  - Dequeues steps into `processSequencerStep()` (`src/app/StepPlayback.cpp` — the
+    full 16th-note work — advances all four sequencers,
     routes sensor values, pushes `VoiceState`s into `voiceSystem`, stages voice
-    parameters, sends gate/MIDI note events).
+    parameters, and routes gate events plus internal note-lifecycle updates).
   - USB MIDI transmission remains disabled; compatibility note bookkeeping stays
     in the control thread.
   - Sequencer/midiNoteManager state is also single-context now (the old same-core
     ISR-preempts-thread reentrancy hazard on these structures is gone; a step can
     only be processed between `loop()` iterations, adding at most one loop-cycle of
     latency to note timing).
-- **PPQN Drain Loop** (in `loop()`, same core as the ISR):
-  - Atomically takes one batch from `ppqnTicksPending` with `takeAll()` and drains
-    a local count. ISR increments cannot be overwritten by the drain; ticks arriving
-    after the snapshot remain pending for the next `loop()` iteration. Atomics use
-    relaxed ordering because the counter carries no associated payload. Fewer than
-    2^32 ticks may accumulate between snapshots.
-  - Advances `midiNoteManager.updateTiming(globalTickCounter)`.
+- **PPQN Drain Loop** (`ClockService::processPendingGateTicks()`, called from
+  `Application::update()` in `loop()`, same core as the ISR):
+  - Consumes `ppqnTicksPending` with the original decrement-then-process policy:
+    while the volatile counter reads nonzero it is decremented **first**, then one
+    tick is processed (a 16-bit `gateTick` counter feeds
+    `midiNoteManager.updateTiming()`). There is no atomic batch snapshot — ticks are
+    consumed one at a time until the counter reads zero — and an ISR increment
+    landing between a decrement's read and its write can still be lost (the
+    pre-existing lost-increment window documented in §3). The tested-but-unwired
+    `PendingTickCounter` (single relaxed `exchange(0)` batch take, no read/clear
+    window) is the intended replacement.
+  - Advances `midiNoteManager.updateTiming(gateTick)`.
   - Advances sequencer note durations (`seq1/seq2.tickNoteDuration()`).
   - Ticks gate countdown timers (`voiceSystem.tickAllGateTimers()`).
 - **1ms Sensor and Control Loop**:
-  - `Matrix_scan()`: Scans MPR121 32 capacitive touch step pads over I2C0 (Wire: GP4/GP5 @ 0x5A).
+  - `Matrix_scan()`: Scans MPR121 32 capacitive touch step pads over I2C0 (Wire: GP4/GP5 @ 0x5A). The control slice fires every 1 ms, but the MPR121 poll itself self-throttles to 4 ms (`SCAN_INTERVAL_MS` in `src/matrix/Matrix.cpp`): the electrode refresh is slower than the poll rate, and 4 ms caps worst-case touch latency while cutting the poll's bus duty ~4x.
   - `alchemyBridge.update()`: Polls SliderModule (4 faders) and ButtonModule8 on dedicated I2C1 (Wire1: GP14/GP15 @ 100kHz) and reads the GP7 hardware mode strap.
   - `magEncoder.update()`: Reads the TMAG5273A magnetic encoder on Wire @ 0x35 and updates base values via `updateEncoderBaseValues(uiState)`.
   - `distanceSensor.update()`: Non-blocking VL53L1X distance sensor update on Wire @ 0x29 (74–1400mm range).
@@ -127,7 +141,8 @@ disabled; TinyUSB CDC remains available for the serial console.
   - OLED Display: `display.update(uiState, seq1..seq4, voiceManager)` refreshes the 128x64 SH1106G display on Wire @ 0x3C.
   - LED Matrix: `updateStepLEDs()` and `ledMatrix.show()` refresh the 8x4 WS2812B FastLED array on GPIO 1; control indicators moved to the OLED (transient notices + encoder line).
 - **Freeze Forensics (`src/utils/FreezeWatchdog.h`, added 2026-09-05)**:
-  - `freezeWatchdogArm()` (in `setup()`, after `Wire.begin()`) arms the hardware
+  - `freezeWatchdogArm()` (in `ControlIO::beginMainBusAndLeds()`, immediately after
+    `Wire.begin()` — reached from `Application::begin()` in `setup()`) arms the hardware
     watchdog (2s — worst `loop()` iteration is ~0.5s) and installs a hard-fault
     handler; every `setup()` stage and every `loop()` slice feeds it with the
     phase that is *about to run* (`freezeWatchdogFeed`).
@@ -241,8 +256,8 @@ extern VoiceSystem voiceSystem;
 ### 4.2 Voice Count & Hardware Asymmetry
 - **4 Polyphonic Voices (`MAX_VOICES = 4`)**: All 4 voices are fully synthesized in real time on Core 1 via `voiceManager->processAllVoices()`.
 - **2-Channel Hardware Gate / MIDI Asymmetry**:
-  - **Voices 0 and 1**: Fully equipped with USB MIDI note on/off and CC transmission, and `GateTimer` duration countdowns.
-  - **Voices 2 and 3**: Audio-only synthesis voices. They are driven by `seq3` and `seq4` and synthesized by `VoiceManager`, but have no USB MIDI output routing.
+  - **Voices 0 and 1**: Fully equipped with the internal note-lifecycle state machine (`MidiNoteManager` bookkeeping — nothing has been transmitted since USB MIDI was removed 2026-09-06) and `GateTimer` duration countdowns.
+  - **Voices 2 and 3**: Audio-only synthesis voices. They are driven by `seq3` and `seq4` and synthesized by `VoiceManager`, but have no note-lifecycle routing.
 - **Safe Dummy Returns**:
   - `getGate(voiceIndex)` for `voiceIndex >= 2` returns a reference to an internal `static volatile bool dummy = false`.
   - `getGateTimer(voiceIndex)` for `voiceIndex >= 2` returns a reference to an internal `static GateTimer dummy`.
@@ -330,12 +345,25 @@ using Osc = std::variant<
 
 ## 6. Subsystem Breakdown & Source Modules
 
-### 6.1 `src/audio/`
+### 6.1 `src/app/` (added 2026-09: PR #17 extracted the monolithic sketch)
+Firmware-glue layer owned by the application; the Arduino entry points in
+`Pico2Seq.ino` are a 26-line shell that only calls into these modules:
+- `Application.h/.cpp`: Core-0 lifecycle — `begin()` runs the original startup order (buses, sensors, display, voices, tiles, then uClock); `update()` is the per-pass control loop (flush voice controls, held buttons, clock events, diagnostics, PPQN gate ticks, control scan, display refresh).
+- `AudioEngine.h/.cpp`: Core-1 I2S render loop (`renderNextBuffer()`); `prepareEffects()` runs on Core 0 from `VoiceSetup`. Also owns the 4-entry best-effort SPSC heartbeat queue (`Heartbeat{bufferCount, voiceIds[4]}`, pushed by Core 1 every ~2 s, drained/printed by Core 0 via `takeHeartbeat()`).
+- `ClockService.h/.cpp`: All uClock integration — `initializeClock()` (init, PPQN_480, 90 BPM, shuffle on, start), the ISR stage-only callbacks (`clockEvents.steps` SPSC ring, `ppqnTicksPending`, `droppedSteps`), `onClockStart`/`onClockStop`, `processClockEvents()`, and `processPendingGateTicks()`. Defines `g_processedStepCount` for freeze post-mortems.
+- `StepPlayback.h/.cpp`: Core-0 thread-context step work — `processSequencerStep()`, live recording entries `updateParametersForStep()` / `updateParametersForStepNormalized()` (shared by lidar and Alchemy faders), `updateActiveVoiceState()`, and the `updateVoiceMIDI()` gate/note routing.
+- `VoiceSetup.h/.cpp`: Voice construction, preset application, track seeding; publishes `voicesReady`.
+- `ControlIO.h/.cpp`: Bus/display/sensor bring-up and cadence (`scanControls()` every 1 ms, `refreshDisplays()` every 20 ms, tile bus Wire1 @ 100 kHz, FreezeWatchdog arming).
+- `AppState.h/.cpp`: Single definitions of `uiState`, `seq1..seq4`, `voiceManager`, `voiceSystem`, `currentScale`, `isClockRunning`, `voicesReady` (atomic handshake), plus the `AppState::sequencers[]` non-owning routing table and `PerformanceInput` distance calibration.
+- `HardwarePins.h`: Central pin map (main I2C GP4/GP5, tiles Wire1 GP14/GP15, mode strap GP7, I2S GP12/GP10/GP11).
+- `Pcm16.h`: `AudioSamples::toPcm16()` float→int16 conversion with `__SSAT`.
+
+### 6.2 `src/audio/`
 - `audio.h`, `audio_i2s.h`, `audio.cpp`: Low-level I2S driver using RP2040/RP2350 PIO and DMA.
 - `buffer.h`: Audio buffer structures (`audio_buffer_t`, `audio_buffer_pool_t`).
 - `sample_conversion.h`: Conversion utilities between PCM representations.
 
-### 6.2 `src/pico2seq-core/`
+### 6.3 `src/pico2seq-core/`
 Portable core with **no hardware, UI, or Arduino dependencies**:
 - `sequencer/Sequencer.h/.cpp`: 4-voice independent step sequencers.
 - `sequencer/SequencerDefs.h`: Polymetric `ParameterTrack<N>`, `ParamId` enum, `VoiceState`, `GateTimer`.
@@ -343,28 +371,32 @@ Portable core with **no hardware, UI, or Arduino dependencies**:
 - `sequencer/ShuffleTemplates.h`: Groove and shuffle timing templates.
 - `scales/scales.h/.cpp`: 13 musical scales across 48 steps, scale degree ranking, and frequency conversion.
 
-### 6.3 `src/voice/`
+### 6.4 `src/voice/`
 - `Voice.h/.cpp`: Synthesizer voice DSP chain with lock-free staging and gate-controlled pitch commits.
 - `VoiceManager.h/.cpp`: Multi-voice lifecycle management, master mixing, and preset attachment.
 - `VoiceSystem.h`: Centralized `VoiceSystem` struct (`MAX_VOICES = 4`).
-- `VoicePresets.h/.cpp`: Verified factory presets (Analog, Digital, Bass, Lead, Square, Pad, Percussion, SubFunk, RubberSub, WgPluck, WgNylon, WgBell, WgShimmer, Hypersaw, NoiseStorm); `constexpr` factories build a compile-time `std::array<VoiceConfig, 15>` table that lives in flash (.rodata), and `VoiceConfig.engine` selects the osc / waveguide / noise-FX source stage.
+- `VoicePresets.h/.cpp`: **21 factory presets** (Analog, Digital, Bass, Lead, Square, Pad, Percussion, SubFunk, RubberSub, WgPluck, WgNylon, WgBell, WgShimmer, Hypersaw, NoiseStorm, FmGlass, FmBass, PhaseMorph, Spectral, Prism, ChaosPrism) registered through the `VOICE_PRESET` X-macro list in `src/voice/presets/PresetBank.h` — append entries there and the `Id` enum, count, and both name/index lookups derive automatically. `constexpr` factories live in `presets/{Oscillator,Recipe,String,Texture}Presets.h` and build a compile-time `kPresets[]` table that lives in flash (.rodata). Recipe patches run on the `RecipeEngine` (`src/voice/engines/RecipeEngine.h`, fixed 16-float bounded state); `VoiceConfig.engine` selects the osc / waveguide / recipe-source stage and `VoiceConfig.paramSet` selects which sequencer parameters the preset exposes.
 - `VoiceOscillator.h`: Variant-based oscillator class dispatcher.
 
-### 6.4 `src/ui/` & `src/AlchemyUI/`
+### 6.5 `src/ui/` & `src/AlchemyUI/`
 - `UIState.h`: Unified UI state struct (replaces loose globals; holds mode flags, debounce timestamps, preset arrays).
 - `ControlSurfaceLogic.h/.cpp`: Unit-tested decision logic (`ModeStabilizer`, `PadBank`, `ShiftLatch`, `FaderMap`).
 - `UIEventHandler.h/.cpp`: Event routing for MPR121 pads and control surface actions.
 - `AlchemyControlBridge.h/.cpp`: Hardware bridge polling the Alchemy tile panel on Wire1 @ 100kHz. Frames are decoded per tile TYPE (`AlchemyProto.h` `buttonBlockOffset()`: button bytes at DATA 8..10 on slider tiles, DATA 0..2 on button tiles), and the slider/button roles are resolved by tile `TYPE_ID` (`sliderSlot()` / `firstSlotOfType(kTypeButton4)`), not by fixed bus slots.
 - `ButtonHandlers.h/.cpp`: Button behavior implementations (play/stop, randomize, parameter cycling).
 
-### 6.5 `src/matrix/`, `src/LEDMatrix/`, `src/OLED/`, `src/sensors/`
+### 6.6 `src/matrix/`, `src/LEDMatrix/`, `src/OLED/`, `src/sensors/`
 - `matrix/`: MPR121 driver scanning 32 capacitive touch pads.
 - `LEDMatrix/`: 8x4 WS2812B FastLED matrix controller providing real-time visual feedback; the grid mirrors the 4x8 touch matrix pad-for-pad via `ControlSurface::LedLayout`.
 - `OLED/`: 128x64 SH1106G display manager with hierarchical view rendering.
 - `sensors/`: `EncoderManager` (TMAG5273 magnetic encoder) and `DistanceSensor` (VL53L1X laser ToF).
 
-### 6.6 `src/utils/`
+### 6.7 `src/utils/`
 - `Debug.h/.cpp`: Zero-allocation, lightweight logging system with runtime toggle and level control (`DBG_ERROR`, `DBG_WARN`, `DBG_INFO`, `DBG_VERBOSE`).
+- `SpscQueue.h`: Fixed-capacity lock-free single-producer/single-consumer ring (ISR→loop step queue, per-voice control updates, Core-1 heartbeat).
+- `PendingTickCounter.h`: Lock-free atomic ISR-event counter (`post()` / `takeAll()`, relaxed ordering); host-tested but not yet wired into the clock drain (see §2.2 and §3).
+- `FreezeWatchdog.h`: Watchdog + hard-fault freeze forensics (see §2.2).
+- `DspMapping.h`: Carried-over `fmap`/`Mapping` helpers (`dspmap` namespace) kept local after the rpdsp submodule dropped them.
 
 ---
 
@@ -398,7 +430,7 @@ Physical Inputs (Core 0)
 ├── Alchemy Tile Panel: 4 Faders + 12 Buttons (Wire1: GP14/GP15 @ 100kHz)
 ├── TMAG5273A Velocity Encoder (Wire @ 0x35)
 ├── VL53L1X Distance Sensor (Wire @ 0x29)
-└── USB MIDI In (TinyUSB)
+└── USB CDC Serial Console (diagnostics only — USB carries power + CDC; no MIDI In exists)
          │
          ▼
 UIEventHandler / ControlSurfaceLogic / AlchemyControlBridge
@@ -414,7 +446,7 @@ VoiceSystem (voiceStates[4], gates[2], gateTimers[2])
          │
          ├──────────────────────────────────────────┐
          ▼ (Lock-Free Staging)                      ▼
-VoiceManager / 4x Voice DSP Chains (Core 1)    USB MIDI Out & Gate Timing (Core 0)
+VoiceManager / 4x Voice DSP Chains (Core 1)    Gate Timing & Internal Note Bookkeeping (Core 0)
          │
          ▼ (fill_audio_buffer @ 48kHz)
 AudioSamples::toPcm16() [ARM Cortex-M33 __SSAT]
@@ -447,7 +479,7 @@ I2S Stereo Audio Out (GP10 / GP11 / GP12)
 | Audio Buffer Size | 256 samples ($5.33\text{ ms}$) $\times$ 3 buffers | `audio_new_producer_pool` inspection |
 | Audio Latency | $\approx 10.66\text{ ms}$ (2 buffers) | DMA producer pool sizing |
 | Core 1 Allocation | 0 bytes dynamic allocation in `loop1()` | Static buffer and fixed array audit |
-| Core 0 Control Scan | 1,000 Hz (1 ms interval) | `src/app/ControlIO.cpp` interval checks |
+| Core 0 Control Scan | 1,000 Hz (1 ms interval; MPR121 poll self-throttled to 4 ms) | `src/app/ControlIO.cpp` + `src/matrix/Matrix.cpp` interval checks |
 | Core 0 Display Refresh | 50 Hz (20 ms interval) | `src/app/ControlIO.cpp` interval checks |
 | Sequencer Resolution | 480 PPQN @ 90 BPM default | `uClock.init()` verification |
 | Unit Test Coverage | Catch2 v3.5.2 host test suite | `ctest --test-dir build_test` |

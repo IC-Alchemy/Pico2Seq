@@ -8,7 +8,7 @@ The sensors module provides real-time physical input and parameter modulation fo
 2. **VL53L1X Distance Sensor**: Time-of-Flight (ToF) infrared optical distance measurement for hands-free parameter modulation and real-time step recording.
 3. **MPR121 Capacitive Touch Matrix**: 32-pad capacitive touch grid configured as two 16-step sequencer voice banks for step programming, voice selection, and note input.
 
-All sensor acquisition and processing runs exclusively on **Core 0** inside a 1 ms non-blocking control slice (`loop()`), ensuring zero interference or jitter with Core 1 real-time I2S audio synthesis (48 kHz stereo).
+All sensor acquisition and processing runs exclusively on **Core 0** inside a 1 ms non-blocking control slice (`ControlIO::scanControls()`, called from `Application::update()`), ensuring zero interference or jitter with Core 1 real-time I2S audio synthesis (48 kHz stereo).
 
 ---
 
@@ -18,7 +18,9 @@ The Pico2Seq hardware separates sensors, displays, and control surfaces across t
 
 | Bus | RP2350 Pins | Clock Speed | Connected Devices | I2C Addresses | Purpose |
 |---|---|---|---|---|---|
-| **Wire** (I2C0) | GP4 (SDA)<br>GP5 (SCL) | 100 kHz (Standard) | TMAG5273A Magnetic Encoder<br>VL53L1X Distance Sensor<br>MPR121 Touch Matrix<br>SH1106 OLED Display | `0x35` (`TMAG5273::ADDRESS_A`)<br>`0x29` (VL53L1X)<br>`0x5A` (MPR121)<br>`0x3C` (OLED) | Primary sensor acquisition & display bus |
+| **Wire** (I2C0) | GP4 (SDA)<br>GP5 (SCL) | 100 kHz (Standard)<sup>1</sup> | TMAG5273A Magnetic Encoder<br>VL53L1X Distance Sensor<br>MPR121 Touch Matrix<br>SH1106 OLED Display | `0x35` (`TMAG5273::ADDRESS_A`)<br>`0x29` (VL53L1X)<br>`0x5A` (MPR121)<br>`0x3C` (OLED) | Primary sensor acquisition & display bus |
+
+<sup>1</sup> `Wire` itself has no `setClock()` call by default (arduino-pico default). Setting `PICO2SEQ_I2C_FASTMODE=1` (opt-in, default OFF — the 2026-09-07 bench run showed OLED glitches/freezes at 400 kHz on this rig) raises the whole bus to 400 kHz via `Wire.setClock()` in `ControlIO::beginMainBusAndLeds()`. The OLED library's own frame pushes always run at 400 kHz regardless (its `preclk` constructor argument, `src/OLED/oled.cpp`); see `docs/oled.md`.
 | **Wire1** (I2C1) | GP14 (SDA)<br>GP15 (SCL) | 100 kHz (Standard Mode) | Alchemy Modular UI Tiles:<br>- SliderModule (Slot 0)<br>- ButtonModule8 (Slot 1) | `0x08` (SliderModule)<br>`0x0B` (ButtonModule8) | Dedicated control surface tile bus (400 kHz stalls tile transfers on this rig) |
 | **GPIO** | GP7 (Input Pullup) | N/A | Hardware Mode Strap Switch | N/A | Selects Param Mode (LOW) vs Utility Mode (HIGH) for Alchemy tiles |
 
@@ -39,20 +41,24 @@ The firmware implements a strict dual-core separation:
 
 ```
 Core 1 (Real-Time Audio):
-  fill_audio_buffer() @ 48 kHz stereo I2S (GP10 BCLK, GP11 LRCK, GP12 DATA)
+  AudioEngine::renderNextBuffer() @ 48 kHz stereo I2S (GP10 BCLK, GP11 LRCK, GP12 DATA)
   -> 0% I2C / sensor involvement -> Never blocks, no dynamic allocations
 
 Core 0 (UI, Sensors, Matrix, MIDI):
-  loop() Control Slice (CONTROL_UPDATE_INTERVAL = 1 ms):
-    +-- Matrix_scan()            -> 1 ms MPR121 32-pad touch scanning
-    +-- alchemyBridge.update()   -> 1 ms Alchemy tile polling (Wire1 @ 100 kHz)
-    +-- magEncoder.update()      -> 1 ms poll (5 ms internal throttle in driver)
-    +-- updateEncoderBaseValues()-> Applies rotary increments to active params
-    +-- distanceSensor.update()  -> 1 ms poll (20 ms non-blocking read interval)
-    +-- pollUIHeldButtons()      -> Promotes long-press states (randomize reset, gate seq length)
-  loop() Display Slice (LED_UPDATE_INTERVAL = 20 ms / 50 Hz):
-    +-- updateStepLEDs() / ledMatrix.show()
-    +-- display.update() (SH1106 OLED @ 0x3C)
+  Application::update()  (Core 0 loop(), src/app/Application.cpp):
+    ControlIO::pollHeldButtons()  -> Promotes long-press states (randomize reset, gate seq length)
+    processClockEvents()          -> Drains uClock ISR-staged step ticks (SpscQueue)
+    ControlIO::scanControls(nowMs)   (1 ms tick, kControlIntervalMs):
+      +-- Matrix_scan()          -> 1 ms call, self-throttled to 4 ms in Matrix.cpp
+      +-- alchemyBridge.update() -> 1 ms Alchemy tile polling (Wire1 @ 100 kHz)
+      +-- magEncoder.update()    -> 1 ms poll (5 ms internal throttle in driver)
+      +-- updateEncoderBaseValues()-> Applies rotary increments to active params
+      +-- distanceSensor.update()-> 1 ms poll (20 ms non-blocking read interval)
+      +-- performanceInput.observeDistance(rawMm) -> AppState::PerformanceInput
+      +-- updateParametersForStep()-> Live recording into selected step
+    ControlIO::refreshDisplays(nowMs) (20 ms tick, kDisplayIntervalMs):
+      +-- updateStepLEDs() / ledMatrix.show()
+      +-- display.update() (SH1106 OLED @ 0x3C, commitFrame-gated)
 ```
 
 ---
@@ -83,14 +89,14 @@ The magnetic encoder subsystem consists of two architectural layers:
   - 24 ms inter-measurement period (`INTER_MEASUREMENT_PERIOD_MS = 24`).
   - 20 ms update polling interval (`READ_INTERVAL_MS = 20`).
   - Operational measurement range: 74 mm to 1400 mm (`MIN_DISTANCE_HEIGHT_MM` to `MAX_DISTANCE_HEIGHT_MM`).
-  - Normalized distance calculation: `mm = rawDistanceValue - MIN_HEIGHT` (0 to 1326 mm).
+  - Hand-distance calibration lives in `AppState::PerformanceInput` (`src/app/AppState.h`): `observeDistance(rawMm)` stores `distanceAboveMinimumMm = raw − 74` when raw is inside 74–1400 mm, else 0 (so 0–1326 mm above minimum). For step recording, `recordingValue()` normalizes by dividing by `MAX_DISTANCE_HEIGHT_MM` (1400) — **not** by (max − min) — and clamps to 0..1; this is deliberate instrument calibration, host-tested in `tests/unit/test_app_runtime.cpp` (`[recording]`).
   - Non-blocking single-poll guarantee: `update()` checks `dataReady()` once and returns immediately without stalling the control loop.
 
 ### 3. MPR121 Capacitive Touch Matrix
 
 - **`Matrix` (`src/matrix/Matrix.h/.cpp`)**: 32-electrode capacitive touch matrix driver using `Adafruit_MPR121` on Wire at address `0x5A`.
-  - Autoconfig enabled with conservative touch/release thresholds: `touchSensor.setThresholds(55, 22)`.
-  - Scanned every 1 ms via `Matrix_scan()`.
+  - Autoconfig enabled with conservative touch/release thresholds: `touchSensor.setThresholds(55, 22)` (in `ControlIO::beginTouchPads()`).
+  - Called every 1 ms from `ControlIO::scanControls()`, but self-throttled to 4 ms internally (`SCAN_INTERVAL_MS` — `touched()` is an I2C register read and the MPR121's internal electrode refresh is slower than ~1 kHz).
   - Drives 32 dedicated step pads across two 16-step voice banks resolved via `ControlSurface::PadBank::resolve(buttonIndex, selectedVoiceIndex)`:
     - Indices 0–15: Voice A steps 0–15.
     - Indices 16–31: Voice B steps 0–15.
@@ -305,66 +311,41 @@ float shiftAndScale(float seqValue, float encoderOffset) {
 
 ## Example Initialization and Control Loop
 
+The firmware's boot and loop are split across `src/app/` (PR #17 refactor);
+`Pico2Seq.ino` is a thin shell that calls `Application::begin()` /
+`Application::update()` on Core 0. The sensor-relevant slice:
+
 ```cpp
-#include "includes.h"
+// Boot — Application::begin() (Core 0), in order:
+ControlIO::beginMainBusAndLeds();    // Wire.setSDA(4)/setSCL(5)/begin(),
+                                     // optional 400 kHz via PICO2SEQ_I2C_FASTMODE,
+                                     // FreezeWatchdog arm, LED matrix begin(100)
+ControlIO::beginPerformanceSensors();// distanceSensor.begin() [VL53L1X @ 0x29],
+                                     // magEncoder.begin() [TMAG5273A @ 0x35],
+                                     // initEncoderBaseValues()
+ControlIO::beginTouchPads();         // MPR121 @ 0x5A, autoconfig, thresholds 55/22
+ControlIO::beginMatrixAndTiles();    // Matrix_init, event handler, Wire1 tiles @ 100 kHz
 
-void setup() {
-    // 1. Configure main I2C bus pins and initialize Wire
-    Wire.setSDA(PIN_WIRE_SDA); // GP4
-    Wire.setSCL(PIN_WIRE_SCL); // GP5
-    Wire.begin();
-
-    // 2. Initialize Distance Sensor (VL53L1X @ 0x29)
-    if (!distanceSensor.begin()) {
-        Serial.println("VL53L1X initialization failed!");
-    }
-
-    // 3. Initialize Magnetic Velocity Encoder (TMAG5273A @ 0x35)
-    if (!magEncoder.begin()) {
-        Serial.println("TMAG5273 initialization failed!");
-    }
-    initEncoderBaseValues();
-
-    // 4. Initialize Touch Sensor Matrix (MPR121 @ 0x5A)
-    if (!touchSensor.begin(0x5A)) {
-        Serial.println("MPR121 initialization failed!");
-    } else {
-        touchSensor.setAutoconfig(true);
-        touchSensor.setThresholds(55, 22);
-    }
-    Matrix_init(&touchSensor);
-}
-
-void loop() {
-    unsigned long currentMillis = millis();
-
-    // 1 ms Control Loop Slice
-    if (currentMillis - lastControlUpdate >= 1) {
-        lastControlUpdate = currentMillis;
-
-        // Scan MPR121 step matrix
-        Matrix_scan();
-
-        // Update magnetic encoder & apply base values
-        magEncoder.update();
-        updateEncoderBaseValues(uiState);
-
-        // Update ToF distance sensor
-        distanceSensor.update();
-        int rawDistance = distanceSensor.getRawDistanceMm();
-        if (rawDistance >= MIN_HEIGHT && rawDistance <= MAX_HEIGHT) {
-            mm = rawDistance - MIN_HEIGHT;
-        } else {
-            mm = 0;
-        }
-
-        // Live parameter recording into active step if step is selected
-        if (uiState.selectedStepForEdit != -1) {
-            updateParametersForStep(uiState.selectedStepForEdit);
-        }
-    }
-}
+// Runtime — Application::update() (Core 0), every pass:
+ControlIO::pollHeldButtons();        // long-press promotion
+processClockEvents();                // drains uClock ISR step queue
+ControlIO::scanControls(nowMs);      // 1 ms tick:
+                                     //   Matrix_scan() (4 ms self-throttle)
+                                     //   alchemyBridge.update(nowMs, ...)
+                                     //   magEncoder.update(); updateEncoderBaseValues(uiState)
+                                     //   distanceSensor.update();
+                                     //   AppState::performanceInput.observeDistance(
+                                     //       distanceSensor.getRawDistanceMm());
+                                     //   if (uiState.selectedStepForEdit != -1)
+                                     //       updateParametersForStep(uiState.selectedStepForEdit);
+ControlIO::refreshDisplays(nowMs);   // 20 ms tick: updateStepLEDs + display.update()
 ```
+
+Live parameter recording flows through `AppState::PerformanceInput`
+(`src/app/AppState.h`): `observeDistance()` tracks the hand height above the
+74 mm minimum, and `recordingValue()` (division by the 1400 mm maximum,
+clamped 0..1) feeds `updateParametersForStep()` in `src/app/StepPlayback.cpp`
+when a parameter button is held and a step is selected for editing.
 
 ---
 
@@ -373,7 +354,7 @@ void loop() {
 ### TMAG5273 Magnetic Encoder
 - **Device Not Detected (`0x35`)**: Check Wire connections (GP4/GP5), 3.3V power, and verify the Velocity Encoder board I2C pull-ups. Pico2Seq is configured for a TMAG5273A; use the matching `TMAG5273::ADDRESS_*` constant if a different factory-programmed part is fitted.
 - **Erratic Angle Readings**: Confirm an on-axis diametric magnet is centered directly over the TMAG5273 package with ~1–3mm air gap.
-- **Sluggish Response**: Check if `magEncoder.update()` is called regularly every 1 ms in `loop()`.
+- **Sluggish Response**: Check if `magEncoder.update()` is called regularly every 1 ms (it self-throttles reads to a 5 ms minimum interval).
 
 ### VL53L1X Distance Sensor
 - **Initialization Fails (`0x29`)**: Verify I2C bus address and 50 ms stabilization delay (`I2C_STABILIZATION_DELAY_MS`).

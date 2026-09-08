@@ -33,13 +33,13 @@ struct VoiceParameterLayout
   std::array<VoiceParameterBinding, PARAM_ID_COUNT> slots{};
   bool envelopeFromTracks = true;
   bool velocityToAmplitude = true;
-  float cutoffMinimum = 120.0f;
-  float cutoffMaximum = 5000.0f;
+  float cutoffMinimum = 55.0f;
+  float cutoffMaximum = 3000.0f;
 };
 
 namespace VoiceParameters {
 inline constexpr float kWaveguideT60Min = 0.05f;
-inline constexpr float kWaveguideT60Max = 10.0f;
+inline constexpr float kWaveguideT60Max = 9.0f;
 
 const VoiceParameterLayout &layout(const VoiceConfig &config) noexcept;
 const VoiceParameterBinding &binding(const VoiceConfig &config, ParamId id) noexcept;

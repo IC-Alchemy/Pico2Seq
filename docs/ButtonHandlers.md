@@ -6,7 +6,7 @@ The `ButtonHandlers` module provides specialized button event handling and contr
 
 The Pico2Seq control surface operates on a **Dual-Surface Architecture** that pairs dedicated physical step pads with modular parameter/utility controls:
 
-1. **MPR121 Capacitive Touch Step Matrix** (Main bus `Wire`, GP4/GP5 @ 100 kHz):
+1. **MPR121 Capacitive Touch Step Matrix** (Main bus `Wire`, GP4/GP5 @ 100 kHz; 400 kHz opt-in via `PICO2SEQ_I2C_FASTMODE`, default OFF):
    - All 32 capacitive touch electrodes are dedicated exclusively as sequencer step pads.
    - Organized as two 16-step voice banks resolved dynamically through `ControlSurface::PadBank`.
 2. **Alchemy Modular UI Panel** (Tile bus `Wire1`, GP14/GP15 @ 100 kHz):
@@ -209,7 +209,7 @@ void endRandomizePress(int voiceIndex, UIState &state);
 ### `handleRandomizeButton(int voiceIndex, UIState &state)`
 Processes randomize operations for a specific voice (0–3):
 - **Short Press** (`< 1000 ms`): Randomizes parameters across the target voice's sequencer (`seq->randomizeParameters()`).
-- **Long Press** (`≥ 1000 ms`): Promoted by `pollUIHeldButtons()` in `loop()` to trigger complete parameter reset.
+- **Long Press** (`≥ 1000 ms`): Promoted by `pollUIHeldButtons()` (via `ControlIO::pollHeldButtons()` in `Application::update()`, Core 0) to trigger complete parameter reset.
 - Short press raises a transient OLED confirmation notice (`UIState::oledNoticeKind = Randomized`).
 
 ### `handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)`
@@ -265,7 +265,7 @@ case BUTTON_PLAY_STOP:
 
 ## UIState Centralized Integration
 
-All button and control surface state is consolidated in `UIState` (`src/ui/UIState.h`):
+All button and control surface state is consolidated in `UIState` (`src/ui/UIState.h`). Abridged view of the fields most relevant to button handling:
 
 ```cpp
 struct UIState {
@@ -282,9 +282,12 @@ struct UIState {
 
     // Settings Mode States
     bool settingsMode = false;
+    enum class SettingsSubMode : uint8_t { PRESET_SELECTION = 0, VOICE_PARAMETER = 1 };
+    SettingsSubMode currentSubMode = SettingsSubMode::PRESET_SELECTION;
     bool inPresetSelection = false;
     uint8_t settingsMenuIndex = 0;
-    uint8_t voicePresetIndices[4] = {4, 2, 1, 6};
+    uint8_t presetPage = 0; // 24 presets per page; navigation uses pads 6/7
+    uint8_t voicePresetIndices[MAX_VOICES] = {4, 2, 1, 6};
 
     // Encoder Hold / Gate Seq Length
     unsigned long encoderControlPressTime = 0;

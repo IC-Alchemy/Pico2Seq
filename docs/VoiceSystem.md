@@ -28,11 +28,10 @@ struct VoiceSystem {
     // Voice states containing per-voice synthesis parameters
     VoiceState voiceStates[MAX_VOICES];
 
-    // Software gate flags (active on Voices 0 and 1 only; consumed by the
-    // MIDI note-on path in the main sketch)
+    // Gate states (only used for voices 0 and 1)
     volatile bool gates[2] = {false, false};
 
-    // Gate countdown timers (active on Voices 0 and 1 only)
+    // Gate timers (only used for voices 0 and 1)
     GateTimer gateTimers[2];
 
     // Accessor methods with bounds checking

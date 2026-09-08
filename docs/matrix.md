@@ -18,7 +18,7 @@ The `src/matrix/` subsystem provides the capacitive touch step-input interface f
   - `SCL`: GP5
 - **I2C Address:** `0x5A` (default)
 - **Matrix Topology:** 4 Row electrodes (Electrodes 0–3) × 8 Column electrodes (Electrodes 4–11), multiplexed to sense 32 discrete touch pads.
-- **Scanning Frequency:** Polled on Core 0 in `loop()` every 1 ms with automatic debouncing.
+- **Scanning Frequency:** `Matrix_scan()` is called from the Core 0 control slice (`ControlIO::scanControls`, 1 ms tick) but **self-throttles to 4 ms** internally (`SCAN_INTERVAL_MS`), with automatic debouncing.
 
 ---
 
@@ -111,40 +111,35 @@ typedef struct {
 
 ## Integration Workflow
 
+In the firmware this wiring lives in `src/app/ControlIO.cpp` (called from
+`Application::begin()` / `Application::update()`, the Core-0 entry points
+behind `setup()`/`loop()` in `Pico2Seq.ino`):
+
 ```cpp
-#include <Adafruit_MPR121.h>
-#include "src/matrix/Matrix.h"
+// Boot (Application::begin() -> ControlIO):
+ControlIO::beginTouchPads();    // touchSensor.begin(0x5A), autoconfig,
+                                // setThresholds(55, 22)
+ControlIO::beginMatrixAndTiles(); // Matrix_init(&touchSensor), first scan,
+                                  // Matrix_setEventHandler(...) -> matrixEventHandler
 
-Adafruit_MPR121 capSensor;
+// Runtime (Application::update() -> ControlIO::scanControls(nowMs), 1 ms tick):
+Matrix_scan();                  // non-blocking; self-throttles to 4 ms
 
-void setup() {
-    Wire.setSDA(4);
-    Wire.setSCL(5);
-    Wire.begin();
-    
-    if (capSensor.begin(0x5A, &Wire)) {
-        Matrix_init(&capSensor);
-    }
-    
-    Matrix_setEventHandler([](const MatrixButtonEvent &evt) {
-        if (evt.type == MATRIX_BUTTON_PRESSED) {
-            handleStepPadPress(evt.buttonIndex);
-        } else {
-            handleStepPadRelease(evt.buttonIndex);
-        }
-    });
-}
-
-void loop() {
-    Matrix_scan(); // Polled non-blocking on Core 0
-}
+// The handler resolves pad -> (voice, step) via ControlSurface::PadBank and
+// mutates uiState / sequencers / MidiNoteManager.
 ```
+
+A standalone sketch would do the same in `setup()`/`loop()`: `Wire.setSDA(4)`,
+`Wire.setSCL(5)`, `Wire.begin()`, `capSensor.begin(0x5A, &Wire)`,
+`Matrix_init(&capSensor)`, set an event handler, and call `Matrix_scan()` in
+the loop.
 
 ---
 
 ## Performance & Optimization
 
-- **Early Exit:** If the MPR121 returns zero touched electrodes, `Matrix_scan()` exits immediately in O(1) time.
+- **4 ms Scan Throttle:** `Matrix_scan()` self-throttles via `SCAN_INTERVAL_MS = 4` (`src/matrix/Matrix.cpp`): `touched()` is an I2C register read, and the MPR121's internal electrode refresh is slower than the ~1 kHz rate the 1 ms control loop would otherwise poll at. 4 ms caps worst-case touch latency far below perception while cutting the poll's bus duty ~4x. The loop still calls it every 1 ms; the throttle is internal.
+- **Early Exit:** If the MPR121 returns zero touched electrodes, `Matrix_scan()` exits immediately in O(1) time (after releasing any previously pressed pads).
 - **Debounced Transitions:** Software hysteresis ensures clean edge transitions without contact chatter.
 - **Zero Allocations:** Uses static arrays for state tracking and event routing.
 
