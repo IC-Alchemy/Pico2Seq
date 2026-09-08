@@ -2,6 +2,7 @@
 #include "AppState.h"
 #include "StepPlayback.h"
 #include "../../includes.h"
+#include "../FeatureConfig.h" // PICO2SEQ_I2C_FASTMODE
 #include "../utils/FreezeWatchdog.h"
 
 namespace
@@ -61,6 +62,18 @@ void ControlIO::beginMainBusAndLeds()
     Wire.setSDA(PIN_WIRE_SDA);
     Wire.setSCL(PIN_WIRE_SCL);
     Wire.begin();
+#if PICO2SEQ_I2C_FASTMODE
+    // 400 kHz fast mode is opt-in (default OFF): the 2026-09-07 bench run
+    // showed constant OLED glitches and freezes with fast mode on this rig,
+    // matching the Wire1 tile-bank finding (400 kHz stalls transfers). The
+    // OLED library still runs its own frame pushes at 400 kHz (its preclk
+    // default) as it always has; this setting only extends fast mode to the
+    // idle/sensor traffic between frames. Adafruit_SH110X re-programs the bus
+    // to its postclk after every frame, so the durable setting is the postclk
+    // constructor argument in OLEDDisplay (src/OLED/oled.cpp); this call
+    // covers the window before the first frame push.
+    Wire.setClock(400000);
+#endif
 
     // From here on, any Core-0 hang or hard fault reboots within ~2s and the
     // post-mortem prints at the next boot (src/utils/FreezeWatchdog.h).
