@@ -53,7 +53,7 @@ files; host CMake does not compile that startup/I2S/control glue.
 
 ---
 
-## 10 Host Unit Test Suites
+## Host Unit Test Suites
 
 The host test executable (`pico2seq_tests`) links all unit suites under `tests/unit/`:
 
@@ -69,6 +69,7 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 8 | `tests/unit/test_voiceoscillator.cpp` | Voice Oscillator Dispatch | `VoiceOscillator` variant dispatch, band-limited waveforms, pulse width modulation, pitch changes |
 | 9 | `tests/unit/test_control_surface_logic.cpp` | Tile UI Decision Logic | `ModeStabilizer` debouncing, `PadBank` voice-pair resolution, `ShiftLatch` latching, `FaderMap` deadband |
 | 10 | `tests/unit/test_alchemy_proto.cpp` | Alchemy Tile Wire Format | Per-tile-type button block offsets (slider DATA 8..10 vs button DATA 0..2), fader decode, SEQ/STATUS decode, frame checksum, identity validation, `TileButton` press/hold/tap |
+| 11 | `tests/unit/test_pending_tick_counter.cpp` | PPQN ISR Handoff | Empty/single batches, 70,000-tick backlog, arrivals during drain, concurrent conservation of 1,000,000 ticks (`[ppqn]`) |
 
 ---
 
@@ -138,6 +139,9 @@ ctest --test-dir build_test --output-on-failure
 
 # Run only voice-transfer (SpscQueue control handoff) tests
 ./build_test/tests/pico2seq_tests "[voice_transfer]"
+
+# Run only PPQN tick handoff tests
+./build_test/tests/pico2seq_tests "[ppqn]"
 
 # Run only voice oscillator tests
 ./build_test/tests/pico2seq_tests "[voiceosc]"
@@ -210,3 +214,25 @@ producer/consumer stress. Use `[voice_transfer]` for ownership tests only.
 The full `pico2seq_tests` target includes these tests and the DSP recipe suite;
 a passing focused target does not imply the full suite builds. Hardware audio
 timing and listening remain bench checks.
+
+### PPQN tick handoff regression suite
+
+Build `pico2seq_clock_tests` and run `build_test/tests/pico2seq_clock_tests`
+(`.exe` on Windows; add `Debug/` with multi-configuration generators). This target
+uses the same `PendingTickCounter` as the ISR and control loop without DSP or
+hardware dependencies. Coverage includes empty/single batches, a 70,000-tick
+backlog, ISR arrivals during batch processing, and concurrent conservation of
+1,000,000 ticks. These tests also run in the full `pico2seq_tests` target.
+Firmware compilation checks target atomic support; interrupt timing remains a
+hardware check.
+
+Validation recorded for the PPQN race fix (2026-09-08):
+
+- The focused clock suite passed 4 cases / 13 assertions; the full host suite
+  passed 162 cases / 2,150,052 assertions.
+- A temporary copy replacing `exchange(0)` with separate atomic load/store calls
+  failed the concurrent tick-conservation test. This checks that the regression
+  detects a lost-tick handoff even when individual accesses remain atomic.
+- The Pico 2 Arduino CLI compile exited 0 with the current source and helper board
+  settings; UF2, ELF, BIN, and MAP artifacts were verified. Firmware was not flashed,
+  and hardware interrupt timing was not tested.

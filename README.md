@@ -289,6 +289,10 @@ ctest --test-dir build_test/tests --output-on-failure
 
 # Or run/filter the test binary directly
 ./build_test/tests/pico2seq_tests "[voice]"
+
+# PPQN lost-tick race regressions, independent of DSP and hardware stubs
+cmake --build build_test --target pico2seq_clock_tests --parallel
+./build_test/tests/pico2seq_clock_tests --reporter console
 ```
 
 For more details on test stubs and writing unit tests, see [`docs/testing.md`](docs/testing.md).

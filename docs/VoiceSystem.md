@@ -150,10 +150,12 @@ for (uint8_t v = 0; v < VoiceSystem::MAX_VOICES; v++) {
 ```
 
 ### 4.4 Timing & PPQN Tick Processing
-Inside `loop()` on Core 0, pending clock ticks drain from `ppqnTicksPending`:
+Inside `loop()` on Core 0, an atomic snapshot transfers pending clock ticks to a
+local batch. ISR ticks posted after the snapshot wait for the next loop:
 ```cpp
-while (ppqnTicksPending > 0) {
-    ppqnTicksPending--;
+uint32_t ticksToProcess = ppqnTicksPending.takeAll();
+while (ticksToProcess > 0) {
+    --ticksToProcess;
     globalTickCounter++;
     
     // Update MIDI note durations
