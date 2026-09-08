@@ -24,7 +24,7 @@
 #include "hardware/watchdog.h"
 #include "hardware/exception.h"
 
-extern uint32_t g_processedStepCount; // defined in Pico2Seq.ino
+extern uint32_t g_processedStepCount; // defined in src/app/ClockService.cpp
 
 enum FreezePhase : uint32_t
 {

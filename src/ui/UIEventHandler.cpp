@@ -1,4 +1,7 @@
 #include "UIEventHandler.h"
+#include "../app/AppState.h"
+#include "../app/ClockService.h"
+#include "../app/VoiceSetup.h"
 #include "../midi/MidiManager.h"
 #include "../sensors/EncoderManager.h"
 #include "../pico2seq-core/scales/scales.h"
@@ -55,23 +58,11 @@ static_assert(UIState::NUM_RANDOMIZE >= UIEventConstants::MAX_VOICES,
               "UI expects 4 randomize buttons; update UIState::NUM_RANDOMIZE or adjust handlers.");
 
 // External function declarations that the UI calls
-extern void onClockStart();
-extern void onClockStop();
 extern void setLEDTheme(LEDTheme theme);
-extern void applyVoicePreset(uint8_t voiceIndex, uint8_t presetIndex);
 
 // External variables that are still needed from the main file
-extern uint8_t currentScale;
-extern bool isClockRunning;
 extern const ParameterDefinition CORE_PARAMETERS[];
 
-// Voice system external declarations
-extern std::unique_ptr<VoiceManager> voiceManager;
-extern VoiceSystem voiceSystem;
-extern Sequencer seq1;
-extern Sequencer seq2;
-extern Sequencer seq3;
-extern Sequencer seq4;
 #if PICO2SEQ_ENABLE_DELAY_EFFECT
 extern float delayTarget;
 #endif

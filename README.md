@@ -37,12 +37,16 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 
 ## Project Structure
 
+For a practical guide to changing the firmware, start with
+[Finding your way around the firmware](docs/firmware-structure.md).
+
 ```
-├── Pico2Seq.ino              # Main Arduino sketch (dual-core setup & uClock callbacks)
+├── Pico2Seq.ino              # Four Arduino entry points: controls and audio
 ├── includes.h                # Library and header aggregator
 ├── CMakeLists.txt            # Host unit test CMake entry point
 ├── .gitmodules               # Git submodule configuration
 ├── src/
+│   ├── app/                  # Startup, clock/playback glue, controls and audio output
 │   ├── audio/                # I2S audio interface, PIO DMA, and buffer management
 │   ├── pico2seq-core/        # Portable core sequencer, ParameterTrack, and scale tables
 │   │   ├── scales/           # 13 scale tables and MIDI mapping

@@ -1,4 +1,6 @@
 #include "EncoderManager.h"
+#include "../app/AppState.h"
+#include "../app/StepPlayback.h"
 #include <Arduino.h>
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
@@ -7,15 +9,6 @@
 #include <cmath>
 #include "../voice/VoiceManager.h"
 #include "../voice/VoiceSystem.h" // VoiceSystem::MAX_VOICES
-
-// =======================
-//   EXTERNAL REFERENCES
-// =======================
-
-// Reference to the global UIState from main file
-extern UIState uiState;
-// Reference to the global VoiceManager
-extern std::unique_ptr<VoiceManager> voiceManager;
 
 // =======================
 //   MAGNETIC ENCODER GLOBALS
@@ -231,7 +224,6 @@ void updateEncoderStepParameterValues(UIState &uiState)
   }
 
   // Get the active sequencer based on selected voice (0-3 maps to seq1-seq4)
-  extern Sequencer seq1, seq2, seq3, seq4;
   Sequencer &activeSequencer = (uiState.selectedVoiceIndex == 0) ? seq1 : (uiState.selectedVoiceIndex == 1) ? seq2
                                                                       : (uiState.selectedVoiceIndex == 2)   ? seq3
                                                                                                             : seq4;
@@ -272,7 +264,6 @@ void updateEncoderStepParameterValues(UIState &uiState)
   activeSequencer.setStepParameterValue(targetParameterId, editStepIndex, newParameterValue);
 
   // Trigger immediate OLED update by updating the active voice state
-  extern void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq);
   updateActiveVoiceState(editStepIndex, activeSequencer);
 
   /*

@@ -13,6 +13,12 @@ To enable rapid, automated regression testing, Pico2Seq employs a **host-side un
 
 ## Testing Strategy & Module Classification
 
+Application glue lives in `src/app/`; see the
+[firmware structure guide](firmware-structure.md). `test_app_runtime.cpp`
+checks every PCM16 level, clipping/truncation and hand-distance recording
+calibration (`[app]`). The Arduino build checks the hardware-bound app `.cpp`
+files; host CMake does not compile that startup/I2S/control glue.
+
 ```
                      PICO2SEQ CODEBASE
                              |
