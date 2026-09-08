@@ -66,6 +66,7 @@ struct UIState
     uint8_t settingsMenuIndex = 0;    // 0-7 for 8 menu items
     uint8_t settingsSubMenuIndex = 0; // For preset selection
     bool inPresetSelection = false;
+    uint8_t presetPage = 0; // 24 presets per page; navigation uses pads 6/7
     static constexpr int MAX_VOICES = 4;
     uint8_t voicePresetIndices[MAX_VOICES] = {4, 2, 1, 6}; // Default presets: Square, Bass, Digital, Percussion (indices into VoicePresets)
     unsigned long playStopPressTime = 0;

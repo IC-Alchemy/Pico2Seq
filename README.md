@@ -29,7 +29,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 
 ### Architecture Highlights
 - **VoiceSystem Architecture**: Centralized, array-based voice management with safe accessor methods
-- **Dual-Core Asymmetric Design**: Core 1 dedicated exclusively to 48kHz audio synthesis; Core 0 handles UI, sensors, MIDI, clock, and display rendering
+- **Dual-Core Asymmetric Design**: Core 1 dedicated exclusively to 48kHz audio synthesis; Core 0 handles UI, sensors, clock, display rendering, and the USB CDC serial console
 - **Lock-Free Parameter Staging**: Atomic generation counters allow Core 0 to stage parameter changes without blocking Core 1 audio processing
 - **Host Test Suite**: Catch2 v3 unit test suite with hardware stubs, built and run locally via CTest
 
@@ -37,12 +37,16 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 
 ## Project Structure
 
+For a practical guide to changing the firmware, start with
+[Finding your way around the firmware](docs/firmware-structure.md).
+
 ```
-├── Pico2Seq.ino              # Main Arduino sketch (dual-core setup & uClock callbacks)
+├── Pico2Seq.ino              # Four Arduino entry points: controls and audio
 ├── includes.h                # Library and header aggregator
 ├── CMakeLists.txt            # Host unit test CMake entry point
 ├── .gitmodules               # Git submodule configuration
 ├── src/
+│   ├── app/                  # Startup, clock/playback glue, controls and audio output
 │   ├── audio/                # I2S audio interface, PIO DMA, and buffer management
 │   ├── pico2seq-core/        # Portable core sequencer, ParameterTrack, and scale tables
 │   │   ├── scales/           # 13 scale tables and MIDI mapping
@@ -104,7 +108,6 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
     uClock timer in the SDK default alarm pool, so the ISR fires on core 0 — the
     control core. Upstream 2.3.0 changed the callback API; re-verify before
     upgrading.)
-  - `MIDI Library` 5.0.2
 
 ### Installation & Flashing
 
@@ -261,14 +264,14 @@ Pico2Seq leverages the dual ARM Cortex-M33 cores of the RP2350:
 | • Alchemy tile panel polling (I2C1)|    | • 4-voice synthesis chain          |
 | • 50Hz OLED & WS2812B LED updates  |    | • FloatToPcm16() with __SSAT       |
 | • uClock sequencer step ticking    |    | • Non-blocking I2S DMA @ 48kHz     |
-| • USB MIDI I/O (notes & CC)         |    |                                    |
+| • USB CDC serial console            |    |                                    |
 +------------------------------------+    +------------------------------------+
                    \                                /
                     +---[ Lock-Free Staging State ]-+
 ```
 
 - **Core 1 (Audio Thread):** Strict real-time constraints. Never allocates heap memory, never performs blocking I2C transactions, and never touches USB endpoints.
-- **Core 0 (System & Control):** Scans inputs, updates state machines, coordinates MIDI note/CC output, and renders visual feedback. Also hosts the uClock timer ISR (the stock library's alarm always fires on core 0), which is why audio lives on core 1.
+- **Core 0 (System & Control):** Scans inputs, updates state machines, runs the internal note-lifecycle state machine and renders visual feedback. USB MIDI was removed 2026-09-06 — USB carries power and the CDC serial console only. Also hosts the uClock timer ISR (the stock library's alarm always fires on core 0), which is why audio lives on core 1.
 
 ---
 
@@ -304,7 +307,7 @@ Comprehensive subsystem documentation is maintained in the [`docs/`](docs/) dire
 - [`docs/matrix.md`](docs/matrix.md) — MPR121 32-pad touch input matrix, bank resolution, and Alchemy tile interaction
 - [`docs/LEDMatrix.md`](docs/LEDMatrix.md) — WS2812B 8×4 RGB LED matrix visualizer, 10 themes, and pair-based voice indicators
 - [`docs/oled.md`](docs/oled.md) — 128×64 SH1106G OLED display, 6-tier priority rendering hierarchy, and UI state
-- [`docs/midi.md`](docs/midi.md) — USB MIDI note/CC management, 2-voice asymmetry, and realtime MIDI clock
+- [`docs/midi.md`](docs/midi.md) — MIDI subsystem (USB MIDI removed 2026-09-06; internal note lifecycle + CDC console)
 - [`docs/sensors.md`](docs/sensors.md) — TMAG5273 magnetic encoder and VL53L1X TOF distance sensor integration
 - [`docs/ButtonHandlers.md`](docs/ButtonHandlers.md) — UI button event dispatching and debounce logic
 - [`docs/testing.md`](docs/testing.md) — Host-side Catch2 v3 unit testing guide, CMake/CTest workflow, and header stubs

@@ -1,4 +1,6 @@
 #include "ButtonHandlers.h"
+#include "../app/AppState.h"
+#include "../app/ClockService.h"
 
 #include "../LEDMatrix/LEDMatrixFeedback.h"
 #include "../pico2seq-core/scales/scales.h"
@@ -12,15 +14,6 @@
 #include "../FeatureConfig.h"
 
 #include <uClock.h>
-
-// External flags and helpers used by UI
-extern bool isClockRunning;
-extern Sequencer seq1, seq2, seq3, seq4;
-extern void onClockStart();
-extern void onClockStop();
-extern uint8_t currentScale;
-extern std::unique_ptr<VoiceManager> voiceManager;
-extern VoiceSystem voiceSystem;
 
 // Begin tracking a randomize press for a voice index [0..3]
 void beginRandomizePress(int voiceIndex, UIState &state)

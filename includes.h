@@ -4,7 +4,8 @@
 #include <FastLED.h>
 #include <Adafruit_VL53L1X.h>
 #include <Adafruit_MPR121.h> // MAKE SURE TO ENABLE AUTOCONFIG IN MPR121.H
-#include <MIDI.h>
+// <MIDI.h> / USB MIDI removed 2026-09-06. Adafruit_TinyUSB.h stays: it provides
+// the TinyUSB CDC serial console (Serial); usbstack=tinyusb is still required.
 #include <Adafruit_TinyUSB.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
@@ -37,20 +38,7 @@
 #include "src/ui/UIState.h"
 #include "src/ui/AlchemyControlBridge.h"
 
-// =======================
-//   I2C BUS PINS
-// =======================
-// Main bus (Wire, I2C0): OLED, MPR121, TMAG5273, VL53L1X.
-constexpr uint8_t PIN_WIRE_SDA = 4;
-constexpr uint8_t PIN_WIRE_SCL = 5;
-// Tile bank (Wire1, I2C1) at 100 kHz: SliderModule + ButtonModule8.
-// (I2S moved off GP15 onto GP10-12; see PICO_AUDIO_I2S_* in Pico2Seq.ino.)
-constexpr uint8_t PIN_ALCHEMY_WIRE1_SDA = 14;
-constexpr uint8_t PIN_ALCHEMY_WIRE1_SCL = 15;
-// GP7 strap switch to GND: LOW = Param mode, HIGH = Utility mode. If the
-// bench polarity is inverted, flip ControlSurface::kModeParamLevel in
-// src/ui/ControlSurfaceLogic.h instead.
-constexpr uint8_t PIN_ALCHEMY_MODE_SWITCH = 7;
+#include "src/app/HardwarePins.h"
 
 // OLED Display
 #include "src/OLED/oled.h"

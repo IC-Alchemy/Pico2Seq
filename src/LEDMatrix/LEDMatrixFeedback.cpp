@@ -476,14 +476,19 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState)
     {
         // Preset selection mode - show available presets
         const uint8_t totalPresets = VoicePresets::getPresetCount();
-        const uint8_t presetCount = (totalPresets < SEQ_STEPS) ? totalPresets : SEQ_STEPS;
+        const uint8_t presetCount = VoicePresets::presetCountOnPage(totalPresets, uiState.presetPage);
 
         // Keep preset selection in the hue assigned to the configured voice.
         CRGB selectedColor = getVoiceGateColor(*activeThemeColors, uiState.settingsMenuIndex, true);
         CRGB availableColor = getVoiceGateColor(*activeThemeColors, uiState.settingsMenuIndex, false);
 
-        // Show presets in first 6 step positions (0-5)
-        for (uint8_t i = 0; i < presetCount && i < SEQ_STEPS; i++)
+        if (uiState.presetPage > 0)
+            ledMatrix.setLED(VoicePresets::kPreviousPagePad, 0, availableColor);
+        if (uiState.presetPage + 1 < VoicePresets::presetPageCount(totalPresets))
+            ledMatrix.setLED(VoicePresets::kNextPagePad, 0, availableColor);
+
+        // Preset pads occupy the three rows below voice/page navigation.
+        for (uint8_t i = 0; i < presetCount; i++)
         {
             CRGB color;
 
@@ -493,7 +498,7 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState)
                                            : 0;
             const uint8_t currentPresetIndex = uiState.voicePresetIndices[voiceIndex];
 
-            if (i == currentPresetIndex)
+            if (uiState.presetPage * VoicePresets::kPresetsPerPage + i == currentPresetIndex)
             {
                 // Current preset - bright pulsing
                 uint32_t time = millis();

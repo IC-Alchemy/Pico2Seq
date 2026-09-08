@@ -486,22 +486,17 @@ std::vector<uint8_t> VoiceManager::getActiveVoiceIds() const
 // Static methods for preset management
 std::vector<std::string> VoiceManager::getAvailablePresets()
 {
-    return {
-        "analog",
-        "digital",
-        "bass",
-        "lead",
-        "square",
-        "pad",
-        "percussion",
-        "subfunk",
-        "rubbersub",
-        "wgpluck",
-        "wgnylon",
-        "wgbell",
-        "wgshimmer",
-        "hypersaw",
-        "noisestorm"};
+    std::vector<std::string> names;
+    names.reserve(VoicePresets::getPresetCount());
+    for (uint8_t i = 0; i < VoicePresets::getPresetCount(); ++i)
+    {
+        std::string name = VoicePresets::getPresetName(i);
+        for (char &c : name)
+            if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+        names.push_back(std::move(name));
+    }
+    return names; // setup/UI helper only; never called by audio
+
 }
 
 /**
@@ -516,71 +511,7 @@ std::vector<std::string> VoiceManager::getAvailablePresets()
  */
 VoiceConfig VoiceManager::getPresetConfig(const std::string &presetName)
 {
-    if (presetName == "analog")
-    {
-        return VoicePresets::getAnalogVoice();
-    }
-    else if (presetName == "digital")
-    {
-        return VoicePresets::getDigitalVoice();
-    }
-    else if (presetName == "bass")
-    {
-        return VoicePresets::getBassVoice();
-    }
-    else if (presetName == "lead")
-    {
-        return VoicePresets::getLeadVoice();
-    }
-    else if (presetName == "pad")
-    {
-        return VoicePresets::getPadVoice();
-    }
-    else if (presetName == "square")
-    {
-        return VoicePresets::getSquareVoice();
-    }
-    else if (presetName == "percussion")
-    {
-        return VoicePresets::getPercussionVoice();
-    }
-    else if (presetName == "subfunk")
-    {
-        return VoicePresets::getSubFunkVoice();
-    }
-    else if (presetName == "rubbersub")
-    {
-        return VoicePresets::getRubberSubVoice();
-    }
-    else if (presetName == "wgpluck")
-    {
-        return VoicePresets::getWaveguidePluckVoice();
-    }
-    else if (presetName == "wgnylon")
-    {
-        return VoicePresets::getWaveguideNylonVoice();
-    }
-    else if (presetName == "wgbell")
-    {
-        return VoicePresets::getWaveguideBellVoice();
-    }
-    else if (presetName == "wgshimmer")
-    {
-        return VoicePresets::getWaveguideShimmerVoice();
-    }
-    else if (presetName == "hypersaw")
-    {
-        return VoicePresets::getHypersawVoice();
-    }
-    else if (presetName == "noisestorm")
-    {
-        return VoicePresets::getNoiseStormVoice();
-    }
-    else
-    {
-        // Default to analog voice if preset not found
-        return VoicePresets::getAnalogVoice();
-    }
+    return VoicePresets::getPresetConfigByName(presetName);
 }
 
 /**

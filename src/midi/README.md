@@ -1,5 +1,7 @@
 # Pico2Seq MIDI Module
 
+> **2026-09-06:** USB MIDI transmission was removed entirely. `MidiNoteManager` remains as the internal gate/note lifecycle state machine; every send is a stub. USB carries power + the TinyUSB CDC serial console only.
+
 This module is responsible for handling USB MIDI communication for Pico2Seq. See the [main README](../../README.md) for overall project context.
 
 ---
