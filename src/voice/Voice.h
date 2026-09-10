@@ -284,6 +284,18 @@ private:
   // Waveguide capacity 2048 samples ≈ 24 Hz minimum pitch at 48 kHz.
   static constexpr size_t kWaveguideCapacity = 2048;
   rpdsp::PluckedStringVoice<kWaveguideCapacity> waveguide_;
+  // Audio-owned cache: unchanged controls need no coefficient recalculation.
+  // Invalidated whenever the string model is reset or prepared again.
+  struct WaveguideSettings
+  {
+    float t60 = 0.0f;
+    float brightness = 0.0f;
+    float pickPosition = 0.0f;
+    float pickHardness = 0.0f;
+    float stiffness = 0.0f;
+    float detune = 0.0f;
+    bool valid = false;
+  } waveguideSettings_;
   // A Hypersaw itself contains the seven saw voices. Keep exactly one instance
   // per Voice rather than building a second unison stack from VoiceOscillator.
   rpdsp::Hypersaw hypersaw_;
@@ -479,7 +491,8 @@ private:
    */
   void processEffectsChain(float &signal);
 
-  // Cross-core application helpers (called on audio thread at start of process)
+  // Cross-core application helpers. process() pops into audioUpdate_ before
+  // calling applyControlUpdate_(), so empty queues need no out-of-line call.
   void applyControlUpdate_() noexcept;
   void applyParameters_(const VoiceState &newState) noexcept;
   void applyConfig_(const VoiceConfig &newConfig) noexcept;

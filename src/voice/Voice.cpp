@@ -599,12 +599,21 @@ void Voice::applyEngineConfig_()
   // NOTE: cachedEngine_ is NOT updated here — the engine switch belongs to
   // applyStructuralConfig_() so a live swap waits for the gate to fall.
   if (cachedEngine_ == ENGINE_WAVEGUIDE) {
-    waveguide_.setDecayTimeSeconds(config.wgT60);
-    waveguide_.setBrightness(config.wgBrightness);
-    waveguide_.setPickPosition(config.wgPickPosition);
-    waveguide_.setPickHardness(config.wgPickHardness);
-    waveguide_.setStiffness(config.wgStiffness);
-    waveguide_.setDetuneCents(config.wgDetune);
+    auto &last = waveguideSettings_;
+    if (!last.valid || last.t60 != config.wgT60)
+      waveguide_.setDecayTimeSeconds(config.wgT60);
+    if (!last.valid || last.brightness != config.wgBrightness)
+      waveguide_.setBrightness(config.wgBrightness);
+    if (!last.valid || last.pickPosition != config.wgPickPosition)
+      waveguide_.setPickPosition(config.wgPickPosition);
+    if (!last.valid || last.pickHardness != config.wgPickHardness)
+      waveguide_.setPickHardness(config.wgPickHardness);
+    if (!last.valid || last.stiffness != config.wgStiffness)
+      waveguide_.setStiffness(config.wgStiffness);
+    if (!last.valid || last.detune != config.wgDetune)
+      waveguide_.setDetuneCents(config.wgDetune);
+    last = {config.wgT60, config.wgBrightness, config.wgPickPosition,
+            config.wgPickHardness, config.wgStiffness, config.wgDetune, true};
   } else if (cachedEngine_ == ENGINE_HYPERSAW) {
     hypersaw_.setDetune(config.hypersawDetune);
     hypersaw_.setMix(config.hypersawMix);
@@ -697,6 +706,7 @@ void Voice::resetAlternateEngines_() noexcept
   recipeEngine_.reset();
   recipeTriggerPending_ = false;
   waveguide_.reset();
+  waveguideSettings_.valid = false;
   wgPluckPending_ = false;
   hypersaw_.reset();
   hypersawTriggerPending_ = false;

@@ -93,6 +93,7 @@ inline void channel_config_set_dreq(dma_channel_config*, uint) {}
 inline void channel_config_set_transfer_data_size(dma_channel_config*, uint) {}
 inline void dma_channel_configure(uint, dma_channel_config* c, void*, const void*, uint32_t, bool) { audioDmaConfig = *c; }
 inline void irq_add_shared_handler(uint, void (*handler)(), uint) { audioDmaHandler = handler; }
+inline void irq_set_exclusive_handler(uint, void (*handler)()) { audioDmaHandler = handler; }
 inline void irq_set_priority(uint, uint) {}
 inline void dma_irqn_set_channel_enabled(uint, uint, bool) {}
 inline bool dma_irqn_get_channel_status(uint, uint) { return audioDmaPending; }

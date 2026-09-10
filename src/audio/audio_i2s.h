@@ -111,8 +111,11 @@ extern "C" {
 /** \brief Base configuration structure used when setting up
  * \ingroup pico_audio_i2s
  */
-// Claim an available channel during setup, safely alongside other DMA users.
+// Claim an available channel/state machine during setup, safely alongside
+// other DMA/PIO users. The audio driver must not assert if another peripheral
+// has already claimed the default state machine.
 #define PICO_AUDIO_I2S_DMA_CHANNEL_AUTO UINT8_MAX
+#define PICO_AUDIO_I2S_PIO_SM_AUTO UINT8_MAX
 
 typedef struct audio_i2s_config {
     uint8_t data_pin;
@@ -181,6 +184,9 @@ void audio_i2s_set_enabled(bool enabled);
 // Read from the audio core only; IRQ-owned counters sampled into its heartbeat.
 uint32_t audio_i2s_underrun_count(void);
 uint32_t audio_i2s_tx_stall_count(void);
+// Setup-stage probe for bring-up diagnostics; zero means setup has not entered
+// the driver. It is read by Core 0 and written only by Core 1.
+uint32_t audio_i2s_setup_stage(void);
 
 #ifdef __cplusplus
 }

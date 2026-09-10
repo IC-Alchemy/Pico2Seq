@@ -5,10 +5,14 @@
 // Core 1 owns the I2S pool and renders one paced buffer per loop1() call.
 namespace AudioEngine
 {
-enum class Phase : uint32_t { NotStarted, BufferPool, I2SSetup, BufferWait, Render, Submit, Failed };
+enum class Phase : uint32_t {
+    NotStarted, BufferPool, I2SSetup, I2SDriver, I2SConnect, InitialFill,
+    I2SEnable, BufferWait, Render, Submit, Failed
+};
 // Read-only diagnostics for Core 0; the count advances after a buffer is submitted.
 Phase phase() noexcept;
 uint32_t completedBufferCount() noexcept;
+uint32_t driverSetupStage() noexcept;
 const char *phaseName(Phase phase) noexcept;
 
 // A best-effort snapshot, queued without Serial or waiting on the audio core.

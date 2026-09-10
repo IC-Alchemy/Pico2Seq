@@ -36,6 +36,7 @@ constexpr uint16_t kStereoChannels = 2;
 constexpr uint16_t kStereoFrameBytes = kStereoChannels * sizeof(int16_t);
 std::atomic<AudioEngine::Phase> audioPhase{AudioEngine::Phase::NotStarted};
 std::atomic<uint32_t> completedBuffers{0};
+std::atomic<uint32_t> driverStage{0};
 bool audioStarted = false; // Core 1 only
 SpscQueue<AudioEngine::Heartbeat, kHeartbeatQueueCapacity> heartbeats;
 audio_buffer_pool_t *producer_pool = nullptr;
@@ -126,6 +127,7 @@ void fill_audio_buffer(audio_buffer_t *buffer)
 bool setupI2SAudio(audio_format_t *audioFormat, audio_i2s_config_t *i2sConfig)
 {
     // Initialize I2S hardware with specified format
+    audioPhase.store(AudioEngine::Phase::I2SDriver, std::memory_order_relaxed);
     if (!audio_i2s_setup(audioFormat, i2sConfig))
     {
         g_errorState |= ERR_AUDIO;
@@ -134,6 +136,7 @@ bool setupI2SAudio(audio_format_t *audioFormat, audio_i2s_config_t *i2sConfig)
 
     // Identical PCM16 stereo formats: give the DMA the rendered buffer itself.
     // A zero consumer-buffer count selects the driver's pass-through connection.
+    audioPhase.store(AudioEngine::Phase::I2SConnect, std::memory_order_relaxed);
     if (!audio_i2s_connect_extra(producer_pool, false, 0, SAMPLES_PER_BUFFER, nullptr))
     {
         g_errorState |= ERR_AUDIO;
@@ -144,6 +147,7 @@ bool setupI2SAudio(audio_format_t *audioFormat, audio_i2s_config_t *i2sConfig)
     // very first transfer necessarily underruns and substitutes silence.
     for (int i = 0; i < NUM_AUDIO_BUFFERS; ++i)
     {
+        audioPhase.store(AudioEngine::Phase::InitialFill, std::memory_order_relaxed);
         audio_buffer_t *buffer = take_audio_buffer(producer_pool, false);
         if (!buffer)
         {
@@ -155,11 +159,17 @@ bool setupI2SAudio(audio_format_t *audioFormat, audio_i2s_config_t *i2sConfig)
     }
 
     // Enable audio processing
+    audioPhase.store(AudioEngine::Phase::I2SEnable, std::memory_order_relaxed);
     audio_i2s_set_enabled(true);
     g_audioOK = true;
     return true;
 }
 } // namespace
+
+extern "C" void audio_i2s_debug_stage(uint32_t stage)
+{
+    driverStage.store(stage, std::memory_order_relaxed);
+}
 
 void AudioEngine::prepareEffects()
 {
@@ -211,7 +221,7 @@ void AudioEngine::begin()
         .data_pin = PICO_AUDIO_I2S_DATA_PIN,
         .clock_pin_base = PICO_AUDIO_I2S_CLOCK_PIN_BASE,
         .dma_channel = PICO_AUDIO_I2S_DMA_CHANNEL_AUTO,
-        .pio_sm = 0};
+        .pio_sm = PICO_AUDIO_I2S_PIO_SM_AUTO};
 
     // Initialize I2S audio system
     audioPhase.store(Phase::I2SSetup, std::memory_order_relaxed);
@@ -289,6 +299,11 @@ uint32_t AudioEngine::completedBufferCount() noexcept
     return completedBuffers.load(std::memory_order_relaxed);
 }
 
+uint32_t AudioEngine::driverSetupStage() noexcept
+{
+    return driverStage.load(std::memory_order_relaxed);
+}
+
 const char *AudioEngine::phaseName(Phase value) noexcept
 {
     switch (value)
@@ -296,6 +311,10 @@ const char *AudioEngine::phaseName(Phase value) noexcept
     case Phase::NotStarted: return "not started";
     case Phase::BufferPool: return "buffer pool";
     case Phase::I2SSetup: return "I2S setup";
+    case Phase::I2SDriver: return "I2S driver";
+    case Phase::I2SConnect: return "I2S connect";
+    case Phase::InitialFill: return "initial fill";
+    case Phase::I2SEnable: return "I2S enable";
     case Phase::BufferWait: return "buffer wait";
     case Phase::Render: return "render";
     case Phase::Submit: return "submit";

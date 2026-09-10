@@ -69,6 +69,75 @@ TEST_CASE("Preset names share one case-insensitive registry", "[voice][presets]"
             VoicePresets::getPresetConfigByName("Spectral").recipe);
 }
 
+TEST_CASE("Repeated waveguide controls preserve the sounding tail", "[voice][waveguide]")
+{
+    for (const char *name : {"WgPluck", "WgNylon", "WgBell", "WgShimmer"}) {
+        INFO(name);
+        const auto config = VoicePresets::getPresetConfigByName(name);
+        Voice repeated(0, config), unchanged(0, config);
+        repeated.init(48000.0f);
+        unchanged.init(48000.0f);
+        auto state = seededState(config);
+        repeated.updateParameters(state);
+        unchanged.updateParameters(state);
+        float peak = 0.0f;
+        for (int sample = 0; sample < 8192; ++sample) {
+            if (sample > 0 && sample % 32 == 0)
+                repeated.updateParameters(state);
+            const float actual = repeated.process();
+            REQUIRE(actual == unchanged.process());
+            peak = std::max(peak, std::abs(actual));
+        }
+        REQUIRE(peak > 0.01f);
+    }
+}
+
+TEST_CASE("Waveguide settings survive engine resets and sample rate changes", "[voice][waveguide]")
+{
+    bool switchEngine = false;
+    float sampleRate = 48000.0f;
+    SECTION("Switch away and back to the same string settings") { switchEngine = true; }
+    SECTION("Prepare again at the same sample rate") {}
+    SECTION("Prepare at a different sample rate") { sampleRate = 96000.0f; }
+
+    for (const char *name : {"WgPluck", "WgNylon", "WgBell", "WgShimmer"}) {
+        INFO(name);
+        auto config = VoicePresets::getPresetConfigByName(name);
+        // Isolate the string: filter memory intentionally survives preset changes.
+        config.highPassFreq = 0.0f;
+        config.highPassRes = 0.0f;
+        Voice reused(0, config);
+        reused.init(48000.0f);
+        const auto state = seededState(config);
+        reused.updateParameters(state);
+        for (int sample = 0; sample < 512; ++sample) reused.process();
+        reused.setGate(false);
+        reused.process();
+
+        if (switchEngine) {
+            reused.setConfig(VoicePresets::getPresetConfigByName("FMGlass"));
+            reused.process();
+            reused.setConfig(config);
+            reused.process();
+        }
+        else {
+            reused.init(sampleRate);
+        }
+
+        Voice fresh(0, config);
+        fresh.init(sampleRate);
+        reused.updateParameters(state);
+        fresh.updateParameters(state);
+        float peak = 0.0f;
+        for (int sample = 0; sample < 4096; ++sample) {
+            const float actual = reused.process();
+            REQUIRE(actual == fresh.process());
+            peak = std::max(peak, std::abs(actual));
+        }
+        REQUIRE(peak > 0.01f);
+    }
+}
+
 TEST_CASE("Preset pages reach the whole bank without addressing nonexistent pads", "[voice][presets]")
 {
     for (uint8_t count : {0, 1, 24, 25, 65, 255}) {

@@ -24,14 +24,15 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
         if (Serial)
         {
             freezeWatchdogPrintPreviousRun();
-            Serial.printf("[DIAG C0] ids=%u,%u,%u,%u mgrVoices=%u warmBoots=%lu steps=%lu audioBufs=%lu audio=%s\n",
+            Serial.printf("[DIAG C0] ids=%u,%u,%u,%u mgrVoices=%u warmBoots=%lu steps=%lu audioBufs=%lu audio=%s i2sstage=%lu\n",
                           voiceSystem.getVoiceId(0), voiceSystem.getVoiceId(1),
                           voiceSystem.getVoiceId(2), voiceSystem.getVoiceId(3),
                           (unsigned)(voiceManager ? voiceManager->getVoiceCount() : 0),
                           (unsigned long)watchdog_hw->scratch[2],
                           (unsigned long)g_processedStepCount,
                           (unsigned long)AudioEngine::completedBufferCount(),
-                          AudioEngine::phaseName(AudioEngine::phase()));
+                          AudioEngine::phaseName(AudioEngine::phase()),
+                          (unsigned long)AudioEngine::driverSetupStage());
         }
     }
 

@@ -43,6 +43,11 @@ struct {
 // Core 0 receives copies through AudioEngine's SPSC heartbeat queue.
 static volatile uint32_t underrun_count;
 static volatile uint32_t tx_stall_count;
+static volatile uint32_t setup_stage;
+
+extern void audio_i2s_debug_stage(uint32_t stage);
+
+uint32_t audio_i2s_setup_stage(void) { return setup_stage; }
 
 uint32_t audio_i2s_underrun_count(void) { return underrun_count; }
 uint32_t audio_i2s_tx_stall_count(void) { return tx_stall_count; }
@@ -56,6 +61,8 @@ static void __isr __time_critical_func(audio_i2s_dma_irq_handler)();
 
 const audio_format_t *audio_i2s_setup(const audio_format_t *intended_audio_format,
                                                const audio_i2s_config_t *config) {
+    setup_stage = 1;
+    audio_i2s_debug_stage(1);
     // FastLED also claims DMA channels during Core 0 setup. Claim atomically
     // rather than assuming channel 0 is still free after the cores start.
     int dma_channel = config->dma_channel;
@@ -65,11 +72,15 @@ const audio_format_t *audio_i2s_setup(const audio_format_t *intended_audio_forma
     } else {
         dma_channel_claim(dma_channel);
     }
+    setup_stage = 2;
+    audio_i2s_debug_stage(2);
 
     uint func = GPIO_FUNC_PIOx;
     gpio_set_function(config->data_pin, func);
     gpio_set_function(config->clock_pin_base, func);
     gpio_set_function(config->clock_pin_base + 1, func);
+    setup_stage = 3;
+    audio_i2s_debug_stage(3);
 
 #if PICO_PIO_USE_GPIO_BASE
     if(config->data_pin >= 32 || config->clock_pin_base + 1 >= 32) {
@@ -77,8 +88,22 @@ const audio_format_t *audio_i2s_setup(const audio_format_t *intended_audio_forma
         pio_set_gpio_base(audio_pio, 16);
     }
 #endif
-    uint8_t sm = shared_state.pio_sm = config->pio_sm;
-    pio_sm_claim(audio_pio, sm);
+    int requested_sm = config->pio_sm;
+    if (requested_sm == PICO_AUDIO_I2S_PIO_SM_AUTO) {
+        requested_sm = pio_claim_unused_sm(audio_pio, false);
+        if (requested_sm < 0) {
+            dma_channel_unclaim(dma_channel);
+            return NULL;
+        }
+    } else {
+        // Keep the explicit configuration path for callers that own the PIO
+        // allocation themselves. The firmware uses AUTO above so a competing
+        // LED/peripheral claim cannot trap Core 1 in hw_claim_or_assert().
+        pio_sm_claim(audio_pio, (uint) requested_sm);
+    }
+    uint8_t sm = shared_state.pio_sm = (uint8_t) requested_sm;
+    setup_stage = 4;
+    audio_i2s_debug_stage(4);
 
 
     const struct pio_program *program =
@@ -88,11 +113,19 @@ const audio_format_t *audio_i2s_setup(const audio_format_t *intended_audio_forma
         &audio_i2s_program
 #endif
         ;
-    uint offset = pio_add_program(audio_pio, program);
-
+    int offset = pio_add_program(audio_pio, program);
+    if (offset < 0) {
+        pio_sm_unclaim(audio_pio, sm);
+        dma_channel_unclaim(dma_channel);
+        return NULL;
+    }
     audio_i2s_program_init(audio_pio, sm, offset, config->data_pin, config->clock_pin_base);
+    setup_stage = 6;
+    audio_i2s_debug_stage(6);
 
     __mem_fence_release();
+    setup_stage = 7;
+    audio_i2s_debug_stage(7);
     shared_state.dma_channel = dma_channel;
 
     dma_channel_config dma_config = dma_channel_get_default_config(dma_channel);
@@ -109,10 +142,20 @@ const audio_format_t *audio_i2s_setup(const audio_format_t *intended_audio_forma
                           0, // count
                           false // trigger
     );
+    setup_stage = 8;
+    audio_i2s_debug_stage(8);
 
-    irq_add_shared_handler(DMA_IRQ_0 + PICO_AUDIO_I2S_DMA_IRQ, audio_i2s_dma_irq_handler, PICO_SHARED_IRQ_HANDLER_DEFAULT_ORDER_PRIORITY);
+    // This audio path owns its DMA IRQ.  FastLED and other Arduino libraries
+    // already consume the small global pool of shared-handler slots, so using
+    // a shared registration here can assert before the first buffer starts.
+    // The firmware selects DMA_IRQ_1, leaving FastLED's DMA_IRQ_0 separate.
+    irq_set_exclusive_handler(DMA_IRQ_0 + PICO_AUDIO_I2S_DMA_IRQ, audio_i2s_dma_irq_handler);
+    setup_stage = 9;
+    audio_i2s_debug_stage(9);
     irq_set_priority(DMA_IRQ_0 + PICO_AUDIO_I2S_DMA_IRQ, PICO_HIGHEST_IRQ_PRIORITY);
     dma_irqn_set_channel_enabled(PICO_AUDIO_I2S_DMA_IRQ, dma_channel, 1);
+    setup_stage = 10;
+    audio_i2s_debug_stage(10);
     return intended_audio_format;
 }
 
