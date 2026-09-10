@@ -2,6 +2,7 @@
 param(
     [string]$ArduinoCli = 'arduino-cli',
     [string]$BuildDirectory,
+    [ValidateSet(150, 225, 300)] [int]$CpuMHz = 225,
     [switch]$KeepStage
 )
 
@@ -58,7 +59,7 @@ function Copy-StageTree {
 $boardOptions = @(
     'flash=4194304_0'
     'arch=arm'
-    'freq=300'
+    "freq=$CpuMHz"
     'opt=Optimize3'
     'profile=Disabled'
     'rtti=Disabled'
@@ -78,6 +79,7 @@ try {
 
     Write-Host "Building Pico2Seq with $($arduinoCliCommand.Source)"
     Write-Host "Artifacts: $buildPath"
+    Write-Host "CPU clock: $CpuMHz MHz"
     & $arduinoCliCommand.Source compile `
         --fqbn 'rp2040:rp2040:rpipico2' `
         --board-options $boardOptions `

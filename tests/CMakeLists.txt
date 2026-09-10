@@ -89,3 +89,10 @@ target_compile_definitions(pico2seq_voice_tests PRIVATE AUG_DEBUG_COMPILED=0)
 target_compile_options(pico2seq_voice_tests PRIVATE -Wall -Wno-unused-parameter)
 catch_discover_tests(pico2seq_voice_tests TEST_PREFIX "voice-focused: "
   PROPERTIES TIMEOUT 60)
+
+# Exercise the real watchdog report code with isolated hardware/serial stubs.
+add_executable(pico2seq_watchdog_tests unit/test_freeze_watchdog.cpp)
+target_include_directories(pico2seq_watchdog_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/watchdog_stubs ${PROJECT_SOURCE_DIR})
+target_link_libraries(pico2seq_watchdog_tests PRIVATE Catch2::Catch2WithMain)
+catch_discover_tests(pico2seq_watchdog_tests TEST_PREFIX "watchdog: ")

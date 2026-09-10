@@ -21,7 +21,7 @@ void initializeVoices()
         VoiceParameters::seedTracks(*AppState::sequencers[i], VoicePresets::getPresetConfig(presetIndices[i]));
     }
 
-    voicesReady.store(true, std::memory_order_release);
+    // Application publishes the collection after the rest of control setup.
 }
 
 static void seedRepurposedParamTracks(uint8_t voiceIndex, const VoiceConfig &config)

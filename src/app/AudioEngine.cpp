@@ -11,6 +11,7 @@
 #include <atomic>
 
 static_assert(std::atomic<bool>::is_always_lock_free, "Audio readiness must not lock");
+static_assert(std::atomic<AudioEngine::Phase>::is_always_lock_free, "Audio diagnostics must not lock");
 static_assert(sizeof(AudioEngine::Heartbeat::voiceIds) == VoiceSystem::MAX_VOICES,
               "Heartbeat must cover the fixed voice collection");
 
@@ -27,12 +28,14 @@ float feedbackAmmount = 0.45f;
 
 namespace
 {
-constexpr uint32_t kBootStabilizationMs = 100;
 constexpr uint32_t kHeartbeatIntervalMs = 2000;
 constexpr size_t kHeartbeatQueueCapacity = 4;
 constexpr uint32_t kConsumerBufferCount = 4;
 constexpr uint16_t kStereoChannels = 2;
 constexpr uint16_t kStereoFrameBytes = kStereoChannels * sizeof(int16_t);
+std::atomic<AudioEngine::Phase> audioPhase{AudioEngine::Phase::NotStarted};
+std::atomic<uint32_t> completedBuffers{0};
+bool audioStarted = false; // Core 1 only
 SpscQueue<AudioEngine::Heartbeat, kHeartbeatQueueCapacity> heartbeats;
 audio_buffer_pool_t *producer_pool = nullptr;
 #if PICO2SEQ_ENABLE_DELAY_EFFECT
@@ -119,25 +122,26 @@ void fill_audio_buffer(audio_buffer_t *buffer)
     buffer->sample_count = N;
 }
 
-void setupI2SAudio(audio_format_t *audioFormat, audio_i2s_config_t *i2sConfig)
+bool setupI2SAudio(audio_format_t *audioFormat, audio_i2s_config_t *i2sConfig)
 {
     // Initialize I2S hardware with specified format
     if (!audio_i2s_setup(audioFormat, i2sConfig))
     {
         g_errorState |= ERR_AUDIO;
-        return;
+        return false;
     }
 
     // Connect audio buffer pool to I2S interface using 4 I2S consumer buffers
     if (!audio_i2s_connect_extra(producer_pool, false, kConsumerBufferCount, SAMPLES_PER_BUFFER, nullptr))
     {
         g_errorState |= ERR_AUDIO;
-        return;
+        return false;
     }
 
     // Enable audio processing
     audio_i2s_set_enabled(true);
     g_audioOK = true;
+    return true;
 }
 } // namespace
 
@@ -164,8 +168,11 @@ void AudioEngine::prepareEffects()
 
 void AudioEngine::begin()
 {
-    delay(kBootStabilizationMs);
-
+    // Core 0 performs all control/voice initialization first. It never waits
+    // for audio during setup. A watchdog recovery boot leaves this flag low,
+    // so Core 1 cannot restart a failing hardware path behind the console.
+    while (!voicesReady.load(std::memory_order_acquire))
+        delay(1);
 
     // Configure audio format (48kHz, 16-bit stereo)
     static audio_format_t audioFormat = {
@@ -180,27 +187,37 @@ void AudioEngine::begin()
     };
 
     // Create audio buffer pool
+    audioPhase.store(Phase::BufferPool, std::memory_order_relaxed);
     producer_pool = audio_new_producer_pool(&bufferFormat, NUM_AUDIO_BUFFERS, SAMPLES_PER_BUFFER);
 
     // Configure I2S hardware interface
     audio_i2s_config_t i2sConfig = {
         .data_pin = PICO_AUDIO_I2S_DATA_PIN,
         .clock_pin_base = PICO_AUDIO_I2S_CLOCK_PIN_BASE,
-        .dma_channel = 0,
+        .dma_channel = PICO_AUDIO_I2S_DMA_CHANNEL_AUTO,
         .pio_sm = 0};
 
     // Initialize I2S audio system
-    setupI2SAudio(&audioFormat, &i2sConfig);
+    audioPhase.store(Phase::I2SSetup, std::memory_order_relaxed);
+    audioStarted = setupI2SAudio(&audioFormat, &i2sConfig);
+    if (!audioStarted)
+        audioPhase.store(Phase::Failed, std::memory_order_relaxed);
 }
 
 void AudioEngine::renderNextBuffer()
 {
+    if (!audioStarted)
+        return;
+    audioPhase.store(Phase::BufferWait, std::memory_order_relaxed);
     audio_buffer_t *audioBuffer = take_audio_buffer(producer_pool, true);
 
     if (audioBuffer)
     {
+        audioPhase.store(Phase::Render, std::memory_order_relaxed);
         fill_audio_buffer(audioBuffer);
+        audioPhase.store(Phase::Submit, std::memory_order_relaxed);
         give_audio_buffer(producer_pool, audioBuffer);
+        completedBuffers.fetch_add(1, std::memory_order_relaxed);
     }
 
     // Keep the existing liveness probe, but hand its output to Core 0. A full
@@ -225,4 +242,29 @@ void AudioEngine::renderNextBuffer()
 bool AudioEngine::takeHeartbeat(Heartbeat &heartbeat) noexcept
 {
     return heartbeats.tryPop(heartbeat);
+}
+
+AudioEngine::Phase AudioEngine::phase() noexcept
+{
+    return audioPhase.load(std::memory_order_relaxed);
+}
+
+uint32_t AudioEngine::completedBufferCount() noexcept
+{
+    return completedBuffers.load(std::memory_order_relaxed);
+}
+
+const char *AudioEngine::phaseName(Phase value) noexcept
+{
+    switch (value)
+    {
+    case Phase::NotStarted: return "not started";
+    case Phase::BufferPool: return "buffer pool";
+    case Phase::I2SSetup: return "I2S setup";
+    case Phase::BufferWait: return "buffer wait";
+    case Phase::Render: return "render";
+    case Phase::Submit: return "submit";
+    case Phase::Failed: return "setup failed";
+    }
+    return "unknown";
 }

@@ -206,11 +206,11 @@ void ParameterManager::randomizeParameters()
           // Even steps: rare long attacks
           if (lcg_rand_int(0, 8) == 0)
           { // 1/9 chance
-            track.setValue(step, lcg_rand_float(0.05f, 0.5f));
+            track.setValue(step, lcg_rand_float(0.02f, 0.25f));
           }
           else
           {
-            track.setValue(step, lcg_rand_float(0.0f, 0.03f));
+            track.setValue(step, lcg_rand_float(0.003f, 0.03f));
           }
         }
         else
@@ -218,11 +218,11 @@ void ParameterManager::randomizeParameters()
           // Odd steps
           if (lcg_rand_int(0, 12) == 0)
           { // 1/13 chance
-            track.setValue(step, lcg_rand_float(0.0f, 0.2f));
+            track.setValue(step, lcg_rand_float(0.003f, 0.24f));
           }
           else
           {
-            track.setValue(step, lcg_rand_float(0.0f, 0.03f));
+            track.setValue(step, lcg_rand_float(0.005f, 0.08f));
           }
         }
       }
@@ -235,16 +235,16 @@ void ParameterManager::randomizeParameters()
           // Even steps: 25% chance long decay
           if (lcg_rand_int(0, 3) == 0)
           { // 1/4 chance
-            track.setValue(step, lcg_rand_float(0.2f, 0.9f));
+            track.setValue(step, lcg_rand_float(0.1f, 0.3f));
           }
           else
           {
-            track.setValue(step, lcg_rand_float(0.001f, 0.3f));
+            track.setValue(step, lcg_rand_float(0.055f, 0.2f));
           }
         }
         else
         {
-          track.setValue(step, lcg_rand_float(0.05f, 0.2f));
+          track.setValue(step, lcg_rand_float(0.02f, 0.2f));
         }
       }
       break;

@@ -48,6 +48,16 @@ static void __isr __time_critical_func(audio_i2s_dma_irq_handler)();
 
 const audio_format_t *audio_i2s_setup(const audio_format_t *intended_audio_format,
                                                const audio_i2s_config_t *config) {
+    // FastLED also claims DMA channels during Core 0 setup. Claim atomically
+    // rather than assuming channel 0 is still free after the cores start.
+    int dma_channel = config->dma_channel;
+    if (dma_channel == PICO_AUDIO_I2S_DMA_CHANNEL_AUTO) {
+        dma_channel = dma_claim_unused_channel(false);
+        if (dma_channel < 0) return NULL;
+    } else {
+        dma_channel_claim(dma_channel);
+    }
+
     uint func = GPIO_FUNC_PIOx;
     gpio_set_function(config->data_pin, func);
     gpio_set_function(config->clock_pin_base, func);
@@ -75,9 +85,6 @@ const audio_format_t *audio_i2s_setup(const audio_format_t *intended_audio_forma
     audio_i2s_program_init(audio_pio, sm, offset, config->data_pin, config->clock_pin_base);
 
     __mem_fence_release();
-    uint8_t dma_channel = config->dma_channel;
-    dma_channel_claim(dma_channel);
-
     shared_state.dma_channel = dma_channel;
 
     dma_channel_config dma_config = dma_channel_get_default_config(dma_channel);

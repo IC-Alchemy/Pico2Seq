@@ -10,9 +10,8 @@
 //   - Every step of setup() and every slice of loop() calls
 //     freezeWatchdogFeed(phase) *before* the work runs, recording the phase
 //     (plus millis and the processed-step count) in watchdog scratch registers.
-//   - After the reboot, freezeWatchdogBootCheck() prints a post-mortem on
-//     Serial: what the control core was doing when it stopped, and PC/LR if a
-//     hard fault was captured.
+//   - After the reboot, freezeWatchdogBootCheck() saves the post-mortem in RAM.
+//     Core 0 repeats it with diagnostics, including after a late USB reconnect.
 //
 // Scratch register map (survive a watchdog/warm reset, cleared by power-on):
 //   [0] FreezePhase at last feed, or FW_FAULT after a hard fault
@@ -44,6 +43,16 @@ enum FreezePhase : uint32_t
     FW_LOOP_PPQN,
     FW_LOOP_CONTROL,
     FW_LOOP_DISPLAY,
+    // Append phases so scratch evidence from older firmware keeps its meaning.
+    FW_SETUP_VOICES,
+    FW_LOOP_MATRIX,
+    FW_LOOP_TILES,
+    FW_LOOP_ENCODER,
+    FW_LOOP_DISTANCE,
+    FW_LOOP_RECORD,
+    FW_LOOP_OLED,
+    FW_LOOP_LEDS,
+    FW_LOOP_DIAGNOSTICS,
     FW_FAULT = 0xDEADF00D,
 };
 
@@ -66,6 +75,15 @@ static const char *freezeWatchdogPhaseName(uint32_t phase)
     case FW_LOOP_PPQN:       return "loop: PPQN drain";
     case FW_LOOP_CONTROL:    return "loop: control slice (I2C sensors/matrix/tiles)";
     case FW_LOOP_DISPLAY:    return "loop: display slice (OLED/LED)";
+    case FW_SETUP_VOICES:    return "setup: voices";
+    case FW_LOOP_MATRIX:     return "loop: MPR121 scan";
+    case FW_LOOP_TILES:      return "loop: Alchemy tile scan";
+    case FW_LOOP_ENCODER:    return "loop: magnetic encoder";
+    case FW_LOOP_DISTANCE:   return "loop: distance sensor";
+    case FW_LOOP_RECORD:     return "loop: parameter recording";
+    case FW_LOOP_OLED:       return "loop: OLED update";
+    case FW_LOOP_LEDS:       return "loop: LED transfer";
+    case FW_LOOP_DIAGNOSTICS:return "loop: serial diagnostics";
     case FW_FAULT:           return "HARD FAULT";
     default:                 return "unknown";
     }
@@ -116,63 +134,49 @@ static inline void freezeWatchdogArm()
     watchdog_enable(2000, true); // 2s budget; worst loop iteration is ~0.5s
 }
 
-// First call in setup(): if the previous run died, say where. Waits up to 3s
-// for a serial host so the post-mortem is not dropped.
+// One shared snapshot across Application.cpp and ControlIO.cpp. Capture it
+// before setup overwrites scratch, then retain it for a late USB reconnect.
+struct FreezeWatchdogReport
+{
+    bool watchdogReset = false;
+    uint32_t phase = FW_NONE;
+    uint32_t frozeAtMs = 0;
+    uint32_t boots = 0;
+    uint32_t steps = 0;
+    uint32_t pc = 0;
+    uint32_t lr = 0;
+};
+inline FreezeWatchdogReport previousFreeze;
+
+// Called at the diagnostic interval on Core 0. Never wait for a serial host;
+// an unopened port must not consume the report or delay firmware startup.
+static inline void freezeWatchdogPrintPreviousRun()
+{
+    if (!Serial || !previousFreeze.watchdogReset)
+        return;
+    Serial.printf("[FREEZE] previous watchdog reset: boot=%lu phase=%s (0x%lx) ms=%lu steps=%lu\n",
+                  (unsigned long)previousFreeze.boots,
+                  freezeWatchdogPhaseName(previousFreeze.phase),
+                  (unsigned long)previousFreeze.phase,
+                  (unsigned long)previousFreeze.frozeAtMs,
+                  (unsigned long)previousFreeze.steps);
+    if (previousFreeze.phase == FW_FAULT)
+    {
+        Serial.printf("[FREEZE] captured fault PC=0x%lx LR=0x%lx\n",
+                      (unsigned long)previousFreeze.pc, (unsigned long)previousFreeze.lr);
+    }
+}
+
+// First call in setup(): save evidence before any feed/arm can overwrite it.
 static inline void freezeWatchdogBootCheck()
 {
-    // A warm reset WITHOUT the watchdog flag still matters (reset pin, debug
-    // reset, a crash-reboot path that never marked FW_FAULT). scratch[2]
-    // survives warm resets and is cleared by power-on, so > 1 proves a
-    // warm-reset chain. No serial wait - best effort, next boot repeats it.
-    if (!watchdog_caused_reboot() && watchdog_hw->scratch[2] > 1)
-    {
-        Serial.begin(115200);
-        Serial.print("[FREEZE] warm reset #");
-        Serial.println(watchdog_hw->scratch[2]);
-    }
-
-    if (!watchdog_caused_reboot())
-    {
-        return;
-    }
-
-    const uint32_t phase = watchdog_hw->scratch[0];
-    const uint32_t frozeAtMs = watchdog_hw->scratch[1];
-    const uint32_t boots = watchdog_hw->scratch[2];
-    const uint32_t steps = watchdog_hw->scratch[3];
-
-    Serial.begin(115200);
-    const uint32_t waitStart = millis();
-    while (!Serial && (millis() - waitStart < 3000))
-    {
-    }
-
-    Serial.println("=================================================");
-    Serial.println("[FREEZE] POST-MORTEM (previous run died)");
-    Serial.print("[FREEZE] boot #");
-    Serial.println(boots);
-    Serial.print("[FREEZE] control core was in: ");
-    Serial.print(freezeWatchdogPhaseName(phase));
-    Serial.print(" (0x");
-    Serial.print(phase, HEX);
-    Serial.println(")");
-    Serial.print("[FREEZE] froze at ~");
-    Serial.print(frozeAtMs);
-    Serial.print(" ms after boot, after ");
-    Serial.print(steps);
-    Serial.println(" processed 16th-note steps");
-    if (phase == FW_FAULT)
-    {
-        Serial.print("[FREEZE] fault PC=0x");
-        Serial.print(watchdog_hw->scratch[5], HEX);
-        Serial.print(" LR=0x");
-        Serial.println(watchdog_hw->scratch[6], HEX);
-    }
-    Serial.println("=================================================");
-
-    // Consume the evidence so the next normal reboot stays quiet.
+    // The enable marker distinguishes our timeout from USB upload/reboot
+    // requests, which also use the hardware watchdog to reset the chip.
+    previousFreeze = {watchdog_enable_caused_reboot(), watchdog_hw->scratch[0],
+                      watchdog_hw->scratch[1], watchdog_hw->scratch[2],
+                      watchdog_hw->scratch[3], watchdog_hw->scratch[5],
+                      watchdog_hw->scratch[6]};
     watchdog_hw->scratch[0] = FW_NONE;
     watchdog_hw->scratch[5] = 0;
     watchdog_hw->scratch[6] = 0;
-    freezeWatchdogMark(FW_SETUP_BOOTCHECK);
 }

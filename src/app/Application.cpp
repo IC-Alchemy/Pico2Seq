@@ -12,6 +12,7 @@ namespace
 constexpr uint32_t kBootStabilizationMs = 100;
 constexpr uint32_t kSerialBaud = 115200;
 constexpr uint32_t kDiagnosticIntervalMs = 2000;
+bool recoveryMode = false;
 
 // Serial and watchdog diagnostics stay on Core 0.
 void printRuntimeDiagnostics(uint32_t currentMillis)
@@ -22,11 +23,15 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
         lastVoiceDiag = currentMillis;
         if (Serial)
         {
-            Serial.printf("[DIAG C0] ids=%u,%u,%u,%u mgrVoices=%u warmBoots=%lu\n",
+            freezeWatchdogPrintPreviousRun();
+            Serial.printf("[DIAG C0] ids=%u,%u,%u,%u mgrVoices=%u warmBoots=%lu steps=%lu audioBufs=%lu audio=%s\n",
                           voiceSystem.getVoiceId(0), voiceSystem.getVoiceId(1),
                           voiceSystem.getVoiceId(2), voiceSystem.getVoiceId(3),
                           (unsigned)(voiceManager ? voiceManager->getVoiceCount() : 0),
-                          (unsigned long)watchdog_hw->scratch[2]);
+                          (unsigned long)watchdog_hw->scratch[2],
+                          (unsigned long)g_processedStepCount,
+                          (unsigned long)AudioEngine::completedBufferCount(),
+                          AudioEngine::phaseName(AudioEngine::phase()));
         }
     }
 
@@ -49,12 +54,22 @@ void Application::begin()
     freezeWatchdogBootCheck();
     delay(kBootStabilizationMs);
     Serial.begin(kSerialBaud);
+    recoveryMode = previousFreeze.watchdogReset;
+    if (recoveryMode)
+    {
+        // Leave peripherals and voices untouched so the previous failure
+        // cannot reset us again before the USB monitor has time to reconnect.
+        watchdog_disable();
+        return;
+    }
     Serial.print("[CORE0] Setup starting... ");
+    Serial.printf("clock=%lu MHz\n", (unsigned long)(F_CPU / 1000000));
 
     ControlIO::beginMainBusAndLeds();
     ControlIO::beginPerformanceSensors();
     ControlIO::beginTouchPads();
     ControlIO::beginDisplay();
+    freezeWatchdogFeed(FW_SETUP_VOICES);
     initializeVoices();
     ControlIO::observeVoiceChanges();
     ControlIO::beginMatrixAndTiles();
@@ -62,10 +77,23 @@ void Application::begin()
     freezeWatchdogFeed(FW_SETUP_UCLOCK);
     initializeClock();
     Serial.println("[CORE0] Setup complete!");
+    voicesReady.store(true, std::memory_order_release);
 }
 
 void Application::update()
 {
+    if (recoveryMode)
+    {
+        static uint32_t lastReportMs = 0;
+        const uint32_t nowMs = millis();
+        if (Serial && nowMs - lastReportMs >= kDiagnosticIntervalMs)
+        {
+            lastReportMs = nowMs;
+            Serial.println("[RECOVERY] Startup paused after watchdog reset. Power-cycle to retry.");
+            freezeWatchdogPrintPreviousRun();
+        }
+        return;
+    }
     // Retry queued controls even without new input, including a final gate-off.
     voiceManager->flushControlUpdates();
     freezeWatchdogFeed(FW_LOOP_USB_READ); // Retain the persisted watchdog phase ID.
@@ -75,6 +103,7 @@ void Application::update()
     // Preserve this order: steps, diagnostics, gate ticks, controls, displays.
     freezeWatchdogFeed(FW_LOOP_CLOCK_EVENTS);
     processClockEvents();
+    freezeWatchdogMark(FW_LOOP_DIAGNOSTICS);
     printRuntimeDiagnostics(nowMs);
     freezeWatchdogFeed(FW_LOOP_PPQN);
     processPendingGateTicks();

@@ -9,6 +9,7 @@ namespace
 constexpr uint32_t kControlIntervalMs = 1;
 constexpr uint32_t kDisplayIntervalMs = 20; // 50 frames/s for OLED and LEDs
 constexpr uint32_t kTileBusFrequencyHz = 100000; // This panel stalls at 400 kHz.
+constexpr uint32_t kMainBusFrequencyHz = 400000;
 constexpr uint8_t kStartupLedBrightness = 100;
 constexpr uint8_t kTouchSensorAddress = 0x5A;
 constexpr uint8_t kTouchThreshold = 55;
@@ -61,6 +62,7 @@ void ControlIO::beginMainBusAndLeds()
     Wire.setSDA(PIN_WIRE_SDA);
     Wire.setSCL(PIN_WIRE_SCL);
     Wire.begin();
+    Wire.setClock(kMainBusFrequencyHz);
 
     // From here on, any Core-0 hang or hard fault reboots within ~2s and the
     // post-mortem prints at the next boot (src/utils/FreezeWatchdog.h).
@@ -197,18 +199,22 @@ void ControlIO::scanControls(uint32_t nowMs)
         freezeWatchdogFeed(FW_LOOP_CONTROL);
 
         // Scan button matrix for user input (32 step pads)
+        freezeWatchdogMark(FW_LOOP_MATRIX);
         Matrix_scan();
 
         // Poll the Alchemy tiles (param/utility buttons, voice selects,
         // faders, GP7 mode strap) and translate edges into UI actions.
+        freezeWatchdogMark(FW_LOOP_TILES);
         controls.alchemyBridge.update(nowMs, uiState, AppState::sequencers, VoiceSystem::MAX_VOICES,
                              midiNoteManager);
 
         // Update magnetic encoder for base parameter control
+        freezeWatchdogMark(FW_LOOP_ENCODER);
         magEncoder.update();
         updateEncoderBaseValues(uiState);
 
         // Update distance sensor for real-time parameter recording
+        freezeWatchdogMark(FW_LOOP_DISTANCE);
         distanceSensor.update();
         AppState::performanceInput.observeDistance(distanceSensor.getRawDistanceMm());
         // =======================
@@ -217,6 +223,7 @@ void ControlIO::scanControls(uint32_t nowMs)
         // Apply distance sensor values to selected step when parameter buttons are held
         if (uiState.selectedStepForEdit != -1)
         {
+            freezeWatchdogMark(FW_LOOP_RECORD);
             updateParametersForStep(uiState.selectedStepForEdit);
         }
     }
@@ -233,6 +240,7 @@ void ControlIO::refreshDisplays(uint32_t nowMs)
         //   DISPLAY AND LED PROCESSING
         // =======================
         // Handle voice switch display updates
+        freezeWatchdogMark(FW_LOOP_OLED);
         if (uiState.voiceSwitchTriggered)
         {
             uiState.voiceSwitchTriggered = false; // Clear the trigger flag
@@ -246,6 +254,7 @@ void ControlIO::refreshDisplays(uint32_t nowMs)
         controls.display.update(uiState, seq1, seq2, seq3, seq4, voiceManager.get());
 
         // Apply LED updates to hardware
+        freezeWatchdogMark(FW_LOOP_LEDS);
         controls.ledMatrix.show();
     }
 }

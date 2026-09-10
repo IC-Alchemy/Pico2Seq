@@ -18,7 +18,8 @@ extern VoiceSystem voiceSystem;
 extern uint8_t currentScale;
 extern bool isClockRunning;
 
-// Core 0 constructs the fixed voice collection, then publishes it to Core 1.
+// Core 0 publishes the fixed voice collection after all control setup completes.
+// Recovery mode leaves this false, keeping Core 1 out of hardware startup.
 extern std::atomic<bool> voicesReady;
 
 namespace AppState
