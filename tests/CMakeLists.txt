@@ -96,3 +96,12 @@ target_include_directories(pico2seq_watchdog_tests PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/watchdog_stubs ${PROJECT_SOURCE_DIR})
 target_link_libraries(pico2seq_watchdog_tests PRIVATE Catch2::Catch2WithMain)
 catch_discover_tests(pico2seq_watchdog_tests TEST_PREFIX "watchdog: ")
+
+# Real pool and I2S driver with deterministic DMA/PIO doubles. Covers buffer
+# ownership and underrun recovery; target timing still requires hardware.
+add_executable(pico2seq_audio_tests unit/test_audio_i2s.cpp)
+target_include_directories(pico2seq_audio_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/audio_stubs ${PROJECT_SOURCE_DIR})
+target_compile_definitions(pico2seq_audio_tests PRIVATE PICO_RP2350=1 ARDUINO_ARCH_RP2040=1)
+target_link_libraries(pico2seq_audio_tests PRIVATE Catch2::Catch2WithMain)
+catch_discover_tests(pico2seq_audio_tests TEST_PREFIX "audio: ")

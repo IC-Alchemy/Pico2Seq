@@ -2,7 +2,7 @@
 param(
     [string]$ArduinoCli = 'arduino-cli',
     [string]$BuildDirectory,
-    [ValidateSet(150, 225, 300)] [int]$CpuMHz = 225,
+    [ValidateSet(150, 225, 300)] [int]$CpuMHz = 300,
     [switch]$KeepStage
 )
 

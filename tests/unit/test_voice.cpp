@@ -5,6 +5,7 @@
 
 #include "voice/Voice.h"
 #include "voice/VoicePresets.h"
+#include "voice/VoiceParameters.h"
 #include "scales/scales.h"
 #include "utils/DspMapping.h"
 
@@ -29,6 +30,38 @@ static void initVoiceWithScale(Voice& v, float sampleRate = 48000.0f) {
     v.setScaleTable(scale, SCALES_COUNT);
     v.setCurrentScalePointer(&s_scaleIdx);
     v.init(sampleRate);
+}
+
+TEST_CASE("Velocity routing follows initialization and queued layout changes", "[voice][voice_transfer]") {
+    VoiceParameterLayout amplitudeLayout;
+    VoiceParameterLayout pitchLayout;
+    pitchLayout.velocityToAmplitude = false;
+    auto config = defaultConfig();
+    config.hasFilter = false;
+    config.hasEnvelope = false;
+    config.highPassFreq = 20.0f;
+    config.highPassRes = 0.0f;
+    config.parameters = &pitchLayout;
+    Voice reference(0, config);
+    reference.init(48000.0f);
+    config.parameters = &amplitudeLayout;
+    Voice voice(1, config);
+    voice.init(48000.0f);
+    VoiceState state{};
+    state.isGateHigh = true;
+    state.velocityLevel = 0.25f;
+    reference.updateParameters(state);
+    voice.updateParameters(state);
+
+    // Keep a note held during layout swaps so oscillator phase stays continuous.
+    for (const bool velocityToAmplitude : {true, false, true}) {
+        config.parameters = velocityToAmplitude ? &amplitudeLayout : &pitchLayout;
+        voice.setConfig(config);
+        for (int sample = 0; sample < 128; ++sample) {
+            const float expected = reference.process() * (velocityToAmplitude ? 0.25f : 1.0f);
+            REQUIRE_THAT(voice.process(), WithinAbs(expected, 1.0e-6f));
+        }
+    }
 }
 
 // ─── Construction & Initialization ───────────────────────────────────────────

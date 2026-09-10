@@ -30,7 +30,9 @@ typedef struct {
     MatrixButtonEventType type;
 } MatrixButtonEvent;
 
+// Configures the MPR121 active-low interrupt input on PIN_MPR121_INT (GP8).
 void Matrix_init(Adafruit_MPR121 *sensor);
+// Reads MPR121 touch state and dispatches events only after an interrupt.
 void Matrix_scan();
 bool Matrix_getButtonState(uint8_t idx);
 void Matrix_setEventHandler(void (*handler)(const MatrixButtonEvent &));

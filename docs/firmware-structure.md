@@ -76,16 +76,19 @@ voice changes; their overload/coalescing policy is unchanged. OLED callbacks
 run on Core 0 and borrow objects with program-long lifetimes.
 
 Core 1 owns the I2S pool. Output remains 48 kHz, PCM16 stereo, 256 frames per
-buffer, three producer buffers and four consumer buffers. The mono mix is
-converted once and copied to left and right. Conversion clamps, truncates
+buffer. Four producer buffers pass directly to DMA, with no separate consumer
+sample storage or buffer copying in the interrupt. This retains the previous
+effective depth (three queued buffers plus one playing). Startup fills all four
+before enabling I2S. The mono mix is converted once and copied to left and right. Conversion clamps, truncates
 toward zero, then uses ARM `SSAT`; it does not round to nearest.
 
 The existing blocking `take_audio_buffer(pool, true)` is the audio pacing
 point. Rendering adds no heap allocation, serial output or locks. Keep bus,
 display and logging calls away from this path. The two-second audio heartbeat
-uses a four-entry SPSC queue: Core 1 snapshots IDs and a buffer counter;
-Core 0 prints the existing message. Full diagnostic queues drop new reports
+uses a four-entry SPSC queue: Core 1 snapshots IDs, a buffer counter, render
+timing and DMA/PIO health; Core 0 prints the message. Full diagnostic queues drop new reports
 without delaying sound. Reports can be delayed by Core 0 work.
+See [audio performance](audio-performance.md) for counter meanings and hardware checks.
 
 uClock's Core 0 ISR only stages steps and PPQN ticks. The step queue retains
 16 usable entries and drops new steps when full. PPQN pending state is now

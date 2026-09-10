@@ -178,6 +178,10 @@ bool audio_i2s_connect_extra(audio_buffer_pool_t *producer, bool buffer_on_give,
  */
 void audio_i2s_set_enabled(bool enabled);
 
+// Read from the audio core only; IRQ-owned counters sampled into its heartbeat.
+uint32_t audio_i2s_underrun_count(void);
+uint32_t audio_i2s_tx_stall_count(void);
+
 #ifdef __cplusplus
 }
 #endif

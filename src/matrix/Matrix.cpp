@@ -1,4 +1,5 @@
 #include "Matrix.h"
+#include "../app/HardwarePins.h"
 #include "Arduino.h"
 
 // --- Matrix Mapping Definitions ---
@@ -20,8 +21,24 @@ static void (*eventHandler)(const MatrixButtonEvent &) = nullptr;
 // Function pointer for the rising edge (button press) specific handler.
 static void (*risingEdgeHandler)(uint8_t buttonIndex) = nullptr;
 
-// MPR121 poll interval for Matrix_scan(), in milliseconds.
-static constexpr uint32_t SCAN_INTERVAL_MS = 4;
+// The MPR121 INT output is active-low and open-drain. The ISR only records
+// that a status change occurred; the control loop performs the I2C read and
+// dispatches callbacks outside interrupt context.
+static volatile bool mpr121InterruptPending = false;
+
+static void onMpr121Interrupt()
+{
+    mpr121InterruptPending = true;
+}
+
+static bool consumeMpr121Interrupt()
+{
+    noInterrupts();
+    const bool pending = mpr121InterruptPending;
+    mpr121InterruptPending = false;
+    interrupts();
+    return pending;
+}
 
 // Sets up the mapping between linear button indices and matrix row/column inputs.
 static void setupMatrixMapping()
@@ -91,9 +108,15 @@ void Matrix_init(Adafruit_MPR121 *sensor)
     memset(buttonState, 0, sizeof(buttonState));
     eventHandler = nullptr; // Initialize event handlers to null.
     risingEdgeHandler = nullptr;
+    mpr121InterruptPending = false;
 
     if (mpr121)
     {
+        // GP8 uses its internal pull-up for the MPR121's open-drain, active-low
+        // interrupt. Reading touched() in Matrix_scan() clears the MPR121 IRQ.
+        pinMode(PIN_MPR121_INT, INPUT_PULLUP);
+        mpr121InterruptPending = true; // Read the initial electrode state.
+        attachInterrupt(digitalPinToInterrupt(PIN_MPR121_INT), onMpr121Interrupt, FALLING);
         Serial.println("MPR121 pointer is valid in Matrix_init");
     }
     else
@@ -102,23 +125,11 @@ void Matrix_init(Adafruit_MPR121 *sensor)
     }
 }
 
-// Scans the matrix for button presses and updates the button states.
-// Throttled to SCAN_INTERVAL_MS: touched() is an I2C register read, and the
-// MPR121's internal electrode refresh is slower than the ~1 kHz rate the
-// control loop would otherwise poll at. 4 ms caps worst-case touch latency
-// far below perception while cutting the poll's bus duty ~4x.
-
+// Scans the matrix only after the MPR121 signals a touch-status change on
+// GP8. The ISR deliberately does no I2C work, serial output, or UI dispatch.
 void Matrix_scan()
 {
-    static uint32_t lastScanMs = 0;
-    const uint32_t now = millis();
-    if (now - lastScanMs < SCAN_INTERVAL_MS)
-    {
-        return;
-    }
-    lastScanMs = now;
-
-    if (!mpr121)
+    if (!mpr121 || !consumeMpr121Interrupt())
     {
         // This check is important, but let's not flood the serial port.
         // A single message at init should be enough.

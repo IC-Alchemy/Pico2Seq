@@ -137,6 +137,7 @@ void Voice::init(float sr)
   controls_.scaleIndex = currentScalePtr_ ? *currentScalePtr_ : 0;
   controls_.changes = 0;
   config = controls_.config;
+  velocityToAmplitude_ = VoiceParameters::layout(config).velocityToAmplitude;
   state = controls_.state;
   gate = state.isGateHigh;
   scaleTable = controls_.scaleTable;
@@ -289,9 +290,9 @@ void Voice::setEnabled(bool enabled)
 
 void Voice::applyControlUpdate_() noexcept
 {
-  ControlUpdate update;
-  if (!controlQueue_.tryPop(update))
+  if (!controlQueue_.tryPop(audioUpdate_))
     return;
+  const ControlUpdate &update = audioUpdate_;
 
   // Work is bounded to one update per sample. FIFO gate changes therefore
   // each reach envelope processing, even when several arrived between samples.
@@ -720,7 +721,7 @@ inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept
   // Hard-sync presets re-purpose Velocity as their slave-frequency lane, so
   // it must not also change the VCA level. Their fixed outputLevel remains
   // the gain control; all other voices keep the normal velocity response.
-  const float amplitude = VoiceParameters::layout(config).velocityToAmplitude ? state.velocityLevel : 1.0f;
+  const float amplitude = velocityToAmplitude_ ? state.velocityLevel : 1.0f;
   const float filterInput = preEffects * amplitude;
   float shaped;
   if (!config.hasFilter)
@@ -1140,6 +1141,7 @@ void Voice::applyStructuralConfig_() noexcept
 void Voice::applyConfig_(const VoiceConfig &newConfig) noexcept
 {
   config = newConfig;
+  velocityToAmplitude_ = VoiceParameters::layout(config).velocityToAmplitude;
 
   // Update filters (scalar; safe mid-note)
   if (config.hasFilter)

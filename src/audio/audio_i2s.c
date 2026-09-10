@@ -39,6 +39,14 @@ struct {
     uint8_t dma_channel;
 } shared_state;
 
+// Core 1's DMA IRQ writes these; Core 1's render loop reads aligned words.
+// Core 0 receives copies through AudioEngine's SPSC heartbeat queue.
+static volatile uint32_t underrun_count;
+static volatile uint32_t tx_stall_count;
+
+uint32_t audio_i2s_underrun_count(void) { return underrun_count; }
+uint32_t audio_i2s_tx_stall_count(void) { return tx_stall_count; }
+
 audio_format_t pio_i2s_consumer_format;
 audio_buffer_format_t pio_i2s_consumer_buffer_format = {
         .format = &pio_i2s_consumer_format,
@@ -88,6 +96,7 @@ const audio_format_t *audio_i2s_setup(const audio_format_t *intended_audio_forma
     shared_state.dma_channel = dma_channel;
 
     dma_channel_config dma_config = dma_channel_get_default_config(dma_channel);
+    channel_config_set_high_priority(&dma_config, true);
 
     channel_config_set_dreq(&dma_config,
                             DREQ_PIOx_TX0 + sm
@@ -102,6 +111,7 @@ const audio_format_t *audio_i2s_setup(const audio_format_t *intended_audio_forma
     );
 
     irq_add_shared_handler(DMA_IRQ_0 + PICO_AUDIO_I2S_DMA_IRQ, audio_i2s_dma_irq_handler, PICO_SHARED_IRQ_HANDLER_DEFAULT_ORDER_PRIORITY);
+    irq_set_priority(DMA_IRQ_0 + PICO_AUDIO_I2S_DMA_IRQ, PICO_HIGHEST_IRQ_PRIORITY);
     dma_irqn_set_channel_enabled(PICO_AUDIO_I2S_DMA_IRQ, dma_channel, 1);
     return intended_audio_format;
 }
@@ -319,11 +329,17 @@ bool audio_i2s_connect_s8(audio_buffer_pool_t *producer) {
 }
 
 static inline void audio_start_dma_transfer() {
+    const uint32_t tx_stall_mask = 1u << (PIO_FDEBUG_TXSTALL_LSB + shared_state.pio_sm);
+    if (audio_pio->fdebug & tx_stall_mask) {
+        ++tx_stall_count;
+        audio_pio->fdebug = tx_stall_mask; // Write one to clear this SM only.
+    }
     assert(!shared_state.playing_buffer);
     audio_buffer_t *ab = take_audio_buffer(audio_i2s_consumer, false);
 
     shared_state.playing_buffer = ab;
     if (!ab) {
+        ++underrun_count;
         DEBUG_PINS_XOR(audio_timing, 1);
         DEBUG_PINS_XOR(audio_timing, 2);
         DEBUG_PINS_XOR(audio_timing, 1);
@@ -388,6 +404,9 @@ void audio_i2s_set_enabled(bool enabled) {
         irq_set_enabled(DMA_IRQ_0 + PICO_AUDIO_I2S_DMA_IRQ, enabled);
 
         if (enabled) {
+            underrun_count = 0;
+            tx_stall_count = 0;
+            audio_pio->fdebug = 1u << (PIO_FDEBUG_TXSTALL_LSB + shared_state.pio_sm);
             audio_start_dma_transfer();
         } else {
             // if there was a buffer in flight, it will not be freed by DMA IRQ, let's do it manually

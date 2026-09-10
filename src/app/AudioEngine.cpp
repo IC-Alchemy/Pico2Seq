@@ -16,7 +16,9 @@ static_assert(sizeof(AudioEngine::Heartbeat::voiceIds) == VoiceSystem::MAX_VOICE
               "Heartbeat must cover the fixed voice collection");
 
 constexpr float SAMPLE_RATE = 48000.0f;
-constexpr int NUM_AUDIO_BUFFERS = 3;
+// Four buffers retain the old effective depth (three queued + one DMA buffer),
+// without a separate set of consumer buffers or copies in the DMA interrupt.
+constexpr int NUM_AUDIO_BUFFERS = 4;
 constexpr int SAMPLES_PER_BUFFER = 256;
 
 #if PICO2SEQ_ENABLE_DELAY_EFFECT
@@ -30,7 +32,6 @@ namespace
 {
 constexpr uint32_t kHeartbeatIntervalMs = 2000;
 constexpr size_t kHeartbeatQueueCapacity = 4;
-constexpr uint32_t kConsumerBufferCount = 4;
 constexpr uint16_t kStereoChannels = 2;
 constexpr uint16_t kStereoFrameBytes = kStereoChannels * sizeof(int16_t);
 std::atomic<AudioEngine::Phase> audioPhase{AudioEngine::Phase::NotStarted};
@@ -131,11 +132,26 @@ bool setupI2SAudio(audio_format_t *audioFormat, audio_i2s_config_t *i2sConfig)
         return false;
     }
 
-    // Connect audio buffer pool to I2S interface using 4 I2S consumer buffers
-    if (!audio_i2s_connect_extra(producer_pool, false, kConsumerBufferCount, SAMPLES_PER_BUFFER, nullptr))
+    // Identical PCM16 stereo formats: give the DMA the rendered buffer itself.
+    // A zero consumer-buffer count selects the driver's pass-through connection.
+    if (!audio_i2s_connect_extra(producer_pool, false, 0, SAMPLES_PER_BUFFER, nullptr))
     {
         g_errorState |= ERR_AUDIO;
         return false;
+    }
+
+    // Queue the full initial reserve before starting the clocks. Otherwise the
+    // very first transfer necessarily underruns and substitutes silence.
+    for (int i = 0; i < NUM_AUDIO_BUFFERS; ++i)
+    {
+        audio_buffer_t *buffer = take_audio_buffer(producer_pool, false);
+        if (!buffer)
+        {
+            g_errorState |= ERR_AUDIO;
+            return false;
+        }
+        fill_audio_buffer(buffer);
+        give_audio_buffer(producer_pool, buffer);
     }
 
     // Enable audio processing
@@ -206,6 +222,10 @@ void AudioEngine::begin()
 
 void AudioEngine::renderNextBuffer()
 {
+    static uint32_t renderTotalUs = 0;
+    static uint32_t renderCount = 0;
+    static uint32_t renderMaxUs = 0;
+    static uint32_t renderOverBudget = 0;
     if (!audioStarted)
         return;
     audioPhase.store(Phase::BufferWait, std::memory_order_relaxed);
@@ -214,7 +234,13 @@ void AudioEngine::renderNextBuffer()
     if (audioBuffer)
     {
         audioPhase.store(Phase::Render, std::memory_order_relaxed);
+        const uint32_t renderStart = micros();
         fill_audio_buffer(audioBuffer);
+        const uint32_t renderUs = micros() - renderStart;
+        renderTotalUs += renderUs;
+        ++renderCount;
+        if (renderUs > renderMaxUs) renderMaxUs = renderUs;
+        if (renderUs > (SAMPLES_PER_BUFFER * 1000000u / 48000u)) ++renderOverBudget;
         audioPhase.store(Phase::Submit, std::memory_order_relaxed);
         give_audio_buffer(producer_pool, audioBuffer);
         completedBuffers.fetch_add(1, std::memory_order_relaxed);
@@ -229,13 +255,22 @@ void AudioEngine::renderNextBuffer()
     if (c1Now - c1LastBeat >= kHeartbeatIntervalMs)
     {
         c1LastBeat = c1Now;
-        Heartbeat heartbeat{c1BufCount, {}};
+        Heartbeat heartbeat{};
+        heartbeat.bufferCount = c1BufCount;
+        heartbeat.renderAverageUs = renderCount ? renderTotalUs / renderCount : 0;
+        heartbeat.renderMaxUs = renderMaxUs;
+        heartbeat.renderOverBudget = renderOverBudget;
+        heartbeat.underruns = audio_i2s_underrun_count();
+        heartbeat.txStalls = audio_i2s_tx_stall_count();
         if (voicesReady.load(std::memory_order_acquire))
         {
             for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i)
                 heartbeat.voiceIds[i] = voiceSystem.getVoiceId(i);
         }
         heartbeats.tryPush(heartbeat);
+        renderTotalUs = 0;
+        renderCount = 0;
+        renderMaxUs = 0;
     }
 }
 

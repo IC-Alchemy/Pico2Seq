@@ -16,6 +16,11 @@ struct Heartbeat
 {
     uint32_t bufferCount;
     uint8_t voiceIds[4];
+    uint32_t renderAverageUs; // Last reporting window, excludes buffer wait
+    uint32_t renderMaxUs;
+    uint32_t renderOverBudget; // Cumulative buffers exceeding 256 / 48000 s
+    uint32_t underruns; // Cumulative DMA silence substitutions
+    uint32_t txStalls; // Cumulative observations of stalled I2S output
 };
 
 void prepareEffects();

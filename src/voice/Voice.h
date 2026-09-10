@@ -342,6 +342,7 @@ private:
   uint8_t cachedOscCount_ = 0;
   // Bypass flags computed on config apply to avoid unnecessary DSP work
   bool hpfBypass_ = false;
+  bool velocityToAmplitude_ = true; // Cached from the immutable parameter layout
   // Which StateVariableFilter output the main filter reads when
   // filterType == FILTER_SVF: 0 lowpass, 1 bandpass, 2 highpass (from
   // filterMode, cached on config apply).
@@ -395,6 +396,10 @@ private:
   ControlUpdate controls_{};
   const uint8_t *currentScalePtr_ = nullptr;
   SpscQueue<ControlUpdate, CONTROL_QUEUE_CAPACITY> controlQueue_;
+  // Audio-owned copy, initialized once. A stack-local ControlUpdate applies
+  // all its default member initializers even when the queue is empty: the
+  // ARM build copied 264 bytes from flash on every voice/sample just for that.
+  ControlUpdate audioUpdate_{};
 
   // Structural config staging (oscillator bank rebuild + engine switch).
   // Applied only while the gate is low so a live preset swap never clicks a

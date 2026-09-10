@@ -40,10 +40,15 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
     {
         if (Serial)
         {
-            Serial.printf("[DIAG C1] alive bufs=%lu ids=%u,%u,%u,%u\n",
+            Serial.printf("[DIAG C1] alive bufs=%lu ids=%u,%u,%u,%u render_us=%lu max_us=%lu budget_us=5333 over=%lu underruns=%lu txstalls=%lu\n",
                           static_cast<unsigned long>(heartbeat.bufferCount),
                           heartbeat.voiceIds[0], heartbeat.voiceIds[1],
-                          heartbeat.voiceIds[2], heartbeat.voiceIds[3]);
+                          heartbeat.voiceIds[2], heartbeat.voiceIds[3],
+                          static_cast<unsigned long>(heartbeat.renderAverageUs),
+                          static_cast<unsigned long>(heartbeat.renderMaxUs),
+                          static_cast<unsigned long>(heartbeat.renderOverBudget),
+                          static_cast<unsigned long>(heartbeat.underruns),
+                          static_cast<unsigned long>(heartbeat.txStalls));
         }
     }
 }

@@ -100,8 +100,8 @@ typedef struct {
 ### Core Functions
 | Function | Signature | Description |
 |---|---|---|
-| `Matrix_init` | `void Matrix_init(Adafruit_MPR121 *sensor)` | Initializes matrix state and binds to the MPR121 instance |
-| `Matrix_scan` | `void Matrix_scan()` | Scans electrode states, performs debouncing, and dispatches callbacks |
+| `Matrix_init` | `void Matrix_init(Adafruit_MPR121 *sensor)` | Initializes matrix state, binds the MPR121, and enables its GP8 interrupt |
+| `Matrix_scan` | `void Matrix_scan()` | Consumes a pending MPR121 interrupt, reads electrode states over I2C, and dispatches callbacks |
 | `Matrix_getButtonState` | `bool Matrix_getButtonState(uint8_t idx)` | Queries current state of pad `idx` (0–31) |
 | `Matrix_setEventHandler` | `void Matrix_setEventHandler(void (*handler)(const MatrixButtonEvent &))` | Sets general callback for press and release events |
 | `Matrix_setRisingEdgeHandler` | `void Matrix_setRisingEdgeHandler(void (*handler)(uint8_t buttonIndex))` | Sets callback invoked only on touch press events |
@@ -136,7 +136,7 @@ void setup() {
 }
 
 void loop() {
-    Matrix_scan(); // Polled non-blocking on Core 0
+    Matrix_scan(); // IRQ-gated, non-blocking on Core 0
 }
 ```
 
@@ -144,8 +144,9 @@ void loop() {
 
 ## Performance & Optimization
 
-- **Early Exit:** If the MPR121 returns zero touched electrodes, `Matrix_scan()` exits immediately in O(1) time.
-- **Debounced Transitions:** Software hysteresis ensures clean edge transitions without contact chatter.
+- **Interrupt-gated I2C:** The MPR121's active-low, open-drain `/IRQ` on GP8 sets a pending flag; `Matrix_scan()` returns without an I2C read until the flag is set.
+- **ISR Safety:** The ISR only sets the flag. `touched()`, serial output, and UI callbacks stay in the Core 0 control loop.
+- **Release Handling:** Reading `touched()` clears the MPR121 interrupt; subsequent touch or release changes generate the next falling edge.
 - **Zero Allocations:** Uses static arrays for state tracking and event routing.
 
 ---

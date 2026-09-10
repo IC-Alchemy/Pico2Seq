@@ -44,7 +44,7 @@ Core 1 (Real-Time Audio):
 
 Core 0 (UI, Sensors, Matrix, MIDI):
   loop() Control Slice (CONTROL_UPDATE_INTERVAL = 1 ms):
-    +-- Matrix_scan()            -> 1 ms MPR121 32-pad touch scanning
+    +-- Matrix_scan()            -> checks the GP8 MPR121 IRQ flag; reads 32-pad status only on change
     +-- alchemyBridge.update()   -> 1 ms Alchemy tile polling (Wire1 @ 100 kHz)
     +-- magEncoder.update()      -> 1 ms poll (5 ms internal throttle in driver)
     +-- updateEncoderBaseValues()-> Applies rotary increments to active params
@@ -90,7 +90,7 @@ The magnetic encoder subsystem consists of two architectural layers:
 
 - **`Matrix` (`src/matrix/Matrix.h/.cpp`)**: 32-electrode capacitive touch matrix driver using `Adafruit_MPR121` on Wire at address `0x5A`.
   - Autoconfig enabled with conservative touch/release thresholds: `touchSensor.setThresholds(55, 22)`.
-  - Scanned every 1 ms via `Matrix_scan()`.
+  - Its active-low, open-drain `/IRQ` is connected to GP8. The ISR sets a pending flag; the 1 ms control slice calls `Matrix_scan()`, which reads the MPR121 only after an interrupt.
   - Drives 32 dedicated step pads across two 16-step voice banks resolved via `ControlSurface::PadBank::resolve(buttonIndex, selectedVoiceIndex)`:
     - Indices 0–15: Voice A steps 0–15.
     - Indices 16–31: Voice B steps 0–15.
