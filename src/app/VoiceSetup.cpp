@@ -2,6 +2,7 @@
 #include "AppState.h"
 #include "AudioEngine.h"
 #include "../voice/VoicePresets.h"
+#include "../voice/VoiceEditParameters.h"
 #include <Arduino.h>
 
 void initializeVoices()
@@ -16,9 +17,13 @@ void initializeVoices()
 
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++)
     {
-        voiceSystem.setVoiceId(i, voiceManager->addVoice(VoicePresets::getPresetConfig(presetIndices[i])));
+        VoiceConfig config=VoicePresets::getPresetConfig(presetIndices[i]);
+        VoiceEdit::enablePatch(config);
+        voiceSystem.setVoiceId(i, voiceManager->addVoice(config));
         voiceManager->attachSequencer(voiceSystem.getVoiceId(i), AppState::sequencers[i]);
-        VoiceParameters::seedTracks(*AppState::sequencers[i], VoicePresets::getPresetConfig(presetIndices[i]));
+        AppState::sequencers[i]->setPlaybackTransform(VoiceEdit::composeLane,
+            voiceManager->getVoiceConfig(voiceSystem.getVoiceId(i)),VoiceEdit::mapOctave);
+        VoiceEdit::seedModifiers(*AppState::sequencers[i]);
     }
 
     // Application publishes the collection after the rest of control setup.
@@ -26,7 +31,8 @@ void initializeVoices()
 
 static void seedRepurposedParamTracks(uint8_t voiceIndex, const VoiceConfig &config)
 {
-    VoiceParameters::seedTracks(*AppState::sequencers[voiceIndex], config);
+    // Preset changes replace bases, never the recorded modifiers.
+    (void)voiceIndex; (void)config;
 }
 
 void applyVoicePreset(uint8_t voiceIndex, uint8_t presetIndex)
@@ -44,11 +50,14 @@ void applyVoicePreset(uint8_t voiceIndex, uint8_t presetIndex)
     }
 
     VoiceConfig config = VoicePresets::getPresetConfig(presetIndex);
+    VoiceEdit::enablePatch(config);
     uint8_t voiceId = voiceSystem.getVoiceId(voiceIndex);
 
     if (voiceManager->setVoiceConfig(voiceId, config))
     {
         seedRepurposedParamTracks(voiceIndex, config);
+        voiceManager->setVoiceSlide(voiceId,config.slideSeconds);
+        uiState.voiceEditor.changed[voiceIndex]=false;
         Serial.print("Applied preset '");
         Serial.print(VoicePresets::getPresetName(presetIndex));
         Serial.print("' to Voice ");

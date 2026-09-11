@@ -24,27 +24,17 @@ TEST_CASE("DAC conversion clips peaks and truncates quiet samples", "[app][pcm]"
     REQUIRE(AudioSamples::toPcm16(-1.75f / 32768.0f) == -1);
 }
 
-TEST_CASE("Hand recording keeps the existing distance calibration", "[app][recording]")
+TEST_CASE("Hand modifiers use the whole calibrated lidar range", "[app][recording]")
 {
     AppState::PerformanceInput hand;
-    REQUIRE(hand.distanceAboveMinimumMm == 0);
-    REQUIRE(hand.recordingValue() == 0.0f);
-
-    hand.observeDistance(74);
-    REQUIRE(hand.distanceAboveMinimumMm == 0);
-    hand.observeDistance(774);
-    REQUIRE(hand.distanceAboveMinimumMm == 700);
-    REQUIRE(hand.recordingValue() == Catch::Approx(0.5f));
-    hand.observeDistance(1400);
-    REQUIRE(hand.distanceAboveMinimumMm == 1326);
-    // The top of the sensor range intentionally does not record 1.0.
-    REQUIRE(hand.recordingValue() == Catch::Approx(1326.0f / 1400.0f));
-
-    for (const int invalidReading : {-1, 0, 73, 1401, 8191})
-    {
-        hand.observeDistance(774);
-        hand.observeDistance(invalidReading);
-        REQUIRE(hand.distanceAboveMinimumMm == 0);
-        REQUIRE(hand.recordingValue() == 0.0f);
+    constexpr int lo=SensorConstants::DistanceSensor::MIN_DISTANCE_HEIGHT_MM;
+    constexpr int hi=SensorConstants::DistanceSensor::MAX_DISTANCE_HEIGHT_MM;
+    hand.observeDistance(lo); REQUIRE(hand.recordingValue()==0.0f);
+    hand.observeDistance(hi); REQUIRE(hand.recordingValue()==1.0f);
+    hand.observeDistance((lo+hi)/2);
+    REQUIRE(hand.recordingValue()==Catch::Approx(0.5f).margin(1.0f/(hi-lo)));
+    for(int invalid:{-1,0,lo-1,hi+1,8191}) {
+        hand.observeDistance(invalid);
+        REQUIRE(hand.recordingValue()==0.0f);
     }
 }

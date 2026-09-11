@@ -27,6 +27,7 @@ add_executable(pico2seq_tests
   unit/test_control_surface_logic.cpp
   unit/test_alchemy_proto.cpp
   unit/test_app_runtime.cpp
+  unit/test_voice_edit.cpp
 
   # Scale data
   ${CORE_DIR}/scales/scales.cpp
@@ -39,6 +40,7 @@ add_executable(pico2seq_tests
   ${SRC_DIR}/voice/Voice.cpp
   ${SRC_DIR}/voice/VoicePresets.cpp
   ${SRC_DIR}/voice/VoiceParameters.cpp
+  ${SRC_DIR}/voice/VoiceEditParameters.cpp
   ${SRC_DIR}/voice/VoiceManager.cpp
 
   # Alchemy tile control surface decision logic (pure C++)
@@ -80,6 +82,7 @@ add_executable(pico2seq_voice_tests
   ${SRC_DIR}/voice/Voice.cpp
   ${SRC_DIR}/voice/VoicePresets.cpp
   ${SRC_DIR}/voice/VoiceParameters.cpp
+  ${SRC_DIR}/voice/VoiceEditParameters.cpp
   ${SRC_DIR}/voice/VoiceManager.cpp
 )
 target_include_directories(pico2seq_voice_tests PRIVATE

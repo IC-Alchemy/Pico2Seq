@@ -32,7 +32,7 @@ public:
   void reset() noexcept { state_.fill(0.0f); }
   void trigger(const VoiceConfig &config) noexcept
   {
-    if (recipe_ && recipe_->resetOnTrigger) { reset(); configure(config); }
+    if (recipe_ && recipe_->resetOnTrigger && config.recipeRetrigger) { reset(); configure(config); }
   }
   float process(float frequency, const VoiceConfig &config) noexcept
   {

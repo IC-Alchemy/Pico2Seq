@@ -362,7 +362,8 @@ float VoiceManager::processAllVoices() noexcept
         }
     }
 
-    return mixedOutput * globalVolume.load(std::memory_order_relaxed);
+    return transportMuted_.load(std::memory_order_relaxed) ? 0.0f :
+        mixedOutput * globalVolume.load(std::memory_order_relaxed);
     /*
          // Master-bus compression (currently disabled, matching the pre-rpdsp
          // behavior). If enabled, call rpdsp::Compressor::process() per sample

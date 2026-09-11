@@ -2,6 +2,7 @@
 #define UI_STATE_H
 
 #include <Arduino.h>
+#include "VoiceEditControls.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
 
 /**
@@ -13,6 +14,8 @@
  */
 struct UIState
 {
+    VoiceEdit::Controls voiceEditor;
+    bool controlsWaitRelease = false;
     // --- Parameter Button States ---
     // Indexed by ParamId for direct lookup.
     bool parameterButtonHeld[PARAM_ID_COUNT] = {false};

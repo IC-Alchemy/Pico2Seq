@@ -29,6 +29,7 @@ void updateParametersForStep(uint8_t stepToUpdate)
 
 void updateParametersForStepNormalized(uint8_t stepToUpdate, float normalizedValue)
 {
+    if(uiState.voiceEditor.active || uiState.controlsWaitRelease) return;
     if (stepToUpdate >= SequencerConstants::MAX_STEPS_COUNT)
         return;
 
@@ -202,7 +203,7 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
     activeSeq.playStepNow(stepIndex, activeVoiceState);
 
     // Apply encoder base values for the selected voice (mapping covers all four voices)
-    applyEncoderBaseValues(activeVoiceState, voiceIndex);
+    // Sequencer playback composes patch bases before constructing VoiceState.
 
     // Update synth hardware for immediate audio feedback using the per-voice function
     updateVoiceMIDI(*activeVoiceState, voiceIndex);
@@ -211,24 +212,23 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
 
 void processSequencerStep(uint32_t uClockCurrentStep)
 {
+    if(!isClockRunning || uiState.voiceEditor.active) return;
     g_processedStepCount++;
 
     VoiceState tempStates[VoiceSystem::MAX_VOICES];
+    for(uint8_t i=0;i<VoiceSystem::MAX_VOICES;++i) tempStates[i]=voiceSystem.getVoiceState(i);
     const uint8_t selectedVoice = uiState.selectedVoiceIndex;
     const int handDistance = AppState::performanceInput.distanceAboveMinimumMm;
     // First advance all four voices. Only the selected voice hears the sensor.
     for (uint8_t voice = 0; voice < VoiceSystem::MAX_VOICES; ++voice)
     {
         const int distance = voice == selectedVoice ? handDistance : kDistanceDisabled;
+        AppState::sequencers[voice]->setRecordingInput(AppState::performanceInput.recordingValue());
         advanceSequencerStep(*AppState::sequencers[voice], uClockCurrentStep,
                              distance, uiState, &tempStates[voice]);
     }
 
-    // Then apply encoder offsets to all voices, before staging any audio updates.
-    for (uint8_t voiceIndex = 0; voiceIndex < VoiceSystem::MAX_VOICES; voiceIndex++)
-    {
-        applyEncoderBaseValues(&tempStates[voiceIndex], voiceIndex);
-    }
+    // Bases have already been composed by each sequencer's playback transform.
 
     // Voices 1/2 keep their software gate lifecycle; voices 3/4 use audio only.
 

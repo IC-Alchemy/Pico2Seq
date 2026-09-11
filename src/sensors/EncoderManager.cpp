@@ -1,6 +1,8 @@
 #include "EncoderManager.h"
 #include "../app/AppState.h"
 #include "../app/StepPlayback.h"
+#include "../app/VoiceEditor.h"
+#include "../voice/VoicePresets.h"
 #include <Arduino.h>
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
@@ -151,105 +153,22 @@ float clampEncoderBaseValue(EncoderParameterMode param, float value)
 }
 void updateEncoderBaseValues(UIState &uiState)
 {
-  if (!magEncoder.isConnected())
-  {
-    return;
-  }
-
-  // Check if we're in edit mode for a specific step
-  if (uiState.selectedStepForEdit >= 0)
-  {
-    updateEncoderStepParameterValues(uiState);
-    return;
-  }
-
-  EncoderBaseValues *activeVoiceBaseValues = &baseValuesForVoice(uiState.selectedVoiceIndex);
-
-  // Calculate bidirectional velocity-sensitive parameter increment.
-  // takeParameterIncrement drains the pending-tick accumulator filled once per
-  // sensor read; the const getParameterIncrement() would re-report the same
-  // delta on every ~1ms call between 5ms sensor reads (applied ~5x).
-  float parameterMinValue = getParameterMinValue(uiState.currentEncoderParameter);
-  float parameterMaxValue = getParameterMaxValue(uiState.currentEncoderParameter);
-  float parameterIncrement = magEncoder.takeParameterIncrement(
-      parameterMinValue - parameterMaxValue,
-      parameterMaxValue - parameterMinValue,
-      3);
-
-  // Ignore tiny increments to prevent sensor noise from affecting parameters
-  if (fabsf(parameterIncrement) < SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD)
-  {
-    return;
-  }
-
-  // Apply increment to the appropriate parameter with boundary checking
-  applyIncrementToParameter(activeVoiceBaseValues, uiState.currentEncoderParameter, parameterIncrement);
+  if (!magEncoder.isConnected() || uiState.controlsWaitRelease) return;
+  const float delta=magEncoder.takeParameterIncrement(-1.0f,1.0f,3);
+  if(fabsf(delta)<SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD) return;
+  if(uiState.voiceEditor.active) {VoiceEditor::encoder(delta);return;}
+  if(!voiceManager || uiState.selectedVoiceIndex>=4) return;
+  const auto index=uiState.selectedVoiceIndex;
+  const auto *requested=voiceManager->getVoiceConfig(voiceSystem.getVoiceId(index));
+  if(!requested) return;
+  VoiceConfig next=*requested;
+  VoiceEdit::adjust(VoiceEditor::encoderTarget(),next,delta);
+  VoiceEditor::publish(index,next);
 }
 
 void updateEncoderStepParameterValues(UIState &uiState)
 {
-  if (!magEncoder.isConnected() ||
-      uiState.selectedStepForEdit < 0 ||
-      uiState.currentEditParameter == ParamId::Count)
-  {
-    return;
-  }
-
-  // Get the active sequencer based on selected voice (0-3 maps to seq1-seq4)
-  Sequencer &activeSequencer = (uiState.selectedVoiceIndex == 0) ? seq1 : (uiState.selectedVoiceIndex == 1) ? seq2
-                                                                      : (uiState.selectedVoiceIndex == 2)   ? seq3
-                                                                                                            : seq4;
-
-  // Use the currently selected edit parameter
-  ParamId targetParameterId = uiState.currentEditParameter;
-  if (targetParameterId == ParamId::Count)
-  {
-    return; // No parameter selected for editing
-  }
-
-  // Get parameter range for the target parameter
-  float parameterMinValue = getParameterMinValueForParamId(targetParameterId);
-  float parameterMaxValue = getParameterMaxValueForParamId(targetParameterId);
-
-  // Get velocity-sensitive increment with full range scaling
-  // (consuming getter: drains the per-read tick accumulator exactly once)
-  float parameterIncrement = magEncoder.takeParameterIncrement(
-      parameterMinValue - parameterMaxValue,
-      parameterMaxValue - parameterMinValue,
-      3);
-
-  // Ignore tiny increments to prevent sensor noise
-  if (fabsf(parameterIncrement) < SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD)
-  {
-    return;
-  }
-
-  // Get current parameter value for the selected step
-  uint8_t editStepIndex = static_cast<uint8_t>(uiState.selectedStepForEdit);
-  float currentParameterValue = activeSequencer.getStepParameterValue(targetParameterId, editStepIndex);
-
-  // Apply increment with boundary checking
-  float newParameterValue = currentParameterValue + parameterIncrement;
-  newParameterValue = std::max(parameterMinValue, std::min(newParameterValue, parameterMaxValue));
-
-  // Set the new parameter value
-  activeSequencer.setStepParameterValue(targetParameterId, editStepIndex, newParameterValue);
-
-  // Trigger immediate OLED update by updating the active voice state
-  updateActiveVoiceState(editStepIndex, activeSequencer);
-
-  /*
-  // Debug output for parameter changes
-  Serial.print("Encoder Edit Mode - Step ");
-  Serial.print(editStepIndex);
-  Serial.print(", Parameter: ");
-  Serial.print(CORE_PARAMETERS[static_cast<int>(targetParameterId)].name);
-  Serial.print(", Value: ");
-  Serial.print(newParameterValue, 3);
-  Serial.print(" (");
-  Serial.print(formatParameterValueForDisplay(targetParameterId, newParameterValue));
-  Serial.println(")");
-  */
+  updateEncoderBaseValues(uiState);
 }
 
 void applyIncrementToParameter(EncoderBaseValues *baseValues, EncoderParameterMode param, float increment)
@@ -427,31 +346,9 @@ float shiftAndScale(float seqValue, float encoderOffset)
  * This avoids "dead zones" by scaling the sequencer's output within the range
  * defined by the encoder's offset.
  * */
-void applyEncoderBaseValues(VoiceState *voiceState, uint8_t voiceId)
+void applyEncoderBaseValues(VoiceState *, uint8_t)
 {
-  if (!magEncoder.isConnected() || !voiceState)
-  {
-    return;
-  }
-
-  // Per-voice base values; out-of-range voice ids get no mapping
-  if (voiceId >= VoiceSystem::MAX_VOICES)
-  {
-    return;
-  }
-  const EncoderBaseValues *baseValues = &encoderBaseValues[voiceId];
-
-  // Apply "Shift and Scale" for each parameter.
-  // This maps the sequencer value into the dynamic range set by the encoder offset.
-  const float noteRange = static_cast<float>(SequencerConstants::NOTE_PARAMETER_MAX);
-  const float normalizedNote = voiceState->noteIndex / noteRange;
-  voiceState->noteIndex = shiftAndScale(normalizedNote, baseValues->note) * noteRange;
-  voiceState->velocityLevel = shiftAndScale(voiceState->velocityLevel, baseValues->velocity);
-  voiceState->filterCutoff = shiftAndScale(voiceState->filterCutoff, baseValues->filter);
-  voiceState->attackTimeSeconds = shiftAndScale(voiceState->attackTimeSeconds, baseValues->attack);
-  voiceState->decayTimeSeconds = shiftAndScale(voiceState->decayTimeSeconds, baseValues->decay);
-  voiceState->octaveOffset =
-      ControlSurface::combineOctaveOffsets(voiceState->octaveOffset, baseValues->octave);
+  // Compatibility entry point: composition now happens once inside Sequencer.
 }
 
 // ----------------------
@@ -459,32 +356,7 @@ void applyEncoderBaseValues(VoiceState *voiceState, uint8_t voiceId)
 // ----------------------
 void applyEncoderSlideTimeValues()
 {
-  if (!magEncoder.isConnected() || !uiState.slideMode)
-  {
-    return;
-  }
-
-  // Edit and apply both target the currently selected voice's base values
-  EncoderBaseValues *activeBaseValues = &baseValuesForVoice(uiState.selectedVoiceIndex);
-
-  // Read encoder increment for SlideTime (unipolar 0.0 - 1.0 seconds)
-  float minVal = getParameterMinValue(EncoderParameterMode::SlideTime);
-  float maxVal = getParameterMaxValue(EncoderParameterMode::SlideTime);
-  float increment = magEncoder.takeParameterIncrement(minVal - maxVal, maxVal - minVal, 3);
-
-  // Apply increment if above noise threshold
-  if (fabsf(increment) >= SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD)
-  {
-    applyIncrementToParameter(activeBaseValues, EncoderParameterMode::SlideTime, increment);
-  }
-
-  // Map and apply to the currently selected voice via VoiceManager
-  if (voiceManager)
-  {
-    uint8_t voiceId = static_cast<uint8_t>(uiState.selectedVoiceIndex);
-    float slideSeconds = activeBaseValues->slideTime; // already clamped 0.0 - 1.0
-    voiceManager->setVoiceSlide(voiceId, slideSeconds);
-  }
+  updateEncoderBaseValues(uiState);
 }
 
 // =======================
@@ -497,54 +369,9 @@ void applyEncoderSlideTimeValues()
  */
 float getEncoderParameterValue()
 {
-  if (!magEncoder.isConnected())
-  {
-    return 0.0f;
-  }
-
-  const EncoderBaseValues *activeBaseValues = &baseValuesForVoice(uiState.selectedVoiceIndex);
-  float value = 0.0f;
-
-  // Retrieve the raw value for the current parameter
-  switch (uiState.currentEncoderParameter)
-  {
-  case EncoderParameterMode::Note:
-    value = activeBaseValues->note;
-    break;
-  case EncoderParameterMode::Velocity:
-    value = activeBaseValues->velocity;
-    break;
-  case EncoderParameterMode::Filter:
-    value = activeBaseValues->filter;
-    break;
-  case EncoderParameterMode::Attack:
-    value = activeBaseValues->attack;
-    break;
-  case EncoderParameterMode::Decay:
-    value = activeBaseValues->decay;
-    break;
-  case EncoderParameterMode::Octave:
-    value = activeBaseValues->octave;
-    break;
-  case EncoderParameterMode::SlideTime:
-    value = activeBaseValues->slideTime;
-    break;
-  }
-
-  // Normalize the value to a 0.0-1.0 range for LED feedback
-  float minVal = getParameterMinValue(uiState.currentEncoderParameter);
-  float maxVal = getParameterMaxValue(uiState.currentEncoderParameter);
-  float normalizedValue = (value - minVal) / (maxVal - minVal);
-
-  // For bipolar parameters (like velocity, filter, etc.), we need to handle the normalization differently.
-  // Since they range from -maxRange to +maxRange, we can map this to 0.0-1.0.
-  if (isBipolarVoiceBaseParameter(uiState.currentEncoderParameter))
-  {
-    float maxRange = getEncoderBaseValueRange(uiState.currentEncoderParameter);
-    normalizedValue = (value + maxRange) / (2 * maxRange);
-  }
-
-  return std::max(0.0f, std::min(normalizedValue, 1.0f)); // Clamp to ensure valid range
+  if(!voiceManager || uiState.selectedVoiceIndex>=4) return 0.0f;
+  const auto *config=voiceManager->getVoiceConfig(voiceSystem.getVoiceId(uiState.selectedVoiceIndex));
+  return config?VoiceEdit::value(VoiceEditor::encoderTarget(),*config):0.0f;
 }
 
 void initEncoderBaseValues()
@@ -563,22 +390,21 @@ void initEncoderBaseValues()
 
 void resetEncoderBaseValues(UIState &uiState, bool currentVoiceOnly)
 {
-  if (currentVoiceOnly)
-  {
-    // Reset only the currently selected voice to neutral position
-    EncoderBaseValues *activeVoiceBaseValues = &baseValuesForVoice(uiState.selectedVoiceIndex);
-
-    // Reset voice parameters to neutral position
-    activeVoiceBaseValues->note = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-    activeVoiceBaseValues->velocity = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-    activeVoiceBaseValues->filter = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-    activeVoiceBaseValues->attack = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-    activeVoiceBaseValues->decay = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-    activeVoiceBaseValues->octave = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
+  if(!voiceManager) return;
+  for(uint8_t index=0;index<4;++index) {
+    if(currentVoiceOnly && index!=uiState.selectedVoiceIndex) continue;
+    const auto *requested=voiceManager->getVoiceConfig(voiceSystem.getVoiceId(index));
+    if(!requested) continue;
+    VoiceConfig next=*requested;
+    VoiceConfig defaults=VoicePresets::getPresetConfig(uiState.voicePresetIndices[index]);
+    if(defaults.engine!=next.engine) VoiceEdit::setValue(VoiceEdit::Id::Engine,defaults,next.engine);
+    if(next.engine==ENGINE_RECIPE) VoiceEdit::setValue(VoiceEdit::Id::Recipe,defaults,VoiceEdit::value(VoiceEdit::Id::Recipe,next));
+    for(uint8_t lane=0;lane<PARAM_ID_COUNT;++lane) {
+      const auto id=static_cast<VoiceEdit::Id>(lane);
+      VoiceEdit::setValue(id,next,VoiceEdit::value(id,defaults));
+    }
+    next.slideSeconds=defaults.slideSeconds;
+    VoiceEditor::publish(index,next);
   }
-  else
-  {
-    // Reset all voices - call the full initialization
-    initEncoderBaseValues();
-  }
+  magEncoder.clearPendingTicks();
 }

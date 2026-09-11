@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <array>
+#include <cstdint>
+void audio_i2s_debug_stage(uint32_t) {}
 #include "src/audio/audio_i2s.c"
 #include "src/audio/audio.cpp"
 

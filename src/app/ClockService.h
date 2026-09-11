@@ -1,4 +1,5 @@
 #pragma once
+void stopClockForEditor();
 #include <cstdint>
 
 // Stock uClock's timer runs on Core 0. Start/stop are thread callbacks;

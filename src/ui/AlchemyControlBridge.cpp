@@ -3,6 +3,7 @@
 #include "AlchemyControlBridge.h"
 #include "../app/AppState.h"
 #include "../app/StepPlayback.h"
+#include "../app/VoiceEditor.h"
 
 #include "ButtonHandlers.h"
 #include "ButtonManager.h"
@@ -85,6 +86,24 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
   // nothing but can turn a slot present/absent, so re-read the mapping.
   resolveSlots();
 
+  uint8_t buttons=0, voices=0;
+  for(uint8_t bit=0;bit<8;++bit) if(buttonAt(buttonSlot_,bit).held()) buttons|=1u<<bit;
+  for(uint8_t bit=0;bit<4;++bit) if(buttonAt(sliderSlot_,bit).held()) voices|=1u<<bit;
+  if(uiState.voiceEditor.active || uiState.controlsWaitRelease) {
+    // Keep physical histories current even while their performance actions are
+    // suppressed. No release can become a new action after leaving the editor.
+    for(uint8_t bit=0;bit<8;++bit) {
+      buttonEdges_[kButtonRole][bit].take(buttonAt(buttonSlot_,bit));
+      buttonEdges_[kSliderRole][bit].take(buttonAt(sliderSlot_,bit));
+    }
+    for(uint8_t channel=0;channel<4;++channel)
+      faders_.accept(channel,panel_.tiles().faderRaw(channel));
+    latch_.reset(); playSettingsOpenedThisPress_=false;
+    if(uiState.voiceEditor.active) VoiceEditor::buttons(buttons,voices,nowMs);
+    else if(buttons==0 && voices==0) uiState.controlsWaitRelease=false;
+    return;
+  }
+
   handleModeStrap(nowMs, uiState);
 
   // Shift (bit 7 of the button tile) is a plain level in both modes.
@@ -93,6 +112,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
   // SliderModule buttons: voice select, or transport chords with Shift —
   // identical in both modes.
   handleVoiceButtons(uiState, midiNoteManager, sequencers, sequencerCount);
+  if(uiState.voiceEditor.active) return;
 
   if (uiState.alchemyMode == UIState::AlchemyMode::Param)
   {
@@ -182,7 +202,9 @@ void AlchemyControlBridge::handleVoiceButtons(UIState &uiState,
     case 2:
       handleControlButton(BUTTON_CHANGE_SCALE, uiState);
       break;
-    // case 3 (delay toggle) removed with the delay effect
+    case 3:
+      VoiceEditor::enter();
+      return;
     default:
       break;
     }

@@ -156,6 +156,10 @@ uint8_t Sequencer::getCurrentStepForParameter(ParamId paramId) const
 
 void Sequencer::resetAllSteps()
 {
+    if(usesPlaybackTransform()) {
+        for(uint8_t step=0;step<SequencerConstants::MAX_STEPS_COUNT;++step) resetModifierStep(step);
+        return;
+    }
     // Data-driven reset using the defaults from CORE_PARAMETERS
     for (size_t i = 0; i < static_cast<size_t>(ParamId::Count); ++i)
     {
@@ -228,7 +232,8 @@ void Sequencer::advanceStep(uint32_t current_uclock_step, int mm_distance,
     if (mm_distance >= 0 && current_selected_step_for_edit == -1)
     {
         // Simple normalization of sensor distance value
-        const float normalizedDistance = std::max(0.0f, std::min(static_cast<float>(mm_distance) / MAX_SENSOR_DISTANCE_MM, 1.0f));
+        const float normalizedDistance = std::clamp(recordingInput_ >= 0.0f ? recordingInput_ :
+            static_cast<float>(mm_distance) / MAX_SENSOR_DISTANCE_MM, 0.0f, 1.0f);
 
         struct ParamButton
         {
@@ -274,6 +279,7 @@ void Sequencer::advanceStep(uint32_t current_uclock_step, int mm_distance,
 
     // Process the step with current parameter values (including any newly recorded ones)
     // Use UINT8_MAX to signal that per-parameter step indices should be used
+    recordingInput_ = -1.0f;
     processStep(UINT8_MAX, voiceState);
 
     // If parameters were recorded during this step, the voice state is already updated
@@ -293,25 +299,25 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
     }
 
     // Get parameter values using appropriate step indices
-    float gateOn = getStepParameterValue(ParamId::Gate,
+    float gateOn = playbackValue(ParamId::Gate,
                                          usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Gate)] : stepIdx);
 
     // Always get parameter values for modulation parameters
-    float filterVal = getStepParameterValue(ParamId::Filter,
+    float filterVal = playbackValue(ParamId::Filter,
                                             usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Filter)] : stepIdx);
-    float attackVal = getStepParameterValue(ParamId::Attack,
+    float attackVal = playbackValue(ParamId::Attack,
                                             usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Attack)] : stepIdx);
-    float decayVal = getStepParameterValue(ParamId::Decay,
+    float decayVal = playbackValue(ParamId::Decay,
                                            usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Decay)] : stepIdx);
 
     // Get note-related parameters
     uint8_t noteStepIdx = usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Note)] : stepIdx;
-    float noteVal = getStepParameterValue(ParamId::Note, noteStepIdx);
-    float velocityVal = getStepParameterValue(ParamId::Velocity,
+    float noteVal = playbackValue(ParamId::Note, noteStepIdx);
+    float velocityVal = playbackValue(ParamId::Velocity,
                                               usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Velocity)] : stepIdx);
-    float octaveFloat = getStepParameterValue(ParamId::Octave,
+    float octaveFloat = playbackValue(ParamId::Octave,
                                               usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Octave)] : stepIdx);
-    float slideVal = getStepParameterValue(ParamId::Slide,
+    float slideVal = playbackValue(ParamId::Slide,
                                            usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Slide)] : stepIdx);
 
     // DEBUG: Trace parameter retrieval
@@ -326,11 +332,11 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
     Serial.print(octaveFloat, 2);
     Serial.println();
     */
-    float gateLengthProportion = getStepParameterValue(ParamId::GateLength,
+    float gateLengthProportion = playbackValue(ParamId::GateLength,
                                                        usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::GateLength)] : stepIdx);
 
     const uint16_t noteDurationTicks = static_cast<uint16_t>(std::max(1.0f, gateLengthProportion * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS));
-    const int8_t octaveOffset = mapFloatToOctaveOffset(octaveFloat);
+    const int8_t octaveOffset = octaveMapper_ ? octaveMapper_(octaveFloat) : mapFloatToOctaveOffset(octaveFloat);
 
     if (gateOn)
     {

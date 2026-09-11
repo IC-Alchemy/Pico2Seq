@@ -139,6 +139,7 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
                         MidiNoteManager &midiNoteManager)
 {
 
+  if(uiState.voiceEditor.active || uiState.controlsWaitRelease) return;
   // Poll held buttons (long press detection) using the supplied array.
   pollUIHeldButtons(uiState, sequencers, sequencerCount);
 
@@ -635,6 +636,7 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
  */
 void pollUIHeldButtons(UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount)
 {
+  if(uiState.voiceEditor.active || uiState.controlsWaitRelease) return;
   unsigned long currentTimeMs = millis();
 
   // Check for long press resets on all supported voices (up to MAX_VOICES)
@@ -776,6 +778,7 @@ static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, 
 
 void clearSequencerStep(Sequencer &sequencer, uint8_t stepIdx)
 {
+  if(sequencer.usesPlaybackTransform()) {sequencer.resetModifierStep(stepIdx);return;}
   if (stepIdx >= NUMBER_OF_STEP_BUTTONS)
   {
     return;

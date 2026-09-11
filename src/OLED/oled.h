@@ -115,6 +115,7 @@ public:
   void onVoiceSwitched(const UIState &uiState, class VoiceManager *voiceManager);
 
 private:
+  void displayVoiceEditor(const UIState &uiState, class VoiceManager *voiceManager);
   // Hardware display object
   Adafruit_SH1106G displayHardware;
   bool isDisplayInitialized = false;
