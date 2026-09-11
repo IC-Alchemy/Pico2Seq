@@ -386,12 +386,11 @@ TEST_CASE("FaderMap assigns param-mode faders to Filter/Attack/Decay/Velocity", 
     CHECK(ch3.paramId == ParamId::Velocity);
 }
 
-TEST_CASE("FaderMap assigns utility-mode faders to tempo/swing/gate-length", "[control_surface]")
+TEST_CASE("FaderMap assigns utility-mode faders to tempo/swing/master-volume/gate-length", "[control_surface]")
 {
     CHECK(FaderMap::assignmentFor(Mode::Utility, 0).target == FaderTarget::Tempo);
     CHECK(FaderMap::assignmentFor(Mode::Utility, 1).target == FaderTarget::SwingAmount);
-    // Fader 2 is unassigned since the delay effect was removed.
-    CHECK(FaderMap::assignmentFor(Mode::Utility, 2).target == FaderTarget::None);
+    CHECK(FaderMap::assignmentFor(Mode::Utility, 2).target == FaderTarget::MasterVolume);
     CHECK(FaderMap::assignmentFor(Mode::Utility, 3).target == FaderTarget::GateLength);
 }
 

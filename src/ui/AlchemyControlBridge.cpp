@@ -365,8 +365,12 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
       }
       break;
 
-    case ControlSurface::FaderTarget::None:
-      // Unassigned channel (delay fader removed with the effect).
+    case ControlSurface::FaderTarget::MasterVolume:
+      // VoiceManager applies this lock-free gain on Core 1's final mix.
+      if (voiceManager)
+      {
+        voiceManager->setGlobalVolume(normalized);
+      }
       break;
 
     case ControlSurface::FaderTarget::Tempo:

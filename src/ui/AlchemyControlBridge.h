@@ -36,7 +36,7 @@ class MidiNoteManager;
  *     Delay, Scale, Swing, Theme, Encoder, Randomize) per mode; Shift is
  *     bit 7 in both.
  *   - Faders: step-parameter recording in Param mode (same recording path
- *     as the lidar), tempo/swing/delay-mix/gate-length in Utility mode.
+ *     as the lidar), tempo/swing/master-volume/gate-length in Utility mode.
  */
 class AlchemyControlBridge
 {

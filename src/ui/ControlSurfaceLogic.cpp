@@ -162,7 +162,7 @@ FaderAssignment FaderMap::assignmentFor(Mode mode, uint8_t channel)
   }
 
   static constexpr FaderTarget kUtilityModeTargets[kChannelCount] = {
-      FaderTarget::Tempo, FaderTarget::SwingAmount, FaderTarget::None,
+      FaderTarget::Tempo, FaderTarget::SwingAmount, FaderTarget::MasterVolume,
       FaderTarget::GateLength};
   out.target = kUtilityModeTargets[channel];
   return out;

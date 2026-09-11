@@ -274,7 +274,7 @@ enum class FaderTarget : uint8_t
   Tempo,       // uClock BPM (utility mode)
   SwingAmount, // continuous shuffle depth (utility mode)
   GateLength,  // gate length across the selected voice's steps (utility mode)
-  None,        // unassigned (utility fader 2; was DelayMix before the delay effect was removed)
+  MasterVolume // final mix gain (utility mode)
 };
 
 struct FaderAssignment
