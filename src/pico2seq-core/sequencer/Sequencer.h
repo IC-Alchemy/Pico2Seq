@@ -172,7 +172,41 @@ public:
     // State
     bool isRunning() const { return running; }
 
+    // Optional control-thread playback mapping. Stored step data is never
+    // changed. The context must outlive this sequencer. No synth/UI dependency.
+    using PlaybackTransform = float (*)(ParamId, float, const void *);
+    using OctaveMapper = int8_t (*)(float);
+    void setPlaybackTransform(PlaybackTransform transform, const void *context,
+                              OctaveMapper octaveMapper = nullptr) noexcept
+    { playbackTransform_ = transform; playbackContext_ = context; octaveMapper_ = octaveMapper; }
+    // Calibrated normalized recording input, consumed by the next advance.
+    void setRecordingInput(float normalized) noexcept { recordingInput_ = normalized; }
+    // Initialization/reset only: unlike note recording this also initializes
+    // silent steps, so enabling a gate later reveals a neutral modifier.
+    void fillModulationTrack(ParamId id, float value) {
+        for(uint8_t step=0;step<SequencerConstants::MAX_STEPS_COUNT;++step)
+            parameterManager.setValue(id,step,value);
+    }
+    bool usesPlaybackTransform() const noexcept { return playbackTransform_ != nullptr; }
+    void resetModifierStep(uint8_t step) {
+        if(step>=SequencerConstants::MAX_STEPS_COUNT) return;
+        for(uint8_t i=0;i<PARAM_ID_COUNT;++i) {
+            const auto id=static_cast<ParamId>(i);
+            parameterManager.setValue(id,step,(id==ParamId::Gate || id==ParamId::Slide)?0.0f:
+                mapNormalizedValueToParamRange(id,0.5f));
+        }
+    }
+
 private:
+    PlaybackTransform playbackTransform_ = nullptr;
+    const void *playbackContext_ = nullptr;
+    OctaveMapper octaveMapper_ = nullptr;
+    float recordingInput_ = -1.0f;
+    float playbackValue(ParamId id, uint8_t step) const
+    {
+        const float stored = getStepParameterValue(id, step);
+        return playbackTransform_ ? playbackTransform_(id, stored, playbackContext_) : stored;
+    }
     void (*midiNoteOffCallback)(uint8_t note, uint8_t channel) = nullptr;
 
     // Envelope methods

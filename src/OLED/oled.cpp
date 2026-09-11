@@ -2,6 +2,7 @@
 #include "../voice/Voice.h"
 #include "../voice/VoicePresets.h"
 #include "../voice/VoiceParameters.h"
+#include "../app/VoiceEditor.h"
 #include "../voice/VoiceSystem.h" // Added for complete VoiceSystem type
 #include "../../includes.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
@@ -265,6 +266,10 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
   displayHardware.setTextSize(1);
   displayHardware.setTextColor(SH110X_WHITE);
 
+  if(uiState.voiceEditor.active) {
+    displayVoiceEditor(uiState,voiceManager);
+    return;
+  }
   // HIGHEST PRIORITY: transient PARAM / UTIL banner shown for a short window
   // after the GP7 mode strap flips the Alchemy control surface function set.
   if (uiState.alchemyModeBannerUntil != 0 && millis() < uiState.alchemyModeBannerUntil)
@@ -461,10 +466,13 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     {
       displayHardware.setTextSize(1);
       displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 53);
-      displayHardware.print("ENC:");
-      displayHardware.print(encoderParamName(uiState.currentEncoderParameter));
-      displayHardware.print(" ");
-      displayHardware.print(getEncoderParameterValue(), 2);
+      const auto *config=voiceManager?voiceManager->getVoiceConfig(voiceSystem.getVoiceId(uiState.selectedVoiceIndex)):nullptr;
+      if(config) {
+        const auto id=VoiceEditor::encoderTarget();
+        char value[24];VoiceEdit::format(id,*config,value,sizeof(value));
+        displayHardware.print("B:");displayHardware.print(VoiceEdit::name(id,*config));
+        displayHardware.print(" ");displayHardware.print(value);
+      }
     }
 
     drawStepIndicators(currentSequencerDefault, 63);
@@ -507,7 +515,10 @@ void OLEDDisplay::displayParameterInfo(ParamId parameterId, float currentValue,
   displayHardware.setTextSize(2);
   displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 32);
 
-  String formattedParameterValue = formatParameterValue(parameterId, currentValue, presetIndex);
+  const float normalized=parameterId==ParamId::Note?currentValue/36.0f:
+      parameterId==ParamId::GateLength?(currentValue-0.001f)/0.999f:currentValue;
+  const float modifier=(normalized-0.5f)*100.0f;
+  String formattedParameterValue=(modifier>=0?String("+"):String(""))+String(modifier,1)+String("% mod");
   displayHardware.print(formattedParameterValue);
 
   // Progress bar for normalized parameters (exclude discrete parameters)
@@ -1027,4 +1038,33 @@ void OLEDDisplay::runStartupAnimation()
   displayHardware.print("Let's play");
   commitFrame();
   delay(OLEDConstants::STARTUP_SETTLE_DELAY_MS);
+}
+
+void OLEDDisplay::displayVoiceEditor(const UIState &state, VoiceManager *manager)
+{
+  displayHardware.clearDisplay();
+  displayHardware.setTextSize(1);
+  displayHardware.setTextColor(SH110X_WHITE);
+  displayHardware.setCursor(0,0);
+  const auto index=state.selectedVoiceIndex;
+  displayHardware.print("EDIT V"); displayHardware.print(index+1);
+  displayHardware.print(state.voiceEditor.changed[index]?"*":" ");
+  displayHardware.print(" STOPPED");
+  if(state.voiceEditor.help) {
+    const char *lines[]={"1/2 Group  3/4 Param","5 Hold: fine","6 Hold: reset base","7 Help  8 Exit","Lidar = +/- modifier"};
+    for(int i=0;i<5;++i) {displayHardware.setCursor(0,13+i*10);displayHardware.print(lines[i]);}
+  } else if(manager) {
+    const auto *config=manager->getVoiceConfig(voiceSystem.getVoiceId(index));
+    if(config) {
+      const auto id=state.voiceEditor.cursor[index];
+      char value[24]; VoiceEdit::format(id,*config,value,sizeof(value));
+      displayHardware.setCursor(0,13);displayHardware.print(VoiceEdit::groupName(VoiceEdit::parameter(id).group));
+      displayHardware.setCursor(0,25);displayHardware.print(VoiceEdit::name(id,*config));
+      displayHardware.setCursor(0,37);displayHardware.print(value);
+      displayHardware.setCursor(0,49);
+      displayHardware.print(VoiceEdit::sequenceLane(id,*config)!=ParamId::Count?"BASE + STEP MOD":"PATCH BASE");
+      displayHardware.setCursor(0,57);displayHardware.print(state.voiceEditor.fine?"FINE    7 Help 8 Exit":"ENC edit 7 Help 8 Exit");
+    }
+  }
+  commitFrame();
 }

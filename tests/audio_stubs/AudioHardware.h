@@ -70,6 +70,8 @@ inline void pio_sm_exec(PIO, uint, uint) {}
 inline uint pio_encode_jmp(uint offset) { return offset; }
 inline void gpio_set_function(uint, uint) {}
 inline void pio_sm_claim(PIO, uint) {}
+inline int pio_claim_unused_sm(PIO, bool) { return 0; }
+inline void pio_sm_unclaim(PIO, uint) {}
 inline uint pio_add_program(PIO, const pio_program*) { return 0; }
 inline void pio_sm_set_clkdiv_int_frac(PIO, uint, uint16_t, uint8_t) {}
 inline void pio_sm_set_enabled(PIO, uint, bool) {}
@@ -87,6 +89,7 @@ inline bool audioDmaPending = false;
 inline void (*audioDmaHandler)() = nullptr;
 inline int dma_claim_unused_channel(bool) { return 3; }
 inline void dma_channel_claim(uint) {}
+inline void dma_channel_unclaim(uint) {}
 inline dma_channel_config dma_channel_get_default_config(uint) { return {}; }
 inline void channel_config_set_high_priority(dma_channel_config* c, bool value) { c->highPriority = value; }
 inline void channel_config_set_dreq(dma_channel_config*, uint) {}

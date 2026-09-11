@@ -42,10 +42,9 @@ struct PerformanceInput
     {
         constexpr int maximum = SensorConstants::DistanceSensor::MAX_DISTANCE_HEIGHT_MM;
         float normalized = 0.0f;
-        // Preserve the instrument's calibration: divide by maximum height,
-        // not by (maximum - minimum). This determines the recorded timbre.
-        if (maximum > 0)
-            normalized = static_cast<float>(distanceAboveMinimumMm) / static_cast<float>(maximum);
+        constexpr int minimum = SensorConstants::DistanceSensor::MIN_DISTANCE_HEIGHT_MM;
+        if (maximum > minimum)
+            normalized = static_cast<float>(distanceAboveMinimumMm) / static_cast<float>(maximum-minimum);
         return std::max(0.0f, std::min(normalized, 1.0f));
     }
 };

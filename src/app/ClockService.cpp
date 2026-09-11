@@ -5,6 +5,7 @@
 #include "../utils/SpscQueue.h"
 #include <Arduino.h>
 #include <uClock.h>
+#include <hardware/sync.h>
 
 uint32_t g_processedStepCount = 0;
 
@@ -40,6 +41,8 @@ void onOutputPPQNCallback(uint32_t tick)
 
 void onClockStart()
 {
+    if (uiState.voiceEditor.active) return;
+    if (voiceManager) voiceManager->setTransportMuted(false);
      Serial.println("[uClock] onClockStart()");
     // Start all four sequencers so  LEDs and audio advance for 3/4 as well
     seq1.start();
@@ -62,6 +65,14 @@ void onClockStop()
 
     // Legacy allNotesOff() call for sequencer state cleanup
     isClockRunning = false;
+    if (voiceManager) {
+        voiceManager->setTransportMuted(true);
+        for (uint8_t i=0;i<VoiceSystem::MAX_VOICES;++i) {
+            auto &state=voiceSystem.getVoiceState(i);
+            state.isGateHigh=false; state.shouldRetrigger=false; state.hasSlide=false;
+            voiceManager->updateVoiceState(voiceSystem.getVoiceId(i),state);
+        }
+    }
     Serial.println("[uClock] onClockStop()");
 }
 
@@ -70,7 +81,7 @@ void processClockEvents()
     uint32_t step = 0;
     while (clockEvents.steps.tryPop(step))
     {
-        processSequencerStep(step);
+        if (isClockRunning && !uiState.voiceEditor.active) processSequencerStep(step);
     }
 }
 
@@ -89,10 +100,13 @@ void initializeClock()
 
 void processPendingGateTicks()
 {
-    while (clockEvents.ppqnTicksPending > 0)
+    const uint32_t irqState=save_and_disable_interrupts();
+    uint32_t pending=clockEvents.ppqnTicksPending;
+    clockEvents.ppqnTicksPending=0;
+    restore_interrupts(irqState);
+    if (!isClockRunning || uiState.voiceEditor.active) return;
+    while (pending-- > 0)
     {
-        // Decrement the counter *before* processing the tick
-        clockEvents.ppqnTicksPending--;
         clockEvents.gateTick++;
 
         // Update MidiNoteManager timing - this handles all MIDI note-off timing
@@ -105,4 +119,15 @@ void processPendingGateTicks()
         // Process gate timers - now synchronized with MidiNoteManager
         voiceSystem.tickAllGateTimers();
     }
+}
+
+void stopClockForEditor()
+{
+    uClock.stop();
+    onClockStop(); // Also cleans up if transport was already stopped.
+    const uint32_t irqState=save_and_disable_interrupts();
+    clockEvents.ppqnTicksPending=0;
+    uint32_t unused=0;
+    while(clockEvents.steps.tryPop(unused)) {}
+    restore_interrupts(irqState);
 }

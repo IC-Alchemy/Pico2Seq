@@ -82,6 +82,7 @@ void Application::begin()
 
     freezeWatchdogFeed(FW_SETUP_UCLOCK);
     initializeClock();
+    Serial.println("[VOICE EDIT] Patch bases + lidar modifiers; Shift + slider 4 opens editor");
     Serial.println("[CORE0] Setup complete!");
     voicesReady.store(true, std::memory_order_release);
 }

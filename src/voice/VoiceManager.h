@@ -83,6 +83,7 @@ public:
     float getGlobalVolume() const { return globalVolume.load(std::memory_order_relaxed); }
 
     void setVoiceMix(uint8_t voiceId, float mix);
+    void setTransportMuted(bool muted) noexcept { transportMuted_.store(muted, std::memory_order_relaxed); }
     float getVoiceMix(uint8_t voiceId) const;
 
     // Voice Routing
@@ -95,6 +96,7 @@ public:
     void setVoiceSlide(uint8_t voiceId, float slideTime);
 
 private:
+    std::atomic<bool> transportMuted_{false};
     struct ManagedVoice
     {
         std::unique_ptr<Voice> voice;

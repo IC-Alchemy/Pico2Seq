@@ -11,6 +11,7 @@
 #include "ButtonManager.h"
 #include "UIConstants.h"
 #include "UIState.h"
+#include "../sensors/EncoderManager.h"
 
 #include <uClock.h>
 
@@ -82,6 +83,7 @@ void handleRandomizeButton(int voiceIndex, UIState &state)
 // Helper to cycle encoder parameter selection and report
 static void cycleEncoderParameter(UIState &uiState)
 {
+  magEncoder.clearPendingTicks();
   uiState.currentEncoderParameter = static_cast<EncoderParameterMode>(
       (static_cast<uint8_t>(uiState.currentEncoderParameter) + 1) %
       static_cast<uint8_t>(EncoderParameterMode::COUNT));
@@ -211,14 +213,14 @@ void handleControlButton(int buttonId, UIState &state)
   case BUTTON_PLAY_STOP:
     if (isClockRunning)
     {
-      onClockStop();
+      uClock.stop();
       // Enter settings mode when stopping
       state.settingsMode = true;
       state.inPresetSelection = true;
     }
     else
     {
-      onClockStart();
+      uClock.start();
       // Exit settings mode if active
       if (state.settingsMode)
       {

@@ -415,7 +415,8 @@ float Voice::computeEnvelope()
 void Voice::updateFilter(float envelopeValue)
 {
   // Compute the intended (instantaneous) cutoff target using previous logic
-  const float targetCutoff = (filterFrequency * envelopeValue) + (filterFrequency * 0.1f);
+  const float targetCutoff = filterFrequency *
+      (envelopeValue * config.filterEnvelopeAmount + config.filterEnvelopeFloor);
 
   // Exponential smoothing to prevent zipper noise when targetCutoff jumps.
   // filterCutoffAlpha was initialized in init() (per-sample coefficient).
@@ -689,13 +690,13 @@ float Voice::processPitchedEngine_() noexcept
 
 float Voice::processNoiseFxSource_() noexcept
 {
-  float source = noise_.process();
+  float source = noise_.process() * config.noiseSourceLevel;
   if (config.noiseChaosLevel > 0.001f)
   {
     // Lorenz rate follows the base pitch so the growl tracks the sequence
     // instead of sitting at one fixed register (0.0001 slow CV .. 0.02 growl).
     const float baseHz = (pitchCache_.baseFreq > 0.0f) ? pitchCache_.baseFreq : 110.0f;
-    const float rate = std::clamp(baseHz / sampleRate, 1.0e-4f, 0.02f);
+    const float rate = std::clamp(baseHz * config.noiseChaosRate / sampleRate, 1.0e-4f, 0.02f);
     source += rpdsp::chaos_lorenz(rate, noiseChaosState_) * config.noiseChaosLevel * 0.5f;
   }
   return source;
@@ -771,6 +772,14 @@ void Voice::updateOscillatorFrequencies()
 
 inline void Voice::applyEnvelopeParameters() noexcept
 {
+  if(config.usePatchBases) {
+    const auto seconds=[](float n) {return 0.001f*std::pow(10000.0f,std::clamp(n,0.0f,1.0f));};
+    envelope.setAttack(seconds(state.attackTimeSeconds));
+    envelope.setDecay(seconds(state.decayTimeSeconds));
+    envelope.setSustain(config.defaultSustain);
+    envelope.setRelease(config.defaultRelease);
+    return;
+  }
   // Map normalized parameters to appropriate ranges
   float attack =
       dspmap::fmap(state.attackTimeSeconds, 0.002f, 0.75f, dspmap::Mapping::LINEAR);
@@ -1150,6 +1159,11 @@ void Voice::applyStructuralConfig_() noexcept
 // Audio thread only: queue slots have already been released after a local copy.
 void Voice::applyConfig_(const VoiceConfig &newConfig) noexcept
 {
+  bool structuralChange = stagedOscCount_ != newConfig.oscillatorCount ||
+      stagedEngine_ != newConfig.engine || config.recipe != newConfig.recipe;
+  for(size_t i=0;i<3;++i)
+    structuralChange = structuralChange || stagedWaveforms_[i] != newConfig.oscWaveforms[i] ||
+        stagedPulseWidth_[i] != newConfig.oscPulseWidth[i];
   config = newConfig;
   velocityToAmplitude_ = VoiceParameters::layout(config).velocityToAmplitude;
 
@@ -1182,8 +1196,8 @@ void Voice::applyConfig_(const VoiceConfig &newConfig) noexcept
   stagedEngine_ = (config.engine <= static_cast<uint8_t>(ENGINE_RECIPE))
                       ? config.engine
                       : static_cast<uint8_t>(ENGINE_OSC);
-  structuralPending_ = true;
-  if (!gate)
+  structuralPending_ = structuralPending_ || structuralChange;
+  if (structuralPending_ && !gate)
   {
     applyStructuralConfig_();
   }

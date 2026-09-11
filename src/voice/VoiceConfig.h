@@ -64,6 +64,17 @@ struct VoiceRecipe;
 
 struct VoiceConfig
 {
+  // Patch bases live on the control core. Recorded lanes contain modifiers;
+  // only the composed playback state is sent to the audio core.
+  bool usePatchBases = false; // Enabled by firmware; legacy library clients opt in.
+  float baseNote = 0.0f;
+  float baseVelocity = 0.5f;
+  float baseOctave = 0.0f; // semitones, quantized to octaves
+  float baseGateLength = 0.3f;
+  bool baseGate = true;
+  bool baseSlide = false;
+  float slideSeconds = 0.06f;
+
   // Oscillator configuration
   uint8_t oscillatorCount = 3; // Number of oscillators (1-3)
   uint8_t oscWaveforms[3] = {  // Waveform types for each oscillator (WAVE_* ids from VoiceOscillator.h)
@@ -88,6 +99,16 @@ struct VoiceConfig
   float macro1 = 0.5f;
   float macro2 = 0.5f;
   float macro3 = 0.5f;
+  float fmModFeedback = 0.0f;
+  float phaseTriangleFold = 0.0f;
+  float spectralSubRatio = 0.5f;
+  float spectralSubShape = 0.0f;
+  float prismDriftChaos = 0.65f;
+  bool recipeRetrigger = true;
+  float noiseSourceLevel = 1.0f;
+  float noiseChaosRate = 1.0f;
+  float filterEnvelopeAmount = 1.0f;
+  float filterEnvelopeFloor = 0.1f;
 
   // Waveguide engine parameters (ENGINE_WAVEGUIDE only)
   float wgT60 = 2.5f;          // String tail T60 in seconds (0.05-10.0)
@@ -154,4 +175,3 @@ inline constexpr const char *kFilterModeNames[] = {"LP24", "LP12", "BP24",
                                                    "BP12", "HP24", "HP12"};
 inline constexpr int kFilterModeCount = 6;
 } // namespace voiceui
-
