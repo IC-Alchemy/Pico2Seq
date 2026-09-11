@@ -21,15 +21,15 @@ namespace SensorConstants
   {
     // Hardware configuration
     static constexpr uint8_t I2C_ADDRESS = 0x29;
-    static constexpr uint8_t I2C_STABILIZATION_DELAY_MS = 50;
+    static constexpr uint8_t I2C_STABILIZATION_DELAY_MS = 30;
 
     // Timing parameters
-    static constexpr unsigned long READ_INTERVAL_MS = 20;
+    static constexpr unsigned long READ_INTERVAL_MS = 23;
     static constexpr unsigned long TIMING_BUDGET_MICROSECONDS = 20000; // 20ms timing budget
     static constexpr unsigned long INTER_MEASUREMENT_PERIOD_MS = 24;   // 24ms between measurements
 
     // Distance measurement ranges (in millimeters)
-    static constexpr int MAX_DISTANCE_HEIGHT_MM = 1200; // Maximum useful distance
+    static constexpr int MAX_DISTANCE_HEIGHT_MM = 700; // Maximum useful distance
     static constexpr int MIN_DISTANCE_HEIGHT_MM = 55;   // Minimum useful distance
     static constexpr int INVALID_DISTANCE_MM = -1;      // Invalid reading indicator
   }
@@ -43,11 +43,6 @@ namespace SensorConstants
     // Parameter range constants
     static constexpr float PARAMETER_MIN_VALUE = 0.0f;
     static constexpr float PARAMETER_MAX_VALUE = 1.0f;
-
-
-    // Delay parameter ranges
-    static constexpr float DELAY_TIME_MIN_SAMPLES = 120.0f; // 2.5ms minimum delay at 48kHz (120 samples)
-    static constexpr float DELAY_FEEDBACK_MAX = 0.91f;      // Maximum 91% feedback to prevent excessive feedback
 
     // Increment sensitivity and thresholds
     static constexpr float MINIMUM_INCREMENT_THRESHOLD = 0.0005f; // Ignore tiny increments to prevent noise
@@ -67,8 +62,6 @@ namespace SensorConstants
     static constexpr float CRITICAL_FLASH_SPEED = 3.0f;
 
     // Default parameter values
-    static constexpr float DEFAULT_DELAY_TIME_SAMPLES = 48000.0f * 0.2f; // 200ms default delay at 48kHz
-    static constexpr float DEFAULT_DELAY_FEEDBACK = 0.55f;               // 55% default feedback
     static constexpr float DEFAULT_VOICE_PARAMETER = 0.0f;               // Neutral position for voice parameters
   }
 
@@ -90,7 +83,7 @@ namespace SensorConstants
     // (dspmap::fmap(state.filterCutoff, 150.0f, 8000.0f, EXP))
     static constexpr int FILTER_FREQUENCY_MIN_HZ = 90;
     static constexpr int FILTER_FREQUENCY_MAX_HZ = 6000;
-  }   
+  }
 }
 
 #endif // SENSOR_CONSTANTS_H

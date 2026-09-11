@@ -57,12 +57,7 @@ namespace LEDColors {
   // Standard LED Colors for Common Use
   static constexpr CRGB BLACK = CRGB::Black;
   static constexpr CRGB WHITE = CRGB(66, 66, 66);
-  
-  // Delay Effect Colors
-  static constexpr CRGB DELAY_INDICATOR = CRGB(0, 166, 55);
-  static constexpr CRGB DELAY_TIME_BASE = CRGB(0, 44, 33);
-  static constexpr CRGB DELAY_FEEDBACK_BASE = CRGB(0, 55, 22);
-  
+
   // Breathing Animation Colors
   static constexpr CRGB BREATHING_BLUE_BASE = CRGB(0, 0, 94);
   static constexpr uint8_t BREATHING_MIN_INTENSITY = 16;

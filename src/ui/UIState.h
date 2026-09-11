@@ -18,7 +18,6 @@ struct UIState
     bool parameterButtonHeld[PARAM_ID_COUNT] = {false};
 
     // --- Mode States ---
-    bool delayOn = true;
     bool modGateParamSeqLengthsMode = false;
     bool slideMode = false;
     // Selected voice index 0..3 (replaces isVoice2Mode)
@@ -32,7 +31,7 @@ struct UIState
     // --- Timing States ---
     unsigned long padPressTimestamps[SequencerConstants::MAX_STEPS_COUNT] = {0};
     // --- Transient OLED notice (replaces the old control-cluster LED flashes) ---
-    enum class OledNoticeKind : uint8_t { None = 0, DelayOn, DelayOff, Randomized };
+    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1 };
     volatile unsigned long oledNoticeUntil = 0;
     volatile OledNoticeKind oledNoticeKind = OledNoticeKind::None;
     volatile uint8_t oledNoticeVoice = 0; // 0-based voice, valid for Randomized

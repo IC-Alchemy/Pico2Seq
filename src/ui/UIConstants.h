@@ -12,7 +12,7 @@
 // =======================
 // Primary control buttons for performance and navigation
 constexpr uint8_t BUTTON_SLIDE_MODE = 22;           // Toggle slide edit mode
-constexpr uint8_t BUTTON_TOGGLE_DELAY = 23;         // Toggle delay effect and set encoder to delay param
+// 23 was BUTTON_TOGGLE_DELAY; removed with the delay effect (2026-09-11)
 constexpr uint8_t BUTTON_VOICE_SWITCH = 24;         // Cycle selected voice 1..4
 constexpr uint8_t BUTTON_ENCODER_CONTROL = 25;      // Cycle magnetic encoder control target
 constexpr uint8_t BUTTON_PLAY_STOP = 26;            // Start/stop transport; long-press opens settings when stopped

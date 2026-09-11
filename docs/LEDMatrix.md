@@ -60,7 +60,7 @@ Both bands always render the **selected** voice pair (`PadBank::pairFor(selected
                             [ WS2812B 8x4 Grid @ GP1 ]
 ```
 
-Control indicators (parameter buttons, delay, voice pair, randomize) were moved off the matrix to the **OLED** (see below) — the panel is now 100% step-grid mirror.
+Control indicators (parameter buttons, voice pair, randomize) were moved off the matrix to the **OLED** (see below) — the panel is now 100% step-grid mirror.
 
 ### 1. `LEDConstants.h` & `LEDColors`
 
@@ -97,7 +97,6 @@ Centralized namespace declarations for timing, layout geometry, color categories
 
 #### `namespace LEDColors`
 - **Standard:** `BLACK = CRGB::Black`, `WHITE = CRGB(66, 66, 66)` (dimmed white).
-- **Delay Effects:** `DELAY_INDICATOR = CRGB(0, 166, 55)`, `DELAY_TIME_BASE = CRGB(0, 44, 33)`, `DELAY_FEEDBACK_BASE = CRGB(0, 55, 22)`.
 - **Breathing Animation:** `BREATHING_BLUE_BASE = CRGB(0, 0, 94)`, `BREATHING_MIN_INTENSITY = 16`, `BREATHING_MAX_INTENSITY = 80`.
 - **Polyrhythmic Track Accents:**
   - `POLYRHYTHM_NOTE = CRGB(0, 32, 66)` (Cyan tint)
@@ -133,7 +132,7 @@ public:
 
 The old 8×8 control-cluster LEDs (parameter button LEDs, delay time/feedback, voice pair indicators, randomize/delay-toggle flashes at indices 40–59) do not exist on the 8×4 panel; that code was removed. The same information now appears on the OLED:
 
-- **Delay on/off and randomize confirmations** — transient full-screen notices (`DELAY ON` / `DELAY OFF` / `RANDOMIZED` + voice number), ~800 ms, rendered just below the PARAM/UTIL banner in `oled.cpp`, then the previous view resumes. Triggered from `handleControlButton(BUTTON_TOGGLE_DELAY)` and `handleRandomizeButton()` via the `UIState::oledNotice*` fields.
+- **Randomize confirmations** — transient full-screen notices (`RANDOMIZED` + voice number), ~800 ms, rendered just below the PARAM/UTIL banner in `oled.cpp`, then the previous view resumes. Triggered from `handleRandomizeButton()` via the `UIState::oledNotice*` fields. (A former `DELAY ON` / `DELAY OFF` notice was removed with the delay effect.)
 - **Encoder parameter** — while the TMAG5273 encoder controls a parameter (`uiState.currentEncoderParameter`), the default status screen shows `ENC: <parameter> <value>`, replacing the old value-fade LED.
 - **Held parameter editing and voice selection** — were already OLED-covered (param info screen, status screen).
 

@@ -11,7 +11,6 @@
 #include "ButtonManager.h"
 #include "UIConstants.h"
 #include "UIState.h"
-#include "../FeatureConfig.h"
 
 #include <uClock.h>
 
@@ -256,22 +255,6 @@ void handleControlButton(int buttonId, UIState &state)
     // Serial.print(state.currentShufflePatternIndex);
     // Serial.print(": ");
     // Serial.println(currentTemplate.name);
-  }
-  break;
-
-  case BUTTON_TOGGLE_DELAY:
-
-  {
-#if PICO2SEQ_ENABLE_DELAY_EFFECT
-    state.delayOn = !state.delayOn;
-    // Transient OLED confirmation (replaces the old control-LED flash)
-    state.oledNoticeKind = state.delayOn ? UIState::OledNoticeKind::DelayOn : UIState::OledNoticeKind::DelayOff;
-    state.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
-    if (state.delayOn)
-    {
-      state.currentEncoderParameter = EncoderParameterMode::DelayTime;
-    }
-#endif
   }
   break;
 

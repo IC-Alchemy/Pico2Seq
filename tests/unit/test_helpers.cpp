@@ -6,4 +6,3 @@
 
 bool slideMode = false;
 uint8_t currentScale = 0;
-const size_t MAX_DELAY_SAMPLES = 48000;

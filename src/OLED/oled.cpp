@@ -222,8 +222,6 @@ static const char *encoderParamName(EncoderParameterMode mode)
   case EncoderParameterMode::Decay:         return "Decay";
   case EncoderParameterMode::Note:          return "Note";
   case EncoderParameterMode::Octave:        return "Octave";
-  case EncoderParameterMode::DelayTime:     return "DelayTime";
-  case EncoderParameterMode::DelayFeedback: return "DelayFdbk";
   case EncoderParameterMode::SlideTime:     return "SlideTime";
   default:                                  return "-";
   }
@@ -290,19 +288,7 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
   if (uiState.oledNoticeUntil != 0 && millis() < uiState.oledNoticeUntil &&
       uiState.oledNoticeKind != UIState::OledNoticeKind::None)
   {
-    const char *line1 = nullptr;
-    if (uiState.oledNoticeKind == UIState::OledNoticeKind::DelayOn)
-    {
-      line1 = "DELAY ON";
-    }
-    else if (uiState.oledNoticeKind == UIState::OledNoticeKind::DelayOff)
-    {
-      line1 = "DELAY OFF";
-    }
-    else
-    {
-      line1 = "RANDOMIZED";
-    }
+    const char *line1 = "RANDOMIZED";
 
     displayHardware.setTextSize(2);
     const uint8_t line1Width = static_cast<uint8_t>(strlen(line1) * 12); // size-2 chars are 12px wide

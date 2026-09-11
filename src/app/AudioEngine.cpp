@@ -1,7 +1,6 @@
 #include "AudioEngine.h"
 #include "AppState.h"
 #include "HardwarePins.h"
-#include "../FeatureConfig.h"
 #include "../audio/audio.h"
 #include "../audio/audio_i2s.h"
 #include <Arduino.h>
@@ -21,13 +20,6 @@ constexpr float SAMPLE_RATE = 48000.0f;
 constexpr int NUM_AUDIO_BUFFERS = 4;
 constexpr int SAMPLES_PER_BUFFER = 256;
 
-#if PICO2SEQ_ENABLE_DELAY_EFFECT
-#include "../rpdsp/src/rpdsp/delay_line.h"
-extern constexpr size_t MAX_DELAY_SAMPLES = static_cast<size_t>(SAMPLE_RATE * 1.8f);
-float delayTarget = 48000.0f * 0.15f;
-float feedbackAmmount = 0.45f;
-#endif
-
 namespace
 {
 constexpr uint32_t kHeartbeatIntervalMs = 2000;
@@ -40,37 +32,8 @@ std::atomic<uint32_t> driverStage{0};
 bool audioStarted = false; // Core 1 only
 SpscQueue<AudioEngine::Heartbeat, kHeartbeatQueueCapacity> heartbeats;
 audio_buffer_pool_t *producer_pool = nullptr;
-#if PICO2SEQ_ENABLE_DELAY_EFFECT
-constexpr float FEEDBACK_FADE_RATE = 0.01f;
-rpdsp::StateVariableFilter delLowPass;
-rpdsp::DelayLine<MAX_DELAY_SAMPLES> del1;
-float currentDelayOutputGain = 0.0f;
-float currentFeedbackGain = 0.0f;
-float currentDelay = 48000.0f * 0.15f;
-float delayTimeSmoothing(float currentDelay, float targetDelay, float slewRate)
-{
-    float difference = targetDelay - currentDelay;
-    return currentDelay + (difference * slewRate);
-}
 
-float processDelayEffect(float inputSignal)
-{
-    // Read current delay output
-    float delayOutput = del1.readLinear(currentDelay);
 
-    // Calculate feedback signal with current gain
-    float feedbackSignal = delayOutput * currentFeedbackGain;
-
-    // Apply low-pass filtering to feedback to prevent harsh artifacts
-    float filteredFeedback = delLowPass.process(feedbackSignal).lowpass;
-
-    // Write to delay line: dry input + filtered feedback (clamped at 75%)
-    del1.push(inputSignal + (filteredFeedback * 0.75f));
-
-    // Mix dry and wet signals based on current delay output gain
-    return inputSignal + (delayOutput * currentDelayOutputGain);
-}
-#endif
 
 void fill_audio_buffer(audio_buffer_t *buffer)
 {
@@ -91,29 +54,11 @@ void fill_audio_buffer(audio_buffer_t *buffer)
         return;
     }
 
-#if PICO2SEQ_ENABLE_DELAY_EFFECT
-    // Determine target gains based on delay state
-    float targetDelayOutputGain = uiState.delayOn ? 1.0f : 0.0f;
-    float targetFeedbackGain = uiState.delayOn ? feedbackAmmount : 0.0f;
-
-    // Smooth parameters once per buffer to reduce CPU load
-    currentFeedbackGain = delayTimeSmoothing(currentFeedbackGain, targetFeedbackGain, FEEDBACK_FADE_RATE);
-    currentDelayOutputGain = delayTimeSmoothing(currentDelayOutputGain, targetDelayOutputGain, FEEDBACK_FADE_RATE);
-    currentDelay = delayTimeSmoothing(currentDelay, delayTarget, 0.0001f);
-    // Delay time is applied per tap read (del1.readLinear in processDelayEffect);
-    // rpdsp's DelayLine has no SetDelay — the old DaisySP call here was stale.
-#endif // PICO2SEQ_ENABLE_DELAY_EFFECT
-
     // Process each sample in the buffer
     for (int i = 0; i < N; ++i)
     {
         // Process all voices through VoiceManager (voice states updated by sequencer callbacks)
         finalVoiceOutput = voiceManager->processAllVoices();
-
-#if PICO2SEQ_ENABLE_DELAY_EFFECT
-        // Apply global delay effect
-        finalVoiceOutput = processDelayEffect(finalVoiceOutput);
-#endif
 
         // Convert once for both channels (mono -> stereo)
         int16_t convertedSample = AudioSamples::toPcm16(finalVoiceOutput);
@@ -173,23 +118,7 @@ extern "C" void audio_i2s_debug_stage(uint32_t stage)
 
 void AudioEngine::prepareEffects()
 {
-#if PICO2SEQ_ENABLE_DELAY_EFFECT
-    // Initialize global delay effect low-pass filter.
-    // (rpdsp's SVF has no drive parameter; the old Svf drive is not carried over.)
-    delLowPass.prepare(SAMPLE_RATE);
-    delLowPass.setCutoff(1340.0f);  // Delay low-pass filter frequency
-    delLowPass.setResonance(0.19f); // Filter resonance
-
-    // Initialize delay line
-    del1.reset(); // Clear any garbage in delay buffer
-
-    // Start at 667 ms; the audio-owned delay time slews from its existing 150 ms.
-    const float delayMs = 667.0f;
-    size_t delaySamples = static_cast<size_t>(delayMs * SAMPLE_RATE * 0.001f);
-
-    // Initialize delay target to match initial delay
-    delayTarget = static_cast<float>(delaySamples);
-#endif // PICO2SEQ_ENABLE_DELAY_EFFECT
+    //  Old Delay Removed
 }
 
 void AudioEngine::begin()
@@ -198,6 +127,10 @@ void AudioEngine::begin()
     // for audio during setup. A watchdog recovery boot leaves this flag low,
     // so Core 1 cannot restart a failing hardware path behind the console.
     while (!voicesReady.load(std::memory_order_acquire))
+
+
+        // Wait until Core 0 has published the voice collection. Yield rather
+        // than busy-spinning so initialization and other system work can run.
         delay(1);
 
     // Configure audio format (48kHz, 16-bit stereo)

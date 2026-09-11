@@ -6,7 +6,6 @@
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 #include "../utils/DspMapping.h" // dspmap::fmap for filter Hz display
 #include "../ui/UIState.h"
-#include "../FeatureConfig.h"
 
 // Forward declarations
 struct VoiceState;
@@ -93,12 +92,6 @@ void updateEncoderStepParameterValues(UIState& uiState);
  * @note Out-of-range voice ids receive no mapping
  */
 void applyEncoderBaseValues(VoiceState *voiceState, uint8_t voiceId);
-
-// Delay-effect controls: only exist when the delay feature is compiled in
-// (src/FeatureConfig.h); these drive globals owned by Pico2Seq.ino.
-#if PICO2SEQ_ENABLE_DELAY_EFFECT
-void applyEncoderDelayValues();
-#endif
 
 /**
  * @brief Apply encoder slide time values to active voice
@@ -221,15 +214,5 @@ void initEncoderBaseValues();
 // Defined in EncoderManager.cpp; the main sketch accesses it through this
 // extern.
 extern MagEncoder magEncoder;
-
-
-
-#if PICO2SEQ_ENABLE_DELAY_EFFECT
-extern float delayTarget;
-extern float feedbackAmmount;
-
-extern const size_t MAX_DELAY_SAMPLES;
-#endif
-
 
 #endif // ENCODER_MANAGER_H

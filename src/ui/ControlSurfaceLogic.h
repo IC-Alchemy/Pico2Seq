@@ -273,8 +273,8 @@ enum class FaderTarget : uint8_t
   StepParam,   // records a ParamId into steps (param mode)
   Tempo,       // uClock BPM (utility mode)
   SwingAmount, // continuous shuffle depth (utility mode)
-  DelayMix,    // delay feedback amount (utility mode)
   GateLength,  // gate length across the selected voice's steps (utility mode)
+  None,        // unassigned (utility fader 2; was DelayMix before the delay effect was removed)
 };
 
 struct FaderAssignment

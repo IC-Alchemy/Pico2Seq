@@ -85,7 +85,6 @@ void initButtonManager(UIState &uiState)
   }
 
   // Initialize UI mode states
-  uiState.delayOn = true;
   uiState.modGateParamSeqLengthsMode = false;
   uiState.slideMode = false;
   uiState.isVoice2Mode = false;

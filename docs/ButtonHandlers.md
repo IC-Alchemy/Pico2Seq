@@ -88,7 +88,7 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, effects, and sys
 | Bit / Button | Function | Behavior |
 |---|---|---|
 | **0** | `Play / Stop` | Starts/stops sequencer clock (stopping automatically opens Settings mode) |
-| **1** | `Delay Toggle` | Toggles global delay effect ON/OFF; sets encoder target to DelayTime. *Inert while the effect is compiled out (`PICO2SEQ_ENABLE_DELAY_EFFECT = 0` in `src/FeatureConfig.h`).* |
+| **1** | *(unassigned)* | Was `Delay Toggle`; removed with the delay effect (2026-09-11) |
 | **2** | `Scale Cycle` | Cycles forward through the 13 musical scales |
 | **3** | `Swing Pattern` | Cycles through the 16 groove/shuffle templates in `ShuffleTemplates.h` |
 | **4** | `Theme Cycle` | Cycles visual LED color themes across `LEDTheme` presets |
@@ -99,7 +99,7 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, effects, and sys
 **Fader Channels in Utility Mode:**
 - **Fader 0**: Master Tempo (uClock BPM: 45–200 BPM).
 - **Fader 1**: Swing Amount (continuous shuffle template depth).
-- **Fader 2**: Delay Feedback Mix (`feedbackAmmount`: 0.0 to 0.91).
+- **Fader 2**: *(unassigned — was Delay Feedback Mix; removed with the delay effect)*.
 - **Fader 3**: Gate Length (applies gate length across active steps on the selected voice).
 
 ---
@@ -117,7 +117,7 @@ The 4 buttons on the SliderModule tile act as direct Voice 1–4 selectors in bo
   - `Shift + Voice 1`: Play / Stop toggle
   - `Shift + Voice 2`: Randomize selected voice (short-press randomize only — the poll-driven long-press reset never triggers from a chord)
   - `Shift + Voice 3`: Cycle musical scale
-  - `Shift + Voice 4`: Toggle delay effect ON / OFF
+  - `Shift + Voice 4`: *(no action — was delay toggle; removed with the delay effect)*
 
 ---
 
@@ -230,7 +230,6 @@ Dispatches system-wide control actions based on button ID defined in `UIConstant
 | `BUTTON_CHANGE_SCALE` | Cycles through 13 musical scale tables (`currentScale = (currentScale + 1) % 13`) |
 | `BUTTON_CHANGE_THEME` | Cycles LED matrix visual feedback themes |
 | `BUTTON_CHANGE_SWING_PATTERN` | Cycles through 16 shuffle/swing groove templates |
-| `BUTTON_TOGGLE_DELAY` | Toggles delay effect and sets encoder parameter to `DelayTime` |
 
 ---
 
@@ -273,7 +272,6 @@ struct UIState {
     bool parameterButtonHeld[PARAM_ID_COUNT] = {false};
 
     // Mode & Transport States
-    bool delayOn = true;
     bool slideMode = false;
     uint8_t selectedVoiceIndex = 0; // 0..3
     int selectedStepForEdit = -1;
@@ -298,8 +296,8 @@ struct UIState {
     int8_t latchedParameter = -1;
     volatile unsigned long alchemyModeBannerUntil = 0;
 
-    // Transient OLED notice (delay toggle / randomize confirmations)
-    enum class OledNoticeKind : uint8_t { None = 0, DelayOn, DelayOff, Randomized };
+    // Transient OLED notice (randomize confirmations)
+    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1 };
     volatile unsigned long oledNoticeUntil = 0;
     volatile OledNoticeKind oledNoticeKind = OledNoticeKind::None;
     volatile uint8_t oledNoticeVoice = 0;

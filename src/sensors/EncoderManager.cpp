@@ -37,14 +37,8 @@ MagEncoder magEncoder(makeMagEncoderConfig());
 // Definitions for encoder base value globals (previously declared as extern).
 // Centralize the definitions here so other translation units can reference them
 // via extern declarations if necessary (but header externs have been removed).
-// Per-voice encoder base values, indexed by voice 0..MAX_VOICES-1. The
-// delayTime/delayFeedback members are unused per voice; the global delay
-// effect reads from encoderDelayValues below.
+// Per-voice encoder base values, indexed by voice 0..MAX_VOICES-1.
 EncoderBaseValues encoderBaseValues[VoiceSystem::MAX_VOICES];
-
-// Global delay effect parameters (delay is engine-wide, not per voice).
-// Formerly parked in the voice-1 base value struct.
-EncoderBaseValues encoderDelayValues;
 
 namespace
 {
@@ -104,12 +98,6 @@ float getParameterMinValue(EncoderParameterMode param)
   case EncoderParameterMode::Octave:
     return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE;
 
-  case EncoderParameterMode::DelayTime:
-    return SensorConstants::MagneticEncoder::DELAY_TIME_MIN_SAMPLES; // 2.5ms minimum delay at 48kHz
-
-  case EncoderParameterMode::DelayFeedback:
-    return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE;
-
   case EncoderParameterMode::SlideTime:
     return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE; // Minimum slide time (instant)
 
@@ -131,17 +119,6 @@ float getParameterMaxValue(EncoderParameterMode param)
   case EncoderParameterMode::Octave:
     return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
 
-  case EncoderParameterMode::DelayTime:
-#if PICO2SEQ_ENABLE_DELAY_EFFECT
-    return MAX_DELAY_SAMPLES * 0.85f; // 85% of the 1.8s delay line (~1.53s at 48kHz)
-#endif
-    // Delay feature compiled out (src/FeatureConfig.h): this mode is
-    // unreachable, fall back to the generic maximum.
-    return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
-
-  case EncoderParameterMode::DelayFeedback:
-    return SensorConstants::MagneticEncoder::DELAY_FEEDBACK_MAX; // Maximum 91% feedback to prevent excessive feedback
-
   case EncoderParameterMode::SlideTime:
     return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE; // Maximum slide time
 
@@ -155,11 +132,11 @@ float getEncoderBaseValueRange(EncoderParameterMode param)
   // Calculate the full parameter range
   float fullParameterRange = getParameterMaxValue(param) - getParameterMinValue(param);
 
-  // Voice bases are normalized bipolar offsets. Delay and slide time retain
-  // direct, unipolar controls over their physical ranges.
+  // Voice bases are normalized bipolar offsets. Slide time retains a
+  // direct, unipolar control over its physical range.
   if (!isBipolarVoiceBaseParameter(param))
   {
-    return fullParameterRange; // Full range for delay parameters
+    return fullParameterRange; // Full range for unipolar parameters
   }
 
   // Voice parameters use reduced range to leave room for sequencer values
@@ -186,13 +163,7 @@ void updateEncoderBaseValues(UIState &uiState)
     return;
   }
 
-  // Delay parameters are global; everything else edits the selected voice's
-  // base values
-  EncoderBaseValues *activeVoiceBaseValues =
-      (uiState.currentEncoderParameter == EncoderParameterMode::DelayTime ||
-       uiState.currentEncoderParameter == EncoderParameterMode::DelayFeedback)
-          ? &encoderDelayValues
-          : &baseValuesForVoice(uiState.selectedVoiceIndex);
+  EncoderBaseValues *activeVoiceBaseValues = &baseValuesForVoice(uiState.selectedVoiceIndex);
 
   // Calculate bidirectional velocity-sensitive parameter increment.
   // takeParameterIncrement drains the pending-tick accumulator filled once per
@@ -306,12 +277,6 @@ void applyIncrementToParameter(EncoderBaseValues *baseValues, EncoderParameterMo
   case EncoderParameterMode::Octave:
     targetParameterValue = &baseValues->octave;
     break;
-  case EncoderParameterMode::DelayTime:
-    targetParameterValue = &baseValues->delayTime;
-    break;
-  case EncoderParameterMode::DelayFeedback:
-    targetParameterValue = &baseValues->delayFeedback;
-    break;
   case EncoderParameterMode::SlideTime:
     targetParameterValue = &baseValues->slideTime;
     break;
@@ -336,26 +301,11 @@ void applyIncrementToParameter(EncoderBaseValues *baseValues, EncoderParameterMo
   }
   else
   {
-    // Unidirectional parameters (delay and slide time) use min/max bounds
+    // Unidirectional parameters (slide time) use min/max bounds
     float parameterMinValue = getParameterMinValue(param);
     float parameterMaxValue = getParameterMaxValue(param);
     *targetParameterValue = std::max(parameterMinValue, std::min(newParameterValue, parameterMaxValue));
   }
-
-  // Debug output for delay parameter changes (uncomment for debugging)
-  /*
-  if (param == EncoderParameterMode::DelayTime || param == EncoderParameterMode::DelayFeedback) {
-    Serial.print("Encoder ");
-    Serial.print(param == EncoderParameterMode::DelayTime ? "DelayTime" : "DelayFeedback");
-    Serial.print(" changed from ");
-    Serial.print(previousValue, 3);
-    Serial.print(" to ");
-    Serial.print(*targetParameterValue, 3);
-    Serial.print(" (increment: ");
-    Serial.print(increment, 3);
-    Serial.println(")");
-  }
-  */
 }
 
 // --- Helper Functions for Step Parameter Editing ---
@@ -504,30 +454,6 @@ void applyEncoderBaseValues(VoiceState *voiceState, uint8_t voiceId)
       ControlSurface::combineOctaveOffsets(voiceState->octaveOffset, baseValues->octave);
 }
 
-#if PICO2SEQ_ENABLE_DELAY_EFFECT
-/**
- * Apply magnetic encoder values to global delay effect parameters.
- * Direct parameter control: delay parameters use full range without restrictions.
- * Thread-safe communication for Core0 audio processing.
- */
-void applyEncoderDelayValues()
-{
-  if (!magEncoder.isConnected())
-  {
-    return;
-  }
-
-  // Global delay parameters live in their own store (delay is not per-voice)
-  const EncoderBaseValues *baseValues = &encoderDelayValues;
-
-  // Apply delay time directly (already clamped to 85% of MAX_DELAY_SAMPLES in updateEncoderBaseValues)
-  delayTarget = baseValues->delayTime;
-
-  // Apply delay feedback directly (already clamped to 0.0-0.91 range in updateEncoderBaseValues)
-  feedbackAmmount = baseValues->delayFeedback;
-}
-#endif // PICO2SEQ_ENABLE_DELAY_EFFECT
-
 // ----------------------
 // Apply slide time values from the magnetic encoder to the active voice
 // ----------------------
@@ -600,12 +526,6 @@ float getEncoderParameterValue()
   case EncoderParameterMode::Octave:
     value = activeBaseValues->octave;
     break;
-  case EncoderParameterMode::DelayTime:
-    value = encoderDelayValues.delayTime;
-    break;
-  case EncoderParameterMode::DelayFeedback:
-    value = encoderDelayValues.delayFeedback;
-    break;
   case EncoderParameterMode::SlideTime:
     value = activeBaseValues->slideTime;
     break;
@@ -639,10 +559,6 @@ void initEncoderBaseValues()
     encoderBaseValues[voiceIndex].decay = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
     encoderBaseValues[voiceIndex].octave = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
   }
-
-  // Initialize global delay parameters with reasonable defaults
-  encoderDelayValues.delayTime = SensorConstants::MagneticEncoder::DEFAULT_DELAY_TIME_SAMPLES;
-  encoderDelayValues.delayFeedback = SensorConstants::MagneticEncoder::DEFAULT_DELAY_FEEDBACK;
 }
 
 void resetEncoderBaseValues(UIState &uiState, bool currentVoiceOnly)
@@ -659,8 +575,6 @@ void resetEncoderBaseValues(UIState &uiState, bool currentVoiceOnly)
     activeVoiceBaseValues->attack = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
     activeVoiceBaseValues->decay = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
     activeVoiceBaseValues->octave = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-
-    // Note: Delay parameters are global and not reset with this function
   }
   else
   {

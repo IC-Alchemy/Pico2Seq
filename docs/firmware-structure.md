@@ -96,12 +96,9 @@ explicitly `volatile` for ISR visibility, but its **existing read/modify/write
 race remains**: an interrupt between a decrement's load and store can lose a
 tick. A separate counter-policy fix needs timing regression and bench tests.
 
-The global delay remains disabled by `src/FeatureConfig.h`. Its optional DSP,
-defaults and control globals retain their original behavior. When enabled,
-its live delay/on/feedback controls still need a proper cross-core handoff;
-they are not protected by voice queues. Its ~338 KiB delay line also needs a
-complete runtime RAM budget before enabling it on hardware. This refactor
-does not claim the optional path is race-free.
+The global delay effect was removed entirely (2026-09-11) — its DSP, defaults,
+control globals, and the `src/FeatureConfig.h` switch are gone from the tree,
+reclaiming the ~338 KiB the delay line would have reserved.
 
 ## Building and checking changes
 

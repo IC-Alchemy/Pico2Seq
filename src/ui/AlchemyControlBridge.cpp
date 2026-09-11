@@ -10,15 +10,10 @@
 #include "UIEventHandler.h"
 #include "../AlchemyUI/src/ButtonMap.h"
 #include "../midi/MidiManager.h"
-#include "../FeatureConfig.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../pico2seq-core/sequencer/ShuffleTemplates.h"
 
 #include <uClock.h>
-
-#if PICO2SEQ_ENABLE_DELAY_EFFECT
-extern float feedbackAmmount;
-#endif
 
 namespace
 {
@@ -29,7 +24,6 @@ constexpr unsigned long kModeBannerDurationMs = 800;
 constexpr float kTempoMinBpm = 45.0f;
 constexpr float kTempoMaxBpm = 200.0f;
 constexpr int8_t kSwingMaxTicks = 60; // half of a 120-tick 16th at PPQN 480
-constexpr float kDelayFeedbackMax = 0.91f;
 
 ControlSurface::Mode bridgeMode(UIState::AlchemyMode mode)
 {
@@ -188,9 +182,7 @@ void AlchemyControlBridge::handleVoiceButtons(UIState &uiState,
     case 2:
       handleControlButton(BUTTON_CHANGE_SCALE, uiState);
       break;
-    case 3:
-      handleControlButton(BUTTON_TOGGLE_DELAY, uiState);
-      break;
+    // case 3 (delay toggle) removed with the delay effect
     default:
       break;
     }
@@ -300,11 +292,6 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
       }
       break;
 
-    case 1: // Delay on/off toggle
-      if (edges.pressEdge)
-        handleControlButton(BUTTON_TOGGLE_DELAY, uiState);
-      break;
-
     case 2: // Scale cycle
       if (edges.pressEdge)
         handleControlButton(BUTTON_CHANGE_SCALE, uiState);
@@ -378,6 +365,10 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
       }
       break;
 
+    case ControlSurface::FaderTarget::None:
+      // Unassigned channel (delay fader removed with the effect).
+      break;
+
     case ControlSurface::FaderTarget::Tempo:
       uClock.setTempo(kTempoMinBpm +
                       normalized * (kTempoMaxBpm - kTempoMinBpm));
@@ -396,12 +387,6 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
       uClock.setShuffle(offset > 0);
       break;
     }
-
-    case ControlSurface::FaderTarget::DelayMix:
-#if PICO2SEQ_ENABLE_DELAY_EFFECT
-      feedbackAmmount = normalized * kDelayFeedbackMax;
-#endif
-      break;
 
     case ControlSurface::FaderTarget::GateLength:
     {

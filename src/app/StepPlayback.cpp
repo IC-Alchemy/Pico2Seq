@@ -58,14 +58,12 @@ void updateParametersForStepNormalized(uint8_t stepToUpdate, float normalizedVal
         activeSeq.setStepParameterValue(heldParamId, stepToUpdate, valueToSet);
         parametersWereUpdated = true;
 
-        // Keep the two-voice compatibility path; USB MIDI itself is disabled.
-        uint8_t midiVoiceId = (uiState.selectedVoiceIndex == 0) ? 0 : (uiState.selectedVoiceIndex == 1) ? 1
-                                                                                                        : kNoMidiVoice;
-        if (midiVoiceId != kNoMidiVoice)
-        {
-            midiNoteManager.updateParameterCC(midiVoiceId, heldParamId, valueToSet);
-        }
-
+//                  Keep the two-voice compatibility path; USB MIDI itself is disabled.
+//    uint8_t midiVoiceId = (uiState.selectedVoiceIndex == 0) ? 0 : (uiState.selectedVoiceIndex == 1) ? 1 : kNoMidiVoice;
+//          if (midiVoiceId != kNoMidiVoice)
+//      {
+//          midiNoteManager.updateParameterCC(midiVoiceId, heldParamId, valueToSet);
+//
     }
 
     // Provide immediate audio feedback when recording parameters to current step
@@ -231,11 +229,6 @@ void processSequencerStep(uint32_t uClockCurrentStep)
     {
         applyEncoderBaseValues(&tempStates[voiceIndex], voiceIndex);
     }
-
-    // Apply encoder base values to global delay effect parameters
-#if PICO2SEQ_ENABLE_DELAY_EFFECT
-    applyEncoderDelayValues();
-#endif
 
     // Voices 1/2 keep their software gate lifecycle; voices 3/4 use audio only.
 

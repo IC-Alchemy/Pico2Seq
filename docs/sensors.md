@@ -222,8 +222,8 @@ static constexpr uint8_t I2C_STABILIZATION_DELAY_MS = 50;
 static constexpr unsigned long READ_INTERVAL_MS = 20;
 static constexpr unsigned long TIMING_BUDGET_MICROSECONDS = 20000;
 static constexpr unsigned long INTER_MEASUREMENT_PERIOD_MS = 24;
-static constexpr int MAX_DISTANCE_HEIGHT_MM = 1400;
-static constexpr int MIN_DISTANCE_HEIGHT_MM = 74;
+static constexpr int MAX_DISTANCE_HEIGHT_MM = 1200;
+static constexpr int MIN_DISTANCE_HEIGHT_MM = 55;
 static constexpr int INVALID_DISTANCE_MM = -1;
 ```
 
@@ -236,19 +236,6 @@ static constexpr float DELAY_TIME_MIN_SAMPLES = 120.0f;
 static constexpr float DELAY_FEEDBACK_MAX = 0.91f;
 static constexpr float MINIMUM_INCREMENT_THRESHOLD = 0.0005f;
 static constexpr float PARAMETER_RANGE_SCALE_FACTOR = 0.75f;
-
-// Flash speed zone thresholds
-static constexpr float NORMAL_ZONE_START = 0.0f;
-static constexpr float NORMAL_ZONE_END = 0.65f;
-static constexpr float WARNING_ZONE_START = 0.65f;
-static constexpr float WARNING_ZONE_END = 0.8375f;
-static constexpr float CRITICAL_ZONE_START = 0.8375f;
-static constexpr float CRITICAL_ZONE_END = 1.0f;
-
-// Flash speed multipliers
-static constexpr float NORMAL_FLASH_SPEED = 1.0f;
-static constexpr float WARNING_FLASH_SPEED = 2.0f;
-static constexpr float CRITICAL_FLASH_SPEED = 3.0f;
 
 // Defaults
 static constexpr float DEFAULT_DELAY_TIME_SAMPLES = 48000.0f * 0.2f; // 200ms

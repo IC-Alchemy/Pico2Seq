@@ -7,10 +7,10 @@
 namespace
 {
 constexpr uint32_t kControlIntervalMs = 1;
-constexpr uint32_t kDisplayIntervalMs = 20; // 50 frames/s for OLED and LEDs
-constexpr uint32_t kTileBusFrequencyHz = 100000; // This panel stalls at 400 kHz.
+constexpr uint32_t kDisplayIntervalMs = 50; // 50 frames/s for OLED and LEDs
+constexpr uint32_t kTileBusFrequencyHz = 400000; // This panel stalls at 400 kHz.
 constexpr uint32_t kMainBusFrequencyHz = 400000;
-constexpr uint8_t kStartupLedBrightness = 100;
+constexpr uint8_t kStartupLedBrightness = 150;
 constexpr uint8_t kTouchSensorAddress = 0x5A;
 constexpr uint8_t kTouchThreshold = 55;
 constexpr uint8_t kReleaseThreshold = 22;

@@ -122,7 +122,7 @@ record into the armed step while a step is in Step Edit:
 |---|---|
 | 1 | Master tempo (uClock BPM, 45–200) |
 | 2 | Swing amount (continuous shuffle depth) |
-| 3 | Delay feedback mix (0 – 0.91; inert while the delay effect is compiled out — see §4.1) |
+| 3 | *(unassigned — was delay feedback mix; the delay effect was removed in 2026-09)* |
 | 4 | Gate length across the selected voice's active steps |
 
 ### 1.4 Voice buttons (V1–V4)
@@ -135,7 +135,7 @@ Next to the faders: four buttons for **direct voice selection** in both modes.
   - **Shift + V1** — Play / Stop transport
   - **Shift + V2** — Randomize the selected voice
   - **Shift + V3** — Cycle musical scale
-  - **Shift + V4** — Toggle the delay effect on/off (no-op while the delay is compiled out — see §4.1)
+  - **Shift + V4** — *(no action — was delay toggle; the delay effect was removed in 2026-09)*
 
 ### 1.5 The 8-button function set & the mode switch
 
@@ -145,7 +145,7 @@ Eight buttons (ButtonModule8) change meaning with the **mode switch** on GPIO 7:
 | # | Param mode | Utility mode |
 |---|---|---|
 | 1 | Note | Play / Stop |
-| 2 | Velocity | Delay on/off (no-op while the delay is compiled out) |
+| 2 | Velocity | *(unassigned — was delay on/off)* |
 | 3 | Filter | Scale cycle |
 | 4 | Attack | Swing pattern cycle |
 | 5 | Decay | LED theme cycle |
@@ -163,13 +163,11 @@ turn it slowly for ultra-fine single-step adjustments, quickly to sweep a whole 
 range. It edits whatever the **encoder target** is — cycle targets with the Utility-mode
 "Encoder target" button. The target order is:
 
-**Velocity → Filter → Attack → Decay → Note → Octave → Delay Time → Delay Feedback →
-Slide Time → (back to Velocity)**
+**Velocity → Filter → Attack → Decay → Note → Octave → Slide Time → (back to Velocity)**
 
 - Voice targets (Velocity/Filter/Attack/Decay/Note) act as offsets on the selected voice.
   Note: at step time these base offsets are applied to **all four voices** (per-voice
   `encoderBaseValues` in `EncoderManager`) — see §9.
-- Delay Time / Delay Feedback edit the global master delay.
 - Slide Time sets the portamento glide time.
 - While the encoder is controlling a parameter, the OLED status screen shows
   `ENC: <parameter> <value>`.
@@ -208,8 +206,7 @@ five-tier hierarchy:
 5. **Status screen** (default) — scale name, shuffle template name, selected voice (shown
    0-based as `Voice: 0`–`Voice: 3`), and a beat-synchronized playhead dot row.
 
-Transient confirmations (`RANDOMIZED` + voice — and `DELAY ON/OFF` only when the delay
-effect is compiled in, see §4.1) also appear here,
+Transient confirmations (`RANDOMIZED` + voice) also appear here,
 as does the `ENC: <param> <value>` line while the encoder is active.
 
 ### 1.9 LED matrix (pad mirror)
@@ -415,11 +412,10 @@ Each voice runs a full synthesis chain at 48 kHz on the audio core:
  voice output level -> summed with the other 3 voices -> Stereo Out
 ```
 
-**No delay effect is compiled in** by default: `PICO2SEQ_ENABLE_DELAY_EFFECT = 0` in
-`src/FeatureConfig.h` removes the effect (a global delay line, boot parameters 667 ms /
-feedback 0.45) together with every control that drives it — Utility button 2, Shift + V4,
-Utility fader 3, and the encoder's Delay Time / Delay Feedback targets — reclaiming
-~338 KiB of RAM. Set the switch to 1 and rebuild to bring the whole feature back.
+**The delay effect was removed** (2026-09-11): the global delay line, its boot
+parameters, and every control that drove it (Utility button 2, Shift + V4,
+Utility fader 3, and the encoder's Delay Time / Delay Feedback targets) are
+gone from the codebase, reclaiming ~338 KiB of RAM.
 
 Filter **mode** (LP24 … HP12) and **resonance** are cycled/set from the OLED Settings
 screen's voice-parameter page; envelope and overdrive can be switched off per voice there
@@ -477,7 +473,7 @@ between the preset browser and the voice-parameter toggles.
 |---|---|---|
 | 1 | Filter cutoff (selected voice) | Tempo (45–200 BPM) |
 | 2 | Attack time | Swing amount |
-| 3 | Decay time | Delay feedback (0–0.91; inert while the delay is compiled out) |
+| 3 | Decay time | *(unassigned — was delay feedback)* |
 | 4 | Velocity | Gate length across active steps |
 
 With a step in Step Edit and the matching parameter button armed, moving a fader writes
@@ -497,7 +493,7 @@ the value into that step.
 | Button | Action |
 |---|---|
 | 1 Play / Stop | Start/stop the transport (and all 4 sequencers). Stopping opens the OLED Settings/preset browser; starting closes it. Long-press toggles Settings without stopping |
-| 2 Delay | Toggle the master delay (no-op while the delay is compiled out — see §4.1) |
+| 2 | *(unassigned — was delay toggle)* |
 | 3 Scale | Cycle forward through the 13 scales |
 | 4 Swing | Cycle through the 16 shuffle templates |
 | 5 Theme | Cycle the 10 LED matrix color themes |
@@ -513,14 +509,14 @@ the value into that step.
 | Shift + V1 | Play / Stop |
 | Shift + V2 | Randomize selected voice (short-press behavior) |
 | Shift + V3 | Cycle scale |
-| Shift + V4 | Toggle delay (no-op while the delay is compiled out) |
+| Shift + V4 | *(no action — was delay toggle)* |
 
 ### Sensors & encoder
 
 | Gesture | Result |
 |---|---|
 | Turn magnetic encoder | Adjust the active encoder target; slow = fine, fast = coarse (velocity-sensitive) |
-| Utility button 6 | Change encoder target (Velocity → Filter → Attack → Decay → Note → Octave → Delay Time → Delay Feedback → Slide Time; the delay targets are inert while the delay is compiled out) |
+| Utility button 6 | Change encoder target (Velocity → Filter → Attack → Decay → Note → Octave → Slide Time) |
 | Hold Utility button 6 | Gate Sequence Length mode |
 | Move hand over VL53L1X while a parameter is armed | Hands-free live recording of that parameter into the current step of the selected voice |
 | Mode switch (GPIO 7) | Select Param (LOW) or Utility (HIGH) button set; shows a banner on flip |

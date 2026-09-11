@@ -76,10 +76,8 @@ enum class EncoderParameterMode : uint8_t
   Decay = 3,         // Envelope decay time control
   Note = 4,          // Note/pitch control
   Octave = 5,        // Octave offset control
-  DelayTime = 6,     // Global delay time control
-  DelayFeedback = 7, // Global delay feedback control
-  SlideTime = 8,     // Portamento/slide time control
-  COUNT = 9          // Total mode count
+  SlideTime = 6,     // Portamento/slide time control
+  COUNT = 7          // Total mode count
 };
 
 /**
@@ -98,8 +96,6 @@ struct EncoderBaseValues
   float attack = 0.0f;        // Base attack time (0.0-1.0 seconds)
   float decay = 0.0f;         // Base decay time (0.0-1.0 seconds)
   float octave = 0.0f;        // Base octave offset (normalized 0.0-1.0 domain)
-  float delayTime = 0.0f;     // Delay time offset for global delay
-  float delayFeedback = 0.0f; // Delay feedback offset for global delay
   float slideTime = 0.0f;     // Slide time in seconds for voice glide
 };
 
@@ -107,11 +103,10 @@ struct EncoderBaseValues
  * @brief Voice-specific encoder base values
  *
  * Inherits from EncoderBaseValues with no additional members.
- * Delay parameters are inherited from base class.
  */
 struct EncoderBaseValuesVoice1 : public EncoderBaseValues
 {
-  // No additional members - delay parameters are inherited from base class
+  // No additional members
 };
 /**
  * @brief Step parameter edit button state tracking

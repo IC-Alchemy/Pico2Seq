@@ -15,7 +15,6 @@
 #include "ButtonHandlers.h"
 #include "ControlSurfaceLogic.h"
 #include "UIConstants.h"
-#include "../FeatureConfig.h"
 #include <uClock.h>
 
 // =======================
@@ -62,10 +61,6 @@ extern void setLEDTheme(LEDTheme theme);
 
 // External variables that are still needed from the main file
 extern const ParameterDefinition CORE_PARAMETERS[];
-
-#if PICO2SEQ_ENABLE_DELAY_EFFECT
-extern float delayTarget;
-#endif
 
 // Helper function declarations (static to this file)
 static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
@@ -592,18 +587,7 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
   }
   break;
 
-  case 13: // Set delay time to dotted quarter
-  {
-#if PICO2SEQ_ENABLE_DELAY_EFFECT
-    float currentTempo = uClock.getTempo();
-    if (currentTempo < 1.0f)
-      currentTempo = 1.0f;
-    const float dottedQuarterMs = 90000.0f / currentTempo; // 1.5 * (60000/BPM)
-    delayTarget = dottedQuarterMs * 48.0f;                 // 48kHz -> 48 samples/ms
-    // Serial.print("Delay time set to dotted quarter: "); Serial.println(dottedQuarterMs, 2);
-#endif
-  }
-  break;
+  // case 13 (delay time to dotted quarter) removed with the delay effect
 
   case 14: // Tempo -5, floored at 45
   {
