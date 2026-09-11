@@ -8,7 +8,7 @@
 extern bool slideMode;
 // --- Constants for real-time parameter editing ---
 constexpr float MAX_SENSOR_DISTANCE_MM = 1400.0f;
-constexpr float MAX_NOTE_PARAM_RANGE = 24.0f; // e.g., for mapping sensor to a 2-octave range for note param
+
 constexpr float OCTAVE_LOW_THRESHOLD = .15f;  // Threshold for mapping float to -1 octave
 constexpr float OCTAVE_HIGH_THRESHOLD = .4f;  // Threshold for mapping float to +1 octave
 int8_t mapFloatToOctaveOffset(float octaveValue)
@@ -335,7 +335,7 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
     if (gateOn)
     {
         // Calculate the final note value
-        int finalNote = noteVal + octaveOffset;
+        int finalNote = static_cast<int>(noteVal) + octaveOffset;
 
         // If the step's gate is on, decide whether to start a new note or slide to it.
         if (!slideVal)

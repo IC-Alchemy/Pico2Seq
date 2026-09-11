@@ -43,6 +43,18 @@ TEST_CASE("Parameter record buttons select their matching encoder base", "[contr
     }
 }
 
+TEST_CASE("Octave base offsets preserve and add to sequencer octaves", "[control_surface]")
+{
+    CHECK(combineOctaveOffsets(-12, 0.0f) == -12);
+    CHECK(combineOctaveOffsets(0, 0.0f) == 0);
+    CHECK(combineOctaveOffsets(12, 0.0f) == 12);
+
+    CHECK(combineOctaveOffsets(12, 0.75f) == 21);
+    CHECK(combineOctaveOffsets(12, 1.0f) == 24);
+    CHECK(combineOctaveOffsets(-12, -1.0f) == -24);
+    CHECK(combineOctaveOffsets(12, 2.0f) == 24);
+}
+
 // ---------------------------------------------------------------------------
 // ModeStabilizer
 // ---------------------------------------------------------------------------

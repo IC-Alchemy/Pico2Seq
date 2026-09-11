@@ -21,6 +21,10 @@ namespace SequencerConstants
   static constexpr uint8_t MIN_STEPS_COUNT = 2;
   static constexpr uint8_t DEFAULT_STEPS_COUNT = 16;
 
+  // Three-octave chromatic C-to-C span for the Note parameter track.
+  static constexpr int NOTE_PARAMETER_MIN = 0;
+  static constexpr int NOTE_PARAMETER_MAX = 36;
+
   // Gate timing constants
   static constexpr uint16_t DEFAULT_GATE_LENGTH_TICKS = PULSES_PER_SEQUENCER_STEP_TICKS / 2;
   static constexpr uint16_t MIN_GATE_LENGTH_TICKS = 1;
@@ -43,12 +47,12 @@ constexpr uint8_t DEFAULT_STEPS = SequencerConstants::DEFAULT_STEPS_COUNT;
  */
 enum class ParamId : uint8_t
 {
-  Note,       // 0 - Scale step index (0-21, maps to SCALE_STEPS array)
+  Note,       // 0 - Scale step index (0-36, maps to SCALE_STEPS array)
   Velocity,   // 1 - Voice amplitude (0.0-1.0)
   Filter,     // 2 - Filter cutoff frequency (0.0-1.0)
   Attack,     // 3 - Envelope attack time (0.0-1.0 seconds)
   Decay,      // 4 - Envelope decay time (0.0-1.0 seconds)
-  Octave,     // 5 - Octave offset (0.0=C2, 0.5=C3, 1.0=C4)
+  Octave,     // 5 - Normalized octave control, mapped to -12/0/+12 semitones
   GateLength, // 6 - Gate duration (0.001-1.0 as fraction of step)
   Gate,       // 7 - Gate on/off state (boolean)
   Slide,      // 8 - Portamento enable (boolean)
@@ -180,7 +184,8 @@ struct ParameterDefinition
  */
 constexpr ParameterDefinition CORE_PARAMETERS[] = {
     // Parameter Name    Default    Min       Max       Binary  Steps
-    {"Note", 0.0f, 0.0f, 21.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},        // Scale step index (0-21)
+    {"Note", 0, SequencerConstants::NOTE_PARAMETER_MIN, SequencerConstants::NOTE_PARAMETER_MAX,
+     false, SequencerConstants::DEFAULT_STEPS_COUNT}, // Integral scale step index (0-36)
     {"Velocity", 0.5f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},     // Voice amplitude (0.0-1.0)
     {"Filter", 0.5f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},       // Filter cutoff (0.0-1.0)
     {"Attack", 0.01f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},      // Attack time (0.0-1.0 seconds)
@@ -199,12 +204,12 @@ constexpr ParameterDefinition CORE_PARAMETERS[] = {
  * Variable names include unit indicators and clear purpose descriptions.
  *
  * Member Ranges:
- * - noteIndex: 0.0-21.0 (scale step index for SCALE_STEPS array lookup)
+ * - noteIndex: 0-36 (integral scale step index for SCALE_STEPS array lookup)
  * - velocityLevel: 0.0-1.0 (voice amplitude multiplier)
  * - filterCutoff: 0.0-1.0 (filter cutoff frequency, 0=low, 1=high)
  * - attackTimeSeconds: 0.0-1.0 (envelope attack time in seconds)
  * - decayTimeSeconds: 0.0-1.0 (envelope decay time in seconds)
- * - octaveOffset: 0.0-1.0 (octave offset: 0.0=C2, 0.5=C3, 1.0=C4)
+ * - octaveOffset: -12, 0, or +12 semitones from the octave parameter track
  * - gateLengthTicks: 1-PULSES_PER_SEQUENCER_STEP (gate duration in clock ticks)
  * - isGateHigh: boolean (voice on/off state)
  * - hasSlide: boolean (portamento enable flag)
@@ -212,7 +217,7 @@ constexpr ParameterDefinition CORE_PARAMETERS[] = {
  */
 struct VoiceState
 {
-  float noteIndex = 0.0f;                                                   // Scale step index (0-21) for scale array lookup
+  float noteIndex = 0.0f;                                                   // Integral scale step index (0-36) for scale array lookup
   // Matches CORE_PARAMETERS' neutral Velocity default. Hard-sync presets use
   // this centered value as zero slave-frequency offset, so their slave follows
   // the master until a Slave value is recorded.
@@ -220,7 +225,7 @@ struct VoiceState
   float filterCutoff = 0.37f;                                               // Filter cutoff frequency (0.0-1.0)
   float attackTimeSeconds = 0.01f;                                          // Envelope attack time (0.0-1.0 seconds)
   float decayTimeSeconds = 0.01f;                                           // Envelope decay time (0.0-1.0 seconds)
-  float octaveOffset = 0.0f;                                                // Octave offset (0.0=C2, 0.5=C3, 1.0=C4)
+  int8_t octaveOffset = 0;                                                  // Signed semitone transpose from the octave track
   uint16_t gateLengthTicks = SequencerConstants::DEFAULT_GATE_LENGTH_TICKS; // Gate duration in clock ticks
 
   // Default gate to LOW to ensure silence until sequencer explicitly gates HIGH
@@ -237,24 +242,24 @@ struct VoiceState
  * Variable names include unit indicators and clear purpose descriptions.
  *
  * Member Ranges:
- * - noteIndex: 0.0-21.0 (scale step index)
+ * - noteIndex: 0-36 (integral scale step index)
  * - velocityLevel: 0.0-1.0 (voice amplitude)
  * - filterCutoff: 0.0-1.0 (filter cutoff frequency)
  * - attackTimeSeconds: 0.0-1.0 (envelope attack time in seconds)
  * - decayTimeSeconds: 0.0-1.0 (envelope decay time in seconds)
- * - octaveOffset: 0.0-1.0 (octave offset: 0.0=C2, 0.5=C3, 1.0=C4)
+ * - octaveOffset: -12, 0, or +12 semitones from the octave parameter track
  * - gateLengthTicks: 1-PULSES_PER_SEQUENCER_STEP (gate duration in clock ticks)
  * - isGateActive: boolean (step active/inactive)
  * - hasSlide: boolean (portamento to this step)
  */
 struct Step
 {
-  float noteIndex = 0.0f;                                                   // Scale step index (0-21)
+  float noteIndex = 0.0f;                                                   // Integral scale step index (0-36)
   float velocityLevel = 0.5f;                                               // Voice amplitude (0.0-1.0)
   float filterCutoff = 0.5f;                                                // Filter cutoff frequency (0.0-1.0)
   float attackTimeSeconds = 0.04f;                                          // Envelope attack time (0.0-1.0 seconds)
   float decayTimeSeconds = 0.2f;                                            // Envelope decay time (0.0-1.0 seconds)
-  float octaveOffset = 0.0f;                                                // Octave offset (0.0=C2, 0.5=C3, 1.0=C4)
+  int8_t octaveOffset = 0;                                                  // Signed semitone transpose from the octave track
   uint16_t gateLengthTicks = SequencerConstants::DEFAULT_GATE_LENGTH_TICKS; // Gate duration in clock ticks
   bool isGateActive = false;                                                // Step active/inactive state
   bool hasSlide = false;                                                    // Portamento enable for this step

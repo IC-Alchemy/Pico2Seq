@@ -3,6 +3,9 @@
 
 #include "ControlSurfaceLogic.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace ControlSurface
 {
 
@@ -13,6 +16,19 @@ uint16_t faderDelta(uint16_t a, uint16_t b)
   return static_cast<uint16_t>(a > b ? a - b : b - a);
 }
 } // namespace
+
+int8_t combineOctaveOffsets(int8_t sequencerOffset,
+                            float encoderOffset) noexcept
+{
+  constexpr int kSemitonesPerOctave = 12;
+  constexpr int kMaximumTransposeSemitones = 2 * kSemitonesPerOctave;
+  const float clampedEncoderOffset = std::clamp(encoderOffset, -1.0f, 1.0f);
+  const int encoderSemitones =
+      static_cast<int>(std::lround(clampedEncoderOffset * kSemitonesPerOctave));
+  const int combined = static_cast<int>(sequencerOffset) + encoderSemitones;
+  return static_cast<int8_t>(std::clamp(combined, -kMaximumTransposeSemitones,
+                                        kMaximumTransposeSemitones));
+}
 
 // --- ModeStabilizer -----------------------------------------------------------
 

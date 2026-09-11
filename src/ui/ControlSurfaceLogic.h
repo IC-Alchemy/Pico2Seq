@@ -71,6 +71,13 @@ constexpr bool encoderBaseModeForRecordParam(ParamId paramId,
   }
 }
 
+/**
+ * Combine the octave track's signed semitone transpose with the encoder's
+ * normalized bipolar transpose. The result is bounded to two octaves.
+ */
+int8_t combineOctaveOffsets(int8_t sequencerOffset,
+                            float encoderOffset) noexcept;
+
 // A raw GP7 level must hold stable this long before the mode flips.
 inline constexpr uint32_t kModeStabilityMs = 20;
 

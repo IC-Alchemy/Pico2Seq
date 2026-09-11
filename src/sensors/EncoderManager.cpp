@@ -5,6 +5,7 @@
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../ui/UIState.h"
+#include "../ui/ControlSurfaceLogic.h"
 #include <algorithm>
 #include <cmath>
 #include "../voice/VoiceManager.h"
@@ -394,7 +395,7 @@ float getParameterMinValueForParamId(ParamId paramId)
     return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE;
 
   case ParamId::Note:
-    return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE; // Scale array indices (0-21)
+    return static_cast<float>(SequencerConstants::NOTE_PARAMETER_MIN);
 
   default:
     return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE;
@@ -412,7 +413,7 @@ float getParameterMaxValueForParamId(ParamId paramId)
     return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
 
   case ParamId::Note:
-    return SensorConstants::MagneticEncoder::NOTE_PARAMETER_MAX; // Scale array indices (0-21)
+    return static_cast<float>(SequencerConstants::NOTE_PARAMETER_MAX);
 
   default:
     return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
@@ -492,15 +493,15 @@ void applyEncoderBaseValues(VoiceState *voiceState, uint8_t voiceId)
 
   // Apply "Shift and Scale" for each parameter.
   // This maps the sequencer value into the dynamic range set by the encoder offset.
-  const float normalizedNote = voiceState->noteIndex /
-                               SensorConstants::MagneticEncoder::NOTE_PARAMETER_MAX;
-  voiceState->noteIndex = shiftAndScale(normalizedNote, baseValues->note) *
-                          SensorConstants::MagneticEncoder::NOTE_PARAMETER_MAX;
+  const float noteRange = static_cast<float>(SequencerConstants::NOTE_PARAMETER_MAX);
+  const float normalizedNote = voiceState->noteIndex / noteRange;
+  voiceState->noteIndex = shiftAndScale(normalizedNote, baseValues->note) * noteRange;
   voiceState->velocityLevel = shiftAndScale(voiceState->velocityLevel, baseValues->velocity);
   voiceState->filterCutoff = shiftAndScale(voiceState->filterCutoff, baseValues->filter);
   voiceState->attackTimeSeconds = shiftAndScale(voiceState->attackTimeSeconds, baseValues->attack);
   voiceState->decayTimeSeconds = shiftAndScale(voiceState->decayTimeSeconds, baseValues->decay);
-  voiceState->octaveOffset = shiftAndScale(voiceState->octaveOffset, baseValues->octave);
+  voiceState->octaveOffset =
+      ControlSurface::combineOctaveOffsets(voiceState->octaveOffset, baseValues->octave);
 }
 
 #if PICO2SEQ_ENABLE_DELAY_EFFECT

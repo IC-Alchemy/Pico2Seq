@@ -140,6 +140,38 @@ TEST_CASE("Sequencer setStepParameterValue persists", "[sequencer]") {
     REQUIRE(seq.getStepParameterValue(ParamId::Velocity, 5) == 0.8f);
 }
 
+TEST_CASE("Note track supports a three-octave chromatic range", "[sequencer]") {
+    Sequencer seq(0);
+    seq.toggleStep(0); // Note programming only applies to gated steps.
+
+    seq.setStepParameterValue(ParamId::Note, 0, 36.0f);
+    REQUIRE(seq.getStepParameterValue(ParamId::Note, 0) == 36.0f);
+
+    seq.setStepParameterValue(ParamId::Note, 0, 37.0f);
+    REQUIRE(seq.getStepParameterValue(ParamId::Note, 0) == 36.0f);
+
+    seq.setStepParameterValue(ParamId::Note, 0, 35.5f);
+    REQUIRE(seq.getStepParameterValue(ParamId::Note, 0) == 36.0f);
+}
+
+TEST_CASE("Octave track emits signed semitone transposes", "[sequencer]") {
+    Sequencer seq(0);
+    VoiceState state;
+    seq.toggleStep(0);
+
+    seq.setStepParameterValue(ParamId::Octave, 0, 0.0f);
+    seq.playStepNow(0, &state);
+    REQUIRE(state.octaveOffset == -12);
+
+    seq.setStepParameterValue(ParamId::Octave, 0, 0.2f);
+    seq.playStepNow(0, &state);
+    REQUIRE(state.octaveOffset == 0);
+
+    seq.setStepParameterValue(ParamId::Octave, 0, 1.0f);
+    seq.playStepNow(0, &state);
+    REQUIRE(state.octaveOffset == 12);
+}
+
 TEST_CASE("Sequencer setParameterStepCount changes count", "[sequencer]") {
     Sequencer seq(0);
     seq.setParameterStepCount(ParamId::Note, 8);

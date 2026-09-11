@@ -29,8 +29,8 @@ namespace SensorConstants
     static constexpr unsigned long INTER_MEASUREMENT_PERIOD_MS = 24;   // 24ms between measurements
 
     // Distance measurement ranges (in millimeters)
-    static constexpr int MAX_DISTANCE_HEIGHT_MM = 1400; // Maximum useful distance
-    static constexpr int MIN_DISTANCE_HEIGHT_MM = 74;   // Minimum useful distance
+    static constexpr int MAX_DISTANCE_HEIGHT_MM = 1200; // Maximum useful distance
+    static constexpr int MIN_DISTANCE_HEIGHT_MM = 55;   // Minimum useful distance
     static constexpr int INVALID_DISTANCE_MM = -1;      // Invalid reading indicator
   }
 
@@ -43,7 +43,7 @@ namespace SensorConstants
     // Parameter range constants
     static constexpr float PARAMETER_MIN_VALUE = 0.0f;
     static constexpr float PARAMETER_MAX_VALUE = 1.0f;
-    static constexpr float NOTE_PARAMETER_MAX = 21.0f; // Scale array indices (0-21)
+
 
     // Delay parameter ranges
     static constexpr float DELAY_TIME_MIN_SAMPLES = 120.0f; // 2.5ms minimum delay at 48kHz (120 samples)
@@ -88,9 +88,9 @@ namespace SensorConstants
     // Parameter mapping constants
     // Display range for filter cutoff; must match the DSP mapping in Voice.cpp
     // (dspmap::fmap(state.filterCutoff, 150.0f, 8000.0f, EXP))
-    static constexpr int FILTER_FREQUENCY_MIN_HZ = 150;
-    static constexpr int FILTER_FREQUENCY_MAX_HZ = 8000;
-  }
+    static constexpr int FILTER_FREQUENCY_MIN_HZ = 90;
+    static constexpr int FILTER_FREQUENCY_MAX_HZ = 6000;
+  }   
 }
 
 #endif // SENSOR_CONSTANTS_H

@@ -179,6 +179,35 @@ TEST_CASE("No injected table falls back to chromatic mapping", "[voice]") {
                  WithinRel(rpdsp::midiNoteToHz(52.0f), 0.001f)); // 4 semitones above C3
 }
 
+TEST_CASE("Voice combines note indices with octave track semitones", "[voice]") {
+    Voice v(0, defaultConfig());
+    v.setScaleTable(nullptr, 0);
+    v.setCurrentScalePointer(nullptr);
+    v.init(48000.0f);
+
+    VoiceState vs;
+    vs.isGateHigh = true;
+    vs.noteIndex = 36.0f;
+
+    vs.octaveOffset = -12;
+    v.updateParameters(vs);
+    v.process();
+    REQUIRE_THAT(v.getCachedFrequency(0),
+                 WithinRel(rpdsp::midiNoteToHz(72.0f), 0.001f));
+
+    vs.octaveOffset = 0;
+    v.updateParameters(vs);
+    v.process();
+    REQUIRE_THAT(v.getCachedFrequency(0),
+                 WithinRel(rpdsp::midiNoteToHz(84.0f), 0.001f));
+
+    vs.octaveOffset = 12;
+    v.updateParameters(vs);
+    v.process();
+    REQUIRE_THAT(v.getCachedFrequency(0),
+                 WithinRel(rpdsp::midiNoteToHz(96.0f), 0.001f));
+}
+
 TEST_CASE("Pitch lookup clamps out-of-range indices", "[voice]") {
     static int table[1][48];
     for (int i = 0; i < 48; ++i)
