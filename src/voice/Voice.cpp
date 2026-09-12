@@ -5,6 +5,7 @@
 #include <mutex>
 #include "../pico2seq-core/scales/scales.h" // Use centralized SCALES_COUNT / SCALE_STEPS
 #include "VoicePresets.h"
+#include "MusicalValues.h"
 
 // Constants
 static constexpr float FREQ_SLEW_RATE = 0.00035f; // Slide speed
@@ -773,7 +774,7 @@ void Voice::updateOscillatorFrequencies()
 inline void Voice::applyEnvelopeParameters() noexcept
 {
   if(config.usePatchBases) {
-    const auto seconds=[](float n) {return 0.001f*std::pow(10000.0f,std::clamp(n,0.0f,1.0f));};
+    const auto seconds = MusicalValues::envelopeSeconds;
     envelope.setAttack(seconds(state.attackTimeSeconds));
     envelope.setDecay(seconds(state.decayTimeSeconds));
     envelope.setSustain(config.defaultSustain);
@@ -811,33 +812,8 @@ size_t Voice::effectiveScaleIndex_() const noexcept
 inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset,
                                            int harmony) noexcept
 {
-  // Keep note+harmony inside the 48-step scale row even with extreme values.
-  int noteWithHarmony = static_cast<int>(note) + harmony;
-  if (noteWithHarmony < 0)
-    noteWithHarmony = 0;
-  if (noteWithHarmony >= static_cast<int>(SCALE_STEPS))
-    noteWithHarmony = static_cast<int>(SCALE_STEPS) - 1;
-
-  // Single lookup path: the injected table when present, otherwise chromatic
-  // mapping (each scale step is one semitone above C3).
-  int scaleSemitone;
-  if (scaleTable != nullptr && scaleTableCount > 0)
-  {
-    scaleSemitone = scaleTable[effectiveScaleIndex_()][noteWithHarmony];
-  }
-  else
-  {
-    scaleSemitone = noteWithHarmony;
-  }
-
-  // Map to MIDI centered at 48 (C3) and saturate so the octave offset can
-  // never index past the 128-entry frequency lookup table.
-  int midiNote = scaleSemitone + 48 + static_cast<int>(octaveOffset);
-  if (midiNote < 0)
-    midiNote = 0;
-  if (midiNote > 127)
-    midiNote = 127;
-
+  const int *row = scaleTable && scaleTableCount ? scaleTable[effectiveScaleIndex_()] : nullptr;
+  const int midiNote = MusicalValues::midiNote(note, octaveOffset, harmony, row);
   return frequencyLookupTable[midiNote];
 }
 

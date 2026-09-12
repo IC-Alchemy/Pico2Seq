@@ -249,7 +249,7 @@ TEST_CASE("Octave track emits signed semitone transposes", "[sequencer]") {
     seq.playStepNow(0, &state);
     REQUIRE(state.octaveOffset == -12);
 
-    seq.setStepParameterValue(ParamId::Octave, 0, 0.2f);
+    seq.setStepParameterValue(ParamId::Octave, 0, 0.5f);
     seq.playStepNow(0, &state);
     REQUIRE(state.octaveOffset == 0);
 
@@ -289,4 +289,14 @@ TEST_CASE("advanceStep phase follows global step modulo across the 8-bit wrap", 
         REQUIRE(seq.getCurrentStep() == step % 12);
         REQUIRE(seq.getCurrentStepForParameter(ParamId::Note) == step % 12);
     }
+}
+
+TEST_CASE("Default sequencer starts at neutral octave and half-step gate", "[sequencer]") {
+    Sequencer seq;
+    const Step defaults = seq.getPlaybackStep(0);
+    REQUIRE(defaults.octaveOffset == 0);
+    REQUIRE(defaults.gateLengthTicks == 60);
+    REQUIRE_FALSE(defaults.isGateActive);
+    seq.randomizeParameters();
+    REQUIRE(seq.getPlaybackStep(0).octaveOffset == 0);
 }

@@ -185,8 +185,8 @@ constexpr ParameterDefinition CORE_PARAMETERS[] = {
     {"Filter", 0.5f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},       // Filter cutoff (0.0-1.0)
     {"Attack", 0.01f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},      // Attack time (0.0-1.0 seconds)
     {"Decay", 0.3f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},        // Decay time (0.0-1.0 seconds)
-    {"Octave", 0.0f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},       // Octave offset (0.0=C2, 0.5=C3, 1.0=C4)
-    {"GateLength", 0.3f, 0.001f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT}, // Gate duration (fraction of step)
+    {"Octave", 0.5f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},       // Neutral transpose at midpoint; patch mode spans -2..+2 octaves
+    {"GateLength", 0.5f, 0.001f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT}, // Gate duration (fraction of step)
     {"Gate", false, false, true, true, SequencerConstants::DEFAULT_STEPS_COUNT},        // Gate on/off state
     {"Slide", false, false, true, true, SequencerConstants::DEFAULT_STEPS_COUNT}        // Portamento enable
 };

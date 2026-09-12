@@ -303,7 +303,7 @@ Comprehensive subsystem documentation is maintained in the [`docs/`](docs/) dire
 
 - [`docs/architecture.md`](docs/architecture.md) — System architecture, dual-core division, and component interactions
 - [`docs/voice.md`](docs/voice.md) — Synthesizer voice DSP pipeline, VoiceOscillator, filters, ADSR, and preset definitions
-- [`docs/voice-edit.md`](docs/voice-edit.md) — Voice Editing mode: parameter catalogue, base-plus-modifier recording, and sequenced modifiers
+- [`docs/voice-edit.md`](docs/voice-edit.md) — Voice Editing mode: musical OLED values, melody recording, and sequenced modifiers
 - [`docs/VoiceSystem.md`](docs/VoiceSystem.md) — Centralized VoiceSystem data structures, accessor pattern, and voice routing
 - [`docs/sequencer.md`](docs/sequencer.md) — 4-voice step sequencer engine, polymetric parameter tracks, and uClock integration
 - [`docs/scales.md`](docs/scales.md) — 13 musical scales, semitone offsets, rank caching, and pitch mapping

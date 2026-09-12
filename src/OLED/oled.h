@@ -10,6 +10,8 @@
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 #include "../LEDMatrix/LEDConstants.h"
 
+struct VoiceConfig;
+
 /**
  * @brief Voice Parameter Observer Interface
  *
@@ -145,17 +147,11 @@ private:
    */
   void commitFrame();
 
-  /**
-   * @brief Display parameter editing information with progress bar
-   * @param parameterId Parameter being edited
-   * @param currentValue Current parameter value (0.0-1.0 for most parameters)
-   * @param voiceIndex Voice index (0-3) for display
-   * @param stepIndex Current step index for the parameter
-   * @param presetIndex Selected voice's preset; re-purposed slots are named
-   *                   and formatted per its param set
-   */
-  void displayParameterInfo(ParamId parameterId, float currentValue,
-                            uint8_t voiceIndex, uint8_t stepIndex, uint8_t presetIndex);
+  void drawVoiceHeader(const UIState &state, bool prominent);
+  void drawMusicalValue(const char *text, int y);
+  // Displays composed values from the same read-only snapshot as playback.
+  void displayParameterInfo(ParamId id, const Step &values, const UIState &state,
+                            uint8_t step, const VoiceConfig *config, bool selected);
 
   /**
    * @brief Display settings menu with navigation and preset selection

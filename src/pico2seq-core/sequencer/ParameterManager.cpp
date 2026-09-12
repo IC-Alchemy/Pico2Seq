@@ -98,7 +98,7 @@ void ParameterManager::setValue(ParamId id, uint8_t stepIdx, float value)
   _tracks[static_cast<size_t>(id)].setValue(stepIdx, clampedValue);
 }
 
-void ParameterManager::randomizeParameters()
+void ParameterManager::randomizeParameters(bool patchModifiers)
 {
   // Seed the LCG with current time
   seed_lcg();
@@ -128,6 +128,16 @@ void ParameterManager::randomizeParameters()
 
     for (uint8_t step = 0; step < steps; ++step)
     {
+      if (patchModifiers && paramId != ParamId::Gate && paramId != ParamId::Slide) {
+        // Keep the patch recognizable: a compact range of scale steps, neutral
+        // transpose/timing, and small timbre/envelope/velocity variations.
+        const float value = paramId == ParamId::Note ? float(lcg_rand_int(0, 12)) :
+            (paramId == ParamId::Octave || paramId == ParamId::GateLength) ? 0.5f :
+            lcg_rand_float(0.45f, 0.55f);
+        setValue(paramId, step, paramId == ParamId::GateLength ?
+            mapNormalizedValueToParamRange(paramId, value) : value);
+        continue;
+      }
       switch (paramId)
       {
       case ParamId::Slide:

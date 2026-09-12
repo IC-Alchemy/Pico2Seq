@@ -167,6 +167,9 @@ public:
 
     // Get step data
     Step getStep(uint8_t stepIdx) const;
+    // Same composed values used by playback; UINT8_MAX follows independent tracks.
+    // Read-only: does not trigger gates, advance transport or alter note tails.
+    Step getPlaybackStep(uint8_t stepIdx = UINT8_MAX) const;
 
     // State
     bool isRunning() const { return running; }
@@ -191,7 +194,7 @@ public:
         if(step>=SequencerConstants::MAX_STEPS_COUNT) return;
         for(uint8_t i=0;i<PARAM_ID_COUNT;++i) {
             const auto id=static_cast<ParamId>(i);
-            parameterManager.setValue(id,step,(id==ParamId::Gate || id==ParamId::Slide)?0.0f:
+            parameterManager.setValue(id,step,(id==ParamId::Gate || id==ParamId::Slide || id==ParamId::Note)?0.0f:
                 mapNormalizedValueToParamRange(id,0.5f));
         }
     }
