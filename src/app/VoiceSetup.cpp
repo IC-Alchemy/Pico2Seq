@@ -7,8 +7,6 @@
 
 void initializeVoices()
 {
-    AudioEngine::prepareEffects();
-
     // Initialize Voice Manager with maximum 4 concurrent voices
     voiceManager = std::make_unique<VoiceManager>(VoiceSystem::MAX_VOICES);
 
@@ -27,12 +25,6 @@ void initializeVoices()
     }
 
     // Application publishes the collection after the rest of control setup.
-}
-
-static void seedRepurposedParamTracks(uint8_t voiceIndex, const VoiceConfig &config)
-{
-    // Preset changes replace bases, never the recorded modifiers.
-    (void)voiceIndex; (void)config;
 }
 
 void applyVoicePreset(uint8_t voiceIndex, uint8_t presetIndex)
@@ -55,7 +47,6 @@ void applyVoicePreset(uint8_t voiceIndex, uint8_t presetIndex)
 
     if (voiceManager->setVoiceConfig(voiceId, config))
     {
-        seedRepurposedParamTracks(voiceIndex, config);
         voiceManager->setVoiceSlide(voiceId,config.slideSeconds);
         uiState.voiceEditor.changed[voiceIndex]=false;
         Serial.print("Applied preset '");

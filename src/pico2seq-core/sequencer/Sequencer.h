@@ -85,7 +85,6 @@ public:
     Sequencer();
     Sequencer(uint8_t channel);
     ~Sequencer() = default;
-    void resetSequencer();
 
     // Parameter management
     void initializeParameters();

@@ -1,7 +1,12 @@
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "sequencer/SequencerDefs.h"
 #include "sequencer/Sequencer.h"
+#include "voice/VoiceConfig.h"
+#include "voice/VoiceEditParameters.h"
+
+#include <algorithm>
 
 // ─── ParameterTrack template ─────────────────────────────────────────────────
 
@@ -38,6 +43,87 @@ TEST_CASE("ParameterTrack resize extends with default values", "[paramtrack]") {
     for (uint8_t i = 4; i < 8; ++i) {
         REQUIRE(track.getValue(i) == 0.2f);
     }
+}
+
+// ─── Filter randomization audibility (regression: narrowed dead zone) ────────
+//
+// Playback composes track values as ±0.5 modifiers around the per-preset base
+// (VoiceEdit::composeLane): effective = clamp(laneBase + stored - 0.5, 0, 1).
+// A standard voice uses filterCutoffBase = 0.37, so any stored value < 0.13
+// clamps flat at 0 (inaudible dead zone) and the usable sweep width equals
+// the stored subrange width. The random subrange must therefore stay inside
+// [0.2, 0.8] — modifier-symmetric around 0.5 and dead-zone free.
+
+namespace
+{
+constexpr float kFilterLaneBase = 0.37f; // VoiceConfig::filterCutoffBase default
+
+float composeFilterEffective(float stored)
+{
+    VoiceConfig config{};           // standard voice: filterCutoffBase = 0.37f
+    VoiceEdit::enablePatch(config); // playback path (usePatchBases = true)
+    return VoiceEdit::composeLane(ParamId::Filter, stored, &config);
+}
+} // namespace
+
+TEST_CASE("randomizeParameters Filter draws stay within the audible subrange [0.2, 0.8]", "[paramtrack][sequencer]") {
+    ParameterManager pm;
+    pm.init();
+    const uint8_t steps = pm.getStepCount(ParamId::Filter);
+    REQUIRE(steps > 0);
+
+    float observedMin = 1.0f;
+    float observedMax = 0.0f;
+    // randomizeParameters() is time-seeded; enough draws make the range
+    // assertions stable without depending on any particular seed.
+    for (int round = 0; round < 16; ++round) {
+        pm.randomizeParameters();
+        for (uint8_t step = 0; step < steps; ++step) {
+            const float value = pm.getValue(ParamId::Filter, step);
+            observedMin = std::min(observedMin, value);
+            observedMax = std::max(observedMax, value);
+        }
+    }
+
+    // lcg_rand_float() never leaves [min, max], so after the fix the observed
+    // range can only tighten inward; the epsilon only absorbs float rounding.
+    constexpr float kEps = 1e-3f;
+    REQUIRE(observedMin >= 0.2f - kEps);
+    REQUIRE(observedMax <= 0.8f + kEps);
+}
+
+TEST_CASE("randomizeParameters Filter draws stay out of the standard-voice dead zone", "[paramtrack][sequencer]") {
+    ParameterManager pm;
+    pm.init();
+    const uint8_t steps = pm.getStepCount(ParamId::Filter);
+    REQUIRE(steps > 0);
+
+    float effectiveMin = 1.0f;
+    float effectiveMax = 0.0f;
+    // A neutral 0.5 modifier must compose to exactly the standard lane base.
+    REQUIRE(composeFilterEffective(0.5f) == Catch::Approx(kFilterLaneBase));
+    for (int round = 0; round < 16; ++round) {
+        pm.randomizeParameters();
+        for (uint8_t step = 0; step < steps; ++step) {
+            const float effective =
+                composeFilterEffective(pm.getValue(ParamId::Filter, step));
+            // Draws below the laneBase floor clamp flat at 0: no audible change.
+            REQUIRE(effective > 0.0f);
+            effectiveMin = std::min(effectiveMin, effective);
+            effectiveMax = std::max(effectiveMax, effective);
+        }
+    }
+
+    // The composed sweep across the legal subrange must stay audibly wide
+    // (~4 octaves at env peak on standard voices), not collapse to a sliver.
+    REQUIRE(effectiveMax - effectiveMin >= 0.5f);
+}
+
+TEST_CASE("Step filterCutoff default is the neutral modifier value 0.5", "[seqdefs]") {
+    Step step{};
+    // 0.5 composes to exactly the preset base (neutral); 0.35 previewed an
+    // audibly darker filter than the preset actually sounds.
+    REQUIRE(step.filterCutoff == 0.5f);
 }
 
 // ─── NoteDurationTracker ──────────────────────────────────────────────────────

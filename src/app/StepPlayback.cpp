@@ -81,11 +81,12 @@ void updateVoiceParameters(
     volatile bool *gate = nullptr,
     volatile GateTimer *gateTimer = nullptr)
 {
+    // Voices 0/1 are the only gated (formerly MIDI) voices; isVoice2 selects 1.
+    const uint8_t voiceIndex = isVoice2 ? 1 : 0;
+
     // Handle gate timing and MIDI note events (sequencer playback mode only)
     if (updateGate && gate && gateTimer)
     {
-        uint8_t voiceId = isVoice2 ? 1 : 0;
-
         if (state.isGateHigh)
         {
             // Calculate MIDI note to match audio synthesis approach
@@ -104,24 +105,24 @@ void updateVoiceParameters(
                 int clampedMidiNote = std::max(0, std::min(midiNote, kMidiMaximum));
 
                 // Use MidiNoteManager for proper note lifecycle management
-                midiNoteManager.noteOn(voiceId, static_cast<int8_t>(clampedMidiNote),
+                midiNoteManager.noteOn(voiceIndex, static_cast<int8_t>(clampedMidiNote),
                                        static_cast<uint8_t>(state.velocityLevel * kMidiMaximum), kMidiChannel, state.gateLengthTicks);
             }
             else
             {
                 // Gate is already on - check if note changed and handle retrigger
-                int8_t currentActiveNote = midiNoteManager.getActiveNote(voiceId);
+                int8_t currentActiveNote = midiNoteManager.getActiveNote(voiceIndex);
                 if (currentActiveNote != midiNote)
                 {
                     // Note changed during gate - retrigger with new note
-                    midiNoteManager.noteOn(voiceId, static_cast<int8_t>(midiNote),
+                    midiNoteManager.noteOn(voiceIndex, static_cast<int8_t>(midiNote),
                                            static_cast<uint8_t>(state.velocityLevel * kMidiMaximum), kMidiChannel, state.gateLengthTicks);
                 }
                 *gate = true;
             }
 
             // Update MidiNoteManager gate state
-            midiNoteManager.setGateState(voiceId, true, state.gateLengthTicks);
+            midiNoteManager.setGateState(voiceIndex, true, state.gateLengthTicks);
         }
         else
         {
@@ -130,11 +131,10 @@ void updateVoiceParameters(
             *gate = false;
 
             // Use MidiNoteManager for proper note-off handling
-            midiNoteManager.setGateState(voiceId, false);
+            midiNoteManager.setGateState(voiceIndex, false);
         }
     }
 
-    uint8_t voiceIndex = isVoice2 ? 1 : 0;
     uint8_t voiceId = voiceSystem.getVoiceId(voiceIndex);
 
     // Voice commits pitch on a high gate so releasing a note preserves its tail.
