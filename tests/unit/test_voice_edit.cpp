@@ -213,8 +213,13 @@ TEST_CASE("Muted editor still drains queued changes for all four voices",
     enablePatch(c);
     manager.setVoiceConfig(ids[i], c);
   }
+  // Mute ramps rather than hard-cutting: keep processing so the queued config
+  // changes drain while the ramp completes, then confirm silence.
   for (int i = 0; i < 1024; ++i)
-    REQUIRE(manager.processAllVoices() == 0);
+    (void)manager.processAllVoices();
+  for (int i = 0; i < 48000; ++i)
+    (void)manager.processAllVoices();
+  REQUIRE(std::abs(manager.processAllVoices()) < 1.0e-9f);
   for (uint8_t i = 0; i < 4; ++i)
     REQUIRE(manager.getVoiceConfig(ids[i])->baseVelocity ==
             Approx(0.1f * (i + 1)));

@@ -15,3 +15,7 @@ AGENTS.md
 CLAUDE.md
 build_fw/*
 build_fw_on/*
+build/
+build_fw/
+build_review/
+build_test_ninja/

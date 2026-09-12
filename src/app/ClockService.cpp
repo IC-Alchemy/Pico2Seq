@@ -112,9 +112,21 @@ void processPendingGateTicks()
         // Update MidiNoteManager timing - this handles all MIDI note-off timing
         midiNoteManager.updateTiming(clockEvents.gateTick);
 
-        // Process sequencer note duration timing
-        seq1.tickNoteDuration(&voiceSystem.getVoiceState(0));
-        seq2.tickNoteDuration(&voiceSystem.getVoiceState(1));
+        // Process sequencer note duration timing for every voice (2-3 are
+        // audio-only but still track gate length). When a gate length expires
+        // mid-step, the note-off must reach the audio voice at expiry, not at
+        // the next step boundary, or GateLength stays inaudible.
+        if (voiceManager)
+        {
+            for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i)
+            {
+                if (AppState::sequencers[i]->tickNoteDuration(&voiceSystem.getVoiceState(i)))
+                {
+                    voiceManager->updateVoiceState(voiceSystem.getVoiceId(i),
+                                                   voiceSystem.getVoiceState(i));
+                }
+            }
+        }
 
         // Process gate timers - now synchronized with MidiNoteManager
         voiceSystem.tickAllGateTimers();

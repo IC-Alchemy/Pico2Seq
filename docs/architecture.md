@@ -297,7 +297,8 @@ All DSP components reside in the `rpdsp` namespace from `src/rpdsp/` (tracked as
                                               ▼
                     ┌───────────────────────────────────────────────────┐
                     │ VoiceManager::processAllVoices()                  │
-                    │   Sum(voice[i] * mixLevel[i]) * globalVolume      │
+                    │   Sum(voice[i] * mixLevel[i]) * masterGain        │
+                    │   (globalVolume/mute eased per sample, ~15 ms)    │
                     └─────────────────────────┬─────────────────────────┘
                                               │
                                               ▼

@@ -509,6 +509,63 @@ TEST_CASE("Bypassed filter scales output by velocity", "[voice]") {
     REQUIRE(loud > quiet * 2.0f);
 }
 
+TEST_CASE("Waveguide pluck excitation follows velocity", "[voice]") {
+    // Same voiceId → same excitation RNG seed, so only the velocity differs.
+    auto pluckPeak = [](float velocity) {
+        VoiceConfig cfg = VoicePresets::getWaveguidePluckVoice();
+        Voice v(0, cfg);
+        initVoiceWithScale(v);
+
+        VoiceState vs;
+        vs.noteIndex = 12.0f;
+        vs.velocityLevel = velocity;
+        vs.isGateHigh = true;
+        v.updateParameters(vs);
+        v.setGate(true);
+        float peak = 0.0f;
+        for (int i = 0; i < 4000; ++i)
+            peak = std::max(peak, std::abs(v.process()));
+        return peak;
+    };
+
+    const float soft = pluckPeak(0.15f);
+    const float loud = pluckPeak(1.0f);
+    REQUIRE(soft > 0.0f);         // a soft pluck still sounds
+    REQUIRE(loud > soft * 3.0f);  // velocity drives the excitation energy
+}
+
+TEST_CASE("Waveguide ring-out is not rescaled by a later velocity push", "[voice]") {
+    VoiceConfig cfg = VoicePresets::getWaveguidePluckVoice();
+    cfg.wgT60 = 2.0f; // keep the string audibly alive across the check window
+    Voice v(0, cfg);
+    initVoiceWithScale(v);
+
+    VoiceState vs;
+    vs.noteIndex = 12.0f;
+    vs.velocityLevel = 1.0f;
+    vs.isGateHigh = true;
+    v.updateParameters(vs);
+    v.setGate(true);
+    for (int i = 0; i < 2000; ++i)
+        v.process(); // let the pluck ring
+
+    // A later step pushes a new (low) velocity while the string still rings.
+    VoiceState next = vs;
+    next.velocityLevel = 0.05f;
+    next.isGateHigh = false;
+    v.updateParameters(next);
+
+    float before = 0.0f, after = 0.0f;
+    for (int i = 0; i < 480; ++i)
+        before = std::max(before, std::abs(v.process()));
+    for (int i = 0; i < 480; ++i)
+        after = std::max(after, std::abs(v.process()));
+    // The string keeps ringing at its own level; scaling raw output by the
+    // pushed velocity would collapse it to ~5% in one sample (zipper click).
+    REQUIRE(before > 0.0f);
+    REQUIRE(after > before * 0.5f);
+}
+
 TEST_CASE("Waveguide slots drive T60 via Decay track", "[voice]") {
     VoiceConfig cfg = VoicePresets::getWaveguidePluckVoice();
     Voice v(0, cfg);

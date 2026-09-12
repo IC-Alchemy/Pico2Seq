@@ -97,6 +97,13 @@ public:
 
 private:
     std::atomic<bool> transportMuted_{false};
+
+    // Master-bus gain smoothing (audio thread only). globalVolume and
+    // transportMuted_ are targets; advanceMasterGain_() eases toward them so
+    // volume moves and transport mute don't step the output (zipper/click).
+    float masterGain_ = 0.0f;
+    float masterGainAlpha_ = 1.0f;
+
     struct ManagedVoice
     {
         std::unique_ptr<Voice> voice;
@@ -130,6 +137,7 @@ private:
     uint8_t generateVoiceId();
     void notifyVoiceCountChanged();
     void notifyVoiceUpdated(uint8_t voiceId, const VoiceState &state);
+    float advanceMasterGain_() noexcept;
 };
 
 /**

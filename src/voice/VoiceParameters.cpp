@@ -33,6 +33,10 @@ constexpr VoiceParameterLayout makeWaveguide()
 {
   VoiceParameterLayout p{};
   p.envelopeFromTracks = false;
+  // Velocity lives in the pluck excitation (Voice::processWaveguide_). Scaling
+  // the raw output too would double-apply it and zipper the ringing string
+  // every time a later step pushes a new velocity value.
+  p.velocityToAmplitude = false;
   p.slots[slot(ParamId::Filter)] = control("Bright", &VoiceConfig::wgBrightness);
   p.slots[slot(ParamId::Attack)] = control("Pick", &VoiceConfig::wgPickHardness);
   p.slots[slot(ParamId::Decay)] = {"T60", &VoiceConfig::wgT60, kWaveguideT60Min,

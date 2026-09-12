@@ -249,3 +249,72 @@ TEST_CASE("Concurrent voice controls preserve complete state and config copies",
     REQUIRE(voice.getState().noteIndex == 9999 % 22);
     REQUIRE(voice.getConfig().outputLevel == voice.getConfig().overdriveGain);
 }
+
+namespace
+{
+float peakOver(VoiceManager &manager, unsigned samples)
+{
+    float peak = 0.0f;
+    for (unsigned i = 0; i < samples; ++i)
+        peak = std::max(peak, std::abs(manager.processAllVoices()));
+    return peak;
+}
+} // namespace
+
+TEST_CASE("Master volume eases toward new settings instead of stepping", "[voice_transfer]")
+{
+    VoiceManager manager(1);
+    VoiceConfig config = testConfig();
+    config.hasEnvelope = false;
+    const auto id = manager.addVoice(config);
+    manager.init(48000);
+    manager.updateVoiceState(id, noteState(4));
+    for (unsigned i = 0; i < 64; ++i)
+        manager.processAllVoices(); // drain the control queue
+
+    manager.setGlobalVolume(1.0f);
+    for (unsigned i = 0; i < 48000; ++i)
+        manager.processAllVoices();
+    const float settled = peakOver(manager, 960);
+    REQUIRE(settled > 0.01f);
+
+    manager.setGlobalVolume(0.1f);
+    const float justAfter = peakOver(manager, 96); // 2 ms — still near the old level
+    REQUIRE(justAfter > settled * 0.7f);
+
+    for (unsigned i = 0; i < 48000; ++i)
+        manager.processAllVoices();
+    const float settledLow = peakOver(manager, 960);
+    REQUIRE(settledLow < settled * 0.25f); // arrives at the new setting
+    REQUIRE(settledLow > 0.0f);
+}
+
+TEST_CASE("Transport mute ramps to silence instead of hard-cutting", "[voice_transfer]")
+{
+    VoiceManager manager(1);
+    VoiceConfig config = testConfig();
+    config.hasEnvelope = false;
+    const auto id = manager.addVoice(config);
+    manager.init(48000);
+    manager.updateVoiceState(id, noteState(4));
+    for (unsigned i = 0; i < 64; ++i)
+        manager.processAllVoices();
+
+    manager.setGlobalVolume(0.8f);
+    for (unsigned i = 0; i < 48000; ++i)
+        manager.processAllVoices();
+    const float settled = peakOver(manager, 960);
+    REQUIRE(settled > 0.01f);
+
+    manager.setTransportMuted(true);
+    const float justAfter = peakOver(manager, 96);
+    REQUIRE(justAfter > settled * 0.7f); // audible immediately after muting
+
+    for (unsigned i = 0; i < 48000; ++i)
+        manager.processAllVoices();
+    REQUIRE(peakOver(manager, 960) < settled * 1.0e-4f); // silent once ramped
+
+    manager.setTransportMuted(false);
+    const float back = peakOver(manager, 96);
+    REQUIRE(back < settled * 0.3f); // unmute fades in, no pop
+}

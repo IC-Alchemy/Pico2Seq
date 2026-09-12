@@ -183,6 +183,32 @@ TEST_CASE("Sequencer isNotePlaying is false after construction", "[sequencer]") 
     REQUIRE_FALSE(seq.isNotePlaying());
 }
 
+TEST_CASE("Gate length expires mid-step and reports the note-off tick", "[sequencer]") {
+    Sequencer seq(0);
+    seq.start();
+    seq.toggleStep(0); // gate the step
+    // 0.25 of a 120-tick step = 30 ticks of gate length.
+    seq.setStepParameterValue(ParamId::GateLength, 0, 0.25f);
+
+    VoiceState state;
+    seq.playStepNow(0, &state);
+    REQUIRE(state.isGateHigh);
+    REQUIRE(seq.isNotePlaying());
+
+    bool expired = false;
+    for (int i = 0; i < 29 && !expired; ++i)
+        expired = seq.tickNoteDuration(&state);
+    REQUIRE_FALSE(expired);       // gate length not elapsed yet
+    REQUIRE(state.isGateHigh);    // audio gate still high
+    REQUIRE(seq.isNotePlaying());
+
+    REQUIRE(seq.tickNoteDuration(&state)); // expiry fires exactly here
+    REQUIRE_FALSE(state.isGateHigh);       // and the note-off is visible
+    REQUIRE_FALSE(seq.isNotePlaying());
+
+    REQUIRE_FALSE(seq.tickNoteDuration(&state)); // no double note-off
+}
+
 TEST_CASE("Sequencer getCurrentStep returns 0 after construction", "[sequencer]") {
     Sequencer seq(0);
     REQUIRE(seq.getCurrentStep() == 0);

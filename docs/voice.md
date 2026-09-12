@@ -395,8 +395,10 @@ delay): each gate rise (or retrigger) plucks the string at the current base pitc
 the `wg*` config fields tune T60, loop brightness, pick position/hardness, stiffness
 (inharmonic dispersion), and two-string course detune. The waveguide presets also set
 `hasFilter = false` and `hasEnvelope = false`: the main filter and ADSR are both
-bypassed, velocity scales the raw string output directly, and the string rings past
-gate fall on its own T60 (gate edges still arm plucks — see `computeEnvelope()`).
+bypassed, velocity scales the pluck excitation itself (soft picks inject less energy,
+and the ringing tail is never rescaled by later velocity changes), and the string
+rings past gate fall on its own T60 (gate edges still arm plucks — see
+`computeEnvelope()`).
 WgPluck/WgNylon keep a gentle 55/66 Hz high-pass to shed subsonic rumble that
 Karplus tails otherwise accumulate; WgBell/WgShimmer bypass the high-pass too.
 Preset 13 uses `engine = ENGINE_HYPERSAW`: one `rpdsp::Hypersaw` instance supplies
@@ -499,7 +501,9 @@ Each call to `Voice::process()` on Core 1 executes the following stages:
 └─────────────────────────────────────────────────────────────────────────────────┘
            │
            ▼
-[VoiceManager::processAllVoices() -> Sum(S_out * mixLevel) * globalVolume]
+[VoiceManager::processAllVoices() -> Sum(S_out * mixLevel) * smoothed master gain]
+  (globalVolume / transport-mute targets eased per sample, ~15 ms time constant,
+   so volume moves and transport start/stop never click)
            │
            ▼
 [FloatToPcm16() -> Cortex-M33 __SSAT -> I2S DMA Buffer]

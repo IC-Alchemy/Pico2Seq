@@ -118,7 +118,10 @@ public:
     // Note/Envelope handling
     void startNote(uint8_t note, uint8_t velocity, uint16_t duration);
     void handleNoteOff(VoiceState *voiceState);
-    void tickNoteDuration(VoiceState *voiceState);
+    // Ticks the note-duration countdown; returns true on the tick where the
+    // gate length expired (handleNoteOff already ran), so callers can push
+    // the mid-step note-off to the audio voice.
+    bool tickNoteDuration(VoiceState *voiceState);
     bool isNotePlaying() const;
 
     // MIDI callback function pointers for note-off events
@@ -221,6 +224,9 @@ private:
     uint8_t currentStepPerParam[static_cast<size_t>(ParamId::Count)]; // Independent step counters for each parameter
     int8_t lastNote;
     int8_t currentNote;
+    // currentNote's range includes negatives (note 0 with the -12 octave
+    // offset is -12), so a sign check cannot mean "no note"; this flag does.
+    bool noteActive;
     uint16_t noteDurationCounter;
     uint8_t channel;
     NoteDurationTracker noteDuration;

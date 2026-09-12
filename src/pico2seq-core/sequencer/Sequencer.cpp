@@ -64,6 +64,7 @@ Sequencer::Sequencer()
       ,
       noteDuration() // Initialize noteDuration explicitly
 {
+    noteActive = false;
     // Initialize all per-parameter step counters to 0
     for (size_t i = 0; i < static_cast<size_t>(ParamId::Count); ++i)
     {
@@ -80,6 +81,7 @@ Sequencer::Sequencer(uint8_t channel)
       ,
       noteDuration() // Initialize noteDuration explicitly
 {
+    noteActive = false;
     // Initialize all per-parameter step counters to 0
     for (size_t i = 0; i < static_cast<size_t>(ParamId::Count); ++i)
     {
@@ -359,6 +361,7 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
         {
             // This is a slide. Don't retrigger the envelope, just update the current note value.
             currentNote = static_cast<int8_t>(finalNote);
+            noteActive = true;
             // For slides, we still need to update the note duration for the current step
             noteDuration.start(noteDurationTicks);
         }
@@ -404,6 +407,7 @@ void Sequencer::startNote(uint8_t note, uint8_t velocity, uint16_t duration)
 {
     // Update note state
     currentNote = static_cast<int8_t>(note);
+    noteActive = true;
     lastNote = currentNote;
 
     // Start duration tracking and envelope
@@ -413,7 +417,7 @@ void Sequencer::startNote(uint8_t note, uint8_t velocity, uint16_t duration)
 
 void Sequencer::handleNoteOff(VoiceState *voiceState)
 {
-    if (currentNote >= 0)
+    if (noteActive)
     {
         // Send MIDI note-off if callback is set
         if (midiNoteOffCallback)
@@ -422,6 +426,7 @@ void Sequencer::handleNoteOff(VoiceState *voiceState)
         }
 
         currentNote = -1;
+        noteActive = false;
         releaseEnvelope();
         noteDuration.reset();
 
@@ -434,7 +439,7 @@ void Sequencer::handleNoteOff(VoiceState *voiceState)
     }
 }
 
-void Sequencer::tickNoteDuration(VoiceState *voiceState)
+bool Sequencer::tickNoteDuration(VoiceState *voiceState)
 {
     if (noteDuration.isActive())
     {
@@ -443,8 +448,10 @@ void Sequencer::tickNoteDuration(VoiceState *voiceState)
         {
             // Note duration has expired, turn the note off.
             handleNoteOff(voiceState);
+            return true;
         }
     }
+    return false;
 }
 
 void Sequencer::playStepNow(uint8_t stepIdx, VoiceState *voiceState)

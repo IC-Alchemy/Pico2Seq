@@ -1,10 +1,26 @@
 #include "VoiceManager.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include "../utils/Debug.h"
 #include "../pico2seq-core/scales/scales.h" // Inject scale data into voices
 #include "Voice.h"
 #include "VoicePresets.h"
+
+namespace
+{
+// One-pole time constant for the master gain: fast enough to track the volume
+// knob without perceptible lag, slow enough to hide steps and transport-mute
+// clicks (~63% of the way in 15 ms).
+constexpr float kMasterGainTauSeconds = 0.015f;
+
+inline float makeSmoothingAlpha(float tauSeconds, float sampleRate) noexcept
+{
+    if (tauSeconds <= 0.0f || sampleRate <= 0.0f)
+        return 1.0f;
+    return 1.0f - std::exp(-1.0f / (tauSeconds * sampleRate));
+}
+} // namespace
 
 /**
  * @brief Constructor for VoiceManager
@@ -18,6 +34,8 @@ VoiceManager::VoiceManager(uint8_t maxVoices)
     : maxVoiceCount(maxVoices), nextVoiceId(1), sampleRate(48000.0f), globalVolume(.8f)
 {
     voices.reserve(maxVoiceCount);
+    masterGainAlpha_ = makeSmoothingAlpha(kMasterGainTauSeconds, sampleRate);
+    masterGain_ = globalVolume.load(std::memory_order_relaxed);
 
     // Initialize compressor with default settings for a tight, punchy mix.
     // rpdsp's compressor takes explicit makeup gain instead of auto-makeup;
@@ -317,6 +335,10 @@ Sequencer *VoiceManager::getSequencer(uint8_t voiceId)
 void VoiceManager::init(float sr)
 {
     sampleRate = sr;
+    masterGainAlpha_ = makeSmoothingAlpha(kMasterGainTauSeconds, sampleRate);
+    masterGain_ = transportMuted_.load(std::memory_order_relaxed)
+                      ? 0.0f
+                      : globalVolume.load(std::memory_order_relaxed);
 
     // Reinitialize compressor for new sample rate and reapply settings
     compressor.prepare(sampleRate);
@@ -362,8 +384,7 @@ float VoiceManager::processAllVoices() noexcept
         }
     }
 
-    return transportMuted_.load(std::memory_order_relaxed) ? 0.0f :
-        mixedOutput * globalVolume.load(std::memory_order_relaxed);
+    return mixedOutput * advanceMasterGain_();
     /*
          // Master-bus compression (currently disabled, matching the pre-rpdsp
          // behavior). If enabled, call rpdsp::Compressor::process() per sample
@@ -374,6 +395,18 @@ float VoiceManager::processAllVoices() noexcept
          // Final global volume and hard clamp to safe output range
          return compressed * globalVolume;
     */
+}
+
+float VoiceManager::advanceMasterGain_() noexcept
+{
+    // Audio-thread-only state: eases the master gain toward the requested
+    // volume (or zero when transport-muted) so slider moves and transport
+    // start/stop never step the output abruptly.
+    const float target = transportMuted_.load(std::memory_order_relaxed)
+                             ? 0.0f
+                             : globalVolume.load(std::memory_order_relaxed);
+    masterGain_ += masterGainAlpha_ * (target - masterGain_);
+    return masterGain_;
 }
 
 /**
@@ -392,7 +425,7 @@ float VoiceManager::processVoice(uint8_t voiceId)
     if (managedVoice && managedVoice->voice)
     {
         return managedVoice->voice->process() * managedVoice->mixLevel.load(std::memory_order_relaxed) *
-               globalVolume.load(std::memory_order_relaxed);
+               advanceMasterGain_();
     }
     return 0.0f;
 }

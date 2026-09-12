@@ -635,9 +635,10 @@ float Voice::processWaveguide_() noexcept
                                                  : pitchCache_.baseFreq;
     if (targetHz > 0.0f)
     {
-      // Velocity scales downstream at the filter input, so the string always
-      // plucks at full level.
-      waveguide_.pluck(targetHz, 1.0f);
+      // Velocity drives the excitation itself — like a real pluck, a soft
+      // pick injects less energy (and a softer attack transient) instead of
+      // ringing at full level and being scaled after the fact.
+      waveguide_.pluck(targetHz, state.velocityLevel);
     }
   }
   return waveguide_.process();
