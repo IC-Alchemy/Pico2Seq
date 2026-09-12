@@ -131,8 +131,8 @@ constexpr ParameterDefinition CORE_PARAMETERS[] = {
   {"Filter",       0.5f,    0.0f,  1.0f,  false,  16},
   {"Attack",       0.01f,   0.0f,  1.0f,  false,  16},
   {"Decay",        0.3f,    0.0f,  1.0f,  false,  16},
-  {"Octave",       0.0f,    0.0f,  1.0f,  false,  16},
-  {"GateLength",   0.3f,    0.001f,1.0f,  false,  16},
+  {"Octave",       0.5f,    0.0f,  1.0f,  false,  16},
+  {"GateLength",   0.5f,    0.001f,1.0f,  false,  16},
   {"Gate",         false,   false, true,  true,   16},
   {"Slide",        false,   false, true,  true,   16}
 };
@@ -226,7 +226,7 @@ public:
 
 > **Voice Editing playback transform (2026-09-11)**: `Sequencer` also carries a
 > `setPlaybackTransform()` callback (with an optional octave mapper). It is installed only
-> during playback so sequenced lanes compose with each voice's edit bases (base + modifier)
+> during playback so sequenced lanes compose with each voice's edit bases (base + modifier, with Note as melody + scale-step transpose)
 > without ever rewriting stored steps — see `Sequencer.h` and
 > [`docs/voice-edit.md`](voice-edit.md).
 
@@ -251,9 +251,9 @@ When `advanceStep()` is called on each 16th note clock tick:
    Calls `processStep(UINT8_MAX, voiceState)` to populate the output `VoiceState`:
    - Extracts all parameter values at their respective `currentStepPerParam[id]` indices.
    - Converts octave parameter via `mapFloatToOctaveOffset()`:
-     - `octave < 0.15f` &rarr; `-12` semitones
-     - `octave > 0.40f` &rarr; `+12` semitones
-     - `0.15f <= octave <= 0.40f` &rarr; `0` semitones
+     - `octave < 1/3` &rarr; `-12` semitones
+     - `octave > 2/3` &rarr; `+12` semitones
+     - `1/3 <= octave <= 2/3` &rarr; `0` semitones
    - Slide Handling: If `hasSlide` is true, envelope is not retriggered (`voiceState->shouldRetrigger = false`); note frequency transitions smoothly via slewing in `Voice`.
    - Gate-Controlled Note Output: If Gate is LOW, previous `noteIndex` and `octaveOffset` are retained in `VoiceState`, allowing sustaining/releasing notes to fade out naturally without glitching.
 

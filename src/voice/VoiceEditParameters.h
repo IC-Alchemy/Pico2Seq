@@ -127,8 +127,8 @@ Id nextParameter(Id current, int direction, const VoiceConfig &config,
                  bool changeGroup) noexcept;
 ParamId sequenceLane(Id id, const VoiceConfig &config) noexcept;
 
-// Raw lanes retain the portable sequencer's storage ranges. Their midpoint is
-// zero modulation; convert to bipolar displacement around a patch base.
+// Note stores melody scale steps, with baseNote as an additive transpose.
+// Other continuous lanes use their midpoint as zero modulation around a base.
 float composeLane(ParamId id, float stored, const void *config) noexcept;
 int8_t mapOctave(float normalized) noexcept;
 void seedModifiers(Sequencer &sequencer);

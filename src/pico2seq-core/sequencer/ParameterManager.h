@@ -19,7 +19,7 @@ public:
     uint8_t getStepCount(ParamId id) const;
     float getValue(ParamId id, uint8_t stepIdx) const;
     void setValue(ParamId id, uint8_t stepIdx, float value);
-    void randomizeParameters();
+    void randomizeParameters(bool patchModifiers = false);
 
     // Encoder Parameter Bounds Management functions moved to src/sensors/EncoderManager.h/.cpp
 

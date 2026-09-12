@@ -55,62 +55,6 @@ void updateEncoderBaseValues(UIState &uiState)
   VoiceEditor::publish(index,next);
 }
 
-void applyIncrementToParameter(EncoderBaseValues *baseValues, EncoderParameterMode param, float increment)
-{
-  float *targetParameterValue = nullptr;
-
-  // Select the appropriate parameter to modify
-  switch (param)
-  {
-  case EncoderParameterMode::Note:
-    targetParameterValue = &baseValues->note;
-    break;
-  case EncoderParameterMode::Velocity:
-    targetParameterValue = &baseValues->velocity;
-    break;
-  case EncoderParameterMode::Filter:
-    targetParameterValue = &baseValues->filter;
-    break;
-  case EncoderParameterMode::Attack:
-    targetParameterValue = &baseValues->attack;
-    break;
-  case EncoderParameterMode::Decay:
-    targetParameterValue = &baseValues->decay;
-    break;
-  case EncoderParameterMode::Octave:
-    targetParameterValue = &baseValues->octave;
-    break;
-  case EncoderParameterMode::SlideTime:
-    targetParameterValue = &baseValues->slideTime;
-    break;
-  default:
-    return; // Invalid parameter type
-  }
-
-  if (!targetParameterValue)
-  {
-    return; // Safety check for null pointer
-  }
-
-  // Calculate new value with increment applied
-  float newParameterValue = *targetParameterValue + increment;
-
-  // Apply appropriate clamping based on parameter type
-  if (isBipolarVoiceBaseParameter(param))
-  {
-    // Bidirectional parameters (voice parameters) use symmetric range
-    float maxAllowedRange = getEncoderBaseValueRange(param);
-    *targetParameterValue = std::max(-maxAllowedRange, std::min(newParameterValue, maxAllowedRange));
-  }
-  else
-  {
-    // Unidirectional parameters (slide time) use min/max bounds
-    float parameterMinValue = getParameterMinValue(param);
-    float parameterMaxValue = getParameterMaxValue(param);
-    *targetParameterValue = std::max(parameterMinValue, std::min(newParameterValue, parameterMaxValue));
-  }
-}
-
 // --- Helper Functions for Step Parameter Editing ---
 
 // Convert EncoderParameterMode to ParamId for step editing
@@ -212,16 +156,9 @@ float getEncoderParameterValue()
 
 void initEncoderBaseValues()
 {
-  // Initialize voice parameters to neutral position for all voices
-  for (uint8_t voiceIndex = 0; voiceIndex < VoiceSystem::MAX_VOICES; voiceIndex++)
-  {
-    encoderBaseValues[voiceIndex].note = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-    encoderBaseValues[voiceIndex].velocity = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-    encoderBaseValues[voiceIndex].filter = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-    encoderBaseValues[voiceIndex].attack = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-    encoderBaseValues[voiceIndex].decay = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-    encoderBaseValues[voiceIndex].octave = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-  }
+  // VoiceSetup initializes each patch's bases from its preset. The old
+  // encoderBaseValues array was removed with that ownership change.
+  magEncoder.clearPendingTicks();
 }
 
 void resetEncoderBaseValues(UIState &uiState, bool currentVoiceOnly)

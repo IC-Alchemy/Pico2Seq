@@ -44,19 +44,6 @@ extern const FlashSpeedConfig FLASH_SPEED_ZONES[];
 // ======================
 
 /**
- * @brief Apply parameter increment with boundary checking and clamping
- *
- * Safely applies an increment to an encoder parameter while ensuring the
- * resulting value stays within valid bounds. Handles both bidirectional
- * parameters (voice parameters) and unidirectional parameters (delay/slide).
- *
- * @param baseValues Pointer to the base values structure to modify
- * @param param The parameter type to modify
- * @param increment The increment value to apply (can be positive or negative)
- */
-void applyIncrementToParameter(EncoderBaseValues* baseValues, EncoderParameterMode param, float increment);
-
-/**
  * @brief Update encoder base values using velocity-sensitive bidirectional control
  *
  * Processes magnetic encoder input to update base parameter values for the
@@ -67,47 +54,6 @@ void applyIncrementToParameter(EncoderBaseValues* baseValues, EncoderParameterMo
  * @note Automatically switches to step parameter editing if a step is selected
  */
 void updateEncoderBaseValues(UIState& uiState);
-
-/**
-// ======================
-// Parameter Range and Validation Functions
-// ======================
-
-/**
- * @brief Get minimum valid value for encoder parameter type
- *
- * @param param The parameter type to query
- * @return Minimum valid value for the parameter
- */
-float getParameterMinValue(EncoderParameterMode param);
-
-/**
- * @brief Get maximum valid value for encoder parameter type
- *
- * @param param The parameter type to query
- * @return Maximum valid value for the parameter
- */
-float getParameterMaxValue(EncoderParameterMode param);
-
-/**
- * @brief Get allowed range for encoder base values
- *
- * Calculates the bidirectional range allowed for base values, which may
- * be smaller than the full parameter range to leave room for sequencer values.
- *
- * @param param The parameter type to query
- * @return Allowed range for base values (typically 75% of full range)
- */
-float getEncoderBaseValueRange(EncoderParameterMode param);
-
-/**
- * @brief Clamp encoder base value to allowed bidirectional range
- *
- * @param param The parameter type for range determination
- * @param value The value to clamp
- * @return Clamped value within allowed range
- */
-float clampEncoderBaseValue(EncoderParameterMode param, float value);
 
 // ======================
 // Step Parameter Editing Helper Functions
@@ -157,13 +103,7 @@ float getParameterMaxValueForParamId(ParamId paramId);
  */
 void resetEncoderBaseValues(UIState& uiState, bool currentVoiceOnly = true);
 
-/**
- * @brief Initialize encoder base values with system defaults
- *
- * Sets up initial base values for all voices with appropriate defaults:
- * - Voice parameters: neutral position (0.0f)
- * - Delay parameters: reasonable defaults (200ms delay, 55% feedback)
- */
+// Discard pending encoder motion; preset setup owns initial patch bases.
 void initEncoderBaseValues();
 
 // Global magnetic encoder driver (TMAG5273 on the Velocity Encoder board).

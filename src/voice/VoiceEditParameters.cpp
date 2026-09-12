@@ -889,6 +889,10 @@ void format(Id id, const VoiceConfig &c, char *out, size_t capacity) noexcept {
                                dspmap::Mapping::EXP));
     return;
   }
+  if (b && b->unit == VoiceParameterUnit::Ratio) {
+    std::snprintf(out, capacity, "%.2fx", v);
+    return;
+  }
   Unit unit = p.unit;
   if (b) {
     if (b->unit == VoiceParameterUnit::Seconds)
@@ -961,13 +965,11 @@ float composeLane(ParamId id, float stored, const void *context) noexcept {
     return c.baseSlide || stored > 0.5f ? 1.0f : 0.0f;
   if (id >= ParamId::Count)
     return stored;
-  float n = id == ParamId::Note         ? stored / 36.0f
-            : id == ParamId::GateLength ? (stored - 0.001f) / 0.999f
-                                        : stored;
+  if (id == ParamId::Note)
+    return std::round(std::clamp(stored + c.baseNote, 0.0f, 36.0f));
+  const float n = id == ParamId::GateLength ? (stored - 0.001f) / 0.999f : stored;
   const float effective = std::clamp(
       laneBase(id, c) + std::clamp(n, 0.0f, 1.0f) - 0.5f, 0.0f, 1.0f);
-  if (id == ParamId::Note)
-    return std::round(effective * 36);
   if (id == ParamId::GateLength)
     return 0.001f + effective * 0.999f;
   return effective;
@@ -981,7 +983,7 @@ void seedModifiers(Sequencer &seq) {
     const auto id = static_cast<ParamId>(i);
     if (id == ParamId::Gate || id == ParamId::Slide)
       continue;
-    seq.fillModulationTrack(id, mapNormalizedValueToParamRange(id, 0.5f));
+    seq.fillModulationTrack(id, id == ParamId::Note ? 0.0f : mapNormalizedValueToParamRange(id, 0.5f));
   }
 }
 void enablePatch(VoiceConfig &c) noexcept { c.usePatchBases = true; }
