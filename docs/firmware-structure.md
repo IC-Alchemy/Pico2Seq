@@ -16,7 +16,8 @@ work during each control-loop pass.
 | Clock registration, transport and queued clock events | `src/app/ClockService.h/.cpp` |
 | Step playback, software gates and live recording | `src/app/StepPlayback.h/.cpp` |
 | Voice creation, preset application and track seeding | `src/app/VoiceSetup.h/.cpp` |
-| I2S buffers, stereo output and optional global delay | `src/app/AudioEngine.h/.cpp` |
+| I2S buffers, stereo output and final-mix gain | `src/app/AudioEngine.h/.cpp` |
+| Voice Editing mode (parameter catalogue, editor transport) | `src/app/VoiceEditor.h/.cpp`, `src/voice/VoiceEditParameters.h/.cpp`, `src/ui/VoiceEditControls.h` |
 | Float-to-DAC sample conversion | `src/app/Pcm16.h` |
 | A button, fader or encoder action | Existing `src/ui/` and `src/sensors/` modules |
 | OLED screens or LED colours | Existing `src/OLED/` and `src/LEDMatrix/` modules |
@@ -56,8 +57,10 @@ through the existing sequencer API with its existing width and wrap rules.
 
 Recording a Note requires a high Gate on the edited step. Immediate audio
 feedback applies only to the currently playing step. Distance readings
-74..1400 mm are rebased by 74 mm, then normalized by **1400**, not 1326.
-Invalid readings become zero. Regression tests pin this calibration.
+55..700 mm are rebased by 55 mm, then normalized by the `MIN/MAX_DISTANCE_HEIGHT_MM`
+span (645 mm) in `AppState::PerformanceInput` — the constants live in
+`src/sensors/SensorConstants.h`. Invalid readings become zero. Regression tests
+pin this calibration.
 
 ## Ownership and real-time rules
 
@@ -118,7 +121,8 @@ ctest --test-dir build_test --output-on-failure
 ```
 
 `[app]` tests cover PCM conversion and distance calibration. Existing tests
-cover voices/queues, sequencing, control-surface logic and tile protocol.
+cover voices/queues, sequencing, control-surface logic, tile protocol and the
+Voice Editing mode (`test_voice_edit.cpp`).
 Neither host tests nor compilation verify physical controls, bus timing,
 I2S timing or sound. See [testing.md](testing.md).
 

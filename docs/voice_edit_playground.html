@@ -1,0 +1,1364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pico2Seq Voice Edit — Interactive Manual</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1d212b; --line: #2a2f3a;
+    --text: #e8eaed; --dim: #9aa3b2; --faint: #6b7382;
+    --accent: #7dd3fc; --amber: #fbbf24; --green: #86efac; --red: #f87171;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.55 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 1220px; margin: 0 auto; padding: 20px 22px 60px; }
+  h1 { font-size: 24px; margin: 6px 0 2px; }
+  h2 { font-size: 18px; margin: 34px 0 10px; color: var(--accent); }
+  h3 { font-size: 15px; margin: 18px 0 6px; }
+  p  { margin: 8px 0; }
+  .sub { color: var(--dim); margin: 2px 0 14px; }
+  .meta { color: var(--faint); font-size: 12.5px; font-family: var(--mono); }
+  a { color: var(--accent); }
+  code { font-family: var(--mono); background: var(--panel2); padding: 1px 5px;
+         border-radius: 4px; font-size: 13px; }
+  .panel { background: var(--panel); border: 1px solid var(--line);
+           border-radius: 12px; padding: 14px 16px; }
+  .grid-top { display: grid; grid-template-columns: 300px 1fr 280px; gap: 14px; }
+  @media (max-width: 1050px) { .grid-top { grid-template-columns: 1fr 1fr; } .col-guide { grid-column: 1 / -1; } }
+  @media (max-width: 700px)  { .grid-top { grid-template-columns: 1fr; } }
+
+  /* ---- hardware controls ---- */
+  .tile-buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+  .hwbtn { border: 1px solid var(--line); background: var(--panel2); color: var(--text);
+           border-radius: 10px; padding: 10px 2px 7px; text-align: center; cursor: pointer;
+           user-select: none; touch-action: none; transition: background .08s, box-shadow .08s; }
+  .hwbtn .num { font-family: var(--mono); font-size: 16px; font-weight: 600; display: block; }
+  .hwbtn .lbl { font-size: 10px; color: var(--dim); display: block; margin-top: 2px; line-height: 1.2; }
+  .hwbtn.down { background: #2b4a63; box-shadow: 0 0 0 2px var(--accent) inset; }
+  .hwbtn.shift { border-color: #7c5a1d; }
+  .hwbtn.shift.down { background: #4a3a14; box-shadow: 0 0 0 2px var(--amber) inset; }
+  .slider-buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin-top: 12px; }
+  .slider-buttons .hwbtn { padding: 8px 2px 6px; }
+  .knob-wrap { margin-top: 14px; text-align: center; }
+  .knob { width: 110px; height: 110px; margin: 4px auto; border-radius: 50%;
+          background: radial-gradient(circle at 50% 38%, #33394a, #20242e 70%);
+          border: 2px solid var(--line); position: relative; cursor: ns-resize;
+          touch-action: none; user-select: none; }
+  .knob .tick { position: absolute; left: 50%; top: 6px; width: 3px; height: 16px;
+                background: var(--accent); border-radius: 2px;
+                transform-origin: 50% 49px; transform: translateX(-50%); }
+  .knob:active { border-color: var(--accent); }
+  .knob-hint { color: var(--faint); font-size: 11.5px; }
+  .enc-val { font-family: var(--mono); font-size: 13px; margin-top: 4px; color: var(--accent); min-height: 18px; }
+  .led-row { display: flex; gap: 6px; margin-top: 10px; align-items: center; }
+  .led { width: 12px; height: 12px; border-radius: 50%; background: #2a2f3a; border: 1px solid var(--line); }
+  .led.on { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+  .led.play { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .led-caption { font-size: 11px; color: var(--dim); margin-left: 6px; }
+
+  /* ---- OLED ---- */
+  .oled { background: #070907; border: 3px solid #23262e; border-radius: 10px;
+          font-family: var(--mono); font-size: 14.5px; line-height: 1.05;
+          color: #d7e4d7; text-shadow: 0 0 4px rgba(190,255,190,.45);
+          padding: 14px 14px 12px; min-height: 158px; letter-spacing: .4px; }
+  .oled .r { min-height: 15px; white-space: pre; }
+  .oled .hint { color: #6f7f6f; text-shadow: none; }
+  .status-strip { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; font-family: var(--mono); font-size: 12px; }
+  .chip { border: 1px solid var(--line); border-radius: 20px; padding: 2px 10px; color: var(--dim); background: var(--panel2); }
+  .chip.warn { color: var(--amber); border-color: #5a4310; }
+  .chip.good { color: var(--green); border-color: #2c4a32; }
+
+  /* ---- explainer / guide ---- */
+  .explain { margin-top: 12px; font-size: 14px; }
+  .explain b { color: var(--accent); }
+  .explain .k { color: var(--amber); font-family: var(--mono); font-size: 12.5px; }
+  .guide ol { margin: 6px 0 0; padding-left: 20px; color: var(--dim); font-size: 13.5px; }
+  .guide li { margin-bottom: 7px; }
+  .guide li b { color: var(--text); }
+  .kbd { font-family: var(--mono); font-size: 12px; background: var(--panel2);
+         border: 1px solid var(--line); border-radius: 5px; padding: 0 6px; white-space: nowrap; }
+
+  /* ---- presets ---- */
+  .presets { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px; }
+  .pbtn { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+          border-radius: 20px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  .pbtn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ---- modifier lab ---- */
+  .lab-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 900px) { .lab-grid { grid-template-columns: 1fr; } }
+  .lab-row { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+  .lab-row label { width: 170px; color: var(--dim); font-size: 13.5px; }
+  input[type=range] { flex: 1; accent-color: var(--accent); }
+  .lab-val { font-family: var(--mono); width: 64px; text-align: right; }
+  .formula { font-family: var(--mono); font-size: 13px; background: var(--panel2);
+             border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
+  .steps { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin: 10px 0; }
+  .step { border: 1px solid var(--line); border-radius: 6px; background: var(--panel2);
+          padding: 6px 2px; text-align: center; font-family: var(--mono); font-size: 11px; position: relative; }
+  .step .bar { height: 6px; border-radius: 3px; background: var(--accent); margin: 5px auto 2px; }
+  .step.cur { border-color: var(--amber); box-shadow: 0 0 6px rgba(251,191,36,.4); }
+  .lab-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .abtn { background: var(--panel2); border: 1px solid var(--line); color: var(--text);
+          border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px; }
+  .abtn:hover { border-color: var(--accent); }
+  .transport-toggle { display: inline-flex; align-items: center; gap: 8px; }
+
+  /* ---- catalogue ---- */
+  .cat-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 10px 0; font-size: 13.5px; }
+  .cat-controls select { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+                         border-radius: 6px; padding: 4px 8px; font-size: 13px; }
+  .cat-controls .tgl { display: inline-flex; gap: 5px; align-items: center; color: var(--dim); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--faint); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  td.mono, .mono { font-family: var(--mono); font-size: 12.5px; }
+  td .lane { color: var(--amber); } td .base { color: var(--faint); }
+  tr.grp td { color: var(--accent); font-weight: 600; background: var(--panel2); font-size: 12.5px;
+              text-transform: uppercase; letter-spacing: .6px; padding-top: 10px; }
+  td .desc { color: var(--faint); }
+
+  /* ---- readout ---- */
+  .readout { display: flex; gap: 12px; align-items: stretch; }
+  .readout pre { flex: 1; margin: 0; font-family: var(--mono); font-size: 13px; white-space: pre-wrap; }
+  #copyBtn { align-self: center; }
+
+  .note { color: var(--dim); font-size: 13.5px; }
+  .footnote { color: var(--faint); font-size: 12px; margin-top: 8px; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+  ul.tight { margin: 6px 0; padding-left: 20px; color: var(--dim); font-size: 13.5px; }
+  ul.tight li { margin-bottom: 6px; }
+  ul.tight b { color: var(--text); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Pico2Seq — Voice Edit mode</h1>
+  <p class="sub">An interactive user manual for the per-voice parameter editor added in
+     PR #23 (<span class="meta">plan-voice-editing-mode, merged 2026-09-11</span>).
+     The hardware below is simulated: click the buttons, turn the encoder, and the
+     OLED behaves like the instrument. Everything on this page mirrors
+     <code>docs/voice-edit.md</code> and the firmware source.</p>
+
+  <div class="presets" id="presets"></div>
+
+  <div class="grid-top">
+    <!-- ================= HARDWARE ================= -->
+    <div class="panel col-hw">
+      <h3 style="margin-top:2px">Button tile</h3>
+      <div class="tile-buttons" id="tileButtons"></div>
+      <h3>Slider buttons</h3>
+      <div class="slider-buttons" id="sliderButtons"></div>
+      <div class="knob-wrap">
+        <h3 style="margin-bottom:2px">Encoder</h3>
+        <div class="knob" id="knob"><div class="tick" id="knobTick"></div></div>
+        <div class="knob-hint">scroll or drag &nbsp;·&nbsp; hold <b>5</b> = fine</div>
+        <div class="enc-val" id="encVal"></div>
+      </div>
+      <div class="led-row">
+        <span class="led play" id="ledPlay"></span><span class="led-caption">transport</span>
+        <span class="led" id="ledMod"></span><span class="led-caption">patch modified</span>
+      </div>
+    </div>
+
+    <!-- ================= OLED + EXPLAINER ================= -->
+    <div class="panel col-oled">
+      <h3 style="margin-top:2px">OLED</h3>
+      <div class="oled" id="oled"></div>
+      <div class="status-strip" id="statusStrip"></div>
+      <div class="explain" id="explain"></div>
+    </div>
+
+    <!-- ================= QUICK GUIDE ================= -->
+    <div class="panel col-guide guide">
+      <h3 style="margin-top:2px">Cheat sheet</h3>
+      <ul class="tight">
+        <li><b>Enter</b> <span class="kbd">Shift+Slider4</span> — all sequencers stop, audio mutes</li>
+        <li><b>1 / 2</b> — previous / next parameter group</li>
+        <li><b>3 / 4</b> — previous / next parameter in group</li>
+        <li><b>Slider 1–4</b> — choose voice V1–V4</li>
+        <li><b>Encoder</b> — edit the shown base</li>
+        <li><b>5 hold</b> — fine adjust (×0.1)</li>
+        <li><b>6 hold 0.7 s</b> — reset base to preset</li>
+        <li><b>7</b> — help overlay on/off</li>
+        <li><b>8</b> — exit (edits kept, still stopped)</li>
+        <li><b>Play</b> — hear the edited patch</li>
+      </ul>
+      <h3>Try this</h3>
+      <ol id="tryList">
+        <li>Press <span class="kbd">8</span>+<span class="kbd">Slider 4</span> together to enter. Release everything.</li>
+        <li>Tap <span class="kbd">2</span> a few times — groups; <span class="kbd">4</span> — parameters inside one.</li>
+        <li>Scroll the encoder. The <i>modified</i> star <span class="kbd">*</span> appears.</li>
+        <li>Tap <span class="kbd">7</span> — the on-device help overlay.</li>
+        <li>Hold <span class="kbd">6</span> ~1 s to reset this base to the preset.</li>
+        <li>Tap <span class="kbd">8</span> to exit, then Play.</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ================= WORKFLOW ================= -->
+  <h2>Getting in and out</h2>
+  <div class="panel two-col">
+    <div>
+      <h3>Enter</h3>
+      <ul class="tight">
+        <li>Hold <b>Shift</b> (button-tile button 8) and press <b>slider button 4</b>.</li>
+        <li>All four sequencers stop and audio is muted; the OLED switches to <code>EDIT V1…V4</code>.</li>
+        <li><b>Release the entry buttons before editing</b> — the editor waits for all buttons to be up first.</li>
+        <li>Slider buttons 1–4 then select the voice being edited. Each voice remembers its own parameter cursor.</li>
+      </ul>
+      <h3>Exit</h3>
+      <ul class="tight">
+        <li>Press <b>button 8</b>. Edits are kept and transport stays stopped.</li>
+        <li>Button releases from the editor are consumed first, so nothing “falls through” to normal controls; the GP7 Param/Utility switch is re-sampled after exit.</li>
+        <li>Press normal <b>Play</b> to hear the edited patch in its sequence.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>What is frozen while editing</h3>
+      <ul class="tight">
+        <li>Faders, the lidar, touch pads, transport chords and the GP7 Param/Utility switch do not change the patch or sequence during Voice Edit.</li>
+        <li>Step recording is suspended too — the lidar would otherwise write modifiers while you tweak bases.</li>
+        <li>Audio keeps running internally (envelopes release, edits are queued to Core 1), so scalar edits avoid oscillator rebuilds; structural changes wait for gate-low.</li>
+        <li>Button 7 is <b>Help</b> in these stages; step audition is not implemented yet.</li>
+      </ul>
+      <h3>Changes are RAM-only (for now)</h3>
+      <ul class="tight">
+        <li>Edits last until a preset is loaded or power is lost. Auditioning and saving patches across power cycles are later stages.</li>
+        <li>Loading a preset replaces the bases <i>without reseeding</i> the modifier lanes.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ================= MODIFIER LAB ================= -->
+  <h2 id="labSection">Base + modifier — how the lidar reshapes a patch</h2>
+  <div class="panel">
+    <p>Every numeric sound setting now has a <b>per-voice base</b> (what the encoder edits).
+       The lidar no longer stores absolute values: it records only a <b>signed modifier</b> —
+       its calibrated 55–1200&nbsp;mm range is normalized to 0–1 and the midpoint is neutral.
+       At playback the two combine in the normalized parameter domain:</p>
+    <div class="formula">modifier&nbsp;= lidarNormalized − 0.5&nbsp;&nbsp;&nbsp;·&nbsp;&nbsp;&nbsp;effective = clamp(base + modifier, 0 … 1)</div>
+    <div class="lab-grid">
+      <div>
+        <div class="lab-row"><label>Base (encoder)</label>
+          <input type="range" id="labBase" min="0" max="100" value="70"><span class="lab-val mono" id="labBaseVal"></span></div>
+        <div class="lab-row"><label>Lidar reading</label>
+          <input type="range" id="labLidar" min="0" max="100" value="75"><span class="lab-val mono" id="labLidarVal"></span></div>
+        <div class="lab-row"><label>Effective value</label>
+          <input type="range" id="labEff" min="0" max="100" value="95" disabled><span class="lab-val mono" id="labEffVal"></span></div>
+        <p class="note">The documented example: a <b>70 % velocity base</b> with recorded lidar
+           readings of 25 %, 50 % and 75 % plays at <b>45 %, 70 %, 95 %</b>. Moving the base later
+           transposes all three recordings — they are never rewritten. Limits clamp.</p>
+        <div class="lab-actions">
+          <button class="abtn" id="labExample">Load the 70 % example</button>
+        </div>
+      </div>
+      <div>
+        <p class="note" style="margin-top:0">An 8-step <b>Velocity</b> lane. <b>Record</b> writes the
+           current lidar modifier into every step (as live recording does), <b>Randomize</b> randomizes
+           modifiers (as the randomize button does), <b>Neutral</b> is what new/reset steps get.
+           Then drag the Base slider — the bars follow the base, the stored modifiers don’t change.</p>
+        <div class="steps" id="labSteps"></div>
+        <div class="lab-actions transport-toggle">
+          <button class="abtn" id="labPlay"></button>
+          <button class="abtn" id="labRecord">Record lidar into steps</button>
+          <button class="abtn" id="labRandom">Randomize modifiers</button>
+          <button class="abtn" id="labNeutral">Reset to neutral</button>
+        </div>
+        <p class="footnote">Storage stays in the sequencer’s own units (Note 0–36, Gate length 0.001–1,
+           other lanes 0–1); the step OLED shows the stored modifier as <code>+x.x% mod</code>.
+           New and reset steps — including hidden note values of silent steps — start neutral.
+           There is no separate depth control in this stage.</p>
+      </div>
+    </div>
+    <h3>Special lanes</h3>
+    <ul class="tight">
+      <li><b>Gate</b> stays a trigger pattern: the base enables/disables the whole pattern (base AND step).</li>
+      <li><b>Slide</b>: base on = slide everywhere; base off = the recorded per-step Slide bits decide (base OR step).</li>
+      <li><b>Note</b> bases are scale steps; <b>Octave</b> bases are quantized semitones from −24 to +24.</li>
+      <li><b>Attack/Decay</b> use a logarithmic 1 ms–10 s domain; their lanes never touch sustain or release.</li>
+      <li><b>Engine-specific lanes</b> keep their own curves and units — Hard-sync’s Slave tuning, string T60, FM ratio, recipe macros.</li>
+    </ul>
+  </div>
+
+  <!-- ================= CATALOGUE ================= -->
+  <h2>Parameter catalogue</h2>
+  <div class="panel">
+    <p class="note">The editor only offers what the current engine and enabled processors use —
+       everything else is hidden, and group navigation skips empty groups. Configure a voice
+       below to see exactly which parameters its editor exposes. In the last column,
+       <span class="lane">BASE + STEP MOD</span> means a sequencer lane also modifies this base;
+       <span class="base">PATCH BASE</span> means the encoder value is the whole story.</p>
+    <div class="cat-controls">
+      <label>Engine <select id="catEngine"></select></label>
+      <label>Recipe <select id="catRecipe"></select></label>
+      <label>Oscillators <select id="catOsc"><option>0</option><option>1</option><option>2</option><option>3</option></select></label>
+      <label class="tgl"><input type="checkbox" id="catSync"> hard-sync waveform</label>
+      <label class="tgl"><input type="checkbox" id="catEnv"> envelope</label>
+      <label class="tgl"><input type="checkbox" id="catFilter"> main filter</label>
+      <label class="tgl"><input type="checkbox" id="catLadder"> ladder topology</label>
+      <label class="tgl"><input type="checkbox" id="catOd"> overdrive</label>
+    </div>
+    <div style="max-height: 430px; overflow: auto; border: 1px solid var(--line); border-radius: 8px;">
+      <table id="catTable"></table>
+    </div>
+    <p class="footnote">Not editable (engine implementation state, not patch values): oscillator phases,
+       random seeds, buffer sizes, DSP callback pointers, numerical stability constants.
+       When the engine or recipe changes, resetting a parameter uses the loaded preset’s value
+       adapted to the new engine’s valid ranges.</p>
+  </div>
+
+  <!-- ================= OUTSIDE EDITOR ================= -->
+  <h2>Outside the editor: what changed in normal play</h2>
+  <div class="panel two-col">
+    <ul class="tight">
+      <li>The encoder now edits the <b>base</b> of whichever sequenced parameter it targets —
+          it no longer overwrites the selected step’s stored value. The OLED shows
+          <code>B:&lt;name&gt; &lt;value&gt;</code> for that base.</li>
+      <li>When a <b>step</b> is selected, its OLED line shows the stored signed modifier,
+          e.g. <code>+23.4% mod</code>, instead of an absolute value.</li>
+      <li>Lidar recording during playback writes modifiers (midpoint = neutral) into the
+          selected voice’s lanes — normalized 55–1200 mm exactly as in the lab above.</li>
+      <li>Randomize randomizes modifiers; new/reset steps are neutral.</li>
+      <li>The editor’s <b>Engine</b> and <b>Recipe</b> selections re-point the voice’s parameter
+          layout, so lane meanings change together: picking a hard-sync waveform turns the
+          Velocity lane into <b>Slave</b> tuning; ordinary waveforms restore Velocity.
+          SVF offers LP/BP/HP; ladder filters offer the six native responses
+          (LP24, LP12, BP24, BP12, HP24, HP12).</li>
+    </ul>
+    <div>
+      <h3>Sequenced bases are engine-aware</h3>
+      <p class="note">The <b>Sequenced bases</b> group always exists, but each engine decides what
+         its Filter / Attack / Decay lanes mean — the editor renames them so the OLED never lies.
+         Examples (see the catalogue’s engine selector):</p>
+      <ul class="tight">
+        <li><b>Oscillators</b>: Cutoff / Attack / Decay mean themselves.</li>
+        <li><b>Hard sync</b>: Note → <b>Master</b>, Velocity → <b>Slave</b> (±24 semitones of slave tuning).</li>
+        <li><b>Waveguide</b>: Cutoff → <b>Bright</b>, Attack → <b>Pick</b>, Decay → <b>T60</b>.</li>
+        <li><b>Hypersaw</b>: Attack → <b>Detune</b>, Decay → <b>Mix</b>.</li>
+        <li><b>Noise FX</b>: Cutoff → <b>Color</b>, Attack → <b>Regen</b>, Decay → <b>Chaos</b>.</li>
+        <li><b>Recipes</b>: the three timbre lanes become the recipe’s macros — e.g. FM:
+            Cutoff → <b>Index</b>, Attack → <b>Ratio</b>, Decay → <b>Feedback</b>.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ================= NOTES ================= -->
+  <h2>Good to know</h2>
+  <div class="panel">
+    <ul class="tight">
+      <li><b>Independent voices.</b> All four voices keep separate bases, cursors and modified
+          markers; editing one never touches the others. Voices 1–2 keep software gates; 3–4 are audio-only.</li>
+      <li><b>Reset is per-parameter.</b> Holding button 6 resets only the selected base, and to
+          <i>the loaded preset’s value</i> — not a factory default. If you switched engine since loading,
+          the preset value is adapted to the new engine’s ranges.</li>
+      <li><b>Navigation is filtered.</b> Unavailable parameters are skipped in both directions and
+          empty groups are skipped when changing groups; the cursor never lands on a dead entry.</li>
+      <li><b>Discrete vs continuous.</b> Toggles, choices, Note and Octave step in whole increments
+          (Octave in octaves); continuous parameters sweep their domain, with logarithmic domains for
+          all time parameters and the high-pass cutoff, and curve-mapped domains for lane-bound values.</li>
+      <li><b>Firmware compilation and upload don’t verify physical controls or listening</b> —
+          check those on the instrument after flashing.</li>
+    </ul>
+  </div>
+
+  <!-- ================= READOUT ================= -->
+  <h2>Session readout</h2>
+  <div class="panel readout">
+    <pre id="readout"></pre>
+    <button class="abtn" id="copyBtn">Copy</button>
+  </div>
+  <p class="footnote">Simulator for <a href="voice-edit.md">docs/voice-edit.md</a> · Pico2Seq Voice Edit
+     (PR #23) · preset values shown here are the firmware’s own compile-time presets.</p>
+</main>
+
+<script>
+'use strict';
+/* ============================================================
+   Catalogue — mirrors src/voice/VoiceEditParameters.cpp
+   g: group index, u: unit, min/max, log, int (stepped), lane:
+     'seq'           lane-bound (id <= Slide)   -> BASE + STEP MOD
+     'env'           lane only when envelopeFromTracks
+     'fnull'         lane only when Filter lane unbound
+     'recipe-macro'  lane-bound on the recipe engine
+     'engine-bound'  lane-bound on its owning engine
+     null            PATCH BASE
+   ============================================================ */
+const GROUPS = ['Sequenced bases','Source','Oscillator 1','Oscillator 2','Oscillator 3',
+                'Envelope','Main filter','High-pass','Overdrive','Engine','Output'];
+const ENGINES = ['Oscillators','Waveguide','Noise FX','Hypersaw','Recipe'];
+const RECIPES = ['Feedback FM','Phase morph','Spectral DSF','Prism'];
+const WAVES = ['Sine','Triangle','Saw','Square','BS Saw','BS Square','Hard sync','Noise'];
+const LADDER_MODES = ['LP24','LP12','BP24','BP12','HP24','HP12'];
+const SVF_MODES = ['Low-pass','Band-pass','High-pass'];
+const TMIN = 0.001, TMAX = 10.0;
+
+// Per-paramset layout facts (from VoiceParameters.cpp / RecipePresets.h)
+const LAYOUT = {
+  standard: { envTracks: true,  filterBound: false, cutLo: 120, cutHi: 5000 },
+  hardsync: { envTracks: true,  filterBound: false, cutLo: 120, cutHi: 5000 },
+  wg:       { envTracks: false, filterBound: true,  cutLo: 120, cutHi: 5000 },
+  hs:       { envTracks: false, filterBound: false, cutLo: 150, cutHi: 8000 },
+  nf:       { envTracks: false, filterBound: true,  cutLo: 150, cutHi: 8000 },
+};
+const RECIPE_DEFS = [
+  { macros: ['Index','Ratio','Feedback'], ranges: [[0,1,'%'],[0.5,8,'num'],[0,0.5,'%']],
+    curves: ['exp','lin','exp'], extras: ['FmModFeedback'] },
+  { macros: ['Shape','Skew','Blend'], ranges: [[0,1,'%'],[-1,1,'%'],[0,1,'%']],
+    curves: ['lin','lin','lin'], extras: ['PhaseFold'] },
+  { macros: ['Bright','Spacing','Sub'], ranges: [[0,0.9,'%'],[0.5,8,'num'],[0,1,'%']],
+    curves: ['lin','lin','lin'], extras: ['SubRatio','SubShape'] },
+  { macros: ['Focus','Spread','Drift'], ranges: [[0,1,'%'],[0,1,'%'],[0,1,'%']],
+    curves: ['lin','lin','lin'], extras: ['DriftChaos'] },
+];
+// Sequenced-group lane renames per paramset (binding names from the layouts)
+const LANE_NAMES = {
+  standard: {},
+  hardsync: { Note: 'Master', Velocity: 'Slave' },
+  wg:       { Cutoff: 'Bright', Attack: 'Pick', Decay: 'T60' },
+  hs:       { Attack: 'Detune', Decay: 'Mix' },
+  nf:       { Cutoff: 'Color', Attack: 'Regen', Decay: 'Chaos' },
+};
+// Lane bindings for the recipe engine: the three timbre lanes are the macros
+const RECIPE_LANES = [
+  { Cutoff: 0, Attack: 1, Decay: 2 },   // macro index per sequenced param
+];
+
+const CAT = [
+ {id:'Note',       g:0, name:'Note',        u:'steps', min:0, max:36, int:true,  lane:'seq',
+  blurb:'Scale-step base of the pattern (0–36; “Master” on hard-sync voices). The Note lane’s modifiers shift each step around this base before scale mapping.'},
+ {id:'Velocity',   g:0, name:'Velocity',    u:'%', min:0, max:1, lane:'seq',
+  blurb:'Loudness base. Lidar modifiers add around it; on hard-sync waveforms this lane is renamed Slave and tunes the slave oscillator over ±24 semitones instead.'},
+ {id:'Cutoff',     g:0, name:'Cutoff',      u:'%', min:0, max:1, lane:'seq',
+  blurb:'Sequenced cutoff base, shown in Hz. Engine layouts re-point this lane (Bright, Color, recipe macros) — the OLED always shows the real name.'},
+ {id:'Attack',     g:0, name:'Attack',      u:'s', min:TMIN, max:TMAX, log:true, lane:'seq',
+  blurb:'Envelope attack base, logarithmic 1 ms–10 s. Engines may re-point this lane (Pick hardness, saw Detune, recipe Ratio…).'},
+ {id:'Decay',      g:0, name:'Decay',       u:'s', min:TMIN, max:TMAX, log:true, lane:'seq',
+  blurb:'Envelope decay base, logarithmic 1 ms–10 s. Lanes never change sustain or release.'},
+ {id:'Octave',     g:0, name:'Octave',      u:'st', min:-24, max:24, int:true, lane:'seq',
+  blurb:'Pitch offset base, quantized to whole octaves from −24 to +24 semitones. The encoder steps it one octave at a time.'},
+ {id:'GateLength', g:0, name:'Gate length', u:'%', min:0.001, max:1, lane:'seq',
+  blurb:'Gate duration as a fraction of the step (0.1 %–100 %). Modifiers stretch or shorten each step’s gate around this base.'},
+ {id:'Gate',       g:0, name:'Gate enable', u:'onoff', min:0, max:1, int:true, lane:'seq',
+  blurb:'Master switch for the Gate track’s trigger pattern (base AND step). Off silences the pattern regardless of recorded gates.'},
+ {id:'Slide',      g:0, name:'Slide enable',u:'onoff', min:0, max:1, int:true, lane:'seq',
+  blurb:'Portamento override (base OR step): base On slides everywhere; base Off lets the recorded per-step Slide bits decide.'},
+ {id:'Engine',     g:1, name:'Engine',      u:'choice', min:0, max:4, int:true, lane:null, choices:ENGINES,
+  blurb:'Pick the synthesis engine. This also re-points the parameter layout, so lane names and available parameters change with it.'},
+ {id:'Recipe',     g:1, name:'Recipe',      u:'choice', min:0, max:3, int:true, lane:null, choices:RECIPES, eng:4,
+  blurb:'Choose the recipe patch (Feedback FM, Phase morph, Spectral DSF, Prism). Each owns its macro names, ranges and curves.'},
+ {id:'OscCount',   g:1, name:'Oscillators', u:'num', min:0, max:3, int:true, lane:null, eng:0,
+  blurb:'How many of the three oscillators are active (0–3). Oscillator groups only appear for enabled oscillators.'},
+ {id:'Wave1', g:2, name:'Waveform',  u:'choice', min:0, max:7, int:true, lane:null, choices:WAVES, osc:0,
+  blurb:'Oscillator 1 shape. Choosing Hard sync switches the whole parameter set — the Velocity lane becomes Slave tuning.'},
+ {id:'Level1', g:2, name:'Level',    u:'%', min:0, max:1, lane:null, osc:0, blurb:'Oscillator 1 output level.'},
+ {id:'Detune1', g:2, name:'Detune', u:'st', min:-12, max:12, lane:null, osc:0, blurb:'Oscillator 1 pitch offset in semitones.'},
+ {id:'Pulse1', g:2, name:'Pulse width', u:'%', min:0.01, max:0.99, lane:null, pulse:0,
+  blurb:'Pulse-width for square-family waveforms only (Square, BS Square).'},
+ {id:'Harmony1', g:2, name:'Harmony', u:'num', min:-12, max:12, int:true, lane:null, oscOrAny:0,
+  blurb:'Harmonic interval in semitones. Harmony 1 also tunes the alternate pitched engines (Waveguide, Hypersaw…).'},
+ {id:'Wave2', g:3, name:'Waveform',  u:'choice', min:0, max:7, int:true, lane:null, choices:WAVES, osc:1, blurb:'Oscillator 2 shape.'},
+ {id:'Level2', g:3, name:'Level',    u:'%', min:0, max:1, lane:null, osc:1, blurb:'Oscillator 2 output level.'},
+ {id:'Detune2', g:3, name:'Detune', u:'st', min:-12, max:12, lane:null, osc:1, blurb:'Oscillator 2 pitch offset in semitones.'},
+ {id:'Pulse2', g:3, name:'Pulse width', u:'%', min:0.01, max:0.99, lane:null, pulse:1, blurb:'Oscillator 2 pulse width (square-family only).'},
+ {id:'Harmony2', g:3, name:'Harmony', u:'num', min:-12, max:12, int:true, lane:null, osc:1, blurb:'Oscillator 2 harmonic interval.'},
+ {id:'Wave3', g:4, name:'Waveform',  u:'choice', min:0, max:7, int:true, lane:null, choices:WAVES, osc:2, blurb:'Oscillator 3 shape.'},
+ {id:'Level3', g:4, name:'Level',    u:'%', min:0, max:1, lane:null, osc:2, blurb:'Oscillator 3 output level.'},
+ {id:'Detune3', g:4, name:'Detune', u:'st', min:-12, max:12, lane:null, osc:2, blurb:'Oscillator 3 pitch offset in semitones.'},
+ {id:'Pulse3', g:4, name:'Pulse width', u:'%', min:0.01, max:0.99, lane:null, pulse:2, blurb:'Oscillator 3 pulse width (square-family only).'},
+ {id:'Harmony3', g:4, name:'Harmony', u:'num', min:-12, max:12, int:true, lane:null, osc:2, blurb:'Oscillator 3 harmonic interval.'},
+ {id:'EnvelopeOn', g:5, name:'Envelope', u:'onoff', min:0, max:1, int:true, lane:null,
+  blurb:'Enable the ADSR VCA. Waveguide patches typically run without it (natural T60 decay).'},
+ {id:'EnvAttack', g:5, name:'Attack',  u:'s', min:TMIN, max:TMAX, log:true, lane:'env',
+  blurb:'Same attack base as the Sequenced group; lane-modified only when the engine drives its envelope from the tracks.'},
+ {id:'EnvDecay', g:5, name:'Decay',    u:'s', min:TMIN, max:TMAX, log:true, lane:'env',
+  blurb:'Same decay base as the Sequenced group; lane-modified only when the engine drives its envelope from the tracks.'},
+ {id:'Sustain', g:5, name:'Sustain',   u:'%', min:0, max:1, lane:null, need:'env', blurb:'Sustain level. Never touched by sequencer lanes.'},
+ {id:'Release', g:5, name:'Release',   u:'s', min:TMIN, max:TMAX, log:true, lane:null, need:'env',
+  blurb:'Release time, logarithmic 1 ms–10 s. Never touched by sequencer lanes.'},
+ {id:'FilterOn', g:6, name:'Main filter', u:'onoff', min:0, max:1, int:true, lane:null,
+  blurb:'Enable the main filter stage. The rest of this group only appears while it is on.'},
+ {id:'FilterType', g:6, name:'Topology', u:'choice', min:0, max:1, int:true, lane:null, choices:['Ladder','SVF'], need:'filter',
+  blurb:'Ladder (with input drive and passband compensation) or SVF (clean state-variable). The Response list follows this choice.'},
+ {id:'FilterMode', g:6, name:'Response', u:'choice', min:0, max:5, int:true, lane:null, need:'filter',
+  blurb:'SVF offers Low-pass / Band-pass / High-pass; ladder offers LP24, LP12, BP24, BP12, HP24, HP12.'},
+ {id:'StaticCutoff', g:6, name:'Cutoff', u:'%', min:0, max:1, lane:'fnull', need:'filter',
+  blurb:'Static cutoff base shown in Hz. On engines whose Filter lane means something else (Waveguide, Noise FX, recipes) this is patch-base only.'},
+ {id:'Resonance', g:6, name:'Resonance', u:'%', min:0, max:1, lane:null, need:'filter', blurb:'Filter resonance/emphasis.'},
+ {id:'FilterDrive', g:6, name:'Input drive', u:'num', min:0, max:4, lane:null, ladderOnly:true, blurb:'Ladder nonlinearity input drive (0–4).'},
+ {id:'Passband', g:6, name:'Passband gain', u:'%', min:0, max:0.5, lane:null, ladderOnly:true, blurb:'Ladder passband gain compensation (0–50 %).'},
+ {id:'FilterEnvAmount', g:6, name:'Env amount', u:'num', min:0, max:2, lane:null, need:'filter', blurb:'How far the envelope sweeps the cutoff (0–2).'},
+ {id:'FilterEnvFloor', g:6, name:'Env floor', u:'%', min:0, max:1, lane:null, need:'filter', blurb:'Cutoff floor the envelope sweep starts from.'},
+ {id:'HighPassFreq', g:7, name:'HP cutoff', u:'hz', min:20, max:20000, log:true, lane:null, blurb:'High-pass cutoff, logarithmic 20 Hz–20 kHz. Always available.'},
+ {id:'HighPassRes', g:7, name:'HP resonance', u:'%', min:0, max:1, lane:null, blurb:'High-pass resonance.'},
+ {id:'DriveOn', g:8, name:'Overdrive', u:'onoff', min:0, max:1, int:true, lane:null, blurb:'Enable the overdrive stage; Drive and Drive gain appear while it is on.'},
+ {id:'Drive', g:8, name:'Drive', u:'%', min:0, max:1, lane:null, need:'od', blurb:'Overdrive amount.'},
+ {id:'DriveGain', g:8, name:'Drive gain', u:'num', min:0, max:2, lane:null, need:'od', blurb:'Overdrive gain makeup (0–2).'},
+ {id:'T60', g:9, name:'String T60', u:'s', min:0.05, max:10, lane:'engine-bound', eng:1,
+  blurb:'Waveguide string decay to −60 dB (50 ms–10 s). The Decay lane re-points here on Waveguide voices (BASE + STEP MOD).'},
+ {id:'Brightness', g:9, name:'Brightness', u:'%', min:0, max:1, lane:'engine-bound', eng:1,
+  blurb:'String damping/brightness. The Filter lane re-points here on Waveguide voices.'},
+ {id:'PickPosition', g:9, name:'Pick position', u:'%', min:0.02, max:0.5, lane:null, eng:1, blurb:'Where the string is picked (2–50 %); bridge = thin and nasal.'},
+ {id:'PickHardness', g:9, name:'Pick hardness', u:'%', min:0, max:1, lane:'engine-bound', eng:1,
+  blurb:'Pick attack hardness. The Attack lane re-points here on Waveguide voices.'},
+ {id:'Stiffness', g:9, name:'Stiffness', u:'%', min:0, max:1, lane:null, eng:1, blurb:'Inharmonic stiffness dispersion.'},
+ {id:'StringDetune', g:9, name:'String detune', u:'ct', min:0, max:30, lane:null, eng:1, blurb:'Detune between the two strings of the course (0–30 cents).'},
+ {id:'SawDetune', g:9, name:'Saw detune', u:'%', min:0, max:1, lane:'engine-bound', eng:3,
+  blurb:'Hypersaw spread. The Attack lane re-points here on Hypersaw voices.'},
+ {id:'SawMix', g:9, name:'Saw mix', u:'%', min:0, max:1, lane:'engine-bound', eng:3,
+  blurb:'Hypersaw layer mix. The Decay lane re-points here on Hypersaw voices.'},
+ {id:'DiffuseSize', g:9, name:'Diffuse size', u:'%', min:0, max:1, lane:null, eng:2, blurb:'Noise FX diffuse cloud size.'},
+ {id:'DiffuseMix', g:9, name:'Diffuse mix', u:'%', min:0, max:1, lane:null, eng:2, blurb:'Noise FX diffuse blend.'},
+ {id:'SwarmColor', g:9, name:'Swarm color', u:'%', min:0, max:1, lane:'engine-bound', eng:2,
+  blurb:'Swarm spectral color. The Filter lane re-points here on Noise FX voices.'},
+ {id:'SwarmRegen', g:9, name:'Swarm regen', u:'%', min:0, max:1, lane:'engine-bound', eng:2,
+  blurb:'Swarm regeneration. The Attack lane re-points here on Noise FX voices.'},
+ {id:'ChaosLevel', g:9, name:'Chaos level', u:'%', min:0, max:1, lane:'engine-bound', eng:2,
+  blurb:'Chaos depth. The Decay lane re-points here on Noise FX voices.'},
+ {id:'Macro1', g:9, name:'Macro 1', u:'%', min:0, max:1, lane:'recipe-macro', eng:4,
+  blurb:'Recipe timbre macro 1 — renamed and re-ranged by the recipe (FM: Index 0–100 %, curve-mapped).'},
+ {id:'Macro2', g:9, name:'Macro 2', u:'num', min:0, max:8, lane:'recipe-macro', eng:4,
+  blurb:'Recipe timbre macro 2 (FM: Ratio 0.5–8, Phase: Skew ±1, DSF: Spacing 0.5–8). The Attack lane re-points here.'},
+ {id:'Macro3', g:9, name:'Macro 3', u:'%', min:0, max:1, lane:'recipe-macro', eng:4,
+  blurb:'Recipe timbre macro 3 (FM: Feedback 0–50 %, curve-mapped). The Decay lane re-points here.'},
+ {id:'FmModFeedback', g:9, name:'Mod feedback', u:'%', min:0, max:0.95, lane:null, eng:4, recipe:0, blurb:'Feedback FM only: modulator feedback amount (0–95 %).'},
+ {id:'PhaseFold', g:9, name:'Triangle fold', u:'%', min:0, max:1, lane:null, eng:4, recipe:1, blurb:'Phase morph only: triangle phase-folding depth.'},
+ {id:'SubRatio', g:9, name:'Sub ratio', u:'num', min:0.125, max:2, lane:null, eng:4, recipe:2, blurb:'Spectral DSF only: sub-source frequency ratio (0.125–2).'},
+ {id:'SubShape', g:9, name:'Sub shape', u:'%', min:0, max:1, lane:null, eng:4, recipe:2, blurb:'Spectral DSF only: sub-source shape.'},
+ {id:'DriftChaos', g:9, name:'Drift chaos', u:'%', min:0, max:1, lane:null, eng:4, recipe:3, blurb:'Prism only: drift chaos depth.'},
+ {id:'RecipeRetrigger', g:9, name:'Reset on gate', u:'onoff', min:0, max:1, int:true, lane:null, eng:4,
+  blurb:'Recipe engine only: restart the recipe state on every gate.'},
+ {id:'NoiseLevel', g:9, name:'Noise level', u:'%', min:0, max:1, lane:null, eng:2, blurb:'Noise FX only: raw noise source level.'},
+ {id:'ChaosRate', g:9, name:'Chaos rate', u:'num', min:0.125, max:4, lane:null, eng:2, blurb:'Noise FX only: chaos rate multiplier (0.125–4).'},
+ {id:'SlideTime', g:0, name:'Glide time', u:'s', min:TMIN, max:TMAX, log:true, lane:null,
+  blurb:'Portamento time for slide, logarithmic 1 ms–10 s. A patch base — slides are switched per step, not shaped by lanes.'},
+ {id:'Enabled', g:10, name:'Voice enabled', u:'onoff', min:0, max:1, int:true, lane:null, blurb:'Mute or enable this voice entirely.'},
+ {id:'Output', g:10, name:'Output level', u:'%', min:0, max:1, lane:null, blurb:'Voice output level.'},
+];
+// Navigation follows firmware Id order; within "Sequenced bases" the Glide time
+// entry sits after Slide enable.
+
+/* ---------------- state ---------------- */
+function baseConfig(preset) { return JSON.parse(JSON.stringify(preset)); }
+function makePreset(o) {
+  return Object.assign({
+    name:'?', engine:0, recipe:-1, paramSet:'standard', oscCount:2,
+    wave:[0,0,0], level:[1,1,1], det:[0,0,0], pulse:[0.5,0.5,0.5], harm:[0,0,0],
+    hasEnv:true, att:0.01, dec:0.2, sus:0.5, rel:0.2,
+    hasFilter:true, fType:1, fMode:1, cutoffBase:0.37, res:0.4, fDrive:0, passband:0, envAmt:0, envFloor:0,
+    hp:120, hpRes:0,
+    hasOd:false, od:0.3, odGain:0.8,
+    wg: { t60:1.8, bright:0.78, pp:0.26, ph:0.85, stiff:0, det:4 },
+    hs: { det:0.2, mix:0.5 },
+    nf: { size:0.85, mix:0.65, color:0.6, regen:0.95, chaos:0.4, level:0, rate:1 },
+    rec: { fmb:0, tri:0, subr:1, subs:0, drift:0, retrig:false },
+    macros: [0.32, 3.5, 0.08],
+    glide:0.06, enabled:true, out:0.5,
+    bases: { Note:0, Velocity:0.5, Octave:0, GateLength:0.3, Gate:true, Slide:false },
+  }, o);
+}
+// The four simulated "loaded presets" — the firmware's own compile-time preset bank
+const VOICE_PRESETS = [
+  makePreset({ name:'Analog', paramSet:'hardsync', oscCount:1, wave:[6], level:[1],
+    fType:0, fMode:0, res:0.33, fDrive:2.1, passband:0.23, hp:120,
+    att:0.07, dec:0.24, sus:0.5, rel:0.16, out:0.5 }),
+  makePreset({ name:'WgPluck', engine:1, paramSet:'wg', oscCount:0,
+    hasFilter:false, hasEnv:false, hasOd:false, hp:55, out:0.85 }),
+  makePreset({ name:'Hypersaw', engine:3, paramSet:'hs', oscCount:0,
+    fType:1, fMode:0, res:0.35, hp:180, att:0.012, dec:0.3, sus:0.8, rel:0.25, out:0.5 }),
+  makePreset({ name:'FMGlass', engine:4, recipe:0, paramSet:'recipe', oscCount:0,
+    hasFilter:false, hp:30, att:0.003, dec:0.4, sus:0.12, rel:0.5, out:0.65 }),
+];
+
+const S = {
+  active:false, help:false, fine:false, waitRelease:false,
+  buttons:[0,0,0,0,0,0,0,0], sliders:[0,0,0,0],
+  lastButtons:[0,0,0,0,0,0,0,0], lastSliders:[0,0,0,0],
+  voice:0, changed:[false,false,false,false], cursor:['Note','Note','Note','Note'],
+  playing:false,
+  voices: VOICE_PRESETS.map(baseConfig),
+  labBase:0.70, labLidar:0.75, labSteps:[], labPlaying:false, labStep:0,
+};
+
+/* ---------------- small helpers ---------------- */
+const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+const PATHS = {
+  'wg.bright': c => c.wg.bright, 'wg.ph': c => c.wg.ph, 'wg.t60': c => c.wg.t60,
+  'hs.det': c => c.hs.det, 'hs.mix': c => c.hs.mix,
+  'nf.color': c => c.nf.color, 'nf.regen': c => c.nf.regen, 'nf.chaos': c => c.nf.chaos,
+};
+function setPath(path, cfg, v) {
+  const [a, b] = path.split('.');
+  cfg[a][b] = v;
+}
+// sqrt-domain curve used by dspmap EXP bindings
+const expNorm = (v, lo, hi) => Math.sqrt(clamp((v - lo) / (hi - lo), 0, 1));
+const expMap  = (n, lo, hi) => lo + Math.pow(clamp(n, 0, 1), 2) * (hi - lo);
+const logNorm = (v, lo, hi) => Math.log(clamp(v, lo, hi) / lo) / Math.log(hi / lo);
+const logMap  = (n, lo, hi) => lo * Math.pow(hi / lo, clamp(n, 0, 1));
+
+function paramSetOf(cfg) {
+  if (cfg.engine === 1) return 'wg';
+  if (cfg.engine === 2) return 'nf';
+  if (cfg.engine === 3) return 'hs';
+  if (cfg.engine === 4) return 'recipe';
+  return cfg.wave.slice(0, cfg.oscCount).some(w => w === 6) ? 'hardsync' : 'standard';
+}
+function layoutOf(cfg) {
+  const ps = paramSetOf(cfg);
+  if (ps === 'recipe') {
+    const r = RECIPE_DEFS[Math.max(cfg.recipe, 0)];
+    return { envTracks:false, filterBound:true, cutLo:120, cutHi:5000, recipe:r };
+  }
+  return Object.assign({}, LAYOUT[ps], { recipe:null });
+}
+
+/* The lane binding for a sequenced-group base on this voice, mirroring
+   VoiceParameters::binding(). Null = unbound (catalogue domain applies). */
+function laneBind(id, cfg) {
+  const ps = paramSetOf(cfg);
+  if (ps === 'recipe') {
+    const i = { Cutoff:0, Attack:1, Decay:2 }[id];
+    if (i === undefined) return null;
+    const r = RECIPE_DEFS[Math.max(cfg.recipe, 0)];
+    const [lo, hi, u] = r.ranges[i];
+    return { name:r.macros[i], lo, hi, curve:r.curves[i], unit:u === 'num' ? 'num' : '%',
+             get:c => c.macros[i], set:(c,v) => { c.macros[i] = v; } };
+  }
+  const BINDS = {
+    wg: { Cutoff: ['wg.bright',0,1,'lin','%','Bright'],
+          Attack: ['wg.ph',0,1,'lin','%','Pick'],
+          Decay:  ['wg.t60',0.05,10,'exp','s','T60'] },
+    hs: { Attack: ['hs.det',0,1,'lin','%','Detune'],
+          Decay:  ['hs.mix',0,1,'lin','%','Mix'] },
+    nf: { Cutoff: ['nf.color',0,1,'lin','%','Color'],
+          Attack: ['nf.regen',0,1,'lin','%','Regen'],
+          Decay:  ['nf.chaos',0,1,'lin','%','Chaos'] },
+  };
+  const m = BINDS[ps] && BINDS[ps][id];
+  if (m) return { name:m[5], lo:m[1], hi:m[2], curve:m[3], unit:m[4],
+                  get:c => PATHS[m[0]](c), set:(c,v) => setPath(m[0], c, v) };
+  if (ps === 'hardsync' && id === 'Velocity')
+    return { name:'Slave', lo:-24, hi:24, curve:'lin', unit:'st',
+             get:c => -24 + c.bases.Velocity * 48,
+             set:(c,v) => { c.bases.Velocity = clamp((v + 24) / 48, 0, 1); } };
+  return null;
+}
+
+const byId = Object.fromEntries(CAT.map(p => [p.id, p]));
+
+/* availability — mirrors VoiceEdit::available() */
+function available(id, cfg) {
+  if (id === 'FmModFeedback') return cfg.engine === 4 && cfg.recipe === 0;
+  if (id === 'PhaseFold')     return cfg.engine === 4 && cfg.recipe === 1;
+  if (id === 'SubRatio' || id === 'SubShape') return cfg.engine === 4 && cfg.recipe === 2;
+  if (id === 'DriftChaos')    return cfg.engine === 4 && cfg.recipe === 3;
+  if (id === 'RecipeRetrigger') return cfg.engine === 4;
+  if (id === 'NoiseLevel' || id === 'ChaosRate') return cfg.engine === 2;
+  const p = byId[id];
+  if (p.g >= 2 && p.g <= 4) {                     // oscillator groups
+    const osc = p.g - 2;
+    if (id === 'Harmony1' && cfg.engine !== 0) return true;
+    if (cfg.engine !== 0 || osc >= cfg.oscCount) return false;
+    if (p.name === 'Pulse width')
+      return cfg.wave[osc] === 3 || cfg.wave[osc] === 5;   // Square, BS Square
+  }
+  if (id === 'OscCount') return cfg.engine === 0;
+  if (id === 'Recipe' || (id >= 'Macro1' && id <= 'Macro3')) return cfg.engine === 4;
+  if (['T60','Brightness','PickPosition','PickHardness','Stiffness','StringDetune'].includes(id)) return cfg.engine === 1;
+  if (id === 'SawDetune' || id === 'SawMix') return cfg.engine === 3;
+  if (['DiffuseSize','DiffuseMix','SwarmColor','SwarmRegen','ChaosLevel'].includes(id)) return cfg.engine === 2;
+  if (id === 'FilterDrive' || id === 'Passband') return cfg.hasFilter && cfg.fType === 0;
+  if (p.g === 6 && id !== 'FilterOn') return cfg.hasFilter;
+  if (p.g === 8 && id !== 'DriveOn') return cfg.hasOd;
+  if (p.g === 5 && id !== 'EnvelopeOn') return cfg.hasEnv;
+  return true;
+}
+
+/* lane indicator — mirrors sequenceLane() != Count */
+function laneBound(id, cfg) {
+  const p = byId[id], lay = layoutOf(cfg);
+  if (p.lane === 'seq') return true;
+  if (p.lane === 'env') return lay.envTracks;
+  if (p.lane === 'fnull') return !lay.filterBound;
+  if (p.lane === 'recipe-macro') return cfg.engine === 4;
+  if (p.lane === 'engine-bound') {
+    if (cfg.engine === 1) return ['T60','Brightness','PickHardness'].includes(id);
+    if (cfg.engine === 3) return ['SawDetune','SawMix'].includes(id);
+    if (cfg.engine === 2) return ['SwarmColor','SwarmRegen','ChaosLevel'].includes(id);
+  }
+  return false;
+}
+
+/* display name — mirrors VoiceEdit::name() */
+function displayName(id, cfg) {
+  const p = byId[id];
+  if (id >= 'Macro1' && id <= 'Macro3' && cfg.engine === 4)
+    return layoutOf(cfg).recipe.macros[+id.slice(5) - 1];
+  if (p.lane === 'seq') {
+    const b = laneBind(id, cfg);
+    if (b) return b.name;
+    const n = LANE_NAMES[paramSetOf(cfg)][id];   // name-only overrides (Master)
+    if (n) return n;
+  }
+  return p.name;
+}
+
+/* effective bounds & curve for a parameter in this context */
+function boundsOf(id, cfg) {
+  const p = byId[id];
+  if (p.lane === 'seq') {
+    const b = laneBind(id, cfg);
+    if (b) return { lo:b.lo, hi:b.hi, curve:b.curve };
+  }
+  if (id >= 'Macro1' && id <= 'Macro3' && cfg.engine === 4) {
+    const r = RECIPE_DEFS[Math.max(cfg.recipe, 0)].ranges[+id.slice(5) - 1];
+    return { lo:r[0], hi:r[1], curve:RECIPE_DEFS[Math.max(cfg.recipe, 0)].curves[+id.slice(5) - 1] };
+  }
+  return { lo:p.min, hi:p.max, curve:p.log ? 'log' : 'lin' };
+}
+
+/* value in display domain */
+function rawGet(id, cfg) {
+  if (byId[id] && byId[id].lane === 'seq') {
+    const b = laneBind(id, cfg);
+    if (b) return b.get(cfg);
+  }
+  switch (id) {
+    case 'Note': return cfg.bases.Note;
+    case 'Velocity': return cfg.bases.Velocity;
+    case 'Cutoff': case 'StaticCutoff': return cfg.cutoffBase;
+    case 'Attack': case 'EnvAttack': return cfg.att;
+    case 'Decay': case 'EnvDecay': return cfg.dec;
+    case 'Octave': return cfg.bases.Octave;
+    case 'GateLength': return cfg.bases.GateLength;
+    case 'Gate': return cfg.bases.Gate ? 1 : 0;
+    case 'Slide': return cfg.bases.Slide ? 1 : 0;
+    case 'Engine': return cfg.engine;
+    case 'Recipe': return Math.max(cfg.recipe, 0);
+    case 'OscCount': return cfg.oscCount;
+    case 'Wave1': case 'Wave2': case 'Wave3': return cfg.wave[+id.slice(4) - 1];
+    case 'Level1': case 'Level2': case 'Level3': return cfg.level[+id.slice(5) - 1];
+    case 'Detune1': case 'Detune2': case 'Detune3': return cfg.det[+id.slice(6) - 1];
+    case 'Pulse1': case 'Pulse2': case 'Pulse3': return cfg.pulse[+id.slice(5) - 1];
+    case 'Harmony1': case 'Harmony2': case 'Harmony3': return cfg.harm[+id.slice(7) - 1];
+    case 'EnvelopeOn': return cfg.hasEnv ? 1 : 0;
+    case 'Sustain': return cfg.sus;
+    case 'Release': return cfg.rel;
+    case 'FilterOn': return cfg.hasFilter ? 1 : 0;
+    case 'FilterType': return cfg.fType;
+    case 'FilterMode': return cfg.fType === 1 ? Math.floor(cfg.fMode / 2) : cfg.fMode;
+    case 'Resonance': return cfg.res;
+    case 'FilterDrive': return cfg.fDrive;
+    case 'Passband': return cfg.passband;
+    case 'FilterEnvAmount': return cfg.envAmt;
+    case 'FilterEnvFloor': return cfg.envFloor;
+    case 'HighPassFreq': return cfg.hp;
+    case 'HighPassRes': return cfg.hpRes;
+    case 'DriveOn': return cfg.hasOd ? 1 : 0;
+    case 'Drive': return cfg.od;
+    case 'DriveGain': return cfg.odGain;
+    case 'T60': return cfg.wg.t60;
+    case 'Brightness': return cfg.wg.bright;
+    case 'PickPosition': return cfg.wg.pp;
+    case 'PickHardness': return cfg.wg.ph;
+    case 'Stiffness': return cfg.wg.stiff;
+    case 'StringDetune': return cfg.wg.det;
+    case 'SawDetune': return cfg.hs.det;
+    case 'SawMix': return cfg.hs.mix;
+    case 'DiffuseSize': return cfg.nf.size;
+    case 'DiffuseMix': return cfg.nf.mix;
+    case 'SwarmColor': return cfg.nf.color;
+    case 'SwarmRegen': return cfg.nf.regen;
+    case 'ChaosLevel': return cfg.nf.chaos;
+    case 'NoiseLevel': return cfg.nf.level;
+    case 'ChaosRate': return cfg.nf.rate;
+    case 'Macro1': case 'Macro2': case 'Macro3': return cfg.macros[+id.slice(5) - 1];
+    case 'FmModFeedback': return cfg.rec.fmb;
+    case 'PhaseFold': return cfg.rec.tri;
+    case 'SubRatio': return cfg.rec.subr;
+    case 'SubShape': return cfg.rec.subs;
+    case 'DriftChaos': return cfg.rec.drift;
+    case 'RecipeRetrigger': return cfg.rec.retrig ? 1 : 0;
+    case 'SlideTime': return cfg.glide;
+    case 'Enabled': return cfg.enabled ? 1 : 0;
+    case 'Output': return cfg.out;
+  }
+  return 0;
+}
+function rawSet(id, cfg, v) {
+  const p = byId[id];
+  if (p && p.lane === 'seq') {
+    const b = laneBind(id, cfg);
+    if (b) { b.set(cfg, v); return; }
+  }
+  const round = p && (p.int || p.u === 'onoff' || p.u === 'choice');
+  if (round) v = Math.round(v);
+  switch (id) {
+    case 'Note': cfg.bases.Note = Math.round(clamp(v,0,36)); break;
+    case 'Velocity': cfg.bases.Velocity = clamp(v,0,1); break;
+    case 'Cutoff': case 'StaticCutoff': cfg.cutoffBase = clamp(v,0,1); break;
+    case 'Attack': case 'EnvAttack': cfg.att = clamp(v,TMIN,TMAX); break;
+    case 'Decay': case 'EnvDecay': cfg.dec = clamp(v,TMIN,TMAX); break;
+    case 'Octave': cfg.bases.Octave = Math.round(clamp(v,-24,24)/12)*12; break;
+    case 'GateLength': cfg.bases.GateLength = clamp(v,0.001,1); break;
+    case 'Gate': cfg.bases.Gate = v >= 0.5; break;
+    case 'Slide': cfg.bases.Slide = v >= 0.5; break;
+    case 'Engine': setEngine(cfg, Math.round(v)); break;
+    case 'Recipe': setRecipe(cfg, Math.round(v)); break;
+    case 'OscCount': cfg.oscCount = Math.round(clamp(v,0,3));
+      if (cfg.engine === 0 && cfg.oscCount === 0) cfg.oscCount = 1; break;
+    case 'Wave1': case 'Wave2': case 'Wave3':
+      cfg.wave[+id.slice(4)-1] = Math.round(v); refreshParamSet(cfg); break;
+    case 'Level1': case 'Level2': case 'Level3': cfg.level[+id.slice(5)-1] = clamp(v,0,1); break;
+    case 'Detune1': case 'Detune2': case 'Detune3': cfg.det[+id.slice(6)-1] = clamp(v,-12,12); break;
+    case 'Pulse1': case 'Pulse2': case 'Pulse3': cfg.pulse[+id.slice(5)-1] = clamp(v,0.01,0.99); break;
+    case 'Harmony1': case 'Harmony2': case 'Harmony3': cfg.harm[+id.slice(7)-1] = Math.round(clamp(v,-12,12)); break;
+    case 'EnvelopeOn': cfg.hasEnv = v >= 0.5; break;
+    case 'Sustain': cfg.sus = clamp(v,0,1); break;
+    case 'Release': cfg.rel = clamp(v,TMIN,TMAX); break;
+    case 'FilterOn': cfg.hasFilter = v >= 0.5; break;
+    case 'FilterType': cfg.fType = Math.round(clamp(v,0,1)); break;
+    case 'FilterMode':
+      if (cfg.fType === 1) cfg.fMode = Math.round(clamp(v,0,2))*2;
+      else cfg.fMode = Math.round(clamp(v,0,5)); break;
+    case 'Resonance': cfg.res = clamp(v,0,1); break;
+    case 'FilterDrive': cfg.fDrive = clamp(v,0,4); break;
+    case 'Passband': cfg.passband = clamp(v,0,0.5); break;
+    case 'FilterEnvAmount': cfg.envAmt = clamp(v,0,2); break;
+    case 'FilterEnvFloor': cfg.envFloor = clamp(v,0,1); break;
+    case 'HighPassFreq': cfg.hp = clamp(v,20,20000); break;
+    case 'HighPassRes': cfg.hpRes = clamp(v,0,1); break;
+    case 'DriveOn': cfg.hasOd = v >= 0.5; break;
+    case 'Drive': cfg.od = clamp(v,0,1); break;
+    case 'DriveGain': cfg.odGain = clamp(v,0,2); break;
+    case 'T60': cfg.wg.t60 = clamp(v,0.05,10); break;
+    case 'Brightness': cfg.wg.bright = clamp(v,0,1); break;
+    case 'PickPosition': cfg.wg.pp = clamp(v,0.02,0.5); break;
+    case 'PickHardness': cfg.wg.ph = clamp(v,0,1); break;
+    case 'Stiffness': cfg.wg.stiff = clamp(v,0,1); break;
+    case 'StringDetune': cfg.wg.det = clamp(v,0,30); break;
+    case 'SawDetune': cfg.hs.det = clamp(v,0,1); break;
+    case 'SawMix': cfg.hs.mix = clamp(v,0,1); break;
+    case 'DiffuseSize': cfg.nf.size = clamp(v,0,1); break;
+    case 'DiffuseMix': cfg.nf.mix = clamp(v,0,1); break;
+    case 'SwarmColor': cfg.nf.color = clamp(v,0,1); break;
+    case 'SwarmRegen': cfg.nf.regen = clamp(v,0,1); break;
+    case 'ChaosLevel': cfg.nf.chaos = clamp(v,0,1); break;
+    case 'NoiseLevel': cfg.nf.level = clamp(v,0,1); break;
+    case 'ChaosRate': cfg.nf.rate = clamp(v,0.125,4); break;
+    case 'Macro1': case 'Macro2': case 'Macro3': cfg.macros[+id.slice(5)-1] = v; break;
+    case 'FmModFeedback': cfg.rec.fmb = clamp(v,0,0.95); break;
+    case 'PhaseFold': cfg.rec.tri = clamp(v,0,1); break;
+    case 'SubRatio': cfg.rec.subr = clamp(v,0.125,2); break;
+    case 'SubShape': cfg.rec.subs = clamp(v,0,1); break;
+    case 'DriftChaos': cfg.rec.drift = clamp(v,0,1); break;
+    case 'RecipeRetrigger': cfg.rec.retrig = v >= 0.5; break;
+    case 'SlideTime': cfg.glide = clamp(v,TMIN,TMAX); break;
+    case 'Enabled': cfg.enabled = v >= 0.5; break;
+    case 'Output': cfg.out = clamp(v,0,1); break;
+  }
+}
+function setEngine(cfg, e) {
+  cfg.engine = e; cfg.recipe = -1;
+  cfg.paramSet = ({0:'standard',1:'wg',2:'nf',3:'hs'})[e] || 'recipe';
+  if (e === 4) cfg.recipe = 0;
+  if (e === 0) { if (cfg.oscCount === 0) cfg.oscCount = 1; refreshParamSet(cfg); }
+}
+function setRecipe(cfg, r) {
+  cfg.recipe = clamp(r, 0, 3);
+  cfg.paramSet = 'recipe';
+  // each recipe owns macro units: clamp old values into the new ranges
+  const ranges = RECIPE_DEFS[cfg.recipe].ranges;
+  for (let i = 0; i < 3; ++i) cfg.macros[i] = clamp(cfg.macros[i], ranges[i][0], ranges[i][1]);
+}
+function refreshParamSet(cfg) {
+  if (cfg.engine === 0)
+    cfg.paramSet = cfg.wave.slice(0, cfg.oscCount).some(w => w === 6) ? 'hardsync' : 'standard';
+}
+
+function formatValue(id, cfg) {
+  const p = byId[id], v = rawGet(id, cfg);
+  if (id === 'Engine') return ENGINES[Math.round(clamp(v,0,4))];
+  if (id === 'Recipe') return RECIPES[clamp(Math.round(v),0,3)];
+  if (id === 'FilterType') return cfg.fType === 0 ? 'Ladder' : 'SVF';
+  if (id === 'FilterMode')
+    return cfg.fType === 1 ? SVF_MODES[clamp(Math.round(v),0,2)] : LADDER_MODES[clamp(Math.round(v),0,5)];
+  if (p.u === 'choice') { const ch = p.choices; return ch[clamp(Math.round(v),0,ch.length-1)]; }
+  // Hz display applies to the unbound cutoff bases only (mirrors format())
+  if ((id === 'Cutoff' && !laneBind('Cutoff', cfg)) || id === 'StaticCutoff') {
+    const lay = layoutOf(cfg);
+    return Math.round(logMap(v, lay.cutLo, lay.cutHi)) + ' Hz';
+  }
+  // lane-bound params inherit the binding's unit
+  let unit = p.u;
+  if (p.lane === 'seq') { const b = laneBind(id, cfg); if (b) unit = b.unit; }
+  if (id >= 'Macro1' && id <= 'Macro3' && cfg.engine === 4) {
+    const i = +id.slice(5) - 1;
+    unit = RECIPE_DEFS[Math.max(cfg.recipe,0)].ranges[i][2] === 'num' ? 'num' : '%';
+  }
+  switch (unit) {
+    case 'onoff': return v >= 0.5 ? 'On' : 'Off';
+    case '%': return (v*100).toFixed(1) + ' %';
+    case 's': return v.toFixed(3) + ' s';
+    case 'hz': return Math.round(v) + ' Hz';
+    case 'ct': return v.toFixed(1) + ' ct';
+    case 'st': return (v >= 0 ? '+' : '') + v.toFixed(1) + ' st';
+    case 'steps': return Math.round(v) + ' step' + (Math.round(v)===1?'':'s');
+    default: return v.toFixed(2);
+  }
+}
+
+/* adjust — mirrors VoiceEdit::adjust() */
+function adjustParam(id, cfg, delta) {
+  if (!available(id, cfg) || !delta) return false;
+  const p = byId[id], b = boundsOf(id, cfg);
+  const v0 = rawGet(id, cfg);
+  if (p.int || p.u === 'onoff' || p.u === 'choice') {
+    const step = id === 'Octave' ? 12 : 1;
+    rawSet(id, cfg, v0 + (delta > 0 ? step : -step));
+  } else if (b.curve === 'exp') {
+    rawSet(id, cfg, expMap(expNorm(v0, b.lo, b.hi) + delta, b.lo, b.hi));
+  } else if (b.curve === 'log') {
+    rawSet(id, cfg, logMap(logNorm(v0, b.lo, b.hi) + delta, b.lo, b.hi));
+  } else {
+    rawSet(id, cfg, v0 + delta * (b.hi - b.lo));
+  }
+  return rawGet(id, cfg) !== v0;
+}
+
+function nextParameter(current, dir, cfg, changeGroup) {
+  const step = dir < 0 ? -1 : 1, count = CAT.length;
+  if (changeGroup) {
+    let g = byId[current].g;
+    for (let i = 0; i < GROUPS.length; ++i) {
+      g = (g + step + GROUPS.length) % GROUPS.length;
+      for (const p of CAT)                         // CAT is in firmware Id order
+        if (p.g === g && available(p.id, cfg)) return p.id;
+    }
+    return current;
+  }
+  let j = CAT.findIndex(p => p.id === current);
+  for (let i = 0; i < count; ++i) {
+    j = (j + step + count) % count;
+    const p = CAT[j];
+    if (p.g === byId[current].g && available(p.id, cfg)) return p.id;
+  }
+  return current;
+}
+
+/* ---------------- editor actions (mirrors VoiceEditor.cpp) ---------------- */
+function anyHeld() { return S.buttons.some(Boolean) || S.sliders.some(Boolean); }
+function enterEditor() {
+  S.active = true; S.help = false; S.fine = false; S.waitRelease = true;
+  S.playing = false;
+}
+function exitEditor() {
+  S.active = false; S.fine = false; S.help = false; S.waitRelease = true;
+}
+function publish() { S.changed[S.voice] = true; }
+function resetCurrent() {
+  const cfg = S.voices[S.voice];
+  const defaults = baseConfig(VOICE_PRESETS[S.voice]);
+  // reset a field in a changed engine using defaults in that engine's units
+  if (defaults.engine !== cfg.engine) setEngine(defaults, cfg.engine);
+  if (cfg.engine === 4) setRecipe(defaults, Math.max(cfg.recipe, 0));
+  rawSet(S.cursor[S.voice], cfg, rawGet(S.cursor[S.voice], defaults));
+  publish();
+}
+function onButtonsChanged() {
+  const pressed = S.buttons.map((b,i) => b === 1 && !S.lastButtons[i]);
+  const voicePress = S.sliders.map((b,i) => b === 1 && !S.lastSliders[i]);
+  if (S.active || S.waitRelease) {
+    if (S.waitRelease) {
+      if (!anyHeld()) S.waitRelease = false;       // consumed releases
+    } else {
+      const vi = voicePress.findIndex(Boolean);
+      if (vi >= 0) S.voice = vi;                   // slider 1-4: voice select
+      if (pressed[7]) { exitEditor(); }            // button 8: exit
+      else {
+        if (pressed[6]) S.help = !S.help;          // button 7: help
+        const cfg = S.voices[S.voice];
+        if (pressed[0]) S.cursor[S.voice] = nextParameter(S.cursor[S.voice], -1, cfg, true);
+        if (pressed[1]) S.cursor[S.voice] = nextParameter(S.cursor[S.voice],  1, cfg, true);
+        if (pressed[2]) S.cursor[S.voice] = nextParameter(S.cursor[S.voice], -1, cfg, false);
+        if (pressed[3]) S.cursor[S.voice] = nextParameter(S.cursor[S.voice],  1, cfg, false);
+        if (pressed[5]) {                          // button 6: hold 700 ms = reset
+          setTimeout(() => { if (S.buttons[5]) { resetCurrent(); updateAll(); } }, 700);
+        }
+      }
+      if (!available(S.cursor[S.voice], S.voices[S.voice]))
+        S.cursor[S.voice] = nextParameter(S.cursor[S.voice], 1, S.voices[S.voice], true);
+    }
+  } else {
+    // entry chord: Shift (button 8) + slider 4; shift+slider1 = play/stop chord
+    if (S.buttons[7] && S.sliders[3]) enterEditor();
+    else if (S.buttons[7] && S.sliders[0] && pressed[0]) S.playing = !S.playing;
+  }
+  S.fine = !!S.buttons[4];
+  S.lastButtons = [...S.buttons];
+  S.lastSliders = [...S.sliders];
+  updateAll();
+}
+const BASE_TARGETS = ['Note','Velocity','Cutoff','Attack','Decay','Octave','GateLength','Gate','Slide','SlideTime'];
+function encoderTurn(delta) {
+  const cfg = S.voices[S.voice], id = S.cursor[S.voice];
+  if (S.active) {
+    if (S.waitRelease) return;
+    if (adjustParam(id, cfg, delta * (S.fine ? 0.1 : 1))) publish();
+  } else {
+    // normal play: the encoder edits the base of its sequenced target
+    if (BASE_TARGETS.includes(id)) adjustParam(id, cfg, delta);
+  }
+}
+
+/* ---------------- DOM: hardware ---------------- */
+const BTN_LABELS = ['1|prev group','2|next group','3|prev param','4|next param',
+                    '5|fine (hold)','6|reset (hold)','7|help','8|Shift · exit'];
+const SLIDER_LABELS = ['1|Voice 1','2|Voice 2','3|Voice 3','4|Voice 4 · enter'];
+const tileEl = document.getElementById('tileButtons');
+const sliderEl = document.getElementById('sliderButtons');
+BTN_LABELS.forEach((lbl, i) => {
+  const [num, cap] = lbl.split('|');
+  const b = document.createElement('div');
+  b.className = 'hwbtn' + (i === 7 ? ' shift' : '');
+  b.innerHTML = `<span class="num">${num}</span><span class="lbl">${cap}</span>`;
+  bindHold(b, () => { S.buttons[i] = 1; onButtonsChanged(); },
+              () => { S.buttons[i] = 0; onButtonsChanged(); });
+  tileEl.appendChild(b);
+});
+SLIDER_LABELS.forEach((lbl, i) => {
+  const [num, cap] = lbl.split('|');
+  const b = document.createElement('div');
+  b.className = 'hwbtn';
+  b.innerHTML = `<span class="num">${num}</span><span class="lbl">${cap}</span>`;
+  bindHold(b, () => { S.sliders[i] = 1; onButtonsChanged(); },
+              () => { S.sliders[i] = 0; onButtonsChanged(); });
+  sliderEl.appendChild(b);
+});
+function bindHold(el, down, up) {
+  el.addEventListener('pointerdown', e => { e.preventDefault(); el.setPointerCapture(e.pointerId);
+    el.classList.add('down'); down(); });
+  const release = () => { if (el.classList.contains('down')) { el.classList.remove('down'); up(); } };
+  el.addEventListener('pointerup', release);
+  el.addEventListener('pointercancel', release);
+  el.addEventListener('lostpointercapture', release);
+}
+
+/* encoder */
+const knob = document.getElementById('knob'), tick = document.getElementById('knobTick');
+let knobAngle = 0;
+function spin(delta) {
+  knobAngle = clamp(knobAngle + delta * 400, -140, 140);
+  tick.style.transform = `translateX(-50%) rotate(${knobAngle}deg)`;
+  encoderTurn(delta);
+  updateAll();
+}
+knob.addEventListener('wheel', e => { e.preventDefault(); spin(e.deltaY < 0 ? 0.03 : -0.03); }, { passive:false });
+let dragging = null;
+knob.addEventListener('pointerdown', e => { dragging = e.clientY; knob.setPointerCapture(e.pointerId); });
+knob.addEventListener('pointermove', e => {
+  if (dragging === null) return;
+  const dy = dragging - e.clientY;
+  if (Math.abs(dy) >= 4) { spin(dy > 0 ? 0.03 : -0.03); dragging = e.clientY; }
+});
+knob.addEventListener('pointerup', () => dragging = null);
+knob.addEventListener('pointercancel', () => dragging = null);
+
+/* ---------------- rendering ---------------- */
+const $ = id => document.getElementById(id);
+function updateAll() {
+  renderOled(); renderStatus(); renderExplain(); renderLeds(); renderEncVal();
+  renderReadout(); renderCatalog(); renderLab();
+}
+function renderLeds() {
+  $('ledPlay').className = 'led' + (S.playing && !S.active ? ' play' : '');
+  $('ledMod').className = 'led' + (S.changed[S.voice] ? ' on' : '');
+}
+function renderEncVal() {
+  const cfg = S.voices[S.voice], id = S.cursor[S.voice];
+  $('encVal').textContent = (S.active ? 'ENC: ' : 'B: ') + displayName(id, cfg) + '  ' + formatValue(id, cfg);
+}
+function renderOled() {
+  const star = S.changed[S.voice] ? '*' : ' ';
+  let rows;
+  if (S.active) {
+    const cfg = S.voices[S.voice], id = S.cursor[S.voice];
+    if (S.help) {
+      rows = [
+        `EDIT V${S.voice+1}${star} STOPPED`,
+        `<span class="hint">1/2 Group  3/4 Param</span>`,
+        `<span class="hint">5 Hold: fine</span>`,
+        `<span class="hint">6 Hold: reset base</span>`,
+        `<span class="hint">7 Help  8 Exit</span>`,
+        `<span class="hint">Lidar = +/- modifier</span>`,
+      ];
+    } else {
+      rows = [
+        `EDIT V${S.voice+1}${star} STOPPED`,
+        GROUPS[byId[id].g],
+        displayName(id, cfg),
+        formatValue(id, cfg),
+        laneBound(id, cfg) ? 'BASE + STEP MOD' : 'PATCH BASE',
+        S.waitRelease ? `<span class="hint">release buttons...</span>`
+                      : (S.fine ? `FINE    <span class="hint">7 Help 8 Exit</span>`
+                                : `ENC edit <span class="hint">7 Help 8 Exit</span>`),
+      ];
+    }
+  } else {
+    const cfg = S.voices[S.voice], id = S.cursor[S.voice];
+    rows = [
+      `Pico2Seq   V${S.voice+1}  ${S.playing ? '>' : '[]'} ${S.playing ? 'PLAYING' : 'STOPPED'}`,
+      `<span class="hint">preset: ${VOICE_PRESETS[S.voice].name}${S.changed[S.voice] ? '*' : ''}</span>`,
+      `B:${displayName(id, cfg)} ${formatValue(id, cfg)}`,
+      `<span class="hint">(normal play screen — simplified)</span>`,
+      ``,
+      `<span class="hint">Shift+Slider4 = Voice Edit</span>`,
+    ];
+  }
+  $('oled').innerHTML = rows.map(r => `<div class="r">${r}</div>`).join('');
+}
+function renderStatus() {
+  const chips = [];
+  if (S.active) {
+    chips.push(`<span class="chip warn">Voice Edit</span>`);
+    chips.push(`<span class="chip">editing V${S.voice+1} (${VOICE_PRESETS[S.voice].name})</span>`);
+    chips.push(`<span class="chip warn">transport stopped · muted</span>`);
+    if (S.changed[S.voice]) chips.push(`<span class="chip warn">patch modified</span>`);
+    if (S.fine) chips.push(`<span class="chip">fine</span>`);
+    if (S.waitRelease) chips.push(`<span class="chip">release buttons…</span>`);
+  } else {
+    chips.push(`<span class="chip">normal play</span>`);
+    chips.push(`<span class="chip">voice V${S.voice+1} (${VOICE_PRESETS[S.voice].name})</span>`);
+    chips.push(S.playing ? `<span class="chip good">transport playing</span>`
+                         : `<span class="chip">transport stopped</span>`);
+    if (S.changed[S.voice]) chips.push(`<span class="chip warn">edits in RAM — press Play to hear</span>`);
+    if (S.waitRelease) chips.push(`<span class="chip">release buttons…</span>`);
+  }
+  $('statusStrip').innerHTML = chips.join('');
+}
+function renderExplain() {
+  const cfg = S.voices[S.voice], id = S.cursor[S.voice], p = byId[id];
+  if (!S.active) {
+    $('explain').innerHTML =
+      `<p>Normal play. Hold <span class="k">Shift</span> (button 8) + <span class="k">Slider 4</span> to enter
+       Voice Edit — the sequencers stop and audio mutes. Outside the editor the encoder edits this voice’s
+       <b>${displayName(id, cfg)}</b> base (<span class="k">${formatValue(id, cfg)}</span>) instead of a step’s stored value.</p>`;
+    return;
+  }
+  const lane = laneBound(id, cfg);
+  $('explain').innerHTML =
+    `<p><b>${displayName(id, cfg)}</b> — ${p.blurb}</p>
+     <p>Range <span class="k">${rangeText(id, cfg)}</span> · currently <span class="k">${formatValue(id, cfg)}</span>.
+     ${lane ? `A sequencer lane <b>also</b> modifies this base: the OLED says <span class="k">BASE + STEP MOD</span>.
+               Playback computes <span class="k">effective = base + (lidar − 0.5)</span> per step, so editing the base here
+               transposes the whole lane without rewriting any recording.`
+            : `This is a <b>patch base</b> only (<span class="k">PATCH BASE</span>) — no sequencer lane bends it.`}</p>
+     ${S.help ? `<p class="note">The help overlay (button 7) replaces the parameter readout on the device.</p>` : ''}`;
+}
+function rangeText(id, cfg) {
+  const p = byId[id], b = boundsOf(id, cfg);
+  if (p.u === 'onoff') return 'On / Off';
+  if (p.u === 'choice') return (p.choices || ['Ladder','SVF']).join(' / ');
+  if (id === 'Cutoff' || id === 'StaticCutoff') {
+    if (id === 'Cutoff' && laneBind('Cutoff', cfg)) return `${b.lo*100}–${b.hi*100} %`;
+    const lay = layoutOf(cfg);
+    return `${lay.cutLo}–${lay.cutHi} Hz`;
+  }
+  // lane-bound bases inherit the binding's unit (Velocity → st, Decay → s, …)
+  let unit = p.u;
+  if (p.lane === 'seq') { const lb = laneBind(id, cfg); if (lb) unit = lb.unit; }
+  switch (unit) {
+    case '%': return `${+(b.lo*100).toFixed(1)}–${+(b.hi*100).toFixed(1)} %`;
+    case 's': return `${+(b.lo*1000).toFixed(b.lo*1000<10?1:0)} ms – ${b.hi} s${p.log && !laneBind(id, cfg) ? ' (log)' : ''}`;
+    case 'st': return `${b.lo} to +${b.hi} semitones`;
+    case 'steps': return '0–36 scale steps';
+    case 'ct': return `${b.lo}–${b.hi} cents`;
+    case 'hz': return `${b.lo}–${b.hi} Hz (log)`;
+    default: return `${b.lo}–${b.hi}`;
+  }
+}
+function renderReadout() {
+  const cfg = S.voices[S.voice], id = S.cursor[S.voice];
+  const parts = [];
+  if (S.active) {
+    parts.push(`Voice Edit mode on voice V${S.voice+1} (${VOICE_PRESETS[S.voice].name} preset), transport stopped and audio muted.`);
+    parts.push(`Cursor is on group "${GROUPS[byId[id].g]}", parameter "${displayName(id, cfg)}" = ${formatValue(id, cfg)} (range ${rangeText(id, cfg)}).`);
+    parts.push(laneBound(id, cfg)
+      ? 'A sequence lane modifies this base (BASE + STEP MOD): playback adds the step’s lidar modifier around this base.'
+      : 'No sequence lane modifies this base (PATCH BASE).');
+    if (S.changed[S.voice]) parts.push('This voice’s patch has unsaved RAM edits (modified marker shown).');
+    if (S.fine) parts.push('Fine encoder adjust is active (×0.1).');
+    parts.push('Press button 8 to exit keeping edits, then normal Play to hear the result.');
+  } else {
+    parts.push(`Normal play on voice V${S.voice+1} (${VOICE_PRESETS[S.voice].name}), transport ${S.playing ? 'running' : 'stopped'}.`);
+    parts.push(`The encoder currently targets the "${displayName(id, cfg)}" base (${formatValue(id, cfg)}); it edits the base, never the selected step’s stored value.`);
+    if (S.changed[S.voice]) parts.push('This voice carries RAM edits from Voice Edit — loading a preset or a power cycle clears them.');
+    parts.push('Hold Shift + slider button 4 to enter Voice Edit.');
+  }
+  $('readout').textContent = parts.join(' ');
+}
+
+/* ---------------- scenario presets ---------------- */
+const SCENARIOS = [
+  { name:'Start here', fn() {
+      exitHard(); S.voice = 0; S.changed = [false,false,false,false];
+      S.voices = VOICE_PRESETS.map(baseConfig); S.cursor = ['Note','Note','Note','Note'];
+  }},
+  { name:'Recipe sound design', fn() {
+      exitHard(); S.voice = 3; S.active = true; S.waitRelease = false;
+      S.cursor[3] = 'Macro1';
+  }},
+  { name:'Waveguide pluck', fn() {
+      exitHard(); S.voice = 1; S.active = true; S.waitRelease = false;
+      S.cursor[1] = 'T60';
+  }},
+  { name:'Filter tweak (modified)', fn() {
+      exitHard(); S.voice = 0; S.active = true; S.waitRelease = false;
+      S.cursor[0] = 'StaticCutoff'; S.voices[0].cutoffBase = 0.52; S.changed[0] = true;
+  }},
+  { name:'Modifier lab example', fn() {
+      exitHard(); S.labBase = 0.7; S.labLidar = 0.75;
+      $('labSection').scrollIntoView({ behavior:'smooth' });
+  }},
+];
+function exitHard() { S.active = false; S.help = false; S.fine = false; S.waitRelease = false; }
+SCENARIOS.forEach(sc => {
+  const b = document.createElement('button');
+  b.className = 'pbtn'; b.textContent = sc.name;
+  b.addEventListener('click', () => { sc.fn(); updateAll(); });
+  $('presets').appendChild(b);
+});
+
+/* ---------------- modifier lab ---------------- */
+function seedLab() { S.labSteps = Array.from({length:8}, () => ({ mod:0 })); }
+seedLab();
+function labEffective(step) { return clamp(S.labBase + step.mod, 0, 1); }
+function renderLab() {
+  $('labBase').value = Math.round(S.labBase * 100);
+  $('labLidar').value = Math.round(S.labLidar * 100);
+  $('labBaseVal').textContent = Math.round(S.labBase * 100) + ' %';
+  $('labLidarVal').textContent = Math.round(S.labLidar * 100) + ' %';
+  const eff = clamp(S.labBase + (S.labLidar - 0.5), 0, 1);
+  $('labEff').value = Math.round(eff * 100);
+  $('labEffVal').textContent = Math.round(eff * 100) + ' %';
+  const host = $('labSteps');
+  if (host.children.length !== S.labSteps.length) host.innerHTML = '';
+  S.labSteps.forEach((st, i) => {
+    const e = labEffective(st);
+    const sign = st.mod >= 0 ? '+' : '';
+    let d = host.children[i];
+    if (!d) {
+      d = document.createElement('div');
+      d.className = 'step';
+      host.appendChild(d);
+    }
+    d.className = 'step' + (S.labPlaying && i === S.labStep ? ' cur' : '');
+    d.innerHTML = `${sign}${Math.round(st.mod*100)}%<div class="bar" style="width:${Math.round(e*100)}%;${e<=0||e>=1?'background:var(--amber)':''}"></div><span style="color:var(--faint)">${Math.round(e*100)}%</span>`;
+  });
+  $('labPlay').textContent = S.labPlaying ? '■ Stop' : '▶ Play steps';
+}
+$('labBase').addEventListener('input', e => { S.labBase = e.target.value / 100; renderLab(); });
+$('labLidar').addEventListener('input', e => { S.labLidar = e.target.value / 100; renderLab(); });
+$('labExample').addEventListener('click', () => {
+  S.labBase = 0.7; S.labLidar = 0.75;
+  S.labSteps = [{mod:-0.25},{mod:-0.25},{mod:0},{mod:0},{mod:0.25},{mod:0.25},{mod:-0.25},{mod:0}];
+  renderLab();
+});
+$('labRecord').addEventListener('click', () => {
+  const m = S.labLidar - 0.5;
+  S.labSteps.forEach(s => s.mod = clamp(m, -0.5, 0.5));
+  renderLab();
+});
+$('labRandom').addEventListener('click', () => {
+  S.labSteps.forEach(s => s.mod = Math.random() - 0.5);
+  renderLab();
+});
+$('labNeutral').addEventListener('click', () => { seedLab(); renderLab(); });
+let labTimer = null;
+$('labPlay').addEventListener('click', () => {
+  S.labPlaying = !S.labPlaying; S.labStep = 0;
+  if (S.labPlaying) labTimer = setInterval(() => { S.labStep = (S.labStep + 1) % 8; renderLab(); }, 300);
+  else clearInterval(labTimer);
+  renderLab();
+});
+
+/* ---------------- catalogue table ---------------- */
+const catEngine = $('catEngine'), catRecipe = $('catRecipe');
+ENGINES.forEach((e,i) => catEngine.appendChild(new Option(e, i)));
+RECIPES.forEach((r,i) => catRecipe.appendChild(new Option(r, i)));
+function catCfg() {
+  const osc = +$('catOsc').value;
+  return {
+    engine:+catEngine.value, recipe:+catRecipe.value, oscCount:osc,
+    wave:[$('catSync').checked ? 6 : 3, 3, 3],
+    hasEnv:$('catEnv').checked, hasFilter:$('catFilter').checked,
+    fType:$('catLadder').checked ? 0 : 1, hasOd:$('catOd').checked,
+  };
+}
+function renderCatalog() {
+  const cfg = catCfg();
+  catRecipe.parentElement.style.display = cfg.engine === 4 ? '' : 'none';
+  $('catOsc').parentElement.style.display = cfg.engine === 0 ? '' : 'none';
+  $('catSync').parentElement.style.display = cfg.engine === 0 ? '' : 'none';
+  $('catLadder').parentElement.style.display = cfg.hasFilter ? '' : 'none';
+  let html = '<tr><th>Group</th><th>Parameter</th><th>Range</th><th>Lane</th></tr>';
+  let lastGroup = -1;
+  for (const p of CAT) {
+    if (!available(p.id, cfg)) continue;
+    const grpCell = p.g !== lastGroup ? `<tr class="grp"><td colspan="4">${GROUPS[p.g]}</td></tr>` : '';
+    lastGroup = p.g;
+    html += `${grpCell}<tr>
+      <td></td>
+      <td>${displayName(p.id, cfg)} <span class="desc">— ${p.blurb}</span></td>
+      <td class="mono">${rangeText(p.id, cfg)}</td>
+      <td class="mono">${laneBound(p.id, cfg) ? '<span class="lane">BASE + STEP MOD</span>' : '<span class="base">PATCH BASE</span>'}</td>
+    </tr>`;
+  }
+  $('catTable').innerHTML = html;
+}
+['catEngine','catRecipe','catOsc'].forEach(id => $(id).addEventListener('change', renderCatalog));
+['catSync','catEnv','catFilter','catLadder','catOd'].forEach(id => $(id).addEventListener('change', renderCatalog));
+
+/* ---------------- keyboard ---------------- */
+document.addEventListener('keydown', e => {
+  if (e.repeat || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+  const k = e.key.toLowerCase();
+  if (k >= '1' && k <= '8') { const i = +k - 1; S.buttons[i] = 1; tileEl.children[i].classList.add('down'); onButtonsChanged(); }
+  const qi = 'qwer'.indexOf(k);
+  if (qi >= 0) { S.sliders[qi] = 1; sliderEl.children[qi].classList.add('down'); onButtonsChanged(); }
+  if (k === 'arrowup') { e.preventDefault(); spin(0.03); }
+  if (k === 'arrowdown') { e.preventDefault(); spin(-0.03); }
+});
+document.addEventListener('keyup', e => {
+  const k = e.key.toLowerCase();
+  if (k >= '1' && k <= '8') { const i = +k - 1; S.buttons[i] = 0; tileEl.children[i].classList.remove('down'); onButtonsChanged(); }
+  const qi = 'qwer'.indexOf(k);
+  if (qi >= 0) { S.sliders[qi] = 0; sliderEl.children[qi].classList.remove('down'); onButtonsChanged(); }
+});
+
+/* ---------------- copy ---------------- */
+function copyText(t) {
+  if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(t);
+  const ta = document.createElement('textarea');
+  ta.value = t; document.body.appendChild(ta); ta.select();
+  document.execCommand('copy'); ta.remove();
+  return Promise.resolve();
+}
+$('copyBtn').addEventListener('click', () => {
+  copyText($('readout').textContent).then(() => {
+    const b = $('copyBtn'); const old = b.textContent;
+    b.textContent = 'Copied!'; setTimeout(() => b.textContent = old, 1200);
+  });
+});
+
+/* init */
+catEngine.value = '0'; catRecipe.value = '0'; $('catOsc').value = '2';
+updateAll();
+</script>
+</body>
+</html>

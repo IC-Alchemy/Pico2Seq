@@ -224,6 +224,12 @@ public:
 
 > **Important**: `Sequencer` does **not** include or accept `UIState`. All UI parameters are unpacked before calling `Sequencer::advanceStep()`.
 
+> **Voice Editing playback transform (2026-09-11)**: `Sequencer` also carries a
+> `setPlaybackTransform()` callback (with an optional octave mapper). It is installed only
+> during playback so sequenced lanes compose with each voice's edit bases (base + modifier)
+> without ever rewriting stored steps — see `Sequencer.h` and
+> [`docs/voice-edit.md`](voice-edit.md).
+
 ### 3.2 `Sequencer::advanceStep` Implementation Flow
 
 When `advanceStep()` is called on each 16th note clock tick:
@@ -310,14 +316,11 @@ void processSequencerStep(uint32_t uClockCurrentStep)
 
     VoiceState tempStates[] = {tempState1, tempState2, tempState3, tempState4};
 
-    // 2. Apply encoder base values per voice (all 4 voices) and global delay values
+    // 2. Apply encoder base values per voice (all 4 voices)
     for (uint8_t voiceIndex = 0; voiceIndex < VoiceSystem::MAX_VOICES; voiceIndex++)
     {
         applyEncoderBaseValues(&tempStates[voiceIndex], voiceIndex);
     }
-#if PICO2SEQ_ENABLE_DELAY_EFFECT
-    applyEncoderDelayValues();
-#endif
 
     // 3. Update VoiceSystem and MIDI hardware
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++)

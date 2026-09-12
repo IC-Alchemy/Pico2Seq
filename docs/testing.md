@@ -53,13 +53,13 @@ files; host CMake does not compile that startup/I2S/control glue.
 
 ---
 
-## 10 Host Unit Test Suites
+## 15 Host Unit Test Suites
 
 The host test executable (`pico2seq_tests`) links all unit suites under `tests/unit/`:
 
 | # | Test Suite File | Tested Components | Key Test Areas |
 |---|---|---|---|
-| 1 | `tests/unit/test_helpers.cpp` | Global Test Helper Symbols | Provides single definition of extern symbols (`slideMode`, `MAX_DELAY_SAMPLES`) |
+| 1 | `tests/unit/test_helpers.cpp` | Global Test Helper Symbols | Provides single definition of extern symbols (`slideMode`, `currentScale`) |
 | 2 | `tests/unit/test_rpdsp_additions.cpp` | `rpdsp` DSP Extensions | `dspmap::fmap` curves (local carry-over), Waveshaper transfer functions, DSPFunctions |
 | 3 | `tests/unit/test_dsp_recipe_regressions.cpp` | `rpdsp` Recipe Regressions | ADSR envelope curves and retriggers, compressor across sample rates, vowel/tape/frequency-shifter/buffer recipes (`[recipe_regression]`) |
 | 4 | `tests/unit/test_scales.cpp` | Musical Scale Lookup Tables | 13 scales monotonic ordering, root notes at 0, MIDI boundary validation, chromatic fallback |
@@ -69,6 +69,11 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 8 | `tests/unit/test_voiceoscillator.cpp` | Voice Oscillator Dispatch | `VoiceOscillator` variant dispatch, band-limited waveforms, pulse width modulation, pitch changes |
 | 9 | `tests/unit/test_control_surface_logic.cpp` | Tile UI Decision Logic | `ModeStabilizer` debouncing, `PadBank` voice-pair resolution, `ShiftLatch` latching, `FaderMap` deadband |
 | 10 | `tests/unit/test_alchemy_proto.cpp` | Alchemy Tile Wire Format | Per-tile-type button block offsets (slider DATA 8..10 vs button DATA 0..2), fader decode, SEQ/STATUS decode, frame checksum, identity validation, `TileButton` press/hold/tap |
+| 11 | `tests/unit/test_app_runtime.cpp` | App runtime helpers | PCM16 DAC conversion (clipping/truncation, `[app][pcm]`), lidar recording calibration across the 55–700 mm window (`[app][recording]`) |
+| 12 | `tests/unit/test_audio_i2s.cpp` | I2S output path (`tests/audio_stubs/`) | Rendered buffers handed to DMA, starvation recovery (`[audio][i2s]`) |
+| 13 | `tests/unit/test_freeze_watchdog.cpp` | `FreezeWatchdog` (`tests/watchdog_stubs/`) | Watchdog scratch evidence, boot vs late-serial reconnect, no stale reports on normal boot (`[watchdog]`) |
+| 14 | `tests/unit/test_voice_recipes.cpp` | Recipe/engine voices | Preset registry coherence, waveguide tails across engine resets, recipe timbre lanes, envelope gate/retrigger behavior (`[voice][presets][waveguide][recipes]`) |
+| 15 | `tests/unit/test_voice_edit.cpp` | Voice Editing mode | Base vs lidar-modifier independence, neutral-modifier preset round-trip, parameter catalogue reachability/clamping per engine, editor release semantics, muted-editor queue draining (`[voice_edit][recording]`) |
 
 ---
 
@@ -180,7 +185,12 @@ voice.setCurrentScalePointer(&scaleIndex);
 ```
 
 ### 3. External Symbol Single-Definition Rule
-When testing files that declare `extern` globals (e.g. `slideMode` or `MAX_DELAY_SAMPLES`), define those symbols **only once** in `tests/unit/test_helpers.cpp` to prevent linker multiple-definition collisions across test translation units.
+When testing files that declare `extern` globals (e.g. `slideMode` or `currentScale`), define those symbols **only once** in `tests/unit/test_helpers.cpp` to prevent linker multiple-definition collisions across test translation units.
+
+Two subsystems compile against their own dedicated stub sets instead of the shared
+`tests/stubs/`: `src/audio/` (I2S driver) builds against `tests/audio_stubs/`, and
+`src/utils/FreezeWatchdog.h` builds against `tests/watchdog_stubs/` — both wired as
+separate CMake targets in `tests/CMakeLists.txt`.
 
 ---
 

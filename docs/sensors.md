@@ -18,8 +18,8 @@ The Pico2Seq hardware separates sensors, displays, and control surfaces across t
 
 | Bus | RP2350 Pins | Clock Speed | Connected Devices | I2C Addresses | Purpose |
 |---|---|---|---|---|---|
-| **Wire** (I2C0) | GP4 (SDA)<br>GP5 (SCL) | 100 kHz (Standard) | TMAG5273A Magnetic Encoder<br>VL53L1X Distance Sensor<br>MPR121 Touch Matrix<br>SH1106 OLED Display | `0x35` (`TMAG5273::ADDRESS_A`)<br>`0x29` (VL53L1X)<br>`0x5A` (MPR121)<br>`0x3C` (OLED) | Primary sensor acquisition & display bus |
-| **Wire1** (I2C1) | GP14 (SDA)<br>GP15 (SCL) | 100 kHz (Standard Mode) | Alchemy Modular UI Tiles:<br>- SliderModule (Slot 0)<br>- ButtonModule8 (Slot 1) | `0x08` (SliderModule)<br>`0x0B` (ButtonModule8) | Dedicated control surface tile bus (400 kHz stalls tile transfers on this rig) |
+| **Wire** (I2C0) | GP4 (SDA)<br>GP5 (SCL) | 400 kHz (`kMainBusFrequencyHz`) | TMAG5273A Magnetic Encoder<br>VL53L1X Distance Sensor<br>MPR121 Touch Matrix<br>SH1106 OLED Display | `0x35` (`TMAG5273::ADDRESS_A`)<br>`0x29` (VL53L1X)<br>`0x5A` (MPR121)<br>`0x3C` (OLED) | Primary sensor acquisition & display bus |
+| **Wire1** (I2C1) | GP14 (SDA)<br>GP15 (SCL) | 400 kHz (`kTileBusFrequencyHz`) | Alchemy Modular UI Tiles:<br>- SliderModule (Slot 0)<br>- ButtonModule8 (Slot 1) | `0x08` (SliderModule)<br>`0x0B` (ButtonModule8) | Dedicated control surface tile bus |
 | **GPIO** | GP7 (Input Pullup) | N/A | Hardware Mode Strap Switch | N/A | Selects Param Mode (LOW) vs Utility Mode (HIGH) for Alchemy tiles |
 
 ### Interrupt & Hardware Pin Map
@@ -70,10 +70,10 @@ The magnetic encoder subsystem consists of two architectural layers:
   - Adaptive low-pass speed filtering.
 - **`EncoderManager` (`src/sensors/EncoderManager.h/.cpp`)**: High-level parameter management subsystem bridging encoder delta increments to the synthesizer data model. Handles:
   - Per-voice base parameter updates across all four voices (`applyEncoderBaseValues`, one base-value set per voice).
-  - Global effects modulation (`applyEncoderDelayValues`, `applyEncoderSlideTimeValues`).
-  - Individual step parameter editing (`updateEncoderStepParameterValues`).
+  - Slide-time application to the sliding voice (`applyEncoderSlideTimeValues`).
+  - Since the Voice Editing rework (2026-09-11) the encoder edits **per-voice base values only** — it no longer writes a selected step's stored value (`updateEncoderStepParameterValues` now just delegates to the base update).
   - Bidirectional "Shift and Scale" mapping.
-  - Dynamic boundary proximity flash zones (`FlashSpeedZone`).
+  - Dynamic boundary proximity flash zones (`FlashSpeedZone` — currently defined but with no consumer; dormant).
 
 ### 2. VL53L1X Distance Sensor
 
@@ -81,9 +81,9 @@ The magnetic encoder subsystem consists of two architectural layers:
   - Continuous measurement mode with medium distance mode.
   - 20 ms timing budget (`TIMING_BUDGET_MICROSECONDS = 20000`).
   - 24 ms inter-measurement period (`INTER_MEASUREMENT_PERIOD_MS = 24`).
-  - 20 ms update polling interval (`READ_INTERVAL_MS = 20`).
-  - Operational measurement range: 74 mm to 1400 mm (`MIN_DISTANCE_HEIGHT_MM` to `MAX_DISTANCE_HEIGHT_MM`).
-  - Normalized distance calculation: `mm = rawDistanceValue - MIN_HEIGHT` (0 to 1326 mm).
+  - 23 ms update polling interval (`READ_INTERVAL_MS = 23`).
+  - Useful measurement window: 55 mm to 700 mm (`MIN_DISTANCE_HEIGHT_MM` to `MAX_DISTANCE_HEIGHT_MM`).
+  - Normalized distance calculation: `mm = rawDistanceValue - MIN_HEIGHT` (0 to 645 mm), published via `AppState::PerformanceInput::observeDistance()` / `recordingValue()`.
   - Non-blocking single-poll guarantee: `update()` checks `dataReady()` once and returns immediately without stalling the control loop.
 
 ### 3. MPR121 Capacitive Touch Matrix
@@ -110,9 +110,8 @@ The magnetic encoder subsystem consists of two architectural layers:
 ```cpp
 void applyIncrementToParameter(EncoderBaseValues* baseValues, EncoderParameterMode param, float increment);
 void updateEncoderBaseValues(UIState& uiState);
-void updateEncoderStepParameterValues(UIState& uiState);
+void updateEncoderStepParameterValues(UIState& uiState); // now delegates to updateEncoderBaseValues
 void applyEncoderBaseValues(VoiceState *voiceState, uint8_t voiceId);
-void applyEncoderDelayValues();
 void applyEncoderSlideTimeValues();
 ```
 
@@ -138,10 +137,10 @@ void resetEncoderBaseValues(UIState& uiState, bool currentVoiceOnly = true);
 void initEncoderBaseValues();
 
 extern MagEncoder magEncoder;
-extern float delayTarget;
-extern float feedbackAmmount;
-extern const size_t MAX_DELAY_SAMPLES;
 ```
+
+*(The former `delayTarget`, `feedbackAmmount`, and `MAX_DELAY_SAMPLES` globals and
+`applyEncoderDelayValues()` were removed with the delay effect, 2026-09-11.)*
 
 ---
 
@@ -177,8 +176,8 @@ class DistanceSensor {
 public:
     DistanceSensor();
     bool begin();                    // Configures Adafruit_VL53L1X on Wire @ 0x29
-    void update();                   // Non-blocking single data-ready poll (20ms interval)
-    int getRawDistanceMm() const;    // Returns raw measurement in mm (74-1400mm)
+    void update();                   // Non-blocking single data-ready poll (23ms interval)
+    int getRawDistanceMm() const;    // Returns raw measurement in mm (55-700mm useful window)
     bool isConnected() const;        // Connection status flag
 };
 
@@ -218,11 +217,11 @@ void Matrix_printState();
 ### VL53L1X Constants (`SensorConstants::DistanceSensor`)
 ```cpp
 static constexpr uint8_t I2C_ADDRESS = 0x29;
-static constexpr uint8_t I2C_STABILIZATION_DELAY_MS = 50;
-static constexpr unsigned long READ_INTERVAL_MS = 20;
+static constexpr uint8_t I2C_STABILIZATION_DELAY_MS = 30;
+static constexpr unsigned long READ_INTERVAL_MS = 23;
 static constexpr unsigned long TIMING_BUDGET_MICROSECONDS = 20000;
 static constexpr unsigned long INTER_MEASUREMENT_PERIOD_MS = 24;
-static constexpr int MAX_DISTANCE_HEIGHT_MM = 1200;
+static constexpr int MAX_DISTANCE_HEIGHT_MM = 700;
 static constexpr int MIN_DISTANCE_HEIGHT_MM = 55;
 static constexpr int INVALID_DISTANCE_MM = -1;
 ```
@@ -231,25 +230,28 @@ static constexpr int INVALID_DISTANCE_MM = -1;
 ```cpp
 static constexpr float PARAMETER_MIN_VALUE = 0.0f;
 static constexpr float PARAMETER_MAX_VALUE = 1.0f;
-static constexpr float NOTE_PARAMETER_MAX = 21.0f;
-static constexpr float DELAY_TIME_MIN_SAMPLES = 120.0f;
-static constexpr float DELAY_FEEDBACK_MAX = 0.91f;
 static constexpr float MINIMUM_INCREMENT_THRESHOLD = 0.0005f;
 static constexpr float PARAMETER_RANGE_SCALE_FACTOR = 0.75f;
 
+// Flash speed zone thresholds and multipliers (NORMAL/WARNING/CRITICAL,
+// zone starts 0.0 / 0.65 / 0.8375, speeds 1x / 2x / 3x) — defined but
+// currently without a consumer.
+
 // Defaults
-static constexpr float DEFAULT_DELAY_TIME_SAMPLES = 48000.0f * 0.2f; // 200ms
-static constexpr float DEFAULT_DELAY_FEEDBACK = 0.55f;
 static constexpr float DEFAULT_VOICE_PARAMETER = 0.0f;
 ```
+
+*(The former `NOTE_PARAMETER_MAX`, `DELAY_TIME_MIN_SAMPLES`, `DELAY_FEEDBACK_MAX`,
+`DEFAULT_DELAY_TIME_SAMPLES`, and `DEFAULT_DELAY_FEEDBACK` constants were removed
+with the delay effect, 2026-09-11.)*
 
 ### System Constants (`SensorConstants::System`)
 ```cpp
 static constexpr float SAMPLE_RATE_HZ = 48000.0f;
 static constexpr uint8_t MAX_VOICES = 4;
 static constexpr unsigned long SENSOR_UPDATE_INTERVAL_MS = 1;
-static constexpr int FILTER_FREQUENCY_MIN_HZ = 150;
-static constexpr int FILTER_FREQUENCY_MAX_HZ = 8000;
+static constexpr int FILTER_FREQUENCY_MIN_HZ = 90;
+static constexpr int FILTER_FREQUENCY_MAX_HZ = 6000;
 ```
 
 ---
@@ -364,7 +366,7 @@ void loop() {
 
 ### VL53L1X Distance Sensor
 - **Initialization Fails (`0x29`)**: Verify I2C bus address and 50 ms stabilization delay (`I2C_STABILIZATION_DELAY_MS`).
-- **Reading Stalls at -1**: Target out of range (< 74 mm or > 1400 mm) or optical cover glass is occluded.
+- **Reading Stalls at -1**: Target outside the useful 55–700 mm window or optical cover glass is occluded.
 - **Jitter or False Triggers**: Optical noise from high-brightness WS2812B LEDs or ambient infrared sunlight.
 
 ### MPR121 Capacitive Touch Matrix

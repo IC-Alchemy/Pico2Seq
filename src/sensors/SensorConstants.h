@@ -79,8 +79,8 @@ namespace SensorConstants
     static constexpr unsigned long SENSOR_UPDATE_INTERVAL_MS = 1; // 1ms sensor update rate
 
     // Parameter mapping constants
-    // Display range for filter cutoff; must match the DSP mapping in Voice.cpp
-    // (dspmap::fmap(state.filterCutoff, 150.0f, 8000.0f, EXP))
+    // Display-only range for filter cutoff formatting (OLED/encoder display).
+    // The DSP mapping itself uses per-engine bounds from VoiceParameters::layout().
     static constexpr int FILTER_FREQUENCY_MIN_HZ = 90;
     static constexpr int FILTER_FREQUENCY_MAX_HZ = 6000;
   }

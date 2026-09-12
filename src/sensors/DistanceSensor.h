@@ -63,7 +63,7 @@ public:
    * is updated by the update() function and represents the distance from
    * the sensor to the nearest object within the measurement range.
    *
-   * @return Distance in millimeters (74-1400mm typical range)
+   * @return Distance in millimeters (55-700mm is the useful range; AppState clamps/normalizes)
    * @note Returns the last valid reading even if sensor communication fails
    */
   int getRawDistanceMm() const;

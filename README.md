@@ -23,7 +23,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **Alchemy Modular UI Tiles**: Dedicated `SliderModule` (4 faders + 4 voice selects) and `ButtonModule8` (8 multi-function buttons) on a dedicated I2C1 bus
 - **Hardware Mode Strap (GP7)**: Instant hardware toggle between Parameter mode and Utility mode
 - **Real-time Sensors**: TMAG5273 magnetic encoder (Velocity Encoder board) for responsive parameter dialing
-- **Distance Control**: VL53L1X TOF sensor for hands-free optical parameter modulation (74–1400 mm range)
+- **Distance Control**: VL53L1X TOF sensor for hands-free optical parameter modulation (55–700 mm usable range, normalized 0–1)
 - **Visual Feedback**: 128×64 SH1106G OLED display with 6-tier priority screen rendering
 - **LED Matrix**: 8×4 WS2812B RGB LED display (mirroring the 4×8 touch matrix) with 10 vibrant color themes and playhead visualization
 
@@ -67,7 +67,7 @@ For a practical guide to changing the firmware, start with
 │   │   └── UIEventHandler.h/.cpp      # Sequencer step adapter logic
 │   ├── matrix/               # MPR121 4×8 touch matrix — 32 dedicated step pads
 │   ├── sensors/              # Sensor management (EncoderManager and VL53L1X DistanceSensor)
-│   ├── midi/                 # USB MIDI input/output, CC management, and clock
+│   ├── midi/                 # Internal gate/note lifecycle (MidiNoteManager); USB MIDI removed 2026-09-06
 │   ├── LEDMatrix/            # 8×4 WS2812B RGB visual feedback (pad-mirror) and 10 color themes
 │   ├── OLED/                 # 128×64 SH1106G OLED display manager and priority screens
 │   ├── utils/                # Debug logging utilities (Debug.h/.cpp)
@@ -226,7 +226,9 @@ MIDI, displays, sensors, or controls on physical hardware.
 4. **Select a voice:** Press Voice 1–4 buttons on the SliderModule to switch active voices directly.
 5. **Adjust parameters:** Rotate the TMAG5273 magnetic encoder or move physical faders to dial parameter values with live OLED/LED feedback.
 6. **Real-time recording:** Hold (or Shift+tap to latch) a parameter button and touch step pads to record automation into the pattern.
-7. **Switch function sets:** Toggle the GP7 mode strap between **Param** (Note, Velocity, Filter, Attack, Decay, Octave, Slide, Shift) and **Utility** (Play/Stop, Delay, Scale, Swing, Theme, Encoder Target, Randomize, Shift).
+7. **Switch function sets:** Toggle the GP7 mode strap between **Param** (Note, Velocity, Filter, Attack, Decay, Octave, Slide, Shift) and **Utility** (Play/Stop, *(unassigned — was the Delay toggle, removed with the delay effect 2026-09-11)*, Scale, Swing, Theme, Encoder Target, Randomize, Shift).
+8. **Voice Editing mode:** Hold **Shift** and press slider button 4 to stop transport and edit any voice's sound parameters directly with the encoder (button tiles navigate groups/parameters; slider buttons 1–4 pick the voice). See [`docs/voice-edit.md`](docs/voice-edit.md).
+9. **Master volume:** In Utility mode, fader 3 sets the final output volume (applied on Core 1's final mix).
 
 ### Preset System
 
@@ -301,6 +303,7 @@ Comprehensive subsystem documentation is maintained in the [`docs/`](docs/) dire
 
 - [`docs/architecture.md`](docs/architecture.md) — System architecture, dual-core division, and component interactions
 - [`docs/voice.md`](docs/voice.md) — Synthesizer voice DSP pipeline, VoiceOscillator, filters, ADSR, and preset definitions
+- [`docs/voice-edit.md`](docs/voice-edit.md) — Voice Editing mode: parameter catalogue, base-plus-modifier recording, and sequenced modifiers
 - [`docs/VoiceSystem.md`](docs/VoiceSystem.md) — Centralized VoiceSystem data structures, accessor pattern, and voice routing
 - [`docs/sequencer.md`](docs/sequencer.md) — 4-voice step sequencer engine, polymetric parameter tracks, and uClock integration
 - [`docs/scales.md`](docs/scales.md) — 13 musical scales, semitone offsets, rank caching, and pitch mapping
@@ -313,7 +316,12 @@ Comprehensive subsystem documentation is maintained in the [`docs/`](docs/) dire
 - [`docs/testing.md`](docs/testing.md) — Host-side Catch2 v3 unit testing guide, CMake/CTest workflow, and header stubs
 - [`docs/alchemyui-tmag5273-migration.md`](docs/alchemyui-tmag5273-migration.md) — Migration and architectural transition notes for Alchemy tiles & TMAG5273
 - [`docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`](docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md) — Specification for Alchemy modular UI tile control surface
-- [`docs/superpowers/specs/2026-09-02-modifier-layer-restoration.md`](docs/superpowers/specs/2026-09-02-modifier-layer-restoration.md) — Plan (not yet implemented) for restoring the modifier layer on the tile control surface
+- [`docs/superpowers/specs/2026-09-02-modifier-layer-restoration.md`](docs/superpowers/specs/2026-09-02-modifier-layer-restoration.md) — Spec for the modifier layer; implemented 2026-09-11 via the Voice Editing mode (see [`docs/voice-edit.md`](docs/voice-edit.md))
+
+Interactive single-file HTML docs also live in `docs/`: [`PICO2SEQplayground.html`](docs/PICO2SEQplayground.html) and
+[`pico2seqinteractive_explainer.html`](docs/pico2seqinteractive_explainer.html) (hands-on explorers),
+[`Pico2Seqinteractive_manual.html`](docs/Pico2Seqinteractive_manual.html) (manual UI), [`synth_layout.html`](docs/synth_layout.html)
+(DSP/layout diagram), and [`voice_edit_playground.html`](docs/voice_edit_playground.html) (Voice Editing explorer).
 
 ---
 

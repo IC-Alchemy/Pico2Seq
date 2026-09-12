@@ -916,7 +916,7 @@ function makeKnob(size,onDelta){
   const utilDefs=[
     {p:"Tempo",u:v=>(45+v*155).toFixed(0)+" BPM"},
     {p:"Swing",u:v=>(v*60).toFixed(0)+"/60 ticks"},
-    {p:"— unassigned",u:()=>"was DelayMix (removed)",dead:true},
+    {p:"MasterVol",u:v=>(v*100).toFixed(0)+" %"},
     {p:"GateLength",u:v=>v.toFixed(2)+" · "+MAP.gateTicks(v)+" ticks"},
   ];
   const faders=[]; // {raw,lastSent,dom...}
@@ -1006,7 +1006,7 @@ function makeKnob(size,onDelta){
         log(`Tempo fader → uClock.setTempo(${bpm})`,'ok');}
       else if(fo.idx===1)log(`Swing fader → ${Math.round(norm*60)}/120 ticks late on odd 16ths (shuffle template)`,'ok');
       else if(fo.idx===3)log(`GateLength fader → ${norm.toFixed(2)} written to ALL 16 steps of voice ${voice+1}`,'warn');
-      else if(fo.idx===2)log(`fader 3 (utility) → unassigned since the delay effect was removed`,'bad');
+      else if(fo.idx===2)log(`fader 3 (utility) → VoiceManager::setGlobalVolume(${norm.toFixed(2)}) — master volume on Core 1's final mix`,'ok');
       return;
     }
     // Param mode: needs matching latch + selected step

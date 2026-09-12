@@ -808,10 +808,6 @@
 
       <div class="h-5 w-px bg-slate-700/60"></div>
 
-      <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer user-select-none">
-        <input id="globalDelayToggle" type="checkbox" checked class="accent-emerald-500 rounded">
-        <span class="text-[11px] font-mono">DELAY</span>
-      </label>
     </div>
 
     <!-- Navigation Tabs -->
@@ -936,7 +932,7 @@
                 </span>
               </div>
               <p class="text-[11px] text-slate-400">
-                Move "hand" closer/further (74–1400 mm). When a parameter button is held/latched, distance records live into playing steps!
+                Move "hand" closer/further (55–700 mm). When a parameter button is held/latched, distance records a relative modifier into playing steps (midpoint neutral).
               </p>
               <div class="space-y-1">
                 <div class="flex justify-between text-[10px] font-mono text-slate-500">
@@ -1106,7 +1102,7 @@
               </div>
               <div class="mt-2 text-[10px] text-slate-400 space-y-0.5">
                 <div><span class="text-amber-400 font-mono">Shift+V1:</span> Play/Stop · <span class="text-amber-400 font-mono">Shift+V2:</span> Randomize</div>
-                <div><span class="text-amber-400 font-mono">Shift+V3:</span> Scale Cycle · <span class="text-amber-400 font-mono">Shift+V4:</span> Delay Toggle</div>
+                <div><span class="text-amber-400 font-mono">Shift+V3:</span> Scale Cycle · <span class="text-amber-400 font-mono">Shift+V4:</span> Voice Editing (not simulated)</div>
               </div>
             </div>
 
@@ -1338,8 +1334,8 @@
               <div class="text-[10px] text-amber-400/80 mt-1">Low-end Tamer</div>
             </div>
             <div class="p-2.5 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-300">
-              <div class="font-bold">6. MASTER DELAY</div>
-              <div class="text-[10px] text-emerald-400/80 mt-1">Compiled out by PICO2SEQ_ENABLE_DELAY_EFFECT=0 (simulated here)</div>
+              <div class="font-bold">6. MASTER VOLUME</div>
+              <div class="text-[10px] text-emerald-400/80 mt-1">Utility fader 3 — final-mix gain (VoiceManager::setGlobalVolume, added 2026-09-11)</div>
             </div>
           </div>
         </div>
@@ -1473,10 +1469,10 @@
               <li><b>32 Capacitive Touch Pads (MPR121 @ 0x5A)</b>: Dedicated exclusively as step pads, split into two 16-step banks representing the currently active voice pair (V1/V2 or V3/V4).</li>
               <li><b>8×4 WS2812B RGB LED Matrix (GPIO 1)</b>: Directly mirrors the touch pad grid 1:1, rendering active gates, beat playhead accents, breathing idle wave, and polyrhythmic overlays.</li>
               <li><b>SliderModule (4 Faders + 4 Voice Buttons)</b>: 12-bit ADC continuous control and direct selection for Voices 1–4.</li>
-              <li><b>ButtonModule8 (8 Tactile Buttons + GP7 Mode Switch)</b>: Dual function sets for Param Mode (Note, Velocity, Filter, Attack, Decay, Octave, Slide, Shift) and Utility Mode (Play/Stop, Delay, Scale, Swing, Theme, Encoder Target, Randomize, Shift).</li>
+              <li><b>ButtonModule8 (8 Tactile Buttons + GP7 Mode Switch)</b>: Dual function sets for Param Mode (Note, Velocity, Filter, Attack, Decay, Octave, Slide, Shift) and Utility Mode (Play/Stop, *(unassigned — was Delay)*, Scale, Swing, Theme, Encoder Target, Randomize, Shift).</li>
               <li><b>TMAG5273 Magnetic Encoder (I2C 0x35)</b>: Velocity-sensitive 3D hall-effect knob for precision parameter tweaking and gate length adjustments.</li>
-              <li><b>VL53L1X Time-of-Flight Laser Sensor (I2C 0x29)</b>: Hands-free performance modulation over 74–1400 mm.</li>
-              <li><b>OLED Display (SH1106G 128×64 @ 0x3C)</b>: Deterministic 5-tier priority rendering system.</li>
+              <li><b>VL53L1X Time-of-Flight Laser Sensor (I2C 0x29)</b>: Hands-free performance modulation over a 55–700 mm window.</li>
+              <li><b>OLED Display (SH1106G 128×64 @ 0x3C)</b>: Deterministic 7-tier priority rendering system (Voice Editing screen on top).</li>
             </ul>
           </article>
 
@@ -1569,7 +1565,7 @@
                 <span class="font-bold text-cyan-300 font-mono">Utility Mode (GP7 HIGH)</span>
                 <ul class="space-y-1 text-slate-400">
                   <li>• <b>Btn 1 (Play/Stop)</b>: Starts/stops transport; opens Settings when stopped.</li>
-                  <li>• <b>Btn 2 (Delay)</b>: Toggle the delay state/notice (the delay insert is compiled out via PICO2SEQ_ENABLE_DELAY_EFFECT=0, so no delay is audible).</li>
+                  <li>• <b>Btn 2</b>: Unassigned — was the Delay toggle; the delay effect was removed 2026-09-11.</li>
                   <li>• <b>Btn 3 (Scale)</b>: Cycle 13 musical scales.</li>
                   <li>• <b>Btn 4 (Swing)</b>: Cycle 16 shuffle templates.</li>
                   <li>• <b>Btn 5 (Theme)</b>: Cycle 10 LED matrix color themes.</li>
@@ -1657,7 +1653,7 @@
               <li><b>Step context matters:</b> Shift clears a pad, a held parameter sets a parameter-track length, and Gate Length mode changes the voice pattern length.</li>
               <li><b>Pitch needs a gate:</b> Turn a step gate on before writing its Note value.</li>
               <li><b>Voice numbering differs by surface:</b> The interface labels voices V1–V4 while internal firmware indices run 0–3.</li>
-              <li><b>Distance range is bounded:</b> The VL53L1X performance window is 74–1400 mm.</li>
+              <li><b>Distance range is bounded:</b> The VL53L1X performance window is 55–700 mm.</li>
             </ul>
           </article>
 
@@ -1736,7 +1732,7 @@
 
           <div class="p-4 rounded-xl bg-emerald-950/20 border border-emerald-700/40 space-y-1.5">
             <span class="font-bold text-emerald-400 font-mono flex items-center gap-1.5">
-              <span>📏</span> VL53L1X Distance Window (74–1400 mm)
+              <span>📏</span> VL53L1X Distance Window (55–700 mm)
             </span>
             <p class="text-slate-300">
               Readings below 74 mm or above 1400 mm return invalid (-1) and are ignored by firmware. Distance is normalized from 74 mm upwards.
@@ -1837,7 +1833,7 @@
     ];
 
     const ENCODER_TARGETS = [
-      "Velocity", "Filter", "Attack", "Decay", "Note", "Delay Time", "Delay Feedback", "Slide Time"
+      "Velocity", "Filter", "Attack", "Decay", "Note", "Octave", "Slide Time"
     ];
 
     /* ===================================================================
@@ -1917,8 +1913,6 @@
        =================================================================== */
     let audioCtx = null;
     let masterGain = null;
-    let delayNode = null;
-    let delayFeedback = null;
     let timerId = null;
 
     function initAudio() {
@@ -1928,16 +1922,6 @@
 
       masterGain = audioCtx.createGain();
       masterGain.gain.value = 0.7;
-
-      // Master Delay
-      delayNode = audioCtx.createDelay(2.0);
-      delayNode.delayTime.value = 0.333; // 333ms delay
-      delayFeedback = audioCtx.createGain();
-      delayFeedback.gain.value = 0.45;
-
-      delayNode.connect(delayFeedback);
-      delayFeedback.connect(delayNode);
-      delayNode.connect(masterGain);
 
       masterGain.connect(audioCtx.destination);
     }
@@ -2004,11 +1988,6 @@
       osc.connect(filter);
       filter.connect(gain);
       gain.connect(masterGain);
-
-      // Send to delay
-      if (document.getElementById("globalDelayToggle").checked) {
-        gain.connect(delayNode);
-      }
 
       osc.start(now);
       osc.stop(now + att + dec + 0.1);
@@ -2441,7 +2420,7 @@
 
     const UTIL_BUTTONS = [
       { id: "Play", label: "Play/Stop" },
-      { id: "Delay", label: "Delay On/Off" },
+      { id: "Delay", label: "Unassigned" },
       { id: "Scale", label: "Scale Cycle" },
       { id: "Swing", label: "Swing Cycle" },
       { id: "Theme", label: "Theme Cycle" },
@@ -2509,9 +2488,7 @@
             if (b.id === "Play") {
               state.isPlaying ? stopClock() : startClock();
             } else if (b.id === "Delay") {
-              const dChk = document.getElementById("globalDelayToggle");
-              dChk.checked = !dChk.checked;
-              showBanner(dChk.checked ? "DELAY ON" : "DELAY OFF", "Master Delay Effect");
+              showBanner("UNASSIGNED", "Delay effect removed 2026-09-11");
             } else if (b.id === "Scale") {
               state.currentScale = (state.currentScale + 1) % SCALES.length;
               showBanner("SCALE", SCALES[state.currentScale].name);
@@ -2610,8 +2587,8 @@
         document.getElementById("fader2").value = (state.currentShuffle / SHUFFLE_TEMPLATES.length) * 1000;
         document.getElementById("fader2Val").textContent = "T" + state.currentShuffle;
 
-        document.getElementById("fader3").value = (delayFeedback ? delayFeedback.gain.value : 0.45) * 1000;
-        document.getElementById("fader3Val").textContent = Math.round((delayFeedback ? delayFeedback.gain.value : 0.45) * 100) + "%";
+        document.getElementById("fader3").value = (masterGain ? masterGain.gain.value : 0.7) * 1000;
+        document.getElementById("fader3Val").textContent = Math.round((masterGain ? masterGain.gain.value : 0.7) * 100) + "%";
 
         document.getElementById("fader4").value = (v.gateLength / 16) * 1000;
         document.getElementById("fader4Val").textContent = v.gateLength + " Stp";
@@ -2651,7 +2628,7 @@
           state.voices[state.selectedVoice].decayTime = val;
           document.getElementById("fader3Val").textContent = Math.round(val * 1000) + "ms";
         } else {
-          if (delayFeedback) delayFeedback.gain.value = Math.min(0.91, val);
+          if (masterGain) masterGain.gain.value = val;
           document.getElementById("fader3Val").textContent = Math.round(val * 100) + "%";
         }
         renderOled();
@@ -2953,9 +2930,7 @@
               showBanner("SCALE", SCALES[state.currentScale].name);
             }
             if (vIdx === 3) {
-              const dChk = document.getElementById("globalDelayToggle");
-              dChk.checked = !dChk.checked;
-              showBanner(dChk.checked ? "DELAY ON" : "DELAY OFF", "Master Delay");
+              showBanner("VOICE EDIT", "Not simulated — see docs/voice-edit.md");
             }
             state.shiftActive = false;
             document.getElementById("shiftStatusIndicator").textContent = "SHIFT OFF";

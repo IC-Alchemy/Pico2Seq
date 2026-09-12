@@ -108,12 +108,21 @@ What's tested vs. not, per `tests/CMakeLists.txt`:
   `src/pico2seq-core/scales/scales.cpp`,
   `src/pico2seq-core/sequencer/{ParameterManager,Sequencer}.cpp`,
   `src/voice/{Voice,VoicePresets,VoiceManager}.cpp` (incl. the `SpscQueue`
-  control handoff via `test_voice_transfer.cpp`),
+  control handoff via `test_voice_transfer.cpp`; recipes via
+  `test_voice_recipes.cpp`; the Voice Editing catalogue/policy via
+  `test_voice_edit.cpp`),
   `src/ui/ControlSurfaceLogic.cpp` via `tests/unit/test_control_surface_logic.cpp`,
-  `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` via `tests/unit/test_alchemy_proto.cpp`.
+  `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` via `tests/unit/test_alchemy_proto.cpp`,
+  `src/audio/{audio_i2s,audio}.cpp` via `test_audio_i2s.cpp` (against
+  `tests/audio_stubs/` — keep driver logic in those testable functions),
+  `src/utils/FreezeWatchdog.h` via `test_freeze_watchdog.cpp`
+  (against `tests/watchdog_stubs/`), and app runtime helpers (PCM16
+  conversion, lidar calibration) via `test_app_runtime.cpp`.
 - **Not tested, by design** (hardware-bound glue — keep logic out of these):
-  `src/audio/` (PIO/DMA/I2S), `src/LEDMatrix/` (WS2812B GPIO/DMA), `src/OLED/` (I2C display),
-  `src/midi/` (TinyUSB stack).
+  the PIO/DMA register-level parts of `src/audio/`, `src/LEDMatrix/`
+  (WS2812B GPIO/DMA), `src/OLED/` (I2C display), `src/midi/` (TinyUSB stack),
+  `src/matrix/`, `src/sensors/`, and the Wire-bound parts of
+  `src/ui/AlchemyControlBridge.cpp`.
 
 When adding a new module to be tested:
 1. Check its `#include` chain for new hardware headers; add a minimal stub under `tests/stubs/`
@@ -136,12 +145,11 @@ Two real gotchas documented in `docs/testing.md`, worth knowing before you write
 
 ## Architecture
 
-`docs/architecture.md` is the canonical deep-dive; `docs/{voice,sequencer,matrix,midi,oled,
+`docs/architecture.md` is the canonical deep-dive; `docs/{voice,voice-edit,sequencer,matrix,midi,oled,
 sensors,ButtonHandlers}.md` cover each subsystem. The essentials:
 
 ### Dual-core split (the most important thing to keep in mind for any change)
 
--
 - **Core 0** (`setup()`/`loop()`): everything else — USB CDC serial, TMAG5273 magnetic encoder and VL53L1X, distance sensor polling, MPR121 touch matrix scanning, `uClock` sequencer step ticking, LED matrix and OLED updates, UI state.
 - **Core 1** (`setup1()`/`loop1()` in `Pico2Seq.ino`): audio synthesis only. Pulls a buffer, calls `voiceManager->processAllVoices()` per-sample, writes I2S output. Nothing else should run here — this is real-time critical and must never block or allocate.
 - Cross-core communication is via `volatile` globals (e.g. `VoiceSystem::gates`,
@@ -171,9 +179,11 @@ Matrix/TMAG5273/VL53L1X input  (Core 0)
   → VoiceState produced per step (the uClock ISR only stages the step into
     the stepQueue SpscQueue; loop() drains it via processClockEvents() and
     runs processSequencerStep)
-  → VoiceSystem (gate timing, MIDI note on/off via MidiNoteManager) → VoiceManager
+  → VoiceSystem (gate timing, internal note lifecycle via MidiNoteManager — nothing
+    has been transmitted since USB MIDI was removed 2026-09-06) → VoiceManager
   → Voice DSP chain (oscillators → ladder filter → ADSR → overdrive/wavefolder)
-  → fill_audio_buffer()  (Core 1)  → I2S @ 48kHz
+  → fill_audio_buffer()  (Core 1)  → I2S @ 48kHz (final mix includes the master
+    volume from `VoiceManager::setGlobalVolume()`, utility fader 3)
 ```
 
 `Sequencer::ParameterTrack<N>` (in `SequencerDefs.h`) is the polymetric building block: each

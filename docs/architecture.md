@@ -117,7 +117,7 @@ disabled; TinyUSB CDC remains available for the serial console.
   - `Matrix_scan()`: Consumes MPR121 touch-status interrupts from GP8 and, only when pending, scans 32 capacitive touch step pads over I2C0 (Wire: GP4/GP5 @ 0x5A).
   - `alchemyBridge.update()`: Polls SliderModule (4 faders) and ButtonModule8 on dedicated I2C1 (Wire1: GP14/GP15 @ 100kHz) and reads the GP7 hardware mode strap.
   - `magEncoder.update()`: Reads the TMAG5273A magnetic encoder on Wire @ 0x35 and updates base values via `updateEncoderBaseValues(uiState)`.
-  - `distanceSensor.update()`: Non-blocking VL53L1X distance sensor update on Wire @ 0x29 (74–1400mm range).
+  - `distanceSensor.update()`: Non-blocking VL53L1X distance sensor update on Wire @ 0x29 (55–700mm useful window).
   - `pollUIHeldButtons()`: Processes long-press events across all four sequencers (`seq1..seq4`).
 - **20ms (50Hz) Display Refresh Loop**:
   - OLED Display: `display.update(uiState, seq1..seq4, voiceManager)` refreshes the 128x64 SH1106G display on Wire @ 0x3C.

@@ -11,14 +11,16 @@
 // =======================
 
 /**
- * MIDI CC Configuration for PicoMudrasSequencer
+ * MIDI CC Configuration (dormant since the USB MIDI removal, 2026-09-06)
  *
- * CC Number Mapping Strategy:
+ * Historical CC Number Mapping Strategy:
  * - Voice 1: CC71-74 (Filter=74, Attack=73, Decay=72, Octave=71)
  * - Voice 2: CC75-78 (Filter=78, Attack=77, Decay=76, Octave=75)
  *
- * All CC messages are sent on MIDI Channel 1 for simplicity.
- * External DAWs/hardware can differentiate voices by CC number ranges.
+ * Nothing is transmitted anymore: the firmware sends no MIDI at all and
+ * the former usb_midi interface is gone. The constants and CC methods
+ * below survive only as dormant plumbing for the internal gate/note
+ * lifecycle state machine.
  *
  * All configuration constants are defined in MidiCCConfig.h
  */

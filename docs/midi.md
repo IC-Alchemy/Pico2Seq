@@ -2,7 +2,8 @@
 
 ## Overview
 
-The `src/midi/` subsystem handles USB MIDI communication for Pico2Seq using **Adafruit TinyUSB** and the Arduino MIDI library (`midi::SerialMIDI<Adafruit_USBD_MIDI>`).
+The `src/midi/` subsystem retains the internal gate/note lifecycle state machine from the
+former USB MIDI stack (Adafruit TinyUSB; the Arduino MIDI library is no longer used).
 
 **USB MIDI was removed entirely 2026-09-06.** The firmware transmits no MIDI at all —
 no notes, no CC, no clock. USB carries power and the TinyUSB CDC serial console only.
@@ -16,25 +17,29 @@ The MIDI subsystem provides:
 
 ---
 
-## 4-Voice Asymmetry: 2-Voice MIDI vs 4-Voice Audio
+## 4-Voice Asymmetry: 2-Voice Note Lifecycle vs 4-Voice Audio
 
-Pico2Seq features 4 internal polyphonic synthesizer voices (`VoiceSystem::MAX_VOICES = 4`), but exhibits an architectural asymmetry between internal audio synthesis and external MIDI routing (the former hardware gate pin outputs were removed when I2S took over their GPIOs):
+Pico2Seq features 4 internal polyphonic synthesizer voices (`VoiceSystem::MAX_VOICES = 4`), and the old 2-voice MIDI/hardware-gate asymmetry survives only as internal bookkeeping (the former hardware gate pin outputs were removed when I2S took over their GPIOs, and USB MIDI transmission was removed 2026-09-06):
 
-| Voice Index | Voice Name | Audio Synthesis | MIDI Note / CC Output |
-|---|---|---|---|
-| **Voice 0** | Voice 1 | Yes (Core 1 @ 48kHz) | **Yes** (Channel 1, CC 71–74) |
-| **Voice 1** | Voice 2 | Yes (Core 1 @ 48kHz) | **Yes** (Channel 1, CC 75–78) |
-| **Voice 2** | Voice 3 | Yes (Core 1 @ 48kHz) | **No** (Audio-only synthesis) |
-| **Voice 3** | Voice 4 | Yes (Core 1 @ 48kHz) | **No** (Audio-only synthesis) |
+| Voice Index | Voice Name | Audio Synthesis | MIDI Output | Internal Note Lifecycle |
+|---|---|---|---|---|
+| **Voice 0** | Voice 1 | Yes (Core 1 @ 48kHz) | **None** | **Yes** (`voice1Tracker`) |
+| **Voice 1** | Voice 2 | Yes (Core 1 @ 48kHz) | **None** | **Yes** (`voice2Tracker`) |
+| **Voice 2** | Voice 3 | Yes (Core 1 @ 48kHz) | **None** | No |
+| **Voice 3** | Voice 4 | Yes (Core 1 @ 48kHz) | **None** | No |
 
 > **Key Architectural Constraint:**
-> `MidiNoteManager` explicitly tracks **only Voices 0 and 1** (`voice1Tracker` and `voice2Tracker`). Voices 2 and 3 are internal audio synthesis voices and do not emit MIDI note events, CC messages, or hardware gate triggers.
+> `MidiNoteManager` explicitly tracks **only Voices 0 and 1** (`voice1Tracker` and `voice2Tracker`). Voices 2 and 3 are internal audio synthesis voices with no note bookkeeping. Nothing is transmitted anywhere — the trackers drive the software gate lifecycle only.
 
 ---
 
-## MIDI Continuous Controller (CC) Mappings
+## MIDI Continuous Controller (CC) Mappings — dormant
 
-All CC messages are transmitted on **MIDI Channel 1** (`CC_MIDI_CHANNEL = 1`). External DAWs and synthesizers differentiate voices through discrete CC number ranges:
+The CC number tables below are **historical**: the constants and methods survive in
+`MidiCCConfig.h` / `MidiManager.h`, but no CC message has been transmitted since USB MIDI
+was removed 2026-09-06 (all send paths are stubs and nothing calls them from the firmware).
+
+Formerly all CC messages were transmitted on **MIDI Channel 1** (`CC_MIDI_CHANNEL = 1`). External DAWs and synthesizers differentiated voices through discrete CC number ranges:
 
 | Parameter | Voice 1 (Voice 0) CC | Voice 2 (Voice 1) CC | Range | Resolution |
 |---|---|---|---|---|
@@ -43,11 +48,11 @@ All CC messages are transmitted on **MIDI Channel 1** (`CC_MIDI_CHANNEL = 1`). E
 | **Attack Time** | **CC 73** | **CC 77** | 0–127 | Linear map (`0.0f`–`1.0f`) |
 | **Filter Cutoff** | **CC 74** | **CC 78** | 0–127 | Linear map (`0.0f`–`1.0f`) |
 
-*(CC 74 is the standard MIDI specification controller for Sound Brightness / Filter Cutoff).*
+*(CC 74 is the standard MIDI specification controller for Sound Brightness / Filter Cutoff.)*
 
-### Anti-Spam & Rate Limiting (`MidiCCConfig.h`)
-- **Minimum Interval:** `CC_MIN_INTERVAL_MS = 10` (transmissions spaced by at least 10 ms per parameter).
-- **Change Detection:** `CC_CHANGE_DETECTION_ENABLED = true` (CC messages are transmitted only when the quantized 7-bit MIDI value actually changes).
+### Anti-Spam & Rate Limiting (`MidiCCConfig.h`, dormant)
+- **Minimum Interval:** `CC_MIN_INTERVAL_MS = 10` (transmissions were spaced by at least 10 ms per parameter).
+- **Change Detection:** `CC_CHANGE_DETECTION_ENABLED = true` (CC messages were transmitted only when the quantized 7-bit MIDI value actually changed).
 - **State Array:** `CCParameterState ccStates[2][4]` tracks timestamp and value state across both MIDI voices and all 4 parameters.
 
 ---
@@ -146,7 +151,7 @@ public:
     void onSequencerStop();
     void onModeSwitch();
 
-    // CC Transmission
+    // CC Transmission (stubs — nothing is sent since USB MIDI removal 2026-09-06)
     void updateParameterCC(uint8_t voiceId, ParamId paramId, float value);
     void sendCCIfChanged(uint8_t voiceId, ParamId paramId, float value);
     void sendCC(uint8_t ccNumber, uint8_t value, uint8_t channel = 1);
@@ -155,7 +160,6 @@ public:
 };
 
 extern MidiNoteManager midiNoteManager;
-extern midi::MidiInterface<midi::SerialMIDI<Adafruit_USBD_MIDI>> usb_midi;
 ```
 
 ---

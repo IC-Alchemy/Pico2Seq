@@ -7,13 +7,14 @@ filter, envelopes, octave, gate, slide) can run on its own step length, so patte
 against each other polymetrically instead of staying locked in lockstep. The playing
 surface is a 32-pad capacitive touch grid backed by a mirrored LED matrix, with four
 analog faders, an 8-button function set, a magnetic encoder joystick, a hands-free laser
-distance sensor, an OLED display, and USB MIDI — all on one panel.
+distance sensor, an OLED display, and a USB CDC diagnostics console — all on one panel.
 
 > This manual was compiled from the firmware source and documentation in this repository
-> (2026-09-03). The code is authoritative; anything that could not be verified against the
-> code is explicitly marked **[unverified]**. Voice numbering: the panel and docs use
-> **Voice 1–4**; the internal firmware and some OLED screens use 0-based indices
-> **0–3** for the same voices.
+> (2026-09-03; updated 2026-09-11 for the USB MIDI removal, the delay effect removal, the
+> new master volume, and the Voice Editing mode). The code is authoritative; anything that
+> could not be verified against the code is explicitly marked **[unverified]**. Voice
+> numbering: the panel and docs use **Voice 1–4**; the internal firmware and some OLED
+> screens use 0-based indices **0–3** for the same voices.
 
 ---
 
@@ -122,7 +123,7 @@ record into the armed step while a step is in Step Edit:
 |---|---|
 | 1 | Master tempo (uClock BPM, 45–200) |
 | 2 | Swing amount (continuous shuffle depth) |
-| 3 | *(unassigned — was delay feedback mix; the delay effect was removed in 2026-09)* |
+| 3 | **Master volume** — final output gain, applied lock-free on Core 1's final mix (added 2026-09-11) |
 | 4 | Gate length across the selected voice's active steps |
 
 ### 1.4 Voice buttons (V1–V4)
@@ -135,7 +136,8 @@ Next to the faders: four buttons for **direct voice selection** in both modes.
   - **Shift + V1** — Play / Stop transport
   - **Shift + V2** — Randomize the selected voice
   - **Shift + V3** — Cycle musical scale
-  - **Shift + V4** — *(no action — was delay toggle; the delay effect was removed in 2026-09)*
+  - **Shift + V4** — Enter **Voice Editing mode** (hold both, then release; transport stops
+    and audio mutes — see §5 and [`docs/voice-edit.md`](voice-edit.md))
 
 ### 1.5 The 8-button function set & the mode switch
 
@@ -145,7 +147,7 @@ Eight buttons (ButtonModule8) change meaning with the **mode switch** on GPIO 7:
 | # | Param mode | Utility mode |
 |---|---|---|
 | 1 | Note | Play / Stop |
-| 2 | Velocity | *(unassigned — was delay on/off)* |
+| 2 | Velocity | *(unassigned — was the Delay toggle; the delay effect was removed 2026-09-11)* |
 | 3 | Filter | Scale cycle |
 | 4 | Attack | Swing pattern cycle |
 | 5 | Decay | LED theme cycle |
@@ -165,9 +167,10 @@ range. It edits whatever the **encoder target** is — cycle targets with the Ut
 
 **Velocity → Filter → Attack → Decay → Note → Octave → Slide Time → (back to Velocity)**
 
-- Voice targets (Velocity/Filter/Attack/Decay/Note) act as offsets on the selected voice.
-  Note: at step time these base offsets are applied to **all four voices** (per-voice
-  `encoderBaseValues` in `EncoderManager`) — see §9.
+- Voice targets (Velocity/Filter/Attack/Decay/Note) set that parameter's **base value for
+  the selected voice**. Each voice stores its own base (`encoderBaseValues` in
+  `EncoderManager`), and at step time every voice applies its own base — see §9 and
+  [`docs/voice-edit.md`](voice-edit.md) for how bases combine with recorded modifiers.
 - Slide Time sets the portamento glide time.
 - While the encoder is controlling a parameter, the OLED status screen shows
   `ENC: <parameter> <value>`.
@@ -178,12 +181,17 @@ sets that voice's Gate track length (2–16 steps). Release the button to exit.
 
 ### 1.7 VL53L1X distance sensor
 
-A laser time-of-flight sensor (effective range **74–1400 mm**) above the panel. It is the
+A laser time-of-flight sensor (usable range **55–700 mm**) above the panel. It is the
 **hands-free performance controller**: hold (or Shift+latch) a parameter button, then move
-your hand over the sensor, and the distance is written live into the armed parameter of the
+your hand over the sensor, and the reading is recorded live into the armed parameter of the
 currently playing step on the **selected voice** — e.g. sweep Filter over a pattern without
 touching anything. Pitch recording only lands on steps whose gate is ON. In Step Edit mode
-the sensor edits the selected step instead.
+the sensor records into the selected step instead.
+
+Since the Voice Editing mode landed (2026-09-11) the sensor records a **relative modifier**
+rather than an absolute value: the reading is normalized to 0–1, the midpoint (≈50 %) is
+neutral, and the recorded value offsets the parameter's base up or down. Changing the base
+afterwards does not change what you recorded — see [`docs/voice-edit.md`](voice-edit.md).
 
 ### 1.8 OLED display
 
@@ -203,7 +211,10 @@ five-tier hierarchy:
    edit: parameter name, voice (`V0`–`V3`, 0-based) and step (`S1`–`S16`) indicators, the
    formatted value (Hz for Filter, seconds for Attack/Decay, % for Velocity/GateLength,
    `-1/0/+1` for Octave, `ON/OFF` for Gate/Slide) and a progress bar.
-5. **Status screen** (default) — scale name, shuffle template name, selected voice (shown
+5. **Voice Editing screens** — while Voice Editing mode is active: `EDIT V1`–`EDIT V4`,
+   a modified marker, the parameter name and units, and whether a sequencer lane modifies
+   that base.
+6. **Status screen** (default) — scale name, shuffle template name, selected voice (shown
    0-based as `Voice: 0`–`Voice: 3`), and a beat-synchronized playhead dot row.
 
 Transient confirmations (`RANDOMIZED` + voice) also appear here,
@@ -231,12 +242,13 @@ Ten color themes are available (cycle with Utility button 5) — see §6.
 |---|---|
 | **Stereo Out** (3.5 mm jack pair on the panel's left) | The main audio output: 48 kHz, 16-bit stereo I2S audio from the PIO/I2S pins (BCLK GP10, LRCK GP11, DATA GP12), e.g. to a PCM5102A-class DAC. All four voices are mixed here (mono mix duplicated to both channels). |
 | **Gate Input** (panel label) | **[unverified]** No gate/external-clock input is referenced anywhere in the firmware source or docs. Treat this panel hole as non-functional in the current firmware. |
-| **USB** (Pico 2) | Power + USB MIDI (see §7) + serial diagnostics console at 115200 baud. |
+| **USB** (Pico 2) | Power + serial diagnostics console at 115200 baud (USB CDC only — USB MIDI was removed 2026-09-06). |
 | **Bottom-edge jack row** | Mounting/connector positions for the wired peripherals (I2S DAC, I2C buses, tile bus). **[unverified: exact per-hole assignments are a build-time wiring matter, see `README.md` wiring table.]** |
 
 There are **no hardware gate outputs** in the current firmware: the old GPIO gate/clock
 pins were reassigned to the I2S audio output. "Gate" now means the internal gate timing
-(and, for voices 1–2, USB MIDI note on/off).
+only — the `MidiNoteManager` state machine still runs gate/note bookkeeping for voices 1–2
+ internally, but nothing is transmitted anywhere.
 
 ---
 
@@ -259,11 +271,14 @@ pins were reassigned to the I2S audio output. "Gate" now means the internal gate
 7. **Try polymeter** — hold a parameter button (e.g. Filter) and tap pad 5: the Filter
    track is now 5 steps long and cycles against the 16-step Gate track.
 8. **Change key feel** — hold Shift and tap V3 to cycle through the 13 scales.
-9. **Groove** — flip the mode switch to **Utility**: fader 1 sets tempo and button 4
-   cycles swing templates.
+9. **Groove & level** — flip the mode switch to **Utility**: fader 1 sets tempo, fader 3
+   is the master volume, and button 4 cycles swing templates.
 10. **Stop/start** — Utility button 1, or Shift + V1 from anywhere. Stopping opens the
     OLED **preset browser** ("Sound Buffet"); starting again resumes and closes it. A
     long-press of Play toggles the browser without stopping the transport.
+11. **Edit the sound itself** — hold Shift + V4 and release to enter **Voice Editing mode**:
+    transport stops, slider buttons pick a voice, button tiles navigate the parameter
+    catalogue, and the encoder changes the selected base (§5, [`docs/voice-edit.md`](voice-edit.md)).
 
 ---
 
@@ -320,9 +335,8 @@ Other track behaviors worth knowing:
 ### 3.3 Scales
 
 Pitch is quantized to one of **13 built-in scales**, each a 48-step (4-octave) semitone
-table; the Note parameter (0–21) indexes into it. Internal synthesis is voiced around C3;
-USB MIDI notes out are centered at C2 (an octave lower) so external gear sits in a
-standard register. Cycle scales with **Shift + V3** or Utility button 3:
+table; the Note parameter (0–21) indexes into it. Internal synthesis is voiced around C3.
+Cycle scales with **Shift + V3** or Utility button 3:
 
 | Index | Scale | Character |
 |---|---|---|
@@ -473,7 +487,7 @@ between the preset browser and the voice-parameter toggles.
 |---|---|---|
 | 1 | Filter cutoff (selected voice) | Tempo (45–200 BPM) |
 | 2 | Attack time | Swing amount |
-| 3 | Decay time | *(unassigned — was delay feedback)* |
+| 3 | Decay time | **Master volume** (final mix gain) |
 | 4 | Velocity | Gate length across active steps |
 
 With a step in Step Edit and the matching parameter button armed, moving a fader writes
@@ -493,7 +507,7 @@ the value into that step.
 | Button | Action |
 |---|---|
 | 1 Play / Stop | Start/stop the transport (and all 4 sequencers). Stopping opens the OLED Settings/preset browser; starting closes it. Long-press toggles Settings without stopping |
-| 2 | *(unassigned — was delay toggle)* |
+| 2 | *(unassigned — was the Delay toggle; the delay effect was removed 2026-09-11)* |
 | 3 Scale | Cycle forward through the 13 scales |
 | 4 Swing | Cycle through the 16 shuffle templates |
 | 5 Theme | Cycle the 10 LED matrix color themes |
@@ -509,7 +523,17 @@ the value into that step.
 | Shift + V1 | Play / Stop |
 | Shift + V2 | Randomize selected voice (short-press behavior) |
 | Shift + V3 | Cycle scale |
-| Shift + V4 | *(no action — was delay toggle)* |
+| Shift + V4 | Enter Voice Editing mode (hold both, then release) |
+
+### Voice Editing mode (Shift + V4)
+
+Hold **Shift**, press **V4**, then release both. All four sequencers stop and audio is
+muted. Slider buttons 1–4 select the voice being edited; the button tile navigates the
+parameter catalogue (group prev/next = buttons 1/2, parameter prev/next = buttons 3/4,
+button 5 held = fine adjust, button 6 held 700 ms = reset to the loaded preset's value,
+button 7 = control guide, button 8 = exit). The encoder changes the selected parameter's
+base. Edits stay in RAM until a preset is loaded or power is lost. Full details:
+[`docs/voice-edit.md`](voice-edit.md).
 
 ### Sensors & encoder
 
@@ -518,8 +542,9 @@ the value into that step.
 | Turn magnetic encoder | Adjust the active encoder target; slow = fine, fast = coarse (velocity-sensitive) |
 | Utility button 6 | Change encoder target (Velocity → Filter → Attack → Decay → Note → Octave → Slide Time) |
 | Hold Utility button 6 | Gate Sequence Length mode |
-| Move hand over VL53L1X while a parameter is armed | Hands-free live recording of that parameter into the current step of the selected voice |
+| Move hand over VL53L1X while a parameter is armed | Hands-free live recording of a relative modifier on that parameter into the current step of the selected voice (midpoint ≈ neutral) |
 | Mode switch (GPIO 7) | Select Param (LOW) or Utility (HIGH) button set; shows a banner on flip |
+| Shift + V4 (hold, release) | Enter Voice Editing mode (transport stops; see above) |
 
 ---
 
@@ -545,41 +570,26 @@ from the firmware; display names are as documented in `docs/LEDMatrix.md`:
 
 ## 7. MIDI & connectivity
 
-### USB MIDI
+### USB MIDI was removed (2026-09-06)
 
-The Pico 2 enumerates as a USB MIDI class device (Adafruit TinyUSB stack). All MIDI runs
-on Core 0 (the control core), so it never disturbs the audio synthesis on Core 1.
-
-- **MIDI out — notes**: voices **1 and 2 only** (internal indices 0 and 1) transmit
-  monophonic note on/off on **channel 1**, gate-length accurate and synced to the
-  sequencer. Voices 3 and 4 are internal-audio only — they never emit MIDI notes.
-- **MIDI out — CC** (channel 1), with 10 ms rate limiting and change detection:
-
-| Parameter | Voice 1 | Voice 2 |
-|---|---|---|
-| Octave offset | CC 71 | CC 75 |
-| Decay time | CC 72 | CC 76 |
-| Attack time | CC 73 | CC 77 |
-| Filter cutoff | CC 74 | CC 78 |
-
-- **No MIDI clock out**: uClock drives only the internal sequencer. No realtime
-  `Clock`, `Start`, or `Stop` bytes are transmitted over USB MIDI (removed 2026-09-06),
-  so Pico2Seq cannot sync external gear.
-- **MIDI in**: the USB MIDI read loop runs on Core 0. **[unverified: no user-facing MIDI-in
-  feature (note/CC mapping into the sequencer) is documented; treat MIDI-in as
-  infrastructure only.]**
+Pico2Seq does **not** transmit or receive any MIDI. The USB port enumerates as a CDC serial
+device (Adafruit TinyUSB stack) and carries power plus the 115200-baud diagnostics console
+only. What remains of the old MIDI subsystem is the internal `MidiNoteManager` state
+machine: it still performs the gate/note lifecycle bookkeeping (note-on/off pairing, gate
+synchronization) that voices 1–2's software gates rely on, but every send function is a
+stub. There is no CC output, no MIDI clock, and no MIDI-in feature.
 
 ### Clock & timing internals (for the curious)
 
 uClock runs at 480 PPQN (120 ticks per 16th-note step); each 16th note advances all four
-sequencers, ticks gate timers, and drives MIDI note lifecycles. Default tempo 90 BPM,
-range 45–200 via Utility fader 1.
+sequencers, ticks gate timers, and drives the internal note lifecycle. Default tempo
+90 BPM, range 45–200 via Utility fader 1.
 
 ### Gate I/O
 
-There is no hardware gate input or output in the current firmware (see §1.10). To gate
-external gear, use voices 1–2 over USB MIDI into a MIDI-to-CV/gate converter. The panel's
-"Gate Input" label is a leftover from the hardware design **[unverified]**.
+There is no hardware gate input or output in the current firmware (see §1.10), and with
+USB MIDI gone there is no built-in way to gate external gear. The panel's "Gate Input"
+label is a leftover from the hardware design **[unverified]**.
 
 ---
 
@@ -598,7 +608,7 @@ external gear, use voices 1–2 over USB MIDI into a MIDI-to-CV/gate converter. 
   - uClock **2.2.1 from the Arduino library manager** (stock `<uClock.h>`; its rp2040
     backend runs the timer ISR on core 0 — the control core. Upstream 2.3.0 changed the
     callback API; re-verify before upgrading.)
-  - MIDI Library 5.0.2
+  - *(The MIDI Library is no longer used — USB MIDI was removed 2026-09-06.)*
 - Clone with `git clone --recurse-submodules` (`src/rpdsp/` and `src/VelocityEncoder/` are
   submodules).
 - A verified command-line compile path (Windows PowerShell staging script) is documented
@@ -622,12 +632,14 @@ cmake --build build_test --parallel
 
 **Behavioral gotchas (by design, verified in code):**
 
-- **Voices 3 and 4 are audio-only.** No USB MIDI notes, no gate timers — only voices 1–2
-  talk MIDI. Internal voice indices are 0-based (0–3); the OLED shows `Voice: 0`–`Voice: 3`
-  and `V0`–`V3` on edit screens, while the voice buttons and this manual say V1–V4.
-- **Encoder base offsets apply to all four voices** at step time (`applyEncoderBaseValues`
-  runs per voice in `processSequencerStep()`, backed by the per-voice `encoderBaseValues[4]`
-  array in `EncoderManager`).
+- **Voices 1 and 2 carry the software gate timers** (and the internal note lifecycle);
+  voices 3 and 4 are audio-only. Nothing is transmitted anywhere — USB MIDI was removed
+  2026-09-06. Internal voice indices are 0-based (0–3); the OLED shows `Voice: 0`–
+  `Voice: 3` and `V0`–`V3` on edit screens, while the voice buttons and this manual say
+  V1–V4.
+- **The encoder edits per-voice bases.** Each voice stores its own base values
+  (`encoderBaseValues[4]` in `EncoderManager`); turning the encoder changes the selected
+  voice's base, and at step time every voice applies its own base.
 - **Can't program a pitch into a step?** Note edits are rejected on gate-off steps. Toggle
   the step on first.
 - **Pad does something unexpected** — check the context: a held parameter button turns pad
@@ -635,17 +647,17 @@ cmake --build build_test --parallel
   turns them into clear-step. All pads are step pads; there is no pad "menu".
 - **Stopping the transport opens the preset browser** on the OLED (a Play long-press
   toggles it without stopping). That is intentional; press Play to leave it.
-- **Distance sensor dead?** It reads 74–1400 mm only; closer or farther returns an invalid
-  reading (shown as -1 internally) and does nothing. Bright sunlight or the LED matrix at
-  full brightness can cause optical jitter.
-- **ToF recorded value stuck at one end** — the raw distance is normalized as
-  `mm − 74`, so the nearest usable position (74 mm) maps to 0.
-- **Delay feedback runaway** (only when the delay effect is compiled in) — feedback is
-  capped at 0.91; if things howl, tap Utility button 2 (or Shift + V4) off and re-set
-  fader 3.
+- **Distance sensor dead?** It is used across 55–700 mm only; closer or farther readings
+  fall outside the useful window. Bright sunlight or the LED matrix at full brightness can
+  cause optical jitter.
+- **ToF recorded value stuck at one end** — the raw distance is rebased by 55 mm
+  (`MIN_DISTANCE_HEIGHT_MM`) and normalized over the 645 mm span, so the nearest usable
+  position (55 mm) maps to 0.
 - **Fader "jumps" after a mode flip** — on the first sample after a mode change the fader
   re-sends its position, so the parameter snaps to where the fader physically is. Move the
   fader through its travel to re-take the parameter.
+- **No sound after editing?** Voice Editing mode leaves the transport stopped when you
+  exit — press Play to resume.
 
 **Hardware checks (from `docs/sensors.md`):**
 
@@ -675,6 +687,7 @@ cmake --build build_test --parallel
 
 | Term | Meaning |
 |---|---|
+| **Base + modifier** | Parameters combine a per-voice base value (encoder/voice-edit) with a recorded relative modifier (lidar); midpoint is neutral — see [`docs/voice-edit.md`](voice-edit.md) |
 | **Bank** | One of the two 16-pad halves of the touch grid; banks map to the selected voice pair |
 | **Gate** | The on/off trigger state of a step; also the Gate parameter track whose length defines the voice's whole pattern length |
 | **GateLength** | Fraction of a 16th-note step a note is held (0.1–100 %) |
@@ -689,6 +702,7 @@ cmake --build build_test --parallel
 | **Slide** | Per-step portamento flag: no envelope retrigger, pitch glides over the Slide Time |
 | **Sound Buffet** | The OLED overview of all four voices' current presets, shown in the Settings screen |
 | **Step Edit mode** | Long-press a pad to select that step; encoder/faders/sensor then edit its parameters |
+| **Voice Editing mode** | Shift + V4: stop transport and edit any voice's sound parameters directly (encoder + button tiles) |
 | **Waveguide engine** | Karplus-Strong physical modeling of a plucked string (presets 10–13) |
 
 ---

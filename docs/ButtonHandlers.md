@@ -6,10 +6,10 @@ The `ButtonHandlers` module provides specialized button event handling and contr
 
 The Pico2Seq control surface operates on a **Dual-Surface Architecture** that pairs dedicated physical step pads with modular parameter/utility controls:
 
-1. **MPR121 Capacitive Touch Step Matrix** (Main bus `Wire`, GP4/GP5 @ 100 kHz):
+1. **MPR121 Capacitive Touch Step Matrix** (Main bus `Wire`, GP4/GP5 @ 400 kHz):
    - All 32 capacitive touch electrodes are dedicated exclusively as sequencer step pads.
    - Organized as two 16-step voice banks resolved dynamically through `ControlSurface::PadBank`.
-2. **Alchemy Modular UI Panel** (Tile bus `Wire1`, GP14/GP15 @ 100 kHz):
+2. **Alchemy Modular UI Panel** (Tile bus `Wire1`, GP14/GP15 @ 400 kHz):
    - **SliderModule (TYPE 0x01, base address 0x08)**: 4 continuous faders (12-bit ADC) + 4 buttons (direct Voice 1–4 selection).
    - **ButtonModule8 (TYPE 0x02, base address 0x0B)**: 8 tactile buttons (7 parameter/utility buttons + 1 Shift modifier).
    - **GP7 Mode Strap Switch**: Selects the active tile function set (LOW = Param Mode, HIGH = Utility Mode), debounced in software (20 ms window).
@@ -32,7 +32,7 @@ The firmware partitions the control surface implementation into two distinct lay
                                   /                \
                                  /                  \
    +------------------------------------+    +------------------------------------+
-   |   MPR121 Touch Matrix (Wire I2C0)  |    |   Alchemy Tiles (Wire1 I2C1 100k)  |
+   |   MPR121 Touch Matrix (Wire I2C0)  |    |   Alchemy Tiles (Wire1 I2C1 400k)  |
    |   32 Capacitive Step Pads (0x5A)   |    |   SliderModule + ButtonModule8     |
    +------------------------------------+    +------------------------------------+
                      |                                         |
@@ -83,7 +83,7 @@ In Param mode, ButtonModule8 provides instant parameter arming for real-time rec
 
 ### 2. Utility Mode (`GP7` HIGH / `ControlSurface::Mode::Utility`)
 
-In Utility mode, ButtonModule8 carries transport, scale, swing, effects, and system controls.
+In Utility mode, ButtonModule8 carries transport, scale, swing, and system controls.
 
 | Bit / Button | Function | Behavior |
 |---|---|---|
@@ -99,7 +99,7 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, effects, and sys
 **Fader Channels in Utility Mode:**
 - **Fader 0**: Master Tempo (uClock BPM: 45–200 BPM).
 - **Fader 1**: Swing Amount (continuous shuffle template depth).
-- **Fader 2**: *(unassigned — was Delay Feedback Mix; removed with the delay effect)*.
+- **Fader 2**: **Master Volume** — final output gain via `VoiceManager::setGlobalVolume()` (added 2026-09-11; the fader slot was unassigned after the delay effect's removal).
 - **Fader 3**: Gate Length (applies gate length across active steps on the selected voice).
 
 ---
@@ -117,7 +117,7 @@ The 4 buttons on the SliderModule tile act as direct Voice 1–4 selectors in bo
   - `Shift + Voice 1`: Play / Stop toggle
   - `Shift + Voice 2`: Randomize selected voice (short-press randomize only — the poll-driven long-press reset never triggers from a chord)
   - `Shift + Voice 3`: Cycle musical scale
-  - `Shift + Voice 4`: *(no action — was delay toggle; removed with the delay effect)*
+  - `Shift + Voice 4`: Enter **Voice Editing mode** (`VoiceEditor::enter()` — transport stops, audio mutes, editor consumes buttons until exit; see `docs/voice-edit.md`)
 
 ---
 
@@ -296,6 +296,11 @@ struct UIState {
     int8_t latchedParameter = -1;
     volatile unsigned long alchemyModeBannerUntil = 0;
 
+    // Voice Editing mode state (interaction policy lives in
+    // src/ui/VoiceEditControls.h; src/app/VoiceEditor.* routes the encoder)
+    VoiceEdit::Controls voiceEditor;
+    bool controlsWaitRelease = false; // entry chord buttons pending release
+
     // Transient OLED notice (randomize confirmations)
     enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1 };
     volatile unsigned long oledNoticeUntil = 0;
@@ -316,7 +321,11 @@ src/ui/
 ├── ButtonManager.h/.cpp       # ParamId-keyed helpers, hold tracking, and name lookups
 ├── UIEventHandler.h/.cpp      # Matrix step pad event dispatch & shared bridge entry points
 ├── UIConstants.h              # Button ID definitions, timing constants, and matrix sizes
-└── UIState.h                  # Centralized UI state structure
+├── UIState.h                  # Centralized UI state structure
+└── VoiceEditControls.h        # Hardware-free Voice Editing interaction state (inside UIState)
+
+src/app/
+└── VoiceEditor.h/.cpp         # Voice Editing mode entry/exit, encoder routing, publication
 ```
 
 ---
@@ -324,5 +333,6 @@ src/ui/
 ## Related Documentation
 - `docs/sensors.md`: Magnetic encoder, ToF distance sensor, and MPR121 hardware specifications.
 - `docs/matrix.md`: 32-pad capacitive touch matrix scanning and debounce mechanics.
+- `docs/voice-edit.md`: Voice Editing mode controls and parameter catalogue.
 - `docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`: Full specification for the Dual-Surface Alchemy Tile control system.
 - `docs/alchemyui-tmag5273-migration.md`: Migration history and architectural decisions.

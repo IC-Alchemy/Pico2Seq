@@ -25,7 +25,7 @@ bool DistanceSensor::begin()
   }
 
   // The Adafruit/ST driver exposes short and long presets. Use the long
-  // preset for the existing medium-range application (74-1400 mm).
+  // preset for the existing medium-range application (the 55-700 mm window normalized in AppState).
   if (vl53l1xSensor.VL53L1X_SetDistanceMode(2) != VL53L1X_ERROR_NONE)
   {
     sensorConnected = false;

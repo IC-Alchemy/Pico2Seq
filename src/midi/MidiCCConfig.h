@@ -5,11 +5,12 @@
 
 /**
  * @file MidiCCConfig.h
- * @brief MIDI Continuous Controller Configuration for PicoMudrasSequencer
+ * @brief Dormant MIDI CC configuration (Pico2Seq; no transmission since the
+ *        USB MIDI removal, 2026-09-06)
  *
- * This file contains all configuration constants and mappings for MIDI CC
- * functionality. Modify these values to customize CC behavior without
- * changing the core implementation.
+ * This file contains the configuration constants and mappings of the former
+ * MIDI CC functionality. Nothing transmits anymore; the constants survive as
+ * dormant plumbing. Modify these values only if MIDI output is ever restored.
  */
 
 // =======================

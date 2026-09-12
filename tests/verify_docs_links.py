@@ -45,8 +45,9 @@ def slugify(text):
     text = text.lower()
     # Remove punctuation except hyphens, spaces, and alphanumeric
     text = re.sub(r'[^\w\s-]', '', text)
-    # Replace whitespace with hyphens
-    text = re.sub(r'\s+', '-', text)
+    # Replace whitespace with hyphens (one hyphen per space — GitHub does not
+    # collapse runs, so "panel & hardware" slugs to "panel--hardware")
+    text = re.sub(r'\s', '-', text)
     return text
 
 def parse_markdown_headings_and_anchors(file_path):

@@ -4,7 +4,7 @@
 
 The `src/OLED/` subsystem manages the 128×64 monochrome OLED display for Pico2Seq using an **Adafruit SH1106G** driver over I2C (`Wire` @ `0x3C`).
 
-The OLED provides real-time visualization of parameter values, sequence lengths, settings sub-menus, voice presets, and system status through a deterministic **6-tier priority rendering hierarchy**.
+The OLED provides real-time visualization of parameter values, sequence lengths, settings sub-menus, voice presets, and system status through a deterministic **7-tier priority rendering hierarchy**.
 
 ---
 
@@ -27,20 +27,26 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
 
 ```
 +-------------------------------------------------------------------------+
-| Priority 1: Transitory PARAM / UTIL Mode Strap Banner                  |
+| Priority 1: Voice Editing Screen                                        |
+| (Active when uiState.voiceEditor.active — "EDIT V1".."EDIT V4")         |
++-------------------------------------------------------------------------+
+                                    | (if inactive)
+                                    v
++-------------------------------------------------------------------------+
+| Priority 2: Transitory PARAM / UTIL Mode Strap Banner                  |
 | (Active when millis() < uiState.alchemyModeBannerUntil)                |
 +-------------------------------------------------------------------------+
                                     | (if expired)
                                     v
 +-------------------------------------------------------------------------+
-| Priority 2: Transitory Confirmation Notice                              |
-| (Active when millis() < uiState.oledNoticeUntil: "DELAY ON"/"DELAY OFF"/|
-|  "RANDOMIZED" + voice, replacing the old control-cluster LED flashes)   |
+| Priority 3: Transitory Confirmation Notice                              |
+| (Active when millis() < uiState.oledNoticeUntil: "RANDOMIZED" + voice,  |
+|  replacing the old control-cluster LED flashes)                         |
 +-------------------------------------------------------------------------+
                                     | (if expired)
                                     v
 +-------------------------------------------------------------------------+
-| Priority 3: Settings & Preset Management Screen                         |
+| Priority 4: Settings & Preset Management Screen                         |
 | (Active when uiState.settingsMode == true)                              |
 |   ├── SubMode VOICE_PARAMETER: Parameter toggles (Filter/Env/Drive)     |
 |   └── SubMode PRESET_SELECTION: Preset browser & Sound Buffet 4-voice   |
@@ -48,20 +54,20 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
                                     | (if inactive)
                                     v
 +-------------------------------------------------------------------------+
-| Priority 4: Gate Sequence Length Gauge                                  |
+| Priority 5: Gate Sequence Length Gauge                                  |
 | (Active when uiState.gateSeqLengthMode == true - holding encoder)       |
 +-------------------------------------------------------------------------+
                                     | (if inactive)
                                     v
 +-------------------------------------------------------------------------+
-| Priority 5: Parameter Editing Screens                                   |
+| Priority 6: Parameter Editing Screens                                   |
 |   ├── Held Parameter Button (heldParamId != ParamId::Count)             |
 |   └── Step Edit Mode (uiState.selectedStepForEdit != -1)                |
 +-------------------------------------------------------------------------+
                                     | (if inactive)
                                     v
 +-------------------------------------------------------------------------+
-| Priority 6: Default System Status Screen                                |
+| Priority 7: Default System Status Screen                                |
 | (Scale name, Shuffle template, 0-based Voice index, Step indicators)    |
 +-------------------------------------------------------------------------+
 ```
@@ -70,16 +76,28 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
 
 ### Priority Screen Details
 
-#### 1. Transitory Mode Strap Banner (Priority 1 — Highest)
+#### 1. Voice Editing Screen (Priority 1 — Highest)
+Active while `uiState.voiceEditor.active` (entered with Shift + slider button 4). Overrides
+every other view until the editor exits:
+- Header: `EDIT V1` through `EDIT V4` (1-based) with a `*` modified marker when the voice's
+  parameter cursor has pending unsaved edits.
+- Body: the selected parameter's name and formatted value/units, filtered by the active
+  engine and enabled processors.
+- Sequence-lane indicator: shows when a sequencer lane modifies the displayed base.
+- Control guide (toggled with editor button 7): `ENC edit 7 Help 8 Exit`, or
+  `FINE    7 Help 8 Exit` while fine adjustment is held.
+
+#### 2. Transitory Mode Strap Banner (Priority 2)
 Triggered for a brief timeout window whenever the hardware GP7 mode strap changes position:
 - **PARAM Mode:** Displays centered size-3 **"PARAM"** with subtitle `> params <`.
 - **UTIL Mode:** Displays centered size-3 **"UTIL"** with subtitle `> utility <`.
 
-#### 2. Transitory Confirmation Notice (Priority 2)
-Shown for a short window after delay/randomize actions (replacing the old control-cluster LED flashes):
-- `DELAY ON` / `DELAY OFF` in size-2 text, or `RANDOMIZED` with a `Voice N` sub-line (1-based).
+#### 3. Transitory Confirmation Notice (Priority 3)
+Shown for a short window after randomize actions (replacing the old control-cluster LED flashes):
+- `RANDOMIZED` with a `Voice N` sub-line (1-based). *(The `DELAY ON`/`DELAY OFF` notices were
+  removed with the delay effect, 2026-09-11.)*
 
-#### 3. Settings & Preset Menus (Priority 3)
+#### 4. Settings & Preset Menus (Priority 4)
 Activated when `uiState.settingsMode` is true:
 - **Voice Parameter Sub-Mode (`SettingsSubMode::VOICE_PARAMETER`):** Shows toggle states for voice architecture:
   - Envelope (ON/OFF)
@@ -99,14 +117,14 @@ Filter/Attack/Decay slots (`VoiceConfig::paramSet`), the OLED shows the slot's r
 name (e.g. Bright/Pick/T60 on a waveguide voice, via `VoicePresets::getSequencerParamName`)
 and formats the value in its own unit (%, seconds for T60, semitones for detune).
 
-#### 4. Gate Sequence Length Gauge (Priority 4)
+#### 5. Gate Sequence Length Gauge (Priority 5)
 Activated when `uiState.gateSeqLengthMode` is active (holding the encoder while rotating):
 - Header: `"Sequence Length"`
 - Voice: `0..3` (0-based indexing)
 - Length: Numeric sequence length (1–16) displayed in size-2 font.
 - Visual Gauge: Proportional horizontal bar across the bottom displaying length relative to 16 steps.
 
-#### 5. Parameter Edit Screen (Priority 5)
+#### 6. Parameter Edit Screen (Priority 6)
 Displayed when a parameter button is held (`heldParamId`) or a step is selected for editing (`selectedStepForEdit`):
 - **Header:** Parameter name (`Note`, `Velocity`, `Filter`, `Attack`, `Decay`, `Octave`, `GateLength`, `Slide`) in size-2 text.
 - **Indicators:** Voice ID (`V0`–`V3`) and Step Index (`S1`–`S16`) in top right.
@@ -121,7 +139,7 @@ Displayed when a parameter button is held (`heldParamId`) or a step is selected 
   - `Gate` / `Slide`: `ON` / `OFF`
 - **Progress Bar:** 10px tall bordered progress bar for continuous parameters (Velocity, Filter, Attack, Decay, GateLength).
 
-#### 6. Default Status Screen (Priority 6 — Lowest)
+#### 7. Default Status Screen (Priority 7 — Lowest)
 Displayed when no transient, settings, or edit modes are active:
 - **Scale:** Name of active musical scale (e.g., `Chromatic`, `Major`, `Minor`, `Dorian`, `Pentatonic Major`, etc.).
 - **Shuffle:** Active shuffle template name (e.g., `No Shuffle`, `Classic 16th`, `Light Swing`).
@@ -222,3 +240,4 @@ src/OLED/
 - [`docs/matrix.md`](matrix.md) — MPR121 32-pad touch input matrix
 - [`docs/architecture.md`](architecture.md) — Dual-core architecture and UI thread loop
 - [`docs/voice.md`](voice.md) — Voice parameters, presets, and VoiceManager architecture
+- [`docs/voice-edit.md`](voice-edit.md) — Voice Editing mode (Priority 1 screen and its controls)
