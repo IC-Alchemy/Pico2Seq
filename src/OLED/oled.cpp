@@ -1,7 +1,6 @@
 #include "oled.h"
 #include "../voice/Voice.h"
 #include "../voice/VoicePresets.h"
-#include "../voice/VoiceParameters.h"
 #include "../app/VoiceEditor.h"
 #include "../voice/VoiceSystem.h" // Added for complete VoiceSystem type
 #include "../../includes.h"
@@ -9,7 +8,6 @@
 #include "../pico2seq-core/sequencer/ShuffleTemplates.h"
 #include "../pico2seq-core/scales/scales.h"
 #include "../ui/ButtonManager.h"
-#include "../utils/DspMapping.h" // dspmap::fmap for filter Hz formatting
 #include <cstring> // For strcmp, strlen
 #include <Arduino.h>
 
@@ -518,7 +516,9 @@ void OLEDDisplay::displayParameterInfo(ParamId parameterId, float currentValue,
   const float normalized=parameterId==ParamId::Note?currentValue/36.0f:
       parameterId==ParamId::GateLength?(currentValue-0.001f)/0.999f:currentValue;
   const float modifier=(normalized-0.5f)*100.0f;
-  String formattedParameterValue=(modifier>=0?String("+"):String(""))+String(modifier,1)+String("% mod");
+  char formattedParameterValue[24];
+  snprintf(formattedParameterValue, sizeof(formattedParameterValue),
+           "%+.1f%% mod", static_cast<double>(modifier));
   displayHardware.print(formattedParameterValue);
 
   // Progress bar for normalized parameters (exclude discrete parameters)
@@ -542,60 +542,6 @@ void OLEDDisplay::displayParameterInfo(ParamId parameterId, float currentValue,
       displayHardware.fillRect(progressBarX + 2, progressBarY + 2, fillWidth,
                                progressBarHeight - 4, SH110X_WHITE);
     }
-  }
-}
-
-String OLEDDisplay::formatParameterValue(ParamId paramId, float value, uint8_t presetIndex)
-{
-  char mappedValue[24];
-  if (VoiceParameters::formatValue(VoicePresets::getPresetConfig(presetIndex),
-                                   paramId, value, mappedValue, sizeof(mappedValue)))
-    return String(mappedValue);
-
-  switch (paramId)
-  {
-  case ParamId::Note:
-    return String((int)value);
-
-  case ParamId::Velocity:
-    return String((int)(value * 100)) + "%";
-
-  case ParamId::Filter:
-  {
-    // Same range as the DSP (Voice.cpp) and EncoderManager display formatting
-    int filterFreq = dspmap::fmap(
-        value,
-        SensorConstants::System::FILTER_FREQUENCY_MIN_HZ,
-        SensorConstants::System::FILTER_FREQUENCY_MAX_HZ,
-        dspmap::Mapping::EXP);
-    return String((int)(filterFreq)) + "Hz";
-  }
-
-  case ParamId::Attack:
-    return String(value, 3) + "s";
-
-  case ParamId::Decay:
-    return String(value, 3) + "s";
-
-  case ParamId::Octave:
-    if (value < 0.15f)
-      return "-1";
-    else if (value > 0.4f)
-      return "+1";
-    else
-      return "0";
-
-  case ParamId::GateLength:
-    return String((int)(value * 100)) + "%";
-
-  case ParamId::Gate:
-    return value > 0.5f ? "ON" : "OFF";
-
-  case ParamId::Slide:
-    return value > 0.5f ? "ON" : "OFF";
-
-  default:
-    return String(value, 2);
   }
 }
 
@@ -1042,9 +988,7 @@ void OLEDDisplay::runStartupAnimation()
 
 void OLEDDisplay::displayVoiceEditor(const UIState &state, VoiceManager *manager)
 {
-  displayHardware.clearDisplay();
-  displayHardware.setTextSize(1);
-  displayHardware.setTextColor(SH110X_WHITE);
+  // update() already cleared the buffer and set size/colour before dispatching.
   displayHardware.setCursor(0,0);
   const auto index=state.selectedVoiceIndex;
   displayHardware.print("EDIT V"); displayHardware.print(index+1);

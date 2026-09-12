@@ -158,16 +158,6 @@ private:
                             uint8_t voiceIndex, uint8_t stepIndex, uint8_t presetIndex);
 
   /**
-   * @brief Format parameter value for human-readable display
-   * @param parameterID Parameter ID for type-specific formatting
-   * @param rawValue Raw parameter value from sequencer
-   * @param presetIndex Selected voice's preset; re-purposed slots get their
-   *                    own units (%, seconds, semitones)
-   * @return Formatted string with units and appropriate precision
-   */
-  String formatParameterValue(ParamId parameterID, float rawValue, uint8_t presetIndex);
-
-  /**
    * @brief Display settings menu with navigation and preset selection
    * @param uiState Current UI state containing settings menu state
    */

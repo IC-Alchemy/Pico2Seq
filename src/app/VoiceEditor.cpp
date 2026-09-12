@@ -40,14 +40,19 @@ void exit() {
   uiState.controlsWaitRelease = true;
   clearPerformanceControls();
 }
-void publish(uint8_t index, const VoiceConfig &config) {
+void publish(uint8_t index, VoiceConfig &config) {
   if (!voiceManager || index >= VoiceSystem::MAX_VOICES)
     return;
   const auto id = voiceSystem.getVoiceId(index);
-  VoiceConfig next = config;
-  VoiceEdit::enablePatch(next);
-  voiceManager->setVoiceConfig(id, next);
-  voiceManager->setVoiceSlide(id, next.slideSeconds);
+  // Glide time rides its own control update, so only send it when it moved.
+  // Every other field travels inside the config push below.
+  const auto *applied = voiceManager->getVoiceConfig(id);
+  const bool slideMoved =
+      !applied || applied->slideSeconds != config.slideSeconds;
+  VoiceEdit::enablePatch(config);
+  voiceManager->setVoiceConfig(id, config);
+  if (slideMoved)
+    voiceManager->setVoiceSlide(id, config.slideSeconds);
   uiState.voiceEditor.changed[index] = true;
 }
 void buttons(uint8_t buttons, uint8_t voices, uint32_t now) {
