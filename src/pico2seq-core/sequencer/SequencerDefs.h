@@ -251,7 +251,7 @@ struct Step
 {
   float noteIndex = 0.0f;                                                   // Integral scale step index (0-36)
   float velocityLevel = 0.5f;                                               // Voice amplitude (0.0-1.0)
-  float filterCutoff = 0.35f;                                                // Filter cutoff frequency (0.0-1.0)
+  float filterCutoff = 0.5f;                                                 // Filter cutoff frequency (0.0-1.0)
   float attackTimeSeconds = 0.01f;                                          // Envelope attack time (0.0-1.0 seconds)
   float decayTimeSeconds = 0.2f;                                            // Envelope decay time (0.0-1.0 seconds)
   int8_t octaveOffset = 0;                                                  // Signed semitone transpose from the octave track
@@ -323,5 +323,9 @@ struct GateTimer
 
 // --- Utility Functions ---
 float mapNormalizedValueToParamRange(ParamId id, float normalizedValue);
+// Fold a variant parameter value (int, float, or bool) into the float domain
+// the parameter tracks store. Shared by the sequencer, parameter manager,
+// and UI clear-step path.
+float parameterValueAsFloat(const ParameterValueType &value);
 
 #endif // SEQUENCER_DEFS_H
