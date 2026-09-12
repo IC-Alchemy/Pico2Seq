@@ -69,38 +69,6 @@ void applyIncrementToParameter(EncoderBaseValues* baseValues, EncoderParameterMo
 void updateEncoderBaseValues(UIState& uiState);
 
 /**
- * @brief Update individual step parameter values in edit mode
- *
- * Processes magnetic encoder input to directly modify parameter values for
- * a specific sequencer step. Used when editing individual step parameters
- * rather than global base values.
- *
- * @param uiState Reference to UI state containing step and parameter selection
- * @note Only active when uiState.selectedStepForEdit >= 0
- */
-void updateEncoderStepParameterValues(UIState& uiState);
-
-/**
- * @brief Apply encoder base values to voice synthesis parameters
- *
- * Implements "Shift and Scale" mapping to combine magnetic encoder base values
- * with sequencer step values. This approach avoids dead zones by scaling the
- * sequencer output within the range defined by the encoder offset.
- *
- * @param voiceState Pointer to voice state structure to modify
- * @param voiceId Voice index 0..3; each voice has its own base value set
- * @note Out-of-range voice ids receive no mapping
- */
-void applyEncoderBaseValues(VoiceState *voiceState, uint8_t voiceId);
-
-/**
- * @brief Apply encoder slide time values to active voice
- *
- * Updates slide time parameter for smooth note transitions. Only active
- * when slide mode is enabled in the UI state.
- */
-void applyEncoderSlideTimeValues();
-
 // ======================
 // Parameter Range and Validation Functions
 // ======================
@@ -171,18 +139,6 @@ float getParameterMinValueForParamId(ParamId paramId);
  * @return Maximum valid value for the parameter
  */
 float getParameterMaxValueForParamId(ParamId paramId);
-
-/**
- * @brief Format parameter value for display output
- *
- * Converts raw parameter values to human-readable strings with appropriate
- * units and formatting for OLED display and debug output.
- *
- * @param paramId The parameter type for formatting rules
- * @param value The raw parameter value to format
- * @return Formatted string representation of the value
- */
-String formatParameterValueForDisplay(ParamId paramId, float value);
 
 // ======================
 // System Management and Utility Functions
