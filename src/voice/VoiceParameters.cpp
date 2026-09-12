@@ -143,7 +143,7 @@ bool formatValue(const VoiceConfig &config, ParamId id, float normalized,
   switch (b.unit) {
   case VoiceParameterUnit::Percent: std::snprintf(output, capacity, "%.0f%%", value * 100.0f); break;
   case VoiceParameterUnit::Seconds: std::snprintf(output, capacity, "%.2fs", value); break;
-  case VoiceParameterUnit::Semitones: std::snprintf(output, capacity, "%+.0fst", value); break;
+  case VoiceParameterUnit::Semitones: std::snprintf(output, capacity, "%+.1fst", value); break;
   case VoiceParameterUnit::Ratio: std::snprintf(output, capacity, "%.2fx", value); break;
   case VoiceParameterUnit::Hertz: std::snprintf(output, capacity, "%.0fHz", value); break;
   default: return false;

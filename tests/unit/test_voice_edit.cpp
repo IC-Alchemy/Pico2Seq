@@ -34,7 +34,7 @@ TEST_CASE(
   REQUIRE(seq.getStepParameterValue(ParamId::Velocity, step) == 0.75f);
   seq.resetModifierStep(step);
   REQUIRE(seq.getStepParameterValue(ParamId::Velocity, step) == 0.5f);
-  REQUIRE(seq.getStepParameterValue(ParamId::Note, step) == 18);
+  REQUIRE(seq.getStepParameterValue(ParamId::Note, step) == 0);
   REQUIRE(seq.getStepParameterValue(ParamId::Gate, step) == 0);
   REQUIRE(config.baseVelocity == Approx(0.4f));
 }
@@ -69,7 +69,7 @@ TEST_CASE("Patch bases and stored lidar modifiers are independent",
   seedModifiers(seq);
   seq.setPlaybackTransform(composeLane, &config, mapOctave);
   seq.setStepParameterValue(ParamId::Gate, 0, 1);
-  REQUIRE(seq.getStepParameterValue(ParamId::Note, 0) == 18);
+  REQUIRE(seq.getStepParameterValue(ParamId::Note, 0) == 0);
   VoiceState state;
   seq.playStepNow(0, &state);
   REQUIRE(state.noteIndex == config.baseNote);
@@ -82,7 +82,7 @@ TEST_CASE("Patch bases and stored lidar modifiers are independent",
   seq.playStepNow(0, &state);
   REQUIRE(state.noteIndex == 12);
   REQUIRE(state.velocityLevel == Approx(0.7f));
-  REQUIRE(seq.getStepParameterValue(ParamId::Note, 0) == 18);
+  REQUIRE(seq.getStepParameterValue(ParamId::Note, 0) == 0);
   REQUIRE(seq.getStepParameterValue(ParamId::Velocity, 0) == 0.5f);
   seq.setStepParameterValue(ParamId::Velocity, 0, 0.25f);
   seq.playStepNow(0, &state);
@@ -223,4 +223,153 @@ TEST_CASE("Muted editor still drains queued changes for all four voices",
   for (uint8_t i = 0; i < 4; ++i)
     REQUIRE(manager.getVoiceConfig(ids[i])->baseVelocity ==
             Approx(0.1f * (i + 1)));
+}
+
+
+#include "src/voice/MusicalValues.h"
+#include <string>
+
+TEST_CASE("OLED snapshot matches playback and never triggers a note", "[voice_edit][oled]") {
+  auto c = VoicePresets::getDigitalVoice();
+  enablePatch(c);
+  Sequencer seq;
+  seedModifiers(seq);
+  seq.setPlaybackTransform(composeLane, &c, mapOctave);
+  seq.setParameterStepCount(ParamId::Note, 3);
+  seq.setParameterStepCount(ParamId::Octave, 5);
+  for (uint8_t i = 0; i < 16; ++i) seq.setStepParameterValue(ParamId::Gate, i, 1);
+  for (uint8_t i = 0; i < 3; ++i) seq.setStepParameterValue(ParamId::Note, i, i + 1);
+  seq.setStepParameterValue(ParamId::Octave, 4, 0.75f);
+  seq.start();
+  VoiceState state;
+  seq.advanceStep(4, -1, false, false, false, false, false, false, -1, &state);
+  const auto before = seq.getCurrentStep();
+  const auto read = seq.getPlaybackStep();
+  REQUIRE(read.noteIndex == state.noteIndex);
+  REQUIRE(read.octaveOffset == state.octaveOffset);
+  REQUIRE(read.velocityLevel == state.velocityLevel);
+  REQUIRE(read.attackTimeSeconds == state.attackTimeSeconds);
+  REQUIRE(read.decayTimeSeconds == state.decayTimeSeconds);
+  REQUIRE(read.filterCutoff == state.filterCutoff);
+  REQUIRE(read.gateLengthTicks == state.gateLengthTicks);
+  REQUIRE(seq.getCurrentStep() == before);
+  const auto selected = seq.getPlaybackStep(0);
+  REQUIRE(selected.noteIndex == 1);
+  REQUIRE(selected.octaveOffset == 0);
+  REQUIRE(seq.getCurrentStepForParameter(ParamId::Octave) == 4);
+  seq.resetModifierStep(0);
+  REQUIRE_FALSE(seq.getPlaybackStep(0).isGateActive);
+  REQUIRE(seq.getPlaybackStep(0).noteIndex == 0);
+}
+
+TEST_CASE("Full melody input range reaches distinct scale steps from default base", "[voice_edit][oled]") {
+  auto c = VoicePresets::getSquareVoice();
+  enablePatch(c);
+  for (int index = 0; index <= 36; ++index)
+    REQUIRE(composeLane(ParamId::Note, float(index), &c) == index);
+  c.baseNote = 7;
+  REQUIRE(composeLane(ParamId::Note, 2, &c) == 9);
+  REQUIRE(composeLane(ParamId::Note, 36, &c) == 36);
+}
+
+TEST_CASE("Displayed notes use the same tuning as rendered oscillator pitches", "[voice_edit][oled]") {
+  auto c = VoicePresets::getSquareVoice();
+  enablePatch(c);
+  c.harmony[0] = 0;
+  c.oscDetuning[0] = 0;
+  c.highPassFreq = 0;
+  Voice voice(0, c);
+  uint8_t selectedScale = 0;
+  voice.setScaleTable(scale, SCALES_COUNT);
+  voice.setCurrentScalePointer(&selectedScale);
+  voice.init(48000);
+  for (selectedScale = 0; selectedScale < SCALES_COUNT; ++selectedScale) {
+    for (int n = 0; n <= 36; ++n) {
+      VoiceState state;
+      state.noteIndex = float(n);
+      state.octaveOffset = 12;
+      state.isGateHigh = true;
+      voice.updateParameters(state);
+      voice.process();
+      const int midi = MusicalValues::midiNote(float(n), 12, 0, scale[selectedScale]);
+      REQUIRE(voice.getCachedFrequency(0) == Approx(440.0f * std::pow(2.0f, (midi - 69) / 12.0f)).epsilon(0.0001));
+    }
+  }
+  char text[48];
+  Step step;
+  step.noteIndex = 1;
+  MusicalValues::noteName(step.noteIndex, 0, scale[0], text, sizeof(text));
+  REQUIRE(std::string(text) == "D3");
+  MusicalValues::noteName(step.noteIndex, 0, scale[2], text, sizeof(text));
+  REQUIRE(std::string(text) == "C#3");
+  c = VoicePresets::getBassVoice();
+  step.noteIndex = 0;
+  MusicalValues::format(ParamId::Note, step, c, scale[0], 90, text, sizeof(text));
+  REQUIRE(std::string(text) == "C2/C3");
+}
+
+TEST_CASE("Sequencer OLED formats final physical and preset-specific units", "[voice_edit][oled]") {
+  auto c = VoicePresets::getSquareVoice();
+  enablePatch(c);
+  Step step = MusicalValues::baseStep(c);
+  char text[48];
+  const auto formatted = [&](ParamId id) {
+    MusicalValues::format(id, step, c, scale[0], 120, text, sizeof(text));
+    return std::string(text);
+  };
+  REQUIRE(formatted(ParamId::Note) == "C3");
+  REQUIRE(formatted(ParamId::Attack) == "20.0ms");
+  REQUIRE(formatted(ParamId::Decay) == "400.0ms");
+  REQUIRE(formatted(ParamId::Velocity) == "0.50x");
+  REQUIRE(formatted(ParamId::GateLength) == "62.5ms");
+  REQUIRE(formatted(ParamId::Octave) == "+0 oct");
+  REQUIRE(formatted(ParamId::Slide) == "Off");
+  REQUIRE(formatted(ParamId::Gate) == "On");
+  REQUIRE(formatted(ParamId::Filter).find("Hz") != std::string::npos);
+  c.hasFilter = false;
+  REQUIRE(formatted(ParamId::Filter) == "Bypass");
+  c.hasEnvelope = false;
+  REQUIRE(formatted(ParamId::Attack) == "Off");
+  for (uint8_t preset = 0; preset < VoicePresets::getPresetCount(); ++preset) {
+    c = VoicePresets::getPresetConfig(preset);
+    enablePatch(c);
+    step = MusicalValues::baseStep(c);
+    INFO(VoicePresets::getPresetName(preset));
+    REQUIRE(step.gateLengthTicks == 60);
+    REQUIRE(step.octaveOffset == 0);
+    for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane) {
+      const auto id = static_cast<ParamId>(lane);
+      const std::string value = formatted(id);
+      REQUIRE_FALSE(value.empty());
+      REQUIRE(value.find("mod") == std::string::npos);
+      if (id == ParamId::Note || id == ParamId::Octave || id == ParamId::GateLength)
+        REQUIRE(value.find('%') == std::string::npos);
+      const auto &binding = VoiceParameters::binding(c, id);
+      if (binding.unit == VoiceParameterUnit::Ratio) REQUIRE(value.back() == 'x');
+    }
+  }
+}
+
+TEST_CASE("Patch randomization preserves register and playable preset timing", "[voice_edit][recording]") {
+  auto c = VoicePresets::getDigitalVoice();
+  enablePatch(c);
+  Sequencer seq;
+  seedModifiers(seq);
+  seq.setPlaybackTransform(composeLane, &c, mapOctave);
+  for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane)
+    seq.setParameterStepCount(static_cast<ParamId>(lane), 64);
+  for (int run = 0; run < 4; ++run) {
+    seq.randomizeParameters();
+    for (uint8_t i = 0; i < 64; ++i) {
+      auto step = seq.getPlaybackStep(i);
+      REQUIRE(step.noteIndex >= 0);
+      REQUIRE(step.noteIndex <= 12);
+      REQUIRE(step.noteIndex == std::round(step.noteIndex));
+      REQUIRE(step.octaveOffset == 0);
+      REQUIRE(step.gateLengthTicks == 60);
+      REQUIRE(MusicalValues::envelopeSeconds(step.attackTimeSeconds) >= c.defaultAttack * 0.6f);
+      REQUIRE(MusicalValues::envelopeSeconds(step.attackTimeSeconds) <= c.defaultAttack * 1.6f);
+      REQUIRE(MusicalValues::envelopeSeconds(step.decayTimeSeconds) >= c.defaultDecay * 0.6f);
+    }
+  }
 }

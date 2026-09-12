@@ -67,10 +67,10 @@ struct VoiceConfig
   // Patch bases live on the control core. Recorded lanes contain modifiers;
   // only the composed playback state is sent to the audio core.
   bool usePatchBases = false; // Enabled by firmware; legacy library clients opt in.
-  float baseNote = 0.0f;
+  float baseNote = 0.0f; // Additive transpose in scale steps
   float baseVelocity = 0.5f;
   float baseOctave = 0.0f; // semitones, quantized to octaves
-  float baseGateLength = 0.3f;
+  float baseGateLength = 0.5f; // Half a sixteenth note; 60 PPQN ticks
   bool baseGate = true;
   bool baseSlide = false;
   float slideSeconds = 0.06f;

@@ -116,11 +116,6 @@ extern "C" void audio_i2s_debug_stage(uint32_t stage)
     driverStage.store(stage, std::memory_order_relaxed);
 }
 
-void AudioEngine::prepareEffects()
-{
-    //  Old Delay Removed
-}
-
 void AudioEngine::begin()
 {
     // Core 0 performs all control/voice initialization first. It never waits

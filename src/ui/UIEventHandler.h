@@ -45,18 +45,13 @@ void matrixEventHandler(const MatrixButtonEvent &evt,
  * Poll UI-held buttons (long-press detection) using the supplied sequencer array.
  *
  * The canonical implementation accepts a sequencer pointer array and its length.
- * Convenience overloads forward to this signature.
+ * A convenience overload forwards to this signature.
  */
 void pollUIHeldButtons(UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount);
 
-// Backwards-compatible convenience overloads for existing call-sites
-void pollUIHeldButtons(UIState &uiState, Sequencer &seq1, Sequencer &seq2);
+// Convenience overload for the Core-0 loop's seq1..seq4 call pattern
 void pollUIHeldButtons(UIState &uiState, Sequencer &seq1, Sequencer &seq2,
                        Sequencer &seq3, Sequencer &seq4);
-
-// Compatibility overloads for matrixEventHandler (will forward to consolidated handler)
-void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState, Sequencer &seq1, Sequencer &seq2, MidiNoteManager &midiNoteManager);
-void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState, Sequencer &seq1, Sequencer &seq2, Sequencer &seq3, Sequencer &seq4, MidiNoteManager &midiNoteManager);
 
 // =======================
 //   ALCHEMY TILE BRIDGE ENTRY POINTS
@@ -104,8 +99,8 @@ void clearSequencerStep(Sequencer &sequencer, uint8_t stepIdx);
  *        forwards them to Sequencer::advanceStep's primitive-argument overload.
  *
  * Sequencer (src/pico2seq-core) no longer depends on UIState so it stays
- * reusable outside this firmware; this adapter keeps call sites in
- * Pico2Seq.ino unchanged.
+ * reusable outside this firmware; this adapter keeps the StepPlayback.cpp
+ * call site simple.
  */
 void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_distance,
                           const UIState &uiState, VoiceState *voiceState);

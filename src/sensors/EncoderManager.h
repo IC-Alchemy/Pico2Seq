@@ -44,19 +44,6 @@ extern const FlashSpeedConfig FLASH_SPEED_ZONES[];
 // ======================
 
 /**
- * @brief Apply parameter increment with boundary checking and clamping
- *
- * Safely applies an increment to an encoder parameter while ensuring the
- * resulting value stays within valid bounds. Handles both bidirectional
- * parameters (voice parameters) and unidirectional parameters (delay/slide).
- *
- * @param baseValues Pointer to the base values structure to modify
- * @param param The parameter type to modify
- * @param increment The increment value to apply (can be positive or negative)
- */
-void applyIncrementToParameter(EncoderBaseValues* baseValues, EncoderParameterMode param, float increment);
-
-/**
  * @brief Update encoder base values using velocity-sensitive bidirectional control
  *
  * Processes magnetic encoder input to update base parameter values for the
@@ -67,79 +54,6 @@ void applyIncrementToParameter(EncoderBaseValues* baseValues, EncoderParameterMo
  * @note Automatically switches to step parameter editing if a step is selected
  */
 void updateEncoderBaseValues(UIState& uiState);
-
-/**
- * @brief Update individual step parameter values in edit mode
- *
- * Processes magnetic encoder input to directly modify parameter values for
- * a specific sequencer step. Used when editing individual step parameters
- * rather than global base values.
- *
- * @param uiState Reference to UI state containing step and parameter selection
- * @note Only active when uiState.selectedStepForEdit >= 0
- */
-void updateEncoderStepParameterValues(UIState& uiState);
-
-/**
- * @brief Apply encoder base values to voice synthesis parameters
- *
- * Implements "Shift and Scale" mapping to combine magnetic encoder base values
- * with sequencer step values. This approach avoids dead zones by scaling the
- * sequencer output within the range defined by the encoder offset.
- *
- * @param voiceState Pointer to voice state structure to modify
- * @param voiceId Voice index 0..3; each voice has its own base value set
- * @note Out-of-range voice ids receive no mapping
- */
-void applyEncoderBaseValues(VoiceState *voiceState, uint8_t voiceId);
-
-/**
- * @brief Apply encoder slide time values to active voice
- *
- * Updates slide time parameter for smooth note transitions. Only active
- * when slide mode is enabled in the UI state.
- */
-void applyEncoderSlideTimeValues();
-
-// ======================
-// Parameter Range and Validation Functions
-// ======================
-
-/**
- * @brief Get minimum valid value for encoder parameter type
- *
- * @param param The parameter type to query
- * @return Minimum valid value for the parameter
- */
-float getParameterMinValue(EncoderParameterMode param);
-
-/**
- * @brief Get maximum valid value for encoder parameter type
- *
- * @param param The parameter type to query
- * @return Maximum valid value for the parameter
- */
-float getParameterMaxValue(EncoderParameterMode param);
-
-/**
- * @brief Get allowed range for encoder base values
- *
- * Calculates the bidirectional range allowed for base values, which may
- * be smaller than the full parameter range to leave room for sequencer values.
- *
- * @param param The parameter type to query
- * @return Allowed range for base values (typically 75% of full range)
- */
-float getEncoderBaseValueRange(EncoderParameterMode param);
-
-/**
- * @brief Clamp encoder base value to allowed bidirectional range
- *
- * @param param The parameter type for range determination
- * @param value The value to clamp
- * @return Clamped value within allowed range
- */
-float clampEncoderBaseValue(EncoderParameterMode param, float value);
 
 // ======================
 // Step Parameter Editing Helper Functions
@@ -172,18 +86,6 @@ float getParameterMinValueForParamId(ParamId paramId);
  */
 float getParameterMaxValueForParamId(ParamId paramId);
 
-/**
- * @brief Format parameter value for display output
- *
- * Converts raw parameter values to human-readable strings with appropriate
- * units and formatting for OLED display and debug output.
- *
- * @param paramId The parameter type for formatting rules
- * @param value The raw parameter value to format
- * @return Formatted string representation of the value
- */
-String formatParameterValueForDisplay(ParamId paramId, float value);
-
 // ======================
 // System Management and Utility Functions
 // ======================
@@ -201,13 +103,7 @@ String formatParameterValueForDisplay(ParamId paramId, float value);
  */
 void resetEncoderBaseValues(UIState& uiState, bool currentVoiceOnly = true);
 
-/**
- * @brief Initialize encoder base values with system defaults
- *
- * Sets up initial base values for all voices with appropriate defaults:
- * - Voice parameters: neutral position (0.0f)
- * - Delay parameters: reasonable defaults (200ms delay, 55% feedback)
- */
+// Discard pending encoder motion; preset setup owns initial patch bases.
 void initEncoderBaseValues();
 
 // Global magnetic encoder driver (TMAG5273 on the Velocity Encoder board).

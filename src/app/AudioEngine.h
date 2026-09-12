@@ -1,8 +1,8 @@
 #pragma once
 #include <cstdint>
 
-// Core 0 prepares the optional effect before publishing the voices.
-// Core 1 owns the I2S pool and renders one paced buffer per loop1() call.
+// Core 0 publishes the voices after control setup; Core 1 owns the I2S pool
+// and renders one paced buffer per loop1() call.
 namespace AudioEngine
 {
 enum class Phase : uint32_t {
@@ -27,7 +27,6 @@ struct Heartbeat
     uint32_t txStalls; // Cumulative observations of stalled I2S output
 };
 
-void prepareEffects();
 void begin();
 void renderNextBuffer();
 bool takeHeartbeat(Heartbeat &heartbeat) noexcept; // Core 0 only

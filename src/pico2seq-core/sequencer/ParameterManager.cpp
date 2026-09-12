@@ -4,27 +4,9 @@
 #include <chrono>    // For std::chrono::high_resolution_clock (for seeding)
 #include <cmath>     // For roundf
 #include <cstdint>   // For uint32_t
-#include <variant>   // For std::visit
+#include <variant>   // For ParameterValueType (std::variant, via SequencerDefs.h)
 
 // Encoder parameter bounds management functions moved to src/sensors/EncoderManager.cpp
-
-// Helper function to safely get float from ParameterValueType variant
-// This function is internal to ParameterManager.cpp
-static float getFloatFromParameterValueType(const ParameterValueType &v)
-{
-  return std::visit([](auto &&arg) -> float
-                    {
-                      using T = std::decay_t<decltype(arg)>;
-                      if constexpr (std::is_same_v<T, float>)
-                        return arg;
-                      if constexpr (std::is_same_v<T, int>)
-                        return static_cast<float>(arg);
-                      if constexpr (std::is_same_v<T, bool>)
-                        return arg ? 1.0f : 0.0f;
-                      return 0.0f; // Fallback for unexpected types
-                    },
-                    v);
-}
 
 // Internal utilities for randomization
 namespace
@@ -72,7 +54,7 @@ void ParameterManager::init()
     // CORE_PARAMETERS. The step count must be passed explicitly now --
     // rpdsp::ParameterTrack::init() defaults to MaxSteps (64), not the old
     // hardcoded SequencerConstants::DEFAULT_STEPS_COUNT (16).
-    _tracks[i].init(getFloatFromParameterValueType(CORE_PARAMETERS[i].defaultValue),
+    _tracks[i].init(parameterValueAsFloat(CORE_PARAMETERS[i].defaultValue),
                      CORE_PARAMETERS[i].defaultSteps);
   }
 }
@@ -99,8 +81,8 @@ void ParameterManager::setValue(ParamId id, uint8_t stepIdx, float value)
 
   // Apply clamping and rounding based on parameter definition
   const auto &paramDef = CORE_PARAMETERS[static_cast<size_t>(id)];
-  float minVal = getFloatFromParameterValueType(paramDef.minValue);
-  float maxVal = getFloatFromParameterValueType(paramDef.maxValue);
+  float minVal = parameterValueAsFloat(paramDef.minValue);
+  float maxVal = parameterValueAsFloat(paramDef.maxValue);
 
   float clampedValue = std::max(minVal, std::min(value, maxVal));
 
@@ -116,7 +98,7 @@ void ParameterManager::setValue(ParamId id, uint8_t stepIdx, float value)
   _tracks[static_cast<size_t>(id)].setValue(stepIdx, clampedValue);
 }
 
-void ParameterManager::randomizeParameters()
+void ParameterManager::randomizeParameters(bool patchModifiers)
 {
   // Seed the LCG with current time
   seed_lcg();
@@ -132,8 +114,8 @@ void ParameterManager::randomizeParameters()
     }
 
     const auto &def = CORE_PARAMETERS[i];
-    const float minVal = getFloatFromParameterValueType(def.minValue);
-    const float maxVal = getFloatFromParameterValueType(def.maxValue);
+    const float minVal = parameterValueAsFloat(def.minValue);
+    const float maxVal = parameterValueAsFloat(def.maxValue);
 
     auto &track = _tracks[i];
     const uint8_t steps = track.stepCount();
@@ -146,6 +128,16 @@ void ParameterManager::randomizeParameters()
 
     for (uint8_t step = 0; step < steps; ++step)
     {
+      if (patchModifiers && paramId != ParamId::Gate && paramId != ParamId::Slide) {
+        // Keep the patch recognizable: a compact range of scale steps, neutral
+        // transpose/timing, and small timbre/envelope/velocity variations.
+        const float value = paramId == ParamId::Note ? float(lcg_rand_int(0, 12)) :
+            (paramId == ParamId::Octave || paramId == ParamId::GateLength) ? 0.5f :
+            lcg_rand_float(0.45f, 0.55f);
+        setValue(paramId, step, paramId == ParamId::GateLength ?
+            mapNormalizedValueToParamRange(paramId, value) : value);
+        continue;
+      }
       switch (paramId)
       {
       case ParamId::Slide:
@@ -193,8 +185,8 @@ void ParameterManager::randomizeParameters()
 
       case ParamId::Filter:
       {
-        static constexpr float kFilterMin = 0.1f;
-        static constexpr float kFilterMax = 0.6f;
+        static constexpr float kFilterMin = 0.2f;
+        static constexpr float kFilterMax = 0.8f;
         track.setValue(step, lcg_rand_float(kFilterMin, kFilterMax));
       }
       break;

@@ -36,121 +36,6 @@ MagEncoder magEncoder(makeMagEncoderConfig());
 
 // Note: currentEncoderParameter is accessed via uiState.currentEncoderParameter
 
-// Definitions for encoder base value globals (previously declared as extern).
-// Centralize the definitions here so other translation units can reference them
-// via extern declarations if necessary (but header externs have been removed).
-// Per-voice encoder base values, indexed by voice 0..MAX_VOICES-1.
-EncoderBaseValues encoderBaseValues[VoiceSystem::MAX_VOICES];
-
-namespace
-{
-// Base values for a voice index; out-of-range values fall back to voice 0
-// (matches VoiceSystem's clamped accessors).
-EncoderBaseValues &baseValuesForVoice(uint8_t voiceIndex)
-{
-  return encoderBaseValues[voiceIndex < VoiceSystem::MAX_VOICES ? voiceIndex : 0];
-}
-} // namespace
-
-namespace
-{
-bool isBipolarVoiceBaseParameter(EncoderParameterMode param)
-{
-  switch (param)
-  {
-  case EncoderParameterMode::Note:
-  case EncoderParameterMode::Velocity:
-  case EncoderParameterMode::Filter:
-  case EncoderParameterMode::Attack:
-  case EncoderParameterMode::Decay:
-  case EncoderParameterMode::Octave:
-    return true;
-  default:
-    return false;
-  }
-}
-} // namespace
-
-// Flash speed zones configuration for dynamic boundary proximity feedback
-const FlashSpeedConfig FLASH_SPEED_ZONES[] = {
-    {SensorConstants::MagneticEncoder::NORMAL_FLASH_SPEED,
-     SensorConstants::MagneticEncoder::NORMAL_ZONE_START,
-     SensorConstants::MagneticEncoder::NORMAL_ZONE_END},
-    {SensorConstants::MagneticEncoder::WARNING_FLASH_SPEED,
-     SensorConstants::MagneticEncoder::WARNING_ZONE_START,
-     SensorConstants::MagneticEncoder::WARNING_ZONE_END},
-    {SensorConstants::MagneticEncoder::CRITICAL_FLASH_SPEED,
-     SensorConstants::MagneticEncoder::CRITICAL_ZONE_START,
-     SensorConstants::MagneticEncoder::CRITICAL_ZONE_END}};
-
-// =======================
-//   ENCODER PARAMETER BOUNDS MANAGEMENT
-// =======================
-
-float getParameterMinValue(EncoderParameterMode param)
-{
-  // Return the minimum valid value for each parameter type
-  switch (param)
-  {
-  case EncoderParameterMode::Note:
-  case EncoderParameterMode::Velocity:
-  case EncoderParameterMode::Filter:
-  case EncoderParameterMode::Attack:
-  case EncoderParameterMode::Decay:
-  case EncoderParameterMode::Octave:
-    return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE;
-
-  case EncoderParameterMode::SlideTime:
-    return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE; // Minimum slide time (instant)
-
-  default:
-    return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE;
-  }
-}
-
-float getParameterMaxValue(EncoderParameterMode param)
-{
-  // Return the maximum valid value for each parameter type
-  switch (param)
-  {
-  case EncoderParameterMode::Note:
-  case EncoderParameterMode::Velocity:
-  case EncoderParameterMode::Filter:
-  case EncoderParameterMode::Attack:
-  case EncoderParameterMode::Decay:
-  case EncoderParameterMode::Octave:
-    return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
-
-  case EncoderParameterMode::SlideTime:
-    return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE; // Maximum slide time
-
-  default:
-    return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
-  }
-}
-
-float getEncoderBaseValueRange(EncoderParameterMode param)
-{
-  // Calculate the full parameter range
-  float fullParameterRange = getParameterMaxValue(param) - getParameterMinValue(param);
-
-  // Voice bases are normalized bipolar offsets. Slide time retains a
-  // direct, unipolar control over its physical range.
-  if (!isBipolarVoiceBaseParameter(param))
-  {
-    return fullParameterRange; // Full range for unipolar parameters
-  }
-
-  // Voice parameters use reduced range to leave room for sequencer values
-  return fullParameterRange * SensorConstants::MagneticEncoder::PARAMETER_RANGE_SCALE_FACTOR;
-}
-
-float clampEncoderBaseValue(EncoderParameterMode param, float value)
-{
-  // Clamp encoder base values to their allowed bidirectional range
-  float maxAllowedRange = getEncoderBaseValueRange(param);
-  return std::max(-maxAllowedRange, std::min(value, maxAllowedRange));
-}
 void updateEncoderBaseValues(UIState &uiState)
 {
   if (!magEncoder.isConnected() || uiState.controlsWaitRelease) return;
@@ -162,69 +47,12 @@ void updateEncoderBaseValues(UIState &uiState)
   const auto *requested=voiceManager->getVoiceConfig(voiceSystem.getVoiceId(index));
   if(!requested) return;
   VoiceConfig next=*requested;
-  VoiceEdit::adjust(VoiceEditor::encoderTarget(),next,delta);
+  const auto target=VoiceEditor::encoderTarget();
+  const float before=VoiceEdit::value(target,next);
+  VoiceEdit::adjust(target,next,delta);
+  // A knob already pinned at the parameter's limit must not republish.
+  if(VoiceEdit::value(target,next)==before) return;
   VoiceEditor::publish(index,next);
-}
-
-void updateEncoderStepParameterValues(UIState &uiState)
-{
-  updateEncoderBaseValues(uiState);
-}
-
-void applyIncrementToParameter(EncoderBaseValues *baseValues, EncoderParameterMode param, float increment)
-{
-  float *targetParameterValue = nullptr;
-
-  // Select the appropriate parameter to modify
-  switch (param)
-  {
-  case EncoderParameterMode::Note:
-    targetParameterValue = &baseValues->note;
-    break;
-  case EncoderParameterMode::Velocity:
-    targetParameterValue = &baseValues->velocity;
-    break;
-  case EncoderParameterMode::Filter:
-    targetParameterValue = &baseValues->filter;
-    break;
-  case EncoderParameterMode::Attack:
-    targetParameterValue = &baseValues->attack;
-    break;
-  case EncoderParameterMode::Decay:
-    targetParameterValue = &baseValues->decay;
-    break;
-  case EncoderParameterMode::Octave:
-    targetParameterValue = &baseValues->octave;
-    break;
-  case EncoderParameterMode::SlideTime:
-    targetParameterValue = &baseValues->slideTime;
-    break;
-  default:
-    return; // Invalid parameter type
-  }
-
-  if (!targetParameterValue)
-  {
-    return; // Safety check for null pointer
-  }
-
-  // Calculate new value with increment applied
-  float newParameterValue = *targetParameterValue + increment;
-
-  // Apply appropriate clamping based on parameter type
-  if (isBipolarVoiceBaseParameter(param))
-  {
-    // Bidirectional parameters (voice parameters) use symmetric range
-    float maxAllowedRange = getEncoderBaseValueRange(param);
-    *targetParameterValue = std::max(-maxAllowedRange, std::min(newParameterValue, maxAllowedRange));
-  }
-  else
-  {
-    // Unidirectional parameters (slide time) use min/max bounds
-    float parameterMinValue = getParameterMinValue(param);
-    float parameterMaxValue = getParameterMaxValue(param);
-    *targetParameterValue = std::max(parameterMinValue, std::min(newParameterValue, parameterMaxValue));
-  }
 }
 
 // --- Helper Functions for Step Parameter Editing ---
@@ -289,35 +117,6 @@ float getParameterMaxValueForParamId(ParamId paramId)
   }
 }
 
-String formatParameterValueForDisplay(ParamId paramId, float value)
-{
-  switch (paramId)
-  {
-  case ParamId::Note:
-    return String((int)value);
-
-  case ParamId::Velocity:
-    return String((int)(value * 100)) + "%";
-
-  case ParamId::Filter:
-  {
-    int filterFrequencyHz = dspmap::fmap(
-        value,
-        SensorConstants::System::FILTER_FREQUENCY_MIN_HZ,
-        SensorConstants::System::FILTER_FREQUENCY_MAX_HZ,
-        dspmap::Mapping::EXP);
-    return String(filterFrequencyHz) + "Hz";
-  }
-
-  case ParamId::Attack:
-  case ParamId::Decay:
-    return String(value, 3) + "s";
-
-  default:
-    return String(value, 2);
-  }
-}
-
 // Helper function for the "Shift and Scale" mapping.
 // This function takes a sequencer value (0.0-1.0) and an encoder offset
 // (a bipolar value, e.g., -0.6 to 0.6) and combines them intelligently.
@@ -340,25 +139,6 @@ float shiftAndScale(float seqValue, float encoderOffset)
   return std::max(0.0f, std::min(finalValue, 1.0f));
 }
 
-/**
- * Apply magnetic encoder base values to voice parameters.
- * Implements a "Shift and Scale" mapping to combine encoder and sequencer values.
- * This avoids "dead zones" by scaling the sequencer's output within the range
- * defined by the encoder's offset.
- * */
-void applyEncoderBaseValues(VoiceState *, uint8_t)
-{
-  // Compatibility entry point: composition now happens once inside Sequencer.
-}
-
-// ----------------------
-// Apply slide time values from the magnetic encoder to the active voice
-// ----------------------
-void applyEncoderSlideTimeValues()
-{
-  updateEncoderBaseValues(uiState);
-}
-
 // =======================
 //   ENCODER HELPER FUNCTIONS (moved from main file)
 // =======================
@@ -376,16 +156,9 @@ float getEncoderParameterValue()
 
 void initEncoderBaseValues()
 {
-  // Initialize voice parameters to neutral position for all voices
-  for (uint8_t voiceIndex = 0; voiceIndex < VoiceSystem::MAX_VOICES; voiceIndex++)
-  {
-    encoderBaseValues[voiceIndex].note = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-    encoderBaseValues[voiceIndex].velocity = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-    encoderBaseValues[voiceIndex].filter = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-    encoderBaseValues[voiceIndex].attack = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-    encoderBaseValues[voiceIndex].decay = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-    encoderBaseValues[voiceIndex].octave = SensorConstants::MagneticEncoder::DEFAULT_VOICE_PARAMETER;
-  }
+  // VoiceSetup initializes each patch's bases from its preset. The old
+  // encoderBaseValues array was removed with that ownership change.
+  magEncoder.clearPendingTicks();
 }
 
 void resetEncoderBaseValues(UIState &uiState, bool currentVoiceOnly)

@@ -4,3 +4,6 @@
 [submodule "src/VelocityEncoder"]
 	path = src/VelocityEncoder
 	url = https://github.com/IC-Alchemy/VelocityEncoder.git
+[submodule "vendor/VL53L1X"]
+	path = vendor/VL53L1X
+	url = https://github.com/IC-Alchemy/VL53L1X.git

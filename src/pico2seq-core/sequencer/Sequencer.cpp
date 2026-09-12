@@ -9,8 +9,8 @@ extern bool slideMode;
 // --- Constants for real-time parameter editing ---
 constexpr float MAX_SENSOR_DISTANCE_MM = 1100.0f;
 
-constexpr float OCTAVE_LOW_THRESHOLD = .15f;  // Threshold for mapping float to -1 octave
-constexpr float OCTAVE_HIGH_THRESHOLD = .4f;  // Threshold for mapping float to +1 octave
+constexpr float OCTAVE_LOW_THRESHOLD = 1.0f / 3.0f;  // Threshold for mapping float to -1 octave
+constexpr float OCTAVE_HIGH_THRESHOLD = 2.0f / 3.0f;  // Threshold for mapping float to +1 octave
 int8_t mapFloatToOctaveOffset(float octaveValue)
 {
     if (octaveValue < OCTAVE_LOW_THRESHOLD)
@@ -27,51 +27,39 @@ int8_t mapFloatToOctaveOffset(float octaveValue)
     }
 }
 
+// Fold a variant parameter value (int, float, or bool) into the float domain
+// the parameter tracks store.
+float parameterValueAsFloat(const ParameterValueType &value)
+{
+    return std::visit(
+        [](auto &&arg) -> float
+        {
+            using T = std::decay_t<decltype(arg)>;
+            if constexpr (std::is_same_v<T, float>)
+                return arg;
+            if constexpr (std::is_same_v<T, int>)
+                return static_cast<float>(arg);
+            if constexpr (std::is_same_v<T, bool>)
+                return arg ? 1.0f : 0.0f;
+            return 0.0f; // Fallback for unexpected types
+        },
+        value);
+}
+
 // Helper function to map a normalized value (0.0-1.0) to a parameter's defined min/max range.
 float mapNormalizedValueToParamRange(ParamId id, float normalizedValue)
 {
     const auto &def = CORE_PARAMETERS[static_cast<size_t>(id)];
-
-    // Safely get float from the variant, regardless of underlying type (int, float, bool)
-    auto get_float = [](const ParameterValueType &v) -> float
-    {
-        return std::visit(
-            [](auto &&arg) -> float
-            {
-                using T = std::decay_t<decltype(arg)>;
-                if constexpr (std::is_same_v<T, float>)
-                    return arg;
-                if constexpr (std::is_same_v<T, int>)
-                    return static_cast<float>(arg);
-                if constexpr (std::is_same_v<T, bool>)
-                    return arg ? 1.0f : 0.0f;
-                return 0.0f; // Fallback
-            },
-            v);
-    };
-
-    float minVal = get_float(def.minValue);
-    float maxVal = get_float(def.maxValue);
+    const float minVal = parameterValueAsFloat(def.minValue);
+    const float maxVal = parameterValueAsFloat(def.maxValue);
 
     // The ParameterManager's setValue will handle clamping and rounding.
     return minVal + normalizedValue * (maxVal - minVal);
 }
 
 Sequencer::Sequencer()
-    : running(false), currentStep(0), lastNote(-1), currentNote(-1), noteDurationCounter(0), channel(0), parameterManager(), previousStepHadSlide(false) // Initialize parameterManager explicitly
-      ,
-      envelope() // Initialize envelope explicitly
-      ,
-      noteDuration() // Initialize noteDuration explicitly
+    : Sequencer(0)
 {
-    noteActive = false;
-    // Initialize all per-parameter step counters to 0
-    for (size_t i = 0; i < static_cast<size_t>(ParamId::Count); ++i)
-    {
-        currentStepPerParam[i] = 0;
-    }
-
-    initializeParameters();
 }
 
 Sequencer::Sequencer(uint8_t channel)
@@ -166,19 +154,7 @@ void Sequencer::resetAllSteps()
     for (size_t i = 0; i < static_cast<size_t>(ParamId::Count); ++i)
     {
         ParamId currentId = static_cast<ParamId>(i);
-        float defaultValue = std::visit(
-            [](auto &&arg) -> float
-            {
-                using T = std::decay_t<decltype(arg)>;
-                if constexpr (std::is_same_v<T, float>)
-                    return arg;
-                if constexpr (std::is_same_v<T, int>)
-                    return static_cast<float>(arg);
-                if constexpr (std::is_same_v<T, bool>)
-                    return arg ? 1.0f : 0.0f;
-                return 0.0f; // Fallback
-            },
-            CORE_PARAMETERS[i].defaultValue);
+        const float defaultValue = parameterValueAsFloat(CORE_PARAMETERS[i].defaultValue);
 
         for (uint8_t step = 0; step < SequencerConstants::MAX_STEPS_COUNT; ++step)
         {
@@ -290,55 +266,21 @@ void Sequencer::advanceStep(uint32_t current_uclock_step, int mm_distance,
 
 void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
 {
-    // This method supports two modes:
-    // 1. When stepIdx == UINT8_MAX, use per-parameter step indices (called from advanceStep)
-    // 2. When stepIdx is a valid index, use that index for all parameters (called from playStepNow)
-    bool usePerParameterIndices = (stepIdx == UINT8_MAX);
-
     if (voiceState)
     {
         voiceState->shouldRetrigger = false; // Always reset the retrigger flag at the start
     }
 
-    // Get parameter values using appropriate step indices
-    float gateOn = playbackValue(ParamId::Gate,
-                                         usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Gate)] : stepIdx);
-
-    // Always get parameter values for modulation parameters
-    float filterVal = playbackValue(ParamId::Filter,
-                                            usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Filter)] : stepIdx);
-    float attackVal = playbackValue(ParamId::Attack,
-                                            usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Attack)] : stepIdx);
-    float decayVal = playbackValue(ParamId::Decay,
-                                           usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Decay)] : stepIdx);
-
-    // Get note-related parameters
-    uint8_t noteStepIdx = usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Note)] : stepIdx;
-    float noteVal = playbackValue(ParamId::Note, noteStepIdx);
-    float velocityVal = playbackValue(ParamId::Velocity,
-                                              usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Velocity)] : stepIdx);
-    float octaveFloat = playbackValue(ParamId::Octave,
-                                              usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Octave)] : stepIdx);
-    float slideVal = playbackValue(ParamId::Slide,
-                                           usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::Slide)] : stepIdx);
-
-    // DEBUG: Trace parameter retrieval
-    /*
-    Serial.print("[PARAM DEBUG] Step ");
-    Serial.print(stepIdx);
-    Serial.print(" (noteStepIdx: ");
-    Serial.print(noteStepIdx);
-    Serial.print(") - Retrieved noteVal: ");
-    Serial.print(noteVal, 2);
-    Serial.print(", octaveFloat: ");
-    Serial.print(octaveFloat, 2);
-    Serial.println();
-    */
-    float gateLengthProportion = playbackValue(ParamId::GateLength,
-                                                       usePerParameterIndices ? currentStepPerParam[static_cast<size_t>(ParamId::GateLength)] : stepIdx);
-
-    const uint16_t noteDurationTicks = static_cast<uint16_t>(std::max(1.0f, gateLengthProportion * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS));
-    const int8_t octaveOffset = octaveMapper_ ? octaveMapper_(octaveFloat) : mapFloatToOctaveOffset(octaveFloat);
+    const Step values = getPlaybackStep(stepIdx);
+    const bool gateOn = values.isGateActive;
+    const float filterVal = values.filterCutoff;
+    const float attackVal = values.attackTimeSeconds;
+    const float decayVal = values.decayTimeSeconds;
+    const float noteVal = values.noteIndex;
+    const float velocityVal = values.velocityLevel;
+    const bool slideVal = values.hasSlide;
+    const uint16_t noteDurationTicks = values.gateLengthTicks;
+    const int8_t octaveOffset = values.octaveOffset;
 
     if (gateOn)
     {
@@ -486,14 +428,32 @@ Step Sequencer::getStep(uint8_t stepIdx) const
     return s;
 }
 
+Step Sequencer::getPlaybackStep(uint8_t stepIdx) const
+{
+    const auto value = [&](ParamId id) {
+        return playbackValue(id, stepIdx == UINT8_MAX ? getCurrentStepForParameter(id) : stepIdx);
+    };
+    Step s;
+    s.noteIndex = value(ParamId::Note);
+    s.velocityLevel = value(ParamId::Velocity);
+    s.filterCutoff = value(ParamId::Filter);
+    s.attackTimeSeconds = value(ParamId::Attack);
+    s.decayTimeSeconds = value(ParamId::Decay);
+    s.isGateActive = value(ParamId::Gate) > 0.5f;
+    s.hasSlide = value(ParamId::Slide) > 0.5f;
+    const float octave = value(ParamId::Octave);
+    s.octaveOffset = octaveMapper_ ? octaveMapper_(octave) : mapFloatToOctaveOffset(octave);
+    s.gateLengthTicks = static_cast<uint16_t>(std::max(1.0f,
+        value(ParamId::GateLength) * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS));
+    return s;
+}
+
 void Sequencer::randomizeParameters()
 {
-    parameterManager.randomizeParameters();
-    for (size_t i = 0; i < 16; ++i)
-    {
-        setStepParameterValue(ParamId::Octave, i, 0.0f);
-    }
-    // setParameterStepCount(ParamId::Octave, random(2,8));
+    parameterManager.randomizeParameters(usesPlaybackTransform());
+    // Neutral octave across the entire active track, including lengths >16.
+    for (uint8_t i = 0; i < getParameterStepCount(ParamId::Octave); ++i)
+        setStepParameterValue(ParamId::Octave, i, 0.5f);
 }
 
 void Sequencer::triggerEnvelope()

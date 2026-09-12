@@ -167,32 +167,6 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
   handleStepButtonEvent(evt, uiState, sequencers, sequencerCount);
 }
 
-/**
- * Backwards-compatible convenience overload (2 sequencers).
- * Forwards to the canonical array-based implementation.
- */
-void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
-                        Sequencer &seq1, Sequencer &seq2,
-                        MidiNoteManager &midiNoteManager)
-{
-  Sequencer *sequencerArray[2] = {&seq1, &seq2};
-  matrixEventHandler(evt, uiState, sequencerArray, 2, midiNoteManager);
-}
-
-/**
- * Compatibility overload for 4-sequencer matrix event handling (kept for callers).
- * Forwarder to the canonical array-based implementation.
- */
-void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
-                        Sequencer &seq1Ref, Sequencer &seq2Ref,
-                        Sequencer &seq3Ref, Sequencer &seq4Ref,
-                        MidiNoteManager &midiNoteManager)
-{
-  Sequencer *sequencerArray[UIEventConstants::MAX_VOICES] = {
-      &seq1Ref, &seq2Ref, &seq3Ref, &seq4Ref};
-  matrixEventHandler(evt, uiState, sequencerArray, UIEventConstants::MAX_VOICES, midiNoteManager);
-}
-
 // =======================
 //   INTERNAL HANDLERS
 // =======================
@@ -258,10 +232,8 @@ void handleParameterButtonById(uint8_t paramId, bool pressed, UIState &uiState)
  *
  * @param evt Matrix button event containing button index and press/release type
  * @param uiState Reference to the UI state object for tracking modes and timing
- * @param seq1 Reference to sequencer 1 (voice 1)
- * @param seq2 Reference to sequencer 2 (voice 2)
- * @param seq3 Reference to sequencer 3 (voice 3)
- * @param seq4 Reference to sequencer 4 (voice 4)
+ * @param sequencers Array of non-owning sequencer pointers, one per voice
+ * @param sequencerCount Number of entries in the sequencers array
  * @return true if the event was handled as a step button event, false otherwise
  */
 static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
@@ -690,20 +662,8 @@ void pollUIHeldButtons(UIState &uiState, Sequencer *const *sequencers, size_t se
   }
 }
 
-/*
- * Backwards-compatible convenience overloads for pollUIHeldButtons.
- * These restore the previous call patterns that passed individual Sequencer references.
- * They construct a small local array of Sequencer* and forward to the canonical implementation.
- */
-
-// 2-sequencer overload
-void pollUIHeldButtons(UIState &uiState, Sequencer &seq1, Sequencer &seq2)
-{
-  Sequencer *sequencers[2] = {&seq1, &seq2};
-  pollUIHeldButtons(uiState, sequencers, 2);
-}
-
-// 4-sequencer overload
+// Convenience overload for ControlIO's seq1..seq4 call pattern; forwards to
+// the canonical array-based implementation.
 void pollUIHeldButtons(UIState &uiState, Sequencer &seq1, Sequencer &seq2,
                        Sequencer &seq3, Sequencer &seq4)
 {
@@ -726,9 +686,6 @@ void handleSlideModePress(UIState &uiState)
     uiState.modGateParamSeqLengthsMode = false;
     uiState.gateSeqLengthMode = false;
     uiState.selectedStepForEdit = -1;
-  }
-  else
-  {
   }
 }
 
@@ -790,15 +747,6 @@ void clearSequencerStep(Sequencer &sequencer, uint8_t stepIdx)
   // Reset the remaining automatable parameters to their track defaults.
   // CORE_PARAMETERS[].defaultValue is a variant (float/bool); fold it to the
   // float the sequencer tracks store.
-  auto variantToFloat = [](const ParameterValueType &value) -> float
-  {
-    if (std::holds_alternative<float>(value))
-      return std::get<float>(value);
-    if (std::holds_alternative<bool>(value))
-      return std::get<bool>(value) ? 1.0f : 0.0f;
-    return static_cast<float>(std::get<int>(value));
-  };
-
   for (uint8_t paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
   {
     const ParamId paramId = static_cast<ParamId>(paramIndex);
@@ -807,7 +755,7 @@ void clearSequencerStep(Sequencer &sequencer, uint8_t stepIdx)
       continue;
     }
     sequencer.setStepParameterValue(paramId, stepIdx,
-                                    variantToFloat(CORE_PARAMETERS[paramIndex].defaultValue));
+                                    parameterValueAsFloat(CORE_PARAMETERS[paramIndex].defaultValue));
   }
 }
 
