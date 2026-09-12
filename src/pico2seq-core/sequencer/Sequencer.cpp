@@ -7,7 +7,7 @@
 // External mode state variables
 extern bool slideMode;
 // --- Constants for real-time parameter editing ---
-constexpr float MAX_SENSOR_DISTANCE_MM = 1400.0f;
+constexpr float MAX_SENSOR_DISTANCE_MM = 1100.0f;
 
 constexpr float OCTAVE_LOW_THRESHOLD = .15f;  // Threshold for mapping float to -1 octave
 constexpr float OCTAVE_HIGH_THRESHOLD = .4f;  // Threshold for mapping float to +1 octave

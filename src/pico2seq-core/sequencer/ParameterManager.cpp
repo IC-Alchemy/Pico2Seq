@@ -150,7 +150,7 @@ void ParameterManager::randomizeParameters()
       {
       case ParamId::Slide:
       {
-        const bool on = (lcg_rand_int(0, 12) == 0); // 1/13 chance
+        const bool on = (lcg_rand_int(0, 15) == 0); // 1/16 chance
         track.setValue(step, on ? 1.0f : 0.0f);
       }
       break;
@@ -159,14 +159,14 @@ void ParameterManager::randomizeParameters()
       {
         if ((step % 2u) == 0u) [[likely]]
         {
-          // Even steps: 75% chance of being 1
-          const bool isZero = (lcg_rand_int(0, 3) == 0); // 1/4 zeros
+          // Even steps: 50% chance of being 1
+          const bool isZero = (lcg_rand_int(0, 1) == 0); // 1/2 zeros
           track.setValue(step, isZero ? 0.0f : 1.0f);
         }
         else
         {
-          // Odd steps: ~33% chance of being 1
-          const bool one = (lcg_rand_int(0, 2) == 0); // 1/3 ones
+          // Odd steps: ~25% chance of being 1
+          const bool one = (lcg_rand_int(0, 3) == 0); // 1/4 ones
           track.setValue(step, one ? 1.0f : 0.0f);
         }
       }
@@ -178,23 +178,23 @@ void ParameterManager::randomizeParameters()
         const int draw = lcg_rand_int(0, 8);
         if (draw == 0)
         {
-          track.setValue(step, lcg_rand_float(0.25f, 0.8f));
+          track.setValue(step, lcg_rand_float(0.25f, 0.7f));
         }
         else if (draw < 3)
         {
-          track.setValue(step, lcg_rand_float(0.01f, 0.5f));
+          track.setValue(step, lcg_rand_float(0.05f, 0.5f));
         }
         else
         {
-          track.setValue(step, lcg_rand_float(0.1f, 0.5f));
+          track.setValue(step, lcg_rand_float(0.1f, 0.2f));
         }
       }
       break;
 
       case ParamId::Filter:
       {
-        static constexpr float kFilterMin = 0.2f;
-        static constexpr float kFilterMax = 0.95f;
+        static constexpr float kFilterMin = 0.1f;
+        static constexpr float kFilterMax = 0.6f;
         track.setValue(step, lcg_rand_float(kFilterMin, kFilterMax));
       }
       break;
@@ -206,11 +206,11 @@ void ParameterManager::randomizeParameters()
           // Even steps: rare long attacks
           if (lcg_rand_int(0, 8) == 0)
           { // 1/9 chance
-            track.setValue(step, lcg_rand_float(0.02f, 0.25f));
+            track.setValue(step, lcg_rand_float(0.04f, 0.15f));
           }
           else
           {
-            track.setValue(step, lcg_rand_float(0.003f, 0.03f));
+            track.setValue(step, lcg_rand_float(0.004f, 0.05f));
           }
         }
         else
@@ -218,7 +218,7 @@ void ParameterManager::randomizeParameters()
           // Odd steps
           if (lcg_rand_int(0, 12) == 0)
           { // 1/13 chance
-            track.setValue(step, lcg_rand_float(0.003f, 0.24f));
+            track.setValue(step, lcg_rand_float(0.003f, 0.1f));
           }
           else
           {
