@@ -1674,8 +1674,9 @@ bool takeResumeSnapshot(persistence::ProjectSnapshotV1 &out);
 #include "pico/platform.h"
 // NOLOAD section: survives watchdog/warm resets (RAM stays powered), is NOT
 // cleared or initialized by crt0, loses content on power-on (validated by
-// magic+CRC). The store has no constructor on purpose.
-__uninitialized_ram(static persistence::RetainedStore s_store);
+// magic+CRC). The store has no constructor on purpose. The macro wraps the
+// NAME only and follows the type (SDK usage: `static T __uninitialized_ram(name);`).
+static persistence::RetainedStore __uninitialized_ram(s_store);
 #else
 static persistence::RetainedStore s_store; // host fallback: ordinary zeroed RAM
 #endif
