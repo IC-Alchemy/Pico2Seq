@@ -38,8 +38,13 @@
 |---|---|---|
 | Patterns | 4 voices × 9 tracks × (64 floats + length byte + reserved) | 9,360 B |
 | Patches | 4 × `VoiceConfig` value fields (55 four-byte words + 10 u8 + 2 explicit tail bytes = 232 B, naturally 4-byte aligned), pointers excluded | 928 B |
-| Settings | tempo, master volume, scale, shuffle idx, theme idx, selected voice, preset indices[4], encoder bases 4×7 floats, editor cursors/changed, slideMode | 136 B |
-| **Total** | `ProjectSnapshotV1` | **10,424 B** |
+| Settings | tempo, master volume, scale, shuffle idx, theme idx, selected voice, preset indices[4], editor cursors/changed, slideMode | 24 B |
+| **Total** | `ProjectSnapshotV1` | **10,312 B** |
+
+**Amendment (execution, 2026-09-12):** the encoder-bases block (112 B) was
+removed mid-execution — the user's merge `38b8c55` deleted the
+`EncoderBaseValues` array; patch bases now live in the `VoiceConfig` control
+copy and are captured inside `PatchSnapshot`. Original plan total was 10,424 B.
 
 Transient by design (never persisted): transport position (`currentStep`, `currentStepPerParam`), `Voice` DSP state (osc phases, filters, ADSR), SPSC queues, `voicesReady`, all debounce/timestamp UI fields, sensor readings, `VoiceSystem` gates. All persisted state is Core-0-owned (audio core only receives queued copies), so `captureSession()` needs no cross-core locking.
 

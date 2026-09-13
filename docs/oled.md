@@ -93,9 +93,11 @@ Triggered for a brief timeout window whenever the hardware GP7 mode strap change
 - **UTIL Mode:** Displays centered size-3 **"UTIL"** with subtitle `> utility <`.
 
 #### 3. Transitory Confirmation Notice (Priority 3)
-Shown for a short window after randomize actions (replacing the old control-cluster LED flashes):
+Shown for a short window after randomize/save/load actions (replacing the old control-cluster LED flashes):
 - `RANDOMIZED` with a `Voice N` sub-line (1-based). *(The `DELAY ON`/`DELAY OFF` notices were
   removed with the delay effect, 2026-09-11.)*
+- `SAVED` / `LOADED` after a session save or restore; `LOAD ERR` when storage fails
+  (also used for a failed save).
 
 #### 4. Settings & Preset Menus (Priority 4)
 Activated when `uiState.settingsMode` is true:

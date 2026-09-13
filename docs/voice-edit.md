@@ -2,8 +2,10 @@
 
 Voice Edit implements the first three development stages: the sound parameter
 catalogue, stopped-transport controls and OLED, and independent patch bases with
-sequenced modifiers. Auditioning and saving patches across power cycles are later
-stages. Changes currently remain in RAM until a preset is loaded or power is lost.
+sequenced modifiers. Patches now persist across power cycles: every save (Utility
+button 1, autosave on transport stop) captures the live `VoiceConfig` control copy
+per voice, and each boot restores it. Loading a factory preset still replaces the
+bases; saved patches ride in the session snapshot, not the preset bank.
 
 ## Controls
 
