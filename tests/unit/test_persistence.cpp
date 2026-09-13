@@ -5,6 +5,9 @@
 #include "persistence/ProjectSnapshot.h"
 #include "persistence/PatternCodec.h"
 #include "sequencer/Sequencer.h"
+#include "voice/PatchCodec.h"
+#include "voice/VoiceConfig.h"
+#include "voice/VoicePresets.h"
 
 using namespace persistence;
 
@@ -154,4 +157,80 @@ TEST_CASE("pattern codec preserves every track of a random pattern", "[persisten
         for (uint8_t step = 0; step < SequencerConstants::MAX_STEPS_COUNT; ++step)
             REQUIRE(restored.getRawStepValue(id, step) == seq.getRawStepValue(id, step));
     }
+}
+
+TEST_CASE("patch codec round-trips a preset untouched", "[persistence]")
+{
+    const VoiceConfig original = VoicePresets::getPresetConfig(4); // default voice-0 preset (Square)
+    persistence::PatchSnapshot snap;
+    voicecodec::capturePatch(original, snap);
+    snap.presetIndex = 4; // stamped by the caller (Session), not by capturePatch
+
+    VoiceConfig restored;
+    REQUIRE(voicecodec::applyPatch(4, snap, restored));
+    REQUIRE(restored.engine == original.engine);
+    REQUIRE(restored.paramSet == original.paramSet);
+    REQUIRE(restored.baseNote == original.baseNote);
+    REQUIRE(restored.oscWaveforms[0] == original.oscWaveforms[0]);
+    REQUIRE(restored.filterRes == original.filterRes);
+    REQUIRE(restored.defaultAttack == original.defaultAttack);
+    REQUIRE(restored.enabled == original.enabled);
+}
+
+TEST_CASE("patch codec round-trips an edited patch", "[persistence]")
+{
+    VoiceConfig original = VoicePresets::getPresetConfig(2); // Bass
+    original.baseNote = 7.0f;
+    original.oscDetuning[1] = -5.5f;
+    original.harmony[2] = 7;
+    original.wgT60 = 4.25f;
+    original.filterMode = VoiceFilterMode::BP12;
+    original.hasOverdrive = true;
+    original.overdriveDrive = 0.9f;
+    original.outputLevel = 0.31f;
+
+    persistence::PatchSnapshot snap;
+    voicecodec::capturePatch(original, snap);
+    VoiceConfig restored;
+    REQUIRE(voicecodec::applyPatch(2, snap, restored));
+    REQUIRE(restored.baseNote == 7.0f);
+    REQUIRE(restored.oscDetuning[1] == -5.5f);
+    REQUIRE(restored.harmony[2] == 7);
+    REQUIRE(restored.wgT60 == 4.25f);
+    REQUIRE(restored.filterMode == VoiceFilterMode::BP12);
+    REQUIRE(restored.hasOverdrive);
+    REQUIRE(restored.overdriveDrive == 0.9f);
+    REQUIRE(restored.outputLevel == 0.31f);
+}
+
+TEST_CASE("paramSet change clears the preset layout pointer", "[persistence]")
+{
+    const VoiceConfig preset = VoicePresets::getPresetConfig(2);
+    VoiceConfig edited = preset;
+    edited.paramSet = PARAMSET_WAVEGUIDE; // user re-purposed the slots
+    persistence::PatchSnapshot snap;
+    voicecodec::capturePatch(edited, snap);
+    VoiceConfig restored;
+    REQUIRE(voicecodec::applyPatch(2, snap, restored));
+    REQUIRE(restored.paramSet == PARAMSET_WAVEGUIDE);
+    REQUIRE(restored.parameters == nullptr); // layout() now derives from paramSet
+}
+
+TEST_CASE("recipe engine without a recipe source is rejected", "[persistence]")
+{
+    const VoiceConfig preset = VoicePresets::getPresetConfig(2); // non-recipe preset
+    VoiceConfig edited = preset;
+    edited.engine = ENGINE_RECIPE;
+    persistence::PatchSnapshot snap;
+    voicecodec::capturePatch(edited, snap);
+    VoiceConfig restored;
+    REQUIRE_FALSE(voicecodec::applyPatch(2, snap, restored));
+    REQUIRE(restored.engine == preset.engine); // fell back to factory preset
+}
+
+TEST_CASE("out-of-range preset index is rejected", "[persistence]")
+{
+    persistence::PatchSnapshot snap;
+    VoiceConfig restored;
+    REQUIRE_FALSE(voicecodec::applyPatch(VoicePresets::getPresetCount(), snap, restored));
 }

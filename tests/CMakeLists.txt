@@ -48,6 +48,7 @@ add_executable(pico2seq_tests
   ${SRC_DIR}/voice/VoiceParameters.cpp
   ${SRC_DIR}/voice/VoiceEditParameters.cpp
   ${SRC_DIR}/voice/VoiceManager.cpp
+  ${SRC_DIR}/voice/PatchCodec.cpp
 
   # Alchemy tile control surface decision logic (pure C++)
   ${SRC_DIR}/ui/ControlSurfaceLogic.cpp
