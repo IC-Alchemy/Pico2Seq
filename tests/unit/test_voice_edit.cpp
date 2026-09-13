@@ -163,7 +163,7 @@ TEST_CASE("Parameter catalogue is reachable and bounded for every engine",
   }
   VoiceConfig c;
   setValue(Id::Engine, c, ENGINE_RECIPE);
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i <= static_cast<int>(parameter(Id::Recipe).maximum); ++i) {
     setValue(Id::Recipe, c, i);
     REQUIRE(c.recipe != nullptr);
     REQUIRE(c.parameters != nullptr);
@@ -173,6 +173,20 @@ TEST_CASE("Parameter catalogue is reachable and bounded for every engine",
   c.filterType = FILTER_SVF;
   setValue(Id::FilterMode, c, 2);
   REQUIRE(c.filterMode == VoiceFilterMode::HP24);
+}
+
+TEST_CASE("Every preset recipe survives an editor selection round trip", "[voice_edit][recipes]") {
+  for (uint8_t p = 0; p < VoicePresets::getPresetCount(); ++p) {
+    auto c = VoicePresets::getPresetConfig(p);
+    if (c.engine != ENGINE_RECIPE) continue;
+    INFO(VoicePresets::getPresetName(p));
+    const auto *recipe = c.recipe;
+    const auto *layout = c.parameters;
+    const float selected = value(Id::Recipe, c);
+    setValue(Id::Recipe, c, selected);
+    REQUIRE(c.recipe == recipe);
+    REQUIRE(c.parameters == layout);
+  }
 }
 
 TEST_CASE("Editor requires release and never replays held actions",

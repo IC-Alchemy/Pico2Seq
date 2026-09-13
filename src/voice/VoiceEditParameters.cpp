@@ -1,6 +1,6 @@
 #include "VoiceEditParameters.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
-#include "presets/RecipePresets.h"
+#include "presets/MusicalPresets.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -8,6 +8,23 @@
 
 namespace VoiceEdit {
 namespace {
+struct RecipeChoice {
+  const VoiceRecipe *recipe;
+  const VoiceParameterLayout *layout;
+  const char *name;
+};
+constexpr RecipeChoice kRecipes[] = {
+    {&VoiceRecipes::kFeedbackFm, &VoicePresets::kFmParameters, "Feedback FM"},
+    {&VoiceRecipes::kPhaseMorph, &VoicePresets::kPhaseParameters, "Phase morph"},
+    {&VoiceRecipes::kSpectralDsf, &VoicePresets::kDsfParameters, "Spectral DSF"},
+    {&VoiceRecipes::kPrism, &VoicePresets::kPrismParameters, "Prism"},
+    {&VoiceRecipes::kReedPipe, &VoicePresets::kReedPipeParameters, "Reed pipe"},
+    {&VoiceRecipes::kSilkPad, &VoicePresets::kSilkPadParameters, "Silk pad"},
+    {&VoiceRecipes::kHollowBell, &VoicePresets::kHollowBellParameters, "Hollow bell"},
+    {&VoiceRecipes::kSyncLead, &VoicePresets::kSyncLeadParameters, "Sync lead"},
+    {&VoiceRecipes::kOrbitPluck, &VoicePresets::kOrbitPluckParameters, "Orbit pluck"},
+    {&VoiceRecipes::kAirChime, &VoicePresets::kAirChimeParameters, "Air chime"}};
+constexpr int kRecipeCount = static_cast<int>(std::size(kRecipes));
 constexpr Parameter kParameters[] = {
     {Id::Note, "Note", Group::Sequenced, Unit::Number, 0.0f, 36.0f, false,
      nullptr, nullptr},
@@ -32,7 +49,7 @@ constexpr Parameter kParameters[] = {
      +[](VoiceConfig &c, float v) {
        c.engine = static_cast<std::remove_reference_t<decltype(c.engine)>>(v);
      }},
-    {Id::Recipe, "Recipe", Group::Source, Unit::Choice, 0.0f, 3.0f, false,
+    {Id::Recipe, "Recipe", Group::Source, Unit::Choice, 0.0f, static_cast<float>(kRecipeCount - 1), false,
      nullptr, nullptr},
     {Id::OscCount, "Oscillators", Group::Source, Unit::Number, 0.0f, 3.0f,
      false,
@@ -492,14 +509,6 @@ constexpr const char *kGroups[] = {
     "Sequenced bases", "Source",   "Oscillator 1", "Oscillator 2",
     "Oscillator 3",    "Envelope", "Main filter",  "High-pass",
     "Overdrive",       "Engine",   "Output"};
-constexpr const VoiceRecipe *kRecipes[] = {
-    &VoiceRecipes::kFeedbackFm, &VoiceRecipes::kPhaseMorph,
-    &VoiceRecipes::kSpectralDsf, &VoiceRecipes::kPrism};
-constexpr const VoiceParameterLayout *kLayouts[] = {
-    &VoicePresets::kFmParameters, &VoicePresets::kPhaseParameters,
-    &VoicePresets::kDsfParameters, &VoicePresets::kPrismParameters};
-constexpr const char *kRecipeNames[] = {"Feedback FM", "Phase morph",
-                                        "Spectral DSF", "Prism"};
 constexpr float kTimeMin = 0.001f, kTimeMax = 10.0f;
 float timeNormalize(float seconds) {
   return std::log(std::clamp(seconds, kTimeMin, kTimeMax) / kTimeMin) /
@@ -509,15 +518,15 @@ float timeMap(float n) {
   return kTimeMin * std::pow(kTimeMax / kTimeMin, std::clamp(n, 0.0f, 1.0f));
 }
 int recipeIndex(const VoiceConfig &c) {
-  for (int i = 0; i < 4; ++i)
-    if (c.recipe == kRecipes[i])
+  for (int i = 0; i < kRecipeCount; ++i)
+    if (c.recipe == kRecipes[i].recipe)
       return i;
   return 0;
 }
 void selectRecipe(VoiceConfig &c, int i) {
-  i = std::clamp(i, 0, 3);
-  c.recipe = kRecipes[i];
-  c.parameters = kLayouts[i];
+  i = std::clamp(i, 0, kRecipeCount - 1);
+  c.recipe = kRecipes[i].recipe;
+  c.parameters = kRecipes[i].layout;
   // Each recipe owns macro units; normalize old values through the new ranges.
   for (ParamId lane : {ParamId::Filter, ParamId::Attack, ParamId::Decay}) {
     const auto &b = VoiceParameters::binding(c, lane);
@@ -858,7 +867,7 @@ void format(Id id, const VoiceConfig &c, char *out, size_t capacity) noexcept {
     return;
   }
   if (id == Id::Recipe) {
-    std::snprintf(out, capacity, "%s", kRecipeNames[recipeIndex(c)]);
+    std::snprintf(out, capacity, "%s", kRecipes[recipeIndex(c)].name);
     return;
   }
   if (id == Id::Wave1 || id == Id::Wave2 || id == Id::Wave3) {
