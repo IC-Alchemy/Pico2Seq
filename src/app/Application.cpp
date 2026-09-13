@@ -2,6 +2,7 @@
 #include "AppState.h"
 #include "ControlIO.h"
 #include "ClockService.h"
+#include "RetainedSession.h"
 #include "Session.h"
 #include "SessionStorage.h"
 #include "VoiceSetup.h"
@@ -15,6 +16,10 @@ namespace
 constexpr uint32_t kBootStabilizationMs = 100;
 constexpr uint32_t kSerialBaud = 115200;
 constexpr uint32_t kDiagnosticIntervalMs = 2000;
+// The watchdog-resume attempt counter only resets after the control loop has
+// run this long without a freeze; clearing it earlier would let a freeze that
+// recurs shortly after every boot resume forever.
+constexpr uint32_t kHealthyLoopIntervalMs = 15000;
 bool recoveryMode = false;
 persistence::ProjectSnapshotV1 g_pendingBootSnapshot;
 bool g_bootSnapshotPending = false;
@@ -66,12 +71,28 @@ void Application::begin()
     delay(kBootStabilizationMs);
     Serial.begin(kSerialBaud);
     recoveryMode = previousFreeze.watchdogReset;
-    if (recoveryMode)
+    RetainedSession::bootInit();
+    bool resumeFromRetained = false;
+    if (previousFreeze.watchdogReset)
     {
-        // Leave peripherals and voices untouched so the previous failure
-        // cannot reset us again before the USB monitor has time to reconnect.
-        watchdog_disable();
-        return;
+        if (RetainedSession::resumeAllowed())
+        {
+            resumeFromRetained = true;
+            recoveryMode = false;
+            Serial.println("[RECOVERY] watchdog reset; resuming live session from retained RAM");
+            freezeWatchdogPrintPreviousRun();
+        }
+        else
+        {
+            // Fall back to parking: leave peripherals and voices untouched so
+            // the previous failure cannot reset us again before the USB
+            // monitor has time to reconnect. The flash-saved session is still
+            // there; a power cycle restores it at boot.
+            recoveryMode = true;
+            watchdog_disable();
+            Serial.println("[RECOVERY] session resume unavailable/exhausted. Power-cycle to retry.");
+            return;
+        }
     }
     Serial.print("[CORE0] Setup starting... ");
     Serial.printf("clock=%lu MHz\n", (unsigned long)(F_CPU / 1000000));
@@ -82,8 +103,17 @@ void Application::begin()
     freezeWatchdogMark(FW_SETUP_STORAGE); // breadcrumb only; not armed yet
     SessionStorage::begin();
     persistence::ProjectSnapshotV1 snapshot;
-    const bool loaded =
-        SessionStorage::load(snapshot) == SessionStorage::LoadResult::Ok;
+    bool loaded;
+    if (resumeFromRetained)
+    {
+        loaded = RetainedSession::takeResumeSnapshot(snapshot);
+        if (!loaded)
+            Serial.println("[STORAGE] retained session invalid; factory defaults");
+    }
+    else
+    {
+        loaded = SessionStorage::load(snapshot) == SessionStorage::LoadResult::Ok;
+    }
     Session::g_bootLoadedOk = loaded;
     if (loaded)
     {
@@ -115,6 +145,13 @@ void Application::begin()
     Serial.println("[VOICE EDIT] Patch bases + lidar modifiers; Shift + slider 4 opens editor");
     Serial.println("[CORE0] Setup complete!");
     voicesReady.store(true, std::memory_order_release);
+
+    // Seed the retained-RAM mirror so a freeze 100 ms into loop() still finds
+    // a fresh session. markBootCompleted() deliberately does NOT run here —
+    // the resume-attempt counter only clears after a proven-healthy loop.
+    persistence::ProjectSnapshotV1 snap;
+    Session::captureSession(snap);
+    RetainedSession::refresh(snap);
 }
 
 void Application::update()
@@ -135,6 +172,27 @@ void Application::update()
     voiceManager->flushControlUpdates();
     freezeWatchdogFeed(FW_LOOP_USB_READ); // Retain the persisted watchdog phase ID.
     const uint32_t nowMs = millis();
+
+    // Reset the watchdog-resume attempt counter only after the control loop
+    // has demonstrably run healthy (see kHealthyLoopIntervalMs).
+    static const uint32_t bootStampMs = millis(); // first non-recovery pass
+    static bool healthyBootMarked = false;
+    if (!healthyBootMarked && nowMs - bootStampMs >= kHealthyLoopIntervalMs)
+    {
+        healthyBootMarked = true;
+        RetainedSession::markBootCompleted();
+    }
+
+    // 1 Hz retained-RAM mirror refresh: zero flash wear, bounds watchdog
+    // session loss to one second.
+    static uint32_t lastRetainedRefreshMs = 0;
+    if (nowMs - lastRetainedRefreshMs >= 1000)
+    {
+        lastRetainedRefreshMs = nowMs;
+        persistence::ProjectSnapshotV1 snap;
+        Session::captureSession(snap);
+        RetainedSession::refresh(snap);
+    }
 
     ControlIO::pollHeldButtons();
     // Preserve this order: steps, diagnostics, gate ticks, controls, displays.

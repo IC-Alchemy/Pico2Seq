@@ -4,6 +4,7 @@
 #include "persistence/SnapshotFormat.h"
 #include "persistence/ProjectSnapshot.h"
 #include "persistence/PatternCodec.h"
+#include "persistence/RetainedSessionLogic.h"
 #include "sequencer/Sequencer.h"
 #include "voice/PatchCodec.h"
 #include "voice/VoiceConfig.h"
@@ -281,4 +282,37 @@ TEST_CASE("golden full-project round-trip through frame bytes", "[persistence]")
     }
     REQUIRE(loaded.settings.tempoBpm == 137.0f);
     REQUIRE(loaded.settings.changedFlags == 0x05);
+}
+
+TEST_CASE("resume decision table", "[persistence]")
+{
+    using persistence::ResumeDecision;
+    REQUIRE(persistence::decideResume(false, false, 0) == ResumeDecision::NormalBoot);
+    REQUIRE(persistence::decideResume(false, true, 2) == ResumeDecision::NormalBoot);
+    REQUIRE(persistence::decideResume(true, false, 0) == ResumeDecision::HaltRecovery);
+    REQUIRE(persistence::decideResume(true, true, 0) == ResumeDecision::ResumeRetained);
+    REQUIRE(persistence::decideResume(true, true, 2) == ResumeDecision::ResumeRetained);
+    REQUIRE(persistence::decideResume(true, true, 3) == ResumeDecision::HaltRecovery);
+}
+
+TEST_CASE("retained validity and refresh", "[persistence]")
+{
+    persistence::RetainedStore store{};
+    REQUIRE_FALSE(persistence::retainedValid(store)); // zeroed = no magic
+    persistence::ProjectSnapshotV1 snap{};
+    seedValidStepCounts(snap);
+    snap.settings.tempoBpm = 111.0f;
+    persistence::retainedRefresh(store, snap);
+    REQUIRE(persistence::retainedValid(store));
+    REQUIRE(store.header.generation == 1);
+    persistence::retainedRefresh(store, snap);
+    REQUIRE(store.header.generation == 2);
+    // CRC damage invalidates.
+    store.snapshot.settings.tempoBpm = 222.0f; // edited without refresh
+    REQUIRE_FALSE(persistence::retainedValid(store));
+    // Wrong version invalidates.
+    persistence::retainedRefresh(store, snap);
+    REQUIRE(persistence::retainedValid(store));
+    store.header.version = 99;
+    REQUIRE_FALSE(persistence::retainedValid(store));
 }
