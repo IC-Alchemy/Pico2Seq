@@ -2,9 +2,12 @@
 #include "AppState.h"
 #include "ControlIO.h"
 #include "ClockService.h"
+#include "Session.h"
+#include "SessionStorage.h"
 #include "VoiceSetup.h"
 #include "AudioEngine.h"
 #include "../utils/FreezeWatchdog.h"
+#include "../pico2seq-core/persistence/ProjectSnapshot.h"
 #include <Arduino.h>
 
 namespace
@@ -13,6 +16,8 @@ constexpr uint32_t kBootStabilizationMs = 100;
 constexpr uint32_t kSerialBaud = 115200;
 constexpr uint32_t kDiagnosticIntervalMs = 2000;
 bool recoveryMode = false;
+persistence::ProjectSnapshotV1 g_pendingBootSnapshot;
+bool g_bootSnapshotPending = false;
 
 // Serial and watchdog diagnostics stay on Core 0.
 void printRuntimeDiagnostics(uint32_t currentMillis)
@@ -71,17 +76,42 @@ void Application::begin()
     Serial.print("[CORE0] Setup starting... ");
     Serial.printf("clock=%lu MHz\n", (unsigned long)(F_CPU / 1000000));
 
+    // Session storage mounts BEFORE anything arms the watchdog
+    // (ControlIO::beginMainBusAndLeds -> freezeWatchdogArm): a first-boot
+    // LittleFS format can take seconds and must not reboot us mid-format.
+    freezeWatchdogMark(FW_SETUP_STORAGE); // breadcrumb only; not armed yet
+    SessionStorage::begin();
+    persistence::ProjectSnapshotV1 snapshot;
+    const bool loaded =
+        SessionStorage::load(snapshot) == SessionStorage::LoadResult::Ok;
+    Session::g_bootLoadedOk = loaded;
+    if (loaded)
+    {
+        Session::applyBeforeVoices(snapshot);
+        g_pendingBootSnapshot = snapshot;
+        g_bootSnapshotPending = true;
+        Serial.println("[STORAGE] session loaded");
+    }
+    else
+    {
+        Serial.println("[STORAGE] no valid session; factory defaults");
+    }
+
     ControlIO::beginMainBusAndLeds();
     ControlIO::beginPerformanceSensors();
     ControlIO::beginTouchPads();
     ControlIO::beginDisplay();
     freezeWatchdogFeed(FW_SETUP_VOICES);
-    initializeVoices();
+    initializeVoices(); // consumes uiState.voicePresetIndices
+    if (g_bootSnapshotPending)
+        Session::applyAfterVoices(g_pendingBootSnapshot);
     ControlIO::observeVoiceChanges();
     ControlIO::beginMatrixAndTiles();
 
     freezeWatchdogFeed(FW_SETUP_UCLOCK);
     initializeClock();
+    if (g_bootSnapshotPending)
+        Session::applyAfterClock(g_pendingBootSnapshot);
     Serial.println("[VOICE EDIT] Patch bases + lidar modifiers; Shift + slider 4 opens editor");
     Serial.println("[CORE0] Setup complete!");
     voicesReady.store(true, std::memory_order_release);
