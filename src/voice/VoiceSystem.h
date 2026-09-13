@@ -24,11 +24,11 @@ struct VoiceSystem
     // Voice states for audio synthesis
     VoiceState voiceStates[MAX_VOICES];
 
-    // Gate states (only used for voices 0 and 1)
-    volatile bool gates[2] = {false, false};
+    // Gate states for all voices
+    volatile bool gates[MAX_VOICES] = {false, false, false, false};
 
-    // Gate timers (only used for voices 0 and 1)
-    GateTimer gateTimers[2];
+    // Gate timers for all voices
+    GateTimer gateTimers[MAX_VOICES];
 
     /**
      * @brief Get voice ID by index
@@ -74,30 +74,30 @@ struct VoiceSystem
     }
 
     /**
-     * @brief Get gate state by index (only for voices 0-1)
-     * @param voiceIndex Voice index (0-1)
+     * @brief Get gate state by index
+     * @param voiceIndex Voice index (0-3)
      * @return Gate state or false if invalid index
      */
     volatile bool &getGate(uint8_t voiceIndex)
     {
         static volatile bool dummy = false;
-        return (voiceIndex < 2) ? gates[voiceIndex] : dummy;
+        return (voiceIndex < MAX_VOICES) ? gates[voiceIndex] : dummy;
     }
 
     /**
-     * @brief Get gate timer by index (only for voices 0-1)
-     * @param voiceIndex Voice index (0-1)
+     * @brief Get gate timer by index
+     * @param voiceIndex Voice index (0-3)
      * @return Reference to gate timer
      */
     GateTimer &getGateTimer(uint8_t voiceIndex)
     {
         static GateTimer dummy;
-        return (voiceIndex < 2) ? gateTimers[voiceIndex] : dummy;
+        return (voiceIndex < MAX_VOICES) ? gateTimers[voiceIndex] : dummy;
     }
 
     void stopAllGates()
     {
-        for (uint8_t i = 0; i < 2; i++)
+        for (uint8_t i = 0; i < MAX_VOICES; i++)
         {
             gates[i] = false;
             gateTimers[i].stop();
@@ -106,7 +106,7 @@ struct VoiceSystem
 
     void tickAllGateTimers()
     {
-        for (uint8_t i = 0; i < 2; i++)
+        for (uint8_t i = 0; i < MAX_VOICES; i++)
         {
             gateTimers[i].tick();
             if (gateTimers[i].isExpired() && gates[i])

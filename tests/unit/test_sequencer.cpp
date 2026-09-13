@@ -5,6 +5,7 @@
 #include "sequencer/Sequencer.h"
 #include "voice/VoiceConfig.h"
 #include "voice/VoiceEditParameters.h"
+#include "voice/VoiceSystem.h"
 
 #include <algorithm>
 
@@ -461,5 +462,138 @@ TEST_CASE("previewActiveStep preserves independent polyrhythmic parameter cursor
     seq.previewActiveStep(&previewState);
     REQUIRE(seq.getCurrentStepForParameter(ParamId::Note) == 7);
     REQUIRE(seq.getCurrentStepForParameter(ParamId::Filter) == 2);
+}
+
+TEST_CASE("Sequencer::setStep and copyStep duplicate all step parameters", "[sequencer]") {
+    Sequencer seq(0);
+
+    Step sourceStep;
+    sourceStep.noteIndex = 19.0f;
+    sourceStep.velocityLevel = 0.85f;
+    sourceStep.filterCutoff = 0.72f;
+    sourceStep.attackTimeSeconds = 0.05f;
+    sourceStep.decayTimeSeconds = 0.45f;
+    sourceStep.octaveOffset = 12;
+    sourceStep.gateLengthTicks = 90;
+    sourceStep.isGateActive = true;
+    sourceStep.hasSlide = true;
+
+    seq.setStep(3, sourceStep);
+
+    Step readBack = seq.getStep(3);
+    REQUIRE(readBack.noteIndex == 19.0f);
+    REQUIRE(readBack.velocityLevel == Catch::Approx(0.85f));
+    REQUIRE(readBack.filterCutoff == Catch::Approx(0.72f));
+    REQUIRE(readBack.attackTimeSeconds == Catch::Approx(0.05f));
+    REQUIRE(readBack.decayTimeSeconds == Catch::Approx(0.45f));
+    REQUIRE(readBack.octaveOffset == 12);
+    REQUIRE(readBack.isGateActive == true);
+    REQUIRE(readBack.hasSlide == true);
+    REQUIRE(readBack.gateLengthTicks == 90);
+
+    // Copy step 3 to step 11
+    seq.copyStep(3, 11);
+    Step copied = seq.getStep(11);
+    REQUIRE(copied.noteIndex == 19.0f);
+    REQUIRE(copied.velocityLevel == Catch::Approx(0.85f));
+    REQUIRE(copied.filterCutoff == Catch::Approx(0.72f));
+    REQUIRE(copied.attackTimeSeconds == Catch::Approx(0.05f));
+    REQUIRE(copied.decayTimeSeconds == Catch::Approx(0.45f));
+    REQUIRE(copied.octaveOffset == 12);
+    REQUIRE(copied.isGateActive == true);
+    REQUIRE(copied.hasSlide == true);
+    REQUIRE(copied.gateLengthTicks == 90);
+
+    // Bounds checking
+    seq.copyStep(64, 0); // Out of bounds source should gracefully no-op
+    seq.copyStep(0, 64); // Out of bounds dest should gracefully no-op
+    Step s0 = seq.getStep(0);
+    REQUIRE(s0.noteIndex == 0.0f); // Untouched
+}
+
+TEST_CASE("ParameterManager::copyStep copies values across tracks and bounds-checks", "[paramtrack][sequencer]") {
+    ParameterManager pm;
+    pm.init();
+
+    pm.setValue(ParamId::Note, 2, 28.0f);
+    pm.setValue(ParamId::Filter, 2, 0.9f);
+    pm.setValue(ParamId::Gate, 2, 1.0f);
+
+    pm.copyStep(2, 7);
+
+    REQUIRE(pm.getValue(ParamId::Note, 7) == 28.0f);
+    REQUIRE(pm.getValue(ParamId::Filter, 7) == Catch::Approx(0.9f));
+    REQUIRE(pm.getValue(ParamId::Gate, 7) == 1.0f);
+
+    // Out of bounds copy should no-op
+    pm.copyStep(100, 0);
+    pm.copyStep(0, 100);
+}
+
+TEST_CASE("VoiceSystem provides 4-voice independent gate and timer tracking", "[voice][voicesystem]") {
+    VoiceSystem vs;
+    REQUIRE(VoiceSystem::MAX_VOICES == 4);
+
+    // All gates default to false
+    for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
+        REQUIRE(vs.getGate(i) == false);
+        REQUIRE(vs.getGateTimer(i).isActive == false);
+    }
+
+    // Set voice 2 and 3 gates and timers
+    vs.getGate(2) = true;
+    vs.getGateTimer(2).start(10);
+    vs.getGate(3) = true;
+    vs.getGateTimer(3).start(5);
+
+    REQUIRE(vs.getGate(2) == true);
+    REQUIRE(vs.getGate(3) == true);
+    REQUIRE(vs.getGate(0) == false);
+    REQUIRE(vs.getGate(1) == false);
+
+    // Tick timers 5 times
+    for (int t = 0; t < 5; ++t) {
+        vs.tickAllGateTimers();
+    }
+
+    // Voice 3 timer expired (duration was 5), voice 2 still has 5 ticks remaining
+    REQUIRE(vs.getGate(3) == false);
+    REQUIRE(vs.getGateTimer(3).isActive == false);
+    REQUIRE(vs.getGate(2) == true);
+    REQUIRE(vs.getGateTimer(2).isActive == true);
+    REQUIRE(vs.getGateTimer(2).ticksRemaining == 5);
+
+    // Tick remaining 5 times
+    for (int t = 0; t < 5; ++t) {
+        vs.tickAllGateTimers();
+    }
+    REQUIRE(vs.getGate(2) == false);
+    REQUIRE(vs.getGateTimer(2).isActive == false);
+
+    // stopAllGates
+    vs.getGate(0) = true;
+    vs.getGate(1) = true;
+    vs.getGate(2) = true;
+    vs.getGate(3) = true;
+    vs.stopAllGates();
+    for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
+        REQUIRE(vs.getGate(i) == false);
+        REQUIRE(vs.getGateTimer(i).isActive == false);
+    }
+}
+
+TEST_CASE("CORE_PARAMETERS metadata defines valid bounds and types for all parameters", "[seqdefs]") {
+    for (size_t i = 0; i < PARAM_ID_COUNT; ++i) {
+        const auto &def = CORE_PARAMETERS[i];
+        REQUIRE(def.name != nullptr);
+        float minVal = parameterValueAsFloat(def.minValue);
+        float maxVal = parameterValueAsFloat(def.maxValue);
+        float defVal = parameterValueAsFloat(def.defaultValue);
+        REQUIRE(minVal <= maxVal);
+        REQUIRE(defVal >= minVal);
+        REQUIRE(defVal <= maxVal);
+        REQUIRE(def.defaultSteps >= SequencerConstants::MIN_STEPS_COUNT);
+        REQUIRE(def.defaultSteps <= SequencerConstants::MAX_STEPS_COUNT);
+    }
 }
 

@@ -419,13 +419,14 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
     case ControlSurface::FaderTarget::SwingAmount:
     {
       // Continuous shuffle: delay every odd 16th by up to half a step.
-      int8_t ticks[SHUFFLE_TEMPLATE_SIZE];
+      // Use static storage duration because uClock stores this pointer for Core 0 ISR ticks.
+      static int8_t continuousShuffleTicks[SHUFFLE_TEMPLATE_SIZE];
       const int8_t offset = static_cast<int8_t>(lroundf(normalized * kSwingMaxTicks));
       for (int i = 0; i < SHUFFLE_TEMPLATE_SIZE; ++i)
       {
-        ticks[i] = (i % 2 == 1) ? offset : 0;
+        continuousShuffleTicks[i] = (i % 2 == 1) ? offset : 0;
       }
-      uClock.setShuffleTemplate(ticks, SHUFFLE_TEMPLATE_SIZE);
+      uClock.setShuffleTemplate(continuousShuffleTicks, SHUFFLE_TEMPLATE_SIZE);
       uClock.setShuffle(offset > 0);
       break;
     }

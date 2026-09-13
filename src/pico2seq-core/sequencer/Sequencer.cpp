@@ -4,8 +4,6 @@
 #include "SequencerDefs.h"
 #include "Sequencer.h"
 
-// External mode state variables
-extern bool slideMode;
 // --- Constants for real-time parameter editing ---
 constexpr float MAX_SENSOR_DISTANCE_MM = 1100.0f;
 
@@ -422,6 +420,45 @@ Step Sequencer::getStep(uint8_t stepIdx) const
     const float gateLengthProportion = getStepParameterValue(ParamId::GateLength, stepIdx);
     s.gateLengthTicks = static_cast<uint16_t>(std::max(1.0f, gateLengthProportion * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS));
     return s;
+}
+
+void Sequencer::setStep(uint8_t stepIdx, const Step &step)
+{
+    if (stepIdx >= SequencerConstants::MAX_STEPS_COUNT)
+    {
+        return;
+    }
+    setStepParameterValue(ParamId::Note, stepIdx, step.noteIndex);
+    setStepParameterValue(ParamId::Velocity, stepIdx, step.velocityLevel);
+    setStepParameterValue(ParamId::Filter, stepIdx, step.filterCutoff);
+    setStepParameterValue(ParamId::Attack, stepIdx, step.attackTimeSeconds);
+    setStepParameterValue(ParamId::Decay, stepIdx, step.decayTimeSeconds);
+    setStepParameterValue(ParamId::Gate, stepIdx, step.isGateActive ? 1.0f : 0.0f);
+    setStepParameterValue(ParamId::Slide, stepIdx, step.hasSlide ? 1.0f : 0.0f);
+
+    float octaveVal = 0.5f;
+    if (step.octaveOffset < 0)
+    {
+        octaveVal = 0.0f;
+    }
+    else if (step.octaveOffset > 0)
+    {
+        octaveVal = 1.0f;
+    }
+    setStepParameterValue(ParamId::Octave, stepIdx, octaveVal);
+
+    const float gateLenFraction = static_cast<float>(step.gateLengthTicks) /
+        static_cast<float>(SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS);
+    setStepParameterValue(ParamId::GateLength, stepIdx, std::clamp(gateLenFraction, 0.001f, 1.0f));
+}
+
+void Sequencer::copyStep(uint8_t srcStep, uint8_t dstStep)
+{
+    if (srcStep >= SequencerConstants::MAX_STEPS_COUNT || dstStep >= SequencerConstants::MAX_STEPS_COUNT)
+    {
+        return;
+    }
+    parameterManager.copyStep(srcStep, dstStep);
 }
 
 Step Sequencer::getPlaybackStep(uint8_t stepIdx) const

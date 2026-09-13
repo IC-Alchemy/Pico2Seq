@@ -113,38 +113,20 @@ ParamId convertEncoderParameterToParamId(EncoderParameterMode encoderParam)
 
 float getParameterMinValueForParamId(ParamId paramId)
 {
-  switch (paramId)
+  if (static_cast<size_t>(paramId) < static_cast<size_t>(ParamId::Count))
   {
-  case ParamId::Velocity:
-  case ParamId::Filter:
-  case ParamId::Attack:
-  case ParamId::Decay:
-    return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE;
-
-  case ParamId::Note:
-    return static_cast<float>(SequencerConstants::NOTE_PARAMETER_MIN);
-
-  default:
-    return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE;
+    return parameterValueAsFloat(CORE_PARAMETERS[static_cast<size_t>(paramId)].minValue);
   }
+  return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE;
 }
 
 float getParameterMaxValueForParamId(ParamId paramId)
 {
-  switch (paramId)
+  if (static_cast<size_t>(paramId) < static_cast<size_t>(ParamId::Count))
   {
-  case ParamId::Velocity:
-  case ParamId::Filter:
-  case ParamId::Attack:
-  case ParamId::Decay:
-    return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
-
-  case ParamId::Note:
-    return static_cast<float>(SequencerConstants::NOTE_PARAMETER_MAX);
-
-  default:
-    return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
+    return parameterValueAsFloat(CORE_PARAMETERS[static_cast<size_t>(paramId)].maxValue);
   }
+  return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
 }
 
 // Helper function for the "Shift and Scale" mapping.

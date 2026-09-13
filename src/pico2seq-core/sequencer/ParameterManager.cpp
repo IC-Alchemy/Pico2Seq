@@ -114,6 +114,19 @@ void ParameterManager::setValue(ParamId id, uint8_t stepIdx, float value)
   _tracks[static_cast<size_t>(id)].setValue(stepIdx, clampedValue);
 }
 
+void ParameterManager::copyStep(uint8_t srcStep, uint8_t dstStep)
+{
+  if (srcStep >= SequencerConstants::MAX_STEPS_COUNT || dstStep >= SequencerConstants::MAX_STEPS_COUNT)
+  {
+    return;
+  }
+  for (size_t i = 0; i < kParamCount; ++i)
+  {
+    const float val = _tracks[i].getValue(srcStep);
+    _tracks[i].setValue(dstStep, val);
+  }
+}
+
 void ParameterManager::randomizeParameters(bool patchModifiers)
 {
   // Seed the LCG with current time

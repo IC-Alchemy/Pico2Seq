@@ -177,6 +177,8 @@ public:
 
     // Get step data
     Step getStep(uint8_t stepIdx) const;
+    void setStep(uint8_t stepIdx, const Step &step);
+    void copyStep(uint8_t srcStep, uint8_t dstStep);
     // Same composed values used by playback; UINT8_MAX follows independent tracks.
     // Read-only: does not trigger gates, advance transport or alter note tails.
     Step getPlaybackStep(uint8_t stepIdx = UINT8_MAX) const;
