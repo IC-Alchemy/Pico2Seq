@@ -34,7 +34,7 @@ struct UIState
     // --- Timing States ---
     unsigned long padPressTimestamps[SequencerConstants::MAX_STEPS_COUNT] = {0};
     // --- Transient OLED notice (replaces the old control-cluster LED flashes) ---
-    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1 };
+    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4 };
     volatile unsigned long oledNoticeUntil = 0;
     volatile OledNoticeKind oledNoticeKind = OledNoticeKind::None;
     volatile uint8_t oledNoticeVoice = 0; // 0-based voice, valid for Randomized

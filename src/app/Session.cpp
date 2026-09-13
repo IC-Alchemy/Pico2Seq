@@ -13,6 +13,23 @@
 
 bool Session::g_bootLoadedOk = false;
 
+namespace
+{
+Session::PendingAction g_pending = Session::PendingAction::None; // Core-0 single-writer flag
+uint32_t g_lastSavedCrc = 0;
+} // namespace
+
+void Session::requestSave() { g_pending = Session::PendingAction::Save; }
+void Session::requestLoad() { g_pending = Session::PendingAction::Load; }
+Session::PendingAction Session::consumePendingAction()
+{
+    const Session::PendingAction action = g_pending;
+    g_pending = Session::PendingAction::None;
+    return action;
+}
+uint32_t Session::lastSavedCrc() { return g_lastSavedCrc; }
+void Session::setLastSavedCrc(uint32_t crc) { g_lastSavedCrc = crc; }
+
 void Session::captureSession(persistence::ProjectSnapshotV1 &out)
 {
     out = persistence::ProjectSnapshotV1{}; // changedFlags uses read-modify-write below

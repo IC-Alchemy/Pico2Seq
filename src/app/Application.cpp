@@ -9,7 +9,10 @@
 #include "AudioEngine.h"
 #include "../utils/FreezeWatchdog.h"
 #include "../pico2seq-core/persistence/ProjectSnapshot.h"
+#include "../pico2seq-core/persistence/SnapshotFormat.h"
+#include "../ui/UIConstants.h"
 #include <Arduino.h>
+#include <uClock.h>
 
 namespace
 {
@@ -120,6 +123,8 @@ void Application::begin()
         Session::applyBeforeVoices(snapshot);
         g_pendingBootSnapshot = snapshot;
         g_bootSnapshotPending = true;
+        Session::setLastSavedCrc(persistence::crc32(
+            reinterpret_cast<const uint8_t *>(&snapshot), sizeof(snapshot)));
         Serial.println("[STORAGE] session loaded");
     }
     else
@@ -192,6 +197,108 @@ void Application::update()
         persistence::ProjectSnapshotV1 snap;
         Session::captureSession(snap);
         RetainedSession::refresh(snap);
+    }
+
+    // One-time confirmation that a session was restored at boot.
+    static bool bootNoticeShown = false;
+    if (!bootNoticeShown)
+    {
+        bootNoticeShown = true;
+        if (Session::g_bootLoadedOk)
+        {
+            uiState.oledNoticeKind = UIState::OledNoticeKind::Loaded;
+            uiState.oledNoticeUntil = nowMs + OLED_NOTICE_DURATION_MS;
+        }
+    }
+
+    // Deferred flash I/O: requested by UI handlers, executed here — never in
+    // ISR/uClock callback context. A save with the transport running stops
+    // the clock for the erase window and restarts it after.
+    const Session::PendingAction action = Session::consumePendingAction();
+    if (action != Session::PendingAction::None)
+    {
+        const bool wasRunning = isClockRunning;
+        if (wasRunning)
+            stopClockForEditor(); // also drains pending steps (ClockService.cpp)
+        voiceManager->flushControlUpdates();
+
+        persistence::ProjectSnapshotV1 snap;
+        Session::captureSession(snap);
+        const uint32_t crc = persistence::crc32(
+            reinterpret_cast<const uint8_t *>(&snap), sizeof(snap));
+
+        if (action == Session::PendingAction::Save)
+        {
+            if (SessionStorage::save(snap))
+            {
+                Session::setLastSavedCrc(crc);
+                uiState.oledNoticeKind = UIState::OledNoticeKind::Saved;
+                uiState.oledNoticeUntil = nowMs + OLED_NOTICE_DURATION_MS;
+                Serial.println("[STORAGE] saved");
+            }
+            else
+            {
+                uiState.oledNoticeKind = UIState::OledNoticeKind::LoadError;
+                uiState.oledNoticeUntil = nowMs + OLED_NOTICE_DURATION_MS;
+                Serial.println("[STORAGE] save FAILED");
+            }
+            if (wasRunning)
+                uClock.start(); // onClockStart restarts all four sequencers
+        }
+        else // Load
+        {
+            persistence::ProjectSnapshotV1 loaded{};
+            if (SessionStorage::load(loaded) == SessionStorage::LoadResult::Ok)
+            {
+                Session::applyBeforeVoices(loaded);
+                Session::applyAfterVoices(loaded);
+                Session::applyAfterClock(loaded);
+                Session::setLastSavedCrc(persistence::crc32(
+                    reinterpret_cast<const uint8_t *>(&loaded), sizeof(loaded)));
+                uiState.oledNoticeKind = UIState::OledNoticeKind::Loaded;
+                uiState.oledNoticeUntil = nowMs + OLED_NOTICE_DURATION_MS;
+                Serial.println("[STORAGE] loaded");
+            }
+            else
+            {
+                uiState.oledNoticeKind = UIState::OledNoticeKind::LoadError;
+                uiState.oledNoticeUntil = nowMs + OLED_NOTICE_DURATION_MS;
+                Serial.println("[STORAGE] load FAILED");
+            }
+        }
+        freezeWatchdogFeed(FW_LOOP_USB_READ); // long flash op: re-arm the 2 s budget
+    }
+
+    // Autosave on transport stop (debounced). isClockRunning flips inside the
+    // uClock callbacks (ISR-adjacent); polling the edge here stays safe.
+    static bool wasClockRunningForAutosave = false;
+    static uint32_t stopEdgeMs = 0;
+    if (wasClockRunningForAutosave && !isClockRunning)
+        stopEdgeMs = nowMs;
+    wasClockRunningForAutosave = isClockRunning;
+    if (stopEdgeMs != 0 && !isClockRunning && nowMs - stopEdgeMs >= 1000)
+    {
+        stopEdgeMs = 0;
+        persistence::ProjectSnapshotV1 snap;
+        Session::captureSession(snap);
+        const uint32_t crc = persistence::crc32(
+            reinterpret_cast<const uint8_t *>(&snap), sizeof(snap));
+        if (crc != Session::lastSavedCrc())
+        {
+            if (SessionStorage::save(snap))
+            {
+                Session::setLastSavedCrc(crc);
+                Serial.println("[STORAGE] autosaved on stop");
+            }
+        }
+    }
+
+    // Bench aid: type 'W' over serial to stop feeding the watchdog and prove
+    // the retained-RAM resume path end-to-end (plan Task 12).
+    if (Serial.available() > 0 && Serial.read() == 'W')
+    {
+        Serial.println("[BENCH] freezing Core 0 on request");
+        for (;;) {}
     }
 
     ControlIO::pollHeldButtons();

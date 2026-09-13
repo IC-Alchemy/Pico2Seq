@@ -126,6 +126,7 @@ private:
 
   ButtonEdges buttonEdges_[kRoleCount][kButtonBits]; // [role][bit]
   bool playSettingsOpenedThisPress_ = false;
+  bool saveLoadLatch_ = false; // session button: hold consumed, release suppressed
   uint8_t modeSwitchPin_ = 7; // GP7 default; setup1 sets PIN_ALCHEMY_MODE_SWITCH
 };
 
