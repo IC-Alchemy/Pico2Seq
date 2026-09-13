@@ -326,3 +326,41 @@ TEST_CASE("Recipe coefficients follow sample rate and controls and survive trigg
     voice.setGate(true);
     REQUIRE_THAT(voice.process(), WithinAbs(1.0f / 96000.0f, 1.0e-9f));
 }
+
+TEST_CASE("Musical preset defaults speak and release across the playing range", "[voice][recipes][musical]")
+{
+    for (const char *name : {"VelvetKeys", "CopperBass", "ReedPipe", "SilkPad",
+                             "HollowBell", "SyncLead", "OrbitPluck", "AirChime"}) {
+        REQUIRE(VoicePresets::findPreset(name) >= 0);
+        const auto &config = VoicePresets::getPresetConfigByName(name);
+        for (float hz : {65.406f, 261.626f, 1046.5f}) {
+            INFO(name << " at " << hz << " Hz");
+            Voice voice(0, config);
+            voice.init(48000.0f);
+            voice.updateParameters(seededState(config));
+            voice.process();
+            voice.setFrequency(hz);
+            double energy = 0.0;
+            float peak = 0.0f;
+            for (int i = 0; i < 24000; ++i) {
+                const float sample = voice.process();
+                REQUIRE(std::isfinite(sample));
+                energy += sample * sample;
+                peak = std::max(peak, std::abs(sample));
+            }
+            REQUIRE(std::sqrt(energy / 24000) > 0.015);
+            REQUIRE(peak < 1.0f);
+            voice.setGate(false);
+            for (int i = 0; i < 144000; ++i) voice.process();
+            float tail = 0.0f;
+            for (int i = 0; i < 1024; ++i)
+                tail = std::max(tail, std::abs(voice.process()));
+            REQUIRE(tail < 0.0001f);
+            voice.setGate(true);
+            peak = 0.0f;
+            for (int i = 0; i < 24000; ++i)
+                peak = std::max(peak, std::abs(voice.process()));
+            REQUIRE(peak > 0.02f);
+        }
+    }
+}
