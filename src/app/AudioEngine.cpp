@@ -35,6 +35,24 @@ constexpr uint16_t kStereoChannels = 2;
 constexpr uint16_t kStereoFrameBytes = kStereoChannels * sizeof(int16_t);
 SpscQueue<AudioEngine::Heartbeat, kHeartbeatQueueCapacity> heartbeats;
 audio_buffer_pool_t *producer_pool = nullptr;
+
+// Handshake: core 1 brings up the I2S hardware, core 0 then builds the buffer
+// pools (all firmware heap allocation stays on core 0 -- see allocateBuffers),
+// and core 1 finally enables the DMA. Both directions are single-word flags.
+std::atomic<bool> i2sHardwareReady{false};
+std::atomic<bool> buffersConnected{false};
+
+constexpr uint32_t kCore1SetupTimeoutMs = 2000;
+
+// Shared audio formats: allocateBuffers() (core 0) builds the pool against
+// them; begin() (core 1) programs the I2S hardware with them.
+audio_format_t audioFormat = {
+    .sample_freq = static_cast<uint32_t>(SAMPLE_RATE),
+    .format = AUDIO_BUFFER_FORMAT_PCM_S16,
+    .channel_count = kStereoChannels};
+audio_buffer_format_t bufferFormat = {
+    .format = &audioFormat,
+    .sample_stride = kStereoFrameBytes};
 #if PICO2SEQ_ENABLE_DELAY_EFFECT
 constexpr float FEEDBACK_FADE_RATE = 0.01f;
 rpdsp::StateVariableFilter delLowPass;
@@ -119,27 +137,82 @@ void fill_audio_buffer(audio_buffer_t *buffer)
     buffer->sample_count = N;
 }
 
-void setupI2SAudio(audio_format_t *audioFormat, audio_i2s_config_t *i2sConfig)
+} // namespace
+
+void AudioEngine::allocateBuffers()
 {
-    // Initialize I2S hardware with specified format
-    if (!audio_i2s_setup(audioFormat, i2sConfig))
+    // Cross-core malloc is not safe on arduino-pico: its heap lock wraps
+    // malloc in noInterrupts()/interrupts(), which gates only the current
+    // core's interrupts. Core 1 used to calloc the audio pools while core 0
+    // was allocating (FastLED, display framebuffers, VoiceManager), and the
+    // resulting heap corruption turned the DMA ISR's connection function
+    // pointers into garbage (hard-faulting the audio core ~2 s into every
+    // boot). All audio allocation therefore lives on this core; the audio
+    // core never touches the heap.
+    const uint32_t millisAtWaitStart = millis();
+    while (!i2sHardwareReady.load(std::memory_order_acquire) &&
+           millis() - millisAtWaitStart < kCore1SetupTimeoutMs)
     {
+        delay(1);
+    }
+    if (!i2sHardwareReady.load(std::memory_order_acquire))
+    {
+        // Core 1 never finished I2S setup; boot proceeds with audio disabled
+        // (the [DIAG C0] AUDIO SETUP FAILED line reports it).
         g_errorState |= ERR_AUDIO;
+        buffersConnected.store(true, std::memory_order_release);
         return;
     }
 
-    // Connect audio buffer pool to I2S interface using 4 I2S consumer buffers
-    if (!audio_i2s_connect_extra(producer_pool, false, kConsumerBufferCount, SAMPLES_PER_BUFFER, nullptr))
+    if (producer_pool)
+    {
+        if (!audio_i2s_connect_extra(producer_pool, false, kConsumerBufferCount,
+                                     SAMPLES_PER_BUFFER, nullptr))
+        {
+            g_errorState |= ERR_AUDIO;
+        }
+    }
+    else
     {
         g_errorState |= ERR_AUDIO;
-        return;
     }
 
-    // Enable audio processing
+    buffersConnected.store(true, std::memory_order_release);
+}
+
+void AudioEngine::begin()
+{
+    delay(kBootStabilizationMs);
+
+    // Hardware setup only (PIO/SM, DMA channel, IRQ claim) — no allocation,
+    // because the audio DMA ISR must be enabled from this core so it never
+    // preempts core 0.
+    audio_i2s_config_t i2sConfig = {
+        .data_pin = PICO_AUDIO_I2S_DATA_PIN,
+        .clock_pin_base = PICO_AUDIO_I2S_CLOCK_PIN_BASE,
+        .dma_channel = AUDIO_I2S_DMA_CHANNEL_AUTO,
+        .pio_sm = AUDIO_I2S_PIO_SM_AUTO};
+
+    if (!audio_i2s_setup(&audioFormat, &i2sConfig))
+    {
+        g_errorState |= ERR_AUDIO;
+    }
+    i2sHardwareReady.store(true, std::memory_order_release);
+
+    // Wait for core 0 to build the buffer pools (single-core heap rule).
+    while (!buffersConnected.load(std::memory_order_acquire))
+    {
+        tight_loop_contents();
+    }
+
+    if ((g_errorState & ERR_AUDIO) || !producer_pool)
+    {
+        return; // Setup failed; [DIAG C0] reports the dead I2S.
+    }
+
     audio_i2s_set_enabled(true);
     g_audioOK = true;
 }
-} // namespace
 
 void AudioEngine::prepareEffects()
 {
@@ -162,45 +235,19 @@ void AudioEngine::prepareEffects()
 #endif // PICO2SEQ_ENABLE_DELAY_EFFECT
 }
 
-void AudioEngine::begin()
-{
-    delay(kBootStabilizationMs);
-
-
-    // Configure audio format (48kHz, 16-bit stereo)
-    static audio_format_t audioFormat = {
-        .sample_freq = static_cast<uint32_t>(SAMPLE_RATE),
-        .format = AUDIO_BUFFER_FORMAT_PCM_S16,
-        .channel_count = kStereoChannels};
-
-    // Configure audio buffer format
-    static audio_buffer_format_t bufferFormat = {
-        .format = &audioFormat,
-        .sample_stride = kStereoFrameBytes
-    };
-
-    // Create audio buffer pool
-    producer_pool = audio_new_producer_pool(&bufferFormat, NUM_AUDIO_BUFFERS, SAMPLES_PER_BUFFER);
-
-    // Configure I2S hardware interface
-    audio_i2s_config_t i2sConfig = {
-        .data_pin = PICO_AUDIO_I2S_DATA_PIN,
-        .clock_pin_base = PICO_AUDIO_I2S_CLOCK_PIN_BASE,
-        .dma_channel = 0,
-        .pio_sm = 0};
-
-    // Initialize I2S audio system
-    setupI2SAudio(&audioFormat, &i2sConfig);
-}
-
 void AudioEngine::renderNextBuffer()
 {
-    audio_buffer_t *audioBuffer = take_audio_buffer(producer_pool, true);
-
-    if (audioBuffer)
+    // If setup failed, producer_pool stays null: skip rendering (the STALLED
+    // alarm on core 0 reports it) but keep heartbeats flowing.
+    if (producer_pool)
     {
-        fill_audio_buffer(audioBuffer);
-        give_audio_buffer(producer_pool, audioBuffer);
+        audio_buffer_t *audioBuffer = take_audio_buffer(producer_pool, true);
+
+        if (audioBuffer)
+        {
+            fill_audio_buffer(audioBuffer);
+            give_audio_buffer(producer_pool, audioBuffer);
+        }
     }
 
     // Keep the existing liveness probe, but hand its output to Core 0. A full

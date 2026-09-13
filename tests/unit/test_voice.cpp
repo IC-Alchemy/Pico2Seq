@@ -559,9 +559,10 @@ TEST_CASE("presetIndexForPad maps pads 8..8+count-1", "[voice][presets]") {
     REQUIRE(VoicePresets::presetIndexForPad(23, 15) == -1);
     REQUIRE(VoicePresets::presetIndexForPad(8, 0) == -1);
 
-    // Round-trip of the T60 seeding map
+    // Round-trip of the T60 seeding map (max tracks kWaveguideT60Max in
+    // VoiceParameters.h, retuned 10.0 -> 9.0 on 2026-09-08).
     const float norm = VoicePresets::wgT60ToNormalized(3.2f);
-    REQUIRE_THAT(dspmap::fmap(norm, 0.05f, 10.0f, dspmap::Mapping::EXP),
+    REQUIRE_THAT(dspmap::fmap(norm, 0.05f, 9.0f, dspmap::Mapping::EXP),
                  WithinAbs(3.2f, 0.01f));
 }
 

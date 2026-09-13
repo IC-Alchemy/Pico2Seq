@@ -59,8 +59,16 @@ const audio_format_t *audio_i2s_setup(const audio_format_t *intended_audio_forma
         pio_set_gpio_base(audio_pio, 16);
     }
 #endif
-    uint8_t sm = shared_state.pio_sm = config->pio_sm;
-    pio_sm_claim(audio_pio, sm);
+    // AUTO lets the driver pick a free SM/DMA channel; a fixed index panics if
+    // another peripheral (FastLED's WS2812 driver claims the lowest-free DMA
+    // channel from the control core) already owns it.
+    uint8_t sm = config->pio_sm;
+    if (sm == AUDIO_I2S_PIO_SM_AUTO) {
+        sm = shared_state.pio_sm = pio_claim_unused_sm(audio_pio, true);
+    } else {
+        pio_sm_claim(audio_pio, sm);
+        shared_state.pio_sm = sm;
+    }
 
 
     const struct pio_program *program =
@@ -76,7 +84,11 @@ const audio_format_t *audio_i2s_setup(const audio_format_t *intended_audio_forma
 
     __mem_fence_release();
     uint8_t dma_channel = config->dma_channel;
-    dma_channel_claim(dma_channel);
+    if (dma_channel == AUDIO_I2S_DMA_CHANNEL_AUTO) {
+        dma_channel = dma_claim_unused_channel(true);
+    } else {
+        dma_channel_claim(dma_channel);
+    }
 
     shared_state.dma_channel = dma_channel;
 

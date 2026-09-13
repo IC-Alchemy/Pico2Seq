@@ -118,6 +118,14 @@ typedef struct audio_i2s_config {
     uint8_t pio_sm;
 } audio_i2s_config_t;
 
+// Pass these instead of a fixed index to make audio_i2s_setup claim a free
+// state machine / DMA channel. Hard-coding them collides with other claims:
+// FastLED's WS2812 driver (LED matrix) claims the lowest-free DMA channel and
+// PIO0 SM at setup time on the other core, so a fixed dma_channel 0 panics
+// depending on which core claims first.
+#define AUDIO_I2S_PIO_SM_AUTO 0xFFu
+#define AUDIO_I2S_DMA_CHANNEL_AUTO 0xFFu
+
 /** \brief Set up system to output I2S audio
  * \ingroup pico_audio_i2s
  *

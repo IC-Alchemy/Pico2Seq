@@ -15,9 +15,10 @@
 //     hard fault was captured.
 //
 // Scratch register map (survive a watchdog/warm reset, cleared by power-on):
-//   [0] FreezePhase at last feed, or FW_FAULT after a hard fault
+//   [0] FreezePhase at last feed, or FW_FAULT / FW_C1_FAULT after a hard fault
 //   [1] millis() at last feed          [2] boot counter (every boot)
 //   [3] g_processedStepCount at feed   [5] fault: stacked PC   [6] fault: LR
+//   [7] fault: CFSR (fault cause bits)
 //   [4] is owned by pico-sdk's watchdog_enable marker - do not use.
 
 #include <Arduino.h>
@@ -45,6 +46,7 @@ enum FreezePhase : uint32_t
     FW_LOOP_CONTROL,
     FW_LOOP_DISPLAY,
     FW_FAULT = 0xDEADF00D,
+    FW_C1_FAULT = 0xDEADC0DE,
 };
 
 static const char *freezeWatchdogPhaseName(uint32_t phase)
@@ -67,6 +69,7 @@ static const char *freezeWatchdogPhaseName(uint32_t phase)
     case FW_LOOP_CONTROL:    return "loop: control slice (I2C sensors/matrix/tiles)";
     case FW_LOOP_DISPLAY:    return "loop: display slice (OLED/LED)";
     case FW_FAULT:           return "HARD FAULT";
+    case FW_C1_FAULT:        return "HARD FAULT (audio core)";
     default:                 return "unknown";
     }
 }
@@ -88,22 +91,72 @@ static inline void freezeWatchdogFeed(uint32_t phase)
 }
 
 #if defined(__arm__)
-// Capture the stacked PC/LR of the faulting code, then stall and let the armed
-// watchdog reboot us. Handles both the plain and the extended (FPU) frame
-// layout, since the integer block comes first in both.
+// Live fault report: written by the fault handler on whichever core faulted,
+// drained (and printed) by Core 0's update() loop. Inline variables (C++17)
+// so every TU including this header shares one instance.
+inline volatile uint32_t freezeFaultPending = 0;
+inline volatile uint32_t freezeFaultCore = 0;
+inline volatile uint32_t freezeFaultPc = 0;
+inline volatile uint32_t freezeFaultLr = 0;
+inline volatile uint32_t freezeFaultCfsr = 0;
+inline volatile uint32_t freezeFaultBfar = 0;
+
+// Capture the stacked PC/LR of the faulting code plus CFSR/BFAR and the
+// faulting core, then force an immediate watchdog reboot. Handles both the
+// plain and the extended (FPU) frame layout, since the integer block comes
+// first in both. The forced reboot matters for audio-core faults: Core 0 keeps
+// feeding the watchdog, so waiting for it to starve would hang forever with
+// the evidence sitting in scratch registers that a power cycle wipes. Usage/
+// Bus/MemManage faults escalate into this handler (they stay disabled in
+// SHCSR), and their cause bits are readable from CFSR here.
 static void freezeWatchdogHardFaultHandler()
 {
     uint32_t stackedMsp;
     asm volatile("mrs %0, msp" : "=r"(stackedMsp));
     const uint32_t *frame = reinterpret_cast<const uint32_t *>(stackedMsp);
-    watchdog_hw->scratch[0] = FW_FAULT;
-    watchdog_hw->scratch[5] = frame[6]; // stacked PC
-    watchdog_hw->scratch[6] = frame[5]; // stacked LR
+    uint32_t cfsr = 0;
+    uint32_t bfar = 0;
+#if defined(PICO_RP2350) && PICO_RP2350
+    // SCB fault-status registers (gas has no MRS names for these; CMSIS
+    // addresses per ARMv8-M): CFSR 0xE000ED28, BFAR 0xE000ED38.
+    cfsr = *(volatile uint32_t *)0xE000ED28;
+    bfar = *(volatile uint32_t *)0xE000ED38;
+#endif
+    const uint32_t core = get_core_num();
+
+    freezeFaultPc = frame[6]; // stacked PC
+    freezeFaultLr = frame[5]; // stacked LR
+    freezeFaultCfsr = cfsr;
+    freezeFaultBfar = bfar;
+    freezeFaultCore = core;
+
+    watchdog_hw->scratch[0] = (core == 1) ? FW_C1_FAULT : FW_FAULT;
+    watchdog_hw->scratch[5] = frame[6];
+    watchdog_hw->scratch[6] = frame[5];
+    watchdog_hw->scratch[7] = cfsr;
+
+    asm volatile("dmb sy" ::: "memory");
+    freezeFaultPending = 1; // Core 0 prints this if it gets the chance.
+
+    watchdog_reboot(0, 0, 0); // TRIGGER now; scratch survives the reset.
     for (;;)
     {
     }
 }
 #endif
+
+// Post-mortem staged in RAM by freezeWatchdogBootCheck(), printed by Core 0's
+// diagnostics loop once a serial host attaches (inline variables, C++17, so
+// every TU including this header shares one instance).
+inline volatile bool freezePostMortemPending = false;
+inline volatile uint32_t freezePmWatchdog = 0;
+inline volatile uint32_t freezePmPhase = 0;
+inline volatile uint32_t freezePmBoots = 0;
+inline volatile uint32_t freezePmSteps = 0;
+inline volatile uint32_t freezePmAtMs = 0;
+inline volatile uint32_t freezePmPc = 0;
+inline volatile uint32_t freezePmLr = 0;
+inline volatile uint32_t freezePmCfsr = 0;
 
 // Call once, after Wire.begin() in setup(): from here on, any hang reboots.
 static inline void freezeWatchdogArm()
@@ -116,63 +169,85 @@ static inline void freezeWatchdogArm()
     watchdog_enable(2000, true); // 2s budget; worst loop iteration is ~0.5s
 }
 
-// First call in setup(): if the previous run died, say where. Waits up to 3s
-// for a serial host so the post-mortem is not dropped.
+// First call in setup(): stages the previous run's post-mortem into RAM (it is
+// printed by Core 0's diagnostics loop once a serial host attaches) and clears
+// the scratch evidence. Printing here with a bounded wait for the host raced
+// USB re-enumeration and lost the post-mortem on every reboot; now no evidence
+// is dropped no matter how late the monitor reconnects.
 static inline void freezeWatchdogBootCheck()
 {
-    // A warm reset WITHOUT the watchdog flag still matters (reset pin, debug
-    // reset, a crash-reboot path that never marked FW_FAULT). scratch[2]
-    // survives warm resets and is cleared by power-on, so > 1 proves a
-    // warm-reset chain. No serial wait - best effort, next boot repeats it.
-    if (!watchdog_caused_reboot() && watchdog_hw->scratch[2] > 1)
-    {
-        Serial.begin(115200);
-        Serial.print("[FREEZE] warm reset #");
-        Serial.println(watchdog_hw->scratch[2]);
-    }
+    const uint32_t phase = watchdog_hw->scratch[0];
+    const uint32_t boots = watchdog_hw->scratch[2];
+    const uint32_t steps = watchdog_hw->scratch[3];
 
-    if (!watchdog_caused_reboot())
+    const bool watchdogReset = watchdog_caused_reboot();
+    // A warm reset WITHOUT the watchdog flag still matters (reset pin, debug
+    // reset, a crash-reboot path that never marked FW_FAULT).
+    if (!watchdogReset && boots <= 1)
     {
         return;
     }
 
-    const uint32_t phase = watchdog_hw->scratch[0];
-    const uint32_t frozeAtMs = watchdog_hw->scratch[1];
-    const uint32_t boots = watchdog_hw->scratch[2];
-    const uint32_t steps = watchdog_hw->scratch[3];
-
-    Serial.begin(115200);
-    const uint32_t waitStart = millis();
-    while (!Serial && (millis() - waitStart < 3000))
-    {
-    }
-
-    Serial.println("=================================================");
-    Serial.println("[FREEZE] POST-MORTEM (previous run died)");
-    Serial.print("[FREEZE] boot #");
-    Serial.println(boots);
-    Serial.print("[FREEZE] control core was in: ");
-    Serial.print(freezeWatchdogPhaseName(phase));
-    Serial.print(" (0x");
-    Serial.print(phase, HEX);
-    Serial.println(")");
-    Serial.print("[FREEZE] froze at ~");
-    Serial.print(frozeAtMs);
-    Serial.print(" ms after boot, after ");
-    Serial.print(steps);
-    Serial.println(" processed 16th-note steps");
-    if (phase == FW_FAULT)
-    {
-        Serial.print("[FREEZE] fault PC=0x");
-        Serial.print(watchdog_hw->scratch[5], HEX);
-        Serial.print(" LR=0x");
-        Serial.println(watchdog_hw->scratch[6], HEX);
-    }
-    Serial.println("=================================================");
+    freezePmWatchdog = watchdogReset;
+    freezePmPhase = phase;
+    freezePmBoots = boots;
+    freezePmSteps = steps;
+    freezePmAtMs = watchdog_hw->scratch[1];
+    freezePmPc = watchdog_hw->scratch[5];
+    freezePmLr = watchdog_hw->scratch[6];
+    freezePmCfsr = watchdog_hw->scratch[7];
 
     // Consume the evidence so the next normal reboot stays quiet.
     watchdog_hw->scratch[0] = FW_NONE;
     watchdog_hw->scratch[5] = 0;
     watchdog_hw->scratch[6] = 0;
+    watchdog_hw->scratch[7] = 0;
     freezeWatchdogMark(FW_SETUP_BOOTCHECK);
+
+    asm volatile("dmb sy" ::: "memory");
+    freezePostMortemPending = true;
+}
+
+// Called from Core 0's diagnostics loop while a serial host is attached.
+static inline void freezeWatchdogPrintPostMortem()
+{
+    if (!freezePostMortemPending)
+    {
+        return;
+    }
+    freezePostMortemPending = false;
+
+    Serial.println("=================================================");
+    Serial.print("[FREEZE] POST-MORTEM (previous run ");
+    if (freezePmWatchdog)
+    {
+        Serial.print("watchdog-rebooted");
+    }
+    else
+    {
+        Serial.print("warm-reset");
+    }
+    Serial.println(")");
+    Serial.print("[FREEZE] boot #");
+    Serial.println(freezePmBoots);
+    Serial.print("[FREEZE] control core was in: ");
+    Serial.print(freezeWatchdogPhaseName(freezePmPhase));
+    Serial.print(" (0x");
+    Serial.print(freezePmPhase, HEX);
+    Serial.println(")");
+    Serial.print("[FREEZE] froze at ~");
+    Serial.print(freezePmAtMs);
+    Serial.print(" ms after boot, after ");
+    Serial.print(freezePmSteps);
+    Serial.println(" processed 16th-note steps");
+    if (freezePmPhase == FW_FAULT || freezePmPhase == FW_C1_FAULT)
+    {
+        Serial.print("[FREEZE] fault PC=0x");
+        Serial.print(freezePmPc, HEX);
+        Serial.print(" LR=0x");
+        Serial.println(freezePmLr, HEX);
+        Serial.print("[FREEZE] CFSR=0x");
+        Serial.println(freezePmCfsr, HEX);
+    }
+    Serial.println("=================================================");
 }

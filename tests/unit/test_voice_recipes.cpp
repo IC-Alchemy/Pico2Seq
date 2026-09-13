@@ -124,7 +124,9 @@ TEST_CASE("Preset seeding survives the first audio update and preserves musical 
     }
     char text[24]{};
     REQUIRE(VoiceParameters::formatValue(VoicePresets::getWaveguidePluckVoice(), ParamId::Decay, 1.0f, text, sizeof(text)));
-    REQUIRE(std::string(text) == "10.00s");
+    // Max T60 tracks kWaveguideT60Max in VoiceParameters.h (retuned 10.0 -> 9.0
+    // on 2026-09-08).
+    REQUIRE(std::string(text) == "9.00s");
     REQUIRE_FALSE(VoiceParameters::formatValue(VoicePresets::getAnalogVoice(), ParamId::Note, 10.0f, text, sizeof(text)));
 }
 
