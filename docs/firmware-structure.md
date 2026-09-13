@@ -61,8 +61,9 @@ Recording a Note requires a high Gate on the edited step. Immediate audio
 feedback applies only to the currently playing step. Distance readings
 55..700 mm are rebased by 55 mm, then normalized by the `MIN/MAX_DISTANCE_HEIGHT_MM`
 span (645 mm) in `AppState::PerformanceInput` — the constants live in
-`src/sensors/SensorConstants.h`. Invalid readings become zero. Regression tests
-pin this calibration.
+`src/sensors/SensorConstants.h`. Readings within `EDGE_TOLERANCE_MM` of the
+window clamp to its edge; invalid or further readings clear `handPresent`, and
+recording then leaves steps unchanged. Regression tests pin this calibration.
 
 ## Ownership and real-time rules
 

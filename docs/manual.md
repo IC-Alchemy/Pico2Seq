@@ -168,12 +168,14 @@ range. It edits whatever the **encoder target** is — cycle targets with the Ut
 **Velocity → Filter → Attack → Decay → Note → Octave → Slide Time → (back to Velocity)**
 
 - Voice targets (Velocity/Filter/Attack/Decay/Note) set that parameter's **base value for
-  the selected voice**. Each voice stores its own base (`encoderBaseValues` in
-  `EncoderManager`), and at step time every voice applies its own base — see §9 and
+  the selected voice**. Each voice stores its own bases in its patch, and at step time
+  every voice applies its own base — see §9 and
   [`docs/voice-edit.md`](voice-edit.md) for how bases combine with recorded modifiers.
+- Note and Octave move one step per short turn; continuous targets follow turn speed.
 - Slide Time sets the portamento glide time.
-- While the encoder is controlling a parameter, the OLED status screen shows
-  `ENC: <parameter> <value>`.
+- The OLED normally shows the playing step's value, which includes that step's recorded
+  modifier. For 1.5 s after a turn it shows the **base** you are changing instead, marked
+  `Base` on the home screen and `BASE` on a parameter screen.
 
 **Hold** the Utility-mode encoder button (about a second) to enter **Gate Sequence Length
 mode**: the LEDs show a blinking band on the selected voice's rows, and touching pads 1–16
@@ -192,6 +194,11 @@ Since the Voice Editing mode landed (2026-09-11) the sensor records a **relative
 rather than an absolute value: the reading is normalized to 0–1, the midpoint (≈50 %) is
 neutral, and the recorded value offsets the parameter's base up or down. Changing the base
 afterwards does not change what you recorded — see [`docs/voice-edit.md`](voice-edit.md).
+
+Moving your hand out of range (above about 740 mm, or no reading at all) **pauses**
+recording: steps keep their values instead of jumping to the minimum. While a parameter
+button is held, the OLED parameter screen shows the hand height at the right (`--` when no
+hand is in range).
 
 ### 1.8 OLED display
 
@@ -637,9 +644,9 @@ cmake --build build_test --parallel
   2026-09-06. Internal voice indices are 0-based (0–3); the OLED shows `Voice: 0`–
   `Voice: 3` and `V0`–`V3` on edit screens, while the voice buttons and this manual say
   V1–V4.
-- **The encoder edits per-voice bases.** Each voice stores its own base values
-  (`encoderBaseValues[4]` in `EncoderManager`); turning the encoder changes the selected
-  voice's base, and at step time every voice applies its own base.
+- **The encoder edits per-voice bases.** Each voice stores its own base values in its
+  patch; turning the encoder changes the selected voice's base, and at step time every
+  voice applies its own base.
 - **Can't program a pitch into a step?** Note edits are rejected on gate-off steps. Toggle
   the step on first.
 - **Pad does something unexpected** — check the context: a held parameter button turns pad
@@ -647,12 +654,14 @@ cmake --build build_test --parallel
   turns them into clear-step. All pads are step pads; there is no pad "menu".
 - **Stopping the transport opens the preset browser** on the OLED (a Play long-press
   toggles it without stopping). That is intentional; press Play to leave it.
-- **Distance sensor dead?** It is used across 55–700 mm only; closer or farther readings
-  fall outside the useful window. Bright sunlight or the LED matrix at full brightness can
-  cause optical jitter.
+- **Distance sensor dead?** It is used across 55–700 mm only; readings more than 40 mm
+  outside that window count as no hand, and recording pauses. Bright sunlight or the LED
+  matrix at full brightness can cause optical jitter. The `[DIAG C0]` serial line reports
+  `lidar=<mm> st=<status>` every 2 s.
 - **ToF recorded value stuck at one end** — the raw distance is rebased by 55 mm
   (`MIN_DISTANCE_HEIGHT_MM`) and normalized over the 645 mm span, so the nearest usable
-  position (55 mm) maps to 0.
+  position (55 mm) maps to 0 (a -50% modifier). A value shown at 0% can simply be a low
+  base plus a low recording; turn the encoder to raise the base.
 - **Fader "jumps" after a mode flip** — on the first sample after a mode change the fader
   re-sends its position, so the parameter snaps to where the fader physically is. Move the
   fader through its travel to re-take the parameter.

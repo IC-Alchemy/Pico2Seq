@@ -3,9 +3,22 @@
 #include "../voice/VoicePresets.h"
 #include "AppState.h"
 #include "ClockService.h"
+#include "../ui/ControlSurfaceLogic.h"
+#include "../ui/UIConstants.h"
+#include <cstdlib>
 #include <uClock.h>
 
 namespace {
+ControlSurface::EncoderMotion encoderMotion;
+// The value pending encoder motion was turned for. Motion never carries over
+// to a different voice, parameter, or between the editor and performance.
+struct EncoderTurn {
+  bool editor = false;
+  uint8_t voice = 0;
+  VoiceEdit::Id id = VoiceEdit::Id::Count;
+};
+EncoderTurn encoderTurn;
+
 void clearPerformanceControls() {
   for (auto &held : uiState.parameterButtonHeld)
     held = false;
@@ -25,7 +38,8 @@ void clearPerformanceControls() {
   uiState.latchedParameter = -1;
   uiState.shiftHeld = false;
   uiState.alchemyModeBannerUntil = uiState.oledNoticeUntil = 0;
-  magEncoder.clearPendingTicks();
+  uiState.encoderBaseViewUntil = 0;
+  VoiceEditor::clearEncoder();
 }
 } // namespace
 namespace VoiceEditor {
@@ -63,7 +77,7 @@ void buttons(uint8_t buttons, uint8_t voices, uint32_t now) {
     return;
   }
   if (input.clearEncoder)
-    magEncoder.clearPendingTicks();
+    clearEncoder();
   if (input.voice >= 0) {
     uiState.selectedVoiceIndex = static_cast<uint8_t>(input.voice);
     uiState.isVoice2Mode = input.voice == 1;
@@ -97,26 +111,49 @@ void buttons(uint8_t buttons, uint8_t voices, uint32_t now) {
     publish(index, next);
   }
 }
+void clearEncoder() {
+  magEncoder.clearPendingTicks();
+  encoderMotion.reset();
+}
 void encoder(float delta) {
-  if (!voiceManager || uiState.voiceEditor.waitRelease)
-    return;
+  const auto &editor = uiState.voiceEditor;
   const auto index = uiState.selectedVoiceIndex;
-  if (index >= 4)
+  if (!voiceManager || index >= VoiceSystem::MAX_VOICES ||
+      (editor.active && editor.waitRelease))
     return;
+  const auto id = editor.active ? editor.cursor[index] : encoderTarget();
+  if (editor.active != encoderTurn.editor || index != encoderTurn.voice ||
+      id != encoderTurn.id) {
+    encoderMotion.reset();
+    encoderTurn = {editor.active, index, id};
+  }
+  encoderMotion.add(editor.active && editor.fine ? delta * 0.1f : delta);
   const auto *requested =
       voiceManager->getVoiceConfig(voiceSystem.getVoiceId(index));
-  if (!requested)
+  if (!requested || !VoiceEdit::available(id, *requested)) {
+    encoderMotion.reset(); // no hidden motion lands when it reappears
     return;
+  }
   VoiceConfig next = *requested;
-  const auto id = uiState.voiceEditor.cursor[index];
-  if (!VoiceEdit::available(id, next))
-    return;
   const float before = VoiceEdit::value(id, next);
-  VoiceEdit::adjust(uiState.voiceEditor.cursor[index], next,
-                    delta * (uiState.voiceEditor.fine ? 0.1f : 1.0f));
+  if (VoiceEdit::stepped(id)) {
+    const int steps = encoderMotion.takeSteps(
+        SensorConstants::MagneticEncoder::STEPPED_VALUE_DETENT);
+    for (int i = 0; i < std::abs(steps); ++i)
+      VoiceEdit::adjust(id, next, steps > 0 ? 1.0f : -1.0f);
+  } else {
+    VoiceEdit::adjust(id, next,
+                      encoderMotion.takeContinuous(
+                          SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD));
+  }
+  // A knob already pinned at the parameter's limit must not republish.
   if (VoiceEdit::value(id, next) == before)
     return;
   publish(index, next);
+  // Outside the editor the OLED normally shows sequenced step values, where a
+  // step's modifier can mask a base change. Show the base while it is turned.
+  if (!editor.active)
+    uiState.encoderBaseViewUntil = millis() + ENCODER_BASE_VIEW_MS;
 }
 VoiceEdit::Id encoderTarget() {
   using Id = VoiceEdit::Id;

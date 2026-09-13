@@ -149,9 +149,10 @@ private:
 
   void drawVoiceHeader(const UIState &state, bool prominent);
   void drawMusicalValue(const char *text, int y);
-  // Displays composed values from the same read-only snapshot as playback.
+  // Displays composed values from the same read-only snapshot as playback,
+  // or the patch base when base is set (right after an encoder turn).
   void displayParameterInfo(ParamId id, const Step &values, const UIState &state,
-                            uint8_t step, const VoiceConfig *config, bool selected);
+                            uint8_t step, const VoiceConfig *config, bool selected, bool base);
 
   /**
    * @brief Display settings menu with navigation and preset selection

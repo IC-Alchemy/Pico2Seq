@@ -377,11 +377,19 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
   const ParamId held = getHeldParameterParamId(uiState);
   const ParamId editing = held != ParamId::Count ? held : uiState.currentEditParameter;
   const bool selected = uiState.selectedStepForEdit >= 0;
+  const auto encoderId = VoiceEditor::encoderTarget();
+  const ParamId encoderLane = config ? VoiceEdit::sequenceLane(encoderId, *config) : ParamId::Count;
+  // Just after an encoder turn, show the base it changed. A step's recorded
+  // modifier, or a clamp at the limit, can otherwise hide the edit entirely.
+  const bool showBase = config && uiState.encoderBaseViewUntil != 0 &&
+                        millis() < uiState.encoderBaseViewUntil;
   if (editing != ParamId::Count && (held != ParamId::Count || selected)) {
     const uint8_t step = selected ? static_cast<uint8_t>(uiState.selectedStepForEdit) :
                                    sequence.getCurrentStepForParameter(editing);
-    displayParameterInfo(editing, sequence.getPlaybackStep(selected ? step : UINT8_MAX),
-                         uiState, step, config, selected);
+    const bool base = showBase && encoderLane == editing;
+    displayParameterInfo(editing, base ? MusicalValues::baseStep(*config) :
+                                         sequence.getPlaybackStep(selected ? step : UINT8_MAX),
+                         uiState, step, config, selected, base);
   } else if (selected) {
     drawVoiceHeader(uiState, false);
     displayHardware.setCursor(2, 18);
@@ -394,26 +402,25 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     drawVoiceHeader(uiState, true);
     displayHardware.setCursor(104, 0);
     displayHardware.print("S"); displayHardware.print(sequence.getCurrentStep() + 1);
-    const auto id = VoiceEditor::encoderTarget();
-    const auto lane = config ? VoiceEdit::sequenceLane(id, *config) : ParamId::Count;
-    const Step values = sequence.getPlaybackStep();
+    const Step playing = sequence.getPlaybackStep();
+    const Step values = showBase ? MusicalValues::baseStep(*config) : playing;
     char value[48] = "--";
     if (config) {
-      if (lane != ParamId::Count)
-        MusicalValues::format(lane, values, *config, scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)],
+      if (encoderLane != ParamId::Count)
+        MusicalValues::format(encoderLane, values, *config, scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)],
                               uClock.getTempo(), value, sizeof(value));
-      else VoiceEdit::format(id, *config, value, sizeof(value));
+      else VoiceEdit::format(encoderId, *config, value, sizeof(value));
     }
     displayHardware.setTextSize(1);
     displayHardware.setCursor(2, 31);
-    displayHardware.print(config ? VoiceEdit::name(id, *config) : "Value");
+    displayHardware.print(config ? VoiceEdit::name(encoderId, *config) : "Value");
     constexpr const char *shortScales[] = {
       "Major", "Dorian", "Phrygian", "Lydian", "Mixolyd", "Minor", "Locrian",
       "Min Pent", "Phryg Dom", "Lyd Dom", "Harm Min", "Whole", "Chromatic"};
     static_assert(sizeof(shortScales) / sizeof(shortScales[0]) == SCALES_COUNT);
     displayHardware.setCursor(68, 31);
-    displayHardware.print(shortScales[std::min<size_t>(currentScale, SCALES_COUNT - 1)]);
-    if (!values.isGateActive) {
+    displayHardware.print(showBase ? "Base" : shortScales[std::min<size_t>(currentScale, SCALES_COUNT - 1)]);
+    if (!playing.isGateActive) {
       displayHardware.setCursor(92, 0); displayHardware.print("R");
     }
     drawMusicalValue(value, 41);
@@ -462,7 +469,7 @@ void OLEDDisplay::drawVoiceHeader(const UIState &state, bool prominent)
 
 void OLEDDisplay::displayParameterInfo(ParamId id, const Step &values,
                                        const UIState &state, uint8_t step,
-                                       const VoiceConfig *config, bool selected)
+                                       const VoiceConfig *config, bool selected, bool base)
 {
   drawVoiceHeader(state, false);
   displayHardware.drawFastHLine(2, 10, 124, SH110X_WHITE);
@@ -477,8 +484,17 @@ void OLEDDisplay::displayParameterInfo(ParamId id, const Step &values,
   drawMusicalValue(value, 27);
   displayHardware.setTextSize(1);
   displayHardware.setCursor(2, 46);
-  displayHardware.print(selected ? "STEP " : "LIVE ");
-  displayHardware.print(values.isGateActive ? "NOTE" : "REST");
+  if (base) displayHardware.print("BASE");
+  else {
+    displayHardware.print(selected ? "STEP " : "LIVE ");
+    displayHardware.print(values.isGateActive ? "NOTE" : "REST");
+  }
+  // Hand height the lidar feeds into recording; "--" when no hand is in range.
+  char hand[8] = "--";
+  if (AppState::performanceInput.handPresent)
+    snprintf(hand, sizeof(hand), "%dmm", distanceSensor.getRawDistanceMm());
+  displayHardware.setCursor(OLEDConstants::SCREEN_WIDTH - 2 - 6 * static_cast<int>(strlen(hand)), 46);
+  displayHardware.print(hand);
   displayHardware.setCursor(2, 56);
   if (id == ParamId::Note || id == ParamId::Octave)
     displayHardware.print(scaleNames[std::min<size_t>(currentScale, SCALES_COUNT - 1)]);

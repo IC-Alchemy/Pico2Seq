@@ -27,6 +27,7 @@ MagEncoder::Config makeMagEncoderConfig()
   MagEncoder::Config cfg;
   cfg.sensor = MagEncoder::Sensor::TMAG5273;
   cfg.i2cAddress = TMAG5273::ADDRESS_A;
+  cfg.minScale = SensorConstants::MagneticEncoder::SLOW_TURN_SCALE;
   return cfg;
 }
 } // namespace
@@ -39,20 +40,10 @@ MagEncoder magEncoder(makeMagEncoderConfig());
 void updateEncoderBaseValues(UIState &uiState)
 {
   if (!magEncoder.isConnected() || uiState.controlsWaitRelease) return;
+  // Every read's increment is forwarded, however small: the driver has
+  // already drained those ticks, and VoiceEditor accumulates slow turns.
   const float delta=magEncoder.takeParameterIncrement(-1.0f,1.0f,3);
-  if(fabsf(delta)<SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD) return;
-  if(uiState.voiceEditor.active) {VoiceEditor::encoder(delta);return;}
-  if(!voiceManager || uiState.selectedVoiceIndex>=4) return;
-  const auto index=uiState.selectedVoiceIndex;
-  const auto *requested=voiceManager->getVoiceConfig(voiceSystem.getVoiceId(index));
-  if(!requested) return;
-  VoiceConfig next=*requested;
-  const auto target=VoiceEditor::encoderTarget();
-  const float before=VoiceEdit::value(target,next);
-  VoiceEdit::adjust(target,next,delta);
-  // A knob already pinned at the parameter's limit must not republish.
-  if(VoiceEdit::value(target,next)==before) return;
-  VoiceEditor::publish(index,next);
+  if(delta!=0.0f) VoiceEditor::encoder(delta);
 }
 
 // --- Helper Functions for Step Parameter Editing ---
@@ -158,7 +149,7 @@ void initEncoderBaseValues()
 {
   // VoiceSetup initializes each patch's bases from its preset. The old
   // encoderBaseValues array was removed with that ownership change.
-  magEncoder.clearPendingTicks();
+  VoiceEditor::clearEncoder();
 }
 
 void resetEncoderBaseValues(UIState &uiState, bool currentVoiceOnly)
@@ -179,5 +170,5 @@ void resetEncoderBaseValues(UIState &uiState, bool currentVoiceOnly)
     next.slideSeconds=defaults.slideSeconds;
     VoiceEditor::publish(index,next);
   }
-  magEncoder.clearPendingTicks();
+  VoiceEditor::clearEncoder();
 }

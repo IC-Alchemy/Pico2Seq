@@ -373,3 +373,43 @@ TEST_CASE("Patch randomization preserves register and playable preset timing", "
     }
   }
 }
+
+TEST_CASE("Stepped values move one step per adjust whatever the delta",
+          "[voice_edit][encoder]") {
+  for (Id id : {Id::Note, Id::Octave, Id::Engine, Id::Recipe, Id::OscCount,
+                Id::Wave1, Id::Harmony1, Id::Harmony2, Id::Harmony3,
+                Id::EnvelopeOn, Id::Gate, Id::Slide})
+    CHECK(stepped(id));
+  for (Id id : {Id::Velocity, Id::Cutoff, Id::Attack, Id::Decay,
+                Id::GateLength, Id::Resonance, Id::SlideTime, Id::Level1})
+    CHECK_FALSE(stepped(id));
+
+  auto config = VoicePresets::getDigitalVoice();
+  enablePatch(config);
+  config.baseNote = 10;
+  adjust(Id::Note, config, 0.0001f);
+  REQUIRE(config.baseNote == 11);
+  adjust(Id::Note, config, -0.9f);
+  REQUIRE(config.baseNote == 10);
+  config.baseOctave = 0;
+  adjust(Id::Octave, config, 0.5f);
+  REQUIRE(config.baseOctave == 12);
+}
+
+TEST_CASE("An absent hand leaves recorded modifiers untouched",
+          "[voice_edit][recording]") {
+  // Playback passes a negative distance while no hand is in range; the step
+  // must keep its recording rather than take a minimum-distance value.
+  auto config = VoicePresets::getDigitalVoice();
+  enablePatch(config);
+  Sequencer seq;
+  seedModifiers(seq);
+  seq.setPlaybackTransform(composeLane, &config, mapOctave);
+  seq.setStepParameterValue(ParamId::Gate, 0, 1);
+  seq.setStepParameterValue(ParamId::Filter, 0, 0.8f);
+  seq.start();
+  seq.setRecordingInput(0.0f);
+  VoiceState state;
+  seq.advanceStep(0, -1, false, false, true, false, false, false, -1, &state);
+  REQUIRE(seq.getStepParameterValue(ParamId::Filter, 0) == Approx(0.8f));
+}

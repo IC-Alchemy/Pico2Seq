@@ -4,6 +4,7 @@
 #include "ClockService.h"
 #include "VoiceSetup.h"
 #include "AudioEngine.h"
+#include "../sensors/DistanceSensor.h"
 #include "../utils/FreezeWatchdog.h"
 #include <Arduino.h>
 
@@ -24,7 +25,9 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
         if (Serial)
         {
             freezeWatchdogPrintPreviousRun();
-            Serial.printf("[DIAG C0] ids=%u,%u,%u,%u mgrVoices=%u warmBoots=%lu steps=%lu audioBufs=%lu audio=%s i2sstage=%lu\n",
+            // lidar=-1 means nothing measured recently. st is the ST range status:
+            // 0 valid, 1 sigma fail (still used), 2 signal fail, 4 out of bounds, 255 none.
+            Serial.printf("[DIAG C0] ids=%u,%u,%u,%u mgrVoices=%u warmBoots=%lu steps=%lu audioBufs=%lu audio=%s i2sstage=%lu lidar=%dmm st=%u\n",
                           voiceSystem.getVoiceId(0), voiceSystem.getVoiceId(1),
                           voiceSystem.getVoiceId(2), voiceSystem.getVoiceId(3),
                           (unsigned)(voiceManager ? voiceManager->getVoiceCount() : 0),
@@ -32,7 +35,9 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
                           (unsigned long)g_processedStepCount,
                           (unsigned long)AudioEngine::completedBufferCount(),
                           AudioEngine::phaseName(AudioEngine::phase()),
-                          (unsigned long)AudioEngine::driverSetupStage());
+                          (unsigned long)AudioEngine::driverSetupStage(),
+                          distanceSensor.getRawDistanceMm(),
+                          static_cast<unsigned>(distanceSensor.getLastRangeStatus()));
         }
     }
 

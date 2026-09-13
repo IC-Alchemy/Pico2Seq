@@ -23,6 +23,9 @@ void updateParametersForStep(uint8_t stepToUpdate)
 {
     if (stepToUpdate >= SequencerConstants::MAX_STEPS_COUNT)
         return;
+    // No hand over the sensor: keep what the step already holds.
+    if (!AppState::performanceInput.handPresent)
+        return;
 
     updateParametersForStepNormalized(stepToUpdate, AppState::performanceInput.recordingValue());
 }
@@ -56,8 +59,12 @@ void updateParametersForStepNormalized(uint8_t stepToUpdate, float normalizedVal
 
         // Use the helper function to do the scaling correctly for any parameter.
         float valueToSet = mapNormalizedValueToParamRange(heldParamId, normalizedValue);
+        const float previousValue = activeSeq.getStepParameterValue(heldParamId, stepToUpdate);
         activeSeq.setStepParameterValue(heldParamId, stepToUpdate, valueToSet);
-        parametersWereUpdated = true;
+        // This runs every control pass (1 ms) while a step is in edit. Only an
+        // actual change (after clamping and note rounding) is previewed, so a
+        // steady hand or fader does not retrigger the playing step each pass.
+        parametersWereUpdated = activeSeq.getStepParameterValue(heldParamId, stepToUpdate) != previousValue;
 
 //                  Keep the two-voice compatibility path; USB MIDI itself is disabled.
 //    uint8_t midiVoiceId = (uiState.selectedVoiceIndex == 0) ? 0 : (uiState.selectedVoiceIndex == 1) ? 1 : kNoMidiVoice;
@@ -218,7 +225,9 @@ void processSequencerStep(uint32_t uClockCurrentStep)
     VoiceState tempStates[VoiceSystem::MAX_VOICES];
     for(uint8_t i=0;i<VoiceSystem::MAX_VOICES;++i) tempStates[i]=voiceSystem.getVoiceState(i);
     const uint8_t selectedVoice = uiState.selectedVoiceIndex;
-    const int handDistance = AppState::performanceInput.distanceAboveMinimumMm;
+    // With no hand in range, live recording pauses and steps keep their values.
+    const int handDistance = AppState::performanceInput.handPresent
+                                 ? AppState::performanceInput.distanceAboveMinimumMm : kDistanceDisabled;
     // First advance all four voices. Only the selected voice hears the sensor.
     for (uint8_t voice = 0; voice < VoiceSystem::MAX_VOICES; ++voice)
     {

@@ -39,7 +39,9 @@ parameter is selected. It no longer edits a selected step's stored value.
 
 For timbre, envelope, velocity, octave and gate length, the lidar records a modifier.
 Note records melody scale steps directly. Both step editing and live recording normalize
-the calibrated 55–1200 mm sensor range to 0–1. In the normalized parameter domain:
+the calibrated 55–700 mm sensor range to 0–1. With no hand in range (an invalid reading or
+one more than 40 mm outside the window) nothing is recorded and steps keep their values.
+In the normalized parameter domain:
 
 ```
 modifier = lidarNormalized - 0.5
@@ -72,7 +74,9 @@ base can enable slide throughout the pattern, otherwise the recorded Slide bits
 control it. Neither binary track is treated as a continuous lidar modifier.
 
 The step OLED and normal encoder screen show composed playback values, after
-preset bases, clamping, quantization and engine-specific mapping. Note displays
+preset bases, clamping, quantization and engine-specific mapping. For 1.5 s after an
+encoder turn they show the edited base instead (`Base` / `BASE`), since a step's
+modifier or a clamp at a limit can otherwise hide the change. Note displays
 note names and octaves, including oscillator harmonies/detuning (Bass starts at
 `C2/C3`); unpitched percussion reads `Noise`. Envelope and gate durations use
 ms/s, cutoff uses Hz, octave uses signed octaves, and FM/spacing use ratios.

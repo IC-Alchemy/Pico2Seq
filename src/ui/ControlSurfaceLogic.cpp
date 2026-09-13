@@ -200,4 +200,41 @@ void FaderMap::resetDeadband()
   }
 }
 
+// --- EncoderMotion --------------------------------------------------------------
+
+void EncoderMotion::add(float increment)
+{
+  if (increment == 0.0f || !std::isfinite(increment))
+  {
+    return;
+  }
+  if (pending_ != 0.0f && (increment > 0.0f) != (pending_ > 0.0f))
+  {
+    pending_ = 0.0f;
+  }
+  pending_ += increment;
+}
+
+float EncoderMotion::takeContinuous(float noiseFloor)
+{
+  if (std::fabs(pending_) < noiseFloor)
+  {
+    return 0.0f;
+  }
+  const float motion = pending_;
+  pending_ = 0.0f;
+  return motion;
+}
+
+int EncoderMotion::takeSteps(float detent)
+{
+  if (!(detent > 0.0f))
+  {
+    return 0;
+  }
+  const int steps = static_cast<int>(pending_ / detent); // truncates toward zero
+  pending_ -= static_cast<float>(steps) * detent;
+  return steps;
+}
+
 } // namespace ControlSurface

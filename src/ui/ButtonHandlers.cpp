@@ -1,6 +1,7 @@
 #include "ButtonHandlers.h"
 #include "../app/AppState.h"
 #include "../app/ClockService.h"
+#include "../app/VoiceEditor.h"
 
 #include "../LEDMatrix/LEDMatrixFeedback.h"
 #include "../pico2seq-core/scales/scales.h"
@@ -83,7 +84,7 @@ void handleRandomizeButton(int voiceIndex, UIState &state)
 // Helper to cycle encoder parameter selection and report
 static void cycleEncoderParameter(UIState &uiState)
 {
-  magEncoder.clearPendingTicks();
+  VoiceEditor::clearEncoder();
   uiState.currentEncoderParameter = static_cast<EncoderParameterMode>(
       (static_cast<uint8_t>(uiState.currentEncoderParameter) + 1) %
       static_cast<uint8_t>(EncoderParameterMode::COUNT));

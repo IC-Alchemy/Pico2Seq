@@ -8,6 +8,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+#include <cmath>
+#include <limits>
+
 using namespace ControlSurface;
 
 TEST_CASE("Parameter record buttons select their matching encoder base", "[control_surface]")
@@ -439,4 +442,84 @@ TEST_CASE("FaderMap normalize maps 12-bit counts to 0..1", "[control_surface]")
     CHECK(FaderMap::normalize(0) == Catch::Approx(0.0f).margin(0.0001f));
     CHECK(FaderMap::normalize(4095) == Catch::Approx(1.0f).margin(0.0001f));
     CHECK(FaderMap::normalize(2048) == Catch::Approx(0.5f).margin(0.001f));
+}
+
+// ---------------------------------------------------------------------------
+// EncoderMotion
+// ---------------------------------------------------------------------------
+
+namespace
+{
+constexpr float kNoiseFloor = 0.0005f;
+constexpr float kDetent = 0.03f;
+} // namespace
+
+TEST_CASE("EncoderMotion keeps slow turns that are below the floor per read", "[control_surface][encoder]")
+{
+    // A slow TMAG5273 turn gives increments far below the floor on every
+    // read. Discarding each read lost the whole turn; accumulating keeps it.
+    EncoderMotion motion;
+    const float slowRead = kNoiseFloor / 10.0f;
+    for (int read = 0; read < 9; ++read)
+    {
+        motion.add(slowRead);
+        CHECK(motion.takeContinuous(kNoiseFloor) == 0.0f);
+    }
+    motion.add(2.0f * slowRead);
+    CHECK(motion.takeContinuous(kNoiseFloor) == Catch::Approx(1.1f * kNoiseFloor));
+    CHECK(motion.pending() == 0.0f);
+}
+
+TEST_CASE("EncoderMotion passes large increments through at once", "[control_surface][encoder]")
+{
+    EncoderMotion motion;
+    motion.add(-0.2f);
+    CHECK(motion.takeContinuous(kNoiseFloor) == Catch::Approx(-0.2f));
+    CHECK(motion.takeContinuous(kNoiseFloor) == 0.0f);
+}
+
+TEST_CASE("EncoderMotion discards pending motion on a reversal", "[control_surface][encoder]")
+{
+    EncoderMotion motion;
+    motion.add(kNoiseFloor * 0.9f);
+    motion.add(-kNoiseFloor * 0.1f);
+    CHECK(motion.pending() == Catch::Approx(-kNoiseFloor * 0.1f));
+
+    // Jitter alternates direction, so it never adds up to a change.
+    for (int read = 0; read < 1000; ++read)
+    {
+        motion.add((read % 2 == 0 ? 1.0f : -1.0f) * kNoiseFloor * 0.6f);
+        CHECK(motion.takeContinuous(kNoiseFloor) == 0.0f);
+    }
+}
+
+TEST_CASE("EncoderMotion steps once per detent and keeps the remainder", "[control_surface][encoder]")
+{
+    EncoderMotion motion;
+    motion.add(kDetent * 0.5f);
+    CHECK(motion.takeSteps(kDetent) == 0);
+    motion.add(kDetent * 0.6f);
+    CHECK(motion.takeSteps(kDetent) == 1);
+    CHECK(motion.pending() == Catch::Approx(kDetent * 0.1f));
+
+    motion.add(kDetent * 2.5f); // a fast twist passes several detents in one read
+    CHECK(motion.takeSteps(kDetent) == 2);
+
+    motion.reset();
+    motion.add(-kDetent * 3.2f);
+    CHECK(motion.takeSteps(kDetent) == -3);
+    CHECK(motion.pending() == Catch::Approx(-kDetent * 0.2f).margin(1e-6));
+}
+
+TEST_CASE("EncoderMotion ignores zero, non-finite and non-positive sizes", "[control_surface][encoder]")
+{
+    EncoderMotion motion;
+    motion.add(0.01f);
+    motion.add(0.0f);
+    motion.add(std::nanf(""));
+    motion.add(std::numeric_limits<float>::infinity());
+    CHECK(motion.pending() == Catch::Approx(0.01f));
+    CHECK(motion.takeSteps(0.0f) == 0);
+    CHECK(motion.takeSteps(-kDetent) == 0);
+    CHECK(motion.pending() == Catch::Approx(0.01f));
 }

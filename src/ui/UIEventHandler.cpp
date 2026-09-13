@@ -2,6 +2,7 @@
 #include "../app/AppState.h"
 #include "../app/ClockService.h"
 #include "../app/VoiceSetup.h"
+#include "../app/VoiceEditor.h"
 #include "../midi/MidiManager.h"
 #include "../sensors/EncoderManager.h"
 #include "../pico2seq-core/scales/scales.h"
@@ -407,7 +408,7 @@ static void autoSelectEncoderParameter(ParamId paramId, UIState &uiState)
   {
     uiState.currentEncoderParameter = newEncoderParam;
     // A turn made for the previous target must not carry over to this one.
-    magEncoder.clearPendingTicks();
+    VoiceEditor::clearEncoder();
     // Serial.print("Encoder auto-selected: ");
     // Serial.println(CORE_PARAMETERS[static_cast<int>(paramId)].name);
   }
