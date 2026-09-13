@@ -3,6 +3,8 @@
 #include <type_traits>
 #include "persistence/SnapshotFormat.h"
 #include "persistence/ProjectSnapshot.h"
+#include "persistence/PatternCodec.h"
+#include "sequencer/Sequencer.h"
 
 using namespace persistence;
 
@@ -95,4 +97,61 @@ TEST_CASE("project snapshot validation rejects out-of-range settings", "[persist
     REQUIRE_FALSE(validateProjectSnapshot(s));
     s.settings.themeIndex = 10;
     REQUIRE_FALSE(validateProjectSnapshot(s));
+}
+
+TEST_CASE("pattern codec round-trips values, lengths, and shrink-grown tails", "[persistence]")
+{
+    Sequencer seq(1);
+    seq.initializeParameters();
+    // Note programming is gate-controlled: raise the gate steps first, as the
+    // UI flow does.
+    seq.setStepParameterValue(ParamId::Gate, 0, 1.0f);
+    seq.setStepParameterValue(ParamId::Gate, 1, 1.0f);
+    seq.setStepParameterValue(ParamId::Note, 0, 12.0f);
+    seq.setStepParameterValue(ParamId::Note, 1, 19.0f);
+
+    // Program the tail while the Gate track is long, then shrink: the tail
+    // survives in raw storage (a later grow re-fills it with the default,
+    // matching live ParameterTrack semantics).
+    seq.setParameterStepCount(ParamId::Gate, 32);
+    seq.setStepParameterValue(ParamId::Gate, 20, 1.0f);
+    seq.setParameterStepCount(ParamId::Gate, 16);
+
+    persistence::PatternSnapshot snap;
+    persistence::capturePattern(seq, snap);
+
+    Sequencer restored(1);
+    restored.initializeParameters();
+    persistence::applyPattern(snap, restored);
+
+    REQUIRE(restored.getStepParameterValue(ParamId::Note, 0) == 12.0f);
+    REQUIRE(restored.getStepParameterValue(ParamId::Note, 1) == 19.0f);
+    REQUIRE(restored.getParameterStepCount(ParamId::Note) == 16);
+    REQUIRE(restored.getParameterStepCount(ParamId::Gate) == 16);
+    // Tail beyond the Gate length survived the round-trip (raw view).
+    REQUIRE(restored.getRawStepValue(ParamId::Gate, 20) == 1.0f);
+    // Growing re-fills from the previous length with the default — identical
+    // to the live track's shrink-then-grow behavior (lossy by design).
+    restored.setParameterStepCount(ParamId::Gate, 32);
+    REQUIRE(restored.getStepParameterValue(ParamId::Gate, 20) == 0.0f);
+}
+
+TEST_CASE("pattern codec preserves every track of a random pattern", "[persistence]")
+{
+    Sequencer seq(2);
+    seq.initializeParameters();
+    seq.randomizeParameters();
+    persistence::PatternSnapshot snap;
+    persistence::capturePattern(seq, snap);
+
+    Sequencer restored(2);
+    restored.initializeParameters();
+    persistence::applyPattern(snap, restored);
+    for (uint8_t t = 0; t < PARAM_ID_COUNT; ++t)
+    {
+        const ParamId id = static_cast<ParamId>(t);
+        REQUIRE(restored.getParameterStepCount(id) == seq.getParameterStepCount(id));
+        for (uint8_t step = 0; step < SequencerConstants::MAX_STEPS_COUNT; ++step)
+            REQUIRE(restored.getRawStepValue(id, step) == seq.getRawStepValue(id, step));
+    }
 }

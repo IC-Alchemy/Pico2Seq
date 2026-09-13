@@ -40,6 +40,7 @@ add_executable(pico2seq_tests
   # Session persistence (portable snapshot + codecs)
   ${CORE_DIR}/persistence/SnapshotFormat.cpp
   ${CORE_DIR}/persistence/ProjectSnapshot.cpp
+  ${CORE_DIR}/persistence/PatternCodec.cpp
 
   # Voice synthesis (DSP comes from header-only src/rpdsp)
   ${SRC_DIR}/voice/Voice.cpp

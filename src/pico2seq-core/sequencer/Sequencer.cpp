@@ -108,6 +108,16 @@ float Sequencer::getStepParameterValue(ParamId id, uint8_t stepIdx) const
     return parameterManager.getValue(id, stepIdx);
 }
 
+float Sequencer::getRawStepValue(ParamId id, uint8_t stepIdx) const
+{
+    return parameterManager.getRawValue(id, stepIdx);
+}
+
+void Sequencer::setRawStepValue(ParamId id, uint8_t stepIdx, float value)
+{
+    parameterManager.setRawValue(id, stepIdx, value);
+}
+
 void Sequencer::setStepParameterValue(ParamId id, uint8_t stepIdx, float value)
 {
     // GATE-CONTROLLED NOTE PROGRAMMING: Prevent Note parameter changes on steps with LOW gates

@@ -108,6 +108,10 @@ public:
     void setStepParameterValue(ParamId id, uint8_t stepIdx, float value);
     uint8_t getParameterStepCount(ParamId id) const;
     void setParameterStepCount(ParamId id, uint8_t steps);
+    // Persistence access: no gate-control rule, no modulo wrap on read, no
+    // clamp/round on write (values were normalized when the UI wrote them).
+    float getRawStepValue(ParamId id, uint8_t stepIdx) const;
+    void setRawStepValue(ParamId id, uint8_t stepIdx, float value);
 
     // Sequencer control
     void start() { running = true; }
