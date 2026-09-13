@@ -28,6 +28,7 @@ add_executable(pico2seq_tests
   unit/test_alchemy_proto.cpp
   unit/test_app_runtime.cpp
   unit/test_voice_edit.cpp
+  unit/test_persistence.cpp
 
   # Scale data
   ${CORE_DIR}/scales/scales.cpp
@@ -35,6 +36,10 @@ add_executable(pico2seq_tests
   # Sequencer logic
   ${CORE_DIR}/sequencer/ParameterManager.cpp
   ${CORE_DIR}/sequencer/Sequencer.cpp
+
+  # Session persistence (portable snapshot + codecs)
+  ${CORE_DIR}/persistence/SnapshotFormat.cpp
+  ${CORE_DIR}/persistence/ProjectSnapshot.cpp
 
   # Voice synthesis (DSP comes from header-only src/rpdsp)
   ${SRC_DIR}/voice/Voice.cpp
