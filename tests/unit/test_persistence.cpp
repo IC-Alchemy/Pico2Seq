@@ -20,7 +20,7 @@ TEST_CASE("crc32 matches the ISO-HDLC check vector", "[persistence]")
 
 TEST_CASE("project snapshot size is locked", "[persistence]")
 {
-    STATIC_REQUIRE(sizeof(ProjectSnapshotV1) == 10424u);
+    STATIC_REQUIRE(sizeof(ProjectSnapshotV1) == 10312u);
     STATIC_REQUIRE(std::is_trivially_copyable_v<ProjectSnapshotV1>);
 }
 
@@ -257,7 +257,6 @@ TEST_CASE("golden full-project round-trip through frame bytes", "[persistence]")
     snap.settings.shuffleIndex = 3;
     snap.settings.themeIndex = 4;
     snap.settings.selectedVoice = 2;
-    snap.settings.encoderBases[1].filter = 0.25f;
     snap.settings.editorCursor[0] = 11; // VoiceEdit::Id::T60
     snap.settings.changedFlags = 0x05;
     REQUIRE(validateProjectSnapshot(snap));
@@ -281,6 +280,5 @@ TEST_CASE("golden full-project round-trip through frame bytes", "[persistence]")
         REQUIRE(restored[v]->getParameterStepCount(ParamId::Gate) == 12u + v);
     }
     REQUIRE(loaded.settings.tempoBpm == 137.0f);
-    REQUIRE(loaded.settings.encoderBases[1].filter == 0.25f);
     REQUIRE(loaded.settings.changedFlags == 0x05);
 }

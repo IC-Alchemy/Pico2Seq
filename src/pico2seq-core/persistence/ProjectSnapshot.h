@@ -23,12 +23,9 @@ struct PatternSnapshot
     TrackSnapshot tracks[PARAM_ID_COUNT]; // 9 tracks = 2,340 B
 };
 
-// Mirrors EncoderBaseValues (SequencerDefs.h) field-for-field, kept as plain
-// floats so the core does not depend on the struct's future layout changes.
-struct EncoderBaseSnapshot
-{
-    float note, velocity, filter, attack, decay, octave, slideTime;
-};
+// Mirrors the per-voice patch bases inside VoiceConfig; the former separate
+// encoder-base layer was removed when patch bases moved into VoiceConfig, so
+// PatchSnapshot already captures everything it held.
 
 // VoiceConfig value fields, pointers excluded (parameters/recipe are
 // flash-resident descriptors re-derived at load, see PatchCodec).
@@ -65,7 +62,6 @@ struct SettingsSnapshot
 {
     float tempoBpm;
     float masterVolume;
-    EncoderBaseSnapshot encoderBases[4]; // 112 B
     int32_t themeIndex;
     uint8_t currentScale;
     uint8_t shuffleIndex;
@@ -79,13 +75,13 @@ struct ProjectSnapshotV1
 {
     PatternSnapshot patterns[4]; // 9,360 B
     PatchSnapshot patches[4];    // 928 B
-    SettingsSnapshot settings;   // 136 B
+    SettingsSnapshot settings;   // 24 B
 };
 static_assert(sizeof(TrackSnapshot) == 260, "locked layout");
 static_assert(sizeof(PatternSnapshot) == 2340, "locked layout");
 static_assert(sizeof(PatchSnapshot) == 232, "locked layout"); // 220 B words + 10 u8 + 2 tail
-static_assert(sizeof(SettingsSnapshot) == 136, "locked layout");
-static_assert(sizeof(ProjectSnapshotV1) == 10424, "locked layout");
+static_assert(sizeof(SettingsSnapshot) == 24, "locked layout");
+static_assert(sizeof(ProjectSnapshotV1) == 10312, "locked layout");
 
 // Range checks only — structural validity, not musical sense. Bounds mirror
 // the UI: tempo 45..200 BPM (UIEventHandler clamps at 45, fader tops at 200),
