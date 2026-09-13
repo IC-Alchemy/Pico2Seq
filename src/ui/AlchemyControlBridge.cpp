@@ -378,12 +378,28 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
     {
     case ControlSurface::FaderTarget::StepParam:
       // Same recording path as the lidar: records into the step in edit when
-      // this fader's parameter is the armed/held one.
-      if (uiState.selectedStepForEdit >= 0 &&
-          getHeldParameterParamId(uiState) == assignment.paramId)
+      // this fader's parameter is the armed/held one or matches current edit parameter.
+      if (uiState.selectedStepForEdit >= 0)
       {
-        updateParametersForStepNormalized(
-            static_cast<uint8_t>(uiState.selectedStepForEdit), normalized);
+        const ParamId held = getHeldParameterParamId(uiState);
+        if (held == assignment.paramId ||
+            (held == ParamId::Count && (uiState.currentEditParameter == assignment.paramId || uiState.currentEditParameter == ParamId::Count)))
+        {
+          const uint8_t step = static_cast<uint8_t>(uiState.selectedStepForEdit);
+          Sequencer *selectedSeq = (sequencers && uiState.selectedVoiceIndex < sequencerCount)
+                                       ? sequencers[uiState.selectedVoiceIndex]
+                                       : nullptr;
+          if (selectedSeq)
+          {
+            if (assignment.paramId != ParamId::Note ||
+                selectedSeq->getStepParameterValue(ParamId::Gate, step) > 0.5f)
+            {
+              float val = mapNormalizedValueToParamRange(assignment.paramId, normalized);
+              selectedSeq->setStepParameterValue(assignment.paramId, step, val);
+              updateActiveVoiceState(step, *selectedSeq);
+            }
+          }
+        }
       }
       break;
 
@@ -425,7 +441,8 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
       {
         const float gateLengthValue =
             mapNormalizedValueToParamRange(ParamId::GateLength, normalized);
-        for (uint8_t step = 0; step < NUMBER_OF_STEP_BUTTONS; ++step)
+        const uint8_t gateLenSteps = selectedSequencer->getParameterStepCount(ParamId::GateLength);
+        for (uint8_t step = 0; step < gateLenSteps; ++step)
         {
           selectedSequencer->setStepParameterValue(ParamId::GateLength, step,
                                                   gateLengthValue);

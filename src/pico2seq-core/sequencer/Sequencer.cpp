@@ -110,19 +110,6 @@ float Sequencer::getStepParameterValue(ParamId id, uint8_t stepIdx) const
 
 void Sequencer::setStepParameterValue(ParamId id, uint8_t stepIdx, float value)
 {
-    // GATE-CONTROLLED NOTE PROGRAMMING: Prevent Note parameter changes on steps with LOW gates
-    if (id == ParamId::Note)
-    {
-        // Check if the step's gate is HIGH before allowing note programming
-        float gateValue = getStepParameterValue(ParamId::Gate, stepIdx);
-        if (gateValue <= 0.5f) // Gate is LOW (0.0)
-        {
-            // Silently ignore note programming attempts on steps with LOW gates
-            // This protects steps from note frequency changes during programming/editing
-            return;
-        }
-    }
-
     parameterManager.setValue(id, stepIdx, value);
 }
 
@@ -158,7 +145,7 @@ void Sequencer::resetAllSteps()
 
         for (uint8_t step = 0; step < SequencerConstants::MAX_STEPS_COUNT; ++step)
         {
-            setStepParameterValue(currentId, step, defaultValue);
+            parameterManager.setValue(currentId, step, defaultValue);
         }
     }
 }
@@ -237,8 +224,8 @@ void Sequencer::advanceStep(uint32_t current_uclock_step, int mm_distance,
                 // GATE-CONTROLLED NOTE PROGRAMMING: Check gate restriction for Note parameter
                 if (pb.id == ParamId::Note)
                 {
-                    uint8_t paramStepIdx = currentStepPerParam[static_cast<size_t>(pb.id)];
-                    float gateValue = getStepParameterValue(ParamId::Gate, paramStepIdx);
+                    uint8_t gateStepIdx = currentStepPerParam[static_cast<size_t>(ParamId::Gate)];
+                    float gateValue = getStepParameterValue(ParamId::Gate, gateStepIdx);
                     if (gateValue <= 0.5f) // Gate is LOW (0.0)
                     {
                         // Skip Note parameter recording on steps with LOW gates
@@ -284,13 +271,15 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
 
     if (gateOn)
     {
-        // Calculate the final note value
-        int finalNote = static_cast<int>(noteVal) + octaveOffset;
+        // Calculate the final note value and clamp to valid MIDI range [0, 127]
+        int rawNote = static_cast<int>(noteVal) + octaveOffset;
+        int finalNote = std::max(0, std::min(rawNote, 127));
 
         // If the step's gate is on, decide whether to start a new note or slide to it.
-        if (!slideVal)
+        // If a slide note is encountered but no note is currently active, start the note.
+        if (!slideVal || !noteActive)
         {
-            // This is a non-sliding note. Always retrigger envelope for each gated step.
+            // Always retrigger envelope for each gated step (or initial slide note).
             if (voiceState)
             {
                 voiceState->shouldRetrigger = true;
@@ -301,7 +290,7 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
         }
         else
         {
-            // This is a slide. Don't retrigger the envelope, just update the current note value.
+            // This is a slide from an active note. Don't retrigger the envelope, just update the current note value.
             currentNote = static_cast<int8_t>(finalNote);
             noteActive = true;
             // For slides, we still need to update the note duration for the current step
@@ -403,6 +392,12 @@ void Sequencer::playStepNow(uint8_t stepIdx, VoiceState *voiceState)
     // and triggers the note's envelope.
     processStep(stepIdx, voiceState);
 }
+
+void Sequencer::previewActiveStep(VoiceState *voiceState)
+{
+    // Evaluates current parameter values at their independent polymetric cursors (UINT8_MAX)
+    processStep(UINT8_MAX, voiceState);
+}
 void Sequencer::toggleStep(uint8_t stepIdx)
 {
     // Get current gate value
@@ -421,7 +416,8 @@ Step Sequencer::getStep(uint8_t stepIdx) const
     s.decayTimeSeconds = getStepParameterValue(ParamId::Decay, stepIdx);
     s.isGateActive = getStepParameterValue(ParamId::Gate, stepIdx) > 0.5f;
     s.hasSlide = getStepParameterValue(ParamId::Slide, stepIdx) > 0.5f;
-    s.octaveOffset = mapFloatToOctaveOffset(getStepParameterValue(ParamId::Octave, stepIdx));
+    const float octave = getStepParameterValue(ParamId::Octave, stepIdx);
+    s.octaveOffset = octaveMapper_ ? octaveMapper_(octave) : mapFloatToOctaveOffset(octave);
 
     const float gateLengthProportion = getStepParameterValue(ParamId::GateLength, stepIdx);
     s.gateLengthTicks = static_cast<uint16_t>(std::max(1.0f, gateLengthProportion * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS));
@@ -451,8 +447,8 @@ Step Sequencer::getPlaybackStep(uint8_t stepIdx) const
 void Sequencer::randomizeParameters()
 {
     parameterManager.randomizeParameters(usesPlaybackTransform());
-    // Neutral octave across the entire active track, including lengths >16.
-    for (uint8_t i = 0; i < getParameterStepCount(ParamId::Octave); ++i)
+    // Neutral octave across the entire track capacity (64 steps).
+    for (uint8_t i = 0; i < SequencerConstants::MAX_STEPS_COUNT; ++i)
         setStepParameterValue(ParamId::Octave, i, 0.5f);
 }
 

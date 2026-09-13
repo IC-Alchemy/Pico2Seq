@@ -61,23 +61,39 @@ void ParameterManager::init()
 
 void ParameterManager::setStepCount(ParamId id, uint8_t steps)
 {
+  if (static_cast<size_t>(id) >= kParamCount)
+  {
+    return;
+  }
   _tracks[static_cast<size_t>(id)].resize(steps);
 }
 
 uint8_t ParameterManager::getStepCount(ParamId id) const
 {
+  if (static_cast<size_t>(id) >= kParamCount)
+  {
+    return 0;
+  }
   uint8_t count = _tracks[static_cast<size_t>(id)].stepCount();
   return count;
 }
 
 float ParameterManager::getValue(ParamId id, uint8_t stepIdx) const
 {
+  if (static_cast<size_t>(id) >= kParamCount)
+  {
+    return 0.0f;
+  }
   float value = _tracks[static_cast<size_t>(id)].getValue(stepIdx);
   return value;
 }
 
 void ParameterManager::setValue(ParamId id, uint8_t stepIdx, float value)
 {
+  if (static_cast<size_t>(id) >= kParamCount)
+  {
+    return;
+  }
 
   // Apply clamping and rounding based on parameter definition
   const auto &paramDef = CORE_PARAMETERS[static_cast<size_t>(id)];
@@ -242,8 +258,18 @@ void ParameterManager::randomizeParameters(bool patchModifiers)
       break;
 
       case ParamId::Note:
-      case ParamId::Velocity:
+      {
+        track.setValue(step, static_cast<float>(lcg_rand_int(static_cast<int>(minVal), static_cast<int>(maxVal))));
+      }
+      break;
+
       case ParamId::Octave:
+      {
+        track.setValue(step, 0.5f);
+      }
+      break;
+
+      case ParamId::Velocity:
       default:
       {
         // Default rule: uniform across the parameter's defined range

@@ -40,10 +40,11 @@ void updateParametersForStepNormalized(uint8_t stepToUpdate, float normalizedVal
 
     bool parametersWereUpdated = false;
     const ParamId heldParamId = getHeldParameterParamId(uiState);
-    if (heldParamId != ParamId::Count)
+    const ParamId paramToEdit = (heldParamId != ParamId::Count) ? heldParamId : uiState.currentEditParameter;
+    if (paramToEdit != ParamId::Count)
     {
         // Silent steps keep their pitch while other parameters remain editable.
-        if (heldParamId == ParamId::Note)
+        if (paramToEdit == ParamId::Note)
         {
             float gateValue = activeSeq.getStepParameterValue(ParamId::Gate, stepToUpdate);
             if (gateValue <= kGateHighThreshold)
@@ -55,8 +56,8 @@ void updateParametersForStepNormalized(uint8_t stepToUpdate, float normalizedVal
         }
 
         // Use the helper function to do the scaling correctly for any parameter.
-        float valueToSet = mapNormalizedValueToParamRange(heldParamId, normalizedValue);
-        activeSeq.setStepParameterValue(heldParamId, stepToUpdate, valueToSet);
+        float valueToSet = mapNormalizedValueToParamRange(paramToEdit, normalizedValue);
+        activeSeq.setStepParameterValue(paramToEdit, stepToUpdate, valueToSet);
         parametersWereUpdated = true;
 
 //                  Keep the two-voice compatibility path; USB MIDI itself is disabled.
@@ -112,10 +113,11 @@ void updateVoiceParameters(
             {
                 // Gate is already on - check if note changed and handle retrigger
                 int8_t currentActiveNote = midiNoteManager.getActiveNote(voiceIndex);
-                if (currentActiveNote != midiNote)
+                int clampedMidiNote = std::max(0, std::min(midiNote, kMidiMaximum));
+                if (currentActiveNote != clampedMidiNote)
                 {
                     // Note changed during gate - retrigger with new note
-                    midiNoteManager.noteOn(voiceIndex, static_cast<int8_t>(midiNote),
+                    midiNoteManager.noteOn(voiceIndex, static_cast<int8_t>(clampedMidiNote),
                                            static_cast<uint8_t>(state.velocityLevel * kMidiMaximum), kMidiChannel, state.gateLengthTicks);
                 }
                 *gate = true;
@@ -200,7 +202,7 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
     VoiceState *activeVoiceState = &voiceSystem.getVoiceState(voiceIndex);
 
     // Update voice state with new step parameters + magnetic encoder modifications
-    activeSeq.playStepNow(stepIndex, activeVoiceState);
+    activeSeq.previewActiveStep(activeVoiceState);
 
     // Apply encoder base values for the selected voice (mapping covers all four voices)
     // Sequencer playback composes patch bases before constructing VoiceState.

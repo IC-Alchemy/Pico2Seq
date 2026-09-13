@@ -326,3 +326,140 @@ TEST_CASE("Default sequencer starts at neutral octave and half-step gate", "[seq
     seq.randomizeParameters();
     REQUIRE(seq.getPlaybackStep(0).octaveOffset == 0);
 }
+
+// ─── Regression Tests for Parameter Writing, Reading, and Editing ─────────────
+
+TEST_CASE("Sequencer::resetAllSteps resets Note track even when gate is low", "[sequencer]") {
+    Sequencer seq(0);
+    // Directly set note on an ungated step (Gate defaults to 0.0f)
+    seq.setStepParameterValue(ParamId::Note, 5, 24.0f);
+    REQUIRE(seq.getStepParameterValue(ParamId::Note, 5) == 24.0f);
+    REQUIRE(seq.getStepParameterValue(ParamId::Gate, 5) == 0.0f);
+
+    seq.resetAllSteps();
+    // After resetAllSteps, Note on step 5 should be reset to default (0.0f)
+    REQUIRE(seq.getStepParameterValue(ParamId::Note, 5) == 0.0f);
+}
+
+TEST_CASE("ParameterManager::randomizeParameters produces only integer values for Note", "[paramtrack][sequencer]") {
+    ParameterManager pm;
+    pm.init();
+    const uint8_t steps = pm.getStepCount(ParamId::Note);
+    REQUIRE(steps > 0);
+
+    for (int round = 0; round < 16; ++round) {
+        pm.randomizeParameters(false);
+        for (uint8_t step = 0; step < steps; ++step) {
+            float val = pm.getValue(ParamId::Note, step);
+            REQUIRE(val == std::floor(val));
+            REQUIRE(val >= 0.0f);
+            REQUIRE(val <= 36.0f);
+        }
+    }
+}
+
+TEST_CASE("ParameterManager bounds-checks ParamId on read and write", "[paramtrack]") {
+    ParameterManager pm;
+    pm.init();
+    // ParamId::Count is past valid range
+    REQUIRE(pm.getStepCount(ParamId::Count) == 0);
+    REQUIRE(pm.getValue(ParamId::Count, 0) == 0.0f);
+
+    // Write attempts should gracefully no-op without crashing or buffer overrun
+    pm.setStepCount(ParamId::Count, 8);
+    pm.setValue(ParamId::Count, 0, 1.0f);
+}
+
+TEST_CASE("Sequencer::processStep clamps negative notes to 0", "[sequencer]") {
+    Sequencer seq(0);
+    seq.setPlaybackTransform(
+        [](ParamId, float val, const void *) { return val; },
+        nullptr,
+        [](float) -> int8_t { return -24; }); // -2 octaves = -24 semitones
+    seq.setStepParameterValue(ParamId::Note, 0, 0.0f);
+    seq.setStepParameterValue(ParamId::Gate, 0, 1.0f);
+
+    VoiceState state;
+    seq.playStepNow(0, &state);
+    // Note value should be clamped, not wrapped to 232
+    REQUIRE(state.isGateHigh);
+    REQUIRE(seq.getCurrentNote() >= 0);
+    REQUIRE(seq.getCurrentNote() == 0);
+}
+
+TEST_CASE("Sequencer::processStep triggers envelope on initial slide note", "[sequencer]") {
+    Sequencer seq(0);
+    seq.setStepParameterValue(ParamId::Gate, 0, 1.0f);
+    seq.setStepParameterValue(ParamId::Slide, 0, 1.0f); // Slide on step 0 while no note is active
+
+    VoiceState state;
+    seq.playStepNow(0, &state);
+    // Must retrigger envelope because no note was previously sounding
+    REQUIRE(state.shouldRetrigger);
+    REQUIRE(state.isGateHigh);
+    REQUIRE(seq.isNotePlaying());
+}
+
+TEST_CASE("Polyrhythmic advanceStep checks sounding gate step for Note recording", "[sequencer]") {
+    Sequencer seq(0);
+    seq.start();
+    // Set Note track to 3 steps, Gate track to 2 steps
+    seq.setParameterStepCount(ParamId::Note, 3);
+    seq.setParameterStepCount(ParamId::Gate, 2);
+
+    // Gate step 0 is HIGH (1.0f), Gate step 1 is LOW (0.0f)
+    seq.setStepParameterValue(ParamId::Gate, 0, 1.0f);
+    seq.setStepParameterValue(ParamId::Gate, 1, 0.0f);
+
+    VoiceState state;
+    // Step 0: Note cursor 0, Gate cursor 0 (Gate is HIGH)
+    // Note button held with recording distance 100mm -> normalized distance > 0
+    seq.advanceStep(0, 100, true, false, false, false, false, false, -1, &state);
+    REQUIRE(seq.getStepParameterValue(ParamId::Note, 0) > 0.0f);
+
+    // Step 1: Note cursor 1, Gate cursor 1 (Gate is LOW)
+    // Reset step 1 note to 0 first
+    seq.setStepParameterValue(ParamId::Note, 1, 0.0f);
+    seq.advanceStep(1, 100, true, false, false, false, false, false, -1, &state);
+    // Gate is LOW at Gate step 1, so Note on step 1 must NOT be recorded
+    REQUIRE(seq.getStepParameterValue(ParamId::Note, 1) == 0.0f);
+}
+
+TEST_CASE("Sequencer::getStep reflects configured octaveMapper", "[sequencer]") {
+    Sequencer seq(0);
+    seq.setPlaybackTransform(
+        [](ParamId, float val, const void *) { return val; },
+        nullptr,
+        [](float val) -> int8_t {
+            return val > 0.75f ? 24 : (val < 0.25f ? -24 : 0);
+        });
+    seq.setStepParameterValue(ParamId::Octave, 0, 1.0f);
+    Step s = seq.getStep(0);
+    REQUIRE(s.octaveOffset == 24);
+
+    seq.setStepParameterValue(ParamId::Octave, 0, 0.0f);
+    s = seq.getStep(0);
+    REQUIRE(s.octaveOffset == -24);
+}
+
+TEST_CASE("previewActiveStep preserves independent polyrhythmic parameter cursors", "[sequencer]") {
+    Sequencer seq(0);
+    seq.start();
+    seq.setParameterStepCount(ParamId::Note, 16);
+    seq.setParameterStepCount(ParamId::Filter, 5);
+
+    VoiceState state;
+    // Advance 7 steps
+    for (uint32_t i = 0; i <= 7; ++i) {
+        seq.advanceStep(i, -1, false, false, false, false, false, false, -1, &state);
+    }
+    REQUIRE(seq.getCurrentStepForParameter(ParamId::Note) == 7 % 16);
+    REQUIRE(seq.getCurrentStepForParameter(ParamId::Filter) == 7 % 5);
+
+    // previewActiveStep should evaluate at the current cursors (7 and 2) without resetting them
+    VoiceState previewState;
+    seq.previewActiveStep(&previewState);
+    REQUIRE(seq.getCurrentStepForParameter(ParamId::Note) == 7);
+    REQUIRE(seq.getCurrentStepForParameter(ParamId::Filter) == 2);
+}
+

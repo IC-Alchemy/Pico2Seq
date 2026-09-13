@@ -343,6 +343,10 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
     if (heldParameterId != ParamId::Count && padSequencerPtr)
     {
       uint8_t newParameterStepCount = static_cast<uint8_t>(pad.step + 1); // Convert 0-based index to 1-based count
+      if (newParameterStepCount < SequencerConstants::MIN_STEPS_COUNT)
+      {
+        newParameterStepCount = SequencerConstants::MIN_STEPS_COUNT;
+      }
       padSequencerPtr->setParameterStepCount(heldParameterId, newParameterStepCount);
       uiState.selectedStepForEdit = -1;
     }
@@ -736,13 +740,10 @@ static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, 
 void clearSequencerStep(Sequencer &sequencer, uint8_t stepIdx)
 {
   if(sequencer.usesPlaybackTransform()) {sequencer.resetModifierStep(stepIdx);return;}
-  if (stepIdx >= NUMBER_OF_STEP_BUTTONS)
+  if (stepIdx >= SequencerConstants::MAX_STEPS_COUNT)
   {
     return;
   }
-
-  // Gate off first: the step falls silent even if the sequencer is running.
-  sequencer.setStepParameterValue(ParamId::Gate, stepIdx, 0.0f);
 
   // Reset the remaining automatable parameters to their track defaults.
   // CORE_PARAMETERS[].defaultValue is a variant (float/bool); fold it to the
@@ -757,6 +758,9 @@ void clearSequencerStep(Sequencer &sequencer, uint8_t stepIdx)
     sequencer.setStepParameterValue(paramId, stepIdx,
                                     parameterValueAsFloat(CORE_PARAMETERS[paramIndex].defaultValue));
   }
+
+  // Gate off: the step falls silent even if the sequencer is running.
+  sequencer.setStepParameterValue(ParamId::Gate, stepIdx, 0.0f);
 }
 
 void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_distance,

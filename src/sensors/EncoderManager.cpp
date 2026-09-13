@@ -42,6 +42,36 @@ void updateEncoderBaseValues(UIState &uiState)
   const float delta=magEncoder.takeParameterIncrement(-1.0f,1.0f,3);
   if(fabsf(delta)<SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD) return;
   if(uiState.voiceEditor.active) {VoiceEditor::encoder(delta);return;}
+
+  // Handle step parameter editing if a step is selected for edit
+  if (uiState.selectedStepForEdit >= 0)
+  {
+    const ParamId targetParam = (uiState.currentEditParameter != ParamId::Count)
+        ? uiState.currentEditParameter
+        : convertEncoderParameterToParamId(uiState.currentEncoderParameter);
+
+    if (targetParam != ParamId::Count && uiState.selectedVoiceIndex < VoiceSystem::MAX_VOICES)
+    {
+      Sequencer *selectedSeq = AppState::sequencers[uiState.selectedVoiceIndex];
+      if (selectedSeq)
+      {
+        const uint8_t step = static_cast<uint8_t>(uiState.selectedStepForEdit);
+        float curVal = selectedSeq->getStepParameterValue(targetParam, step);
+        float minVal = getParameterMinValueForParamId(targetParam);
+        float maxVal = getParameterMaxValueForParamId(targetParam);
+        float deltaVal = delta * (maxVal - minVal) * 0.05f;
+        float newVal = std::clamp(curVal + deltaVal, minVal, maxVal);
+        if (targetParam == ParamId::Note)
+        {
+          newVal = std::round(newVal);
+        }
+        selectedSeq->setStepParameterValue(targetParam, step, newVal);
+        updateActiveVoiceState(step, *selectedSeq);
+        return;
+      }
+    }
+  }
+
   if(!voiceManager || uiState.selectedVoiceIndex>=4) return;
   const auto index=uiState.selectedVoiceIndex;
   const auto *requested=voiceManager->getVoiceConfig(voiceSystem.getVoiceId(index));
