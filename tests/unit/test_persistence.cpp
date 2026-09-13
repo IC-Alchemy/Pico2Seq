@@ -234,3 +234,53 @@ TEST_CASE("out-of-range preset index is rejected", "[persistence]")
     VoiceConfig restored;
     REQUIRE_FALSE(voicecodec::applyPatch(VoicePresets::getPresetCount(), snap, restored));
 }
+
+TEST_CASE("golden full-project round-trip through frame bytes", "[persistence]")
+{
+    Sequencer seq0(1), seq1(2), seq2(3), seq3(4);
+    ProjectSnapshotV1 snap{};
+    Sequencer *seqs[4] = {&seq0, &seq1, &seq2, &seq3};
+    for (int v = 0; v < 4; ++v)
+    {
+        Sequencer &seq = *seqs[v];
+        seq.initializeParameters();
+        // Note programming is gate-controlled: raise the gate step first.
+        seq.setStepParameterValue(ParamId::Gate, static_cast<uint8_t>(v), 1.0f);
+        seq.setStepParameterValue(ParamId::Note, static_cast<uint8_t>(v), 3.0f * v + 1.0f);
+        seq.setParameterStepCount(ParamId::Gate, static_cast<uint8_t>(12 + v));
+        capturePattern(seq, snap.patterns[v]);
+        snap.settings.presetIndices[v] = static_cast<uint8_t>(v);
+    }
+    snap.settings.tempoBpm = 137.0f;
+    snap.settings.masterVolume = 0.66f;
+    snap.settings.currentScale = 7;
+    snap.settings.shuffleIndex = 3;
+    snap.settings.themeIndex = 4;
+    snap.settings.selectedVoice = 2;
+    snap.settings.encoderBases[1].filter = 0.25f;
+    snap.settings.editorCursor[0] = 11; // VoiceEdit::Id::T60
+    snap.settings.changedFlags = 0x05;
+    REQUIRE(validateProjectSnapshot(snap));
+
+    // Frame to bytes and back, like the flash file does.
+    uint8_t frame[12 + sizeof(ProjectSnapshotV1)];
+    writeFrameHeader(frame, sizeof(snap), crc32(reinterpret_cast<const uint8_t *>(&snap), sizeof(snap)));
+    std::memcpy(frame + 12, &snap, sizeof(snap));
+    REQUIRE(readFrameHeader(frame, frame + 12, sizeof(snap), sizeof(ProjectSnapshotV1)) ==
+            FrameStatus::Ok);
+
+    ProjectSnapshotV1 loaded{};
+    std::memcpy(&loaded, frame + 12, sizeof(loaded));
+    Sequencer rest0(1), rest1(2), rest2(3), rest3(4);
+    Sequencer *restored[4] = {&rest0, &rest1, &rest2, &rest3};
+    for (int v = 0; v < 4; ++v)
+    {
+        restored[v]->initializeParameters();
+        applyPattern(loaded.patterns[v], *restored[v]);
+        REQUIRE(restored[v]->getStepParameterValue(ParamId::Note, static_cast<uint8_t>(v)) == 3.0f * v + 1.0f);
+        REQUIRE(restored[v]->getParameterStepCount(ParamId::Gate) == 12u + v);
+    }
+    REQUIRE(loaded.settings.tempoBpm == 137.0f);
+    REQUIRE(loaded.settings.encoderBases[1].filter == 0.25f);
+    REQUIRE(loaded.settings.changedFlags == 0x05);
+}
