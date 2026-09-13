@@ -40,7 +40,7 @@ if ($ports.Count -gt 1) {
 }
 
 $boardOptions = @(
-    'flash=4194304_0'
+    'flash=4194304_65536'
     'arch=arm'
     "freq=$cpuMHz"
     'opt=Optimize3'

@@ -166,7 +166,7 @@ function Copy-StageTree {
 Copy-StageTree -Source $repoRoot -Destination $stageSketch
 
 $boardOptions = @(
-    'flash=4194304_0'
+    'flash=4194304_65536'
     'arch=arm'
     'freq=300'
     'opt=Optimize3'
