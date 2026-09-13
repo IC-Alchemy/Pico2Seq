@@ -43,10 +43,11 @@ void updateParametersForStepNormalized(uint8_t stepToUpdate, float normalizedVal
 
     bool parametersWereUpdated = false;
     const ParamId heldParamId = getHeldParameterParamId(uiState);
-    if (heldParamId != ParamId::Count)
+    const ParamId paramToEdit = (heldParamId != ParamId::Count) ? heldParamId : uiState.currentEditParameter;
+    if (paramToEdit != ParamId::Count)
     {
         // Silent steps keep their pitch while other parameters remain editable.
-        if (heldParamId == ParamId::Note)
+        if (paramToEdit == ParamId::Note)
         {
             float gateValue = activeSeq.getStepParameterValue(ParamId::Gate, stepToUpdate);
             if (gateValue <= kGateHighThreshold)
@@ -58,13 +59,13 @@ void updateParametersForStepNormalized(uint8_t stepToUpdate, float normalizedVal
         }
 
         // Use the helper function to do the scaling correctly for any parameter.
-        float valueToSet = mapNormalizedValueToParamRange(heldParamId, normalizedValue);
-        const float previousValue = activeSeq.getStepParameterValue(heldParamId, stepToUpdate);
-        activeSeq.setStepParameterValue(heldParamId, stepToUpdate, valueToSet);
+        float valueToSet = mapNormalizedValueToParamRange(paramToEdit, normalizedValue);
+        const float previousValue = activeSeq.getStepParameterValue(paramToEdit, stepToUpdate);
+        activeSeq.setStepParameterValue(paramToEdit, stepToUpdate, valueToSet);
         // This runs every control pass (1 ms) while a step is in edit. Only an
         // actual change (after clamping and note rounding) is previewed, so a
-        // steady hand or fader does not retrigger the playing step each pass.
-        parametersWereUpdated = activeSeq.getStepParameterValue(heldParamId, stepToUpdate) != previousValue;
+        // steady hand does not retrigger the step each pass.
+        parametersWereUpdated = activeSeq.getStepParameterValue(paramToEdit, stepToUpdate) != previousValue;
 
 //                  Keep the two-voice compatibility path; USB MIDI itself is disabled.
 //    uint8_t midiVoiceId = (uiState.selectedVoiceIndex == 0) ? 0 : (uiState.selectedVoiceIndex == 1) ? 1 : kNoMidiVoice;
@@ -83,53 +84,63 @@ void updateParametersForStepNormalized(uint8_t stepToUpdate, float normalizedVal
 
 void updateVoiceParameters(
     const VoiceState &state,
-    bool isVoice2,
+    uint8_t voiceIndex,
     bool updateGate = false,
     volatile bool *gate = nullptr,
     volatile GateTimer *gateTimer = nullptr)
 {
-    // Voices 0/1 are the only gated (formerly MIDI) voices; isVoice2 selects 1.
-    const uint8_t voiceIndex = isVoice2 ? 1 : 0;
+    if (voiceIndex >= VoiceSystem::MAX_VOICES)
+    {
+        return;
+    }
 
     // Handle gate timing and MIDI note events (sequencer playback mode only)
     if (updateGate && gate && gateTimer)
     {
         if (state.isGateHigh)
         {
-            // Calculate MIDI note to match audio synthesis approach
-            uint8_t noteIndex = static_cast<uint8_t>(std::max(0.0f, std::min(state.noteIndex, static_cast<float>(SCALE_STEPS - 1))));
-            int midiNote = scale[currentScale][noteIndex] + kMidiRootNote + static_cast<int>(state.octaveOffset);
-
             // Always restart the gate timer for gated steps to ensure proper timing
             gateTimer->start(state.gateLengthTicks);
 
-            // Only send MIDI note-on when gate transitions from off to on
-            if (!(*gate))
+            if (voiceIndex < kGateVoiceCount)
             {
-                *gate = true;
+                // Calculate MIDI note to match audio synthesis approach
+                uint8_t noteIndex = static_cast<uint8_t>(std::max(0.0f, std::min(state.noteIndex, static_cast<float>(SCALE_STEPS - 1))));
+                int midiNote = scale[currentScale][noteIndex] + kMidiRootNote + static_cast<int>(state.octaveOffset);
 
-                // Clamp MIDI note to valid range (0-127)
-                int clampedMidiNote = std::max(0, std::min(midiNote, kMidiMaximum));
+                // Only send MIDI note-on when gate transitions from off to on
+                if (!(*gate))
+                {
+                    *gate = true;
 
-                // Use MidiNoteManager for proper note lifecycle management
-                midiNoteManager.noteOn(voiceIndex, static_cast<int8_t>(clampedMidiNote),
-                                       static_cast<uint8_t>(state.velocityLevel * kMidiMaximum), kMidiChannel, state.gateLengthTicks);
+                    // Clamp MIDI note to valid range (0-127)
+                    int clampedMidiNote = std::max(0, std::min(midiNote, kMidiMaximum));
+
+                    // Use MidiNoteManager for proper note lifecycle management
+                    midiNoteManager.noteOn(voiceIndex, static_cast<int8_t>(clampedMidiNote),
+                                           static_cast<uint8_t>(state.velocityLevel * kMidiMaximum), kMidiChannel, state.gateLengthTicks);
+                }
+                else
+                {
+                    // Gate is already on - check if note changed and handle retrigger
+                    int8_t currentActiveNote = midiNoteManager.getActiveNote(voiceIndex);
+                    int clampedMidiNote = std::max(0, std::min(midiNote, kMidiMaximum));
+                    if (currentActiveNote != clampedMidiNote)
+                    {
+                        // Note changed during gate - retrigger with new note
+                        midiNoteManager.noteOn(voiceIndex, static_cast<int8_t>(clampedMidiNote),
+                                               static_cast<uint8_t>(state.velocityLevel * kMidiMaximum), kMidiChannel, state.gateLengthTicks);
+                    }
+                    *gate = true;
+                }
+
+                // Update MidiNoteManager gate state
+                midiNoteManager.setGateState(voiceIndex, true, state.gateLengthTicks);
             }
             else
             {
-                // Gate is already on - check if note changed and handle retrigger
-                int8_t currentActiveNote = midiNoteManager.getActiveNote(voiceIndex);
-                if (currentActiveNote != midiNote)
-                {
-                    // Note changed during gate - retrigger with new note
-                    midiNoteManager.noteOn(voiceIndex, static_cast<int8_t>(midiNote),
-                                           static_cast<uint8_t>(state.velocityLevel * kMidiMaximum), kMidiChannel, state.gateLengthTicks);
-                }
                 *gate = true;
             }
-
-            // Update MidiNoteManager gate state
-            midiNoteManager.setGateState(voiceIndex, true, state.gateLengthTicks);
         }
         else
         {
@@ -137,8 +148,11 @@ void updateVoiceParameters(
             gateTimer->stop();
             *gate = false;
 
-            // Use MidiNoteManager for proper note-off handling
-            midiNoteManager.setGateState(voiceIndex, false);
+            if (voiceIndex < kGateVoiceCount)
+            {
+                // Use MidiNoteManager for proper note-off handling
+                midiNoteManager.setGateState(voiceIndex, false);
+            }
         }
     }
 
@@ -160,12 +174,9 @@ void updateVoiceMIDI(
         return; // Invalid voice index
     }
 
-    // For voices 0 and 1, reuse existing gate/MIDI logic; for 2/3 skip gates
-    bool isVoice2 = (voiceIndex == 1);
-
-    if (updateGate && (voiceIndex < kGateVoiceCount))
+    if (updateGate)
     {
-        updateVoiceParameters(state, isVoice2, updateGate, gate, gateTimer);
+        updateVoiceParameters(state, voiceIndex, updateGate, gate, gateTimer);
         return;
     }
 
@@ -183,15 +194,15 @@ void updateVoiceMIDI(
         midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Decay, state.decayTimeSeconds);
         midiNoteManager.updateParameterCC(midiVoiceId, ParamId::Octave, state.octaveOffset);
     }
-
 }
 
 void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
 {
     uint8_t currentSequencerStep = activeSeq.getCurrentStep();
 
-    // Only update currently playing step to avoid audio glitches
-    if (stepIndex != currentSequencerStep)
+    // While running, only update currently playing step to avoid audio glitches.
+    // When stopped or when editing the selected step, allow immediate auditioning.
+    if (isClockRunning && uiState.selectedStepForEdit < 0 && stepIndex != currentSequencerStep)
     {
         return;
     }
@@ -206,15 +217,18 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
 
     VoiceState *activeVoiceState = &voiceSystem.getVoiceState(voiceIndex);
 
-    // Update voice state with new step parameters + magnetic encoder modifications
-    activeSeq.playStepNow(stepIndex, activeVoiceState);
-
-    // Apply encoder base values for the selected voice (mapping covers all four voices)
-    // Sequencer playback composes patch bases before constructing VoiceState.
+    // If stopped and editing a specific step, audition via playStepNow so the step sounds
+    if (!isClockRunning && uiState.selectedStepForEdit >= 0)
+    {
+        activeSeq.playStepNow(static_cast<uint8_t>(uiState.selectedStepForEdit), activeVoiceState);
+    }
+    else
+    {
+        activeSeq.previewActiveStep(activeVoiceState);
+    }
 
     // Update synth hardware for immediate audio feedback using the per-voice function
     updateVoiceMIDI(*activeVoiceState, voiceIndex);
-
 }
 
 void processSequencerStep(uint32_t uClockCurrentStep)
@@ -239,20 +253,12 @@ void processSequencerStep(uint32_t uClockCurrentStep)
 
     // Bases have already been composed by each sequencer's playback transform.
 
-    // Voices 1/2 keep their software gate lifecycle; voices 3/4 use audio only.
-
+    // Voices 0-3 all have software gate and timer tracking; 0-1 retain MIDI bookkeeping.
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++)
     {
-        if (i < kGateVoiceCount)
-        {
-            updateVoiceMIDI(tempStates[i], i, true,
-                                          &voiceSystem.getGate(i),
-                                          &voiceSystem.getGateTimer(i));
-        }
-        else // Voices 2 and 3 are audio only
-        {
-            updateVoiceMIDI(tempStates[i], i, false);
-        }
+        updateVoiceMIDI(tempStates[i], i, true,
+                        &voiceSystem.getGate(i),
+                        &voiceSystem.getGateTimer(i));
 
         // Store state
         voiceSystem.getVoiceState(i) = tempStates[i];

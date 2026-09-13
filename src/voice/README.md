@@ -11,14 +11,50 @@ existing tracks; each sound decides what its timbre controls do.
 | `presets/StringPresets.h` | Waveguide settings |
 | `presets/TexturePresets.h` | Native Hypersaw and NoiseStorm settings |
 | `presets/RecipePresets.h` | Recipe settings and their three timbre bindings |
+| `presets/MusicalPresets.h` | Eight musical patches, defaults and timbre bindings |
 | `presets/PresetBank.h` | One list of preset IDs, names and factories |
 | `engines/RecipeSources.h` | Small rpdsp patches, with their state sizes declared |
 | `engines/RecipeEngine.h` | Fixed storage and lifecycle for those patches |
 | `Voice.cpp` | Shared pitch, gate, envelope, filter, mixing and cross-core delivery |
 
-The bank currently has 21 presets. Original IDs 0–14 retain their names and
-order. New sounds are FMGlass, FMBass, PhaseMorph, Spectral, Prism and ChaosPrism.
+The bank currently has 29 presets. Existing IDs 0–20 retain their names and
+order. The latest eight presets occupy IDs 21–28.
 Name lookup is case-insensitive, including `VoiceManager` lookup/listing.
+
+## Musical preset bank
+
+These patches connect existing rpDSP functions and use the shared voice ADSR
+and high-pass filter. They add no DSP algorithms or per-voice storage.
+The three controls below occupy Filter, Attack and Decay, respectively.
+
+| Preset | Sound and rpDSP source | Timbre controls |
+| --- | --- | --- |
+| VelvetKeys | Soft electric keys: two `osc_fbfm` operators at a 2:1 ratio, low feedback, rounded attack and a lingering release | Index / Ratio / Feedback |
+| CopperBass | Rounded, harmonically rich bass: `osc_dsf` at harmonic spacing plus a sine sub from `osc_pdmorph`, short release | Bright / Spacing / Sub |
+| ReedPipe | Held reed tone: `osc_formant` bursts blended with a sine fundamental | Formant / Bloom / Body |
+| SilkPad | Slow swell: two gently detuned `osc_pdmorph` voices, free-running phase and a 1.25 s release | Silk / Detune / Blend |
+| HollowBell | Hollow tuned bell: two `osc_pdmorph` sources ring-modulated at 2:1, mixed with the fundamental; zero sustain | Ratio / Edge / Ring |
+| SyncLead | Firm melodic lead: `osc_revsync` blended with a pitched `osc_pdmorph` body | Sync / Edge / Bite |
+| OrbitPluck | Rounded metallic pluck: sine-modulated `osc_tzfm` plus a clean sine body; zero sustain | Index / Ratio / Body |
+| AirChime | Light harmonic chime: `osc_prism` blended with an octave sine, slow decay | Focus / Spread / OctMix |
+
+ReedPipe's Bloom lengthens the formant bursts (48 kHz retention 0.990–0.9995,
+converted by rpDSP's sample-rate helper during configuration). SilkPad's Detune
+spans unison to a 1.006 frequency ratio on either side of the note, about
+10 cents each way. Blend balances those two oscillators. Its slower attack
+benefits from longer gates; bell and pluck gates can shorten their release tails.
+Integer ratios keep FM/ring sounds harmonically related; fractional ratios
+provide more metallic textures. The chosen defaults use harmonic ratios.
+
+VelvetKeys, CopperBass and ReedPipe are the last three pads of page 1;
+SilkPad through AirChime occupy pads 8–12 of page 2 (pad 7 advances the page).
+All eight retain Note, Velocity, Octave, GateLength, Slide and the Gate trigger.
+The voice editor includes all ten recipe sources and their matching layouts.
+
+Host checks cover control influence, finite output at parameter extremes,
+default output at C2/C4/C6, release/retrigger, preset seeding and editor selection.
+Musical descriptions express the patch design; perceived balance and RP2350
+realtime performance still need auditioning on hardware.
 
 ## The eight controls
 

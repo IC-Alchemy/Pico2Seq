@@ -4,6 +4,7 @@
 #include "presets/StringPresets.h"
 #include "presets/TexturePresets.h"
 #include "presets/RecipePresets.h"
+#include "presets/MusicalPresets.h"
 #include <algorithm>
 #include <iterator>
 

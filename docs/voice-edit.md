@@ -35,7 +35,8 @@ controls resume. Button 7 is Help in these stages; audition is not implemented.
 
 Every numeric sound setting has a per-voice base in `VoiceConfig`. The encoder
 edits these requested values, including outside the editor when a sequenced
-parameter is selected. It no longer edits a selected step's stored value.
+parameter is selected. With a step selected for editing, it edits that step's stored
+value instead (see `editSelectedStep()` in `src/sensors/EncoderManager.cpp`).
 
 For timbre, envelope, velocity, octave and gate length, the lidar records a modifier.
 Note records melody scale steps directly. Both step editing and live recording normalize

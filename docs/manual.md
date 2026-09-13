@@ -173,6 +173,8 @@ range. It edits whatever the **encoder target** is — cycle targets with the Ut
   [`docs/voice-edit.md`](voice-edit.md) for how bases combine with recorded modifiers.
 - Note and Octave move one step per short turn; continuous targets follow turn speed.
 - Slide Time sets the portamento glide time.
+- In Step Edit mode the encoder edits the **selected step's stored value** instead: the
+  toggled edit parameter, or else the encoder target's lane.
 - The OLED normally shows the playing step's value, which includes that step's recorded
   modifier. For 1.5 s after a turn it shows the **base** you are changing instead, marked
   `Base` on the home screen and `BASE` on a parameter screen.

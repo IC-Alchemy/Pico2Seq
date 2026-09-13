@@ -98,6 +98,12 @@ public:
     void playStepNow(uint8_t stepIdx, VoiceState *voiceState);
 
     /**
+     * @brief Preview active step using current independent polymetric parameter cursors
+     * @param voiceState Output voice state structure
+     */
+    void previewActiveStep(VoiceState *voiceState);
+
+    /**
      * @brief Toggle gate parameter for a specific step
      * @param stepIdx Step index to toggle (0-63)
      */
@@ -160,6 +166,7 @@ public:
                      VoiceState *voiceState);
 
     uint8_t getCurrentStep() const { return currentStep; }
+    int8_t getCurrentNote() const { return currentNote; }
 
     /**
      * @brief Get current step position for a specific parameter
@@ -170,6 +177,8 @@ public:
 
     // Get step data
     Step getStep(uint8_t stepIdx) const;
+    void setStep(uint8_t stepIdx, const Step &step);
+    void copyStep(uint8_t srcStep, uint8_t dstStep);
     // Same composed values used by playback; UINT8_MAX follows independent tracks.
     // Read-only: does not trigger gates, advance transport or alter note tails.
     Step getPlaybackStep(uint8_t stepIdx = UINT8_MAX) const;

@@ -30,6 +30,65 @@ MagEncoder::Config makeMagEncoderConfig()
   cfg.minScale = SensorConstants::MagneticEncoder::SLOW_TURN_SCALE;
   return cfg;
 }
+
+// Motion for the selected step, separate from base editing's motion in
+// VoiceEditor. A different voice, step or parameter starts from zero.
+ControlSurface::EncoderMotion stepMotion;
+struct StepTurn
+{
+  uint8_t voice = UINT8_MAX;
+  int step = -1;
+  ParamId param = ParamId::Count;
+};
+StepTurn stepTurn;
+
+// A selected step takes the encoder: its edit parameter, else the encoder
+// target's lane. Returns false when no step parameter is targeted, leaving
+// the turn to base editing.
+bool editSelectedStep(UIState &uiState, float delta)
+{
+  if (uiState.selectedStepForEdit < 0 || uiState.selectedVoiceIndex >= VoiceSystem::MAX_VOICES)
+    return false;
+  const ParamId targetParam = (uiState.currentEditParameter != ParamId::Count)
+      ? uiState.currentEditParameter
+      : convertEncoderParameterToParamId(uiState.currentEncoderParameter);
+  Sequencer *selectedSeq = AppState::sequencers[uiState.selectedVoiceIndex];
+  if (targetParam == ParamId::Count || !selectedSeq)
+    return false;
+
+  if (stepTurn.voice != uiState.selectedVoiceIndex || stepTurn.step != uiState.selectedStepForEdit ||
+      stepTurn.param != targetParam)
+  {
+    stepMotion.reset();
+    stepTurn = {uiState.selectedVoiceIndex, uiState.selectedStepForEdit, targetParam};
+  }
+  stepMotion.add(delta);
+
+  const uint8_t step = static_cast<uint8_t>(uiState.selectedStepForEdit);
+  const float curVal = selectedSeq->getStepParameterValue(targetParam, step);
+  const float minVal = getParameterMinValueForParamId(targetParam);
+  const float maxVal = getParameterMaxValueForParamId(targetParam);
+  float newVal;
+  if (targetParam == ParamId::Note)
+  {
+    // Whole scale steps per detent: rounding each small increment left the
+    // note unchanged unless the knob was spun hard.
+    newVal = curVal + static_cast<float>(stepMotion.takeSteps(
+        SensorConstants::MagneticEncoder::STEPPED_VALUE_DETENT));
+  }
+  else
+  {
+    newVal = curVal + stepMotion.takeContinuous(
+        SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD) * (maxVal - minVal) * 0.05f;
+  }
+  newVal = std::clamp(newVal, minVal, maxVal);
+  if (newVal != curVal)
+  {
+    selectedSeq->setStepParameterValue(targetParam, step, newVal);
+    updateActiveVoiceState(step, *selectedSeq);
+  }
+  return true;
+}
 } // namespace
 
 // The magnetic encoder driver for the TMAG5273A Velocity Encoder board.
@@ -41,9 +100,11 @@ void updateEncoderBaseValues(UIState &uiState)
 {
   if (!magEncoder.isConnected() || uiState.controlsWaitRelease) return;
   // Every read's increment is forwarded, however small: the driver has
-  // already drained those ticks, and VoiceEditor accumulates slow turns.
+  // already drained those ticks, and the step and base paths accumulate them.
   const float delta=magEncoder.takeParameterIncrement(-1.0f,1.0f,3);
-  if(delta!=0.0f) VoiceEditor::encoder(delta);
+  if(delta==0.0f) return;
+  if(!uiState.voiceEditor.active && editSelectedStep(uiState, delta)) return;
+  VoiceEditor::encoder(delta);
 }
 
 // --- Helper Functions for Step Parameter Editing ---
@@ -74,38 +135,20 @@ ParamId convertEncoderParameterToParamId(EncoderParameterMode encoderParam)
 
 float getParameterMinValueForParamId(ParamId paramId)
 {
-  switch (paramId)
+  if (static_cast<size_t>(paramId) < static_cast<size_t>(ParamId::Count))
   {
-  case ParamId::Velocity:
-  case ParamId::Filter:
-  case ParamId::Attack:
-  case ParamId::Decay:
-    return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE;
-
-  case ParamId::Note:
-    return static_cast<float>(SequencerConstants::NOTE_PARAMETER_MIN);
-
-  default:
-    return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE;
+    return parameterValueAsFloat(CORE_PARAMETERS[static_cast<size_t>(paramId)].minValue);
   }
+  return SensorConstants::MagneticEncoder::PARAMETER_MIN_VALUE;
 }
 
 float getParameterMaxValueForParamId(ParamId paramId)
 {
-  switch (paramId)
+  if (static_cast<size_t>(paramId) < static_cast<size_t>(ParamId::Count))
   {
-  case ParamId::Velocity:
-  case ParamId::Filter:
-  case ParamId::Attack:
-  case ParamId::Decay:
-    return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
-
-  case ParamId::Note:
-    return static_cast<float>(SequencerConstants::NOTE_PARAMETER_MAX);
-
-  default:
-    return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
+    return parameterValueAsFloat(CORE_PARAMETERS[static_cast<size_t>(paramId)].maxValue);
   }
+  return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
 }
 
 // Helper function for the "Shift and Scale" mapping.

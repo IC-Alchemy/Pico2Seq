@@ -5,6 +5,7 @@
 #include "sequencer/Sequencer.h"
 #include "voice/VoiceConfig.h"
 #include "voice/VoiceEditParameters.h"
+#include "voice/VoiceSystem.h"
 
 #include <algorithm>
 
@@ -326,3 +327,273 @@ TEST_CASE("Default sequencer starts at neutral octave and half-step gate", "[seq
     seq.randomizeParameters();
     REQUIRE(seq.getPlaybackStep(0).octaveOffset == 0);
 }
+
+// ─── Regression Tests for Parameter Writing, Reading, and Editing ─────────────
+
+TEST_CASE("Sequencer::resetAllSteps resets Note track even when gate is low", "[sequencer]") {
+    Sequencer seq(0);
+    // Directly set note on an ungated step (Gate defaults to 0.0f)
+    seq.setStepParameterValue(ParamId::Note, 5, 24.0f);
+    REQUIRE(seq.getStepParameterValue(ParamId::Note, 5) == 24.0f);
+    REQUIRE(seq.getStepParameterValue(ParamId::Gate, 5) == 0.0f);
+
+    seq.resetAllSteps();
+    // After resetAllSteps, Note on step 5 should be reset to default (0.0f)
+    REQUIRE(seq.getStepParameterValue(ParamId::Note, 5) == 0.0f);
+}
+
+TEST_CASE("ParameterManager::randomizeParameters produces only integer values for Note", "[paramtrack][sequencer]") {
+    ParameterManager pm;
+    pm.init();
+    const uint8_t steps = pm.getStepCount(ParamId::Note);
+    REQUIRE(steps > 0);
+
+    for (int round = 0; round < 16; ++round) {
+        pm.randomizeParameters(false);
+        for (uint8_t step = 0; step < steps; ++step) {
+            float val = pm.getValue(ParamId::Note, step);
+            REQUIRE(val == std::floor(val));
+            REQUIRE(val >= 0.0f);
+            REQUIRE(val <= 36.0f);
+        }
+    }
+}
+
+TEST_CASE("ParameterManager bounds-checks ParamId on read and write", "[paramtrack]") {
+    ParameterManager pm;
+    pm.init();
+    // ParamId::Count is past valid range
+    REQUIRE(pm.getStepCount(ParamId::Count) == 0);
+    REQUIRE(pm.getValue(ParamId::Count, 0) == 0.0f);
+
+    // Write attempts should gracefully no-op without crashing or buffer overrun
+    pm.setStepCount(ParamId::Count, 8);
+    pm.setValue(ParamId::Count, 0, 1.0f);
+}
+
+TEST_CASE("Sequencer::processStep clamps negative notes to 0", "[sequencer]") {
+    Sequencer seq(0);
+    seq.setPlaybackTransform(
+        [](ParamId, float val, const void *) { return val; },
+        nullptr,
+        [](float) -> int8_t { return -24; }); // -2 octaves = -24 semitones
+    seq.setStepParameterValue(ParamId::Note, 0, 0.0f);
+    seq.setStepParameterValue(ParamId::Gate, 0, 1.0f);
+
+    VoiceState state;
+    seq.playStepNow(0, &state);
+    // Note value should be clamped, not wrapped to 232
+    REQUIRE(state.isGateHigh);
+    REQUIRE(seq.getCurrentNote() >= 0);
+    REQUIRE(seq.getCurrentNote() == 0);
+}
+
+TEST_CASE("Sequencer::processStep triggers envelope on initial slide note", "[sequencer]") {
+    Sequencer seq(0);
+    seq.setStepParameterValue(ParamId::Gate, 0, 1.0f);
+    seq.setStepParameterValue(ParamId::Slide, 0, 1.0f); // Slide on step 0 while no note is active
+
+    VoiceState state;
+    seq.playStepNow(0, &state);
+    // Must retrigger envelope because no note was previously sounding
+    REQUIRE(state.shouldRetrigger);
+    REQUIRE(state.isGateHigh);
+    REQUIRE(seq.isNotePlaying());
+}
+
+TEST_CASE("Polyrhythmic advanceStep checks sounding gate step for Note recording", "[sequencer]") {
+    Sequencer seq(0);
+    seq.start();
+    // Set Note track to 3 steps, Gate track to 2 steps
+    seq.setParameterStepCount(ParamId::Note, 3);
+    seq.setParameterStepCount(ParamId::Gate, 2);
+
+    // Gate step 0 is HIGH (1.0f), Gate step 1 is LOW (0.0f)
+    seq.setStepParameterValue(ParamId::Gate, 0, 1.0f);
+    seq.setStepParameterValue(ParamId::Gate, 1, 0.0f);
+
+    VoiceState state;
+    // Step 0: Note cursor 0, Gate cursor 0 (Gate is HIGH)
+    // Note button held with recording distance 100mm -> normalized distance > 0
+    seq.advanceStep(0, 100, true, false, false, false, false, false, -1, &state);
+    REQUIRE(seq.getStepParameterValue(ParamId::Note, 0) > 0.0f);
+
+    // Step 1: Note cursor 1, Gate cursor 1 (Gate is LOW)
+    // Reset step 1 note to 0 first
+    seq.setStepParameterValue(ParamId::Note, 1, 0.0f);
+    seq.advanceStep(1, 100, true, false, false, false, false, false, -1, &state);
+    // Gate is LOW at Gate step 1, so Note on step 1 must NOT be recorded
+    REQUIRE(seq.getStepParameterValue(ParamId::Note, 1) == 0.0f);
+}
+
+TEST_CASE("Sequencer::getStep reflects configured octaveMapper", "[sequencer]") {
+    Sequencer seq(0);
+    seq.setPlaybackTransform(
+        [](ParamId, float val, const void *) { return val; },
+        nullptr,
+        [](float val) -> int8_t {
+            return val > 0.75f ? 24 : (val < 0.25f ? -24 : 0);
+        });
+    seq.setStepParameterValue(ParamId::Octave, 0, 1.0f);
+    Step s = seq.getStep(0);
+    REQUIRE(s.octaveOffset == 24);
+
+    seq.setStepParameterValue(ParamId::Octave, 0, 0.0f);
+    s = seq.getStep(0);
+    REQUIRE(s.octaveOffset == -24);
+}
+
+TEST_CASE("previewActiveStep preserves independent polyrhythmic parameter cursors", "[sequencer]") {
+    Sequencer seq(0);
+    seq.start();
+    seq.setParameterStepCount(ParamId::Note, 16);
+    seq.setParameterStepCount(ParamId::Filter, 5);
+
+    VoiceState state;
+    // Advance 7 steps
+    for (uint32_t i = 0; i <= 7; ++i) {
+        seq.advanceStep(i, -1, false, false, false, false, false, false, -1, &state);
+    }
+    REQUIRE(seq.getCurrentStepForParameter(ParamId::Note) == 7 % 16);
+    REQUIRE(seq.getCurrentStepForParameter(ParamId::Filter) == 7 % 5);
+
+    // previewActiveStep should evaluate at the current cursors (7 and 2) without resetting them
+    VoiceState previewState;
+    seq.previewActiveStep(&previewState);
+    REQUIRE(seq.getCurrentStepForParameter(ParamId::Note) == 7);
+    REQUIRE(seq.getCurrentStepForParameter(ParamId::Filter) == 2);
+}
+
+TEST_CASE("Sequencer::setStep and copyStep duplicate all step parameters", "[sequencer]") {
+    Sequencer seq(0);
+
+    Step sourceStep;
+    sourceStep.noteIndex = 19.0f;
+    sourceStep.velocityLevel = 0.85f;
+    sourceStep.filterCutoff = 0.72f;
+    sourceStep.attackTimeSeconds = 0.05f;
+    sourceStep.decayTimeSeconds = 0.45f;
+    sourceStep.octaveOffset = 12;
+    sourceStep.gateLengthTicks = 90;
+    sourceStep.isGateActive = true;
+    sourceStep.hasSlide = true;
+
+    seq.setStep(3, sourceStep);
+
+    Step readBack = seq.getStep(3);
+    REQUIRE(readBack.noteIndex == 19.0f);
+    REQUIRE(readBack.velocityLevel == Catch::Approx(0.85f));
+    REQUIRE(readBack.filterCutoff == Catch::Approx(0.72f));
+    REQUIRE(readBack.attackTimeSeconds == Catch::Approx(0.05f));
+    REQUIRE(readBack.decayTimeSeconds == Catch::Approx(0.45f));
+    REQUIRE(readBack.octaveOffset == 12);
+    REQUIRE(readBack.isGateActive == true);
+    REQUIRE(readBack.hasSlide == true);
+    REQUIRE(readBack.gateLengthTicks == 90);
+
+    // Copy step 3 to step 11
+    seq.copyStep(3, 11);
+    Step copied = seq.getStep(11);
+    REQUIRE(copied.noteIndex == 19.0f);
+    REQUIRE(copied.velocityLevel == Catch::Approx(0.85f));
+    REQUIRE(copied.filterCutoff == Catch::Approx(0.72f));
+    REQUIRE(copied.attackTimeSeconds == Catch::Approx(0.05f));
+    REQUIRE(copied.decayTimeSeconds == Catch::Approx(0.45f));
+    REQUIRE(copied.octaveOffset == 12);
+    REQUIRE(copied.isGateActive == true);
+    REQUIRE(copied.hasSlide == true);
+    REQUIRE(copied.gateLengthTicks == 90);
+
+    // Bounds checking
+    seq.copyStep(64, 0); // Out of bounds source should gracefully no-op
+    seq.copyStep(0, 64); // Out of bounds dest should gracefully no-op
+    Step s0 = seq.getStep(0);
+    REQUIRE(s0.noteIndex == 0.0f); // Untouched
+}
+
+TEST_CASE("ParameterManager::copyStep copies values across tracks and bounds-checks", "[paramtrack][sequencer]") {
+    ParameterManager pm;
+    pm.init();
+
+    pm.setValue(ParamId::Note, 2, 28.0f);
+    pm.setValue(ParamId::Filter, 2, 0.9f);
+    pm.setValue(ParamId::Gate, 2, 1.0f);
+
+    pm.copyStep(2, 7);
+
+    REQUIRE(pm.getValue(ParamId::Note, 7) == 28.0f);
+    REQUIRE(pm.getValue(ParamId::Filter, 7) == Catch::Approx(0.9f));
+    REQUIRE(pm.getValue(ParamId::Gate, 7) == 1.0f);
+
+    // Out of bounds copy should no-op
+    pm.copyStep(100, 0);
+    pm.copyStep(0, 100);
+}
+
+TEST_CASE("VoiceSystem provides 4-voice independent gate and timer tracking", "[voice][voicesystem]") {
+    VoiceSystem vs;
+    REQUIRE(VoiceSystem::MAX_VOICES == 4);
+
+    // All gates default to false
+    for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
+        REQUIRE(vs.getGate(i) == false);
+        REQUIRE(vs.getGateTimer(i).isActive == false);
+    }
+
+    // Set voice 2 and 3 gates and timers
+    vs.getGate(2) = true;
+    vs.getGateTimer(2).start(10);
+    vs.getGate(3) = true;
+    vs.getGateTimer(3).start(5);
+
+    REQUIRE(vs.getGate(2) == true);
+    REQUIRE(vs.getGate(3) == true);
+    REQUIRE(vs.getGate(0) == false);
+    REQUIRE(vs.getGate(1) == false);
+
+    // Tick timers 5 times
+    for (int t = 0; t < 5; ++t) {
+        vs.tickAllGateTimers();
+    }
+
+    // Voice 3 timer expired (duration was 5), voice 2 still has 5 ticks remaining
+    REQUIRE(vs.getGate(3) == false);
+    REQUIRE(vs.getGateTimer(3).isActive == false);
+    REQUIRE(vs.getGate(2) == true);
+    REQUIRE(vs.getGateTimer(2).isActive == true);
+    REQUIRE(vs.getGateTimer(2).ticksRemaining == 5);
+
+    // Tick remaining 5 times
+    for (int t = 0; t < 5; ++t) {
+        vs.tickAllGateTimers();
+    }
+    REQUIRE(vs.getGate(2) == false);
+    REQUIRE(vs.getGateTimer(2).isActive == false);
+
+    // stopAllGates
+    vs.getGate(0) = true;
+    vs.getGate(1) = true;
+    vs.getGate(2) = true;
+    vs.getGate(3) = true;
+    vs.stopAllGates();
+    for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
+        REQUIRE(vs.getGate(i) == false);
+        REQUIRE(vs.getGateTimer(i).isActive == false);
+    }
+}
+
+TEST_CASE("CORE_PARAMETERS metadata defines valid bounds and types for all parameters", "[seqdefs]") {
+    for (size_t i = 0; i < PARAM_ID_COUNT; ++i) {
+        const auto &def = CORE_PARAMETERS[i];
+        REQUIRE(def.name != nullptr);
+        float minVal = parameterValueAsFloat(def.minValue);
+        float maxVal = parameterValueAsFloat(def.maxValue);
+        float defVal = parameterValueAsFloat(def.defaultValue);
+        REQUIRE(minVal <= maxVal);
+        REQUIRE(defVal >= minVal);
+        REQUIRE(defVal <= maxVal);
+        REQUIRE(def.defaultSteps >= SequencerConstants::MIN_STEPS_COUNT);
+        REQUIRE(def.defaultSteps <= SequencerConstants::MAX_STEPS_COUNT);
+    }
+}
+
