@@ -22,6 +22,7 @@ add_executable(pico2seq_tests
   unit/test_sequencer.cpp
   unit/test_voice.cpp
   unit/test_voice_recipes.cpp
+  unit/test_recipe_optimization.cpp
   unit/test_voice_transfer.cpp
   unit/test_voiceoscillator.cpp
   unit/test_control_surface_logic.cpp
@@ -74,6 +75,7 @@ add_executable(pico2seq_voice_tests
   unit/test_helpers.cpp
   unit/test_voice.cpp
   unit/test_voice_recipes.cpp
+  unit/test_recipe_optimization.cpp
   unit/test_voiceoscillator.cpp
   unit/test_voice_transfer.cpp
   ${CORE_DIR}/scales/scales.cpp
@@ -108,3 +110,7 @@ target_include_directories(pico2seq_audio_tests PRIVATE
 target_compile_definitions(pico2seq_audio_tests PRIVATE PICO_RP2350=1 ARDUINO_ARCH_RP2040=1)
 target_link_libraries(pico2seq_audio_tests PRIVATE Catch2::Catch2WithMain)
 catch_discover_tests(pico2seq_audio_tests TEST_PREFIX "audio: ")
+
+# Opt-in throughput measurement; timing thresholds do not belong in CTest.
+add_executable(pico2seq_recipe_benchmark EXCLUDE_FROM_ALL benchmarks/recipe_benchmark.cpp)
+target_include_directories(pico2seq_recipe_benchmark PRIVATE ${SRC_DIR})
