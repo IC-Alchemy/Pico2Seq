@@ -39,7 +39,7 @@ public:
 };
 
 /**
- * @brief OLED Display Manager for PicoMudrasSequencer
+ * @brief OLED Display Manager for Pico2Seq
  *
  * Comprehensive display system providing real-time visual feedback for:
  * - Parameter editing with value display and progress bars

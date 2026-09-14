@@ -212,7 +212,3 @@ is what makes "Note track at 16 steps, Filter track at 8 steps" possible on the 
   conventions before adding a new processor rather than pulling in DaisySP fresh.
 - **External modules (`src/rpdsp/` and `src/VelocityEncoder/`) are Git submodules.** When cloning,
   use `git clone --recurse-submodules` or run `git submodule update --init --recursive`.
-- Project naming history: a few code comments (`src/midi/MidiManager.h`, `src/OLED/oled.h`,
-  `src/ui/UIState.h`, ...) still say "Mudras Sequencer"/"PicoMudrasSequencer" from before the
-  project was renamed to Pico2Seq. Don't treat those as current naming — `Pico2Seq.ino` and
-  the root `README.md` are authoritative.

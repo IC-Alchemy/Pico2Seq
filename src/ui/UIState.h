@@ -6,7 +6,7 @@
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
 
 /**
- * @brief Centralized state management for the PicoMudrasSequencer UI.
+ * @brief Centralized state management for the Pico2Seq UI.
  *
  * This struct encapsulates all UI-related state variables, eliminating
  * global externs and improving modularity. An instance of this struct

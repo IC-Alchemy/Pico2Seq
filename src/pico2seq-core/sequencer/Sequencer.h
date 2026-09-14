@@ -68,7 +68,7 @@ private:
 /**
  * @brief Polyrhythmic step sequencer with independent parameter tracks
  *
- * The Sequencer class implements the core sequencing logic for the PicoMudrasSequencer.
+ * The Sequencer class implements the core sequencing logic for Pico2Seq.
  * Each parameter (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide)
  * operates as an independent track with configurable step counts, enabling complex
  * polyrhythmic patterns that evolve over hundreds of steps.

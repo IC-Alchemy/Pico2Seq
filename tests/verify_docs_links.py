@@ -169,6 +169,8 @@ def check_stale_legacy_references(file_path):
             for i, line in enumerate(f, 1):
                 if 'PROGRAMMERS_MANUAL' in line:
                     stale_findings.append((i, 'PROGRAMMERS_MANUAL reference found', line.strip()))
+                if 'mudras' in line.lower():
+                    stale_findings.append((i, 'Legacy Mudras reference found', line.strip()))
                 if 'daisysp.h' in line or 'src/dsp/' in line:
                     if 'alchemyui-tmag5273-migration.md' not in file_path and 'AGENTS.md' not in file_path and 'CLAUDE.md' not in file_path:
                         stale_findings.append((i, 'Legacy DaisySP / src/dsp/ path found', line.strip()))

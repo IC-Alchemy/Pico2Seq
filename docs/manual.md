@@ -704,8 +704,6 @@ cmake --build build_test --parallel
 - `docs/voice.md` oversells "scale injection": voices read the live global scale table at
   pitch time, so scale changes apply to subsequent notes on all voices regardless of any
   earlier injection — don't assume voices are frozen with an old scale.
-- Some older sub-READMEs say "Mudras Sequencer"/"PicoMudrasSequencer" — that's pre-rename
-  history; the product is **Pico2Seq**.
 
 ---
 

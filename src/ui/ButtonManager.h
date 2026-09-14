@@ -6,7 +6,7 @@
 #include "UIState.h" // Include the new state header
 
 /**
- * @brief Button state and timing management for PicoMudrasSequencer UI
+ * @brief Button state and timing management for Pico2Seq UI
  *
  * Provides utilities for button press detection and parameter button mappings,
  * operating on a central UIState object.

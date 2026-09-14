@@ -16,7 +16,7 @@
 
 // ========================= OLED Display Module =========================
 // Overview:
-// - Purpose: Centralized UI rendering for PicoMudrasSequencer on an SH110X OLED.
+// - Purpose: Centralized UI rendering for Pico2Seq on an SH110X OLED.
 // - Responsibilities: Initialize display hardware, render hierarchical UI (settings,
 //   parameter edit, default status), and provide immediate visual feedback for voice
 //   parameter changes using an observer-style interface.

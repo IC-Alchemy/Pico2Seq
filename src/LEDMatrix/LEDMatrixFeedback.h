@@ -10,7 +10,7 @@ class Sequencer;
 struct UIState;
 
 /**
- * @brief LED Matrix Feedback System for PicoMudrasSequencer
+ * @brief LED Matrix Feedback System for Pico2Seq
  *
  * Provides comprehensive visual feedback for sequencer state, parameter editing,
  * and UI modes through the LED matrix. Handles multiple display modes including:

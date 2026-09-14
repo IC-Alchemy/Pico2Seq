@@ -11,7 +11,7 @@
  * @brief VL53L1X distance sensor driver for real-time parameter control
  *
  * Lightweight driver that provides distance readings for real-time parameter
- * control in the PicoMudrasSequencer. Optimized for audio applications with
+ * control in Pico2Seq. Optimized for audio applications with
  * non-blocking measurement updates and configurable timing parameters.
  *
  * The sensor operates in continuous measurement mode with a 20ms update interval
