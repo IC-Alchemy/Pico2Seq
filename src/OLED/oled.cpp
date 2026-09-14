@@ -10,6 +10,7 @@
 #include "../pico2seq-core/sequencer/ShuffleTemplates.h"
 #include "../pico2seq-core/scales/scales.h"
 #include "../ui/ButtonManager.h"
+#include "../ui/ControlSurfaceLogic.h"
 #include <algorithm>
 #include <cstring> // For strcmp, strlen
 #include <Arduino.h>
@@ -298,6 +299,25 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     return;
   }
 
+  const Sequencer *sequences[] = {&seq1, &seq2, &seq3, &seq4};
+  const auto voice = std::min<uint8_t>(uiState.selectedVoiceIndex, 3);
+  const Sequencer &sequence = *sequences[voice];
+  const auto *config = voiceManager ? voiceManager->getVoiceConfig(voiceSystem.getVoiceId(voice)) : nullptr;
+  const ParamId held = getHeldParameterParamId(uiState);
+  const bool selected = uiState.selectedStepForEdit >= 0;
+
+  // A held (or Shift-latched) parameter button outranks the settings and
+  // sequence-length screens. It shows the composed value at that lane's
+  // playing cursor, which is exactly what live recording writes and the
+  // voice plays, plus the lidar distance.
+  if (held != ParamId::Count && !selected)
+  {
+    displayParameterInfo(held, sequence.getPlaybackStep(), uiState,
+                         sequence.getCurrentStepForParameter(held), config, false, true);
+    commitFrame();
+    return;
+  }
+
   // Priority-based display logic with SettingsSubMode handling
   //
   // New sub-mode architecture (UIState::SettingsSubMode):
@@ -370,50 +390,51 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     return;
   }
 
-  const Sequencer *sequences[] = {&seq1, &seq2, &seq3, &seq4};
-  const auto voice = std::min<uint8_t>(uiState.selectedVoiceIndex, 3);
-  const Sequencer &sequence = *sequences[voice];
-  const auto *config = voiceManager ? voiceManager->getVoiceConfig(voiceSystem.getVoiceId(voice)) : nullptr;
-  const ParamId held = getHeldParameterParamId(uiState);
-  const ParamId editing = held != ParamId::Count ? held : uiState.currentEditParameter;
-  const bool selected = uiState.selectedStepForEdit >= 0;
-  if (editing != ParamId::Count && (held != ParamId::Count || selected)) {
-    const uint8_t step = selected ? static_cast<uint8_t>(uiState.selectedStepForEdit) :
-                                   sequence.getCurrentStepForParameter(editing);
-    displayParameterInfo(editing, sequence.getPlaybackStep(selected ? step : UINT8_MAX),
-                         uiState, step, config, selected);
-  } else if (selected) {
-    drawVoiceHeader(uiState, false);
-    displayHardware.setCursor(2, 18);
-    displayHardware.setTextSize(2);
-    displayHardware.print("Step "); displayHardware.print(uiState.selectedStepForEdit + 1);
-    displayHardware.setTextSize(1);
-    displayHardware.setCursor(2, 43); displayHardware.print("Hold parameter");
-    displayHardware.setCursor(2, 54); displayHardware.print("to edit this step");
+  if (selected) {
+    // Step Edit: the encoder edits this step, so show the step's value for
+    // the same parameter the encoder and lidar write (held, toggled, or the
+    // encoder target's lane).
+    const ParamId editing = ControlSurface::stepEditParameter(held, uiState.currentEditParameter,
+                                                              uiState.currentEncoderParameter);
+    if (editing != ParamId::Count) {
+      const uint8_t step = static_cast<uint8_t>(uiState.selectedStepForEdit);
+      displayParameterInfo(editing, sequence.getPlaybackStep(step), uiState, step, config, true,
+                           held != ParamId::Count);
+    } else {
+      drawVoiceHeader(uiState, false);
+      displayHardware.setCursor(2, 18);
+      displayHardware.setTextSize(2);
+      displayHardware.print("Step "); displayHardware.print(uiState.selectedStepForEdit + 1);
+      displayHardware.setTextSize(1);
+      displayHardware.setCursor(2, 43); displayHardware.print("Hold parameter");
+      displayHardware.setCursor(2, 54); displayHardware.print("to edit this step");
+    }
   } else {
+    // No parameter held: show the base the encoder edits for its target.
+    // Step modifiers are left out, so a turn always shows its effect.
     drawVoiceHeader(uiState, true);
     displayHardware.setCursor(104, 0);
     displayHardware.print("S"); displayHardware.print(sequence.getCurrentStep() + 1);
-    const auto id = VoiceEditor::encoderTarget();
-    const auto lane = config ? VoiceEdit::sequenceLane(id, *config) : ParamId::Count;
-    const Step values = sequence.getPlaybackStep();
+    const auto encoderId = VoiceEditor::encoderTarget();
     char value[48] = "--";
     if (config) {
-      if (lane != ParamId::Count)
-        MusicalValues::format(lane, values, *config, scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)],
+      const ParamId encoderLane = VoiceEdit::sequenceLane(encoderId, *config);
+      if (encoderLane != ParamId::Count)
+        MusicalValues::format(encoderLane, MusicalValues::baseStep(*config), *config,
+                              scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)],
                               uClock.getTempo(), value, sizeof(value));
-      else VoiceEdit::format(id, *config, value, sizeof(value));
+      else VoiceEdit::format(encoderId, *config, value, sizeof(value));
     }
     displayHardware.setTextSize(1);
     displayHardware.setCursor(2, 31);
-    displayHardware.print(config ? VoiceEdit::name(id, *config) : "Value");
+    displayHardware.print(config ? VoiceEdit::name(encoderId, *config) : "Value");
     constexpr const char *shortScales[] = {
       "Major", "Dorian", "Phrygian", "Lydian", "Mixolyd", "Minor", "Locrian",
       "Min Pent", "Phryg Dom", "Lyd Dom", "Harm Min", "Whole", "Chromatic"};
     static_assert(sizeof(shortScales) / sizeof(shortScales[0]) == SCALES_COUNT);
     displayHardware.setCursor(68, 31);
     displayHardware.print(shortScales[std::min<size_t>(currentScale, SCALES_COUNT - 1)]);
-    if (!values.isGateActive) {
+    if (!sequence.getPlaybackStep().isGateActive) {
       displayHardware.setCursor(92, 0); displayHardware.print("R");
     }
     drawMusicalValue(value, 41);
@@ -462,7 +483,7 @@ void OLEDDisplay::drawVoiceHeader(const UIState &state, bool prominent)
 
 void OLEDDisplay::displayParameterInfo(ParamId id, const Step &values,
                                        const UIState &state, uint8_t step,
-                                       const VoiceConfig *config, bool selected)
+                                       const VoiceConfig *config, bool selected, bool showDistance)
 {
   drawVoiceHeader(state, false);
   displayHardware.drawFastHLine(2, 10, 124, SH110X_WHITE);
@@ -479,6 +500,21 @@ void OLEDDisplay::displayParameterInfo(ParamId id, const Step &values,
   displayHardware.setCursor(2, 46);
   displayHardware.print(selected ? "STEP " : "LIVE ");
   displayHardware.print(values.isGateActive ? "NOTE" : "REST");
+  if (showDistance)
+  {
+    // Current lidar reading in mm. Parentheses: outside the recording window,
+    // so nothing is written. "--mm": no measurement.
+    char hand[16];
+    const int mm = distanceSensor.getRawDistanceMm();
+    if (mm < 0)
+      snprintf(hand, sizeof(hand), "--mm");
+    else if (AppState::performanceInput.handPresent)
+      snprintf(hand, sizeof(hand), "%dmm", mm);
+    else
+      snprintf(hand, sizeof(hand), "(%dmm)", mm);
+    displayHardware.setCursor(OLEDConstants::SCREEN_WIDTH - 2 - 6 * static_cast<int>(strlen(hand)), 46);
+    displayHardware.print(hand);
+  }
   displayHardware.setCursor(2, 56);
   if (id == ParamId::Note || id == ParamId::Octave)
     displayHardware.print(scaleNames[std::min<size_t>(currentScale, SCALES_COUNT - 1)]);

@@ -14,7 +14,7 @@
  * control in Pico2Seq. Optimized for audio applications with
  * non-blocking measurement updates and configurable timing parameters.
  *
- * The sensor operates in continuous measurement mode with a 20ms update interval
+ * The sensor operates in continuous measurement mode with a 35ms update interval
  * to provide smooth parameter control while avoiding interference with audio
  * processing on Core 0.
  *
@@ -35,9 +35,9 @@ public:
   /**
    * @brief Initialize VL53L1X sensor with optimized settings
    *
-   * Configures the sensor for medium-range distance measurement with
-   * 20ms timing budget and 24ms inter-measurement period. Uses continuous
-   * measurement mode for real-time parameter control applications.
+   * Configures the sensor for Long distance mode with a 33ms timing budget
+   * and 35ms inter-measurement period. Uses continuous measurement mode for
+   * real-time parameter control applications.
    *
    * @return true if initialization successful, false on hardware error
    * @note Requires I2C bus to be available and sensor connected at address 0x29
@@ -48,8 +48,8 @@ public:
    * @brief Non-blocking sensor update
    *
    * Polls the sensor for new distance measurements once, without waiting for
-   * the next sample. Updates are limited to 20ms intervals to balance
-   * responsiveness with system performance.
+   * the next sample. Polls are limited to READ_INTERVAL_MS to balance
+   * responsiveness with I2C traffic.
    *
    * @note Call this function regularly from Core 1 main loop
    * @warning Do not call from Core 0 (audio processing core)
@@ -63,10 +63,22 @@ public:
    * is updated by the update() function and represents the distance from
    * the sensor to the nearest object within the measurement range.
    *
-   * @return Distance in millimeters (55-700mm is the useful range; AppState clamps/normalizes)
-   * @note Returns the last valid reading even if sensor communication fails
+   * @return Distance in millimeters (55-700mm is the useful range; AppState clamps/normalizes),
+   *         or INVALID_DISTANCE_MM when nothing has been measured recently
+   * @note A single rejected measurement keeps the previous distance; a run of
+   *       INVALID_READINGS_BEFORE_DROPOUT rejected measurements clears it
    */
   int getRawDistanceMm() const;
+
+  /**
+   * @brief ST range status of the latest measurement, for diagnostics
+   *
+   * 0 = valid, 1 = sigma fail (noisy, still used), 2 = signal fail,
+   * 4 = out of bounds, 7 = wraparound; NO_RANGE_STATUS before the first reading.
+   */
+  uint8_t getLastRangeStatus() const;
+
+  static constexpr uint8_t NO_RANGE_STATUS = 255;
 
   /**
    * @brief Check if sensor is providing valid readings
@@ -84,6 +96,10 @@ private:
 
   // Current distance measurement in millimeters
   int currentDistanceMm;
+
+  // Rejected measurements since the last accepted one
+  uint8_t consecutiveInvalidReadings;
+  uint8_t lastRangeStatus;
 
   // Connection status tracking
   bool sensorConnected;

@@ -104,6 +104,17 @@ public:
     void previewActiveStep(VoiceState *voiceState);
 
     /**
+     * @brief Refresh a sounding voice from the current track cursors
+     *
+     * Copies velocity, filter, attack and decay (plus note and octave while
+     * the gate is high) from getPlaybackStep(). Unlike previewActiveStep()
+     * it never retriggers and leaves the gate, slide and note lifecycle
+     * alone, so live edits can be heard without restarting the envelope.
+     * @param voiceState Voice state to update in place
+     */
+    void refreshVoiceParameters(VoiceState *voiceState) const;
+
+    /**
      * @brief Toggle gate parameter for a specific step
      * @param stepIdx Step index to toggle (0-63)
      */

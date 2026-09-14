@@ -387,3 +387,98 @@ TEST_CASE("Patch randomization preserves register and playable preset timing", "
     }
   }
 }
+
+TEST_CASE("Stepped values move one step per adjust whatever the delta",
+          "[voice_edit][encoder]") {
+  for (Id id : {Id::Note, Id::Octave, Id::Engine, Id::Recipe, Id::OscCount,
+                Id::Wave1, Id::Harmony1, Id::Harmony2, Id::Harmony3,
+                Id::EnvelopeOn, Id::Gate, Id::Slide})
+    CHECK(stepped(id));
+  for (Id id : {Id::Velocity, Id::Cutoff, Id::Attack, Id::Decay,
+                Id::GateLength, Id::Resonance, Id::SlideTime, Id::Level1})
+    CHECK_FALSE(stepped(id));
+
+  auto config = VoicePresets::getDigitalVoice();
+  enablePatch(config);
+  config.baseNote = 10;
+  adjust(Id::Note, config, 0.0001f);
+  REQUIRE(config.baseNote == 11);
+  adjust(Id::Note, config, -0.9f);
+  REQUIRE(config.baseNote == 10);
+  config.baseOctave = 0;
+  adjust(Id::Octave, config, 0.5f);
+  REQUIRE(config.baseOctave == 12);
+}
+
+TEST_CASE("An absent hand leaves recorded modifiers untouched",
+          "[voice_edit][recording]") {
+  // Playback passes a negative distance while no hand is in range; the step
+  // must keep its recording rather than take a minimum-distance value.
+  auto config = VoicePresets::getDigitalVoice();
+  enablePatch(config);
+  Sequencer seq;
+  seedModifiers(seq);
+  seq.setPlaybackTransform(composeLane, &config, mapOctave);
+  seq.setStepParameterValue(ParamId::Gate, 0, 1);
+  seq.setStepParameterValue(ParamId::Filter, 0, 0.8f);
+  seq.start();
+  seq.setRecordingInput(0.0f);
+  VoiceState state;
+  seq.advanceStep(0, -1, false, false, true, false, false, false, -1, &state);
+  REQUIRE(seq.getStepParameterValue(ParamId::Filter, 0) == Approx(0.8f));
+}
+
+namespace {
+// RMS of one gated step while `edit` runs every millisecond, as the lidar,
+// faders and encoder did through updateActiveVoiceState().
+double rmsWhileEditing(uint8_t preset, void (*edit)(Sequencer &, VoiceState &)) {
+  VoiceManager manager(1);
+  manager.init(48000.0f);
+  VoiceConfig config = VoicePresets::getPresetConfig(preset);
+  enablePatch(config);
+  const uint8_t id = manager.addVoice(config);
+  Sequencer seq;
+  seq.setPlaybackTransform(composeLane, manager.getVoiceConfig(id), mapOctave);
+  seedModifiers(seq);
+  seq.setStepParameterValue(ParamId::Gate, 0, 1);
+  seq.setStepParameterValue(ParamId::GateLength, 0, 1.0f);
+  seq.start();
+  manager.setTransportMuted(false);
+  // Let the staged patch apply (it waits for a low gate) before the step.
+  for (int i = 0; i < 480; ++i)
+    manager.processAllVoices();
+  VoiceState state;
+  seq.advanceStep(0, -1, false, false, false, false, false, false, -1, &state);
+  manager.updateVoiceState(id, state);
+  state.shouldRetrigger = false; // the event belongs to the push above
+  double sum = 0;
+  constexpr int kSamples = 4800;
+  for (int i = 0; i < kSamples; ++i) {
+    if (i % 48 == 47) {
+      edit(seq, state);
+      manager.updateVoiceState(id, state);
+    }
+    const double y = manager.processAllVoices();
+    sum += y * y;
+  }
+  return std::sqrt(sum / kSamples);
+}
+} // namespace
+
+TEST_CASE("Live step edits keep oscillator voices sounding",
+          "[voice_edit][recording]") {
+  // Re-running the step for each edit retriggered the envelope every
+  // millisecond: oscillator voices fell near silent while waveguides, which
+  // re-pluck, stayed loud. Refreshing in place must sound like no edit.
+  const uint8_t square = static_cast<uint8_t>(VoicePresets::findPreset("Square"));
+  const double untouched = rmsWhileEditing(square, [](Sequencer &, VoiceState &) {});
+  const double refreshed = rmsWhileEditing(square, [](Sequencer &s, VoiceState &v) {
+    s.refreshVoiceParameters(&v);
+  });
+  const double retriggered = rmsWhileEditing(square, [](Sequencer &s, VoiceState &v) {
+    s.previewActiveStep(&v);
+  });
+  REQUIRE(untouched > 0.01);
+  CHECK(refreshed == Approx(untouched).epsilon(0.05));
+  CHECK(retriggered < untouched * 0.5);
+}

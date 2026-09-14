@@ -34,13 +34,15 @@ controls resume. Button 7 is Help in these stages; audition is not implemented.
 ## Base plus modifier
 
 Every numeric sound setting has a per-voice base in `VoiceConfig`. The encoder
-edits these requested base values in normal play mode. When a step is selected for
-editing (`uiState.selectedStepForEdit >= 0`), the encoder adjusts that step's stored
-parameter value directly with live auditioning.
+edits these requested values, including outside the editor when a sequenced
+parameter is selected. With a step selected for editing, it edits that step's stored
+value instead (see `editSelectedStep()` in `src/sensors/EncoderManager.cpp`).
 
 For timbre, envelope, velocity, octave and gate length, the lidar records a modifier.
 Note records melody scale steps directly. Both step editing and live recording normalize
-the calibrated 55–700 mm sensor range to 0–1 (a 645 mm active span). In the normalized parameter domain:
+the calibrated 55–700 mm sensor range to 0–1 (a 645 mm active span). With no hand in range (an invalid reading or
+one more than 40 mm outside the window) nothing is recorded and steps keep their values.
+In the normalized parameter domain:
 
 ```
 modifier = lidarNormalized - 0.5
@@ -72,8 +74,12 @@ Gate remains a trigger pattern: its base enables/disables the pattern. Slide's
 base can enable slide throughout the pattern, otherwise the recorded Slide bits
 control it. Neither binary track is treated as a continuous lidar modifier.
 
-The step OLED and normal encoder screen show composed playback values, after
-preset bases, clamping, quantization and engine-specific mapping. Note displays
+With a parameter button held, and in Step Edit, the OLED shows composed playback
+values, after preset bases, clamping, quantization and engine-specific mapping: the
+value the voice plays. With no parameter held, the home screen shows the encoder
+target's base, since a step's modifier or a clamp at a limit could otherwise hide an
+encoder turn. Live edits (lidar, faders, encoder) refresh the sounding note in place
+through `Sequencer::refreshVoiceParameters()`; they never retrigger it. Note displays
 note names and octaves, including oscillator harmonies/detuning (Bass starts at
 `C2/C3`); unpitched percussion reads `Noise`. Envelope and gate durations use
 ms/s, cutoff uses Hz, octave uses signed octaves, and FM/spacing use ratios.
