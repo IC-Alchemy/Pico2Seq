@@ -160,14 +160,11 @@ sensors,ButtonHandlers}.md` cover each subsystem. The essentials:
 
 `src/voice/VoiceSystem.h` replaced what used to be parallel global arrays (`voice1Id`,
 `voice2Id`, ...) with array-based, bounds-checked access for `MAX_VOICES = 4` voices:
-`voiceIds[]`, `voiceStates[]` (one `VoiceState` per voice), `gates[]`/`gateTimers[]` (only
-voices 0–1 have hardware gate/MIDI support; voices 2–3 are audio-only). Always go through its
-accessors (`getVoiceState`, `getVoiceId`, `getGate`, `getGateTimer`) rather than indexing arrays
-directly — they clamp out-of-range indices.
-
-Voice index 0–3 is used consistently across the codebase; some functions (`updateVoiceParameters`,
-gate/MIDI helpers) still branch on `isVoice2` as a holdover from the original 2-voice design —
-this only applies to voices 0/1, since 2/3 never had gates or MIDI wired up.
+`voiceIds[]`, `voiceStates[]` (one `VoiceState` per voice), `gates[]`/`gateTimers[]` (all
+4 voices have software gates and duration timers; voices 0–1 additionally participate in
+internal `MidiNoteManager` tracking). Always go through its accessors (`getVoiceState`,
+`getVoiceId`, `getGate`, `getGateTimer`) rather than indexing arrays directly — they clamp
+out-of-range indices.
 
 ### Data flow (input → sound)
 

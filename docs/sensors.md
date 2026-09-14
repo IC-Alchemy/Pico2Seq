@@ -69,11 +69,10 @@ The magnetic encoder subsystem consists of two architectural layers:
   - Dynamic velocity-sensitive acceleration (400x dynamic range: 0.008x to 3.2x scaling factor).
   - Adaptive low-pass speed filtering.
 - **`EncoderManager` (`src/sensors/EncoderManager.h/.cpp`)**: High-level parameter management subsystem bridging encoder delta increments to the synthesizer data model. Handles:
-  - Per-voice base parameter updates across all four voices (`applyEncoderBaseValues`, one base-value set per voice).
-  - Slide-time application to the sliding voice (`applyEncoderSlideTimeValues`).
-  - Since the Voice Editing rework (2026-09-11) the encoder edits **per-voice base values only** — it no longer writes a selected step's stored value (`updateEncoderStepParameterValues` now just delegates to the base update).
-  - Bidirectional "Shift and Scale" mapping.
-  - Dynamic boundary proximity flash zones (`FlashSpeedZone` — currently defined but with no consumer; dormant).
+  - **Voice Parameter Editing**: In standard voice mode or when `uiState.voiceEditor.active` is true, encoder rotation adjusts the target voice parameter via `VoiceEditor::encoder()` / `VoiceEdit::adjust()`, publishing updates to `VoiceManager`.
+  - **Step Parameter Editing**: When a step is selected (`uiState.selectedStepForEdit >= 0`), encoder rotation applies a 5% delta of the parameter range to the selected step's parameter (rounded to integer for `ParamId::Note`), storing it into the voice's sequencer and immediately calling `updateActiveVoiceState(step, *selectedSeq)` for live audio auditioning.
+  - Parameter bounds query (`getParameterMinValueForParamId`, `getParameterMaxValueForParamId`) mapped directly from `CORE_PARAMETERS`.
+  - Dynamic boundary proximity flash zones (`FlashSpeedZone` — defined configuration for boundary proximity feedback).
 
 ### 2. VL53L1X Distance Sensor
 
@@ -106,29 +105,12 @@ The magnetic encoder subsystem consists of two architectural layers:
 
 ### EncoderManager API (`src/sensors/EncoderManager.h`)
 
-#### Parameter Modification & Application
+#### Parameter Processing & Step Editing
 ```cpp
-void applyIncrementToParameter(EncoderBaseValues* baseValues, EncoderParameterMode param, float increment);
 void updateEncoderBaseValues(UIState& uiState);
-void updateEncoderStepParameterValues(UIState& uiState); // now delegates to updateEncoderBaseValues
-void applyEncoderBaseValues(VoiceState *voiceState, uint8_t voiceId);
-void applyEncoderSlideTimeValues();
-```
-
-#### Range Validation & Clamping
-```cpp
-float getParameterMinValue(EncoderParameterMode param);
-float getParameterMaxValue(EncoderParameterMode param);
-float getEncoderBaseValueRange(EncoderParameterMode param);
-float clampEncoderBaseValue(EncoderParameterMode param, float value);
-```
-
-#### Step Parameter Conversions & Formatting
-```cpp
 ParamId convertEncoderParameterToParamId(EncoderParameterMode encoderParam);
 float getParameterMinValueForParamId(ParamId paramId);
 float getParameterMaxValueForParamId(ParamId paramId);
-String formatParameterValueForDisplay(ParamId paramId, float value);
 ```
 
 #### Lifecycle & State Initialization
@@ -139,8 +121,11 @@ void initEncoderBaseValues();
 extern MagEncoder magEncoder;
 ```
 
-*(The former `delayTarget`, `feedbackAmmount`, and `MAX_DELAY_SAMPLES` globals and
-`applyEncoderDelayValues()` were removed with the delay effect, 2026-09-11.)*
+#### Helper Functions (`src/sensors/EncoderManager.cpp`)
+```cpp
+float shiftAndScale(float seqValue, float encoderOffset);
+float getEncoderParameterValue();
+```
 
 ---
 
@@ -347,10 +332,8 @@ void loop() {
             mm = 0;
         }
 
-        // Live parameter recording into active step if step is selected
-        if (uiState.selectedStepForEdit != -1) {
-            updateParametersForStep(uiState.selectedStepForEdit);
-        }
+        // MagEncoder handles active voice editing or selected step editing
+        // (if uiState.selectedStepForEdit >= 0) automatically
     }
 }
 ```

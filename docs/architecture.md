@@ -56,8 +56,8 @@ disabled; TinyUSB CDC remains available for the serial console.
 
 ### 2.1 Core 1: Real-Time Audio Engine
 - **Dedicated Execution**: Runs standard Arduino `setup1()` and `loop1()`. No UI, serial processing, or sensor polling is ever executed on Core 1. `loop1()` blocks on `take_audio_buffer(producer_pool, true)` — that blocking *is* the pacing; never add anything else to this core.
-- **Buffer Pool**: Configured with `audio_new_producer_pool(&bufferFormat, 3, 256)`:
-  - 3 producer buffers in the pool.
+- **Buffer Pool**: Configured with `audio_new_producer_pool(&bufferFormat, 4, 256)`:
+  - 4 producer buffers in the pool (effective depth: three queued buffers plus one playing).
   - 256 samples per buffer @ 48kHz ($\approx 5.33\text{ ms}$ real-time budget per buffer).
   - Format: 16-bit signed stereo (`AUDIO_BUFFER_FORMAT_PCM_S16`), sample stride of 4 bytes (2 channels $\times$ 2 bytes).
 - **I2S Hardware Configuration**:
@@ -111,7 +111,7 @@ disabled; TinyUSB CDC remains available for the serial console.
 - **PPQN Drain Loop** (in `loop()`, same core as the ISR):
   - Drains `ppqnTicksPending`.
   - Advances `midiNoteManager.updateTiming(globalTickCounter)`.
-  - Advances sequencer note durations (`seq1/seq2.tickNoteDuration()`).
+  - Advances sequencer note durations (`seq1..seq4.tickNoteDuration()`).
   - Ticks gate countdown timers (`voiceSystem.tickAllGateTimers()`).
 - **1ms Sensor and Control Loop**:
   - `Matrix_scan()`: Consumes MPR121 touch-status interrupts from GP8 and, only when pending, scans 32 capacitive touch step pads over I2C0 (Wire: GP4/GP5 @ 0x5A).
@@ -213,9 +213,9 @@ struct VoiceSystem {
     // Active voice states for synthesis and sequencing
     VoiceState voiceStates[MAX_VOICES];
 
-    // Software gate flags + gate timers (strictly Voices 0 and 1)
-    volatile bool gates[2] = {false, false};
-    GateTimer gateTimers[2];
+    // Software gate flags + gate timers for all 4 voices
+    volatile bool gates[MAX_VOICES] = {false, false, false, false};
+    GateTimer gateTimers[MAX_VOICES];
 
     // Array accessors with bounds checking
     uint8_t getVoiceId(uint8_t voiceIndex) const;
@@ -234,14 +234,13 @@ struct VoiceSystem {
 extern VoiceSystem voiceSystem;
 ```
 
-### 4.2 Voice Count & Hardware Asymmetry
+### 4.2 Voice Count & Subsystem Capabilities
 - **4 Polyphonic Voices (`MAX_VOICES = 4`)**: All 4 voices are fully synthesized in real time on Core 1 via `voiceManager->processAllVoices()`.
-- **2-Channel Hardware Gate / MIDI Asymmetry**:
-  - **Voices 0 and 1**: Fully equipped with USB MIDI note on/off and CC transmission, and `GateTimer` duration countdowns.
-  - **Voices 2 and 3**: Audio-only synthesis voices. They are driven by `seq3` and `seq4` and synthesized by `VoiceManager`, but have no USB MIDI output routing.
+- **4-Voice Software Gates & Timers**: All four voices (indices 0–3) possess dedicated software gate flags (`gates[MAX_VOICES]`) and duration timers (`gateTimers[MAX_VOICES]`). On step triggers with high gates, `StepPlayback` sets the gate flag and starts the duration timer; PPQN ticks decrement the timers in `ClockService::processPendingGateTicks()`, turning gates off when durations expire and pushing immediate note-offs to `VoiceManager`.
+- **Internal Note Lifecycle Tracking (Voices 0 & 1)**: Internal note on/off state tracking via `MidiNoteManager` is maintained for voices 0 and 1 (USB MIDI output itself is removed; no bytes are transmitted externally).
 - **Safe Dummy Returns**:
-  - `getGate(voiceIndex)` for `voiceIndex >= 2` returns a reference to an internal `static volatile bool dummy = false`.
-  - `getGateTimer(voiceIndex)` for `voiceIndex >= 2` returns a reference to an internal `static GateTimer dummy`.
+  - `getGate(voiceIndex)` for `voiceIndex >= MAX_VOICES` returns a reference to an internal `static volatile bool dummy = false`.
+  - `getGateTimer(voiceIndex)` for `voiceIndex >= MAX_VOICES` returns a reference to an internal `static GateTimer dummy`.
   - `getVoiceState(voiceIndex)` clamps index `< MAX_VOICES ? voiceIndex : 0`.
 
 ---
@@ -441,7 +440,7 @@ I2S Stereo Audio Out (GP10 / GP11 / GP12)
 | Constraint / Metric | Specification | Verification Method |
 |---|---|---|
 | Audio Sample Rate | 48,000 Hz, 16-bit stereo | Hardware I2S clock configuration (`src/app/AudioEngine.cpp`) |
-| Audio Buffer Size | 256 samples ($5.33\text{ ms}$) $\times$ 3 buffers | `audio_new_producer_pool` inspection |
+| Audio Buffer Size | 256 samples ($5.33\text{ ms}$) $\times$ 4 buffers | `audio_new_producer_pool` inspection |
 | Audio Latency | $\approx 10.66\text{ ms}$ (2 buffers) | DMA producer pool sizing |
 | Core 1 Allocation | 0 bytes dynamic allocation in `loop1()` | Static buffer and fixed array audit |
 | Core 0 Control Scan | 1,000 Hz (1 ms interval) | `src/app/ControlIO.cpp` interval checks |

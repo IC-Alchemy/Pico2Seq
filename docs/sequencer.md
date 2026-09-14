@@ -151,7 +151,9 @@ public:
     uint8_t getStepCount(ParamId id) const;
     float getValue(ParamId id, uint8_t stepIdx) const;
     void setValue(ParamId id, uint8_t stepIdx, float value);
-    void randomizeParameters();
+    void setParameterValue(ParamId id, uint8_t stepIdx, float value);
+    void copyStep(uint8_t srcStep, uint8_t dstStep);
+    void randomizeParameters(bool usePatchBases = false);
 
 private:
     ParameterTrack<SequencerConstants::MAX_STEPS_COUNT> _tracks[static_cast<size_t>(ParamId::Count)];
@@ -192,11 +194,16 @@ public:
     uint8_t getParameterStepCount(ParamId id) const;
     void setParameterStepCount(ParamId id, uint8_t steps);
     uint8_t getCurrentStep() const;
+    int8_t getCurrentNote() const;
     uint8_t getCurrentStepForParameter(ParamId paramId) const;
     Step getStep(uint8_t stepIdx) const;
+    void setStep(uint8_t stepIdx, const Step &step);
+    void copyStep(uint8_t srcStep, uint8_t dstStep);
+    Step getPlaybackStep(uint8_t stepIdx = UINT8_MAX) const;
 
     // Step Execution & Preview
     void playStepNow(uint8_t stepIdx, VoiceState *voiceState);
+    void previewActiveStep(VoiceState *voiceState);
     void toggleStep(uint8_t stepIdx);
 
     // Transport Control
@@ -208,12 +215,12 @@ public:
     // Note & Envelope Timing
     void startNote(uint8_t note, uint8_t velocity, uint16_t duration);
     void handleNoteOff(VoiceState *voiceState);
-    void tickNoteDuration(VoiceState *voiceState);
+    bool tickNoteDuration(VoiceState *voiceState);
     bool isNotePlaying() const;
     void setMidiNoteOffCallback(void (*callback)(uint8_t note, uint8_t channel));
 
     // Core Step Advancement (Primitive Signature)
-    void advanceStep(uint8_t current_uclock_step, int mm_distance,
+    void advanceStep(uint32_t current_uclock_step, int mm_distance,
                      bool is_note_button_held, bool is_velocity_button_held,
                      bool is_filter_button_held, bool is_attack_button_held,
                      bool is_decay_button_held, bool is_octave_button_held,
@@ -244,17 +251,18 @@ When `advanceStep()` is called on each 16th note clock tick:
    ```
 5. **Real-time Parameter Recording**:
    If `mm_distance >= 0` and not in step-edit mode (`current_selected_step_for_edit == -1`):
-   - Normalizes distance: `normalized = clamp(mm_distance / 1400.0f, 0.0f, 1.0f)`.
+   - Normalizes distance: `normalized = clamp(mm_distance / 1100.0f, 0.0f, 1.0f)`.
    - Checks held parameter buttons. For `ParamId::Note`, checks gate restriction (recording is allowed only if the step's Gate is HIGH).
    - Maps normalized distance to the target parameter's range and calls `setStepParameterValue(paramId, currentStepPerParam[paramId], value)`.
 6. **Step Processing (`processStep`)**:
    Calls `processStep(UINT8_MAX, voiceState)` to populate the output `VoiceState`:
    - Extracts all parameter values at their respective `currentStepPerParam[id]` indices.
-   - Converts octave parameter via `mapFloatToOctaveOffset()`:
-     - `octave < 1/3` &rarr; `-12` semitones
-     - `octave > 2/3` &rarr; `+12` semitones
-     - `1/3 <= octave <= 2/3` &rarr; `0` semitones
-   - Slide Handling: If `hasSlide` is true, envelope is not retriggered (`voiceState->shouldRetrigger = false`); note frequency transitions smoothly via slewing in `Voice`.
+   - Calculates final note value and clamps to valid MIDI range `[0, 127]`.
+   - Converts octave parameter via `mapFloatToOctaveOffset()` (or injected `octaveMapper_`):
+     - `octave < 0.15` &rarr; `-12` semitones
+     - `octave > 0.40` &rarr; `+12` semitones
+     - `0.15 <= octave <= 0.40` &rarr; `0` semitones
+   - Slide Handling: If `!slideVal || !noteActive`, envelope retriggers (`voiceState->shouldRetrigger = true`). If sliding from an already active note (`slideVal && noteActive`), `shouldRetrigger = false` and note frequency transitions smoothly via slewing in `Voice`.
    - Gate-Controlled Note Output: If Gate is LOW, previous `noteIndex` and `octaveOffset` are retained in `VoiceState`, allowing sustaining/releasing notes to fade out naturally without glitching.
 
 ---
@@ -266,7 +274,7 @@ When `advanceStep()` is called on each 16th note clock tick:
 The bridge between `UIState` and `Sequencer` is declared in `src/ui/UIEventHandler.h` and implemented in `src/ui/UIEventHandler.cpp`:
 
 ```cpp
-void advanceSequencerStep(Sequencer &seq, uint8_t current_uclock_step, int mm_distance,
+void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_distance,
                           const UIState &uiState, VoiceState *voiceState)
 {
   seq.advanceStep(current_uclock_step, mm_distance,

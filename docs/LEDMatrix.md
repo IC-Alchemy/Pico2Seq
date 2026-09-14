@@ -17,7 +17,7 @@ The panel **mirrors the touch matrix**: the MPR121 touch surface (`src/matrix/`)
 - **LED Type:** WS2812B Addressable RGB LEDs
 - **Matrix Dimensions:** 8 columns × 4 rows (32 total LEDs)
 - **Data Pin:** `GPIO 1` (`LEDConstants::MATRIX_DATA_PIN`)
-- **Default Brightness:** `LEDConstants::DEFAULT_BRIGHTNESS` = 120 (on a 0–255 scale); the sketch initializes the matrix with `ledMatrix.begin(100)` in `setup1()`, so runtime brightness is 100.
+- **Default Brightness:** `LEDConstants::DEFAULT_BRIGHTNESS` = 120 (on a 0–255 scale); the firmware initializes the matrix with `ledMatrix.begin(kStartupLedBrightness)` (brightness 100) on Core 0 during `Application::begin()` (via `ControlIO::beginMainBusAndLeds()`).
 - **Power Supply:** 5V rail capable of supplying up to ~1.5A for full-white illumination; internal brightness scaling is applied to limit peak current draw.
 
 ---
@@ -147,7 +147,7 @@ Implements the multi-mode sequencing and navigation visualizer:
 2. **Step Gate & Playhead Visualization:** Displays active gates for the current voice pair across band rows 0–1 (pair low voice) and 2–3 (pair high voice), with a distinct `playheadAccent` indicating the current 16th-note playhead position.
 3. **Polyrhythmic Track Overlays:** Visualizes independent parameter track step lengths and positions for Note, Velocity, and Filter tracks.
 4. **Parameter Edit Mode:** Shows step values, track lengths, and value adjustments when holding a parameter button or editing a step.
-5. **Settings & Preset Selection:** Shows voice configurations and allows scrolling through the 15 voice presets with cursor highlighting.
+5. **Settings & Preset Selection:** Displays active voice selection and page navigation (pads 6 and 7 illuminated for `<` and `>` when page navigation is available), highlighting available presets on the active page (Page 1: pads 8–31 for presets 1–24; Page 2: pads 8–12 for presets 25–29) with bright pulsing on the active preset and dim steady illumination on available presets.
 
 #### 10 LED Color Themes (`enum class LEDTheme`)
 

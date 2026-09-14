@@ -6,11 +6,11 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 
 ### Synthesis
 - **4 Independent Polyphonic Voices**: Each with a complete DSP chain (B-spline oscillator bank, resonant main filter, ADSR envelope, overdrive distortion)
-- **Three Sound Engines per Voice**: A classic oscillator bank (up to 3 oscillators, or raw noise), a Karplus-Strong **waveguide** engine for plucked/nylon/bell/shimmer strings, and a **noise-FX texture** engine (prime-tap diffuser, regenerative allpass swarm, pitch-tracked Lorenz chaos growl)
+- **Five Sound Engines per Voice**: A classic oscillator bank (up to 3 oscillators, or raw noise), a Karplus-Strong **waveguide** engine for plucked/nylon/bell/shimmer strings, a **noise-FX texture** engine (prime-tap diffuser, regenerative allpass swarm, pitch-tracked Lorenz chaos growl), a native 7-voice **hypersaw** engine, and a **recipe** engine for modular rpdsp sound synthesis patches (FM, phase distortion, DSF, formant synthesis, ring modulation, reversing sync, spectral, and chaotic prisms)
 - **Two Filter Topologies**: A 24dB multi-mode ladder filter (LP12, LP24, BP12, BP24, HP12, HP24) with drive and passband gain compensation on the character voices, plus a clean modulation-stable state-variable filter (LP/BP/HP) everywhere else — including all three bass presets
 - **Effects Processing**: Per-voice overdrive distortion
 - **ADSR Envelopes**: Fast, analog-modeled attack, decay, sustain, and release stages with microsecond accuracy
-- **15 Voice Presets**: Stored as `constexpr` tables in flash (.rodata), covering classic subtractive, sub-bass, waveguide string, hypersaw, and noise-texture sounds
+- **29 Voice Presets**: Stored as `constexpr` tables in flash (.rodata), organized across a 2-page browser, covering classic subtractive, sub-bass, waveguide string, hypersaw, noise-texture, and 14 recipe/musical sounds
 
 ### Advanced Sequencing
 - **Polymetric Sequencing**: Independent track step lengths for each parameter (Notes: 16 steps, Filter: 8 steps, Velocity: 12 steps, etc.)
@@ -28,10 +28,10 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **LED Matrix**: 8×4 WS2812B RGB LED display (mirroring the 4×8 touch matrix) with 10 vibrant color themes and playhead visualization
 
 ### Architecture Highlights
-- **VoiceSystem Architecture**: Centralized, array-based voice management with safe accessor methods
+- **VoiceSystem Architecture**: Centralized, array-based voice management with safe accessor methods, providing software gates and duration timers across all 4 voices (0–3)
 - **Dual-Core Asymmetric Design**: Core 1 dedicated exclusively to 48kHz audio synthesis; Core 0 handles UI, sensors, clock, display rendering, and the USB CDC serial console
-- **Lock-Free Parameter Staging**: Atomic generation counters allow Core 0 to stage parameter changes without blocking Core 1 audio processing
-- **Host Test Suite**: Catch2 v3 unit test suite with hardware stubs, built and run locally via CTest
+- **Lock-Free Parameter Staging**: Atomic generation counters and lock-free SPSC queues allow Core 0 to stage parameter changes without blocking Core 1 audio processing
+- **Host Test Suite**: Catch2 v3 unit test suite with hardware stubs across 4 test executables (283 tests total), built and run locally via CTest
 
 ---
 
@@ -56,7 +56,7 @@ For a practical guide to changing the firmware, start with
 │   ├── voice/                # Synthesizer voices, VoiceSystem, and VoicePresets
 │   │   ├── Voice.h/.cpp      # Synthesizer voice DSP chain and staged parameters
 │   │   ├── VoiceSystem.h     # Centralized 4-voice container and accessors
-│   │   ├── VoicePresets.h/.cpp # 15 built-in voice presets as constexpr flash tables
+│   │   ├── VoicePresets.h/.cpp # 29 built-in voice presets as constexpr flash tables
 │   │   ├── VoiceOscillator.h # Variant-based oscillator dispatch
 │   │   └── VoiceManager.h    # Multi-voice lifecycle and master mix processing
 │   ├── ui/                   # UI state, button handling, and control surface logic
@@ -232,8 +232,9 @@ MIDI, displays, sensors, or controls on physical hardware.
 
 ### Preset System
 
-Each synthesizer voice supports 15 built-in sound presets (held as `constexpr` tables in flash):
+Each synthesizer voice supports 29 built-in sound presets (held as `constexpr` tables in flash) accessible through a 2-page selection browser in Settings mode:
 
+**Page 1 (Pads 8–31):**
 1. **Analog** — Triple-saw classic subtractive synth with warm 24dB ladder filtering
 2. **Digital** — Square + triangle hybrid with sharp 12dB lowpass cutoff
 3. **Bass** — Deep sub-octave detuned sine/triangle bass
@@ -249,6 +250,27 @@ Each synthesizer voice supports 15 built-in sound presets (held as `constexpr` t
 13. **WgShimmer** — Wide-detuned two-string course with slow chorusing sustain and a very long, pad-like tail
 14. **Hypersaw** — Three-saw stack (two ±21-cent detuned unisons plus an octave layer) glued with mild overdrive
 15. **NoiseStorm** — Noise texture engine: pitch-tracked Lorenz chaos growl through a prime-tap diffuser and regenerative allpass swarm
+16. **FMGlass** — 2-operator FM glass chime: carrier/modulator with feedback and harmonic chime textures
+17. **FMBass** — Punchy FM bass with tight transient snap and modulated body
+18. **PhaseMorph** — Phase-distortion morphing oscillator sweeping between waveshapes
+19. **Spectral** — Spectral harmonic oscillator stack with animated formants
+20. **Prism** — Dispersive multi-partial prism cluster with crystalline timbre
+21. **ChaosPrism** — Chaotic non-linear prism texture with pitch-tracked divergence
+22. **VelvetKeys** — Soft electric keys: dual `osc_fbfm` operators at 2:1 ratio, gentle attack and warm release
+23. **CopperBass** — Harmonically rich bass: `osc_dsf` harmonic spacing with a sub sine from `osc_pdmorph`
+24. **ReedPipe** — Held acoustic reed tone: `osc_formant` bursts blended with sine fundamental
+
+**Page 2 (Pads 8–12):**
+25. **SilkPad** — Slow orchestral swell: two detuned `osc_pdmorph` voices with free-running phase and 1.25s release
+26. **HollowBell** — Hollow metallic bell: dual `osc_pdmorph` sources ring-modulated at 2:1, zero sustain
+27. **SyncLead** — Aggressive sync lead: `osc_revsync` blended with pitched `osc_pdmorph` body
+28. **OrbitPluck** — Metallic pluck: sine-modulated `osc_tzfm` with clean fundamental body
+29. **AirChime** — Ethereal harmonic chime: `osc_prism` blended with octave sine and extended decay
+
+**Browser Navigation:**
+- In Settings mode, **Pad 6** and **Pad 7** page left (`<`) and right (`>`).
+- Touch **Pads 8–31** on Page 1 or **Pads 8–12** on Page 2 to instantly assign a preset to the active voice.
+- Press **Pads 0–3** (or SliderModule V1–V4 buttons) to select which voice is being configured.
 
 ---
 
@@ -279,7 +301,7 @@ Pico2Seq leverages the dual ARM Cortex-M33 cores of the RP2350:
 
 ## Host Unit Testing
 
-Pico2Seq provides an automated host-side unit test suite powered by **Catch2 v3.5.2** and CMake:
+Pico2Seq provides an automated host-side unit test suite powered by **Catch2 v3.5.2** and CMake across four test executables (`pico2seq_tests`, `pico2seq_voice_tests`, `pico2seq_watchdog_tests`, `pico2seq_audio_tests` — 283 total tests):
 
 ```bash
 # Configure and build test suite

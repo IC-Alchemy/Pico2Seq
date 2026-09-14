@@ -15,8 +15,8 @@ The `src/pico2seq-core/scales/` module defines the musical tuning system for the
                                    │                                               │
                                    ▼                                               ▼
               ┌────────────────────────────────────────┐     ┌─────────────────────────────────────────┐
-              │      Internal Audio Synthesis          │     │          External MIDI Output           │
-              │         (src/voice/Voice.cpp)          │     │        (Pico2Seq.ino / MidiManager)     │
+              │      Internal Audio Synthesis          │     │    Internal MIDI Note Lifecycle         │
+              │         (src/voice/Voice.cpp)          │     │       (StepPlayback / MidiManager)      │
               │                                        │     │                                         │
               │  scaleSemitone = scale[s][note+harm]   │     │  scaleSemitone = scale[s][note]         │
               │  midiNote = scaleSemitone + 48 + oct   │     │  midiNote = scaleSemitone + 36 + oct    │
@@ -24,7 +24,7 @@ The `src/pico2seq-core/scales/` module defines the musical tuning system for the
               │             │ C3 Base (MIDI 48)        │     │             │ C2 Base (MIDI 36)         │
               │                                        │     │                                         │
               │  frequencyLookupTable[midiNote]        │     │  midiNoteManager.noteOn()               │
-              │  -> Oscillator Frequency in Hz         │     │  -> Internal MIDI note (0-127 clamped)    │
+              │  -> Oscillator Frequency in Hz         │     │  -> Internal note state (0-127 clamped) │
               └────────────────────────────────────────┘     └─────────────────────────────────────────┘
 ```
 
@@ -38,7 +38,7 @@ The `src/pico2seq-core/scales/` module defines the musical tuning system for the
    `Voice::setScaleTable()` precomputes scale degree ranks (`scaleUniqueCounts`, `scaleIndexToRank`, `scaleUniqueIndexList`) outside the realtime path, enabling $O(1)$ indexed lookups for harmony and degree transposition during audio processing.
 4. **Dual Pitch Base Offsets**:
    - **Internal Audio Synthesis**: Centered at **C3** (MIDI note 48, base +48).
-   - **External MIDI Output**: Centered at **C2** (MIDI note 36, base +36).
+   - **Internal MIDI Note Lifecycle (`MidiNoteManager`)**: Centered at **C2** (MIDI note 36, base +36). (USB MIDI transmission was removed 2026-09-06; `MidiNoteManager` maintains this for internal gate/note state tracking).
 
 ---
 
@@ -144,9 +144,9 @@ inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset, int 
   - High step (72 semitones, +12 octave offset): MIDI note 132 — beyond the table's 128 entries; sequencer parameter ranges keep the computed note inside the table (there is no runtime clamp on this synthesis path).
 - **Rationale**: Internal oscillator waveforms and ladder filter character are voiced to sound full and punchy centered in the C3 octave.
 
-### 4.2 External MIDI Output: C2 Base (+36)
+### 4.2 Internal MIDI Note Tracking (`MidiNoteManager`): C2 Base (+36)
 
-In `Pico2Seq.ino` (`updateVoiceMIDI` / `onStepCallback`) and `src/midi/MidiManager.cpp`:
+In `src/app/StepPlayback.cpp` and `src/midi/MidiManager.cpp`:
 
 ```cpp
 uint8_t noteIndex = static_cast<uint8_t>(std::max(0.0f, std::min(state.noteIndex, static_cast<float>(SCALE_STEPS - 1))));
@@ -155,13 +155,13 @@ int midiNote = scale[currentScale][noteIndex] + 36 + static_cast<int>(state.octa
 // Clamp MIDI note to valid range (0-127)
 int clampedMidiNote = std::max(0, std::min(midiNote, 127));
 
-midiNoteManager.noteOn(voiceId, static_cast<int8_t>(clampedMidiNote),
+midiNoteManager.noteOn(voiceIndex, static_cast<int8_t>(clampedMidiNote),
                        static_cast<uint8_t>(state.velocityLevel * 127), 1, state.gateLengthTicks);
 ```
 
 - **Base Pitch**: **C2** (MIDI note 36 = 65.41 Hz).
 - **Pitch Range**: MIDI notes 24 (C1) to 108 (C8).
-- **Rationale**: External synthesizers, samplers, and DAWs expect step sequencer output in standard bass/lead registers starting at C2.
+- **Rationale**: Internal note lifecycle and gate tracking via `MidiNoteManager` uses standard bass/lead registers starting at C2. Note that USB MIDI transmission was removed on 2026-09-06; `MidiNoteManager` maintains this bookkeeping internally.
 
 ---
 

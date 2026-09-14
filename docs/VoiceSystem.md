@@ -28,12 +28,11 @@ struct VoiceSystem {
     // Voice states containing per-voice synthesis parameters
     VoiceState voiceStates[MAX_VOICES];
 
-    // Software gate flags (active on Voices 0 and 1 only; consumed by the
-    // MIDI note-on path in the main sketch)
-    volatile bool gates[2] = {false, false};
+    // Gate states for all voices (0-3)
+    volatile bool gates[MAX_VOICES] = {false, false, false, false};
 
-    // Gate countdown timers (active on Voices 0 and 1 only)
-    GateTimer gateTimers[2];
+    // Gate timers for all voices (0-3)
+    GateTimer gateTimers[MAX_VOICES];
 
     // Accessor methods with bounds checking
     uint8_t getVoiceId(uint8_t voiceIndex) const {
@@ -56,23 +55,23 @@ struct VoiceSystem {
 
     volatile bool& getGate(uint8_t voiceIndex) {
         static volatile bool dummy = false;
-        return (voiceIndex < 2) ? gates[voiceIndex] : dummy;
+        return (voiceIndex < MAX_VOICES) ? gates[voiceIndex] : dummy;
     }
 
     GateTimer& getGateTimer(uint8_t voiceIndex) {
         static GateTimer dummy;
-        return (voiceIndex < 2) ? gateTimers[voiceIndex] : dummy;
+        return (voiceIndex < MAX_VOICES) ? gateTimers[voiceIndex] : dummy;
     }
 
     void stopAllGates() {
-        for (uint8_t i = 0; i < 2; i++) {
+        for (uint8_t i = 0; i < MAX_VOICES; i++) {
             gates[i] = false;
             gateTimers[i].stop();
         }
     }
 
     void tickAllGateTimers() {
-        for (uint8_t i = 0; i < 2; i++) {
+        for (uint8_t i = 0; i < MAX_VOICES; i++) {
             gateTimers[i].tick();
             if (gateTimers[i].isExpired() && gates[i]) {
                 gates[i] = false;
@@ -90,12 +89,11 @@ extern VoiceSystem voiceSystem;
 
 1. **Centralized Voice Management**: All voice runtime state is grouped into one struct instance (`extern VoiceSystem voiceSystem`), eliminating scattered extern declarations.
 2. **Array-Based Access**: Index-based operations allow clean iteration across voices without `switch/case` branching or redundant per-voice code paths.
-3. **Hardware & MIDI Asymmetry Support**:
-   - **Voices 0 and 1**: Fully equipped with internal note on/off tracking (`MidiNoteManager`; USB MIDI transmission removed 2026-09-06) and `GateTimer` PPQN countdowns.
-   - **Voices 2 and 3**: Audio-only synthesis voices. They participate in full 4-voice audio mixing via `VoiceManager`, but have no MIDI note outputs.
-4. **Safe Dummy Access for Asymmetric Voices**:
-   - Accessing `getGate(2)` or `getGate(3)` returns a safe reference to an internal `static volatile bool dummy = false`.
-   - Accessing `getGateTimer(2)` or `getGateTimer(3)` returns a safe reference to an internal `static GateTimer dummy`.
+3. **Software Gate & Gate Timer Uniformity**:
+   - **All Voices (0–3)**: Fully equipped with software gate flags (`gates[MAX_VOICES]`) and `GateTimer` duration countdowns. All 4 sequencers tick note duration in `ClockService::processPendingGateTicks()`, pushing immediate note-offs on expiry to `VoiceManager`.
+   - **Voices 0 and 1**: Additionally retain internal monophonic note on/off lifecycle tracking via `MidiNoteManager` (USB MIDI transmission was removed 2026-09-06 — nothing is transmitted).
+4. **Safe Dummy Access**:
+   - Accessing `getGate(index)` or `getGateTimer(index)` for `index >= MAX_VOICES` returns a safe reference to an internal static dummy (`static volatile bool dummy = false` or `static GateTimer dummy`).
    - Accessing `getVoiceState(index)` with an out-of-bounds index clamps to index `0`.
 5. **Reference-Based Gate Assignment**: `getGate(voiceIndex)` returns a reference to the `volatile bool`, allowing callers to write directly: `voiceSystem.getGate(voiceIndex) = true;`.
 
@@ -140,8 +138,8 @@ for (uint8_t v = 0; v < VoiceSystem::MAX_VOICES; v++) {
     uint8_t voiceId = voiceSystem.getVoiceId(v);
     voiceManager->updateVoiceState(voiceId, state);
     
-    // Gated voices (0 and 1) trigger hardware gates and timers
-    if (v < 2 && state.isGateHigh) {
+    // Software gates and duration timers active across all voices (0-3)
+    if (state.isGateHigh) {
         voiceSystem.getGate(v) = true;
         uint16_t durationTicks = static_cast<uint16_t>(sequencers[v]->getParameterValue(ParamId::GateLength));
         voiceSystem.getGateTimer(v).start(durationTicks);
@@ -150,20 +148,25 @@ for (uint8_t v = 0; v < VoiceSystem::MAX_VOICES; v++) {
 ```
 
 ### 4.4 Timing & PPQN Tick Processing
-Inside `loop()` on Core 0, pending clock ticks drain from `ppqnTicksPending`:
+Inside `ClockService::processPendingGateTicks()` on Core 0, pending clock ticks drain:
 ```cpp
-while (ppqnTicksPending > 0) {
-    ppqnTicksPending--;
-    globalTickCounter++;
+while (pending-- > 0) {
+    clockEvents.gateTick++;
     
-    // Update MIDI note durations
-    midiNoteManager.updateTiming(globalTickCounter);
+    // Update MidiNoteManager timing (voices 0 and 1)
+    midiNoteManager.updateTiming(clockEvents.gateTick);
     
-    // Advance sequencer note duration countdowns (voices 0 and 1)
-    seq1.tickNoteDuration(&voiceSystem.getVoiceState(0));
-    seq2.tickNoteDuration(&voiceSystem.getVoiceState(1));
+    // Process sequencer note duration timing for every voice (0-3).
+    // Mid-step note-off pushes immediately to VoiceManager on expiry.
+    if (voiceManager) {
+        for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
+            if (AppState::sequencers[i]->tickNoteDuration(&voiceSystem.getVoiceState(i))) {
+                voiceManager->updateVoiceState(voiceSystem.getVoiceId(i), voiceSystem.getVoiceState(i));
+            }
+        }
+    }
     
-    // Tick gate countdown timers and clear expired gates
+    // Tick gate countdown timers and clear expired gates across all 4 voices
     voiceSystem.tickAllGateTimers();
 }
 ```
@@ -178,10 +181,10 @@ while (ppqnTicksPending > 0) {
 | `setVoiceId(voiceIndex, id)` | `uint8_t voiceIndex`, `uint8_t id` | `void` | Sets `voiceIds[voiceIndex]` if index $< 4$. |
 | `getVoiceState(voiceIndex)` | `uint8_t voiceIndex` (0–3) | `VoiceState&` | Returns reference to `voiceStates[voiceIndex]`. Clamps invalid index to 0. |
 | `getVoiceState(voiceIndex) const` | `uint8_t voiceIndex` (0–3) | `const VoiceState&` | Const reference version for read-only query. |
-| `getGate(voiceIndex)` | `uint8_t voiceIndex` (0–3) | `volatile bool&` | Returns reference to `gates[voiceIndex]` for 0–1; returns static dummy `false` for $\ge 2$. |
-| `getGateTimer(voiceIndex)` | `uint8_t voiceIndex` (0–3) | `GateTimer&` | Returns reference to `gateTimers[voiceIndex]` for 0–1; returns static dummy for $\ge 2$. |
-| `stopAllGates()` | none | `void` | Resets `gates[0..1] = false` and calls `gateTimers[0..1].stop()`. |
-| `tickAllGateTimers()` | none | `void` | Ticks `gateTimers[0..1]` and deasserts `gates[i]` when expired. |
+| `getGate(voiceIndex)` | `uint8_t voiceIndex` (0–3) | `volatile bool&` | Returns reference to `gates[voiceIndex]` for 0–3; returns static dummy `false` for $\ge 4$. |
+| `getGateTimer(voiceIndex)` | `uint8_t voiceIndex` (0–3) | `GateTimer&` | Returns reference to `gateTimers[voiceIndex]` for 0–3; returns static dummy for $\ge 4$. |
+| `stopAllGates()` | none | `void` | Resets `gates[0..3] = false` and calls `gateTimers[0..3].stop()`. |
+| `tickAllGateTimers()` | none | `void` | Ticks `gateTimers[0..3]` and deasserts `gates[i]` when expired. |
 
 ---
 

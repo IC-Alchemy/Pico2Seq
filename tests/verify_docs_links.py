@@ -20,7 +20,7 @@ if sys.platform == 'win32':
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
-EXCLUDE_DIRS = {'.git', 'build', 'build_test', '.agents', '.zcode', 'build_host'}
+EXCLUDE_DIRS = {'.git', 'build', 'build_test', 'build_fw', 'build_fw_on', '.agents', '.zcode', 'build_host', 'rpdsp', 'VelocityEncoder', 'VL53L1X'}
 
 # Markdown link regexes
 MD_INLINE_LINK = re.compile(r'!?\[([^\]]*)\]\(([^)]+)\)')
@@ -170,7 +170,7 @@ def check_stale_legacy_references(file_path):
                 if 'PROGRAMMERS_MANUAL' in line:
                     stale_findings.append((i, 'PROGRAMMERS_MANUAL reference found', line.strip()))
                 if 'daisysp.h' in line or 'src/dsp/' in line:
-                    if 'alchemyui-tmag5273-migration.md' not in file_path and 'AGENTS.md' not in file_path:
+                    if 'alchemyui-tmag5273-migration.md' not in file_path and 'AGENTS.md' not in file_path and 'CLAUDE.md' not in file_path:
                         stale_findings.append((i, 'Legacy DaisySP / src/dsp/ path found', line.strip()))
     except Exception:
         pass

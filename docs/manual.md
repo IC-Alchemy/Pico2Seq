@@ -395,7 +395,7 @@ Each voice runs a full synthesis chain at 48 kHz on the audio core:
  sequencer step values (pitch, velocity, envelope, gate, slide)
         |
         v
- SOURCE STAGE (one of four engines, chosen by the preset)
+ SOURCE STAGE (one of five engines, chosen by the preset)
    - Oscillator bank: up to 3 oscillators — band-limited B-spline saw/pulse,
      band-limited hard-sync saw (master/slave pair), sine, triangle, naive
      saw/square, or raw white noise; per-osc detune
@@ -406,6 +406,9 @@ Each voice runs a full synthesis chain at 48 kHz on the audio core:
      prime-tap diffuser and a regenerative allpass swarm
    - Hypersaw: one rpdsp::Hypersaw (seven internal detuned saw voices;
      detune and mix driven by the re-purposed sequencer slots)
+   - Recipe engine: fixed-state modular rpdsp synthesis patches with up to
+     three mapped timbre controls (FM, phase distortion, DSF, formant synthesis,
+     ring modulation, reversing sync, spectral and chaotic prisms)
         |
         v
  ADSR ENVELOPE (pre-filter VCA; attack/decay edited per step or live)
@@ -436,34 +439,56 @@ screen's voice-parameter page; envelope and overdrive can be switched off per vo
 too. On SVF voices the mode picks the response (LP→low-pass, BP→band-pass, HP→high-pass);
 only **Analog** and **Lead** still run the true ladder filter.
 
-### 4.2 The 15 presets
+### 4.2 The 29 presets
 
-| # | Preset | Character |
-|---|---|---|
-| 1 | **Analog** | Single band-limited hard-sync saw (master/slave pair) through a warm 24 dB ladder filter; sequencer Velocity re-purposed as slave pitch |
-| 2 | **Digital** | Dual band-limited square pair (near-unison detune), sharp 12 dB lowpass |
-| 3 | **Bass** | Sub-octave sine + triangle bass with subtle overdrive |
-| 4 | **Lead** | Dual-saw lead with a scale-harmony layer on the second oscillator |
-| 5 | **Square** | Narrow PWM pulse (20 % width) with resonant bite; no sustain |
-| 6 | **Pad** | Atmospheric 3-oscillator chord pad (harmonies 0/+4/+9), slow attack & release |
-| 7 | **Percussion** | Fast-decaying noise-textured hit (no oscillators, pure noise burst) |
-| 8 | **SubFunk** | Sub-octave sine/triangle sub bass with warm overdrive grit |
-| 9 | **RubberSub** | Rubbery sub bass: sub-octave square grind under a resonant band-pass "honk", harder drive on transients |
-| 10 | **WgPluck** | Classic Karplus-Strong plucked string; bright burst, short natural tail |
-| 11 | **WgNylon** | Dark, felt-soft nylon string; heavily damped, gentle pick, long sympathetic tail |
-| 12 | **WgBell** | Stiff dispersive waveguide; inharmonic bell/kalimba partials, hard pick, quick tail |
-| 13 | **WgShimmer** | Wide-detuned (26 ¢) two-string course; slow chorusing sustain, very long pad-like tail |
-| 14 | **Hypersaw** | Native seven-voice `rpdsp::Hypersaw` stack — one engine voice, wide detune range, no overdrive |
-| 15 | **NoiseStorm** | Noise-texture engine: pitch-tracked Lorenz chaos growl through a prime-tap diffuser and regenerative allpass swarm, pinged by a resonant lowpass |
+The sound bank contains 29 built-in presets (held as `constexpr` flash tables), organized into a 2-page browser in Settings mode:
 
-Presets 1–9 are oscillator-engine sounds; 10–13 are waveguide strings; 14 is the seven-voice
-hypersaw stack; 15 is the noise-FX texture engine. Presets live in flash and are changed
-per voice from the **preset browser** (long-press Play, or stop the transport to open
-Settings on the OLED).
-In the browser, touch **pads 8–22** — exactly the pads lit on the LED mirror — to apply
-presets 1–15 to the selected voice; tap **pads 0–3** (or the V1–V4 buttons) to switch the
-target voice without leaving the browser. The encoder button toggles the Settings screen
-between the preset browser and the voice-parameter toggles.
+#### Page 1 (Pads 8–31: Presets 1–24)
+
+| # | Preset | Engine | Character | Timbre controls (Filter / Attack / Decay) |
+|---|---|---|---|---|
+| 1 | **Analog** | osc | Single band-limited hard-sync saw (master/slave pair) through 24 dB ladder filter | Cutoff / Attack / Decay (Velocity = Slave pitch) |
+| 2 | **Digital** | osc | Dual band-limited square pair (near-unison detune), sharp 12 dB lowpass | Cutoff / Attack / Decay |
+| 3 | **Bass** | osc | Sub-octave sine + triangle bass with subtle overdrive | Cutoff / Attack / Decay |
+| 4 | **Lead** | osc | Dual-saw lead with a scale-harmony layer on the second oscillator | Cutoff / Attack / Decay |
+| 5 | **Square** | osc | Narrow PWM pulse (20% width) with resonant bite; no sustain | Cutoff / Attack / Decay |
+| 6 | **Pad** | osc | Atmospheric 3-oscillator chord pad (harmonies 0/+4/+9), slow attack & release | Cutoff / Attack / Decay |
+| 7 | **Percussion** | osc | Fast-decaying noise-textured hit (no oscillators, pure noise burst) | Cutoff / Attack / Decay |
+| 8 | **SubFunk** | osc | Sub-octave sine/triangle sub bass with warm overdrive grit | Cutoff / Attack / Decay |
+| 9 | **RubberSub** | osc | Rubbery sub bass: sub-octave square under resonant BP honk, snappy drive | Cutoff / Attack / Decay |
+| 10 | **WgPluck** | waveguide | Classic Karplus-Strong plucked string; bright burst, natural tail | Brightness / Pick hardness / T60 tail |
+| 11 | **WgNylon** | waveguide | Dark, felt-soft nylon string; heavily damped, long sympathetic tail | Brightness / Pick hardness / T60 tail |
+| 12 | **WgBell** | waveguide | Stiff dispersive waveguide; inharmonic bell/kalimba partials, quick tail | Brightness / Pick hardness / T60 tail |
+| 13 | **WgShimmer** | waveguide | Wide-detuned (26¢) two-string course; slow chorusing sustain, pad-like tail | Brightness / Pick hardness / T60 tail |
+| 14 | **Hypersaw** | hypersaw | Native seven-voice `rpdsp::Hypersaw` stack; wide detune range | Cutoff / Detune / Center-Side Mix |
+| 15 | **NoiseStorm** | noise-FX | Noise + Lorenz chaos growl through prime-tap diffuser and allpass swarm | Swarm color / Swarm regen / Chaos level |
+| 16 | **FMGlass** | recipe | 2-operator FM glass chime: carrier/modulator with feedback | Index / Ratio / Feedback |
+| 17 | **FMBass** | recipe | Punchy FM bass with tight transient snap and modulated body | Index / Ratio / Feedback |
+| 18 | **PhaseMorph** | recipe | Phase-distortion morphing oscillator sweeping between waveshapes | Morph / Depth / Drive |
+| 19 | **Spectral** | recipe | Spectral harmonic oscillator stack with animated formants | Shift / Spread / Focus |
+| 20 | **Prism** | recipe | Dispersive multi-partial prism cluster with crystalline timbre | Spread / Damping / Color |
+| 21 | **ChaosPrism** | recipe | Chaotic non-linear prism texture with pitch-tracked divergence | Chaos / Spread / Edge |
+| 22 | **VelvetKeys** | recipe | Soft electric keys: dual `osc_fbfm` operators at 2:1 ratio, warm release | Index / Ratio / Feedback |
+| 23 | **CopperBass** | recipe | Rounded DSF bass: harmonic spacing with a sub sine from `osc_pdmorph` | Bright / Spacing / Sub |
+| 24 | **ReedPipe** | recipe | Held acoustic reed tone: `osc_formant` bursts blended with sine fundamental | Formant / Bloom / Body |
+
+#### Page 2 (Pads 8–12: Presets 25–29)
+
+| # | Preset | Engine | Character | Timbre controls (Filter / Attack / Decay) |
+|---|---|---|---|---|
+| 25 | **SilkPad** | recipe | Slow orchestral swell: two detuned `osc_pdmorph` voices, 1.25s release | Silk / Detune / Blend |
+| 26 | **HollowBell** | recipe | Hollow metallic bell: dual `osc_pdmorph` ring-modulated at 2:1, zero sustain | Ratio / Edge / Ring |
+| 27 | **SyncLead** | recipe | Melodic sync lead: `osc_revsync` blended with pitched `osc_pdmorph` body | Sync / Edge / Bite |
+| 28 | **OrbitPluck** | recipe | Metallic pluck: sine-modulated `osc_tzfm` with clean fundamental body | Index / Ratio / Body |
+| 29 | **AirChime** | recipe | Ethereal harmonic chime: `osc_prism` blended with octave sine, slow decay | Focus / Spread / OctMix |
+
+#### Preset Selection & Paging in Settings Mode
+
+Presets live in flash and are auditioned and applied per voice in the **preset browser** (long-press Play, or stop the transport to open Settings on the OLED):
+- **Voice Selection**: Tap **pads 0–3** (or the SliderModule V1–V4 buttons) to switch which voice is being edited.
+- **Paging**: Tap **Pad 6** for previous page or **Pad 7** for next page (`6< >7`).
+- **Applying Presets**: Touch **pads 8–31** on Page 1 or **pads 8–12** on Page 2 (matching the lit pads on the LED matrix mirror) to instantly assign that preset to the active voice.
+- **Voice Parameters**: Pressing the encoder button toggles the Settings screen between the preset browser and the voice-parameter toggles (envelope, overdrive, filter mode, filter resonance).
 
 ---
 
@@ -617,7 +642,7 @@ label is a leftover from the hardware design **[unverified]**.
 - **On-hardware behavior can only be verified on a real Pico 2** — CLI builds prove
   compilation only.
 
-For developers working on this repo, the host test suite (Catch2 v3, no hardware needed):
+For developers working on this repo, the host test suite (Catch2 v3 across 4 test executables, 283 tests total, no hardware needed):
 
 ```bash
 cmake -B build_test -DCMAKE_BUILD_TYPE=Debug
@@ -632,14 +657,15 @@ cmake --build build_test --parallel
 
 **Behavioral gotchas (by design, verified in code):**
 
-- **Voices 1 and 2 carry the software gate timers** (and the internal note lifecycle);
-  voices 3 and 4 are audio-only. Nothing is transmitted anywhere — USB MIDI was removed
-  2026-09-06. Internal voice indices are 0-based (0–3); the OLED shows `Voice: 0`–
-  `Voice: 3` and `V0`–`V3` on edit screens, while the voice buttons and this manual say
-  V1–V4.
-- **The encoder edits per-voice bases.** Each voice stores its own base values
-  (`encoderBaseValues[4]` in `EncoderManager`); turning the encoder changes the selected
-  voice's base, and at step time every voice applies its own base.
+- **All four voices (0–3) carry software gate timers** in `VoiceSystem`;
+  voices 0 and 1 additionally maintain internal note lifecycle state in `MidiNoteManager`.
+  Nothing is transmitted anywhere — USB MIDI was removed 2026-09-06. Internal voice
+  indices are 0-based (0–3); the OLED shows `Voice: 0`–`Voice: 3` and `V0`–`V3` on edit
+  screens, while the voice buttons and this manual say V1–V4.
+- **The encoder edits step parameters or per-voice bases.** When a step is selected for
+  edit (`uiState.selectedStepForEdit >= 0`), turning the encoder directly dials the
+  selected parameter for that step with immediate audio auditioning. When no step is in
+  edit mode, turning the encoder modifies the active voice's base patch parameter.
 - **Can't program a pitch into a step?** Note edits are rejected on gate-off steps. Toggle
   the step on first.
 - **Pad does something unexpected** — check the context: a held parameter button turns pad

@@ -34,12 +34,13 @@ controls resume. Button 7 is Help in these stages; audition is not implemented.
 ## Base plus modifier
 
 Every numeric sound setting has a per-voice base in `VoiceConfig`. The encoder
-edits these requested values, including outside the editor when a sequenced
-parameter is selected. It no longer edits a selected step's stored value.
+edits these requested base values in normal play mode. When a step is selected for
+editing (`uiState.selectedStepForEdit >= 0`), the encoder adjusts that step's stored
+parameter value directly with live auditioning.
 
 For timbre, envelope, velocity, octave and gate length, the lidar records a modifier.
 Note records melody scale steps directly. Both step editing and live recording normalize
-the calibrated 55–1200 mm sensor range to 0–1. In the normalized parameter domain:
+the calibrated 55–700 mm sensor range to 0–1 (a 645 mm active span). In the normalized parameter domain:
 
 ```
 modifier = lidarNormalized - 0.5

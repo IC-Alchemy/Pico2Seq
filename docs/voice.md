@@ -28,10 +28,9 @@ struct VoiceSystem {
     uint8_t voiceIds[MAX_VOICES] = {0, 0, 0, 0};
     VoiceState voiceStates[MAX_VOICES];
 
-    // Gates and timers are strictly dedicated to Voices 0 and 1
-    // (the two voices with MIDI gate support)
-    volatile bool gates[2] = {false, false};
-    GateTimer gateTimers[2];
+    // Gate states and duration countdown timers across all 4 voices (0-3)
+    volatile bool gates[MAX_VOICES] = {false, false, false, false};
+    GateTimer gateTimers[MAX_VOICES];
 
     uint8_t getVoiceId(uint8_t voiceIndex) const;
     void setVoiceId(uint8_t voiceIndex, uint8_t voiceId);
@@ -359,8 +358,10 @@ names and configs in flash. Appending one bank entry updates count and lookups.
 Unknown indices/config names fall back to Analog; unknown display indices return
 "Unknown". Existing per-preset getters remain available. Name matching is
 case-insensitive, and `VoiceManager::getAvailablePresets()` derives its list from
-the same bank. The original 15 presets are listed below; the six new recipes and
-extension steps are described in the [extension guide](../src/voice/README.md).
+the same bank. The bank currently holds 29 presets (indices 0–28): the 15 original
+presets are detailed below, followed by six recipe presets (15–20) and eight musical
+presets (21–28) described in the [voice and preset extension guide](../src/voice/README.md)
+and [musical preset bank](../src/voice/README.md#musical-preset-bank).
 
 | # | Preset Name | Engine | Oscillators | Amplitudes | Detune (Semis) | Harmony | Filter Mode | Filter Settings | Overdrive | Envelope (A/D/S/R) | Output Level |
 |---|---|---|---|---|---|---|---|---|---|---|---|

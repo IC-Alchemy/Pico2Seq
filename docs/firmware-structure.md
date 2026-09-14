@@ -51,11 +51,12 @@ pass. Unsigned subtraction preserves timer-wrap behavior.
 
 `processSequencerStep()` advances all four voices in order, applies all four
 encoder offsets, then stages voice updates. Only the selected voice receives
-hand-distance input. All four voices honor GateLength: note-duration expiry in
-`processPendingGateTicks()` pushes the mid-step note-off to every voice, while
-voices 1/2 additionally keep the software gate flags and MidiNoteManager
-bookkeeping (indices 0/1 and 2/3 in code). The clock step still goes
-through the existing sequencer API with its existing width and wrap rules.
+hand-distance input. All four voices honor GateLength: `gates[MAX_VOICES]` and
+duration timers are managed across all four voices (indices 0–3), while note-duration
+expiry in `processPendingGateTicks()` pushes the mid-step note-off to every voice in
+`VoiceManager`. Voices 0 and 1 additionally participate in internal `MidiNoteManager`
+tracking. The clock step still goes through the existing sequencer API with its
+existing width and wrap rules.
 
 Recording a Note requires a high Gate on the edited step. Immediate audio
 feedback applies only to the currently playing step. Distance readings

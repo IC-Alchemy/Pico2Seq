@@ -106,34 +106,36 @@ Activated when `uiState.settingsMode` is true:
   - Filter Resonance (%)
 - **Preset Selection Sub-Mode (`SettingsSubMode::PRESET_SELECTION`):**
   - Reachable while the transport runs (long-press Play/Stop toggles settings; short-press while running inside settings exits without stopping).
-  - Displays currently selected preset name centered in size-2 text.
-  - Previous (`<`) and next (`>`) preset previews.
-  - Preset counter (`1/15` through `15/15`; dynamic from `VoicePresets::getPresetCount()`).
-  - All 15 presets are selectable on matrix pads 8–22 (`VoicePresets::presetIndexForPad`); the prompt line shows the live pad range (e.g. "Pads 8-22").
+  - Displays currently selected preset name centered in size-2 (or size-1 if name exceeds 10 chars) text.
+  - Animated underline indicator.
+  - Preset counter (`#1/29` through `#29/29`; dynamic from `VoicePresets::getPresetCount()`).
+  - Page navigation (`Page 1/2 6< >7`): pads 6 (`<`) and 7 (`>`) navigate pages.
+  - Page 1 hosts presets 1–24 across pads 8–31 (`Pads 8-31`).
+  - Page 2 hosts presets 25–29 across pads 8–12 (`Pads 8-12`).
   - When browsing root settings, displays the **"Sound Buffet"** listing current presets assigned across all 4 voices (0–3).
 
 The parameter name/value screens are preset-aware: for voices whose preset re-purposes the
 Filter/Attack/Decay slots (`VoiceConfig::paramSet`), the OLED shows the slot's re-purposed
 name (e.g. Bright/Pick/T60 on a waveguide voice, via `VoicePresets::getSequencerParamName`)
-and formats the value in its own unit (%, seconds for T60, semitones for detune).
+and formats the value in its own unit (%, seconds for T60, semitones for detune) via `MusicalValues::format`.
 
 #### 5. Gate Sequence Length Gauge (Priority 5)
 Activated when `uiState.gateSeqLengthMode` is active (holding the encoder while rotating):
 - Header: `"Sequence Length"`
-- Voice: `0..3` (0-based indexing)
-- Length: Numeric sequence length (1–16) displayed in size-2 font.
-- Visual Gauge: Proportional horizontal bar across the bottom displaying length relative to 16 steps.
+- Voice: `1..4` (1-based display)
+- Length: Numeric sequence length (1–64) displayed in size-2 font.
+- Visual Gauge: Proportional horizontal bar across the bottom displaying length relative to 64 steps.
 
 #### 6. Parameter Edit Screen (Priority 6)
 Displayed when a parameter button is held (`heldParamId`) or a step is selected for editing (`selectedStepForEdit`):
 - **Header:** Parameter name (`Note`, `Velocity`, `Filter`, `Attack`, `Decay`, `Octave`, `GateLength`, `Slide`) in size-2 text.
 - **Indicators:** Voice ID (`V0`–`V3`) and Step Index (`S1`–`S16`) in top right.
 - **Separator:** Horizontal rule dividing header and value.
-- **Formatted Value:** Large size-2 text showing human-readable units:
-  - `Note`: Integer semitone
+- **Formatted Value:** Rendered via `MusicalValues::format` with context-aware units:
+  - `Note`: Pitch note name with octave (e.g. `C3`) derived from active scale
   - `Velocity`: `0%`–`100%`
-  - `Filter`: Exponential frequency in Hz (`20Hz`–`20000Hz` via `rpdsp::fmap`)
-  - `Attack` / `Decay`: Seconds with millisecond resolution (e.g. `0.250s`)
+  - `Filter`: Frequency in Hz (`20Hz`–`20000Hz` via `rpdsp::fmap`) or repurposed name
+  - `Attack` / `Decay`: Milliseconds or seconds (e.g. `250ms`, `1.20s`)
   - `Octave`: `-1`, `0`, `+1`
   - `GateLength`: `0%`–`100%`
   - `Gate` / `Slide`: `ON` / `OFF`
