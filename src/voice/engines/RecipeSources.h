@@ -4,6 +4,26 @@
 #include "../../rpdsp/src/rpdsp/DSPFunctions.h"
 
 namespace VoiceRecipes {
+// Prepared coefficients occupy unused recipe slots; all writes still happen
+// on the audio core through configure()/trigger(), never on the control core.
+inline void configurePhaseShape(float shape, float *s) noexcept
+{
+  const auto c = rpdsp::make_osc_pdmorph_coefficients(shape);
+  s[0] = c.knee; s[1] = c.risingSlope; s[2] = c.fallingSlope;
+}
+inline rpdsp::PhaseDistortionCoefficients phaseShape(const float *s) noexcept
+{
+  return {s[0], s[1], s[2]};
+}
+inline void configurePrismWeights(const VoiceConfig &c, float *s) noexcept
+{
+  const auto weights = rpdsp::make_osc_prism_coefficients(c.macro1, c.macro2);
+  for (int h = 0; h < 6; ++h) s[h] = weights.weights[h];
+}
+inline rpdsp::PrismCoefficients prismWeights(const float *s) noexcept
+{
+  return {{s[0], s[1], s[2], s[3], s[4], s[5]}};
+}
 inline float feedbackFm(float inc, const VoiceConfig &c, float *s) noexcept
 {
   // Two feedback-FM operators: modulator state[0..2], carrier state[3..5].
@@ -12,27 +32,35 @@ inline float feedbackFm(float inc, const VoiceConfig &c, float *s) noexcept
 }
 inline float phaseMorph(float inc, const VoiceConfig &c, float *s) noexcept
 {
-  const float pd = rpdsp::osc_pdmorph(inc, c.macro1, s);
+  const float pd = rpdsp::osc_pdmorph(inc, phaseShape(s + 2), s);
   const float tri = rpdsp::osc_morphtsq(inc, c.macro2, c.phaseTriangleFold, s + 1);
   return pd * (1.0f - c.macro3) + tri * c.macro3;
 }
 inline float spectralDsf(float inc, const VoiceConfig &c, float *s) noexcept
 {
   const float dsf = rpdsp::osc_dsf(inc, c.macro2, c.macro1, s);
-  const float sub = rpdsp::osc_pdmorph(inc * c.spectralSubRatio, c.spectralSubShape, s + 2);
+  const float sub = c.spectralSubShape <= 0.0f
+      ? rpdsp::osc_pdmorph(inc * c.spectralSubRatio, 0.0f, s + 2)
+      : rpdsp::osc_pdmorph(inc * c.spectralSubRatio, phaseShape(s + 3), s + 2);
   return dsf * (1.0f - c.macro3) + sub * c.macro3;
 }
 inline float prism(float inc, const VoiceConfig &c, float *s) noexcept
 {
-  const float partials = rpdsp::osc_prism(inc, c.macro1, c.macro2, s);
+  const float partials = rpdsp::osc_prism(inc, prismWeights(s + 3), s);
   const float drift = rpdsp::osc_chaosdrift(inc, c.prismDriftChaos, s + 1);
   return partials * (1.0f - c.macro3) + drift * c.macro3;
 }
 
+inline void configurePhaseMorph(float, const VoiceConfig &c, float *s) noexcept
+{ configurePhaseShape(c.macro1, s + 2); }
+inline void configureSpectralDsf(float, const VoiceConfig &c, float *s) noexcept
+{ configurePhaseShape(c.spectralSubShape, s + 3); }
+inline void configurePrism(float, const VoiceConfig &c, float *s) noexcept
+{ configurePrismWeights(c, s + 3); }
 inline constexpr auto kFeedbackFm = makeVoiceRecipe<6>(feedbackFm);
-inline constexpr auto kPhaseMorph = makeVoiceRecipe<2>(phaseMorph);
-inline constexpr auto kSpectralDsf = makeVoiceRecipe<3>(spectralDsf);
-inline constexpr auto kPrism = makeVoiceRecipe<3>(prism);
+inline constexpr auto kPhaseMorph = makeVoiceRecipe<5>(phaseMorph, true, configurePhaseMorph);
+inline constexpr auto kSpectralDsf = makeVoiceRecipe<6>(spectralDsf, true, configureSpectralDsf);
+inline constexpr auto kPrism = makeVoiceRecipe<9>(prism, true, configurePrism);
 
 // Patch wiring only: oscillator algorithms and state updates belong to rpDSP.
 inline float reedPipe(float inc, const VoiceConfig &c, float *s) noexcept
@@ -50,15 +78,15 @@ inline void configureReedPipe(float rate, const VoiceConfig &c, float *s) noexce
 inline float silkPad(float inc, const VoiceConfig &c, float *s) noexcept
 {
   // Two phase-distortion oscillators, symmetrically detuned around the note.
-  const float ratio = 1.0f + 0.006f * c.macro2;
-  const float a = rpdsp::osc_pdmorph(inc * ratio, c.macro1, s);
-  const float b = rpdsp::osc_pdmorph(inc / ratio, c.macro1, s + 1);
+  const auto shape = phaseShape(s + 2);
+  const float a = rpdsp::osc_pdmorph(inc * s[5], shape, s);
+  const float b = rpdsp::osc_pdmorph(inc * s[6], shape, s + 1);
   return a * (1.0f - c.macro3) + b * c.macro3;
 }
 inline float hollowBell(float inc, const VoiceConfig &c, float *s) noexcept
 {
   // Multiplication connects two existing oscillators as a ring-modulator.
-  const float body = rpdsp::osc_pdmorph(inc, c.macro2, s);
+  const float body = rpdsp::osc_pdmorph(inc, phaseShape(s + 2), s);
   const float ring = rpdsp::osc_pdmorph(inc * c.macro1, 0.0f, s + 1);
   return body * (1.0f - c.macro3) + body * ring * c.macro3;
 }
@@ -66,7 +94,7 @@ inline float syncLead(float inc, const VoiceConfig &c, float *s) noexcept
 {
   // Reversing sync[0..2], pitched phase-distortion body[3].
   const float sync = rpdsp::osc_revsync(inc, c.macro1, s);
-  const float body = rpdsp::osc_pdmorph(inc, c.macro2, s + 3);
+  const float body = rpdsp::osc_pdmorph(inc, phaseShape(s + 4), s + 3);
   return body * (1.0f - c.macro3) + sync * c.macro3;
 }
 inline float orbitPluck(float inc, const VoiceConfig &c, float *s) noexcept
@@ -80,15 +108,28 @@ inline float orbitPluck(float inc, const VoiceConfig &c, float *s) noexcept
 inline float airChime(float inc, const VoiceConfig &c, float *s) noexcept
 {
   // Harmonic prism[0] with a clean octave[1], without chaotic drift.
-  const float partials = rpdsp::osc_prism(inc, c.macro1, c.macro2, s);
+  const float partials = rpdsp::osc_prism(inc, prismWeights(s + 2), s);
   const float octave = rpdsp::osc_pdmorph(inc * 2.0f, 0.0f, s + 1);
   return partials * (1.0f - c.macro3) + octave * c.macro3;
 }
 
+inline void configureSilkPad(float, const VoiceConfig &c, float *s) noexcept
+{
+  configurePhaseShape(c.macro1, s + 2);
+  s[5] = 1.0f + 0.006f * c.macro2;
+  s[6] = 1.0f / s[5];
+}
+inline void configureHollowBell(float, const VoiceConfig &c, float *s) noexcept
+{ configurePhaseShape(c.macro2, s + 2); }
+inline void configureSyncLead(float, const VoiceConfig &c, float *s) noexcept
+{ configurePhaseShape(c.macro2, s + 4); }
+inline void configureAirChime(float, const VoiceConfig &c, float *s) noexcept
+{ configurePrismWeights(c, s + 2); }
+
 inline constexpr auto kReedPipe = makeVoiceRecipe<6>(reedPipe, true, configureReedPipe);
-inline constexpr auto kSilkPad = makeVoiceRecipe<2>(silkPad);
-inline constexpr auto kHollowBell = makeVoiceRecipe<2>(hollowBell);
-inline constexpr auto kSyncLead = makeVoiceRecipe<4>(syncLead);
+inline constexpr auto kSilkPad = makeVoiceRecipe<7>(silkPad, true, configureSilkPad);
+inline constexpr auto kHollowBell = makeVoiceRecipe<5>(hollowBell, true, configureHollowBell);
+inline constexpr auto kSyncLead = makeVoiceRecipe<7>(syncLead, true, configureSyncLead);
 inline constexpr auto kOrbitPluck = makeVoiceRecipe<4>(orbitPluck);
-inline constexpr auto kAirChime = makeVoiceRecipe<2>(airChime);
+inline constexpr auto kAirChime = makeVoiceRecipe<8>(airChime, true, configureAirChime);
 } // namespace VoiceRecipes
