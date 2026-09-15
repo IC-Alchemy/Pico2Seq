@@ -53,7 +53,7 @@ files; host CMake does not compile that startup/I2S/control glue.
 
 ---
 
-## 15 Host Unit Test Suites
+## 17 Host Unit Test Suites
 
 The host test executable (`pico2seq_tests`) links all unit suites under `tests/unit/`:
 
@@ -75,6 +75,7 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 14 | `tests/unit/test_voice_recipes.cpp` | Recipe/engine voices | Preset registry coherence (29 presets across core, recipes, and musical presets), waveguide tails across engine resets, recipe timbre lanes, envelope gate/retrigger behavior (`[voice][presets][waveguide][recipes]`) |
 | 15 | `tests/unit/test_voice_edit.cpp` | Voice Editing mode | Base vs lidar-modifier independence, neutral-modifier preset round-trip, parameter catalogue reachability/clamping per engine, editor release semantics, muted-editor queue draining (`[voice_edit][recording]`) |
 | 16 | `tests/unit/test_persistence.cpp` | Session persistence (`src/pico2seq-core/persistence/`, `src/voice/PatchCodec.*`) | CRC32 vector, frame magic/version/size/CRC rejection, locked 10,312-byte snapshot layout, snapshot validation bounds, pattern round-trip incl. raw tails, patch codec pointer re-derivation, golden full-project round-trip, watchdog resume decision table, retained-store validity (`[persistence]`) |
+| 17 | `tests/unit/test_recipe_optimization.cpp` | `rpdsp` Recipe CPU Optimizations | Prepared oscillator phase/spectra, cached coefficient survival across edits/triggers, feedback operator history (`[optimization][recipes][voice]`) |
 
 ---
 
@@ -120,16 +121,16 @@ cmake -B build_test -DCMAKE_BUILD_TYPE=Debug
 # Compile the test runner executables
 cmake --build build_test --parallel
 
-# Execute the main test runner directly (229 tests)
+# Execute the main test runner directly (240 tests)
 ./build_test/tests/pico2seq_tests
 
 # Or run individual specialized test executables:
-./build_test/tests/pico2seq_voice_tests      # Focused voice ownership & queue suite (46 tests)
+./build_test/tests/pico2seq_voice_tests      # Focused voice ownership & queue suite (70 tests)
 ./build_test/tests/pico2seq_watchdog_tests   # FreezeWatchdog forensics suite (4 tests)
-./build_test/tests/pico2seq_audio_tests      # I2S DMA/pool driver suite (4 tests)
+./build_test/tests/pico2seq_audio_tests      # I2S DMA/pool driver suite (1 test)
 ```
 
-*(On Windows PowerShell, append `.exe` to executable names; `ctest --test-dir build_test` executes all 283 tests across all 4 targets)*
+*(On Windows PowerShell, append `.exe` to executable names; `ctest --test-dir build_test` executes all 315 tests across all 4 targets)*
 
 ### 2. Run with CTest
 

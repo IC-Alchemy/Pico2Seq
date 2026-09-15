@@ -79,12 +79,12 @@ All automatable step parameters are identified by the `ParamId` enum class defin
 ```cpp
 enum class ParamId : uint8_t
 {
-  Note,       // 0 - Scale step index (0.0-21.0, maps to scale table)
+  Note,       // 0 - Scale step index (0-36, maps to SCALE_STEPS array)
   Velocity,   // 1 - Voice amplitude level (0.0-1.0)
   Filter,     // 2 - Filter cutoff frequency (0.0-1.0)
   Attack,     // 3 - Envelope attack time (0.0-1.0 seconds)
   Decay,      // 4 - Envelope decay time (0.0-1.0 seconds)
-  Octave,     // 5 - Octave offset (0.0 = -1 oct / C2, 0.5 = 0 oct / C3, 1.0 = +1 oct / C4)
+  Octave,     // 5 - Normalized octave control, mapped to -12/0/+12 semitones
   GateLength, // 6 - Gate duration fraction (0.001-1.0 of step)
   Gate,       // 7 - Gate on/off state (boolean: 0.0 or 1.0)
   Slide,      // 8 - Portamento / glide enable (boolean: 0.0 or 1.0)
@@ -126,7 +126,7 @@ struct ParameterDefinition
 
 constexpr ParameterDefinition CORE_PARAMETERS[] = {
   // Name          Default  Min    Max    Binary  Default Steps
-  {"Note",         0.0f,    0.0f,  21.0f, false,  16},
+  {"Note",         0,       0,     36,    false,  16},
   {"Velocity",     0.5f,    0.0f,  1.0f,  false,  16},
   {"Filter",       0.5f,    0.0f,  1.0f,  false,  16},
   {"Attack",       0.01f,   0.0f,  1.0f,  false,  16},
@@ -164,10 +164,10 @@ private:
   `setValue()` clamps the incoming value between `CORE_PARAMETERS[id].minValue` and `maxValue`. If `isBinary` is true, it thresholds at `> 0.5f` to produce `0.0f` or `1.0f`. If `minValue` is an integer variant, it rounds using `roundf()`.
 - **Randomization Algorithm (`randomizeParameters`)**:
   Uses an internal Linear Congruential Generator (LCG) seeded from system time. Applies musical heuristics per parameter:
-  - `Gate`: Even steps have a 75% probability of being active (1/4 chance of 0); odd steps have a ~33% probability (1/3 chance of 1).
-  - `Slide`: 1/13 chance (~7.7%) per step; track is always resized to 64 steps for safety.
+  - `Gate`: Even steps have a 50% probability of being active (1/2 chance of 0); odd steps have a ~25% probability (1/4 chance of 1).
+  - `Slide`: 1/16 chance (~6.25%) per step; track is always resized to 64 steps for safety.
   - `Attack` / `Decay`: Weighted towards short attacks and medium decays with occasional long swells.
-  - `Filter`: Uniform random in range `[0.2, 0.95]`.
+  - `Filter`: Uniform random in range `[0.2, 0.8]`.
 
 ---
 

@@ -239,7 +239,7 @@
   <div class="panel">
     <p>Every numeric sound setting now has a <b>per-voice base</b> (what the encoder edits).
        The lidar no longer stores absolute values: it records only a <b>signed modifier</b> —
-       its calibrated 55–1200&nbsp;mm range is normalized to 0–1 and the midpoint is neutral.
+       its calibrated 55–700&nbsp;mm range is normalized to 0–1 and the midpoint is neutral.
        At playback the two combine in the normalized parameter domain:</p>
     <div class="formula">modifier&nbsp;= lidarNormalized − 0.5&nbsp;&nbsp;&nbsp;·&nbsp;&nbsp;&nbsp;effective = clamp(base + modifier, 0 … 1)</div>
     <div class="lab-grid">
@@ -322,7 +322,7 @@
       <li>When a <b>step</b> is selected, its OLED line shows the stored signed modifier,
           e.g. <code>+23.4% mod</code>, instead of an absolute value.</li>
       <li>Lidar recording during playback writes modifiers (midpoint = neutral) into the
-          selected voice’s lanes — normalized 55–1200 mm exactly as in the lab above.</li>
+          selected voice’s lanes — normalized 55–700 mm exactly as in the lab above.</li>
       <li>Randomize randomizes modifiers; new/reset steps are neutral.</li>
       <li>The editor’s <b>Engine</b> and <b>Recipe</b> selections re-point the voice’s parameter
           layout, so lane meanings change together: picking a hard-sync waveform turns the

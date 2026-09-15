@@ -102,20 +102,23 @@ code with **no hardware dependencies**, using header stubs in `tests/stubs/` (e.
 real header paths exactly — a stub for `pico/sync.h` must live at `tests/stubs/pico/sync.h`.
 
 What's tested vs. not, per `tests/CMakeLists.txt`:
-- **Tested** (compiled into `pico2seq_tests`): `src/rpdsp/` additions via
-  `tests/unit/test_rpdsp_additions.cpp` and `test_dsp_recipe_regressions.cpp`,
+- **Tested**: `src/rpdsp/` additions via
+  `tests/unit/test_rpdsp_additions.cpp`, `test_dsp_recipe_regressions.cpp`,
+  and `test_recipe_optimization.cpp`,
   `src/voice/VoiceOscillator.h` via `test_voiceoscillator.cpp`,
   `src/pico2seq-core/scales/scales.cpp`,
   `src/pico2seq-core/sequencer/{ParameterManager,Sequencer}.cpp`,
   `src/voice/{Voice,VoicePresets,VoiceManager}.cpp` (incl. the `SpscQueue`
   control handoff via `test_voice_transfer.cpp`; recipes via
-  `test_voice_recipes.cpp`; the Voice Editing catalogue/policy via
-  `test_voice_edit.cpp`),
+  `test_voice_recipes.cpp`; voice editing via `test_voice_edit.cpp`;
+  focused ownership via `pico2seq_voice_tests`),
+  session and patch serialization (`src/pico2seq-core/persistence/*`,
+  `src/voice/PatchCodec.cpp`) via `test_persistence.cpp`,
   `src/ui/ControlSurfaceLogic.cpp` via `tests/unit/test_control_surface_logic.cpp`,
   `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` via `tests/unit/test_alchemy_proto.cpp`,
-  `src/audio/{audio_i2s,audio}.cpp` via `test_audio_i2s.cpp` (against
+  `src/audio/{audio_i2s,audio}.cpp` via `pico2seq_audio_tests` (against
   `tests/audio_stubs/` — keep driver logic in those testable functions),
-  `src/utils/FreezeWatchdog.h` via `test_freeze_watchdog.cpp`
+  `src/utils/FreezeWatchdog.h` via `pico2seq_watchdog_tests`
   (against `tests/watchdog_stubs/`), and app runtime helpers (PCM16
   conversion, lidar calibration) via `test_app_runtime.cpp`.
 - **Not tested, by design** (hardware-bound glue — keep logic out of these):

@@ -45,7 +45,7 @@ Core 1 (Real-Time Audio):
 Core 0 (UI, Sensors, Matrix, MIDI):
   loop() Control Slice (CONTROL_UPDATE_INTERVAL = 1 ms):
     +-- Matrix_scan()            -> checks the GP8 MPR121 IRQ flag; reads 32-pad status only on change
-    +-- alchemyBridge.update()   -> 1 ms Alchemy tile polling (Wire1 @ 100 kHz)
+    +-- alchemyBridge.update()   -> 1 ms Alchemy tile polling (Wire1 @ 400 kHz)
     +-- magEncoder.update()      -> 1 ms poll (5 ms internal throttle in driver)
     +-- updateEncoderBaseValues()-> Applies rotary increments to active params
     +-- distanceSensor.update()  -> 1 ms poll (10 ms data-ready check, 35 ms measurements)

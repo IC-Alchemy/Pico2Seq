@@ -17,7 +17,7 @@ The panel **mirrors the touch matrix**: the MPR121 touch surface (`src/matrix/`)
 - **LED Type:** WS2812B Addressable RGB LEDs
 - **Matrix Dimensions:** 8 columns × 4 rows (32 total LEDs)
 - **Data Pin:** `GPIO 1` (`LEDConstants::MATRIX_DATA_PIN`)
-- **Default Brightness:** `LEDConstants::DEFAULT_BRIGHTNESS` = 120 (on a 0–255 scale); the firmware initializes the matrix with `ledMatrix.begin(kStartupLedBrightness)` (brightness 100) on Core 0 during `Application::begin()` (via `ControlIO::beginMainBusAndLeds()`).
+- **Default Brightness:** `LEDConstants::DEFAULT_BRIGHTNESS` = 120 (on a 0–255 scale); the firmware initializes the matrix with `ledMatrix.begin(kStartupLedBrightness)` (brightness 150) on Core 0 during `Application::begin()` (via `ControlIO::beginMainBusAndLeds()`).
 - **Power Supply:** 5V rail capable of supplying up to ~1.5A for full-white illumination; internal brightness scaling is applied to limit peak current draw.
 
 ---
