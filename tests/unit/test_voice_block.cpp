@@ -103,6 +103,63 @@ TEST_CASE("Queued gate edges each reach a sample inside one block", "[voice][voi
     REQUIRE(block.getGate());
 }
 
+TEST_CASE("Consumer emptiness probes preserve queued updates", "[voice_transfer][voice_block]")
+{
+    SpscQueue<unsigned, 2> queue;
+    unsigned value = 0;
+    for (unsigned i = 0; i < 32; ++i)
+    {
+        REQUIRE(queue.consumerEmpty());
+        REQUIRE(queue.tryPush(i));
+        REQUIRE_FALSE(queue.consumerEmpty());
+        REQUIRE(queue.tryPush(i + 1));
+        REQUIRE_FALSE(queue.consumerEmpty());
+        REQUIRE(queue.tryPop(value));
+        REQUIRE(value == i);
+        REQUIRE_FALSE(queue.consumerEmpty());
+        REQUIRE(queue.tryPop(value));
+        REQUIRE(value == i + 1);
+        REQUIRE(queue.consumerEmpty());
+    }
+}
+
+TEST_CASE("Oscillator spans preserve all waveforms and silence boundaries", "[voiceosc][voice_block]")
+{
+    for (uint8_t waveform : {WAVE_SIN, WAVE_TRI, WAVE_SAW, WAVE_SQUARE,
+                            WAVE_BSP_SAW, WAVE_BSP_SQUARE, WAVE_HARDSYNC_SAW, WAVE_NOISE})
+    {
+        for (bool gated : {false, true})
+        {
+            CAPTURE(waveform, gated);
+            VoiceOscillator scalar, block;
+            for (auto *osc : {&scalar, &block})
+            {
+                osc->prepare(48000);
+                osc->setWaveform(waveform);
+                osc->setFreq(369);
+                osc->setSlaveFrequency(937);
+                osc->setPulseWidth(0.37f);
+            }
+            std::array<float, 32> env{}, mixed{};
+            for (uint32_t span = 0; span < 100; ++span)
+            {
+                for (uint32_t k = 0; k < env.size(); ++k)
+                {
+                    env[k] = (k + span) % 3 == 0 ? 0.001f : 0.0011f;
+                    mixed[k] = 0.17f;
+                }
+                block.renderAdd(mixed.data(), env.data(), env.size(), 0.41f, gated);
+                for (uint32_t k = 0; k < env.size(); ++k)
+                {
+                    const float expected = gated && env[k] <= 0.001f
+                                               ? 0.17f : 0.17f + scalar.process() * 0.41f;
+                    REQUIRE(mixed[k] == expected);
+                }
+            }
+        }
+    }
+}
+
 TEST_CASE("Block rendering drains disabled voices and leaves zero-length calls alone", "[voice][voice_block]")
 {
     Voice voice(1, patch(4));

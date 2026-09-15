@@ -72,6 +72,27 @@ class VoiceOscillator {
     return std::visit([](auto& osc) { return osc.process(); }, osc_);
   }
 
+  // One variant dispatch per span. Preserve oscillator summation order and
+  // freeze source state on the same envelope-silenced samples as process().
+  // Process the stored oscillator directly: a copied B-spline saw changes
+  // GCC's contraction of its integrator and fails the PCM16 comparison.
+  void renderAdd(float *mix, const float *env, uint32_t n, float amp, bool gateBySilence) noexcept {
+    std::visit([&](auto& osc) {
+      for (uint32_t k = 0; k < n; ++k) {
+        if (gateBySilence && env[k] <= 0.001f) continue;
+        // Preserve the scalar dispatch boundary: finish rounding the waveform
+        // before applying gain. Fast-math may otherwise fuse waveform math
+        // into the mixer now that each loop knows the concrete oscillator type.
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 10
+        const float source = __builtin_assoc_barrier(osc.process());
+#else
+        const volatile float source = osc.process();
+#endif
+        mix[k] += source * amp;
+      }
+    }, osc_);
+  }
+
   uint8_t waveform() const { return waveform_; }
 
  private:

@@ -21,10 +21,7 @@
 #include <atomic>
 #include <cmath>
 
-// Force-inline the per-sample stages of Voice::process(). Even at -O3 GCC
-// left computeEnvelope/updateFilter/mixOscillators and the two pending-change
-// checks as out-of-line calls: 4-6 call/return pairs per voice per sample on
-// the RP2350. The bodies are private and only ever called from process().
+// Keep tiny audio helpers inside their RAM-resident span caller.
 #if defined(__GNUC__)
 #define PICO2SEQ_HOT_INLINE inline __attribute__((always_inline))
 #else
@@ -111,7 +108,10 @@ public:
    */
   float process() noexcept;
 
+  // At most 0.67 ms at 48 kHz between control-queue probes.
+  static constexpr uint32_t kMaxSpan = 32;
   // Audio thread only. Overwrites n samples; zero length is a no-op.
+  // Applies one queued update per sample, then renders spans without updates.
   void processBlock(float *out, uint32_t n) noexcept;
 
   /**
@@ -315,7 +315,7 @@ private:
   // Gate edge tracking for the event-style ADSR (noteOn on rise, noteOff on fall)
   bool gateHighPrev_ = false;
   // Set on gate rise/retrigger so the waveguide engine plucks with the pitch
-  // already committed for this frame; consumed by mixOscillators().
+  // already committed for this frame; consumed by renderSources_().
   bool wgPluckPending_ = false;
   // Hypersaw randomizes its internal phases on each gate rise/retrigger.
   bool hypersawTriggerPending_ = false;
@@ -337,6 +337,11 @@ private:
   // at most once every kFilterUpdateInterval samples. Power of two so the
   // rolling counter wraps with a mask instead of a per-sample UDIV.
   static constexpr uint8_t kFilterUpdateInterval = 8;
+  static_assert(kMaxSpan % kFilterUpdateInterval == 0);
+  std::array<float, kMaxSpan> spanEnv_{};
+  std::array<float, kMaxSpan> spanSignal_{};
+  struct FilterEvent { uint8_t index; float cutoffHz; };
+  std::array<FilterEvent, kMaxSpan / kFilterUpdateInterval> spanFilterEvents_{};
   static_assert((kFilterUpdateInterval & (kFilterUpdateInterval - 1)) == 0,
                 "kFilterUpdateInterval must be a power of two");
   uint8_t filterUpdateCounter = 0;               // rolling counter
@@ -378,7 +383,7 @@ private:
   // - baseFreqDirty_ flags when base must be recomputed.
   // - lastSentBaseFreqHz_ reserved for micro-gating comparisons.
   // - updatePitchCache_ computes PitchCache/PitchSnapshot on the audio thread.
-  // - mixOscillators() uses a local version to avoid redundant frequency commits.
+  // - renderSources_() uses a local version to avoid redundant frequency commits.
   // - ShouldApplyFreq_ gates redundant per-sample SetFreq calls (eps ~= 0.017 cent via kPitchRelEps).
   float cachedBaseFreqHz_ = 440.0f;
   bool baseFreqDirty_ = true;
@@ -509,12 +514,13 @@ private:
   // Recomputes pitchCache_ and updates pitchSnapshot_, then increments its audio-local version.
   void updatePitchCache_();
 
-  // Private DSP stages used by process()
-  /**
-   * @brief Compute envelope value for current sample
-   * @return float Envelope amplitude (0.0-1.0)
-   */
-  PICO2SEQ_HOT_INLINE float computeEnvelope();
+  // Audio-thread span stages. Scratch is per Voice; Core 1 has a 2 KiB stack.
+  void renderSpan_(float *out, uint32_t n) noexcept;
+  PICO2SEQ_HOT_INLINE void handleGateEdges_() noexcept;
+  uint32_t planFilterUpdates_(const float *env, uint32_t n) noexcept;
+  void renderSources_(float *sig, const float *env, uint32_t n) noexcept;
+  void runMainFilter_(float *sig, uint32_t n, uint32_t events) noexcept;
+  void commitOscillatorPitch_() noexcept;
 
   /**
    * @brief Mark the static base cache dirty if the effective scale row changed
@@ -522,17 +528,12 @@ private:
    */
   void checkScaleIndexChanged_() noexcept;
 
-  /**
-   * @brief Update filter parameters based on envelope and voice state
-   * @param envelopeValue Current envelope value (0.0-1.0)
-   */
-  PICO2SEQ_HOT_INLINE void updateFilter(float envelopeValue);
 
   /**
    * @brief Push topology-dependent filter config (resonance, SVF response)
    *        into the state-variable path. Control-rate: called from init() and
    *        applyConfig_(); cutoff itself is updated per-sample by
-   *        updateFilter().
+   *        planFilterUpdates_().
    */
   void configureMainFilterFromConfig_() noexcept;
 
@@ -542,11 +543,6 @@ private:
    */
   void recomputeDetuneMultipliers();
 
-  /**
-   * @brief Mix and process oscillator outputs
-   * @return float Mixed oscillator signal (-1.0 to +1.0)
-   */
-  PICO2SEQ_HOT_INLINE float mixOscillators();
 
   /**
    * @brief Apply engine-specific configuration (waveguide and Hypersaw tuning)
@@ -583,13 +579,6 @@ private:
    */
   void applyEffects(float &signal);
 
-  /**
-   * @brief Finalize output with level and envelope
-   * @param signal Input signal (-1.0 to +1.0)
-   * @param envelopeValue Envelope amplitude (0.0-1.0)
-   * @return float Final output signal (-1.0 to +1.0)
-   */
-  PICO2SEQ_HOT_INLINE float finalizeOutput(float signal, float envelopeValue) noexcept;
 
   /**
    * @brief Update oscillator frequencies based on current state
