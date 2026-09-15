@@ -1,4 +1,5 @@
 #include "VoiceManager.h"
+#include "../utils/AudioRam.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -367,7 +368,7 @@ void VoiceManager::init(float sr)
  * Finally applies global volume scaling before returning
  * Optimized for embedded systems with minimal branching
  */
-float VoiceManager::processAllVoices() noexcept
+float PICO2SEQ_AUDIO_FUNC(VoiceManager::processAllVoices)() noexcept
 {
     float mixedOutput = 0.0f;
 
@@ -397,7 +398,7 @@ float VoiceManager::processAllVoices() noexcept
     */
 }
 
-float VoiceManager::advanceMasterGain_() noexcept
+float PICO2SEQ_AUDIO_FUNC(VoiceManager::advanceMasterGain_)() noexcept
 {
     // Audio-thread-only state: eases the master gain toward the requested
     // volume (or zero when transport-muted) so slider moves and transport

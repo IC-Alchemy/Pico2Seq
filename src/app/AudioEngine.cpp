@@ -1,4 +1,5 @@
 #include "AudioEngine.h"
+#include "../utils/AudioRam.h"
 #include "AppState.h"
 #include "HardwarePins.h"
 #include "../audio/audio.h"
@@ -35,7 +36,7 @@ audio_buffer_pool_t *producer_pool = nullptr;
 
 
 
-void fill_audio_buffer(audio_buffer_t *buffer)
+void PICO2SEQ_AUDIO_FUNC(fill_audio_buffer)(audio_buffer_t *buffer)
 {
     int N = buffer->max_sample_count;
     int16_t *out = reinterpret_cast<int16_t *>(buffer->buffer->bytes);
@@ -158,7 +159,7 @@ void AudioEngine::begin()
         audioPhase.store(Phase::Failed, std::memory_order_relaxed);
 }
 
-void AudioEngine::renderNextBuffer()
+void PICO2SEQ_AUDIO_FUNC(AudioEngine::renderNextBuffer)()
 {
     static uint32_t renderTotalUs = 0;
     static uint32_t renderCount = 0;

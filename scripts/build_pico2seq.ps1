@@ -3,6 +3,7 @@ param(
     [string]$ArduinoCli = 'arduino-cli',
     [string]$BuildDirectory,
     [ValidateSet(150, 225, 300)] [int]$CpuMHz = 300,
+    [switch]$AudioInFlash,
     [switch]$KeepStage
 )
 
@@ -73,6 +74,7 @@ $boardOptions = @(
 ) -join ','
 
 $buildSucceeded = $false
+$audioInRam = if ($AudioInFlash) { 0 } else { 1 }
 try {
     Copy-StageTree -Source $repoRoot -Destination $stageSketch -IsRepositoryRoot $true
     New-Item -ItemType Directory -Path $buildPath -Force | Out-Null
@@ -80,12 +82,13 @@ try {
     Write-Host "Building Pico2Seq with $($arduinoCliCommand.Source)"
     Write-Host "Artifacts: $buildPath"
     Write-Host "CPU clock: $CpuMHz MHz"
+    Write-Host "Audio code in RAM: $audioInRam"
     & $arduinoCliCommand.Source compile `
         --fqbn 'rp2040:rp2040:rpipico2' `
         --board-options $boardOptions `
         --warnings all `
         --clean `
-        --build-property 'build.extra_flags=-ffast-math' `
+        --build-property "build.extra_flags=-ffast-math -DPICO2SEQ_AUDIO_IN_RAM=$audioInRam" `
         --build-path $buildPath `
         $stageSketch
 
