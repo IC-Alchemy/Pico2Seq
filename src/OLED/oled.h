@@ -150,9 +150,10 @@ private:
   void drawVoiceHeader(const UIState &state, bool prominent);
   void drawMusicalValue(const char *text, int y);
   // Displays composed values from the same read-only snapshot as playback;
-  // showDistance adds the lidar reading (while a parameter button is held).
+  // showDistance adds lidar feedback and base shows the unmodulated value.
   void displayParameterInfo(ParamId id, const Step &values, const UIState &state,
-                            uint8_t step, const VoiceConfig *config, bool selected, bool showDistance);
+                            uint8_t step, const VoiceConfig *config, bool selected,
+                            bool showDistance, bool base);
 
   /**
    * @brief Display settings menu with navigation and preset selection

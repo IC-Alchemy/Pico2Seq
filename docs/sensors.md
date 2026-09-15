@@ -70,7 +70,7 @@ The magnetic encoder subsystem consists of two architectural layers:
   - Adaptive low-pass speed filtering.
 - **`EncoderManager` (`src/sensors/EncoderManager.h/.cpp`)**: High-level parameter management subsystem bridging encoder delta increments to the synthesizer data model. Handles:
   - Forwarding every read's increment to `VoiceEditor::encoder()`, which edits the selected voice's base (or the editor cursor) in its `VoiceConfig`.
-  - Outside Step Edit the encoder edits **per-voice base values**. With a step selected, `editSelectedStep()` edits that step's stored value for `ControlSurface::stepEditParameter()` (held parameter, else the toggled edit parameter, else the encoder target's lane): continuous lanes move by the encoder motion times their range (the same sensitivity as base edits), Note moves one scale step and Octave one octave per detent.
+  - Outside Step Edit the encoder edits **per-voice base values**. With a step selected, `editSelectedStep()` edits that step's stored value for the toggled edit parameter (or the encoder target's lane): continuous lanes move 5% of their range per unit of encoder motion, Note moves one scale step per detent.
   - Slow turns are accumulated (`ControlSurface::EncoderMotion`) rather than compared against a per-read noise floor, which used to discard them. Continuous values apply the motion once it passes `MINIMUM_INCREMENT_THRESHOLD`; notes, octaves and choices step once per `STEPPED_VALUE_DETENT` of motion. A change of direction discards pending motion, so sensor jitter never adds up.
   - Dynamic boundary proximity flash zones (`FlashSpeedZone` — currently defined but with no consumer; dormant).
 
@@ -85,7 +85,7 @@ The magnetic encoder subsystem consists of two architectural layers:
   - After `INVALID_READINGS_BEFORE_DROPOUT` (3) rejected measurements in a row, `getRawDistanceMm()` returns `INVALID_DISTANCE_MM` instead of the last, stale distance.
   - Useful measurement window: 55 mm to 700 mm (`MIN_DISTANCE_HEIGHT_MM` to `MAX_DISTANCE_HEIGHT_MM`). Readings up to `EDGE_TOLERANCE_MM` (40 mm) outside it clamp to the nearer edge.
   - `AppState::PerformanceInput::observeDistance()` sets `handPresent` and the rebased distance (0 to 645 mm); `recordingValue()` normalizes it. Invalid readings, and anything beyond the tolerance, mean **no hand**: live and step-edit recording pause and steps keep their values.
-  - The `[DIAG C0]` serial line (every 2 s) ends with `lidar=<mm> st=<status>`, and while a parameter button is held the OLED parameter screen shows the current reading in mm (in parentheses when outside the recording window, `--mm` with no measurement).
+  - The `[DIAG C0]` serial line (every 2 s) ends with `lidar=<mm> st=<status>`, and the parameter screen on the OLED shows the hand height (`--` when no hand is in range).
   - Non-blocking single-poll guarantee: `update()` checks `dataReady()` once and returns immediately without stalling the control loop.
 
 ### 3. MPR121 Capacitive Touch Matrix

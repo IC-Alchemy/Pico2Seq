@@ -63,7 +63,8 @@ void updateParametersForStepNormalized(uint8_t stepToUpdate, float normalizedVal
         const float previousValue = activeSeq.getStepParameterValue(paramToEdit, stepToUpdate);
         activeSeq.setStepParameterValue(paramToEdit, stepToUpdate, valueToSet);
         // This runs every control pass (1 ms) while a step is in edit. Only an
-        // actual change (after clamping and note rounding) refreshes the voice.
+        // actual change (after clamping and note rounding) is previewed, so a
+        // steady hand does not retrigger the step each pass.
         parametersWereUpdated = activeSeq.getStepParameterValue(paramToEdit, stepToUpdate) != previousValue;
 
 //                  Keep the two-voice compatibility path; USB MIDI itself is disabled.

@@ -82,6 +82,10 @@ value the voice plays. With no parameter held, the home screen shows the encoder
 target's base, since a step's modifier or a clamp at a limit could otherwise hide an
 encoder turn. Live edits (lidar, faders, encoder) refresh the sounding note in place
 through `Sequencer::refreshVoiceParameters()`; they never retrigger it. Note displays
+The step OLED and normal encoder screen show composed playback values, after
+preset bases, clamping, quantization and engine-specific mapping. For 1.5 s after an
+encoder turn they show the edited base instead (`Base` / `BASE`), since a step's
+modifier or a clamp at a limit can otherwise hide the change. Note displays
 note names and octaves, including oscillator harmonies/detuning (Bass starts at
 `C2/C3`); unpitched percussion reads `Noise`. Envelope and gate durations use
 ms/s, cutoff uses Hz, octave uses signed octaves, and FM/spacing use ratios.

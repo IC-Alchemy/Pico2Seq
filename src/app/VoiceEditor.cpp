@@ -5,6 +5,7 @@
 #include "ClockService.h"
 #include "StepPlayback.h"
 #include "../ui/ControlSurfaceLogic.h"
+#include "../ui/UIConstants.h"
 #include <cstdlib>
 #include <uClock.h>
 
@@ -38,6 +39,7 @@ void clearPerformanceControls() {
   uiState.latchedParameter = -1;
   uiState.shiftHeld = false;
   uiState.alchemyModeBannerUntil = uiState.oledNoticeUntil = 0;
+  uiState.encoderBaseViewUntil = 0;
   VoiceEditor::clearEncoder();
 }
 } // namespace
@@ -153,6 +155,10 @@ void encoder(float delta) {
   // retrigger), so the value on the OLED is also what is heard.
   if (!editor.active)
     updateActiveVoiceState(0, *AppState::sequencers[index]);
+  // Outside the editor the OLED normally shows sequenced step values, where a
+  // step's modifier can mask a base change. Show the base while it is turned.
+  if (!editor.active)
+    uiState.encoderBaseViewUntil = millis() + ENCODER_BASE_VIEW_MS;
 }
 VoiceEdit::Id encoderTarget() {
   using Id = VoiceEdit::Id;

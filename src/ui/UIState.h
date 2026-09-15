@@ -39,6 +39,9 @@ struct UIState
     volatile OledNoticeKind oledNoticeKind = OledNoticeKind::None;
     volatile uint8_t oledNoticeVoice = 0; // 0-based voice, valid for Randomized
     unsigned long lastEncoderButtonPressTime = 0;
+    // Until this time the OLED shows the base the encoder just changed instead
+    // of the playing step's composed value (0 = not showing).
+    unsigned long encoderBaseViewUntil = 0;
     unsigned long voiceSwitchPressTime = 0;
     bool voiceSwitchWasPressed = false;
 

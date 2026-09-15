@@ -427,7 +427,6 @@ TEST_CASE("An absent hand leaves recorded modifiers untouched",
   seq.advanceStep(0, -1, false, false, true, false, false, false, -1, &state);
   REQUIRE(seq.getStepParameterValue(ParamId::Filter, 0) == Approx(0.8f));
 }
-
 namespace {
 // RMS of one gated step while `edit` runs every millisecond, as the lidar,
 // faders and encoder did through updateActiveVoiceState().

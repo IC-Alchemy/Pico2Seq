@@ -523,7 +523,6 @@ TEST_CASE("EncoderMotion ignores zero, non-finite and non-positive sizes", "[con
     CHECK(motion.takeSteps(-kDetent) == 0);
     CHECK(motion.pending() == Catch::Approx(0.01f));
 }
-
 TEST_CASE("Step edit targets the held, then toggled, then encoder parameter", "[control_surface]")
 {
     CHECK(stepEditParameter(ParamId::Filter, ParamId::Velocity, EncoderParameterMode::Decay) == ParamId::Filter);

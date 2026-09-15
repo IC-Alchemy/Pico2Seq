@@ -181,6 +181,11 @@ range. It edits whatever the **encoder target** is — cycle targets with the Ut
   value at that parameter's playing position instead — the composed value that live
   recording writes and the voice plays. While the transport runs, a base change reaches the
   sounding note at once without retriggering it.
+  toggled edit parameter, or else the encoder target's lane. Note and Octave move one
+  step per detent.
+- The OLED normally shows the playing step's composed value. For 1.5 s after an encoder
+  turn it shows the edited **base** instead, marked `Base` on the home screen and `BASE`
+  on a parameter screen. A held parameter also shows the current lidar reading in mm.
 
 **Hold** the Utility-mode encoder button (about a second) to enter **Gate Sequence Length
 mode**: the LEDs show a blinking band on the selected voice's rows, and touching pads 1–16
@@ -206,6 +211,9 @@ button is held, the OLED parameter screen always shows the sensor's current read
 at the right: plain (`412mm`) inside the recording window, in parentheses (`(812mm)`)
 outside it, and `--mm` with no measurement. A held parameter's screen takes priority over
 the settings and sequence-length screens.
+button is held, the OLED parameter screen always shows the sensor's current reading in mm
+at the right: plain (`412mm`) inside the recording window, in parentheses (`(812mm)`)
+outside it, and `--mm` with no measurement.
 
 ### 1.8 OLED display
 
@@ -688,6 +696,9 @@ cmake --build build_test --parallel
   base values in its patch; turning the encoder changes the selected voice's base, and at
   step time every voice applies its own base. With a step selected for edit
   (`uiState.selectedStepForEdit >= 0`), it edits that step's stored value instead.
+- **The encoder edits per-voice bases or the selected step.** Each voice stores its own
+  base values in its patch; with a step selected, the encoder edits that step's stored
+  value instead.
 - **Can't program a pitch into a step?** Note edits are rejected on gate-off steps. Toggle
   the step on first.
 - **Pad does something unexpected** — check the context: a held parameter button turns pad
