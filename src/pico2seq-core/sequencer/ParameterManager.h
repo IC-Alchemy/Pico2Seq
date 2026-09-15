@@ -20,6 +20,14 @@ public:
     float getValue(ParamId id, uint8_t stepIdx) const;
     void setValue(ParamId id, uint8_t stepIdx, float value);
     void copyStep(uint8_t srcStep, uint8_t dstStep);
+
+    // Direct (non-wrapping) access for persistence. getRawValue reads storage
+    // beyond the active length; setRawValue writes without the UI clamp/round.
+    // Writes at/beyond the active length wrap like setValue — the persistence
+    // codec grows the track to MAX first, so restore never wraps.
+    float getRawValue(ParamId id, uint8_t stepIdx) const;
+    void setRawValue(ParamId id, uint8_t stepIdx, float value);
+
     void randomizeParameters(bool patchModifiers = false);
 
     // Encoder Parameter Bounds Management functions moved to src/sensors/EncoderManager.h/.cpp

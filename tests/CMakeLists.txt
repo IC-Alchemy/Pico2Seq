@@ -29,6 +29,7 @@ add_executable(pico2seq_tests
   unit/test_alchemy_proto.cpp
   unit/test_app_runtime.cpp
   unit/test_voice_edit.cpp
+  unit/test_persistence.cpp
 
   # Scale data
   ${CORE_DIR}/scales/scales.cpp
@@ -37,12 +38,18 @@ add_executable(pico2seq_tests
   ${CORE_DIR}/sequencer/ParameterManager.cpp
   ${CORE_DIR}/sequencer/Sequencer.cpp
 
+  # Session persistence (portable snapshot + codecs)
+  ${CORE_DIR}/persistence/SnapshotFormat.cpp
+  ${CORE_DIR}/persistence/ProjectSnapshot.cpp
+  ${CORE_DIR}/persistence/PatternCodec.cpp
+
   # Voice synthesis (DSP comes from header-only src/rpdsp)
   ${SRC_DIR}/voice/Voice.cpp
   ${SRC_DIR}/voice/VoicePresets.cpp
   ${SRC_DIR}/voice/VoiceParameters.cpp
   ${SRC_DIR}/voice/VoiceEditParameters.cpp
   ${SRC_DIR}/voice/VoiceManager.cpp
+  ${SRC_DIR}/voice/PatchCodec.cpp
 
   # Alchemy tile control surface decision logic (pure C++)
   ${SRC_DIR}/ui/ControlSurfaceLogic.cpp

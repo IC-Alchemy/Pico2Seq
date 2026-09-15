@@ -53,6 +53,7 @@ enum FreezePhase : uint32_t
     FW_LOOP_OLED,
     FW_LOOP_LEDS,
     FW_LOOP_DIAGNOSTICS,
+    FW_SETUP_STORAGE,
     FW_FAULT = 0xDEADF00D,
 };
 
@@ -84,6 +85,7 @@ static const char *freezeWatchdogPhaseName(uint32_t phase)
     case FW_LOOP_OLED:       return "loop: OLED update";
     case FW_LOOP_LEDS:       return "loop: LED transfer";
     case FW_LOOP_DIAGNOSTICS:return "loop: serial diagnostics";
+    case FW_SETUP_STORAGE:   return "setup: session storage";
     case FW_FAULT:           return "HARD FAULT";
     default:                 return "unknown";
     }

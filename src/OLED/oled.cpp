@@ -279,6 +279,13 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
       uiState.oledNoticeKind != UIState::OledNoticeKind::None)
   {
     const char *line1 = "RANDOMIZED";
+    switch (uiState.oledNoticeKind)
+    {
+    case UIState::OledNoticeKind::Saved:    line1 = "SAVED"; break;
+    case UIState::OledNoticeKind::Loaded:   line1 = "LOADED"; break;
+    case UIState::OledNoticeKind::LoadError: line1 = "LOAD ERR"; break;
+    default: break;
+    }
 
     displayHardware.setTextSize(2);
     const uint8_t line1Width = static_cast<uint8_t>(strlen(line1) * 12); // size-2 chars are 12px wide

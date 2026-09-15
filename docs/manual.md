@@ -546,13 +546,21 @@ the value into that step.
 | Button | Action |
 |---|---|
 | 1 Play / Stop | Start/stop the transport (and all 4 sequencers). Stopping opens the OLED Settings/preset browser; starting closes it. Long-press toggles Settings without stopping |
-| 2 | *(unassigned — was the Delay toggle; the delay effect was removed 2026-09-11)* |
+| 2 Save / Load | **Tap**: save everything to flash (the transport pauses ~0.5 s for the write, then resumes). **Long-press (≥ 0.4 s)**: reload the last saved session. OLED shows `SAVED` / `LOADED` / `LOAD ERR` |
 | 3 Scale | Cycle forward through the 13 scales |
 | 4 Swing | Cycle through the 16 shuffle templates |
 | 5 Theme | Cycle the 10 LED matrix color themes |
 | 6 Encoder target | Short press: cycle encoder target. Hold: enter Gate Sequence Length mode (pads set the Gate track length) |
 | 7 Randomize | Short press (< 1 s): randomize the selected voice. Long press (≥ 1 s): reset it |
 | 8 Shift | Modifier for transport/utility chords |
+
+**What gets saved:** all four voices' patterns (every parameter lane, including
+polymetric lengths), each voice's patch (preset + all Voice Edit adjustments),
+tempo, master volume, scale, shuffle, theme, selected voice, and the recorded
+encoder-modifier state. Edits are also saved automatically about a second after
+you press Stop (only if something changed). Everything you program survives
+power-off, and after a watchdog freeze the unit restores the live session by
+itself — no power-cycle needed.
 
 ### Voice buttons (both modes)
 

@@ -58,7 +58,7 @@ function Copy-StageTree {
 }
 
 $boardOptions = @(
-    'flash=4194304_0'
+    'flash=4194304_65536'
     'arch=arm'
     "freq=$CpuMHz"
     'opt=Optimize3'

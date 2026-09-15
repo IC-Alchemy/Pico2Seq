@@ -27,7 +27,12 @@ work during each control-loop pass.
 The app modules connect existing subsystems. USB MIDI is disabled in this
 checkout. `MidiNoteManager` compatibility calls still participate in software
 gate/note bookkeeping; changing them needs a separate musical-behavior review.
-There is no sketch-level persistence service.
+
+Sketch-level persistence lives in `src/app/Session*` (capture/apply, save/load
+requests), `src/app/SessionStorage*` (LittleFS file I/O), and
+`src/app/RetainedSession*` (retained-RAM mirror). The byte-level snapshot
+format and codecs are portable code in `src/pico2seq-core/persistence/` (plus
+`src/voice/PatchCodec.*`). See `docs/architecture.md` for the save policy.
 
 ## The order matters
 

@@ -127,6 +127,20 @@ void ParameterManager::copyStep(uint8_t srcStep, uint8_t dstStep)
   }
 }
 
+float ParameterManager::getRawValue(ParamId id, uint8_t stepIdx) const
+{
+  if (static_cast<size_t>(id) >= kParamCount || stepIdx >= SequencerConstants::MAX_STEPS_COUNT)
+    return 0.0f;
+  return _tracks[static_cast<size_t>(id)].rawValue(stepIdx);
+}
+
+void ParameterManager::setRawValue(ParamId id, uint8_t stepIdx, float value)
+{
+  if (static_cast<size_t>(id) >= kParamCount || stepIdx >= SequencerConstants::MAX_STEPS_COUNT)
+    return;
+  _tracks[static_cast<size_t>(id)].setValue(stepIdx, value);
+}
+
 void ParameterManager::randomizeParameters(bool patchModifiers)
 {
   // Seed the LCG with current time

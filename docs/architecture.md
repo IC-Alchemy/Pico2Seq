@@ -447,3 +447,62 @@ I2S Stereo Audio Out (GP10 / GP11 / GP12)
 | Core 0 Display Refresh | 50 Hz (20 ms interval) | `src/app/ControlIO.cpp` interval checks |
 | Sequencer Resolution | 480 PPQN @ 90 BPM default | `uClock.init()` verification |
 | Unit Test Coverage | Catch2 v3.5.2 host test suite | `ctest --test-dir build_test` |
+
+---
+
+## 11. Session Persistence
+
+Everything the user programs survives power-off, and a watchdog reset resumes
+the live session instead of demanding a power-cycle.
+
+### What is saved
+
+One locked-layout `persistence::ProjectSnapshotV1` POD (10,312 bytes, pinned by
+`static_assert`): per voice the 9 `ParameterTrack`s (all 64 steps plus the
+polymetric length; tail steps beyond the length are stored raw) and the
+`VoiceConfig` patch (value fields only — the flash-resident
+`parameters`/`recipe` descriptors are re-derived from the preset index via
+`voicecodec::applyPatch`), plus global settings (tempo, master volume, scale,
+shuffle, theme, selected voice, per-voice preset indices and editor
+cursors/dirty flags). Transport position, DSP state and debounce/timestamp UI
+state are never persisted. All persisted state is Core-0-owned.
+
+### Where it goes
+
+1. **LittleFS file `/session.p2s`** (survives power-off). The 64 KB flash
+   partition is reserved by the board option `flash=4194304_65536`. Writes are
+   framed (magic `'P2S1'`, format version, payload size, CRC-32) and made
+   atomic by writing `/session.tmp` and renaming over the live file. At boot
+   the frame is validated and the payload range-checked; anything invalid
+   falls back to factory defaults.
+2. **Retained-RAM mirror** (survives watchdog/warm reset only). A
+   `__uninitialized_ram` `RetainedStore` refreshed at 1 Hz from
+   `Application::update()` — zero flash wear. Magic + generation + CRC gate
+   validity; RAM is cleared by power-on, so this is crash recovery, not
+   storage.
+
+### Save policy (XIP stall rule)
+
+Flash erase/program stalls XIP on **both** cores (45–400 ms per 4 KB sector),
+and the DMA pool buffers only ~21 ms of audio. Flash writes therefore run only
+from `Application::update()` context with the transport stopped:
+
+- **Gesture save** (Utility button 1 tap): requests a save; `update()` stops
+  the clock via `stopClockForEditor()`, drains control updates, writes, then
+  restarts the transport.
+- **Autosave on stop**: ~1 s after each running→stopped transition, only when
+  the snapshot CRC differs from the last saved one. No dirty-flag plumbing.
+- **Load gesture** (Utility button 1 long-press): re-applies the last saved
+  session (patterns, patches, settings) while stopped.
+- LittleFS mounts **before** `freezeWatchdogArm()`: a first-boot format can
+  take seconds and must not trip the 2 s watchdog.
+
+### Watchdog recovery
+
+On a watchdog reset the boot checks the retained store: if valid and fewer
+than 3 consecutive resume attempts are recorded, the session is restored from
+RAM and the freeze post-mortem printed; otherwise the historic park-and-
+power-cycle behavior applies. The attempt counter only clears after the
+control loop has run healthy for 15 s, so a freeze that recurs right after
+boot still reaches the three-strike park. Resumed boots mount flash as usual
+but skip the file load (the retained snapshot is fresher).
