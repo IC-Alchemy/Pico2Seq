@@ -111,6 +111,9 @@ public:
    */
   float process() noexcept;
 
+  // Audio thread only. Overwrites n samples; zero length is a no-op.
+  void processBlock(float *out, uint32_t n) noexcept;
+
   /**
    * @brief Update voice parameters from sequencer state
    * @param newState New voice state from sequencer containing note, velocity, filter, envelope parameters

@@ -20,6 +20,7 @@ constexpr float SAMPLE_RATE = 48000.0f;
 // without a separate set of consumer buffers or copies in the DMA interrupt.
 constexpr int NUM_AUDIO_BUFFERS = 4;
 constexpr int SAMPLES_PER_BUFFER = 256;
+static_assert(SAMPLES_PER_BUFFER <= static_cast<int>(VoiceManager::kMaxBlock));
 
 namespace
 {
@@ -33,6 +34,7 @@ std::atomic<uint32_t> driverStage{0};
 bool audioStarted = false; // Core 1 only
 SpscQueue<AudioEngine::Heartbeat, kHeartbeatQueueCapacity> heartbeats;
 audio_buffer_pool_t *producer_pool = nullptr;
+std::array<float, SAMPLES_PER_BUFFER> mixBuffer{}; // Core 1 only
 
 
 
@@ -40,7 +42,6 @@ void PICO2SEQ_AUDIO_FUNC(fill_audio_buffer)(audio_buffer_t *buffer)
 {
     int N = buffer->max_sample_count;
     int16_t *out = reinterpret_cast<int16_t *>(buffer->buffer->bytes);
-    float finalVoiceOutput;
 
     if (!voicesReady.load(std::memory_order_acquire))
     {
@@ -55,16 +56,17 @@ void PICO2SEQ_AUDIO_FUNC(fill_audio_buffer)(audio_buffer_t *buffer)
         return;
     }
 
-    // Process each sample in the buffer
-    for (int i = 0; i < N; ++i)
+    // Fixed scratch also bounds an unexpectedly larger producer buffer.
+    for (int offset = 0; offset < N; offset += SAMPLES_PER_BUFFER)
     {
-        // Process all voices through VoiceManager (voice states updated by sequencer callbacks)
-        finalVoiceOutput = voiceManager->processAllVoices();
-
-        // Convert once for both channels (mono -> stereo)
-        int16_t convertedSample = AudioSamples::toPcm16(finalVoiceOutput);
-        out[2 * i + 0] = convertedSample; // Left channel
-        out[2 * i + 1] = convertedSample; // Right channel
+        const int count = std::min(N - offset, SAMPLES_PER_BUFFER);
+        voiceManager->processBlock(mixBuffer.data(), static_cast<uint32_t>(count));
+        for (int i = 0; i < count; ++i)
+        {
+            const int16_t sample = AudioSamples::toPcm16(mixBuffer[i]);
+            out[2 * (offset + i)] = sample;
+            out[2 * (offset + i) + 1] = sample;
+        }
     }
 
     buffer->sample_count = N;

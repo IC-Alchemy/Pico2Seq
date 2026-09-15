@@ -333,6 +333,12 @@ void PICO2SEQ_AUDIO_FUNC(Voice::applyControlUpdate_)() noexcept
     filterFrequency = update.filterHz;
 }
 
+void PICO2SEQ_AUDIO_FUNC(Voice::processBlock)(float *out, uint32_t n) noexcept
+{
+  for (uint32_t k = 0; k < n; ++k)
+    out[k] = process();
+}
+
 float PICO2SEQ_AUDIO_FUNC(Voice::process)() noexcept
 {
   // Consume controls even while disabled, so queued re-enables can take effect.
