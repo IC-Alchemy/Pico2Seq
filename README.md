@@ -31,7 +31,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **VoiceSystem Architecture**: Centralized, array-based voice management with safe accessor methods, providing software gates and duration timers across all 4 voices (0–3)
 - **Dual-Core Asymmetric Design**: Core 1 dedicated exclusively to 48kHz audio synthesis; Core 0 handles UI, sensors, clock, display rendering, and the USB CDC serial console
 - **Lock-Free Parameter Staging**: Atomic generation counters and lock-free SPSC queues allow Core 0 to stage parameter changes without blocking Core 1 audio processing
-- **Host Test Suite**: Catch2 v3 unit test suite with hardware stubs across 4 test executables (283 tests total), built and run locally via CTest
+- **Host Test Suite**: Catch2 v3 unit test suite with hardware stubs across 4 test executables (315 tests total), built and run locally via CTest
 
 ---
 
@@ -210,7 +210,7 @@ MIDI, displays, sensors, or controls on physical hardware.
 | **SH1106G OLED** | `Wire` (I2C0) | GP4 (SDA), GP5 (SCL) | Address `0x3C` (128×64 monochrome) |
 | **TMAG5273A Magnetic Encoder** | `Wire` (I2C0) | GP4 (SDA), GP5 (SCL) | Address `0x35` (`TMAG5273::ADDRESS_A`) |
 | **VL53L1X Distance Sensor** | `Wire` (I2C0) | GP4 (SDA), GP5 (SCL) | Address `0x29` (TOF optical sensor) |
-| **Alchemy Modular UI Tiles** | `Wire1` (I2C1) | GP14 (SDA), GP15 (SCL) | 100 kHz bus; SliderModule & ButtonModule8 |
+| **Alchemy Modular UI Tiles** | `Wire1` (I2C1) | GP14 (SDA), GP15 (SCL) | 400 kHz bus; SliderModule & ButtonModule8 |
 | **Mode Strap Switch** | GPIO | GP7 | LOW = Param mode, HIGH = Utility mode |
 | **WS2812B LED Matrix** | FastLED | GP1 | 8×4 RGB matrix data pin |
 
@@ -226,7 +226,7 @@ MIDI, displays, sensors, or controls on physical hardware.
 4. **Select a voice:** Press Voice 1–4 buttons on the SliderModule to switch active voices directly.
 5. **Adjust parameters:** Rotate the TMAG5273 magnetic encoder or move physical faders to dial parameter values with live OLED/LED feedback.
 6. **Real-time recording:** Hold (or Shift+tap to latch) a parameter button and touch step pads to record automation into the pattern.
-7. **Switch function sets:** Toggle the GP7 mode strap between **Param** (Note, Velocity, Filter, Attack, Decay, Octave, Slide, Shift) and **Utility** (Play/Stop, *(unassigned — was the Delay toggle, removed with the delay effect 2026-09-11)*, Scale, Swing, Theme, Encoder Target, Randomize, Shift).
+7. **Switch function sets:** Toggle the GP7 mode strap between **Param** (Note, Velocity, Filter, Attack, Decay, Octave, Slide, Shift) and **Utility** (Play/Stop, Session Save/Load, Scale, Swing, Theme, Encoder Target, Randomize, Shift).
 8. **Voice Editing mode:** Hold **Shift** and press slider button 4 to stop transport and edit any voice's sound parameters directly with the encoder (button tiles navigate groups/parameters; slider buttons 1–4 pick the voice). See [`docs/voice-edit.md`](docs/voice-edit.md).
 9. **Master volume:** In Utility mode, fader 3 sets the final output volume (applied on Core 1's final mix).
 
@@ -301,7 +301,7 @@ Pico2Seq leverages the dual ARM Cortex-M33 cores of the RP2350:
 
 ## Host Unit Testing
 
-Pico2Seq provides an automated host-side unit test suite powered by **Catch2 v3.5.2** and CMake across four test executables (`pico2seq_tests`, `pico2seq_voice_tests`, `pico2seq_watchdog_tests`, `pico2seq_audio_tests` — 283 total tests):
+Pico2Seq provides an automated host-side unit test suite powered by **Catch2 v3.5.2** and CMake across four test executables (`pico2seq_tests`, `pico2seq_voice_tests`, `pico2seq_watchdog_tests`, `pico2seq_audio_tests` — 315 total tests):
 
 ```bash
 # Configure and build test suite
@@ -341,8 +341,7 @@ Comprehensive subsystem documentation is maintained in the [`docs/`](docs/) dire
 - [`docs/superpowers/specs/2026-09-02-modifier-layer-restoration.md`](docs/superpowers/specs/2026-09-02-modifier-layer-restoration.md) — Spec for the modifier layer; implemented 2026-09-11 via the Voice Editing mode (see [`docs/voice-edit.md`](docs/voice-edit.md))
 
 Interactive single-file HTML docs also live in `docs/`: [`PICO2SEQplayground.html`](docs/PICO2SEQplayground.html) and
-[`pico2seqinteractive_explainer.html`](docs/pico2seqinteractive_explainer.html) (hands-on explorers),
-[`Pico2Seqinteractive_manual.html`](docs/Pico2Seqinteractive_manual.html) (manual UI), [`synth_layout.html`](docs/synth_layout.html)
+[`pico2seqinteractive_explainer.html`](docs/pico2seqinteractive_explainer.html) (hands-on explorers), [`synth_layout.html`](docs/synth_layout.html)
 (DSP/layout diagram), and [`voice_edit_playground.html`](docs/voice_edit_playground.html) (Voice Editing explorer).
 
 ---

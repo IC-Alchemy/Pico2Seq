@@ -6,7 +6,7 @@ This module implements touch matrix scanning and event dispatch for Pico2Seq, ha
 
 ## Overview
 
-- Drives a 4×8 (32-pad) capacitive touch grid with low-latency hardware scanning on Core 1
+- Drives a 4×8 (32-pad) capacitive touch grid with low-latency hardware scanning on Core 0
 - Provides 32 dedicated step pads across two 16-step voice banks addressing the active voice pair
 - Reliable debouncing and event callbacks for press/release
 - Integrates with the Adafruit MPR121 I2C sensor on `Wire` @ `0x5A`
@@ -49,7 +49,7 @@ This module implements touch matrix scanning and event dispatch for Pico2Seq, ha
 | Function | Description |
 |:---|:---|
 | `void Matrix_init(Adafruit_MPR121*)` | Initialize with sensor instance |
-| `void Matrix_scan()` | Poll for button state changes (call in main loop on Core 1) |
+| `void Matrix_scan()` | Poll for button state changes (call in main loop on Core 0) |
 | `bool Matrix_getButtonState(uint8_t)` | Query current button state |
 | `void Matrix_setEventHandler(func)` | Set general event handler for button events |
 | `void Matrix_setRisingEdgeHandler(func)` | Set handler for button press only |

@@ -147,7 +147,7 @@ Eight buttons (ButtonModule8) change meaning with the **mode switch** on GPIO 7:
 | # | Param mode | Utility mode |
 |---|---|---|
 | 1 | Note | Play / Stop |
-| 2 | Velocity | *(unassigned — was the Delay toggle; the delay effect was removed 2026-09-11)* |
+| 2 | Velocity | Save / Load (tap: save session, hold: reload) |
 | 3 | Filter | Scale cycle |
 | 4 | Attack | Swing pattern cycle |
 | 5 | Decay | LED theme cycle |
@@ -664,7 +664,7 @@ label is a leftover from the hardware design **[unverified]**.
 - **On-hardware behavior can only be verified on a real Pico 2** — CLI builds prove
   compilation only.
 
-For developers working on this repo, the host test suite (Catch2 v3 across 4 test executables, 283 tests total, no hardware needed):
+For developers working on this repo, the host test suite (Catch2 v3 across 4 test executables, 315 tests total, no hardware needed):
 
 ```bash
 cmake -B build_test -DCMAKE_BUILD_TYPE=Debug

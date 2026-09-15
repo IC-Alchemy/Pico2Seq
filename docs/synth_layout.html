@@ -218,7 +218,7 @@ const SHUFFLES=['No Shuffle','Teeny Swing',"Lil' Swing (53%)","Neg' Swing (53%)"
 /* ButtonModule8 logical buttons — src/AlchemyUI/src/ButtonMap.h */
 const PARAM_BTNS=[['NOTE','Note'],['VEL','Velocity'],['FILT','Filter'],['ATT','Attack'],
  ['DEC','Decay'],['OCT','Octave'],['SLIDE','Slide']]; // bit7 = Shift in both modes
-const UTIL_BTNS=[['PLAY','Play/Stop'],['DLY','(unassigned — was Delay toggle, removed 2026-09-11)'],['SCALE','Scale cycle'],
+const UTIL_BTNS=[['PLAY','Play/Stop'],['SAVE','Session Save / Load'],['SCALE','Scale cycle'],
  ['SWNG','Shuffle cycle'],['THME','Theme cycle'],['ENC','Encoder mode cycle'],['RAND','Randomize']];
 
 const ENC_MODES=['Velocity','Filter','Attack','Decay','Note','Octave','SlideTime'];
@@ -277,7 +277,7 @@ const INFO={
  module8:{t:'ButtonModule8 — 8 buttons (slot 1)',s:'ButtonMap.h · ShiftLatch',b:
   `<p>One physical 8-button tile carries two function sets; GP7 picks which is live. Shift (bit 7) is shared.</p>
    <ul><li><b>Param</b>: NOTE VEL FILT ATT DEC OCT SLIDE + SHIFT. Hold = momentary; <b>Shift+press latches</b> the parameter so it stays held (one latch at a time).</li>
-   <li><b>Utility</b>: PLAY DLY SCALE SWNG THME ENC RAND + SHIFT — the DLY button is unassigned since the delay effect was removed (2026-09-11).</li></ul>`},
+    <li><b>Utility</b>: PLAY SAVE SCALE SWNG THME ENC RAND + SHIFT — button 2 (SAVE) taps to save session to flash, long-press to reload last saved session.</li></ul>`},
  gp7:{t:'GP7 mode strap switch',s:'ControlSurfaceLogic.h ModeStabilizer',b:
   `<p>Hardware strap on GP7 (input pull-up, LOW = Param). Readings must hold stable 20 ms before the mode flips; a flip shows the PARAM/UTIL OLED banner and resets shift-latches. Try flipping it — the 8-button module relabels itself.</p>`},
  tmag:{t:'TMAG5273 magnetic encoder',s:'docs/sensors.md · EncoderManager',b:
@@ -480,7 +480,7 @@ function utilityAction(idx){
   switch(idx){
     case 0: if(state.playSpent){state.playSpent=false;break;}     // long-press already handled
       togglePlay(); break;                                        // PLAY
-    case 1: notice('DLY unassigned — delay effect removed 2026-09-11'); break;
+    case 1: notice('SAVE: Session saved to storage'); break;
     case 2: state.scaleIdx=(state.scaleIdx+1)%SCALES.length; break; // SCALE
     case 3: state.swingIdx=(state.swingIdx+1)%SHUFFLES.length; break;// SWNG
     case 4: state.themeIdx=(state.themeIdx+1)%THEMES.length; syncRail(); break; // THME
