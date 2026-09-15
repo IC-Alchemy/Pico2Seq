@@ -29,13 +29,19 @@ extern Sequencer *const sequencers[VoiceSystem::MAX_VOICES];
 struct PerformanceInput
 {
     int distanceAboveMinimumMm = 0;
+    // False for invalid readings and for anything beyond the window's edge
+    // tolerance. Recording must skip absent hands: the value below would
+    // otherwise write the window minimum (a -50% modifier) into steps.
+    bool handPresent = false;
 
     void observeDistance(int rawDistanceMm) noexcept
     {
         constexpr int minimum = SensorConstants::DistanceSensor::MIN_DISTANCE_HEIGHT_MM;
         constexpr int maximum = SensorConstants::DistanceSensor::MAX_DISTANCE_HEIGHT_MM;
-        distanceAboveMinimumMm = (rawDistanceMm >= minimum && rawDistanceMm <= maximum)
-                                    ? rawDistanceMm - minimum : 0;
+        constexpr int tolerance = SensorConstants::DistanceSensor::EDGE_TOLERANCE_MM;
+        handPresent = rawDistanceMm != SensorConstants::DistanceSensor::INVALID_DISTANCE_MM &&
+                      rawDistanceMm >= minimum - tolerance && rawDistanceMm <= maximum + tolerance;
+        distanceAboveMinimumMm = handPresent ? std::clamp(rawDistanceMm, minimum, maximum) - minimum : 0;
     }
 
     float recordingValue() const noexcept

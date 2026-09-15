@@ -19,6 +19,7 @@
 //   FaderMap       — mode + fader channel -> control target, with a send
 //                    deadband so steady faders stay quiet.
 //   encoderBaseModeForRecordParam — record button -> encoder base target.
+//   EncoderMotion  — encoder increments carried between sensor reads.
 
 namespace ControlSurface
 {
@@ -69,6 +70,28 @@ constexpr bool encoderBaseModeForRecordParam(ParamId paramId,
   default:
     return false;
   }
+}
+
+/**
+ * Parameter a selected step edits: the held (or Shift-latched) parameter
+ * button, else the toggled edit parameter, else the encoder target's lane.
+ * The encoder and the OLED both use this, so the screen always shows the
+ * value a turn changes. ParamId::Count when nothing is targeted (Slide Time).
+ */
+constexpr ParamId stepEditParameter(ParamId held, ParamId toggled,
+                                    EncoderParameterMode encoderMode)
+{
+  if (held != ParamId::Count)
+    return held;
+  if (toggled != ParamId::Count)
+    return toggled;
+  for (uint8_t i = 0; i < PARAM_ID_COUNT; ++i)
+  {
+    EncoderParameterMode mode = EncoderParameterMode::COUNT;
+    if (encoderBaseModeForRecordParam(static_cast<ParamId>(i), mode) && mode == encoderMode)
+      return static_cast<ParamId>(i);
+  }
+  return ParamId::Count;
 }
 
 /**
@@ -309,6 +332,46 @@ public:
 private:
   uint16_t lastSent_[kChannelCount] = {0, 0, 0, 0};
   bool valid_[kChannelCount] = {false, false, false, false};
+};
+
+// ---------------------------------------------------------------------------
+// Encoder motion
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief Carries encoder increments between sensor reads so slow turns count.
+ *
+ * The encoder driver drains its tick count on every read, and a slow turn
+ * yields a tiny increment per read. Comparing each increment against a noise
+ * floor discarded every slow turn. This accumulator keeps the motion until
+ * it amounts to a change:
+ *
+ *   - continuous values take all pending motion once it passes the floor;
+ *   - stepped values (notes, octaves, choices) take whole detents and keep
+ *     the remainder, so turn distance, not read timing, sets the step count.
+ *
+ * A change of direction discards the pending motion first. Sensor jitter
+ * alternates direction, so it never adds up to a change, and a reversal
+ * responds without first unwinding motion from the other way.
+ */
+class EncoderMotion
+{
+public:
+  void reset() { pending_ = 0.0f; }
+
+  /** Add one read's normalized increment. Zero and non-finite are ignored. */
+  void add(float increment);
+
+  /** All pending motion once |pending| >= noiseFloor (then cleared), else 0. */
+  float takeContinuous(float noiseFloor);
+
+  /** Signed whole detents passed; their motion is consumed, the rest kept. */
+  int takeSteps(float detent);
+
+  float pending() const { return pending_; }
+
+private:
+  float pending_ = 0.0f;
 };
 
 } // namespace ControlSurface

@@ -48,7 +48,7 @@ Core 0 (UI, Sensors, Matrix, MIDI):
     +-- alchemyBridge.update()   -> 1 ms Alchemy tile polling (Wire1 @ 100 kHz)
     +-- magEncoder.update()      -> 1 ms poll (5 ms internal throttle in driver)
     +-- updateEncoderBaseValues()-> Applies rotary increments to active params
-    +-- distanceSensor.update()  -> 1 ms poll (20 ms non-blocking read interval)
+    +-- distanceSensor.update()  -> 1 ms poll (10 ms data-ready check, 35 ms measurements)
     +-- pollUIHeldButtons()      -> Promotes long-press states (randomize reset, gate seq length)
   loop() Display Slice (LED_UPDATE_INTERVAL = 20 ms / 50 Hz):
     +-- updateStepLEDs() / ledMatrix.show()
@@ -66,23 +66,26 @@ The magnetic encoder subsystem consists of two architectural layers:
 - **`MagEncoder` (`src/VelocityEncoder/src/MagEncoder.h/.cpp`)**: Portable, low-level C++ driver wrapping TI TMAG5273 (and legacy AS5600) behind a unified interface. Pico2Seq configures `MagEncoder::Sensor::TMAG5273` with `TMAG5273::ADDRESS_A` on Wire at address `0x35`. Features include:
   - 1/16-degree angular resolution (5760 counts per revolution).
   - Multi-turn cumulative position tracking with wrap-around handling.
-  - Dynamic velocity-sensitive acceleration (400x dynamic range: 0.008x to 3.2x scaling factor).
+  - Dynamic velocity-sensitive acceleration. The driver default is 0.008x to 3.2x; Pico2Seq raises the slow-turn end to 0.2x (`SLOW_TURN_SCALE`), about 13% of a continuous range per slow revolution.
   - Adaptive low-pass speed filtering.
 - **`EncoderManager` (`src/sensors/EncoderManager.h/.cpp`)**: High-level parameter management subsystem bridging encoder delta increments to the synthesizer data model. Handles:
-  - **Voice Parameter Editing**: In standard voice mode or when `uiState.voiceEditor.active` is true, encoder rotation adjusts the target voice parameter via `VoiceEditor::encoder()` / `VoiceEdit::adjust()`, publishing updates to `VoiceManager`.
-  - **Step Parameter Editing**: When a step is selected (`uiState.selectedStepForEdit >= 0`), encoder rotation applies a 5% delta of the parameter range to the selected step's parameter (rounded to integer for `ParamId::Note`), storing it into the voice's sequencer and immediately calling `updateActiveVoiceState(step, *selectedSeq)` for live audio auditioning.
-  - Parameter bounds query (`getParameterMinValueForParamId`, `getParameterMaxValueForParamId`) mapped directly from `CORE_PARAMETERS`.
-  - Dynamic boundary proximity flash zones (`FlashSpeedZone` — defined configuration for boundary proximity feedback).
+  - Forwarding every read's increment to `VoiceEditor::encoder()`, which edits the selected voice's base (or the editor cursor) in its `VoiceConfig`.
+  - Outside Step Edit the encoder edits **per-voice base values**. With a step selected, `editSelectedStep()` edits that step's stored value for `ControlSurface::stepEditParameter()` (held parameter, else the toggled edit parameter, else the encoder target's lane): continuous lanes move by the encoder motion times their range (the same sensitivity as base edits), Note moves one scale step and Octave one octave per detent.
+  - Slow turns are accumulated (`ControlSurface::EncoderMotion`) rather than compared against a per-read noise floor, which used to discard them. Continuous values apply the motion once it passes `MINIMUM_INCREMENT_THRESHOLD`; notes, octaves and choices step once per `STEPPED_VALUE_DETENT` of motion. A change of direction discards pending motion, so sensor jitter never adds up.
+  - Dynamic boundary proximity flash zones (`FlashSpeedZone` — currently defined but with no consumer; dormant).
 
 ### 2. VL53L1X Distance Sensor
 
 - **`DistanceSensor` (`src/sensors/DistanceSensor.h/.cpp`)**: Non-blocking driver wrapping `Adafruit_VL53L1X` on Wire at address `0x29`.
-  - Continuous measurement mode with medium distance mode.
-  - 20 ms timing budget (`TIMING_BUDGET_MICROSECONDS = 20000`).
-  - 24 ms inter-measurement period (`INTER_MEASUREMENT_PERIOD_MS = 24`).
-  - 23 ms update polling interval (`READ_INTERVAL_MS = 23`).
-  - Useful measurement window: 55 mm to 700 mm (`MIN_DISTANCE_HEIGHT_MM` to `MAX_DISTANCE_HEIGHT_MM`).
-  - Normalized distance calculation: `mm = rawDistanceValue - MIN_HEIGHT` (0 to 645 mm), published via `AppState::PerformanceInput::observeDistance()` / `recordingValue()`.
+  - Continuous measurement in Long distance mode.
+  - 33 ms timing budget (`TIMING_BUDGET_MICROSECONDS = 33000`), ST's minimum for every distance mode (20 ms is listed for Short mode only). With the former 20 ms budget in Long mode, hand readings stopped near 500 mm.
+  - 35 ms inter-measurement period (`INTER_MEASUREMENT_PERIOD_MS = 35`).
+  - 10 ms data-ready polling interval (`READ_INTERVAL_MS = 10`).
+  - Range status is read directly: status 0 (valid) and 1 (sigma fail, a real target with a noisier estimate) are used; signal fail and worse are rejected. `Adafruit_VL53L1X::distance()` is not used because it rejects everything except status 0.
+  - After `INVALID_READINGS_BEFORE_DROPOUT` (3) rejected measurements in a row, `getRawDistanceMm()` returns `INVALID_DISTANCE_MM` instead of the last, stale distance.
+  - Useful measurement window: 55 mm to 700 mm (`MIN_DISTANCE_HEIGHT_MM` to `MAX_DISTANCE_HEIGHT_MM`). Readings up to `EDGE_TOLERANCE_MM` (40 mm) outside it clamp to the nearer edge.
+  - `AppState::PerformanceInput::observeDistance()` sets `handPresent` and the rebased distance (0 to 645 mm); `recordingValue()` normalizes it. Invalid readings, and anything beyond the tolerance, mean **no hand**: live and step-edit recording pause and steps keep their values.
+  - The `[DIAG C0]` serial line (every 2 s) ends with `lidar=<mm> st=<status>`, and while a parameter button is held the OLED parameter screen shows the current reading in mm (in parentheses when outside the recording window, `--mm` with no measurement).
   - Non-blocking single-poll guarantee: `update()` checks `dataReady()` once and returns immediately without stalling the control loop.
 
 ### 3. MPR121 Capacitive Touch Matrix
@@ -203,12 +206,14 @@ void Matrix_printState();
 ```cpp
 static constexpr uint8_t I2C_ADDRESS = 0x29;
 static constexpr uint8_t I2C_STABILIZATION_DELAY_MS = 30;
-static constexpr unsigned long READ_INTERVAL_MS = 23;
-static constexpr unsigned long TIMING_BUDGET_MICROSECONDS = 20000;
-static constexpr unsigned long INTER_MEASUREMENT_PERIOD_MS = 24;
+static constexpr unsigned long READ_INTERVAL_MS = 10;
+static constexpr unsigned long TIMING_BUDGET_MICROSECONDS = 33000;
+static constexpr unsigned long INTER_MEASUREMENT_PERIOD_MS = 35;
 static constexpr int MAX_DISTANCE_HEIGHT_MM = 700;
 static constexpr int MIN_DISTANCE_HEIGHT_MM = 55;
+static constexpr int EDGE_TOLERANCE_MM = 40;
 static constexpr int INVALID_DISTANCE_MM = -1;
+static constexpr uint8_t INVALID_READINGS_BEFORE_DROPOUT = 3;
 ```
 
 ### Magnetic Encoder Constants (`SensorConstants::MagneticEncoder`)
@@ -325,15 +330,12 @@ void loop() {
 
         // Update ToF distance sensor
         distanceSensor.update();
-        int rawDistance = distanceSensor.getRawDistanceMm();
-        if (rawDistance >= MIN_HEIGHT && rawDistance <= MAX_HEIGHT) {
-            mm = rawDistance - MIN_HEIGHT;
-        } else {
-            mm = 0;
-        }
+        AppState::performanceInput.observeDistance(distanceSensor.getRawDistanceMm());
 
-        // MagEncoder handles active voice editing or selected step editing
-        // (if uiState.selectedStepForEdit >= 0) automatically
+        // Step-edit recording into the selected step; skipped while no hand is in range
+        if (uiState.selectedStepForEdit != -1) {
+            updateParametersForStep(uiState.selectedStepForEdit);
+        }
     }
 }
 ```
@@ -349,7 +351,8 @@ void loop() {
 
 ### VL53L1X Distance Sensor
 - **Initialization Fails (`0x29`)**: Verify I2C bus address and 50 ms stabilization delay (`I2C_STABILIZATION_DELAY_MS`).
-- **Reading Stalls at -1**: Target outside the useful 55–700 mm window or optical cover glass is occluded.
+- **Reading Stalls at -1**: Nothing the sensor accepts is in view (three rejected measurements in a row), or the optical cover glass is occluded. Check `st=` in the `[DIAG C0]` serial line.
+- **Reading Tops Out Below 700 mm**: Watch `lidar=` and `st=` while raising a hand. Repeated `st=2` (signal fail) near the top means the hand returns too little light at that height; try a longer `TIMING_BUDGET_MICROSECONDS` (50 ms, with `INTER_MEASUREMENT_PERIOD_MS` at least as long) or lower `MAX_DISTANCE_HEIGHT_MM`.
 - **Jitter or False Triggers**: Optical noise from high-brightness WS2812B LEDs or ambient infrared sunlight.
 
 ### MPR121 Capacitive Touch Matrix

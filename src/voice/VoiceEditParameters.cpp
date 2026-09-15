@@ -828,6 +828,12 @@ void setValue(Id id, VoiceConfig &c, float v) noexcept {
     c.paramSet = sync ? PARAMSET_HARDSYNC : PARAMSET_STANDARD;
   }
 }
+bool stepped(Id id) noexcept {
+  const auto unit = parameter(id).unit;
+  return unit == Unit::Toggle || unit == Unit::Choice || id == Id::OscCount ||
+         id == Id::Harmony1 || id == Id::Harmony2 || id == Id::Harmony3 ||
+         id == Id::Note || id == Id::Octave;
+}
 void adjust(Id id, VoiceConfig &c, float delta) noexcept {
   if (!available(id, c) || !std::isfinite(delta) || delta == 0)
     return;
@@ -835,9 +841,7 @@ void adjust(Id id, VoiceConfig &c, float delta) noexcept {
   const auto *b = bindingFor(id, c);
   const float lo = b ? b->minimum : p.minimum, hi = b ? b->maximum : p.maximum;
   float v = value(id, c);
-  if (p.unit == Unit::Toggle || p.unit == Unit::Choice || id == Id::OscCount ||
-      id == Id::Harmony1 || id == Id::Harmony2 || id == Id::Harmony3 ||
-      id == Id::Note || id == Id::Octave) {
+  if (stepped(id)) {
     setValue(id, c,
              v + (delta > 0 ? 1 : -1) * (id == Id::Octave ? 12.0f : 1.0f));
     return;

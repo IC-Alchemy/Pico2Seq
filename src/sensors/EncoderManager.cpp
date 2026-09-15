@@ -8,6 +8,7 @@
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../ui/UIState.h"
 #include "../ui/ControlSurfaceLogic.h"
+#include "../ui/ButtonManager.h"
 #include <algorithm>
 #include <cmath>
 #include "../voice/VoiceManager.h"
@@ -27,7 +28,72 @@ MagEncoder::Config makeMagEncoderConfig()
   MagEncoder::Config cfg;
   cfg.sensor = MagEncoder::Sensor::TMAG5273;
   cfg.i2cAddress = TMAG5273::ADDRESS_A;
+  cfg.minScale = SensorConstants::MagneticEncoder::SLOW_TURN_SCALE;
   return cfg;
+}
+
+// Motion for the selected step, separate from base editing's motion in
+// VoiceEditor. A different voice, step or parameter starts from zero.
+ControlSurface::EncoderMotion stepMotion;
+struct StepTurn
+{
+  uint8_t voice = UINT8_MAX;
+  int step = -1;
+  ParamId param = ParamId::Count;
+};
+StepTurn stepTurn;
+
+// Stored-lane distance of one octave: mapOctave() quantizes the normalized
+// lane in quarters, and the legacy thresholds sit at thirds.
+constexpr float kOctaveLaneStep = 0.25f;
+
+// A selected step takes the encoder: the held, toggled or encoder-target
+// parameter (the same one the OLED shows). Returns false when no step
+// parameter is targeted, leaving the turn to base editing.
+bool editSelectedStep(UIState &uiState, float delta)
+{
+  if (uiState.selectedStepForEdit < 0 || uiState.selectedVoiceIndex >= VoiceSystem::MAX_VOICES)
+    return false;
+  const ParamId targetParam = ControlSurface::stepEditParameter(
+      getHeldParameterParamId(uiState), uiState.currentEditParameter, uiState.currentEncoderParameter);
+  Sequencer *selectedSeq = AppState::sequencers[uiState.selectedVoiceIndex];
+  if (targetParam == ParamId::Count || !selectedSeq)
+    return false;
+
+  if (stepTurn.voice != uiState.selectedVoiceIndex || stepTurn.step != uiState.selectedStepForEdit ||
+      stepTurn.param != targetParam)
+  {
+    stepMotion.reset();
+    stepTurn = {uiState.selectedVoiceIndex, uiState.selectedStepForEdit, targetParam};
+  }
+  stepMotion.add(delta);
+
+  const uint8_t step = static_cast<uint8_t>(uiState.selectedStepForEdit);
+  const float curVal = selectedSeq->getStepParameterValue(targetParam, step);
+  const float minVal = getParameterMinValueForParamId(targetParam);
+  const float maxVal = getParameterMaxValueForParamId(targetParam);
+  float newVal;
+  if (targetParam == ParamId::Note || targetParam == ParamId::Octave)
+  {
+    // Whole scale steps (or octaves) per detent: rounding each small
+    // increment left the value unchanged unless the knob was spun hard.
+    const int steps = stepMotion.takeSteps(SensorConstants::MagneticEncoder::STEPPED_VALUE_DETENT);
+    newVal = curVal + static_cast<float>(steps) * (targetParam == ParamId::Octave ? kOctaveLaneStep : 1.0f);
+  }
+  else
+  {
+    // Same sensitivity as base editing. The former extra 5% scale moved a
+    // step well under 1% per slow revolution, too little to hear.
+    newVal = curVal + stepMotion.takeContinuous(
+        SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD) * (maxVal - minVal);
+  }
+  newVal = std::clamp(newVal, minVal, maxVal);
+  if (newVal != curVal)
+  {
+    selectedSeq->setStepParameterValue(targetParam, step, newVal);
+    updateActiveVoiceState(step, *selectedSeq);
+  }
+  return true;
 }
 } // namespace
 
@@ -39,50 +105,12 @@ MagEncoder magEncoder(makeMagEncoderConfig());
 void updateEncoderBaseValues(UIState &uiState)
 {
   if (!magEncoder.isConnected() || uiState.controlsWaitRelease) return;
+  // Every read's increment is forwarded, however small: the driver has
+  // already drained those ticks, and the step and base paths accumulate them.
   const float delta=magEncoder.takeParameterIncrement(-1.0f,1.0f,3);
-  if(fabsf(delta)<SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD) return;
-  if(uiState.voiceEditor.active) {VoiceEditor::encoder(delta);return;}
-
-  // Handle step parameter editing if a step is selected for edit
-  if (uiState.selectedStepForEdit >= 0)
-  {
-    const ParamId targetParam = (uiState.currentEditParameter != ParamId::Count)
-        ? uiState.currentEditParameter
-        : convertEncoderParameterToParamId(uiState.currentEncoderParameter);
-
-    if (targetParam != ParamId::Count && uiState.selectedVoiceIndex < VoiceSystem::MAX_VOICES)
-    {
-      Sequencer *selectedSeq = AppState::sequencers[uiState.selectedVoiceIndex];
-      if (selectedSeq)
-      {
-        const uint8_t step = static_cast<uint8_t>(uiState.selectedStepForEdit);
-        float curVal = selectedSeq->getStepParameterValue(targetParam, step);
-        float minVal = getParameterMinValueForParamId(targetParam);
-        float maxVal = getParameterMaxValueForParamId(targetParam);
-        float deltaVal = delta * (maxVal - minVal) * 0.05f;
-        float newVal = std::clamp(curVal + deltaVal, minVal, maxVal);
-        if (targetParam == ParamId::Note)
-        {
-          newVal = std::round(newVal);
-        }
-        selectedSeq->setStepParameterValue(targetParam, step, newVal);
-        updateActiveVoiceState(step, *selectedSeq);
-        return;
-      }
-    }
-  }
-
-  if(!voiceManager || uiState.selectedVoiceIndex>=4) return;
-  const auto index=uiState.selectedVoiceIndex;
-  const auto *requested=voiceManager->getVoiceConfig(voiceSystem.getVoiceId(index));
-  if(!requested) return;
-  VoiceConfig next=*requested;
-  const auto target=VoiceEditor::encoderTarget();
-  const float before=VoiceEdit::value(target,next);
-  VoiceEdit::adjust(target,next,delta);
-  // A knob already pinned at the parameter's limit must not republish.
-  if(VoiceEdit::value(target,next)==before) return;
-  VoiceEditor::publish(index,next);
+  if(delta==0.0f) return;
+  if(!uiState.voiceEditor.active && editSelectedStep(uiState, delta)) return;
+  VoiceEditor::encoder(delta);
 }
 
 // --- Helper Functions for Step Parameter Editing ---
@@ -170,7 +198,7 @@ void initEncoderBaseValues()
 {
   // VoiceSetup initializes each patch's bases from its preset. The old
   // encoderBaseValues array was removed with that ownership change.
-  magEncoder.clearPendingTicks();
+  VoiceEditor::clearEncoder();
 }
 
 void resetEncoderBaseValues(UIState &uiState, bool currentVoiceOnly)
@@ -191,5 +219,5 @@ void resetEncoderBaseValues(UIState &uiState, bool currentVoiceOnly)
     next.slideSeconds=defaults.slideSeconds;
     VoiceEditor::publish(index,next);
   }
-  magEncoder.clearPendingTicks();
+  VoiceEditor::clearEncoder();
 }
