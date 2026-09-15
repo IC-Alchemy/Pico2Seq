@@ -6,14 +6,26 @@
 //   - scans both banks at begin() and classifies whatever answers by TYPE_ID,
 //     so it does not care which strap offset a tile was built with (an
 //     unstrapped tile floats to its type's offset 2);
-//   - polls each present tile at ~200 Hz with the spec §6 adaptive read:
-//     one STATUS byte (100 us) while SEQ is static, the whole
-//     STATUS+DATA+SUM frame (checksum-verified) the moment SEQ moves;
+//   - polls each present tile by reading its whole snapshot in ONE
+//     transaction — STATUS+DATA+SUM, checksum-verified, decoded into the
+//     canonical 11-byte StatePacket (AlchemyProto.h);
+//   - holds each satellite's state in a SatelliteLink, which is what decides
+//     how much of a cached packet the firmware is allowed to believe
+//     (sequence counter, timeout, last-known-good — SatelliteLink.h);
 //   - decodes faders and buttons, turning sticky edges into TileButton
 //     press/hold/tap state;
-//   - never blocks longer than one transaction pair (~1.9 ms at 100 kHz) per
-//     update() call, pacing tiles round-robin so a 1 kHz control loop is
-//     never stalled servicing five tiles at once.
+//   - never blocks longer than one transaction pair per update() call,
+//     pacing tiles round-robin so a 1 kHz control loop is never stalled
+//     servicing five tiles at once.
+//
+// Why one transaction and not the spec §6 adaptive read: the satellite is a
+// cache. It samples, filters and debounces on its own schedule and keeps a
+// coherent packet ready, so reading STATUS first to decide whether to read
+// the rest saves ~1 ms of bus time per idle poll and costs a second chance
+// to tear the snapshot, twice the transactions on every poll that matters,
+// and a code path where SEQ and DATA came from different sweeps. At 100 kHz
+// an 11-byte payload is nothing next to human-control bandwidth. Read it all,
+// every time.
 //
 // Transaction shape follows the PY32 slave's contract (I2CSliderReader
 // precedent): a pointer write terminated with STOP, then a separate read.
@@ -21,12 +33,15 @@
 // read happens in ONE transaction so the double-buffered snapshot it serves
 // is internally coherent. Never split a STATUS+DATA+SUM read in two.
 //
+// Nothing in the poll path retries, sleeps, or spins: a failed read drops the
+// frame and returns. Recovery is whatever the next scheduled poll finds. The
+// audio core never waits on this bus because it never touches it — poll from
+// the control core only (Pico2Seq runs this from Core 0's control slice, via
+// AlchemyControlBridge; audio owns Core 1 alone).
+//
 // The bus clock is the sketch's business (it is shared with the OLED, the
 // TMAG5273 and the VL53L1X): call Wire.setClock() before begin(). 100 kHz is
 // the house rate — 400 kHz stalls transfers on this rig.
-//
-// Core 1 only. This is control-surface I/O; nothing here may run on the
-// audio core (see the repo's Docs/realtime_rules.md).
 
 #ifndef ALCHEMY_UI_TILES_H
 #define ALCHEMY_UI_TILES_H
@@ -35,6 +50,7 @@
 #include <Wire.h>
 
 #include "AlchemyProto.h"
+#include "SatelliteLink.h"
 #include "TileButton.h"
 
 class AlchemyTiles {
@@ -43,6 +59,11 @@ class AlchemyTiles {
   static constexpr std::uint32_t kPollIntervalMs = 4;  // ~250 Hz tier B
   static constexpr std::uint32_t kReprobeIntervalMs = 1000;
   static constexpr std::uint8_t kOfflineAfterBusErrors = 4;
+  // No verified packet for this long and the link is stale: buttons release,
+  // faders hold their last-known-good position. Long enough to ride out a
+  // handful of missed polls at kPollIntervalMs, short enough that a dead
+  // satellite cannot hold a button down past the point a player notices.
+  static constexpr std::uint32_t kLinkTimeoutMs = 100;
   // Discovery runs only in begin(). Patient retries make power-up ordering
   // and one-off NACK/short-read failures much less likely to hide a tile.
   static constexpr std::uint8_t kDiscoveryAttempts = 4;
@@ -55,7 +76,7 @@ class AlchemyTiles {
     std::uint32_t checksumErrors = 0;
     std::uint32_t busErrors = 0;
     std::uint8_t lastSeq = 0;
-    bool dataChanged = false;  // the most recent poll saw SEQ advance
+    bool dataChanged = false;  // the most recent poll published new state
   };
 
   AlchemyTiles();
@@ -74,6 +95,11 @@ class AlchemyTiles {
 
   [[nodiscard]] int tileCount() const { return kMaxTiles; }
   [[nodiscard]] const TileInfo& info(int slot) const { return info_[slot]; }
+
+  /** Cached control state and link health for a slot, for diagnostics. */
+  [[nodiscard]] const alchemy::SatelliteLink& link(int slot) const {
+    return links_[slot];
+  }
 
   /** Count of tiles currently marked present. */
   [[nodiscard]] int presentTileCount() const {
@@ -108,7 +134,17 @@ class AlchemyTiles {
   /** Fader 0..3 as 0..1 from the slider tile (0 when absent). */
   [[nodiscard]] float fader(std::uint8_t channel) const;
 
-  /** Fader 0..3 as raw 12-bit counts from the slider tile. */
+  /**
+   * Fader 0..3 as raw 12-bit counts from the slider tile.
+   *
+   * This is last-known-good, not "the last read that happened to work": a
+   * tile that has gone offline keeps serving the position its fader was
+   * physically at, because that is still where the fader is. Collapsing to 0
+   * on a dropped transaction would slam master volume (utility fader 2) to
+   * silence on a flaky bus, which is precisely the propagation the link
+   * layer exists to stop. Zero here means only "no slider tile ever
+   * answered".
+   */
   [[nodiscard]] std::uint16_t faderRaw(std::uint8_t channel) const;
 
   /**
@@ -123,16 +159,21 @@ class AlchemyTiles {
   bool readBytes(TwoWire& bus, std::uint8_t address, std::uint8_t count,
                  std::uint8_t* out);
   void pollTile(int slot, std::uint32_t now);
+  /** DATA_LEN to read for a slot, clamped to the largest frame we can hold. */
+  [[nodiscard]] std::uint8_t frameDataLen(int slot) const;
+  /** Record a failed read and take the slot offline once they pile up. */
+  void noteBusError(int slot, std::uint32_t now);
+  /** Drop every held button on this slot without firing a tap. */
+  void releaseButtons(int slot, std::uint32_t now);
 
   TwoWire* buses_[2] = {nullptr, nullptr};
   TwoWire* bus_[kMaxTiles] = {nullptr, nullptr, nullptr, nullptr, nullptr};
   TileInfo info_[kMaxTiles];
+  // One cached control-state snapshot per satellite. This is the only place
+  // fader positions and button levels live; the driver keeps no parallel copy
+  // that could disagree with it.
+  alchemy::SatelliteLink links_[kMaxTiles];
   TileButton buttons_[kMaxTiles][alchemy::kButtonsPerTile];
-  // Last decoded level bitmap per slot. Idle polls (SEQ static) carry no
-  // frame data, but TileButton::update() must still be fed every poll or a
-  // sustained press never ages into longPress().
-  std::uint8_t lastButtonLevels_[kMaxTiles] = {0, 0, 0, 0, 0};
-  std::uint16_t faders_[alchemy::kFadersPerTile] = {0, 0, 0, 0};
   std::uint32_t lastPollMs_[kMaxTiles] = {0, 0, 0, 0, 0};
   std::uint32_t lastProbeMs_[kMaxTiles] = {0, 0, 0, 0, 0};
   std::uint8_t frame_[1 + alchemy::kSliderDataLen + 1] = {0};

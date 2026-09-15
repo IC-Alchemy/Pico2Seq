@@ -115,7 +115,10 @@ What's tested vs. not, per `tests/CMakeLists.txt`:
   session and patch serialization (`src/pico2seq-core/persistence/*`,
   `src/voice/PatchCodec.cpp`) via `test_persistence.cpp`,
   `src/ui/ControlSurfaceLogic.cpp` via `tests/unit/test_control_surface_logic.cpp`,
-  `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` via `tests/unit/test_alchemy_proto.cpp`,
+  `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` via `tests/unit/test_alchemy_proto.cpp`
+  and `src/AlchemyUI/src/SatelliteLink.h` via `tests/unit/test_satellite_link.cpp`,
+  the `src/AlchemyUI/src/AlchemyTiles.cpp` bus master via `pico2seq_tile_tests`
+  (against the scriptable `TwoWire` in `tests/tile_stubs/`),
   `src/audio/{audio_i2s,audio}.cpp` via `pico2seq_audio_tests` (against
   `tests/audio_stubs/` — keep driver logic in those testable functions),
   `src/utils/FreezeWatchdog.h` via `pico2seq_watchdog_tests`

@@ -27,6 +27,7 @@ add_executable(pico2seq_tests
   unit/test_voiceoscillator.cpp
   unit/test_control_surface_logic.cpp
   unit/test_alchemy_proto.cpp
+  unit/test_satellite_link.cpp
   unit/test_app_runtime.cpp
   unit/test_voice_edit.cpp
   unit/test_persistence.cpp
@@ -117,6 +118,20 @@ target_include_directories(pico2seq_audio_tests PRIVATE
 target_compile_definitions(pico2seq_audio_tests PRIVATE PICO_RP2350=1 ARDUINO_ARCH_RP2040=1)
 target_link_libraries(pico2seq_audio_tests PRIVATE Catch2::Catch2WithMain)
 catch_discover_tests(pico2seq_audio_tests TEST_PREFIX "audio: ")
+
+# The real tile driver against a scriptable I2C bus. Covers the one-transaction
+# snapshot poll and the sequence/timeout/last-known-good behaviour that keeps a
+# flaky satellite out of the audio path; the Wire stub here shadows the no-op
+# one in tests/stubs, which still supplies Arduino.h.
+add_executable(pico2seq_tile_tests
+  unit/test_alchemy_tiles.cpp
+  ${SRC_DIR}/AlchemyUI/src/AlchemyTiles.cpp
+)
+target_include_directories(pico2seq_tile_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/tile_stubs ${STUB_DIR} ${SRC_DIR})
+target_link_libraries(pico2seq_tile_tests PRIVATE Catch2::Catch2WithMain)
+target_compile_options(pico2seq_tile_tests PRIVATE -Wall -Wno-unused-parameter)
+catch_discover_tests(pico2seq_tile_tests TEST_PREFIX "tiles: ")
 
 # Opt-in throughput measurement; timing thresholds do not belong in CTest.
 add_executable(pico2seq_recipe_benchmark EXCLUDE_FROM_ALL benchmarks/recipe_benchmark.cpp)

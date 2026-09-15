@@ -45,7 +45,9 @@ files; host CMake does not compile that startup/I2S/control glue.
 | **Tier 1: Zero Deps** | DSP & Sound Synthesis | `src/rpdsp/`, `src/voice/VoiceOscillator.h` | Pure math, `<cmath>`, `<variant>`, `<array>`. Tested natively. |
 | **Tier 1: Zero Deps** | Sequencer Core Templates | `src/pico2seq-core/sequencer/SequencerDefs.h` | Template data structures (`ParameterTrack<N>`). Tested natively. |
 | **Tier 1: Zero Deps** | UI Control Surface Logic | `src/ui/ControlSurfaceLogic.h/.cpp` | Pure state machines (`ModeStabilizer`, `PadBank`, `ShiftLatch`, `FaderMap`). Tested natively. |
-| **Tier 1: Zero Deps** | Alchemy Tile Wire Format | `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` | Pure C++ register/frame decoding — no Arduino, no Wire. Tested natively. |
+| **Tier 1: Zero Deps** | Alchemy Tile Wire Format | `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` | Pure C++ register/frame decoding and the 11-byte `StatePacket` — no Arduino, no Wire. Tested natively. |
+| **Tier 1: Zero Deps** | Satellite Link State | `src/AlchemyUI/src/SatelliteLink.h` | Sequence counter, timeout and last-known-good policy. Milliseconds arrive as arguments. Tested natively. |
+| **Tier 2: Light Stubs** | Alchemy Tile Driver | `src/AlchemyUI/src/AlchemyTiles.cpp` | The real bus master, driven against the scriptable `TwoWire` in `tests/tile_stubs/` (`pico2seq_tile_tests`). |
 | **Tier 2: Light Stubs** | Musical Scales | `src/pico2seq-core/scales/scales.cpp` | Requires minimal `Arduino.h` type aliases (`uint8_t`, `String`). |
 | **Tier 2: Light Stubs** | Sequencer Logic | `src/pico2seq-core/sequencer/{Sequencer,ParameterManager}.cpp` | Requires `Arduino.h` and `pico/sync.h` spinlock stubs. |
 | **Tier 2: Light Stubs** | Voice & Presets | `src/voice/{Voice,VoicePresets}.cpp` | Requires staged parameter and scale table injection. |
@@ -69,6 +71,8 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 8 | `tests/unit/test_voiceoscillator.cpp` | Voice Oscillator Dispatch | `VoiceOscillator` variant dispatch, band-limited waveforms, pulse width modulation, pitch changes |
 | 9 | `tests/unit/test_control_surface_logic.cpp` | Tile UI Decision Logic | `ModeStabilizer` debouncing, `PadBank` voice-pair resolution, `ShiftLatch` latching, `FaderMap` deadband |
 | 10 | `tests/unit/test_alchemy_proto.cpp` | Alchemy Tile Wire Format | Per-tile-type button block offsets (slider DATA 8..10 vs button DATA 0..2), fader decode, SEQ/STATUS decode, frame checksum, identity validation, `TileButton` press/hold/tap |
+| 10a | `tests/unit/test_satellite_link.cpp` | Satellite cached control state | SEQ dedupe and wrap, timeout into Stale, buttons released / faders held while stale, recovery re-publish, rejected reads never overwriting the cache (`[satellite_link]`) |
+| 10b | `tests/unit/test_alchemy_tiles.cpp` | Alchemy tile driver (`pico2seq_tile_tests`) | One-transaction snapshot poll, sticky edges consumed once, a dead satellite holding faders but dropping button holds, corrupt/short frames refused (`[alchemy_tiles]`, isolated `tests/tile_stubs/`) |
 | 11 | `tests/unit/test_app_runtime.cpp` | App runtime helpers | PCM16 DAC conversion (clipping/truncation, `[app][pcm]`), lidar recording calibration across the 55–700 mm window (`[app][recording]`) |
 | 12 | `tests/unit/test_audio_i2s.cpp` | I2S output path (`pico2seq_audio_tests`) | Rendered buffers handed to DMA, starvation recovery (`[audio][i2s]`, isolated `tests/audio_stubs/`) |
 | 13 | `tests/unit/test_freeze_watchdog.cpp` | `FreezeWatchdog` (`pico2seq_watchdog_tests`) | Watchdog scratch evidence, boot vs late-serial reconnect, no stale reports on normal boot (`[watchdog]`, isolated `tests/watchdog_stubs/`) |
@@ -160,6 +164,12 @@ ctest --test-dir build_test --output-on-failure
 # Run only Alchemy tile wire-format tests
 ./build_test/tests/pico2seq_tests "[alchemy_proto]"
 
+# Run only the satellite link-state tests (sequence / timeout / last-known-good)
+./build_test/tests/pico2seq_tests "[satellite_link]"
+
+# Run the tile driver against the scriptable I2C bus (separate target)
+./build_test/tests/pico2seq_tile_tests
+
 # Run only voice engine tests
 ./build_test/tests/pico2seq_tests "[voice]"
 
@@ -194,10 +204,17 @@ voice.setCurrentScalePointer(&scaleIndex);
 ### 3. External Symbol Single-Definition Rule
 When testing files that declare `extern` globals (e.g. `slideMode` or `currentScale`), define those symbols **only once** in `tests/unit/test_helpers.cpp` to prevent linker multiple-definition collisions across test translation units.
 
-Two subsystems compile against their own dedicated stub sets instead of the shared
-`tests/stubs/`: `src/audio/` (I2S driver) builds against `tests/audio_stubs/`, and
-`src/utils/FreezeWatchdog.h` builds against `tests/watchdog_stubs/` — both wired as
+Three subsystems compile against their own dedicated stub sets instead of the shared
+`tests/stubs/`: `src/audio/` (I2S driver) builds against `tests/audio_stubs/`,
+`src/utils/FreezeWatchdog.h` builds against `tests/watchdog_stubs/`, and
+`src/AlchemyUI/src/AlchemyTiles.cpp` builds against `tests/tile_stubs/` — all wired as
 separate CMake targets in `tests/CMakeLists.txt`.
+
+`tests/tile_stubs/` shadows only `Wire.h` (`Arduino.h` still comes from `tests/stubs/`),
+replacing the no-op bus with a scriptable one: tests attach `FakeTile` devices, make them
+NACK, short-read or corrupt their checksum, and assert both on what the driver decoded and
+on how many transactions it spent. That is the only place the one-transaction snapshot poll
+can actually be proven.
 
 ---
 
@@ -217,6 +234,7 @@ separate CMake targets in `tests/CMakeLists.txt`.
 - [`docs/voice.md`](voice.md) — Voice synthesis and DSP chain documentation
 - [`docs/sequencer.md`](sequencer.md) — Sequencer engine and polymetric parameter tracks
 - [`docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`](superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md) — ControlSurfaceLogic design specification
+- [`docs/alchemy-satellite-link.md`](alchemy-satellite-link.md) — Satellite state packet format and the sequence/timeout/last-known-good contract
 
 ### Voice ownership regression suite
 

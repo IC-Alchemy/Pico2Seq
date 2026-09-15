@@ -11,6 +11,12 @@ constexpr std::uint8_t kScanAddresses[] = {
     alchemy::kAddrSliderBase + 2, alchemy::kAddrButtonBase + 0,
     alchemy::kAddrButtonBase + 1, alchemy::kAddrButtonBase + 2};
 constexpr int kScanAddressCount = static_cast<int>(sizeof(kScanAddresses));
+
+alchemy::SatelliteLink::Options linkOptions() {
+  alchemy::SatelliteLink::Options opt;
+  opt.timeoutMs = AlchemyTiles::kLinkTimeoutMs;
+  return opt;
+}
 }  // namespace
 
 AlchemyTiles::AlchemyTiles() = default;
@@ -34,7 +40,7 @@ void AlchemyTiles::begin(TwoWire& bankA, TwoWire* bankB, std::uint32_t now) {
   for (int slot = 0; slot < kMaxTiles; ++slot) {
     info_[slot] = TileInfo{};
     bus_[slot] = nullptr;
-    lastButtonLevels_[slot] = 0;
+    links_[slot].begin(linkOptions(), now);
     lastPollMs_[slot] = now;
     lastProbeMs_[slot] = now;
     TileButton::Options opt;
@@ -43,7 +49,6 @@ void AlchemyTiles::begin(TwoWire& bankA, TwoWire* bankB, std::uint32_t now) {
       buttons_[slot][b].begin(opt, now);
     }
   }
-  for (std::uint16_t& fader : faders_) fader = 0;
 
   // Two passes so the layout is deterministic: the slider tile (there is at
   // most one — the rig has four faders) claims slot 0, then every button tile
@@ -75,7 +80,7 @@ void AlchemyTiles::begin(TwoWire& bankA, TwoWire* bankB, std::uint32_t now) {
         info_[nextSlot_].address = kScanAddresses[i];
         info_[nextSlot_].identity = id;
         info_[nextSlot_].present = true;
-        info_[nextSlot_].lastSeq = 0xFF;  // force a full frame on first poll
+        info_[nextSlot_].lastSeq = 0;
         lastPollMs_[nextSlot_] = now;
         if (isSlider) sliderSlot_ = nextSlot_;
         ++nextSlot_;
@@ -87,8 +92,23 @@ void AlchemyTiles::begin(TwoWire& bankA, TwoWire* bankB, std::uint32_t now) {
 }
 
 void AlchemyTiles::update(std::uint32_t now) {
+  // Age every claimed link first. This costs no bus time and must happen on
+  // every pass, not only on a slot's turn in the rotation: a satellite that
+  // fell off the bus has to time out on the clock, not on whether the driver
+  // got round to asking it again.
+  for (int slot = 0; slot < kMaxTiles; ++slot) {
+    if (bus_[slot] == nullptr) continue;
+    const bool wasFresh = links_[slot].fresh();
+    links_[slot].tick(now);
+    if (wasFresh && links_[slot].stale()) {
+      // The link just timed out. Its cached fader positions stay valid (the
+      // faders have not moved), but its buttons must not stay down.
+      releaseButtons(slot, now);
+    }
+  }
+
   // Round-robin: service at most one due tile per call so a 1 kHz loop pays
-  // at most one transaction pair (~1.9 ms at 100 kHz) per pass.
+  // at most one transaction pair per pass.
   for (int step = 0; step < kMaxTiles; ++step) {
     const int slot = nextSlot_;
     nextSlot_ = (nextSlot_ + 1) % kMaxTiles;
@@ -106,7 +126,6 @@ void AlchemyTiles::update(std::uint32_t now) {
           tile.identity = id;
           tile.busErrors = 0;
           tile.checksumErrors = 0;
-          tile.lastSeq = 0xFF;
           lastPollMs_[slot] = now;
         }
       }
@@ -121,13 +140,14 @@ void AlchemyTiles::update(std::uint32_t now) {
 }
 
 float AlchemyTiles::fader(std::uint8_t channel) const {
-  if (!hasSlider() || channel >= alchemy::kFadersPerTile) return 0.0f;
-  return static_cast<float>(faders_[channel]) / 4095.0f;
+  return static_cast<float>(faderRaw(channel)) / 4095.0f;
 }
 
 std::uint16_t AlchemyTiles::faderRaw(std::uint8_t channel) const {
-  if (!hasSlider() || channel >= alchemy::kFadersPerTile) return 0;
-  return faders_[channel];
+  // Deliberately not gated on present(): see the header. A claimed slider
+  // tile keeps serving its last-known-good position while its link is down.
+  if (sliderSlot_ < 0 || channel >= alchemy::kFadersPerTile) return 0;
+  return links_[sliderSlot_].slider(channel);
 }
 
 // --- Private ------------------------------------------------------------------
@@ -166,88 +186,78 @@ bool AlchemyTiles::readIdentity(TwoWire& bus, std::uint8_t address,
   return out.valid;
 }
 
+std::uint8_t AlchemyTiles::frameDataLen(int slot) const {
+  // DATA_LEN is whatever the tile answered the registry with and is never
+  // re-validated by the slave, so clamp it to the largest frame the protocol
+  // defines (the slider tile's) — a tile reporting a bigger payload would
+  // otherwise read past frame_ and corrupt whatever sits next to it.
+  const std::uint8_t declared = info_[slot].identity.dataLen;
+  return declared <= alchemy::kSliderDataLen ? declared : alchemy::kSliderDataLen;
+}
+
+void AlchemyTiles::noteBusError(int slot, std::uint32_t now) {
+  TileInfo& tile = info_[slot];
+  ++tile.busErrors;
+  links_[slot].onFailure(now);
+  if (tile.busErrors >= kOfflineAfterBusErrors) {
+    tile.present = false;
+    // Offline is a harder statement than stale, and it can be reached before
+    // the timeout expires. Drop the holds now; the cached fader positions are
+    // still served, and the reprobe path brings the tile back.
+    releaseButtons(slot, now);
+  }
+}
+
+void AlchemyTiles::releaseButtons(int slot, std::uint32_t now) {
+  for (std::uint8_t b = 0; b < alchemy::kButtonsPerTile; ++b) {
+    // consume() first: a press that ends because the wire went quiet is not a
+    // tap and must not fire one. The level still has to fall so nothing stays
+    // latched as held.
+    buttons_[slot][b].consume();
+    buttons_[slot][b].update(false, false, false, now);
+  }
+}
+
 void AlchemyTiles::pollTile(int slot, std::uint32_t now) {
   TileInfo& tile = info_[slot];
   TwoWire* bus = bus_[slot];
   if (bus == nullptr) return;
 
-  // Adaptive read, spec §6: one STATUS byte while the tile is idle.
-  std::uint8_t status = 0;
-  if (!writePointer(*bus, tile.address, alchemy::kRegStatus) ||
-      !readBytes(*bus, tile.address, 1, &status)) {
-    ++tile.busErrors;
-    if (tile.busErrors >= kOfflineAfterBusErrors) {
-      tile.present = false;
-      lastButtonLevels_[slot] = 0;  // levels unknowable while offline
-    }
-    return;
-  }
-  tile.busErrors = 0;
-
-  const alchemy::FrameStatus fs = alchemy::decodeStatus(status);
-  if (!alchemy::seqChanged(fs.seq, tile.lastSeq)) {
-    tile.dataChanged = false;
-    // Idle: SEQ static, HEARTBEAT toggling — 100 us well spent. Still feed
-    // TileButton the last known levels so a held button keeps aging toward
-    // longPress(); its state machine needs one update() per poll.
-    for (std::uint8_t b = 0; b < alchemy::kButtonsPerTile; ++b) {
-      buttons_[slot][b].update((lastButtonLevels_[slot] >> b) & 1u, false,
-                               false, now);
-    }
-    return;
-  }
-
-  // SEQ moved: read the whole frame in ONE transaction (coherent snapshot,
-  // and the read cursor passes the sticky bytes so their edges are consumed).
-  // DATA_LEN is whatever the tile answered the registry with and is never
-  // re-validated by the slave, so clamp it to the largest frame the protocol
-  // defines (the slider tile's) — a tile reporting a bigger payload would
-  // otherwise read past frame_ and corrupt whatever sits next to it.
-  const std::uint8_t dataLen =
-      tile.identity.dataLen <= alchemy::kSliderDataLen
-          ? tile.identity.dataLen
-          : alchemy::kSliderDataLen;
+  // The whole snapshot, one transaction. The satellite keeps a coherent
+  // packet ready, so there is nothing to gain by asking it about STATUS first
+  // and everything to lose: two reads can straddle two sample sweeps.
+  const std::uint8_t dataLen = frameDataLen(slot);
   const std::uint8_t frameLen = static_cast<std::uint8_t>(1 + dataLen + 1);
   if (!writePointer(*bus, tile.address, alchemy::kRegStatus) ||
       !readBytes(*bus, tile.address, frameLen, frame_)) {
-    ++tile.busErrors;
-    if (tile.busErrors >= kOfflineAfterBusErrors) {
-      tile.present = false;
-      lastButtonLevels_[slot] = 0;  // levels unknowable while offline
-    }
+    noteBusError(slot, now);
     return;
   }
   tile.busErrors = 0;
-  tile.lastSeq = fs.seq;
-  tile.dataChanged = true;
 
-  if (!alchemy::frameChecksumOk(frame_, dataLen)) {
-    ++tile.checksumErrors;  // keep the last good frame's data
+  const alchemy::DecodedFrame decoded =
+      alchemy::decodeFrame(tile.identity.typeId, frame_, dataLen);
+  if (!decoded.valid) {
+    // A frame that did not verify is dropped whole: no field of it reaches
+    // the cache, so the values downstream stay a snapshot the tile really
+    // sent. Not a bus error — the transaction itself worked.
+    ++tile.checksumErrors;
+    links_[slot].onFailure(now);
     return;
   }
 
-  const std::uint8_t* data = frame_ + 1;
-  if (tile.identity.typeId == alchemy::kTypeSliderButton &&
-      dataLen >= alchemy::kSliderDataLen) {
-    for (std::uint8_t ch = 0; ch < alchemy::kFadersPerTile; ++ch) {
-      faders_[ch] = alchemy::decodeFader(data, ch);
-    }
-  }
-  const std::uint8_t buttonOffset =
-      alchemy::buttonBlockOffset(tile.identity.typeId);
-  if (dataLen >= buttonOffset + alchemy::kButtonDataLen) {
-    // A standalone Button tile starts its three-byte button block at DATA
-    // offset 0; a slider tile places the same block after its four faders.
-    // Reading a button tile at the slider's offsets lands past the end of its
-    // 3-byte DATA block and yields a permanently-zero bitmap.
-    const alchemy::ButtonBlock block = alchemy::decodeButtonBlock(
-        data[buttonOffset], data[buttonOffset + 1], data[buttonOffset + 2]);
-    lastButtonLevels_[slot] = block.level;
-    for (std::uint8_t b = 0; b < alchemy::kButtonsPerTile; ++b) {
-      const std::uint8_t mask = static_cast<std::uint8_t>(1u << b);
-      buttons_[slot][b].update((block.level & mask) != 0,
-                               (block.pressed & mask) != 0,
-                               (block.released & mask) != 0, now);
-    }
+  tile.lastSeq = decoded.packet.seq;
+  tile.dataChanged = links_[slot].onPacket(decoded.packet, now);
+
+  // Levels come from the link (so a recovering or stale link's view wins);
+  // sticky edges come straight from this frame and are never cached — an
+  // edge is true for exactly the one read that consumed it, and replaying a
+  // stored one would invent a press that never happened.
+  const std::uint8_t level = links_[slot].buttons();
+  for (std::uint8_t b = 0; b < alchemy::kButtonsPerTile; ++b) {
+    const std::uint8_t mask = static_cast<std::uint8_t>(1u << b);
+    buttons_[slot][b].update((level & mask) != 0,
+                             (decoded.edges.pressed & mask) != 0,
+                             (decoded.edges.released & mask) != 0, now);
   }
 }
