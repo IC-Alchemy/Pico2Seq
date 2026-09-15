@@ -2,6 +2,7 @@
 
 #include "AlchemyControlBridge.h"
 #include "../app/AppState.h"
+#include "../app/Session.h"
 #include "../app/StepPlayback.h"
 #include "../app/VoiceEditor.h"
 
@@ -311,6 +312,23 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
           }
         }
         playSettingsOpenedThisPress_ = false;
+      }
+      break;
+
+    case 1: // Session save (tap) / load last saved (long-press)
+      if (edges.pressEdge)
+      {
+        saveLoadLatch_ = false;
+      }
+      else if (tileButton.held() && !saveLoadLatch_ &&
+               tileButton.heldMilliseconds(nowMs) >= UITimingConstants::LONG_PRESS_THRESHOLD_MS)
+      {
+        saveLoadLatch_ = true; // consume the hold; release must not re-trigger
+        Session::requestLoad();
+      }
+      else if (edges.releaseEdge && !saveLoadLatch_)
+      {
+        Session::requestSave();
       }
       break;
 

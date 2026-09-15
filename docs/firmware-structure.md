@@ -27,7 +27,12 @@ work during each control-loop pass.
 The app modules connect existing subsystems. USB MIDI is disabled in this
 checkout. `MidiNoteManager` compatibility calls still participate in software
 gate/note bookkeeping; changing them needs a separate musical-behavior review.
-There is no sketch-level persistence service.
+
+Sketch-level persistence lives in `src/app/Session*` (capture/apply, save/load
+requests), `src/app/SessionStorage*` (LittleFS file I/O), and
+`src/app/RetainedSession*` (retained-RAM mirror). The byte-level snapshot
+format and codecs are portable code in `src/pico2seq-core/persistence/` (plus
+`src/voice/PatchCodec.*`). See `docs/architecture.md` for the save policy.
 
 ## The order matters
 
@@ -62,8 +67,9 @@ Recording a Note requires a high Gate on the edited step. Immediate audio
 feedback applies only to the currently playing step. Distance readings
 55..700 mm are rebased by 55 mm, then normalized by the `MIN/MAX_DISTANCE_HEIGHT_MM`
 span (645 mm) in `AppState::PerformanceInput` — the constants live in
-`src/sensors/SensorConstants.h`. Invalid readings become zero. Regression tests
-pin this calibration.
+`src/sensors/SensorConstants.h`. Readings within `EDGE_TOLERANCE_MM` of the
+window clamp to its edge; invalid or further readings clear `handPresent`, and
+recording then leaves steps unchanged. Regression tests pin this calibration.
 
 ## Ownership and real-time rules
 

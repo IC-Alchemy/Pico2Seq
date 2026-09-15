@@ -74,6 +74,7 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 13 | `tests/unit/test_freeze_watchdog.cpp` | `FreezeWatchdog` (`pico2seq_watchdog_tests`) | Watchdog scratch evidence, boot vs late-serial reconnect, no stale reports on normal boot (`[watchdog]`, isolated `tests/watchdog_stubs/`) |
 | 14 | `tests/unit/test_voice_recipes.cpp` | Recipe/engine voices | Preset registry coherence (29 presets across core, recipes, and musical presets), waveguide tails across engine resets, recipe timbre lanes, envelope gate/retrigger behavior (`[voice][presets][waveguide][recipes]`) |
 | 15 | `tests/unit/test_voice_edit.cpp` | Voice Editing mode | Base vs lidar-modifier independence, neutral-modifier preset round-trip, parameter catalogue reachability/clamping per engine, editor release semantics, muted-editor queue draining (`[voice_edit][recording]`) |
+| 16 | `tests/unit/test_persistence.cpp` | Session persistence (`src/pico2seq-core/persistence/`, `src/voice/PatchCodec.*`) | CRC32 vector, frame magic/version/size/CRC rejection, locked 10,312-byte snapshot layout, snapshot validation bounds, pattern round-trip incl. raw tails, patch codec pointer re-derivation, golden full-project round-trip, watchdog resume decision table, retained-store validity (`[persistence]`) |
 
 ---
 

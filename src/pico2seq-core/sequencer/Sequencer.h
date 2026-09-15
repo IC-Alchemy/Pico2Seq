@@ -104,6 +104,17 @@ public:
     void previewActiveStep(VoiceState *voiceState);
 
     /**
+     * @brief Refresh a sounding voice from the current track cursors
+     *
+     * Copies velocity, filter, attack and decay (plus note and octave while
+     * the gate is high) from getPlaybackStep(). Unlike previewActiveStep()
+     * it never retriggers and leaves the gate, slide and note lifecycle
+     * alone, so live edits can be heard without restarting the envelope.
+     * @param voiceState Voice state to update in place
+     */
+    void refreshVoiceParameters(VoiceState *voiceState) const;
+
+    /**
      * @brief Toggle gate parameter for a specific step
      * @param stepIdx Step index to toggle (0-63)
      */
@@ -114,6 +125,10 @@ public:
     void setStepParameterValue(ParamId id, uint8_t stepIdx, float value);
     uint8_t getParameterStepCount(ParamId id) const;
     void setParameterStepCount(ParamId id, uint8_t steps);
+    // Persistence access: no gate-control rule, no modulo wrap on read, no
+    // clamp/round on write (values were normalized when the UI wrote them).
+    float getRawStepValue(ParamId id, uint8_t stepIdx) const;
+    void setRawStepValue(ParamId id, uint8_t stepIdx, float value);
 
     // Sequencer control
     void start() { running = true; }

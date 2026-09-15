@@ -120,6 +120,9 @@ const char *name(Id id, const VoiceConfig &config) noexcept;
 bool available(Id id, const VoiceConfig &config) noexcept;
 float value(Id id, const VoiceConfig &config) noexcept;
 void setValue(Id id, VoiceConfig &config, float value) noexcept;
+// Stepped values move one step (an octave for Octave) per adjust() call,
+// whatever the delta's size; everything else moves by the normalized delta.
+bool stepped(Id id) noexcept;
 void adjust(Id id, VoiceConfig &config, float normalizedDelta) noexcept;
 void format(Id id, const VoiceConfig &config, char *text,
             size_t capacity) noexcept;

@@ -4,7 +4,8 @@
 DistanceSensor distanceSensor;
 
 DistanceSensor::DistanceSensor()
-    : lastMeasurementTimeMs(0), currentDistanceMm(SensorConstants::DistanceSensor::INVALID_DISTANCE_MM), sensorConnected(false)
+    : lastMeasurementTimeMs(0), currentDistanceMm(SensorConstants::DistanceSensor::INVALID_DISTANCE_MM),
+      consecutiveInvalidReadings(0), lastRangeStatus(NO_RANGE_STATUS), sensorConnected(false)
 {
 }
 
@@ -33,7 +34,7 @@ bool DistanceSensor::begin()
   }
 
   // Adafruit's timing-budget setter takes milliseconds. The configured
-  // 20 ms budget is one of the sensor's supported values.
+  // 33 ms budget is one of the sensor's supported Long-mode values.
   if (!vl53l1xSensor.setTimingBudget(static_cast<uint16_t>(
           SensorConstants::DistanceSensor::TIMING_BUDGET_MICROSECONDS / 1000)))
   {
@@ -85,22 +86,49 @@ void DistanceSensor::update()
     return;
   }
 
-  // Retrieve measurement data from sensor
-  const int16_t distanceMm = vl53l1xSensor.distance();
+  // Adafruit's distance() returns -1 for every status except 0, which also
+  // discards sigma-fail readings: a real target with a noisier estimate,
+  // typical of a hand near the top of the window. Read status and distance
+  // directly so those still count. Signal fail and worse are rejected; they
+  // can report a distance when nothing is there.
+  uint8_t rangeStatus = NO_RANGE_STATUS;
+  uint16_t distanceMm = 0;
+  const bool readOk =
+      vl53l1xSensor.VL53L1X_GetRangeStatus(&rangeStatus) == VL53L1X_ERROR_NONE &&
+      vl53l1xSensor.VL53L1X_GetDistance(&distanceMm) == VL53L1X_ERROR_NONE;
   vl53l1xSensor.clearInterrupt();
+  lastRangeStatus = readOk ? rangeStatus : NO_RANGE_STATUS;
 
-  if (distanceMm < 0)
+  constexpr uint8_t kRangeValid = 0;
+  constexpr uint8_t kRangeSigmaFail = 1;
+  if (readOk && (rangeStatus == kRangeValid || rangeStatus == kRangeSigmaFail))
   {
+    currentDistanceMm = distanceMm;
+    consecutiveInvalidReadings = 0;
     return;
   }
 
-  // Store the new distance measurement
-  currentDistanceMm = distanceMm;
+  // One rejected measurement keeps the last distance. A run of them means
+  // nothing is in view, so drop the distance rather than hold a hand
+  // position that is no longer there.
+  if (consecutiveInvalidReadings < SensorConstants::DistanceSensor::INVALID_READINGS_BEFORE_DROPOUT)
+  {
+    ++consecutiveInvalidReadings;
+  }
+  if (consecutiveInvalidReadings >= SensorConstants::DistanceSensor::INVALID_READINGS_BEFORE_DROPOUT)
+  {
+    currentDistanceMm = SensorConstants::DistanceSensor::INVALID_DISTANCE_MM;
+  }
 }
 
 int DistanceSensor::getRawDistanceMm() const
 {
   return currentDistanceMm;
+}
+
+uint8_t DistanceSensor::getLastRangeStatus() const
+{
+  return lastRangeStatus;
 }
 
 bool DistanceSensor::isConnected() const

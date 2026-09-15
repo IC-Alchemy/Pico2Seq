@@ -168,12 +168,19 @@ range. It edits whatever the **encoder target** is — cycle targets with the Ut
 **Velocity → Filter → Attack → Decay → Note → Octave → Slide Time → (back to Velocity)**
 
 - Voice targets (Velocity/Filter/Attack/Decay/Note) set that parameter's **base value for
-  the selected voice**. Each voice stores its own base (`encoderBaseValues` in
-  `EncoderManager`), and at step time every voice applies its own base — see §9 and
+  the selected voice**. Each voice stores its own bases in its patch, and at step time
+  every voice applies its own base — see §9 and
   [`docs/voice-edit.md`](voice-edit.md) for how bases combine with recorded modifiers.
+- Note and Octave move one step per short turn; continuous targets follow turn speed.
 - Slide Time sets the portamento glide time.
-- While the encoder is controlling a parameter, the OLED status screen shows
-  `ENC: <parameter> <value>`.
+- In Step Edit mode the encoder edits the **selected step's stored value** instead: the
+  held parameter, else the toggled edit parameter, else the encoder target's lane (the OLED
+  shows the same one). Note and Octave move one step per detent.
+- With no parameter button held, the OLED home screen always shows the **base** of the
+  encoder target, so every turn is visible. While a parameter button is held it shows the
+  value at that parameter's playing position instead — the composed value that live
+  recording writes and the voice plays. While the transport runs, a base change reaches the
+  sounding note at once without retriggering it.
 
 **Hold** the Utility-mode encoder button (about a second) to enter **Gate Sequence Length
 mode**: the LEDs show a blinking band on the selected voice's rows, and touching pads 1–16
@@ -193,6 +200,13 @@ rather than an absolute value: the reading is normalized to 0–1, the midpoint 
 neutral, and the recorded value offsets the parameter's base up or down. Changing the base
 afterwards does not change what you recorded — see [`docs/voice-edit.md`](voice-edit.md).
 
+Moving your hand out of range (above about 740 mm, or no reading at all) **pauses**
+recording: steps keep their values instead of jumping to the minimum. While a parameter
+button is held, the OLED parameter screen always shows the sensor's current reading in mm
+at the right: plain (`412mm`) inside the recording window, in parentheses (`(812mm)`)
+outside it, and `--mm` with no measurement. A held parameter's screen takes priority over
+the settings and sequence-length screens.
+
 ### 1.8 OLED display
 
 A 128x64 monochrome OLED (SH1106G). It renders the highest-priority active view from a
@@ -208,9 +222,9 @@ five-tier hierarchy:
 3. **Gate Sequence Length gauge** — while Gate Length mode is held: voice number, length
    value, and a proportional bar.
 4. **Parameter edit screens** — when a parameter button is held/latched or a step is in
-   edit: parameter name, voice (`V0`–`V3`, 0-based) and step (`S1`–`S16`) indicators, the
-   formatted value (Hz for Filter, seconds for Attack/Decay, % for Velocity/GateLength,
-   `-1/0/+1` for Octave, `ON/OFF` for Gate/Slide) and a progress bar.
+   edit: parameter name, voice and step indicators, the formatted value at the playing
+   (or selected) step, `LIVE`/`STEP` and `NOTE`/`REST`, and — while a parameter button is
+   held — the distance sensor reading in mm. A held parameter outranks tiers 2 and 3.
 5. **Voice Editing screens** — while Voice Editing mode is active: `EDIT V1`–`EDIT V4`,
    a modified marker, the parameter name and units, and whether a sequencer lane modifies
    that base.
@@ -532,13 +546,21 @@ the value into that step.
 | Button | Action |
 |---|---|
 | 1 Play / Stop | Start/stop the transport (and all 4 sequencers). Stopping opens the OLED Settings/preset browser; starting closes it. Long-press toggles Settings without stopping |
-| 2 | *(unassigned — was the Delay toggle; the delay effect was removed 2026-09-11)* |
+| 2 Save / Load | **Tap**: save everything to flash (the transport pauses ~0.5 s for the write, then resumes). **Long-press (≥ 0.4 s)**: reload the last saved session. OLED shows `SAVED` / `LOADED` / `LOAD ERR` |
 | 3 Scale | Cycle forward through the 13 scales |
 | 4 Swing | Cycle through the 16 shuffle templates |
 | 5 Theme | Cycle the 10 LED matrix color themes |
 | 6 Encoder target | Short press: cycle encoder target. Hold: enter Gate Sequence Length mode (pads set the Gate track length) |
 | 7 Randomize | Short press (< 1 s): randomize the selected voice. Long press (≥ 1 s): reset it |
 | 8 Shift | Modifier for transport/utility chords |
+
+**What gets saved:** all four voices' patterns (every parameter lane, including
+polymetric lengths), each voice's patch (preset + all Voice Edit adjustments),
+tempo, master volume, scale, shuffle, theme, selected voice, and the recorded
+encoder-modifier state. Edits are also saved automatically about a second after
+you press Stop (only if something changed). Everything you program survives
+power-off, and after a watchdog freeze the unit restores the live session by
+itself — no power-cycle needed.
 
 ### Voice buttons (both modes)
 
@@ -662,10 +684,10 @@ cmake --build build_test --parallel
   Nothing is transmitted anywhere — USB MIDI was removed 2026-09-06. Internal voice
   indices are 0-based (0–3); the OLED shows `Voice: 0`–`Voice: 3` and `V0`–`V3` on edit
   screens, while the voice buttons and this manual say V1–V4.
-- **The encoder edits step parameters or per-voice bases.** When a step is selected for
-  edit (`uiState.selectedStepForEdit >= 0`), turning the encoder directly dials the
-  selected parameter for that step with immediate audio auditioning. When no step is in
-  edit mode, turning the encoder modifies the active voice's base patch parameter.
+- **The encoder edits per-voice bases or the step in edit.** Each voice stores its own
+  base values in its patch; turning the encoder changes the selected voice's base, and at
+  step time every voice applies its own base. With a step selected for edit
+  (`uiState.selectedStepForEdit >= 0`), it edits that step's stored value instead.
 - **Can't program a pitch into a step?** Note edits are rejected on gate-off steps. Toggle
   the step on first.
 - **Pad does something unexpected** — check the context: a held parameter button turns pad
@@ -673,12 +695,14 @@ cmake --build build_test --parallel
   turns them into clear-step. All pads are step pads; there is no pad "menu".
 - **Stopping the transport opens the preset browser** on the OLED (a Play long-press
   toggles it without stopping). That is intentional; press Play to leave it.
-- **Distance sensor dead?** It is used across 55–700 mm only; closer or farther readings
-  fall outside the useful window. Bright sunlight or the LED matrix at full brightness can
-  cause optical jitter.
+- **Distance sensor dead?** It is used across 55–700 mm only; readings more than 40 mm
+  outside that window count as no hand, and recording pauses. Bright sunlight or the LED
+  matrix at full brightness can cause optical jitter. The `[DIAG C0]` serial line reports
+  `lidar=<mm> st=<status>` every 2 s.
 - **ToF recorded value stuck at one end** — the raw distance is rebased by 55 mm
   (`MIN_DISTANCE_HEIGHT_MM`) and normalized over the 645 mm span, so the nearest usable
-  position (55 mm) maps to 0.
+  position (55 mm) maps to 0 (a -50% modifier). A value shown at 0% can simply be a low
+  base plus a low recording; turn the encoder to raise the base.
 - **Fader "jumps" after a mode flip** — on the first sample after a mode change the fader
   re-sends its position, so the parameter snaps to where the fader physically is. Move the
   fader through its travel to re-take the parameter.

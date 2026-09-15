@@ -46,6 +46,12 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
                                     | (if expired)
                                     v
 +-------------------------------------------------------------------------+
+| Priority 3b: Held Parameter Button (no step selected)                   |
+| (heldParamId != ParamId::Count: live value + distance sensor mm)        |
++-------------------------------------------------------------------------+
+                                    | (if none held)
+                                    v
++-------------------------------------------------------------------------+
 | Priority 4: Settings & Preset Management Screen                         |
 | (Active when uiState.settingsMode == true)                              |
 |   ├── SubMode VOICE_PARAMETER: Parameter toggles (Filter/Env/Drive)     |
@@ -60,15 +66,14 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
                                     | (if inactive)
                                     v
 +-------------------------------------------------------------------------+
-| Priority 6: Parameter Editing Screens                                   |
-|   ├── Held Parameter Button (heldParamId != ParamId::Count)             |
+| Priority 6: Step Edit Screen                                            |
 |   └── Step Edit Mode (uiState.selectedStepForEdit != -1)                |
 +-------------------------------------------------------------------------+
                                     | (if inactive)
                                     v
 +-------------------------------------------------------------------------+
 | Priority 7: Default System Status Screen                                |
-| (Scale name, Shuffle template, 0-based Voice index, Step indicators)    |
+| (Preset, BPM, encoder target's base value, scale, step indicators)      |
 +-------------------------------------------------------------------------+
 ```
 
@@ -93,9 +98,11 @@ Triggered for a brief timeout window whenever the hardware GP7 mode strap change
 - **UTIL Mode:** Displays centered size-3 **"UTIL"** with subtitle `> utility <`.
 
 #### 3. Transitory Confirmation Notice (Priority 3)
-Shown for a short window after randomize actions (replacing the old control-cluster LED flashes):
+Shown for a short window after randomize/save/load actions (replacing the old control-cluster LED flashes):
 - `RANDOMIZED` with a `Voice N` sub-line (1-based). *(The `DELAY ON`/`DELAY OFF` notices were
   removed with the delay effect, 2026-09-11.)*
+- `SAVED` / `LOADED` after a session save or restore; `LOAD ERR` when storage fails
+  (also used for a failed save).
 
 #### 4. Settings & Preset Menus (Priority 4)
 Activated when `uiState.settingsMode` is true:
@@ -126,8 +133,15 @@ Activated when `uiState.gateSeqLengthMode` is active (holding the encoder while 
 - Length: Numeric sequence length (1–64) displayed in size-2 font.
 - Visual Gauge: Proportional horizontal bar across the bottom displaying length relative to 64 steps.
 
-#### 6. Parameter Edit Screen (Priority 6)
-Displayed when a parameter button is held (`heldParamId`) or a step is selected for editing (`selectedStepForEdit`):
+#### 6. Parameter Edit Screen (Priority 3b when held, 6 in Step Edit)
+Displayed when a parameter button is held (`heldParamId`) or a step is selected for editing (`selectedStepForEdit`).
+A held parameter shows the composed value at that lane's playing cursor (`getPlaybackStep()`), which is
+the value live recording writes and the voice plays; it outranks the settings and sequence-length screens.
+In Step Edit the screen shows the selected step for `ControlSurface::stepEditParameter()` (held, else toggled,
+else the encoder target's lane) — the same parameter the encoder edits.
+- **Distance:** while a parameter button is held, the current VL53L1X reading in mm at the right of the
+  `LIVE`/`STEP` line: `412mm` inside the recording window, `(812mm)` outside it (nothing recorded), `--mm`
+  with no measurement.
 - **Header:** Parameter name (`Note`, `Velocity`, `Filter`, `Attack`, `Decay`, `Octave`, `GateLength`, `Slide`) in size-2 text.
 - **Indicators:** Voice ID (`V0`–`V3`) and Step Index (`S1`–`S16`) in top right.
 - **Separator:** Horizontal rule dividing header and value.
@@ -142,7 +156,9 @@ Displayed when a parameter button is held (`heldParamId`) or a step is selected 
 - **Progress Bar:** 10px tall bordered progress bar for continuous parameters (Velocity, Filter, Attack, Decay, GateLength).
 
 #### 7. Default Status Screen (Priority 7 — Lowest)
-Displayed when no transient, settings, or edit modes are active:
+Displayed when no transient, settings, or edit modes are active. Its value line always shows the
+**base** of the encoder target (`MusicalValues::baseStep()`), not the playing step, so an encoder turn is
+always visible:
 - **Scale:** Name of active musical scale (e.g., `Chromatic`, `Major`, `Minor`, `Dorian`, `Pentatonic Major`, etc.).
 - **Shuffle:** Active shuffle template name (e.g., `No Shuffle`, `Classic 16th`, `Light Swing`).
 - **Voice Index:** Active voice displayed in 0-based format (`Voice: 0` through `Voice: 3`) in large size-3 typography.

@@ -106,6 +106,16 @@ float Sequencer::getStepParameterValue(ParamId id, uint8_t stepIdx) const
     return parameterManager.getValue(id, stepIdx);
 }
 
+float Sequencer::getRawStepValue(ParamId id, uint8_t stepIdx) const
+{
+    return parameterManager.getRawValue(id, stepIdx);
+}
+
+void Sequencer::setRawStepValue(ParamId id, uint8_t stepIdx, float value)
+{
+    parameterManager.setRawValue(id, stepIdx, value);
+}
+
 void Sequencer::setStepParameterValue(ParamId id, uint8_t stepIdx, float value)
 {
     parameterManager.setValue(id, stepIdx, value);
@@ -396,6 +406,28 @@ void Sequencer::previewActiveStep(VoiceState *voiceState)
     // Evaluates current parameter values at their independent polymetric cursors (UINT8_MAX)
     processStep(UINT8_MAX, voiceState);
 }
+
+void Sequencer::refreshVoiceParameters(VoiceState *voiceState) const
+{
+    if (!voiceState)
+    {
+        return;
+    }
+    const Step values = getPlaybackStep();
+    voiceState->velocityLevel = values.velocityLevel;
+    voiceState->filterCutoff = values.filterCutoff;
+    voiceState->attackTimeSeconds = values.attackTimeSeconds;
+    voiceState->decayTimeSeconds = values.decayTimeSeconds;
+    // Pitch follows only a sounding note, matching processStep(): a released
+    // note keeps its pitch through the tail.
+    if (voiceState->isGateHigh)
+    {
+        voiceState->noteIndex = values.noteIndex;
+        voiceState->octaveOffset = values.octaveOffset;
+    }
+    voiceState->shouldRetrigger = false;
+}
+
 void Sequencer::toggleStep(uint8_t stepIdx)
 {
     // Get current gate value

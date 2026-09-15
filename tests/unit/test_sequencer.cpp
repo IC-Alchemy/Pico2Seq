@@ -597,3 +597,37 @@ TEST_CASE("CORE_PARAMETERS metadata defines valid bounds and types for all param
     }
 }
 
+
+TEST_CASE("refreshVoiceParameters updates a sounding voice without retriggering", "[sequencer]") {
+    Sequencer seq(0);
+    seq.setStepParameterValue(ParamId::Gate, 0, 1.0f);
+    seq.setStepParameterValue(ParamId::Note, 0, 7.0f);
+    seq.start();
+
+    VoiceState state;
+    seq.advanceStep(0, -1, false, false, false, false, false, false, -1, &state);
+    REQUIRE(state.isGateHigh);
+    REQUIRE(state.shouldRetrigger);
+    const bool wasPlaying = seq.isNotePlaying();
+
+    // A live edit of the playing step: new values, same note lifecycle.
+    seq.setStepParameterValue(ParamId::Velocity, 0, 0.9f);
+    seq.setStepParameterValue(ParamId::Filter, 0, 0.2f);
+    seq.setStepParameterValue(ParamId::Note, 0, 9.0f);
+    seq.refreshVoiceParameters(&state);
+    CHECK(state.velocityLevel == Catch::Approx(0.9f));
+    CHECK(state.filterCutoff == Catch::Approx(0.2f));
+    CHECK(state.noteIndex == 9.0f);
+    CHECK(state.isGateHigh);
+    CHECK_FALSE(state.shouldRetrigger);
+    CHECK(seq.isNotePlaying() == wasPlaying);
+
+    // A released note keeps its pitch through the tail.
+    state.isGateHigh = false;
+    seq.setStepParameterValue(ParamId::Note, 0, 3.0f);
+    seq.refreshVoiceParameters(&state);
+    CHECK(state.noteIndex == 9.0f);
+    CHECK_FALSE(state.isGateHigh);
+
+    seq.refreshVoiceParameters(nullptr); // tolerated
+}

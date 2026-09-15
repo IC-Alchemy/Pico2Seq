@@ -1,4 +1,5 @@
 #include "Voice.h"
+#include "../utils/AudioRam.h"
 #include "../utils/DspMapping.h"
 #include <algorithm>
 #include <cmath>
@@ -289,7 +290,7 @@ void Voice::setEnabled(bool enabled)
   flushControlUpdates();
 }
 
-void Voice::applyControlUpdate_() noexcept
+void PICO2SEQ_AUDIO_FUNC(Voice::applyControlUpdate_)() noexcept
 {
   if (!controlQueue_.tryPop(audioUpdate_))
     return;
@@ -332,7 +333,7 @@ void Voice::applyControlUpdate_() noexcept
     filterFrequency = update.filterHz;
 }
 
-float Voice::process() noexcept
+float PICO2SEQ_AUDIO_FUNC(Voice::process)() noexcept
 {
   // Consume controls even while disabled, so queued re-enables can take effect.
   applyControlUpdate_();
@@ -563,7 +564,7 @@ float Voice::mixOscillators()
   return mixedOscillators;
 }
 
-void Voice::applyEffects(float &signal)
+void PICO2SEQ_AUDIO_FUNC(Voice::applyEffects)(float &signal)
 {
   if (config.hasOverdrive)
   {
@@ -625,7 +626,7 @@ void Voice::applyEngineConfig_()
 
 }
 
-float Voice::processWaveguide_() noexcept
+float PICO2SEQ_AUDIO_FUNC(Voice::processWaveguide_)() noexcept
 {
   if (wgPluckPending_)
   {
@@ -645,7 +646,7 @@ float Voice::processWaveguide_() noexcept
   return waveguide_.process();
 }
 
-float Voice::processPitchedEngine_() noexcept
+float PICO2SEQ_AUDIO_FUNC(Voice::processPitchedEngine_)() noexcept
 {
   // Native Hypersaw and recipe patches share one pitch input, including
   // harmony, pitch bend, octave and slide, with an empty oscillator bank.
@@ -690,7 +691,7 @@ float Voice::processPitchedEngine_() noexcept
   return hypersaw_.process();
 }
 
-float Voice::processNoiseFxSource_() noexcept
+float PICO2SEQ_AUDIO_FUNC(Voice::processNoiseFxSource_)() noexcept
 {
   float source = noise_.process() * config.noiseSourceLevel;
   if (config.noiseChaosLevel > 0.001f)
@@ -836,7 +837,7 @@ void Voice::recomputeBaseFreqIfDirty_()
   baseFreqDirty_ = false;
 }
 
-void Voice::processFrequencySlew(uint8_t oscIndex, float targetFreq)
+void PICO2SEQ_AUDIO_FUNC(Voice::processFrequencySlew)(uint8_t oscIndex, float targetFreq)
 {
   if (oscIndex >= 3)
     return;

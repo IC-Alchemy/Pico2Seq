@@ -60,7 +60,7 @@ extension's `buildPreferences` `-ffast-math` is not read by the CLI, so it is pa
 via `--build-property`):
 
 ```bash
-PICO2_FQBN='rp2040:rp2040:rpipico2:flash=4194304_0,arch=arm,freq=225,opt=Optimize3,profile=Disabled,rtti=Disabled,stackprotect=Disabled,exceptions=Disabled,dbgport=Disabled,dbglvl=None,usbstack=tinyusb,ipbtstack=ipv4only,uploadmethod=default'
+PICO2_FQBN='rp2040:rp2040:rpipico2:flash=4194304_65536,arch=arm,freq=225,opt=Optimize3,profile=Disabled,rtti=Disabled,stackprotect=Disabled,exceptions=Disabled,dbgport=Disabled,dbglvl=None,usbstack=tinyusb,ipbtstack=ipv4only,uploadmethod=default'
 
 arduino-cli compile --fqbn "$PICO2_FQBN" \
   --build-property "build.extra_flags=-ffast-math" \

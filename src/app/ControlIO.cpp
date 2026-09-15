@@ -222,7 +222,7 @@ void ControlIO::scanControls(uint32_t nowMs)
         // =======================
         // Apply distance sensor values to selected step when parameter buttons are held
         if (!uiState.voiceEditor.active && !uiState.controlsWaitRelease && uiState.selectedStepForEdit != -1 &&
-            getHeldParameterParamId(uiState) != ParamId::Count && AppState::performanceInput.distanceAboveMinimumMm > 0)
+            getHeldParameterParamId(uiState) != ParamId::Count && AppState::performanceInput.handPresent)
         {
             freezeWatchdogMark(FW_LOOP_RECORD);
             updateParametersForStep(uiState.selectedStepForEdit);

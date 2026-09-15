@@ -24,14 +24,26 @@ namespace SensorConstants
     static constexpr uint8_t I2C_STABILIZATION_DELAY_MS = 30;
 
     // Timing parameters
-    static constexpr unsigned long READ_INTERVAL_MS = 23;
-    static constexpr unsigned long TIMING_BUDGET_MICROSECONDS = 20000; // 20ms timing budget
-    static constexpr unsigned long INTER_MEASUREMENT_PERIOD_MS = 24;   // 24ms between measurements
+    // Poll well inside one measurement period so a new sample is picked up
+    // within 10 ms of the sensor finishing it.
+    static constexpr unsigned long READ_INTERVAL_MS = 10;
+    // ST's VL53L1X API manual lists 20 ms for Short mode only and 33 ms as the
+    // minimum for every mode. This driver runs Long mode, where the former
+    // 20 ms budget left hand readings stopping near 500 mm.
+    static constexpr unsigned long TIMING_BUDGET_MICROSECONDS = 33000; // 33ms timing budget
+    static constexpr unsigned long INTER_MEASUREMENT_PERIOD_MS = 35;   // must not be shorter than the budget
 
     // Distance measurement ranges (in millimeters)
     static constexpr int MAX_DISTANCE_HEIGHT_MM = 700; // Maximum useful distance
     static constexpr int MIN_DISTANCE_HEIGHT_MM = 55;   // Minimum useful distance
+    // Readings this far outside the window still count as a hand at that edge,
+    // so a quick sweep reliably reaches the minimum and maximum values.
+    // Anything further out is empty air or the ceiling: no hand.
+    static constexpr int EDGE_TOLERANCE_MM = 40;
     static constexpr int INVALID_DISTANCE_MM = -1;      // Invalid reading indicator
+    // Consecutive rejected measurements (about 35 ms each) before the last
+    // distance is discarded as stale.
+    static constexpr uint8_t INVALID_READINGS_BEFORE_DROPOUT = 3;
   }
 
   // ======================
@@ -45,7 +57,15 @@ namespace SensorConstants
     static constexpr float PARAMETER_MAX_VALUE = 1.0f;
 
     // Increment sensitivity and thresholds
-    static constexpr float MINIMUM_INCREMENT_THRESHOLD = 0.0005f; // Ignore tiny increments to prevent noise
+    // Accumulated motion below this is held back until it grows (see ControlSurface::EncoderMotion).
+    static constexpr float MINIMUM_INCREMENT_THRESHOLD = 0.0005f;
+    // Normalized motion per change of a stepped value (note, octave, choice).
+    static constexpr float STEPPED_VALUE_DETENT = 0.03f;
+    // Slow-turn increment multiplier. The driver default (0.008) moved a
+    // continuous value about 0.5% per slow revolution of the TMAG5273. At 0.2
+    // a slow turn moves about 13% per revolution; fast turns still reach
+    // about 200% per revolution through the driver's velocity curve.
+    static constexpr float SLOW_TURN_SCALE = 0.2f;
     static constexpr float PARAMETER_RANGE_SCALE_FACTOR = 0.75f;  // 75% of full range for sequencer parameters
 
     // Flash speed zone thresholds for boundary proximity feedback

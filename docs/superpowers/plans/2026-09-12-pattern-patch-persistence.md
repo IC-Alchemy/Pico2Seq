@@ -4,7 +4,7 @@
 
 **Goal:** Everything a user programs — 4×9 parameter tracks, 4 voice patches, and the global settings — survives power-off (LittleFS flash), and a watchdog reset resumes the live session from retained RAM instead of demanding a power-cycle.
 
-**Architecture:** One deterministic POD snapshot type (`ProjectSnapshotV1`, ~10.2 KB) with three sinks: a retained-RAM mirror (zero-wear, refreshed 1 Hz from Core 0, survives watchdog soft reboots via `__uninitialized_ram`), a LittleFS file (`/session.p2s`, framed with magic+version+CRC, written atomically via tmp+rename), and the host test suite (round-trip + corruption). All byte logic lives in portable `src/pico2seq-core/persistence/` (+ one codec in `src/voice/`); `src/app/Session*` is the thin Core-0 orchestrator. Flash writes only ever run from `Application::update()` context with the transport stopped, because a 4 KB sector erase stalls XIP on **both** cores for 45–400 ms.
+**Architecture:** One deterministic POD snapshot type (`ProjectSnapshotV1`, 10,424 bytes) with three sinks: a retained-RAM mirror (zero-wear, refreshed 1 Hz from Core 0, survives watchdog soft reboots via `__uninitialized_ram`), a LittleFS file (`/session.p2s`, framed with magic+version+CRC, written atomically via tmp+rename), and the host test suite (round-trip + corruption). All byte logic lives in portable `src/pico2seq-core/persistence/` (+ one codec in `src/voice/`); `src/app/Session*` is the thin Core-0 orchestrator. Flash writes only ever run from `Application::update()` context with the transport stopped, because a 4 KB sector erase stalls XIP on **both** cores for 45–400 ms.
 
 **Tech Stack:** earlephilhower arduino-pico core 6.x (board `rp2040:rp2040:rpipico2`), `LittleFS` (bundled `LittleFS_OnFlash`), pico-sdk `__uninitialized_ram` section, Catch2 v3.5.2 host suite (CMake + Ninja + clang on Windows).
 
@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **Storage is LittleFS_OnFlash with a 64 KB partition** — board option `flash=4194304_65536`. The packed snapshot (10,416 B ≈ 10.2 KB) **exceeds the 4 KB EEPROM-emulation cap**, so EEPROM is not an option. Sketch max drops from 4,186,112 to 4,120,576 bytes (current sketch ~238 KB — 17× headroom).
+- **Storage is LittleFS_OnFlash with a 64 KB partition** — board option `flash=4194304_65536`. The packed snapshot (10,424 B) **exceeds the 4 KB EEPROM-emulation cap**, so EEPROM is not an option. Sketch max drops from 4,186,112 to 4,120,576 bytes (current sketch ~238 KB — 17× headroom).
 - **Save file:** `/session.p2s`, framed `{magic u32 = 0x50325331 ('P2S1'), version u16 = 1, payloadSize u16, crc32 u32}` + raw `ProjectSnapshotV1` bytes. Atomic write: write `/session.tmp`, close, `LittleFS.rename("/session.tmp", "/session.p2s")` (lfs rename atomically replaces).
 - **All snapshot/checksum/codec logic is portable** — `src/pico2seq-core/persistence/` gets no `Arduino.h`, no UI, no hardware includes (codebase invariant 5). The flash I/O wrapper itself is hardware-bound by design.
 - **Flash writes happen only from Core 0 `Application::update()` context, transport stopped.** Never from a uClock callback (those run in the timer ISR on Core 0), never from Core 1, never from `onClockStop()` (ISR context). Erase stalls both cores 45–400 ms (Winbond W25Q32JV: 4 KB sector erase typ 45 ms / max 400 ms) — acceptable only while silent.
@@ -37,9 +37,14 @@
 | Block | Contents | Size |
 |---|---|---|
 | Patterns | 4 voices × 9 tracks × (64 floats + length byte + reserved) | 9,360 B |
-| Patches | 4 × `VoiceConfig` value fields (55 four-byte words + 10 u8 = 230 B), pointers excluded | 920 B |
-| Settings | tempo, master volume, scale, shuffle idx, theme idx, selected voice, preset indices[4], encoder bases 4×7 floats, editor cursors/changed, slideMode | 136 B |
-| **Total** | `ProjectSnapshotV1` | **10,416 B** |
+| Patches | 4 × `VoiceConfig` value fields (55 four-byte words + 10 u8 + 2 explicit tail bytes = 232 B, naturally 4-byte aligned), pointers excluded | 928 B |
+| Settings | tempo, master volume, scale, shuffle idx, theme idx, selected voice, preset indices[4], editor cursors/changed, slideMode | 24 B |
+| **Total** | `ProjectSnapshotV1` | **10,312 B** |
+
+**Amendment (execution, 2026-09-12):** the encoder-bases block (112 B) was
+removed mid-execution — the user's merge `38b8c55` deleted the
+`EncoderBaseValues` array; patch bases now live in the `VoiceConfig` control
+copy and are captured inside `PatchSnapshot`. Original plan total was 10,424 B.
 
 Transient by design (never persisted): transport position (`currentStep`, `currentStepPerParam`), `Voice` DSP state (osc phases, filters, ADSR), SPSC queues, `voicesReady`, all debounce/timestamp UI fields, sensor readings, `VoiceSystem` gates. All persisted state is Core-0-owned (audio core only receives queued copies), so `captureSession()` needs no cross-core locking.
 
@@ -103,7 +108,11 @@ Note for the reviewer: firmware compile can only be confirmed on the bench (ardu
   bool validateProjectSnapshot(const ProjectSnapshotV1 &s) noexcept;
   void writeFrameHeader(uint8_t out[12], uint32_t payloadSize, uint32_t payloadCrc) noexcept;
   enum class FrameStatus { Ok, TooShort, BadMagic, BadVersion, BadSize, BadCrc };
-  FrameStatus readFrameHeader(const uint8_t *data, size_t length, uint16_t expectedPayloadSize) noexcept;
+  // Header and payload may live in DIFFERENT buffers (the loader reads them
+  // separately) — the CRC is computed over `payload` directly, never over
+  // bytes following the header. `payloadCapacity` must be >= the declared size.
+  FrameStatus readFrameHeader(const uint8_t header[12], const uint8_t *payload,
+                              size_t payloadCapacity, uint16_t expectedPayloadSize) noexcept;
   }
   ```
 
@@ -128,7 +137,7 @@ TEST_CASE("crc32 matches the ISO-HDLC check vector", "[persistence]")
 
 TEST_CASE("project snapshot size is locked", "[persistence]")
 {
-    STATIC_REQUIRE(sizeof(ProjectSnapshotV1) == 10416u);
+    STATIC_REQUIRE(sizeof(ProjectSnapshotV1) == 10424u);
     STATIC_REQUIRE(std::is_trivially_copyable_v<ProjectSnapshotV1>);
 }
 
@@ -157,29 +166,35 @@ TEST_CASE("frame header round-trips and rejects damage", "[persistence]")
                      crc32(reinterpret_cast<const uint8_t *>(&snap), sizeof(snap)));
     std::memcpy(frame + 12, &snap, sizeof(snap));
 
-    REQUIRE(readFrameHeader(frame, sizeof(frame), sizeof(ProjectSnapshotV1)) ==
+    const uint8_t *payload = frame + 12;
+    const size_t payloadCapacity = sizeof(frame) - 12;
+    REQUIRE(readFrameHeader(frame, payload, payloadCapacity, sizeof(ProjectSnapshotV1)) ==
             FrameStatus::Ok);
 
-    SECTION("too short") { REQUIRE(readFrameHeader(frame, 11, sizeof(ProjectSnapshotV1)) == FrameStatus::TooShort); }
+    SECTION("too short")
+    {
+        REQUIRE(readFrameHeader(frame, payload, payloadCapacity - 1,
+                                sizeof(ProjectSnapshotV1)) == FrameStatus::TooShort);
+    }
     SECTION("bad magic")
     {
         frame[0] ^= 0xFF;
-        REQUIRE(readFrameHeader(frame, sizeof(frame), sizeof(ProjectSnapshotV1)) == FrameStatus::BadMagic);
+        REQUIRE(readFrameHeader(frame, payload, payloadCapacity, sizeof(ProjectSnapshotV1)) == FrameStatus::BadMagic);
     }
     SECTION("bad version")
     {
         frame[4] = 0x63; frame[5] = 0x00; // version 99
-        REQUIRE(readFrameHeader(frame, sizeof(frame), sizeof(ProjectSnapshotV1)) == FrameStatus::BadVersion);
+        REQUIRE(readFrameHeader(frame, payload, payloadCapacity, sizeof(ProjectSnapshotV1)) == FrameStatus::BadVersion);
     }
     SECTION("bad size")
     {
         frame[6] = 0x00; frame[7] = 0x00; // payloadSize 0
-        REQUIRE(readFrameHeader(frame, sizeof(frame), sizeof(ProjectSnapshotV1)) == FrameStatus::BadSize);
+        REQUIRE(readFrameHeader(frame, payload, payloadCapacity, sizeof(ProjectSnapshotV1)) == FrameStatus::BadSize);
     }
     SECTION("bad crc")
     {
         frame[12] ^= 0xA5; // corrupt payload
-        REQUIRE(readFrameHeader(frame, sizeof(frame), sizeof(ProjectSnapshotV1)) == FrameStatus::BadCrc);
+        REQUIRE(readFrameHeader(frame, payload, payloadCapacity, sizeof(ProjectSnapshotV1)) == FrameStatus::BadCrc);
     }
 }
 
@@ -294,25 +309,24 @@ void writeFrameHeader(uint8_t out[12], uint32_t payloadSize, uint32_t payloadCrc
         out[8 + i] = static_cast<uint8_t>(payloadCrc >> (8 * i));
 }
 
-FrameStatus readFrameHeader(const uint8_t *data, size_t length, uint16_t expectedPayloadSize) noexcept
+FrameStatus readFrameHeader(const uint8_t *header, const uint8_t *payload,
+                            size_t payloadCapacity, uint16_t expectedPayloadSize) noexcept
 {
-    if (length < 12)
-        return FrameStatus::TooShort;
-    const uint32_t magic = data[0] | (uint32_t(data[1]) << 8) | (uint32_t(data[2]) << 16) |
-                           (uint32_t(data[3]) << 24);
+    const uint32_t magic = header[0] | (uint32_t(header[1]) << 8) | (uint32_t(header[2]) << 16) |
+                           (uint32_t(header[3]) << 24);
     if (magic != SNAPSHOT_MAGIC)
         return FrameStatus::BadMagic;
-    const uint16_t version = data[4] | (uint16_t(data[5]) << 8);
+    const uint16_t version = header[4] | (uint16_t(header[5]) << 8);
     if (version != SNAPSHOT_FORMAT_VERSION)
         return FrameStatus::BadVersion;
-    const uint16_t size = data[6] | (uint16_t(data[7]) << 8);
+    const uint16_t size = header[6] | (uint16_t(header[7]) << 8);
     if (size != expectedPayloadSize)
         return FrameStatus::BadSize;
-    if (length < 12u + size)
+    if (payloadCapacity < size)
         return FrameStatus::TooShort;
-    const uint32_t expected = data[8] | (uint32_t(data[9]) << 8) | (uint32_t(data[10]) << 16) |
-                              (uint32_t(data[11]) << 24);
-    if (crc32(data + 12, size) != expected)
+    const uint32_t expected = header[8] | (uint32_t(header[9]) << 8) | (uint32_t(header[10]) << 16) |
+                              (uint32_t(header[11]) << 24);
+    if (crc32(payload, size) != expected)
         return FrameStatus::BadCrc;
     return FrameStatus::Ok;
 }
@@ -376,11 +390,14 @@ struct PatchSnapshot
     float overdriveGain, overdriveDrive;
     float defaultAttack, defaultDecay, defaultSustain, defaultRelease;
     float outputLevel;
-    // small fields last -> no interior padding
+    // small fields last -> no interior padding. 55 4-byte words (220 B) + 10 u8
+    // + explicit 2-byte tail = 232 B, the natural 4-byte aligned size — no
+    // compiler-dependent implicit padding anywhere in the struct.
     uint8_t oscillatorCount, engine, paramSet, filterType, filterMode, presetIndex;
     uint8_t oscWaveforms[3];
     uint8_t flags; // bit0 usePatchBases, bit1 baseGate, bit2 baseSlide, bit3 recipeRetrigger,
                    // bit4 hasOverdrive, bit5 hasEnvelope, bit6 hasFilter, bit7 enabled
+    uint8_t reserved[2];
 };
 
 struct SettingsSnapshot
@@ -405,9 +422,9 @@ struct ProjectSnapshotV1
 };
 static_assert(sizeof(TrackSnapshot) == 260, "locked layout");
 static_assert(sizeof(PatternSnapshot) == 2340, "locked layout");
-static_assert(sizeof(PatchSnapshot) == 230, "locked layout"); // 55 4-byte words + 10 u8
+static_assert(sizeof(PatchSnapshot) == 232, "locked layout"); // 220 B words + 10 u8 + 2 tail
 static_assert(sizeof(SettingsSnapshot) == 136, "locked layout");
-static_assert(sizeof(ProjectSnapshotV1) == 10416, "locked layout");
+static_assert(sizeof(ProjectSnapshotV1) == 10424, "locked layout");
 
 // Range checks only — structural validity, not musical sense. Bounds mirror
 // the UI: tempo 45..200 BPM (UIEventHandler clamps at 45, fader tops at 200),
@@ -1006,7 +1023,8 @@ TEST_CASE("golden full-project round-trip through frame bytes", "[persistence]")
     uint8_t frame[12 + sizeof(ProjectSnapshotV1)];
     writeFrameHeader(frame, sizeof(snap), crc32(reinterpret_cast<const uint8_t *>(&snap), sizeof(snap)));
     std::memcpy(frame + 12, &snap, sizeof(snap));
-    REQUIRE(readFrameHeader(frame, sizeof(frame), sizeof(ProjectSnapshotV1)) == FrameStatus::Ok);
+    REQUIRE(readFrameHeader(frame, frame + 12, sizeof(snap), sizeof(ProjectSnapshotV1)) ==
+            FrameStatus::Ok);
 
     ProjectSnapshotV1 loaded{};
     std::memcpy(&loaded, frame + 12, sizeof(loaded));
@@ -1321,11 +1339,12 @@ SessionStorage::LoadResult SessionStorage::load(persistence::ProjectSnapshotV1 &
         return LoadResult::BadFrame;
     }
     f.close();
-    using persistence::FrameStatus;
-    using persistence::readFrameHeader;
-    const FrameStatus status =
-        readFrameHeader(header, 12 + sizeof(g_loadBuffer), sizeof(persistence::ProjectSnapshotV1));
-    if (status != FrameStatus::Ok)
+    // Header and payload live in separate buffers; the validator CRCs the
+    // payload buffer directly (never bytes past the 12-byte header).
+    const persistence::FrameStatus status = persistence::readFrameHeader(
+        header, reinterpret_cast<const uint8_t *>(&g_loadBuffer), sizeof(g_loadBuffer),
+        sizeof(persistence::ProjectSnapshotV1));
+    if (status != persistence::FrameStatus::Ok)
         return LoadResult::BadFrame;
     if (!persistence::validateProjectSnapshot(g_loadBuffer))
         return LoadResult::BadFrame;
@@ -1502,7 +1521,11 @@ git commit -m "feat(persistence): mount storage pre-watchdog, load session at bo
   void bootInit();      // reads the store, caches validity, bumps nothing
   bool resumeAllowed(); // valid && attempts < MAX (call once; bumps attempts)
   void refresh(const persistence::ProjectSnapshotV1 &snap); // 1 Hz from update()
-  void markBootCompleted(); // flags |= bootCompleted; resumeAttempts = 0
+  // Call ONLY from update() after the control loop has run healthy for
+  // kHealthyLoopIntervalMs (15 s) — never from begin(). Resetting the
+  // attempts counter at the end of begin() would let a freeze that reliably
+  // recurs shortly after boot resume forever and never reach the park.
+  void markBootCompleted();
   bool takeResumeSnapshot(persistence::ProjectSnapshotV1 &out); // valid store -> out
   }
   ```
@@ -1651,8 +1674,9 @@ bool takeResumeSnapshot(persistence::ProjectSnapshotV1 &out);
 #include "pico/platform.h"
 // NOLOAD section: survives watchdog/warm resets (RAM stays powered), is NOT
 // cleared or initialized by crt0, loses content on power-on (validated by
-// magic+CRC). The store has no constructor on purpose.
-__uninitialized_ram(static persistence::RetainedStore s_store);
+// magic+CRC). The store has no constructor on purpose. The macro wraps the
+// NAME only and follows the type (SDK usage: `static T __uninitialized_ram(name);`).
+static persistence::RetainedStore __uninitialized_ram(s_store);
 #else
 static persistence::RetainedStore s_store; // host fallback: ordinary zeroed RAM
 #endif
@@ -1694,7 +1718,9 @@ void RetainedSession::refresh(const persistence::ProjectSnapshotV1 &snap)
 void RetainedSession::markBootCompleted()
 {
     s_store.header.flags |= persistence::RETAINED_FLAG_BOOT_COMPLETED;
-    s_store.header.resumeAttempts = 0; // a boot that reached loop() is a good boot
+    // A boot that ran the control loop healthy for kHealthyLoopIntervalMs is
+    // a good boot: the next watchdog reset gets three fresh resume attempts.
+    s_store.header.resumeAttempts = 0;
 }
 
 bool RetainedSession::takeResumeSnapshot(persistence::ProjectSnapshotV1 &out)
@@ -1736,11 +1762,24 @@ In `begin()`, after `Serial.begin(...)`, replace the recovery gate with:
 
 Then storage/load becomes: `const bool loaded = resumeFromRetained ? (RetainedSession::takeResumeSnapshot(snapshot)) : (SessionStorage::load(snapshot) == SessionStorage::LoadResult::Ok);` — and when `resumeFromRetained`, also print the freeze post-mortem once (`freezeWatchdogPrintPreviousRun()` at the top of the resume path — Serial was just begun; the periodic diagnostics keep re-printing it every 2 s anyway via `printRuntimeDiagnostics`, `Application.cpp:26`). `Session::g_bootLoadedOk` is set from `loaded` either way.
 
-At the end of `begin()` (right before `voicesReady.store`): `RetainedSession::markBootCompleted();` — and refresh the mirror once so a freeze 100 ms into loop() still finds a fresh session: `persistence::ProjectSnapshotV1 snap; Session::captureSession(snap); RetainedSession::refresh(snap);`.
+At the end of `begin()` (right before `voicesReady.store`), refresh the mirror once so a freeze 100 ms into loop() still finds a fresh session: `persistence::ProjectSnapshotV1 snap; Session::captureSession(snap); RetainedSession::refresh(snap);`. **Do NOT call `markBootCompleted()` here** — the resume-attempt counter must stay elevated until the control loop has proven itself (next step).
 
-In `update()`, after `voiceManager->flushControlUpdates()` (line ~105), add the 1 Hz mirror refresh:
+In `update()`, after `voiceManager->flushControlUpdates()` (line ~105), add the healthy-boot marker and the 1 Hz mirror refresh:
 
 ```cpp
+    // Reset the watchdog-resume attempt counter only after the control loop
+    // has demonstrably run healthy. Clearing it at the end of begin() would
+    // let a freeze that recurs shortly after every boot resume forever.
+    static const uint32_t bootStampMs = millis(); // first non-recovery pass
+    static bool healthyBootMarked = false;
+    if (!healthyBootMarked && millis() - bootStampMs >= kHealthyLoopIntervalMs)
+    {
+        healthyBootMarked = true;
+        RetainedSession::markBootCompleted();
+    }
+
+    // 1 Hz retained-RAM mirror refresh: zero flash wear, bounds watchdog
+    // session loss to one second.
     static uint32_t lastRetainedRefreshMs = 0;
     if (nowMs - lastRetainedRefreshMs >= 1000)
     {
@@ -1750,6 +1789,8 @@ In `update()`, after `voiceManager->flushControlUpdates()` (line ~105), add the 
         RetainedSession::refresh(snap);
     }
 ```
+
+Add `constexpr uint32_t kHealthyLoopIntervalMs = 15000;` to `Application.cpp`'s anonymous namespace (next to `kDiagnosticIntervalMs`). 15 s comfortably covers every one-time init hiccup while catching freezes that recur early in the loop; tune on the bench if a legitimate slow-start boot ever trips it.
 
 (`nowMs` already exists at `Application.cpp:107` — move its declaration above this block if needed.) ~10.4 KB memcpy once a second on Core 0 is negligible (~tens of µs); zero flash wear.
 
@@ -2054,6 +2095,11 @@ The `W` serial hook (add in Task 10's commit, top of `Application::update()` aft
 ---
 
 ## Self-review record
+
+**External review fixes applied 2026-09-12 (all three verified against the plan text before acceptance):**
+1. `PatchSnapshot` was 230 B by field sum but 232 B on the ARM ABI (4-byte struct alignment rounds up the 10 trailing u8). Fixed: explicit `uint8_t reserved[2]` tail, `static_assert(sizeof(PatchSnapshot) == 232)`, `ProjectSnapshotV1` == 10,424 B everywhere.
+2. `SessionStorage::load()` passed a bare 12-byte header buffer to `readFrameHeader` with a fabricated total length, so the CRC was computed over memory past the header instead of the payload. Fixed: `readFrameHeader(header, payload, payloadCapacity, expectedPayloadSize)` takes header and payload as separate buffers and CRCs the payload directly; all call sites and tests updated.
+3. `markBootCompleted()` reset `resumeAttempts` at the end of `begin()`, so a freeze recurring shortly after every boot would resume forever. Fixed: the reset now happens in `update()` only after `kHealthyLoopIntervalMs` (15 s) of proven-healthy control loop; `begin()` never touches the counter.
 
 - **Spec coverage vs improvement-plan item 1:** serialize 9 tracks/voice ✓ (Tasks 3, 5), `VoiceConfig` edits as values + preset index with pointer rule ✓ (Task 4), patch bases ✓ (inside PatchSnapshot flags/fields), globals (scale, shuffle, theme, tempo, master volume, encoder bases, cursors) ✓ (Tasks 2, 6), magic/version/checksum ✓ (Task 2; precedent AlchemyProto checksum noted), `ParameterManager` (de)serialization ✓ (codec + raw accessors, Task 3), write path stops transport + drains control updates + Core 0 only ✓ (Task 10 executor + Global Constraints), restore hooks in `VoiceSetup`-adjacent boot flow + `Application::begin` ✓ (Task 8), Phase-2 autosave on transport stop + watchdog-restore ✓ (Tasks 9, 10), golden round-trip + corruption tests ✓ (Tasks 2, 5), flash I/O hardware-bound / format portable ✓.
 - **Known deviations from the spec sketch (deliberate):** storage is LittleFS-64 KB, not EEPROM — the ~10.2 KB snapshot physically cannot fit the 4 KB EEPROM sector; snapshot POD + 12-byte frame instead of per-class `serialize()` methods — keeps `pico2seq-core` free of stream types and gives one locked, static_asserted layout; the frame's `SNAPSHOT_FORMAT_VERSION` serves the spec's "magic/version/checksum" ask — a separate `FIRMWARE_VERSION` constant is omitted because the frame version already gates every migration decision (add one only when a second firmware generation needs to distinguish itself); retained-RAM mirror added beyond the sketch — it is what makes watchdog recovery *instant and wear-free* rather than "load last flash save".

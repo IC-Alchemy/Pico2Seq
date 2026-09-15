@@ -88,7 +88,7 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, and system contr
 | Bit / Button | Function | Behavior |
 |---|---|---|
 | **0** | `Play / Stop` | Starts/stops sequencer clock (stopping automatically opens Settings mode) |
-| **1** | *(unassigned)* | Was `Delay Toggle`; removed with the delay effect (2026-09-11) |
+| **1** | `Session Save / Load` | Tap saves the session to flash (stops transport for the ~0.1–0.5 s write, then restarts); long-press (≥400 ms) reloads the last saved session. Edits also autosave ~1 s after every transport stop when changed |
 | **2** | `Scale Cycle` | Cycles forward through the 13 musical scales |
 | **3** | `Swing Pattern` | Cycles through the 16 groove/shuffle templates in `ShuffleTemplates.h` |
 | **4** | `Theme Cycle` | Cycles visual LED color themes across `LEDTheme` presets |
