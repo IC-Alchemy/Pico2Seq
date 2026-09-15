@@ -21,6 +21,11 @@
 #include <atomic>
 #include <cmath>
 
+// Compile out idle skipping for exact-output/performance comparisons.
+#ifndef P2S_VOICE_IDLE_SKIP
+#define P2S_VOICE_IDLE_SKIP 1
+#endif
+
 // Keep tiny audio helpers inside their RAM-resident span caller.
 #if defined(__GNUC__)
 #define PICO2SEQ_HOT_INLINE inline __attribute__((always_inline))
@@ -342,6 +347,14 @@ private:
   std::array<float, kMaxSpan> spanSignal_{};
   struct FilterEvent { uint8_t index; float cutoffHz; };
   std::array<FilterEvent, kMaxSpan / kFilterUpdateInterval> spanFilterEvents_{};
+#if P2S_VOICE_IDLE_SKIP
+  static constexpr uint16_t kQuietHold = 256;
+  static constexpr float kQuietLevel = 1.0e-6f;
+  uint16_t quietRun_ = 0;
+  bool canSkipSilentSpan_() const noexcept;
+  void advanceSilentSpan_(uint32_t n) noexcept;
+  void trackQuietOutput_(const float *out, uint32_t n) noexcept;
+#endif
   static_assert((kFilterUpdateInterval & (kFilterUpdateInterval - 1)) == 0,
                 "kFilterUpdateInterval must be a power of two");
   uint8_t filterUpdateCounter = 0;               // rolling counter

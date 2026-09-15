@@ -132,6 +132,9 @@ Voice::Voice(uint8_t id, const VoiceConfig &cfg)
 
 void Voice::init(float sr)
 {
+#if P2S_VOICE_IDLE_SKIP
+  quietRun_ = 0;
+#endif
   // Setup only: neither core may access this Voice concurrently with init().
   // Fold any pre-init setters into the initial state without running DSP early.
   ControlUpdate unused;
@@ -361,6 +364,14 @@ float PICO2SEQ_AUDIO_FUNC(Voice::process)() noexcept
 void PICO2SEQ_AUDIO_FUNC(Voice::renderSpan_)(float *out, uint32_t n) noexcept
 {
   if (!config.enabled) { std::fill_n(out, n, 0.0f); return; }
+#if P2S_VOICE_IDLE_SKIP
+  if (canSkipSilentSpan_())
+  {
+    advanceSilentSpan_(n);
+    std::fill_n(out, n, 0.0f);
+    return;
+  }
+#endif
   const float *env = spanEnv_.data();
   float *sig = spanSignal_.data();
 
@@ -414,7 +425,44 @@ void PICO2SEQ_AUDIO_FUNC(Voice::renderSpan_)(float *out, uint32_t n) noexcept
   // (10) Output level.
   const float level = config.outputLevel;
   for (uint32_t k = 0; k < n; ++k) out[k] = sig[k] * level;
+#if P2S_VOICE_IDLE_SKIP
+  trackQuietOutput_(out, n);
+#endif
 }
+
+#if P2S_VOICE_IDLE_SKIP
+bool PICO2SEQ_AUDIO_FUNC(Voice::canSkipSilentSpan_)() const noexcept
+{
+  return quietRun_ >= kQuietHold && config.hasEnvelope && !gate && !gateHighPrev_ &&
+         !state.shouldRetrigger && !structuralPending_ && !envelope.isActive() &&
+         cachedEngine_ != ENGINE_WAVEGUIDE && cachedEngine_ != ENGINE_NOISEFX;
+}
+
+void PICO2SEQ_AUDIO_FUNC(Voice::advanceSilentSpan_)(uint32_t n) noexcept
+{
+  // Keep cutoff smoothing and its throttle alive; freezing them changes
+  // the attack of the next note even after the audible tail has finished.
+  lastEnvelopeValue = 0.0f;
+  if (!config.hasFilter) return;
+  std::fill_n(spanEnv_.data(), n, 0.0f);
+  const uint32_t events = planFilterUpdates_(spanEnv_.data(), n);
+  if (events > 0)
+  {
+    // No filter samples run between these updates, so the last coefficients win.
+    const float hz = spanFilterEvents_[events - 1].cutoffHz;
+    if (config.filterType == FILTER_SVF) filterSvf_.setCutoff(hz);
+    else filter.setFreq(hz);
+  }
+}
+
+void PICO2SEQ_AUDIO_FUNC(Voice::trackQuietOutput_)(const float *out, uint32_t n) noexcept
+{
+  uint32_t trailing = 0;
+  while (trailing < n && std::fabs(out[n - 1 - trailing]) < kQuietLevel) ++trailing;
+  const uint32_t run = trailing == n ? quietRun_ + n : trailing;
+  quietRun_ = static_cast<uint16_t>(std::min<uint32_t>(run, kQuietHold));
+}
+#endif
 
 void Voice::handleGateEdges_() noexcept
 {
@@ -1174,6 +1222,10 @@ void Voice::applyStructuralConfig_() noexcept
 // Audio thread only: queue slots have already been released after a local copy.
 void Voice::applyConfig_(const VoiceConfig &newConfig) noexcept
 {
+#if P2S_VOICE_IDLE_SKIP
+  // A new configuration must prove silence before it may be skipped.
+  quietRun_ = 0;
+#endif
   bool structuralChange = stagedOscCount_ != newConfig.oscillatorCount ||
       stagedEngine_ != newConfig.engine || config.recipe != newConfig.recipe;
   for(size_t i=0;i<3;++i)

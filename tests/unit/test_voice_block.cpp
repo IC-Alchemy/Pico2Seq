@@ -218,3 +218,43 @@ TEST_CASE("VoiceManager::processBlock matches processAllVoices()", "[voice][voic
         REQUIRE(output[n] == 99.0f);
     }
 }
+
+#if P2S_VOICE_IDLE_SKIP
+TEST_CASE("A released silent voice is skipped and wakes cleanly", "[voice][voice_block]")
+{
+    Voice voice(1, patch(4));
+    voice.init(48000);
+    std::array<float, 256> output{};
+    auto render = [&](uint32_t samples) {
+        while (samples)
+        {
+            const auto count = std::min<uint32_t>(samples, output.size());
+            voice.processBlock(output.data(), count);
+            samples -= count;
+        }
+    };
+    voice.updateParameters(note(24));
+    render(9600);
+    voice.updateParameters(note(24, false));
+    render(48000);
+    voice.processBlock(output.data(), output.size());
+    for (float sample : output) REQUIRE(sample == 0.0f);
+
+    // A silent edit must continue advancing the cutoff smoother before wakeup.
+    voice.setFilterFrequency(1800);
+    render(4800);
+    voice.updateParameters(note(31));
+    float peak = 0.0f;
+    for (unsigned block = 0; block < 40; ++block)
+    {
+        voice.processBlock(output.data(), output.size());
+        for (float sample : output)
+        {
+            REQUIRE(std::isfinite(sample));
+            REQUIRE(std::fabs(sample) <= 1.0f);
+            peak = std::max(peak, std::fabs(sample));
+        }
+    }
+    REQUIRE(peak > 0.001f);
+}
+#endif
