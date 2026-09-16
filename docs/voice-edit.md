@@ -47,14 +47,16 @@ one more than 40 mm outside the window) nothing is recorded and steps keep their
 In the normalized parameter domain:
 
 ```
-modifier = lidarNormalized - 0.5
-effective = clamp(baseNormalized + modifier, 0, 1)
+if (lidarNormalized >= 0.5)
+    effective = base + (lidarNormalized - 0.5) * 2 * (1 - base)
+else
+    effective = base + (lidarNormalized - 0.5) * 2 * base
 ```
 
-The midpoint is neutral. For a 70% velocity base, recorded readings of 25%, 50%,
-and 75% give effective velocities of 45%, 70%, and 95%. Changing the base leaves
-those three recordings unchanged. Limits clamp the result. There is no additional
-depth control in these stages.
+The midpoint (`0.5`) is neutral (exactly equals `base`). Hand movement from 0.5 down to 0.0 spans
+linearly from `base` down to `0.0`, while movement from 0.5 up to 1.0 spans linearly from `base`
+up to `1.0`. This ensures that regardless of the preset base value (even extreme values like 2 ms
+attack or 8 s decay), there are no dead zones and hand movement spans the entire parameter range.
 
 The portable sequencer retains its existing storage units: Note is 0–36,
 GateLength is 0.001–1, and the other continuous lanes are 0–1. Playback converts

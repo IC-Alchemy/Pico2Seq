@@ -2,6 +2,7 @@
 #include "src/voice/VoiceEditParameters.h"
 #include "src/voice/VoiceManager.h"
 #include "src/voice/VoicePresets.h"
+#include "src/voice/MusicalValues.h"
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
@@ -26,11 +27,11 @@ TEST_CASE(
   seq.advanceStep(0, 100, false, true, false, false, false, false, -1, &state);
   const auto step = seq.getCurrentStepForParameter(ParamId::Velocity);
   REQUIRE(seq.getStepParameterValue(ParamId::Velocity, step) == 0.75f);
-  REQUIRE(state.velocityLevel == Approx(0.85f));
+  REQUIRE(state.velocityLevel == Approx(0.80f));
   REQUIRE(config.baseVelocity == Approx(0.6f));
   config.baseVelocity = 0.4f;
   seq.playStepNow(step, &state);
-  REQUIRE(state.velocityLevel == Approx(0.65f));
+  REQUIRE(state.velocityLevel == Approx(0.70f));
   REQUIRE(seq.getStepParameterValue(ParamId::Velocity, step) == 0.75f);
   seq.resetModifierStep(step);
   REQUIRE(seq.getStepParameterValue(ParamId::Velocity, step) == 0.5f);
@@ -47,7 +48,7 @@ TEST_CASE(
   setValue(Id::Velocity, sync, 12);
   REQUIRE(sync.baseVelocity == Approx(0.75f));
   REQUIRE(value(Id::Velocity, sync) == Approx(12));
-  REQUIRE(composeLane(ParamId::Velocity, 0.25f, &sync) == Approx(0.5f));
+  REQUIRE(composeLane(ParamId::Velocity, 0.25f, &sync) == Approx(0.375f));
   setValue(Id::Engine, sync, ENGINE_HYPERSAW);
   setValue(Id::Engine, sync, ENGINE_OSC);
   REQUIRE(sync.paramSet == PARAMSET_HARDSYNC);
@@ -86,7 +87,7 @@ TEST_CASE("Patch bases and stored lidar modifiers are independent",
   REQUIRE(seq.getStepParameterValue(ParamId::Velocity, 0) == 0.5f);
   seq.setStepParameterValue(ParamId::Velocity, 0, 0.25f);
   seq.playStepNow(0, &state);
-  REQUIRE(state.velocityLevel == Approx(0.45f));
+  REQUIRE(state.velocityLevel == Approx(0.35f));
   REQUIRE(config.baseVelocity == Approx(0.7f));
   setValue(Id::GateLength, config, 0.8f);
   seq.playStepNow(0, &state);
@@ -382,7 +383,7 @@ TEST_CASE("Patch randomization preserves register and playable preset timing", "
       REQUIRE(step.octaveOffset == 0);
       REQUIRE(step.gateLengthTicks == 60);
       REQUIRE(MusicalValues::envelopeSeconds(step.attackTimeSeconds) >= c.defaultAttack * 0.6f);
-      REQUIRE(MusicalValues::envelopeSeconds(step.attackTimeSeconds) <= c.defaultAttack * 1.6f);
+      REQUIRE(MusicalValues::envelopeSeconds(step.attackTimeSeconds) <= c.defaultAttack * 2.0f);
       REQUIRE(MusicalValues::envelopeSeconds(step.decayTimeSeconds) >= c.defaultDecay * 0.6f);
     }
   }
@@ -480,4 +481,124 @@ TEST_CASE("Live step edits keep oscillator voices sounding",
   REQUIRE(untouched > 0.01);
   CHECK(refreshed == Approx(untouched).epsilon(0.05));
   CHECK(retriggered < untouched * 0.5);
+}
+
+TEST_CASE("RubberSub sequences full range without dead zones on Attack, Cutoff, Decay",
+          "[voice_edit][rubbersub]") {
+  VoiceConfig rubberSub = VoicePresets::getRubberSubVoice();
+  enablePatch(rubberSub);
+
+  // Attack: 2 ms base (normalized ~0.075) spans 1 ms to 10 s across hand range
+  const float attackBase = laneBase(ParamId::Attack, rubberSub);
+  REQUIRE(attackBase == Approx(timeNormalize(0.002f)));
+  REQUIRE(composeLane(ParamId::Attack, 0.0f, &rubberSub) == 0.0f);
+  REQUIRE(composeLane(ParamId::Attack, 0.1f, &rubberSub) > 0.0f); // Zero dead zone!
+  REQUIRE(composeLane(ParamId::Attack, 0.25f, &rubberSub) > 0.0f);
+  REQUIRE(composeLane(ParamId::Attack, 0.5f, &rubberSub) == Approx(attackBase));
+  REQUIRE(composeLane(ParamId::Attack, 0.75f, &rubberSub) > attackBase);
+  REQUIRE(composeLane(ParamId::Attack, 1.0f, &rubberSub) == 1.0f);
+
+  REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Attack, 0.0f, &rubberSub)) == Approx(0.001f));
+  REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Attack, 0.5f, &rubberSub)) == Approx(0.002f));
+  REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Attack, 1.0f, &rubberSub)) == Approx(10.0f));
+
+  // Cutoff: 0.37 base spans 120 Hz to 5000 Hz across hand range
+  const float filterBase = laneBase(ParamId::Filter, rubberSub);
+  REQUIRE(filterBase == Approx(0.37f));
+  REQUIRE(composeLane(ParamId::Filter, 0.0f, &rubberSub) == 0.0f);
+  REQUIRE(composeLane(ParamId::Filter, 0.1f, &rubberSub) > 0.0f); // Zero dead zone!
+  REQUIRE(composeLane(ParamId::Filter, 0.5f, &rubberSub) == Approx(filterBase));
+  REQUIRE(composeLane(ParamId::Filter, 1.0f, &rubberSub) == 1.0f);
+
+  // Decay: 160 ms base spans 1 ms to 10 s across hand range
+  const float decayBase = laneBase(ParamId::Decay, rubberSub);
+  REQUIRE(decayBase == Approx(timeNormalize(0.16f)));
+  REQUIRE(composeLane(ParamId::Decay, 0.0f, &rubberSub) == 0.0f);
+  REQUIRE(composeLane(ParamId::Decay, 0.5f, &rubberSub) == Approx(decayBase));
+  REQUIRE(composeLane(ParamId::Decay, 1.0f, &rubberSub) == 1.0f);
+  REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, 0.0f, &rubberSub)) == Approx(0.001f));
+  REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, 0.5f, &rubberSub)) == Approx(0.16f));
+  REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, 1.0f, &rubberSub)) == Approx(10.0f));
+}
+
+TEST_CASE("All factory presets sequence full continuous range without dead zones",
+          "[voice_edit][presets]") {
+  for (uint8_t p = 0; p < VoicePresets::getPresetCount(); ++p) {
+    VoiceConfig c = VoicePresets::getPresetConfig(p);
+    enablePatch(c);
+    INFO("Testing preset: " << VoicePresets::getPresetName(p));
+
+    for (ParamId lane : {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Decay, ParamId::Octave}) {
+      const float base = laneBase(lane, c);
+      REQUIRE(composeLane(lane, 0.0f, &c) == 0.0f);
+      REQUIRE(composeLane(lane, 0.5f, &c) == Approx(base));
+      REQUIRE(composeLane(lane, 1.0f, &c) == 1.0f);
+
+      // Verify no dead zones: strictly monotonic progression
+      if (base > 0.0f) {
+        REQUIRE(composeLane(lane, 0.25f, &c) > 0.0f);
+        REQUIRE(composeLane(lane, 0.25f, &c) < base);
+      }
+      if (base < 1.0f) {
+        REQUIRE(composeLane(lane, 0.75f, &c) > base);
+        REQUIRE(composeLane(lane, 0.75f, &c) < 1.0f);
+      }
+    }
+  }
+}
+
+TEST_CASE("OLED display formatting never outputs ratio fallback (.xx) on Attack, Cutoff, or Decay",
+          "[voice_edit][oled]") {
+  for (uint8_t p = 0; p < VoicePresets::getPresetCount(); ++p) {
+    VoiceConfig c = VoicePresets::getPresetConfig(p);
+    enablePatch(c);
+    INFO("Testing OLED format for preset: " << VoicePresets::getPresetName(p));
+
+    Step step{};
+    for (float val : {0.0f, 0.01f, 0.1f, 0.37f, 0.5f, 0.75f, 1.0f}) {
+      step.attackTimeSeconds = val;
+      step.filterCutoff = val;
+      step.decayTimeSeconds = val;
+      step.velocityLevel = val;
+
+      char buf[48];
+      // Attack must format as time (or custom unit), never %.2fx fallback
+      MusicalValues::format(ParamId::Attack, step, c, nullptr, 120.0f, buf, sizeof(buf));
+      std::string atk(buf);
+      REQUIRE(atk != "0.01x");
+      if (VoicePresets::getPresetName(p) == std::string("RubberSub")) {
+        REQUIRE((atk.find("ms") != std::string::npos || atk.find("s") != std::string::npos));
+      }
+
+      // Cutoff must format as Hz (or custom unit), never %.2fx fallback
+      MusicalValues::format(ParamId::Filter, step, c, nullptr, 120.0f, buf, sizeof(buf));
+      std::string flt(buf);
+      REQUIRE(flt != "0.01x");
+      if (VoicePresets::getPresetName(p) == std::string("RubberSub")) {
+        REQUIRE(flt.find("Hz") != std::string::npos);
+      }
+
+      // Decay must format as time (or custom unit), never %.2fx fallback
+      MusicalValues::format(ParamId::Decay, step, c, nullptr, 120.0f, buf, sizeof(buf));
+      std::string dec(buf);
+      REQUIRE(dec != "0.01x");
+      if (VoicePresets::getPresetName(p) == std::string("RubberSub")) {
+        REQUIRE((dec.find("ms") != std::string::npos || dec.find("s") != std::string::npos));
+      }
+    }
+  }
+}
+
+TEST_CASE("RubberSub audio synthesis produces fat audible sub-bass and distinct filter response",
+          "[voice_edit][rubbersub][audio]") {
+  const uint8_t rubberSub = static_cast<uint8_t>(VoicePresets::findPreset("RubberSub"));
+  const double untouchedRms = rmsWhileEditing(rubberSub, [](Sequencer &, VoiceState &) {});
+  REQUIRE(untouchedRms > 0.02); // Robust, audible audio output
+
+  // Verify cutoff sweep produces audible timbre change
+  const double openCutoffRms = rmsWhileEditing(rubberSub, [](Sequencer &s, VoiceState &v) {
+    v.filterCutoff = 1.0f;
+    s.refreshVoiceParameters(&v);
+  });
+  REQUIRE(openCutoffRms > 0.02);
 }

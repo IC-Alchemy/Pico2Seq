@@ -130,8 +130,8 @@ Id nextParameter(Id current, int direction, const VoiceConfig &config,
                  bool changeGroup) noexcept;
 ParamId sequenceLane(Id id, const VoiceConfig &config) noexcept;
 
-// Note stores melody scale steps, with baseNote as an additive transpose.
-// Other continuous lanes use their midpoint as zero modulation around a base.
+float laneBase(ParamId id, const VoiceConfig &config) noexcept;
+float timeNormalize(float seconds) noexcept;
 float composeLane(ParamId id, float stored, const void *config) noexcept;
 int8_t mapOctave(float normalized) noexcept;
 void seedModifiers(Sequencer &sequencer);

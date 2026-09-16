@@ -262,7 +262,9 @@ namespace VoicePresets {
     c.filterRes = 0.7f; // SVF band-pass honk (2-pole: higher Q than the old BP24 ladder)
     c.filterType = FILTER_SVF;
     c.filterMode = VoiceFilterMode::BP24; // SVF response: band-pass
-    c.highPassFreq = 70.0f;
+    c.highPassFreq = 25.0f; // Lower HPF cutoff from 70 Hz so sub-octave fundamental passes
+    c.highPassRes = 0.0f;
+    c.filterEnvelopeFloor = 0.35f; // Keep band-pass floor open during sustain/decay to prevent silence
 
     c.hasOverdrive = true;
     c.overdriveGain = 1.0f;

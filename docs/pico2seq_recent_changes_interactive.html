@@ -56,14 +56,14 @@
     position: sticky;
     top: 0;
     z-index: 1000;
-    background: rgba(15, 19, 28, 0.85);
+    background: rgba(15, 19, 28, 0.90);
     backdrop-filter: blur(14px);
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 0 24px;
-    height: 60px;
+    height: 62px;
   }
   .nav-brand {
     display: flex;
@@ -91,9 +91,9 @@
   .nav-link {
     color: var(--text-dim);
     text-decoration: none;
-    padding: 7px 14px;
+    padding: 7px 12px;
     border-radius: 6px;
-    font-size: 13px;
+    font-size: 12.5px;
     font-weight: 500;
     transition: all 0.2s;
   }
@@ -123,41 +123,41 @@
   .hero {
     max-width: 1240px;
     margin: 0 auto;
-    padding: 48px 24px 24px;
+    padding: 44px 24px 20px;
   }
   .hero-pre {
     display: flex;
     align-items: center;
     gap: 10px;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: 11.5px;
     color: var(--cyan);
     text-transform: uppercase;
     letter-spacing: 1.5px;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
   }
   .hero-title {
     font-size: 38px;
     font-weight: 800;
     line-height: 1.15;
     letter-spacing: -0.5px;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
     background: linear-gradient(135deg, #ffffff 30%, var(--cyan) 75%, var(--magenta) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
   }
   .hero-desc {
     color: var(--text-dim);
-    font-size: 16px;
-    max-width: 820px;
+    font-size: 15.5px;
+    max-width: 860px;
     line-height: 1.6;
-    margin-bottom: 24px;
+    margin-bottom: 22px;
   }
   .stats-strip {
     display: flex;
     flex-wrap: wrap;
     gap: 12px;
-    margin-top: 20px;
+    margin-top: 18px;
   }
   .stat-badge {
     background: var(--panel);
@@ -176,7 +176,7 @@
     color: var(--cyan);
   }
   .stat-badge .lbl {
-    font-size: 11px;
+    font-size: 10.5px;
     text-transform: uppercase;
     letter-spacing: 0.8px;
     color: var(--text-muted);
@@ -230,7 +230,7 @@
   .tag-ui { background: rgba(157, 78, 221, 0.12); color: var(--purple); border: 1px solid rgba(157, 78, 221, 0.3); }
   .tag-core { background: rgba(255, 42, 133, 0.12); color: var(--magenta); border: 1px solid rgba(255, 42, 133, 0.3); }
 
-  /* Hardware Console / Grid */
+  /* Console Panel */
   .console-panel {
     background: var(--panel);
     border: 1px solid var(--border);
@@ -300,57 +300,144 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 12px;
-    background: rgba(22, 28, 41, 0.5);
+    background: rgba(22, 28, 41, 0.6);
     border: 1px dashed var(--border-bright);
     border-radius: 10px;
-    padding: 16px;
+    padding: 16px 8px;
     text-align: center;
-  }
-  .bridge-box .pulse-line {
-    width: 100%;
-    height: 4px;
-    background: linear-gradient(90deg, var(--cyan), var(--magenta));
-    border-radius: 2px;
-    position: relative;
-    overflow: hidden;
-  }
-  .bridge-box .pulse-dot {
-    position: absolute;
-    width: 20px;
-    height: 100%;
-    background: #fff;
-    box-shadow: 0 0 10px #fff;
-    animation: packetMove 2s infinite ease-in-out;
-  }
-  @keyframes packetMove {
-    0% { left: 0%; }
-    50% { left: 80%; }
-    100% { left: 0%; }
   }
   .bridge-lbl {
     font-family: var(--font-mono);
     font-size: 11px;
     color: var(--amber);
-    font-weight: 600;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+  .pulse-line {
+    width: 80px;
+    height: 2px;
+    background: linear-gradient(90deg, var(--cyan), var(--magenta));
+    position: relative;
+    margin: 8px 0;
+  }
+  .pulse-dot {
+    width: 6px;
+    height: 6px;
+    background: #fff;
+    border-radius: 50%;
+    position: absolute;
+    top: -2px;
+    animation: pulseMove 1.5s infinite ease-in-out;
+  }
+  @keyframes pulseMove {
+    0% { left: 0; opacity: 0.2; }
+    50% { opacity: 1; transform: scale(1.4); }
+    100% { left: 74px; opacity: 0.2; }
   }
 
-  /* Audio Synth Playground */
+  /* Audio Contention Simulator */
+  .sim-box {
+    margin-top: 24px;
+    background: var(--panel-sub);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+  .sim-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .sim-switch {
+    display: inline-flex;
+    background: var(--panel);
+    border: 1px solid var(--border-bright);
+    border-radius: 8px;
+    padding: 4px;
+    gap: 4px;
+  }
+  .sim-opt-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: 0.2s;
+  }
+  .sim-opt-btn:hover { color: var(--text); }
+  .sim-opt-btn.sel-ram {
+    background: var(--green);
+    color: #07090e;
+    box-shadow: 0 0 12px var(--green-glow);
+  }
+  .sim-opt-btn.sel-flash {
+    background: var(--red);
+    color: #fff;
+    box-shadow: 0 0 12px rgba(255, 51, 75, 0.35);
+  }
+  .telemetry-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px;
+  }
+  .telem-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-family: var(--font-mono);
+  }
+  .telem-card .t-lbl { font-size: 10.5px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; }
+  .telem-card .t-val { font-size: 18px; font-weight: 700; color: var(--text); }
+  .telem-card.good .t-val { color: var(--green); }
+  .telem-card.warn .t-val { color: var(--amber); }
+  .telem-card.bad .t-val { color: var(--red); }
+
+  /* Buffer timing oscilloscope */
+  .timing-canvas-wrap {
+    margin-top: 16px;
+    background: #05070a;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    position: relative;
+  }
+  .timing-canvas-wrap canvas {
+    width: 100%;
+    height: 90px;
+    display: block;
+  }
+  .timing-legend {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text-muted);
+    margin-top: 6px;
+  }
+
+  /* Synth Workspace */
   .synth-workspace {
     display: grid;
-    grid-template-columns: 340px 1fr;
-    gap: 20px;
+    grid-template-columns: 280px 1fr;
+    gap: 24px;
   }
   @media(max-width: 960px) {
     .synth-workspace { grid-template-columns: 1fr; }
   }
-
-  /* Preset Selector */
   .preset-card-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    max-height: 480px;
+    gap: 6px;
+    max-height: 520px;
     overflow-y: auto;
     padding-right: 6px;
   }
@@ -366,69 +453,74 @@
     justify-content: space-between;
   }
   .preset-card:hover {
-    border-color: var(--cyan);
+    border-color: var(--border-bright);
     background: var(--panel-hover);
   }
   .preset-card.active {
-    border-color: var(--cyan);
-    background: rgba(0, 240, 255, 0.1);
-    box-shadow: inset 3px 0 0 var(--cyan);
+    border-color: var(--magenta);
+    background: rgba(255, 42, 133, 0.08);
+    box-shadow: 0 0 15px rgba(255, 42, 133, 0.15);
   }
   .preset-info h4 {
-    font-size: 14px;
+    font-size: 13.5px;
     font-weight: 600;
     color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
   .preset-info p {
-    font-size: 11.5px;
+    font-size: 11px;
     color: var(--text-dim);
     margin-top: 2px;
   }
   .badge-new {
-    font-size: 10px;
-    background: linear-gradient(135deg, var(--magenta), var(--purple));
+    background: var(--magenta);
     color: #fff;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-weight: 700;
+    font-size: 9px;
+    font-family: var(--font-mono);
+    padding: 1px 5px;
+    border-radius: 3px;
     text-transform: uppercase;
+    font-weight: 700;
   }
 
-  /* Oscilloscope Canvas */
+  /* Phosphor Scope */
   .scope-container {
-    background: #05070a;
+    background: #040608;
     border: 1px solid var(--border-bright);
-    border-radius: 8px;
+    border-radius: 10px;
     position: relative;
     overflow: hidden;
-    height: 180px;
+    margin-bottom: 20px;
     box-shadow: inset 0 0 30px rgba(0, 240, 255, 0.05);
   }
-  canvas#scopeCanvas {
+  #scopeCanvas {
     width: 100%;
-    height: 100%;
+    height: 180px;
     display: block;
   }
   .scope-overlay {
     position: absolute;
-    top: 8px;
-    left: 12px;
+    top: 10px;
+    left: 14px;
     font-family: var(--font-mono);
     font-size: 11px;
     color: var(--cyan);
     pointer-events: none;
+    letter-spacing: 0.5px;
     text-shadow: 0 0 6px var(--cyan);
   }
   .scope-mode-toggle {
     position: absolute;
-    top: 8px;
+    top: 10px;
     right: 12px;
     display: flex;
-    gap: 6px;
+    gap: 4px;
   }
   .scope-btn {
-    background: rgba(22, 28, 41, 0.8);
-    border: 1px solid var(--border);
+    background: rgba(15, 19, 28, 0.7);
+    border: 1px solid var(--border-bright);
     color: var(--text-dim);
     font-family: var(--font-mono);
     font-size: 10.5px;
@@ -436,51 +528,44 @@
     border-radius: 4px;
     cursor: pointer;
   }
-  .scope-btn.active {
-    border-color: var(--cyan);
-    color: var(--cyan);
-  }
+  .scope-btn.active { color: var(--cyan); border-color: var(--cyan); }
 
-  /* Interactive Knobs & Faders */
+  /* Synth Knobs & Sliders */
   .knob-matrix {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
     gap: 14px;
-    margin: 18px 0;
+    margin-bottom: 20px;
   }
   .knob-unit {
     background: var(--panel-sub);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 12px 8px;
+    padding: 12px 14px;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    text-align: center;
+    gap: 6px;
   }
   .knob-unit label {
     font-size: 11px;
-    color: var(--text-muted);
     text-transform: uppercase;
+    font-weight: 600;
+    color: var(--text-dim);
     letter-spacing: 0.5px;
-    margin-bottom: 6px;
+  }
+  .knob-unit input[type="range"] {
+    width: 100%;
+    accent-color: var(--cyan);
+    cursor: pointer;
   }
   .knob-unit .val-disp {
     font-family: var(--font-mono);
     font-size: 12px;
     color: var(--cyan);
-    margin-top: 4px;
-  }
-  input[type="range"] {
-    width: 100%;
-    accent-color: var(--cyan);
-    background: var(--border);
-    height: 4px;
-    border-radius: 2px;
-    cursor: pointer;
+    text-align: right;
   }
 
-  /* Interactive Touch / Step Sequencer Grid */
+  /* Sequencer Strip */
   .seq-controls-bar {
     display: flex;
     align-items: center;
@@ -493,371 +578,324 @@
     background: var(--panel-sub);
     border: 1px solid var(--border-bright);
     color: var(--text);
-    padding: 8px 18px;
-    border-radius: 6px;
-    font-size: 13px;
+    font-family: var(--font-mono);
+    font-size: 12px;
     font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 6px;
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    transition: all 0.2s;
+    transition: 0.2s;
   }
-  .seq-btn:hover { border-color: var(--cyan); background: var(--panel-hover); }
-  .seq-btn.active { background: var(--cyan); color: #07090e; box-shadow: 0 0 15px var(--cyan-glow); }
-  .seq-btn.active-play { background: var(--green); color: #07090e; box-shadow: 0 0 15px var(--green-glow); }
+  .seq-btn:hover { border-color: var(--cyan); color: var(--cyan); }
+  .seq-btn.active-play { background: var(--cyan); color: #07090e; border-color: var(--cyan); box-shadow: 0 0 12px var(--cyan-glow); }
 
   .step-grid-16 {
     display: grid;
     grid-template-columns: repeat(16, 1fr);
-    gap: 6px;
-    margin-bottom: 14px;
+    gap: 4px;
+    margin-bottom: 20px;
   }
-  @media(max-width: 768px) {
+  @media(max-width: 800px) {
     .step-grid-16 { grid-template-columns: repeat(8, 1fr); }
   }
   .step-pad {
     aspect-ratio: 1;
     background: var(--panel-sub);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 4px;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 10px;
     color: var(--text-muted);
     cursor: pointer;
-    position: relative;
     user-select: none;
-    transition: transform 0.1s, border-color 0.15s;
+    transition: all 0.15s;
   }
-  .step-pad:hover { border-color: var(--cyan); }
+  .step-pad:hover { border-color: var(--cyan); color: var(--text); }
   .step-pad.on {
     background: rgba(0, 240, 255, 0.2);
     border-color: var(--cyan);
     color: var(--cyan);
-    box-shadow: inset 0 0 10px rgba(0, 240, 255, 0.2);
+    box-shadow: inset 0 0 8px var(--cyan-glow);
   }
-  .step-pad.on::after {
-    content: "";
-    position: absolute;
-    bottom: 4px;
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
+  .step-pad.current {
+    transform: scale(1.1);
+    box-shadow: 0 0 12px #fff, inset 0 0 8px #fff;
+    border-color: #fff;
+    color: #fff;
+    z-index: 10;
+  }
+  .step-pad.on.current {
+    background: var(--cyan);
+    color: #07090e;
+    box-shadow: 0 0 16px var(--cyan);
+  }
+
+  /* Polymetric Phasing Tracks Visualizer */
+  .poly-phasing-box {
+    background: var(--panel-sub);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 20px;
+  }
+  .poly-track-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .poly-track-row:last-child { margin-bottom: 0; }
+  .poly-track-name {
+    width: 90px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+  .poly-mini-steps {
+    display: flex;
+    gap: 3px;
+    flex-grow: 1;
+  }
+  .poly-mini-step {
+    height: 14px;
+    flex: 1;
+    max-width: 22px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    transition: all 0.1s;
+  }
+  .poly-mini-step.active-pos {
     background: var(--cyan);
     box-shadow: 0 0 6px var(--cyan);
   }
-  .step-pad.current {
-    border-color: var(--amber);
-    box-shadow: 0 0 12px var(--amber-glow);
-    transform: scale(1.06);
-  }
+  .poly-mini-step.active-pos.trk-filter { background: var(--magenta); box-shadow: 0 0 6px var(--magenta); }
+  .poly-mini-step.active-pos.trk-gate { background: var(--green); box-shadow: 0 0 6px var(--green); }
 
-  /* SRAM vs Flash Simulator */
-  .sim-box {
-    background: #0a0d14;
-    border: 1px solid var(--border-bright);
-    border-radius: 10px;
-    padding: 20px;
-    margin-top: 16px;
-  }
-  .sim-toggle-row {
+  /* Piano Strip */
+  .piano-strip {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding-bottom: 14px;
-    border-bottom: 1px solid var(--border);
-    flex-wrap: wrap;
-    gap: 12px;
-  }
-  .sim-switch {
-    display: flex;
-    background: var(--panel-sub);
-    padding: 4px;
+    height: 80px;
     border-radius: 8px;
-    border: 1px solid var(--border);
-    gap: 4px;
-  }
-  .sim-opt-btn {
-    padding: 6px 14px;
-    border-radius: 6px;
-    font-size: 12.5px;
-    font-weight: 600;
-    cursor: pointer;
-    border: none;
-    background: transparent;
-    color: var(--text-dim);
-    transition: 0.2s;
-  }
-  .sim-opt-btn.sel-ram {
-    background: var(--green);
-    color: #07090e;
-    box-shadow: 0 0 10px var(--green-glow);
-  }
-  .sim-opt-btn.sel-flash {
-    background: var(--red);
-    color: #fff;
-    box-shadow: 0 0 10px rgba(255, 51, 75, 0.4);
-  }
-  .telemetry-row {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 12px;
-    margin-top: 16px;
-  }
-  .telem-card {
-    background: var(--panel-sub);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 10px 14px;
-    font-family: var(--font-mono);
-  }
-  .telem-card .t-lbl { font-size: 11px; color: var(--text-muted); }
-  .telem-card .t-val { font-size: 17px; font-weight: 700; margin-top: 2px; }
-  .telem-card.good .t-val { color: var(--green); }
-  .telem-card.warn .t-val { color: var(--amber); }
-  .telem-card.bad .t-val { color: var(--red); }
-
-  /* Virtual OLED Display */
-  .oled-wrapper {
-    background: #000;
-    border: 4px solid #222630;
-    border-radius: 8px;
-    box-shadow: inset 0 0 20px rgba(0, 240, 255, 0.15), 0 10px 25px rgba(0,0,0,0.6);
-    padding: 12px;
-    width: 256px;
-    height: 128px;
-    font-family: var(--font-mono);
-    color: var(--cyan);
-    text-shadow: 0 0 5px var(--cyan);
-    position: relative;
     overflow: hidden;
+    border: 1px solid var(--border-bright);
+    position: relative;
     user-select: none;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.5);
   }
-  .oled-header {
-    display: flex;
-    justify-content: space-between;
-    font-size: 11px;
-    border-bottom: 1px dashed rgba(0, 240, 255, 0.3);
-    padding-bottom: 4px;
+  .piano-key {
+    flex: 1;
+    background: #f8fafc;
+    border-right: 1px solid #cbd5e1;
+    position: relative;
+    cursor: pointer;
+    transition: background 0.1s;
   }
-  .oled-body {
-    padding: 8px 0;
+  .piano-key:last-child { border-right: none; }
+  .piano-key:active, .piano-key.active { background: #00f0ff; }
+  .piano-key.black {
+    background: #090d14;
+    border: 1px solid #1e293b;
+    margin-left: -12px;
+    margin-right: -12px;
+    width: 24px;
+    flex: none;
+    height: 52px;
+    z-index: 2;
+    border-radius: 0 0 4px 4px;
   }
-  .oled-big {
-    font-size: 18px;
-    font-weight: 700;
-  }
-  .oled-detail {
-    font-size: 10px;
-    color: rgba(0, 240, 255, 0.7);
-    margin-top: 4px;
-  }
-  .oled-footer {
-    position: absolute;
-    bottom: 8px;
-    left: 12px;
-    right: 12px;
-    display: flex;
-    justify-content: space-between;
-    font-size: 9.5px;
-    border-top: 1px dashed rgba(0, 240, 255, 0.3);
-    padding-top: 4px;
-  }
+  .piano-key.black:active, .piano-key.black.active { background: #ff2a85; }
 
-  /* Persistence / Snapshot Lab */
+  /* Persistence Hex / Frame */
   .persist-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 20px;
   }
-  @media(max-width: 850px) {
+  @media(max-width: 860px) {
     .persist-grid { grid-template-columns: 1fr; }
   }
   .hex-stream {
-    background: #06080e;
-    border: 1px solid var(--border);
+    background: #040608;
+    border: 1px solid var(--border-bright);
     border-radius: 8px;
     padding: 14px;
     font-family: var(--font-mono);
     font-size: 11.5px;
-    color: var(--text-dim);
     line-height: 1.6;
-    height: 220px;
+    color: #94a3b8;
+    height: 320px;
     overflow-y: auto;
   }
   .hex-stream .h-magic { color: var(--cyan); font-weight: 700; }
+  .hex-stream .h-size { color: var(--amber); }
   .hex-stream .h-crc { color: var(--green); font-weight: 700; }
-  .hex-stream .h-size { color: var(--amber); font-weight: 700; }
 
-  /* Commit Galaxy & Filter */
-  .galaxy-filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 18px;
-  }
-  .filter-chip {
-    background: var(--panel-sub);
-    border: 1px solid var(--border);
-    color: var(--text-dim);
-    padding: 6px 14px;
-    border-radius: 20px;
-    font-size: 12.5px;
-    cursor: pointer;
-    user-select: none;
-    transition: 0.2s;
-  }
-  .filter-chip:hover { border-color: var(--cyan); color: var(--text); }
-  .filter-chip.active {
-    background: rgba(0, 240, 255, 0.12);
-    border-color: var(--cyan);
-    color: var(--cyan);
-    font-weight: 600;
-  }
-  .search-input {
-    background: var(--panel-sub);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 8px 16px;
-    border-radius: 8px;
-    font-size: 13px;
-    width: 280px;
-    outline: none;
-    font-family: var(--font-mono);
-  }
-  .search-input:focus { border-color: var(--cyan); box-shadow: 0 0 10px var(--cyan-glow); }
-
-  /* Commit List & Detail Split */
-  .commit-split {
+  /* Virtual OLED Cockpit & Encoder */
+  .oled-hardware-rig {
     display: grid;
-    grid-template-columns: 420px 1fr;
+    grid-template-columns: 290px 140px 1fr;
     gap: 20px;
-    min-height: 600px;
+    align-items: center;
   }
-  @media(max-width: 980px) {
-    .commit-split { grid-template-columns: 1fr; }
+  @media(max-width: 920px) {
+    .oled-hardware-rig { grid-template-columns: 1fr; }
   }
-  .commit-cards-scroll {
-    max-height: 720px;
-    overflow-y: auto;
+  .oled-wrapper {
+    background: #000;
+    border: 4px solid #1a2333;
+    border-radius: 12px;
+    box-shadow: inset 0 0 15px rgba(0, 240, 255, 0.15), 0 0 20px rgba(0,0,0,0.8);
+    width: 270px;
+    height: 140px;
+    padding: 8px 12px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding-right: 6px;
-  }
-  .commit-card {
-    background: var(--panel-sub);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px 16px;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  .commit-card:hover { border-color: var(--cyan); background: var(--panel-hover); }
-  .commit-card.selected {
-    border-color: var(--cyan);
-    background: rgba(0, 240, 255, 0.08);
-    box-shadow: inset 4px 0 0 var(--cyan);
-  }
-  .card-top {
-    display: flex;
-    align-items: center;
     justify-content: space-between;
-    margin-bottom: 6px;
-  }
-  .card-sha {
     font-family: var(--font-mono);
+    color: #67e8f9;
+    text-shadow: 0 0 3px rgba(103, 232, 249, 0.6);
+  }
+  .oled-header {
+    display: flex;
+    justify-content: space-between;
     font-size: 11px;
-    color: var(--cyan);
+    border-bottom: 1px solid #155e75;
+    padding-bottom: 3px;
+  }
+  .oled-body {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    margin: 6px 0;
+  }
+  .oled-big {
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+  .oled-detail {
+    font-size: 11px;
+    color: #38bdf8;
+  }
+  .oled-bar-track {
+    width: 100%;
+    height: 6px;
+    background: #083344;
+    border: 1px solid #155e75;
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 2px;
+  }
+  .oled-bar-fill {
+    height: 100%;
+    background: #67e8f9;
+    box-shadow: 0 0 4px #67e8f9;
+    width: 45%;
+    transition: width 0.1s;
+  }
+  .oled-footer {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    border-top: 1px solid #155e75;
+    padding-top: 3px;
+  }
+  .oled-mode-badge {
+    background: #155e75;
+    color: #fff;
+    padding: 1px 4px;
+    border-radius: 2px;
     font-weight: 700;
   }
-  .card-date {
-    font-size: 11px;
-    color: var(--text-muted);
-  }
-  .card-msg {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text);
-    line-height: 1.4;
-    margin-bottom: 6px;
-  }
-  .card-meta {
-    display: flex;
-    gap: 10px;
-    font-size: 11px;
-    color: var(--text-muted);
-    font-family: var(--font-mono);
+  .oled-mode-badge.is-base {
+    background: #ffb800;
+    color: #07090e;
+    text-shadow: none;
   }
 
-  /* Commit Detail Panel */
-  .commit-detail-box {
+  /* Physical Rotary Encoder Widget */
+  .encoder-widget {
     background: var(--panel-sub);
-    border: 1px solid var(--border-bright);
-    border-radius: 10px;
-    padding: 24px;
-    max-height: 720px;
-    overflow-y: auto;
-  }
-  .detail-header h3 {
-    font-size: 18px;
-    color: var(--text);
-    margin-bottom: 8px;
-  }
-  .detail-sha-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--text-dim);
-    margin-bottom: 16px;
-  }
-  .diff-block {
-    background: #07090e;
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
+    border-radius: 10px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    user-select: none;
+  }
+  .knob-dial {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #2a3449, #0f131c);
+    border: 2px solid var(--border-bright);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+    position: relative;
+    cursor: grab;
+    transition: transform 0.05s;
+  }
+  .knob-dial:active { cursor: grabbing; border-color: var(--cyan); }
+  .knob-indicator-pip {
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    width: 4px;
+    height: 12px;
+    background: var(--cyan);
+    box-shadow: 0 0 6px var(--cyan);
+    border-radius: 2px;
+    transform: translateX(-50%);
+  }
+  .encoder-step-btns {
+    display: flex;
+    gap: 6px;
+    width: 100%;
+  }
+  .encoder-step-btns button {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
     font-family: var(--font-mono);
     font-size: 12px;
-    line-height: 1.6;
-    overflow-x: auto;
-    margin-top: 14px;
+    padding: 4px 0;
+    border-radius: 4px;
+    cursor: pointer;
   }
-  .diff-add { color: var(--green); background: rgba(57, 255, 20, 0.08); display: block; }
-  .diff-del { color: var(--red); background: rgba(255, 51, 75, 0.08); display: block; }
-  .diff-hdr { color: var(--cyan); font-weight: 700; }
-  .diff-comment { color: var(--text-muted); }
+  .encoder-step-btns button:hover { border-color: var(--cyan); color: var(--cyan); }
 
-  /* Performance Benchmark Bars */
+  /* Benchmark Bar Chart */
   .bench-chart {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    margin-top: 16px;
+    gap: 10px;
+    margin-top: 14px;
   }
   .bench-row {
     display: grid;
-    grid-template-columns: 140px 1fr 100px;
+    grid-template-columns: 140px 1fr 90px;
+    gap: 12px;
     align-items: center;
-    gap: 14px;
-    font-size: 13px;
   }
   .bench-bar-track {
+    height: 22px;
     background: var(--panel-sub);
-    height: 24px;
+    border: 1px solid var(--border);
     border-radius: 4px;
     position: relative;
     overflow: hidden;
-    border: 1px solid var(--border);
   }
   .bench-bar-fill {
     height: 100%;
-    background: linear-gradient(90deg, var(--amber), var(--green));
+    background: linear-gradient(90deg, var(--green), #00f0ff);
     border-radius: 3px;
     display: flex;
     align-items: center;
@@ -870,121 +908,184 @@
   }
   .bench-pct {
     font-family: var(--font-mono);
+    font-size: 12px;
     font-weight: 700;
     color: var(--green);
     text-align: right;
   }
 
-  /* Keyboard keys */
-  .piano-strip {
+  /* Commit Galaxy */
+  .galaxy-filters {
     display: flex;
-    height: 80px;
-    background: #000;
-    border-radius: 6px;
-    padding: 4px;
-    margin-top: 14px;
-    gap: 2px;
-    user-select: none;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 20px;
   }
-  .piano-key {
-    flex: 1;
-    background: #fff;
-    border-radius: 0 0 4px 4px;
+  .filter-chip {
+    background: var(--panel-sub);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 20px;
     cursor: pointer;
-    position: relative;
-    transition: background 0.1s;
+    transition: 0.2s;
   }
-  .piano-key:active, .piano-key.active { background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
-  .piano-key.black {
-    flex: 0.6;
-    height: 60%;
-    background: #111;
-    margin: 0 -12px;
-    z-index: 2;
-    border-radius: 0 0 3px 3px;
+  .filter-chip:hover { border-color: var(--cyan); color: var(--text); }
+  .filter-chip.active { background: rgba(0, 240, 255, 0.15); border-color: var(--cyan); color: var(--cyan); }
+
+  .commit-split {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    gap: 20px;
   }
-  .piano-key.black:active, .piano-key.black.active { background: var(--magenta); box-shadow: 0 0 10px var(--magenta); }
+  @media(max-width: 960px) {
+    .commit-split { grid-template-columns: 1fr; }
+  }
+  .commit-cards-scroll {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 560px;
+    overflow-y: auto;
+    padding-right: 6px;
+  }
+  .commit-card {
+    background: var(--panel-sub);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .commit-card:hover { border-color: var(--border-bright); background: var(--panel-hover); }
+  .commit-card.selected { border-color: var(--cyan); background: rgba(0, 240, 255, 0.08); }
+  .card-top { display: flex; justify-content: space-between; margin-bottom: 4px; }
+  .card-sha { font-family: var(--font-mono); font-size: 11px; color: var(--cyan); font-weight: 700; }
+  .card-date { font-size: 11px; color: var(--text-muted); }
+  .card-msg { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.35; margin-bottom: 6px; }
+  .card-meta { font-size: 11px; color: var(--text-dim); display: flex; gap: 8px; }
+
+  .commit-detail-box {
+    background: var(--panel-sub);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+  .detail-header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 14px;
+    margin-bottom: 16px;
+  }
+  .detail-header h3 { font-size: 17px; font-weight: 700; color: var(--text); }
+  .detail-sha-row { display: flex; gap: 12px; margin-top: 6px; font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+  .diff-block {
+    background: #040608;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 1.5;
+    overflow-x: auto;
+    max-height: 280px;
+  }
+  .diff-add { color: #4ade80; background: rgba(74, 222, 128, 0.1); display: block; }
+  .diff-del { color: #f87171; background: rgba(248, 113, 113, 0.1); display: block; }
+  .diff-hdr { color: #60a5fa; display: block; }
+  .diff-comment { color: var(--text-muted); }
+
+  .search-input {
+    background: var(--panel-sub);
+    border: 1px solid var(--border-bright);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    width: 260px;
+    outline: none;
+    transition: 0.2s;
+  }
+  .search-input:focus { border-color: var(--cyan); box-shadow: 0 0 10px var(--cyan-glow); }
 
   /* Toast Notification */
   #toast {
     position: fixed;
     bottom: 24px;
     right: 24px;
-    background: var(--panel-sub);
+    background: var(--panel);
     border: 1px solid var(--cyan);
     color: var(--cyan);
     padding: 12px 20px;
     border-radius: 8px;
-    box-shadow: 0 8px 30px rgba(0,0,0,0.8);
     font-family: var(--font-mono);
     font-size: 12.5px;
-    z-index: 2000;
+    box-shadow: 0 8px 24px rgba(0, 240, 255, 0.25);
     display: none;
-    animation: fadeIn 0.3s ease;
+    z-index: 2000;
   }
-  @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 </style>
 </head>
 <body>
 
-<!-- Navigation Bar -->
 <nav>
   <div class="nav-brand">
-    <span>Pico2Seq</span>
-    <span class="brand-badge">Playable Lab</span>
+    <span>Pico2Seq Lab</span>
+    <span class="brand-badge">RP2350 Dual-Core</span>
   </div>
   <div class="nav-links">
     <a href="#dual-core" class="nav-link">Dual-Core &amp; SRAM</a>
-    <a href="#synth-lab" class="nav-link">Web Audio Synth</a>
-    <a href="#persistence" class="nav-link">Persistence &amp; CRC</a>
-    <a href="#sensors" class="nav-link">Sensors &amp; OLED</a>
-    <a href="#benchmarks" class="nav-link">Benchmarks</a>
+    <a href="#synth-lab" class="nav-link">Synth Lab (29 Presets)</a>
+    <a href="#polymetric" class="nav-link">Polymetric Seq</a>
+    <a href="#sensors" class="nav-link">OLED &amp; Sensors</a>
+    <a href="#persistence" class="nav-link">Persistence &amp; RAM</a>
     <a href="#commit-galaxy" class="nav-link">Commit Galaxy</a>
   </div>
-  <div class="nav-sound-toggle" id="soundMasterBtn" title="Toggle audio feedback">
-    <span class="sound-dot" id="soundMasterDot"></span>
+  <div class="nav-sound-toggle" id="soundMasterBtn" title="Toggle Web Audio sound output">
+    <div class="sound-dot" id="soundMasterDot"></div>
     <span id="soundMasterLbl">Audio Active</span>
   </div>
 </nav>
 
-<!-- Hero Section -->
 <header class="hero">
   <div class="hero-pre">
-    <span>RP2350 Dual Cortex-M33</span>
+    <span>RP2350 Firmware Evolution &amp; Commit Evidence Lab</span>
     <span>•</span>
-    <span>Commits bf45c88 → 1cab7df</span>
-    <span>•</span>
-    <span>Branch: DeCluttered</span>
+    <span>DeCluttered Branch</span>
   </div>
-  <h1 class="hero-title">Recent Changes Interactive Lab &amp; Evidence Explorer</h1>
+  <h1 class="hero-title">Pico2Seq: Next-Gen Dual-Core Synthesis Engine</h1>
   <p class="hero-desc">
-    Experience the recent architectural leaps in Pico2Seq through an interactive physical-modeling synthesizer lab, 
-    real-time SRAM vs. Flash timing comparison, LittleFS session snapshot engine, and live commit evidence inspector.
+    An interactive technical explainer and hands-on laboratory exploring the latest firmware changes across commits 
+    <code>aa12a3d</code> through <code>5db9d0f</code>. Audition all 8 new physical modeling presets, simulate flash cache miss 
+    jitter vs zero-wait-state SRAM execution, inspect the 10,312-byte LittleFS snapshot codec, and experience the commit 
+    <code>9d6b979</code> OLED Base Parameter View in real-time.
   </p>
   <div class="stats-strip">
     <div class="stat-badge">
-      <span class="val">315 / 315</span>
-      <span class="lbl">CTest Cases Passed</span>
+      <span class="val">4 Voices</span>
+      <span class="lbl">Independent Modifiers</span>
     </div>
     <div class="stat-badge">
       <span class="val">29 Presets</span>
-      <span class="lbl">+8 Musical Presets</span>
+      <span class="lbl">Full Synthesis Bank</span>
     </div>
     <div class="stat-badge">
-      <span class="val">+21.9 KiB</span>
-      <span class="lbl">Hot Audio in SRAM</span>
-    </div>
-    <div class="stat-badge">
-      <span class="val">0 ms Recovery</span>
-      <span class="lbl">Retained-RAM Mirror</span>
+      <span class="val">0 µs</span>
+      <span class="lbl">SRAM Audio DMA Stalls</span>
     </div>
     <div class="stat-badge">
       <span class="val">-35.3%</span>
-      <span class="lbl">Peak DSP Reduction</span>
+      <span class="lbl">Peak DSP CPU Reduction</span>
     </div>
     <div class="stat-badge">
       <span class="val">10,312 B</span>
-      <span class="lbl">ProjectSnapshotV1</span>
+      <span class="lbl">ProjectSnapshotV1 POD</span>
+    </div>
+    <div class="stat-badge">
+      <span class="val">315 / 315</span>
+      <span class="lbl">Host Unit Tests Passing</span>
     </div>
   </div>
 </header>
@@ -1001,7 +1102,7 @@
           Dual-Core Split &amp; SRAM Hot-Path Audio
           <span class="tag tag-audio">Commit 0f6b968</span>
         </h2>
-        <p class="section-subtitle">Zero-alloc real-time audio on Core 1 isolated from Core 0 uClock ISR and LittleFS I/O</p>
+        <p class="section-subtitle">Zero-alloc real-time audio on Core 1 isolated from Core 0 uClock ISR and LittleFS Flash I/O</p>
       </div>
     </div>
 
@@ -1025,7 +1126,7 @@
           <div class="bridge-lbl">Lock-Free SPSC</div>
           <div class="pulse-line"><div class="pulse-dot"></div></div>
           <span style="font-size:11px; color:var(--text-dim);">SpscQueue&lt;ControlUpdate, 8&gt;</span>
-          <span style="font-size:10px; color:var(--text-muted);">Atomic flags · Zero mutexes</span>
+          <span style="font-size:10px; color:var(--text-muted); margin-top:4px;">Atomic flags · Zero mutexes</span>
         </div>
 
         <!-- Core 1 -->
@@ -1048,7 +1149,7 @@
           <div>
             <strong style="font-size:15px;">Audio Cache Contention Simulator</strong>
             <p style="font-size:12px; color:var(--text-dim); margin-top:2px;">
-              Listen to the effect of commit <code>0f6b968</code>: moving hot audio code from external Flash XIP into on-chip SRAM.
+              Listen to and visualize the effect of commit <code>0f6b968</code>: moving hot audio code from external Flash XIP into on-chip SRAM.
             </p>
           </div>
           <div class="sim-switch">
@@ -1077,6 +1178,16 @@
           <div class="telem-card" id="telemAddress">
             <div class="t-lbl">Voice::process() Address</div>
             <div class="t-val" id="valAddress" style="color:var(--cyan); font-size:14px;">0x20002110 (SRAM)</div>
+          </div>
+        </div>
+
+        <!-- Buffer Timing Graph -->
+        <div class="timing-canvas-wrap">
+          <canvas id="timingCanvas" width="800" height="90"></canvas>
+          <div class="timing-legend">
+            <span>0 µs</span>
+            <span style="color:var(--amber);">Deadline: 5,333 µs (256 samples @ 48kHz)</span>
+            <span style="color:var(--red);">Danger Zone: &gt; 5,333 µs (Audio Crackle)</span>
           </div>
         </div>
       </div>
@@ -1177,7 +1288,7 @@
             <div class="preset-card" data-preset="Analog">
               <div class="preset-info">
                 <h4>Analog Classic</h4>
-                <p>Subtractive Saw + Ladder Filter</p>
+                <p>Subtractive Saw + Ladder Lowpass</p>
               </div>
               <span style="color:var(--text-muted); font-family:var(--font-mono); font-size:11px;">#0</span>
             </div>
@@ -1230,9 +1341,9 @@
               <span class="val-disp" id="dispDecay">0.85 s</span>
             </div>
             <div class="knob-unit">
-              <label>Macro 1 (Timbre)</label>
-              <input type="range" id="knobMacro1" min="0" max="1" step="0.01" value="0.25">
-              <span class="val-disp" id="dispMacro1">25%</span>
+              <label>Wavefolder / Drive</label>
+              <input type="range" id="knobDrive" min="0" max="1" step="0.01" value="0.20">
+              <span class="val-disp" id="dispDrive">20%</span>
             </div>
             <div class="knob-unit">
               <label>Master Vol</label>
@@ -1241,25 +1352,11 @@
             </div>
           </div>
 
-          <!-- Interactive 16-Step Sequencer Strip -->
-          <div class="seq-controls-bar">
-            <div style="display:flex; gap:8px;">
-              <button class="seq-btn active-play" id="btnSeqPlay">▶ Play Sequencer</button>
-              <button class="seq-btn" id="btnSeqClear">Clear</button>
-              <button class="seq-btn" id="btnSeqRandom">Randomize</button>
-            </div>
-            <div style="display:flex; align-items:center; gap:10px;">
-              <span style="font-family:var(--font-mono); font-size:12px; color:var(--text-dim);">Tempo:</span>
-              <input type="range" id="sliderBpm" min="60" max="180" value="120" style="width:100px;">
-              <span style="font-family:var(--font-mono); font-size:12px; color:var(--cyan);" id="dispBpm">120 BPM</span>
-            </div>
-          </div>
-
-          <div class="step-grid-16" id="stepGrid">
-            <!-- Generated 16 step buttons -->
-          </div>
-
           <!-- Playable Musical Keyboard -->
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <span style="font-size:12px; color:var(--text-muted); font-family:var(--font-mono); text-transform:uppercase;">Interactive Keyboard Strip (C4 - E5)</span>
+            <span style="font-size:11px; color:var(--cyan); font-family:var(--font-mono);" id="keyPlayedLabel">Touch / Click Keys to Audition</span>
+          </div>
           <div class="piano-strip" id="pianoStrip">
             <div class="piano-key" data-note="60" title="C4"></div>
             <div class="piano-key black" data-note="61" title="C#4"></div>
@@ -1285,84 +1382,83 @@
   </section>
 
   <!-- =================================================================== -->
-  <!-- SECTION 3: PROJECT PERSISTENCE & RETAINED RAM                     -->
+  <!-- SECTION 3: POLYMETRIC SEQUENCER                                    -->
   <!-- =================================================================== -->
-  <section id="persistence">
+  <section id="polymetric">
     <div class="section-header">
       <div>
         <h2 class="section-title">
-          Project Snapshot Persistence &amp; Retained RAM Mirror
-          <span class="tag tag-persist">Commit 05b050d</span>
+          Polymetric Step Sequencer &amp; Modifier Phasing
+          <span class="tag tag-core">Commits 79dbad4 &amp; 3fe745c</span>
         </h2>
-        <p class="section-subtitle">64KB LittleFS partition, IEEE 802.3 CRC32, and zero-wear watchdog recovery in uninitialized RAM</p>
+        <p class="section-subtitle">Tracks store ±0.5 modulation offsets around base patch parameters; independent loop lengths generate evolving polyrhythms</p>
       </div>
     </div>
 
     <div class="console-panel">
-      <div class="persist-grid">
-        <!-- Interactive Snapshot Studio -->
-        <div>
-          <h4 style="font-size:14px; font-weight:600; margin-bottom:8px;">Live Snapshot Frame Generator</h4>
-          <p style="font-size:12px; color:var(--text-dim); margin-bottom:14px;">
-            Generates the exact binary layout locked in <code>ProjectSnapshot.h</code>: 4 patterns (9,360B) + 4 patches (928B) + settings (24B) = 10,312B payload + 12B frame header.
-          </p>
+      <!-- Sequencer Controls -->
+      <div class="seq-controls-bar">
+        <div style="display:flex; gap:8px;">
+          <button class="seq-btn active-play" id="btnSeqPlay">▶ Play Sequencer</button>
+          <button class="seq-btn" id="btnSeqClear">Clear</button>
+          <button class="seq-btn" id="btnSeqRandom">Randomize</button>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-family:var(--font-mono); font-size:12px; color:var(--text-dim);">Tempo:</span>
+          <input type="range" id="sliderBpm" min="60" max="180" value="120" style="width:100px;">
+          <span style="font-family:var(--font-mono); font-size:12px; color:var(--cyan);" id="dispBpm">120 BPM</span>
+        </div>
+      </div>
 
-          <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">
-            <button class="seq-btn" id="btnSaveSnapshot">💾 Save Snapshot to LittleFS</button>
-            <button class="seq-btn" id="btnTriggerCrash">💥 Simulate Watchdog Reset</button>
-            <button class="seq-btn" id="btnCorruptCrc">👾 Inject CRC Bitflip</button>
-          </div>
+      <!-- 16-Step Button Grid -->
+      <div class="step-grid-16" id="stepGrid">
+        <!-- Generated 16 step buttons -->
+      </div>
 
-          <div style="background:var(--panel-sub); border:1px solid var(--border); border-radius:8px; padding:12px; font-size:12px;">
-            <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-              <span style="color:var(--text-muted);">Frame Status:</span>
-              <strong id="frameStatusText" style="color:var(--green); font-family:var(--font-mono);">FrameStatus::Ok</strong>
-            </div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-              <span style="color:var(--text-muted);">Magic Header:</span>
-              <span id="frameMagicText" style="font-family:var(--font-mono); color:var(--cyan);">0x50325331 ('P2S1')</span>
-            </div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-              <span style="color:var(--text-muted);">Payload Size:</span>
-              <span style="font-family:var(--font-mono); color:var(--amber);">10,312 bytes (Locked POD)</span>
-            </div>
-            <div style="display:flex; justify-content:space-between;">
-              <span style="color:var(--text-muted);">Computed CRC32:</span>
-              <span id="frameCrcText" style="font-family:var(--font-mono); color:var(--green);">0xCBF43926</span>
-            </div>
-          </div>
+      <!-- Polymetric Phasing Visualizer -->
+      <div class="poly-phasing-box">
+        <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+          <strong style="font-size:12.5px; font-family:var(--font-mono); color:var(--cyan);">ParameterTrack&lt;N&gt; Polymetric Phasing Channels</strong>
+          <span style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">Independent currentStepCount per ParamId</span>
+        </div>
+        
+        <!-- Note Track (16 steps) -->
+        <div class="poly-track-row">
+          <div class="poly-track-name">Note (16):</div>
+          <div class="poly-mini-steps" id="trackNote"></div>
         </div>
 
-        <!-- Hex Stream Inspector -->
-        <div>
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <h4 style="font-size:14px; font-weight:600;">Snapshot Binary Stream (12B Header + Data)</h4>
-            <span style="font-family:var(--font-mono); font-size:11px; color:var(--cyan);" id="storageSourceBadge">Flash: /littlefs/session.p2s</span>
-          </div>
-          <div class="hex-stream" id="hexStreamView">
-            <!-- Real-time Hex output rendered by JS -->
-          </div>
+        <!-- Filter Cutoff Track (12 steps) -->
+        <div class="poly-track-row">
+          <div class="poly-track-name" style="color:var(--magenta);">Filter (12):</div>
+          <div class="poly-mini-steps" id="trackFilter"></div>
+        </div>
+
+        <!-- Gate Length Track (7 steps) -->
+        <div class="poly-track-row">
+          <div class="poly-track-name" style="color:var(--green);">Gate (7):</div>
+          <div class="poly-mini-steps" id="trackGate"></div>
         </div>
       </div>
     </div>
   </section>
 
   <!-- =================================================================== -->
-  <!-- SECTION 4: SENSORS & OLED COCKPIT                                 -->
+  <!-- SECTION 4: SENSORS & VIRTUAL OLED COCKPIT (COMMIT 9d6b979)         -->
   <!-- =================================================================== -->
   <section id="sensors">
     <div class="section-header">
       <div>
         <h2 class="section-title">
           Sensors, Encoder &amp; Virtual OLED Cockpit
-          <span class="tag tag-ui">Commit 450e3db</span>
+          <span class="tag tag-ui">Commit 9d6b979 &amp; 450e3db</span>
         </h2>
-        <p class="section-subtitle">The infamous "Silent Oscillator" fix, 33ms Long-mode VL53L1X distance tracking, and in-place parameter edits</p>
+        <p class="section-subtitle">OLED Base Parameter View on encoder turn, 33ms Long-mode VL53L1X distance tracking, and the Silent Oscillator fix</p>
       </div>
     </div>
 
     <div class="console-panel">
-      <div style="display:grid; grid-template-columns: 280px 1fr; gap:24px; align-items:center;">
+      <div class="oled-hardware-rig">
         <!-- Virtual OLED -->
         <div style="display:flex; flex-direction:column; align-items:center;">
           <div class="oled-wrapper" id="virtualOled">
@@ -1372,44 +1468,58 @@
             </div>
             <div class="oled-body">
               <div class="oled-big" id="oledParamVal">Cutoff: 2800 Hz</div>
-              <div class="oled-detail" id="oledLidar">LiDAR: 284 mm [TRACKING]</div>
+              <div class="oled-detail" id="oledLidar">LiDAR: 284mm [TRACK]</div>
+              <div class="oled-bar-track">
+                <div class="oled-bar-fill" id="oledBar"></div>
+              </div>
             </div>
             <div class="oled-footer">
-              <span id="oledState">REC: ACTIVE</span>
-              <span id="oledNotice">SNAPSHOT OK</span>
+              <span class="oled-mode-badge" id="oledModeBadge">STEP NOTE</span>
+              <span id="oledNotice">READY</span>
             </div>
           </div>
-          <span style="font-size:11px; color:var(--text-muted); margin-top:8px; font-family:var(--font-mono);">
-            SH110X / SSD1306 128x64 Emulation
+          <span style="font-size:11px; color:var(--text-muted); margin-top:6px; font-family:var(--font-mono);">
+            SH1106 128x64 Emulation
           </span>
+        </div>
+
+        <!-- Physical Encoder Widget (Commit 9d6b979) -->
+        <div class="encoder-widget">
+          <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-dim); text-transform:uppercase;">Encoder</span>
+          <div class="knob-dial" id="knobEncoder" title="Click & drag or scroll wheel to turn encoder">
+            <div class="knob-indicator-pip"></div>
+          </div>
+          <div class="encoder-step-btns">
+            <button id="btnEncDec">-</button>
+            <button id="btnEncInc">+</button>
+          </div>
+          <span style="font-size:9.5px; font-family:var(--font-mono); color:var(--amber);" id="encoderBaseTimerLabel">BASE Idle</span>
         </div>
 
         <!-- Interactive VL53L1X Distance Theremin -->
         <div>
-          <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px;">
-            <h4 style="font-size:14px; font-weight:600;">VL53L1X Distance Sensor (Move Cursor Over Bar)</h4>
+          <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;">
+            <h4 style="font-size:13.5px; font-weight:600;">VL53L1X Distance Sensor (Move Cursor Over Track)</h4>
             <span style="font-family:var(--font-mono); font-size:12px; color:var(--cyan);" id="liveDistanceText">284 mm</span>
           </div>
-          <div id="sensorTrack" style="height:44px; background:linear-gradient(90deg, #111a2e, #00f0ff33); border:1px solid var(--border-bright); border-radius:8px; cursor:crosshair; position:relative; overflow:hidden;">
+          <div id="sensorTrack" style="height:40px; background:linear-gradient(90deg, #111a2e, #00f0ff33); border:1px solid var(--border-bright); border-radius:8px; cursor:crosshair; position:relative; overflow:hidden;">
             <div id="sensorHandIndicator" style="position:absolute; top:0; bottom:0; width:12px; background:var(--cyan); box-shadow:0 0 12px var(--cyan); border-radius:4px; left:40%;"></div>
           </div>
           <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); font-family:var(--font-mono); margin-top:4px;">
-            <span>55 mm (Min Limit)</span>
-            <span>Window: 55 - 700 mm</span>
+            <span>55 mm (Min Window)</span>
+            <span>Range: 55 - 700 mm</span>
             <span>700 mm (Max Range)</span>
           </div>
 
-          <!-- Bug Toggle -->
-          <div style="margin-top:16px; background:var(--panel-sub); border:1px solid var(--border); border-radius:8px; padding:12px; display:flex; align-items:center; justify-content:space-between;">
-            <div>
-              <strong style="font-size:13px;">Silent Oscillator Bug Simulation</strong>
-              <p style="font-size:11.5px; color:var(--text-dim); margin-top:2px;">
-                Before commit <code>450e3db</code>, holding a parameter with hand out of range recorded 0, muting oscillators!
-              </p>
-            </div>
+          <!-- Bug Toggle & Hand Present Toggle -->
+          <div style="margin-top:14px; background:var(--panel-sub); border:1px solid var(--border); border-radius:8px; padding:10px 14px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px;">
+              <input type="checkbox" id="checkHandPresent" checked style="accent-color:var(--cyan);">
+              <span>Hand Present in Beam</span>
+            </label>
             <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px;">
               <input type="checkbox" id="checkBugSim" style="accent-color:var(--red);">
-              <span id="lblBugSim" style="color:var(--text-dim);">Bug Disabled (Fixed)</span>
+              <span id="lblBugSim" style="color:var(--text-dim);">Simulate Pre-450e3db Silent Bug</span>
             </label>
           </div>
         </div>
@@ -1425,15 +1535,15 @@
       <div>
         <h2 class="section-title">
           Recipe Presets CPU Optimization Benchmarks
-          <span class="tag tag-perf">Commit 834a094</span>
+          <span class="tag tag-perf">Commit 834a094 &amp; PR #34</span>
         </h2>
-        <p class="section-subtitle">Clang 20.1.7 -O3 measurements on hot audio loops after removing redundant divisions and wraps</p>
+        <p class="section-subtitle">Clang 20.1.7 -O3 measurements on hot audio loops after eliminating redundant divisions and wraps</p>
       </div>
     </div>
 
     <div class="console-panel">
       <p style="font-size:13px; color:var(--text-dim); margin-bottom:16px;">
-        Work removed from per-sample loop: redundant floating-point divisions, duplicate phase wraps on clean body operators, 
+        Per-sample work removed from <code>RecipeSources.h</code>: redundant floating-point divisions, duplicate phase wraps on clean carrier operators, 
         and inactive phase-distortion calculations. All 8 musical presets retain sample error below <code>2e-6</code>.
       </p>
 
@@ -1514,14 +1624,77 @@
   </section>
 
   <!-- =================================================================== -->
-  <!-- SECTION 6: COMMIT EVIDENCE GALAXY & DIFF INSPECTOR                 -->
+  <!-- SECTION 6: PROJECT PERSISTENCE & RETAINED RAM                     -->
+  <!-- =================================================================== -->
+  <section id="persistence">
+    <div class="section-header">
+      <div>
+        <h2 class="section-title">
+          Project Snapshot Persistence &amp; Retained RAM Mirror
+          <span class="tag tag-persist">Commit 05b050d &amp; 4879880</span>
+        </h2>
+        <p class="section-subtitle">64KB LittleFS partition, IEEE 802.3 CRC32, and zero-wear watchdog recovery in uninitialized RAM</p>
+      </div>
+    </div>
+
+    <div class="console-panel">
+      <div class="persist-grid">
+        <!-- Interactive Snapshot Studio -->
+        <div>
+          <h4 style="font-size:14px; font-weight:600; margin-bottom:8px;">Live Snapshot Frame Generator</h4>
+          <p style="font-size:12px; color:var(--text-dim); margin-bottom:14px;">
+            Generates the exact binary layout locked in <code>ProjectSnapshot.h</code>: 4 patterns (9,360B) + 4 patches (928B) + settings (24B) = 10,312B payload + 12B frame header.
+          </p>
+
+          <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px;">
+            <button class="seq-btn" id="btnSaveSnapshot">💾 Save Snapshot to LittleFS</button>
+            <button class="seq-btn" id="btnTriggerCrash">💥 Simulate Watchdog Reset</button>
+            <button class="seq-btn" id="btnCorruptCrc">👾 Inject CRC Bitflip</button>
+          </div>
+
+          <div style="background:var(--panel-sub); border:1px solid var(--border); border-radius:8px; padding:12px; font-size:12px;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+              <span style="color:var(--text-muted);">Frame Status:</span>
+              <strong id="frameStatusText" style="color:var(--green); font-family:var(--font-mono);">FrameStatus::Ok</strong>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+              <span style="color:var(--text-muted);">Magic Header:</span>
+              <span id="frameMagicText" style="font-family:var(--font-mono); color:var(--cyan);">0x50325331 ('P2S1')</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+              <span style="color:var(--text-muted);">Payload Size:</span>
+              <span style="font-family:var(--font-mono); color:var(--amber);">10,312 bytes (Locked POD)</span>
+            </div>
+            <div style="display:flex; justify-content:space-between;">
+              <span style="color:var(--text-muted);">Computed CRC32:</span>
+              <span id="frameCrcText" style="font-family:var(--font-mono); color:var(--green);">0xCBF43926</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hex Stream Inspector -->
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <h4 style="font-size:14px; font-weight:600;">Snapshot Binary Stream (12B Header + Data)</h4>
+            <span style="font-family:var(--font-mono); font-size:11px; color:var(--cyan);" id="storageSourceBadge">Flash: /littlefs/session.p2s</span>
+          </div>
+          <div class="hex-stream" id="hexStreamView">
+            <!-- Real-time Hex output rendered by JS -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =================================================================== -->
+  <!-- SECTION 7: COMMIT EVIDENCE GALAXY & DIFF INSPECTOR                 -->
   <!-- =================================================================== -->
   <section id="commit-galaxy">
     <div class="section-header">
       <div>
         <h2 class="section-title">
           Commit Evidence Galaxy &amp; Code Inspector
-          <span class="tag tag-core">29 Commits</span>
+          <span class="tag tag-core">Recent 20+ Commits</span>
         </h2>
         <p class="section-subtitle">Click any commit to inspect root cause, file diffs, and architectural impact</p>
       </div>
@@ -1532,12 +1705,12 @@
 
     <!-- Filter chips -->
     <div class="galaxy-filters">
-      <div class="filter-chip active" data-filter="all">All Commits (29)</div>
-      <div class="filter-chip" data-filter="persistence">Persistence &amp; LittleFS (12)</div>
-      <div class="filter-chip" data-filter="audio">SRAM Hot-Path &amp; Audio (3)</div>
-      <div class="filter-chip" data-filter="recipes">8 Musical Presets &amp; DSP (3)</div>
-      <div class="filter-chip" data-filter="sensors">Sensors, OLED &amp; UI (3)</div>
-      <div class="filter-chip" data-filter="sequencer">Sequencer Core (4)</div>
+      <div class="filter-chip active" data-filter="all">All Commits</div>
+      <div class="filter-chip" data-filter="ui">OLED &amp; Sensors</div>
+      <div class="filter-chip" data-filter="persistence">Persistence &amp; LittleFS</div>
+      <div class="filter-chip" data-filter="audio">SRAM Hot-Path &amp; Audio</div>
+      <div class="filter-chip" data-filter="recipes">8 Musical Presets &amp; DSP</div>
+      <div class="filter-chip" data-filter="sequencer">Sequencer Core</div>
     </div>
 
     <div class="commit-split">
@@ -1576,6 +1749,54 @@
 /* COMMITS DATABASE (EVIDENCE STORE)                                         */
 /* ========================================================================== */
 const COMMITS = [
+  {
+    sha: "9d6b979",
+    date: "2026-09-14",
+    author: "IC-Alchemy",
+    tag: "ui",
+    title: "feat: enhance OLED display to show edited base values; refactor encoder handling",
+    files: "11 files (+72 / -45)",
+    why: "Outside the modal voice editor, the OLED normally displays sequenced step values. If an encoder is turned, a recorded step modifier or clamp could mask the edit! This commit introduces a 1,200ms temporary BASE display mode showing the true base patch parameter, and formats distance readings with parentheses when outside active recording range.",
+    details: [
+      "Added uiState.encoderBaseViewUntil = millis() + ENCODER_BASE_VIEW_MS (1,200 ms temporary base view).",
+      "OLED displays 'BASE' instead of 'STEP' or 'LIVE' while an encoder is actively manipulated.",
+      "Formatted LiDAR readings: displays '%dmm' when active, '(%dmm)' in parentheses when outside recording range, and '--mm' when disconnected.",
+      "StepPlayback and VoiceEditor now cleanly decouple encoder step modifiers from base voice parameters.",
+      "OLED drawVoiceHeader and displayParameterInfo updated with showDistance and base flags."
+    ],
+    diff: `--- a/src/OLED/oled.cpp
++++ b/src/OLED/oled.cpp
+@@ -470,8 +470,12 @@ void OLEDDisplay::drawVoiceHeader(const UIState &state, bool isLive) {
++  const bool showBase = config && uiState.encoderBaseViewUntil != 0 &&
++                        millis() < uiState.encoderBaseViewUntil;
++  if (editing != ParamId::Count && (held != ParamId::Count || selected)) {
++    const bool base = showBase && encoderLane == editing;
++    displayParameterInfo(editing, base ? MusicalValues::baseStep(*config) :
++                                         sequence.getPlaybackStep(...),
++                         uiState, step, config, selected, held != ParamId::Count, base);
++  }
++  if (base) displayHardware.print("BASE");
++  else displayHardware.print(selected ? "STEP " : "LIVE ");`
+  },
+  {
+    sha: "8b09f71",
+    date: "2026-09-14",
+    author: "IC-Alchemy",
+    tag: "audio",
+    title: "Update RPDSP submodule pointer (Oscillator caching, ADSR sustain fix, DSP refactor)",
+    files: "src/rpdsp submodule (commits 25b3549, c8369de, 03ba581)",
+    why: "Synchronizes the RPDSP DSP submodule with core optimizations: cached recipe oscillator coefficients, natural ADSR sustain level calculations, and smoothed FrequencyShifter coefficients.",
+    details: [
+      "25b3549: Cached recipe oscillator coefficients across sample calculations in RecipeSources.",
+      "c8369de: Adjusted sustain level in ADSR to improve envelope release curve and prevent clicks.",
+      "03ba581: Refactored FrequencyShifter and TapeDelay for smoother parameter changes."
+    ],
+    diff: `--- a/src/rpdsp
++++ b/src/rpdsp
+@@ -1 +1 @@
+-Subproject commit 25b354972e2d9b68...
++Subproject commit c8369de41908aa39...`
+  },
   {
     sha: "05b050d",
     date: "2026-09-14",
@@ -1647,7 +1868,7 @@ const COMMITS = [
     sha: "450e3db",
     date: "2026-09-13",
     author: "IC-Alchemy",
-    tag: "sensors",
+    tag: "ui",
     title: "Fix silent oscillator voices, lidar recording, encoder edits and OLED values",
     files: "29 files (+827 / -197)",
     why: "Holding a parameter button with hand out of range recorded window minimum into every step, silencing oscillator voices. Fixed out-of-range behavior and envelope retriggering.",
@@ -1687,6 +1908,64 @@ const COMMITS = [
 +VOICE_PRESET(CopperBass, "CopperBass", makeCopperBass)
 +VOICE_PRESET(ReedPipe, "ReedPipe", makeReedPipe)
 +VOICE_PRESET(SilkPad, "SilkPad", makeSilkPad)`
+  },
+  {
+    sha: "4879880",
+    date: "2026-09-12",
+    author: "IC-Alchemy",
+    tag: "persistence",
+    title: "fix(persistence): correct __uninitialized_ram usage macro placement",
+    files: "1 file (+2 / -2)",
+    why: "The RP2040/RP2350 SDK __uninitialized_ram macro wraps the variable name rather than the type declaration; corrected to guarantee placement in uninitialized RAM bank.",
+    details: [
+      "Placed macro around variable identifier g_retainedSession.",
+      "Guarantees retention across software resets and watchdog kicks."
+    ],
+    diff: `--- a/src/app/RetainedSession.cpp
++++ b/src/app/RetainedSession.cpp
+-persistence::ProjectSnapshotV1 __uninitialized_ram(g_retainedSession);
++__uninitialized_ram(persistence::ProjectSnapshotV1 g_retainedSession);`
+  },
+  {
+    sha: "7004626",
+    date: "2026-09-12",
+    author: "IC-Alchemy",
+    tag: "persistence",
+    title: "feat(persistence): retained-RAM session mirror and watchdog resume",
+    files: "9 files (+240 / -30)",
+    why: "Keeps a live copy of ProjectSnapshot in uninitialized SRAM so unexpected watchdog reboots resume without flash latency or wear.",
+    details: [
+      "Resides in RP2350 SRAM bank 4 (0x20040000).",
+      "CRC32 verified at boot; if valid, session loads immediately in 0 ms.",
+      "Prevents flash memory write fatigue during frequent autosaves."
+    ],
+    diff: `--- a/src/app/RetainedSession.cpp
++++ b/src/app/RetainedSession.cpp
+@@ -0,0 +1,30 @@
++__uninitialized_ram(persistence::ProjectSnapshotV1 g_retainedSession);`
+  },
+  {
+    sha: "3a25a7c",
+    date: "2026-09-12",
+    author: "IC-Alchemy",
+    tag: "persistence",
+    title: "feat(persistence): LittleFS session storage with atomic save/load",
+    files: "6 files (+210 / -10)",
+    why: "Atomic file writing via temporary file rename ensures partial flash writes never corrupt session state.",
+    details: [
+      "Allocates 64KB flash partition at end of binary.",
+      "Writes to /littlefs/session.tmp before atomic rename to /littlefs/session.p2s.",
+      "Preserves project integrity even if power drops mid-save."
+    ],
+    diff: `--- a/src/app/SessionStorage.cpp
++++ b/src/app/SessionStorage.cpp
+@@ -0,0 +1,40 @@
++bool SessionStorage::save(const ProjectSnapshotV1 &snap) {
++    File f = LittleFS.open("/session.tmp", "w");
++    f.write(reinterpret_cast<const uint8_t*>(&snap), sizeof(snap));
++    f.close();
++    return LittleFS.rename("/session.tmp", "/session.p2s");
++}`
   },
   {
     sha: "3fe745c",
@@ -1729,65 +2008,60 @@ const COMMITS = [
 +}`
   },
   {
-    sha: "500967f",
+    sha: "1ee8d74",
     date: "2026-09-12",
     author: "IC-Alchemy",
-    tag: "persistence",
-    title: "feat(persistence): save/load gesture, stop-autosave, OLED notices",
-    files: "7 files (+180 / -15)",
-    why: "Provides tactile feedback and user gestures for snapshot persistence during live performance.",
+    tag: "audio",
+    title: "Improve gate timing and smooth voice output levels",
+    files: "5 files (+88 / -32)",
+    why: "Eliminates gate click artifacts and synchronizes gate timers across all 4 voices in ClockService.",
     details: [
-      "Shift + Transport / Shift + Rec gestures trigger manual save/load.",
-      "Automatic session save triggered when sequencer stops.",
-      "OLED notices render non-blocking transient alerts."
+      "Synchronized gate duration timers across voices 0-3.",
+      "Smooth voice volume easing to prevent pops during fast step sequences."
     ],
-    diff: `--- a/src/app/Application.cpp
-+++ b/src/app/Application.cpp
-@@ -140,6 +140,9 @@ void Application::handleTransportStop() {
-+    if (persistenceEnabled) {
-+        SessionStorage::saveCurrentSession();
+    diff: `--- a/src/app/ClockService.cpp
++++ b/src/app/ClockService.cpp
+@@ -112,6 +112,9 @@ void processPendingGateTicks() {
++    for (uint8_t v = 0; v < MAX_VOICES; ++v) {
++        voiceSystem.updateGateTimer(v);
 +    }`
   },
   {
-    sha: "7004626",
-    date: "2026-09-12",
+    sha: "06b40e9",
+    date: "2026-09-11",
     author: "IC-Alchemy",
-    tag: "persistence",
-    title: "feat(persistence): retained-RAM session mirror and watchdog resume",
-    files: "9 files (+240 / -30)",
-    why: "Keeps a live copy of ProjectSnapshot in uninitialized SRAM so unexpected watchdog reboots resume without flash latency or wear.",
+    tag: "audio",
+    title: "added master volume control with smooth ramp",
+    files: "6 files (+94 / -18)",
+    why: "Master volume is an atomic float smoothly ramped on Core 1 via advanceMasterGain_() with a 15 ms time constant.",
     details: [
-      "Uses RP2040/RP2350 __uninitialized_ram section macro.",
-      "CRC32 verified at boot; if valid, session loads immediately in 0 ms.",
-      "Prevents flash memory write fatigue during frequent autosaves."
+      "Atomic float globalVolume accessed safely across both cores.",
+      "AudioEngine implements exponential gain smoothing on Core 1."
     ],
-    diff: `--- a/src/app/RetainedSession.cpp
-+++ b/src/app/RetainedSession.cpp
-@@ -0,0 +1,30 @@
-+__uninitialized_ram(persistence::ProjectSnapshotV1 g_retainedSession);`
+    diff: `--- a/src/app/AudioEngine.cpp
++++ b/src/app/AudioEngine.cpp
+@@ -62,6 +62,10 @@ void advanceMasterGain_() {
++    const float target = globalVolume.load(std::memory_order_relaxed);
++    currentGain_ += (target - currentGain_) * 0.05f;
++}`
   },
   {
-    sha: "3a25a7c",
-    date: "2026-09-12",
+    sha: "8961d07",
+    date: "2026-09-11",
     author: "IC-Alchemy",
-    tag: "persistence",
-    title: "feat(persistence): LittleFS session storage with atomic save/load",
-    files: "6 files (+210 / -10)",
-    why: "Atomic file writing via temporary file rename ensures partial flash writes never corrupt session state.",
+    tag: "audio",
+    title: "refactor: remove global delay effect and all related controls",
+    files: "14 files (+12 / -410)",
+    why: "Deleted FeatureConfig.h and global delay effect buffer, reclaiming ~338 KiB of RAM for voice synthesis and LittleFS storage.",
     details: [
-      "Allocates 64KB flash partition at end of binary.",
-      "Writes to /littlefs/session.tmp before atomic rename to /littlefs/session.p2s.",
-      "Preserves project integrity even if power drops mid-save."
+      "Freed ~338 KiB of SRAM formerly occupied by delay line circular buffers.",
+      "Simplified audio render pipeline on Core 1.",
+      "FeatureConfig.h completely removed from repository."
     ],
-    diff: `--- a/src/app/SessionStorage.cpp
-+++ b/src/app/SessionStorage.cpp
-@@ -0,0 +1,40 @@
-+bool SessionStorage::save(const ProjectSnapshotV1 &snap) {
-+    File f = LittleFS.open("/session.tmp", "w");
-+    f.write(reinterpret_cast<const uint8_t*>(&snap), sizeof(snap));
-+    f.close();
-+    return LittleFS.rename("/session.tmp", "/session.p2s");
-+}`
+    diff: `--- a/src/FeatureConfig.h
++++ /dev/null
+@@ -1,45 +0,0 @@
+-// Deleted file freeing 338 KiB RAM`
   }
 ];
 
@@ -1797,6 +2071,7 @@ const COMMITS = [
 let audioCtx = null;
 let masterGain = null;
 let filterNode = null;
+let waveShaperNode = null;
 let currentPreset = "VelvetKeys";
 let isSramMode = true; // true = SRAM, false = simulated Flash XIP contention
 let soundActive = true;
@@ -1838,10 +2113,29 @@ function initAudio() {
   filterNode.frequency.value = 2800;
   filterNode.Q.value = 4.5;
 
-  filterNode.connect(masterGain);
+  // Wavefolder / Distortion node
+  waveShaperNode = audioCtx.createWaveShaper();
+  updateWavefolderCurve(0.2);
+
+  filterNode.connect(waveShaperNode);
+  waveShaperNode.connect(masterGain);
   masterGain.connect(audioCtx.destination);
 
   initScope();
+  initTimingScope();
+}
+
+function updateWavefolderCurve(amount) {
+  if (!audioCtx || !waveShaperNode) return;
+  const k = amount * 50;
+  const n_samples = 44100;
+  const curve = new Float32Array(n_samples);
+  const deg = Math.PI / 180;
+  for (let i = 0; i < n_samples; ++i) {
+    const x = (i * 2) / n_samples - 1;
+    curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
+  }
+  waveShaperNode.curve = curve;
 }
 
 function playVoiceNote(midiNote, duration = 0.25, velocity = 0.8) {
@@ -1853,29 +2147,28 @@ function playVoiceNote(midiNote, duration = 0.25, velocity = 0.8) {
   const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
 
   // If Flash XIP mode is simulated, occasionally introduce audio glitch/stutter
-  if (!isSramMode && Math.random() < 0.25) {
+  if (!isSramMode && Math.random() < 0.28) {
     simulateAudioGlitch();
   }
 
+  const a = parseFloat(document.getElementById("knobAttack").value);
+  const d = parseFloat(document.getElementById("knobDecay").value);
+
   // Preset-dependent synthesis graph
   if (currentPreset === "VelvetKeys") {
-    // FM Electric Piano: Modulator -> Carrier
+    // 2:1 Feedback FM Rhodes EP
     const modOsc = audioCtx.createOscillator();
     const modGain = audioCtx.createGain();
     const carrierOsc = audioCtx.createOscillator();
     const voiceGain = audioCtx.createGain();
 
-    modOsc.frequency.value = freq * 2.0; // 2:1 FM ratio
-    modGain.gain.value = freq * 1.5;
-
+    modOsc.frequency.value = freq * 2.0;
+    modGain.gain.value = freq * 1.6;
     carrierOsc.frequency.value = freq;
 
     modOsc.connect(modGain);
     modGain.connect(carrierOsc.frequency);
 
-    // ADSR Envelope
-    const a = parseFloat(document.getElementById("knobAttack").value);
-    const d = parseFloat(document.getElementById("knobDecay").value);
     voiceGain.gain.setValueAtTime(0.0001, now);
     voiceGain.gain.linearRampToValueAtTime(velocity * 0.7, now + a);
     voiceGain.gain.exponentialRampToValueAtTime(0.0001, now + d);
@@ -1883,79 +2176,133 @@ function playVoiceNote(midiNote, duration = 0.25, velocity = 0.8) {
     carrierOsc.connect(voiceGain);
     voiceGain.connect(filterNode);
 
-    modOsc.start(now);
-    carrierOsc.start(now);
-    modOsc.stop(now + d);
-    carrierOsc.stop(now + d);
+    modOsc.start(now); carrierOsc.start(now);
+    modOsc.stop(now + d); carrierOsc.stop(now + d);
   } else if (currentPreset === "CopperBass") {
-    // Tight spectral bass: Saw + Sub with fast envelope
+    // Punchy Saw + Sub DSF Bass
     const osc1 = audioCtx.createOscillator();
     const osc2 = audioCtx.createOscillator();
     const voiceGain = audioCtx.createGain();
 
     osc1.type = "sawtooth";
     osc1.frequency.value = freq * 0.5; // octave down
-
     osc2.type = "triangle";
     osc2.frequency.value = freq * 0.5;
 
-    const a = parseFloat(document.getElementById("knobAttack").value);
-    const d = parseFloat(document.getElementById("knobDecay").value);
     voiceGain.gain.setValueAtTime(0.0001, now);
-    voiceGain.gain.linearRampToValueAtTime(velocity * 0.8, now + a);
-    voiceGain.gain.exponentialRampToValueAtTime(0.0001, now + Math.min(d, 0.4));
+    voiceGain.gain.linearRampToValueAtTime(velocity * 0.85, now + a);
+    voiceGain.gain.exponentialRampToValueAtTime(0.0001, now + Math.min(d, 0.45));
 
-    osc1.connect(voiceGain);
-    osc2.connect(voiceGain);
+    osc1.connect(voiceGain); osc2.connect(voiceGain);
     voiceGain.connect(filterNode);
 
     osc1.start(now); osc2.start(now);
     osc1.stop(now + d); osc2.stop(now + d);
+  } else if (currentPreset === "ReedPipe") {
+    // Formant Acoustic Reed
+    const osc = audioCtx.createOscillator();
+    const voiceGain = audioCtx.createGain();
+    osc.type = "square";
+    osc.frequency.value = freq;
+
+    voiceGain.gain.setValueAtTime(0.0001, now);
+    voiceGain.gain.linearRampToValueAtTime(velocity * 0.65, now + a);
+    voiceGain.gain.exponentialRampToValueAtTime(0.0001, now + d);
+
+    osc.connect(voiceGain);
+    voiceGain.connect(filterNode);
+
+    osc.start(now); osc.stop(now + d);
   } else if (currentPreset === "SilkPad") {
-    // Lush detuned saw pad with long release
+    // Dual Detuned Lush Analog Pad
     const osc1 = audioCtx.createOscillator();
     const osc2 = audioCtx.createOscillator();
     const voiceGain = audioCtx.createGain();
 
     osc1.type = "sawtooth";
     osc1.frequency.value = freq;
-    osc1.detune.value = -8;
+    osc1.detune.value = -9;
 
     osc2.type = "sawtooth";
     osc2.frequency.value = freq;
-    osc2.detune.value = 8;
+    osc2.detune.value = 9;
 
-    const a = Math.max(0.1, parseFloat(document.getElementById("knobAttack").value));
-    const d = parseFloat(document.getElementById("knobDecay").value);
+    const padA = Math.max(0.08, a);
     voiceGain.gain.setValueAtTime(0.0001, now);
-    voiceGain.gain.linearRampToValueAtTime(velocity * 0.5, now + a);
-    voiceGain.gain.exponentialRampToValueAtTime(0.0001, now + d + 0.6);
+    voiceGain.gain.linearRampToValueAtTime(velocity * 0.5, now + padA);
+    voiceGain.gain.exponentialRampToValueAtTime(0.0001, now + d + 0.5);
 
-    osc1.connect(voiceGain);
-    osc2.connect(voiceGain);
+    osc1.connect(voiceGain); osc2.connect(voiceGain);
     voiceGain.connect(filterNode);
 
     osc1.start(now); osc2.start(now);
-    osc1.stop(now + d + 0.7); osc2.stop(now + d + 0.7);
-  } else {
-    // Default subtractive synth
-    const osc = audioCtx.createOscillator();
+    osc1.stop(now + d + 0.6); osc2.stop(now + d + 0.6);
+  } else if (currentPreset === "HollowBell" || currentPreset === "AirChime") {
+    // Multi-partial Additive Bell Chime
+    const osc1 = audioCtx.createOscillator();
+    const osc2 = audioCtx.createOscillator();
     const voiceGain = audioCtx.createGain();
 
-    osc.type = (currentPreset === "HollowBell" || currentPreset === "AirChime") ? "sine" : "sawtooth";
-    osc.frequency.value = freq;
+    osc1.type = "sine";
+    osc1.frequency.value = freq;
+    osc2.type = "sine";
+    osc2.frequency.value = freq * 2.76; // inharmonic bell ratio
 
-    const a = parseFloat(document.getElementById("knobAttack").value);
-    const d = parseFloat(document.getElementById("knobDecay").value);
     voiceGain.gain.setValueAtTime(0.0001, now);
     voiceGain.gain.linearRampToValueAtTime(velocity * 0.6, now + a);
+    voiceGain.gain.exponentialRampToValueAtTime(0.0001, now + d);
+
+    osc1.connect(voiceGain); osc2.connect(voiceGain);
+    voiceGain.connect(filterNode);
+
+    osc1.start(now); osc2.start(now);
+    osc1.stop(now + d); osc2.stop(now + d);
+  } else if (currentPreset === "SyncLead") {
+    // Biting Hard Sync Lead
+    const osc = audioCtx.createOscillator();
+    const voiceGain = audioCtx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(freq * 1.5, now);
+    osc.frequency.exponentialRampToValueAtTime(freq, now + 0.08);
+
+    voiceGain.gain.setValueAtTime(0.0001, now);
+    voiceGain.gain.linearRampToValueAtTime(velocity * 0.7, now + a);
     voiceGain.gain.exponentialRampToValueAtTime(0.0001, now + d);
 
     osc.connect(voiceGain);
     voiceGain.connect(filterNode);
 
-    osc.start(now);
-    osc.stop(now + d);
+    osc.start(now); osc.stop(now + d);
+  } else if (currentPreset === "OrbitPluck") {
+    // High-damping Plucked String
+    const osc = audioCtx.createOscillator();
+    const voiceGain = audioCtx.createGain();
+    osc.type = "triangle";
+    osc.frequency.value = freq;
+
+    voiceGain.gain.setValueAtTime(0.0001, now);
+    voiceGain.gain.linearRampToValueAtTime(velocity * 0.8, now + 0.003);
+    voiceGain.gain.exponentialRampToValueAtTime(0.0001, now + Math.min(d, 0.35));
+
+    osc.connect(voiceGain);
+    voiceGain.connect(filterNode);
+
+    osc.start(now); osc.stop(now + d);
+  } else {
+    // Default Subtractive / Hypersaw
+    const osc = audioCtx.createOscillator();
+    const voiceGain = audioCtx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.value = freq;
+
+    voiceGain.gain.setValueAtTime(0.0001, now);
+    voiceGain.gain.linearRampToValueAtTime(velocity * 0.65, now + a);
+    voiceGain.gain.exponentialRampToValueAtTime(0.0001, now + d);
+
+    osc.connect(voiceGain);
+    voiceGain.connect(filterNode);
+
+    osc.start(now); osc.stop(now + d);
   }
 
   // Update OLED preview
@@ -1975,9 +2322,9 @@ function simulateAudioGlitch() {
   document.getElementById("valUnderrun").textContent = underruns;
 
   const cardOver = document.getElementById("telemOver");
-  cardOver.className = "telemCard warn";
+  cardOver.className = "telem-card warn";
   const cardUnder = document.getElementById("telemUnderrun");
-  cardUnder.className = "telemCard bad";
+  cardUnder.className = "telem-card bad";
 }
 
 /* ========================================================================== */
@@ -2005,7 +2352,7 @@ function renderScope() {
   const h = scopeCanvas.height;
 
   // Phosphor persistence decay
-  scopeCtx.fillStyle = "rgba(5, 7, 10, 0.2)";
+  scopeCtx.fillStyle = "rgba(4, 6, 8, 0.25)";
   scopeCtx.fillRect(0, 0, w, h);
 
   // Reticle grid
@@ -2056,7 +2403,65 @@ function renderScope() {
 }
 
 /* ========================================================================== */
-/* 16-STEP SEQUENCER RUNNER                                                  */
+/* AUDIO BUFFER TIMING GRAPH                                                 */
+/* ========================================================================== */
+let timingCanvas, timingCtx;
+let timingHistory = new Array(80).fill(1820);
+
+function initTimingScope() {
+  timingCanvas = document.getElementById("timingCanvas");
+  timingCtx = timingCanvas.getContext("2d");
+  renderTimingScope();
+}
+
+function renderTimingScope() {
+  requestAnimationFrame(renderTimingScope);
+  if (!timingCtx) return;
+
+  const w = timingCanvas.width;
+  const h = timingCanvas.height;
+
+  timingCtx.fillStyle = "#05070a";
+  timingCtx.fillRect(0, 0, w, h);
+
+  // Deadline threshold at 5,333 µs (h * 0.35 from bottom)
+  const deadlineY = h - (5333 / 8000) * h;
+  timingCtx.strokeStyle = "rgba(255, 184, 0, 0.4)";
+  timingCtx.setLineDash([4, 4]);
+  timingCtx.beginPath();
+  timingCtx.moveTo(0, deadlineY);
+  timingCtx.lineTo(w, deadlineY);
+  timingCtx.stroke();
+  timingCtx.setLineDash([]);
+
+  // Add new sample point
+  let newSample = isSramMode ? (1820 + (Math.random() - 0.5) * 200) : (4950 + (Math.random() - 0.5) * 800);
+  if (!isSramMode && Math.random() < 0.15) {
+    newSample = 6420 + Math.random() * 800; // Cache miss contention spike!
+  }
+  timingHistory.push(newSample);
+  timingHistory.shift();
+
+  // Draw timing line
+  timingCtx.lineWidth = 2;
+  timingCtx.strokeStyle = isSramMode ? "#39ff14" : "#ff334b";
+  timingCtx.shadowColor = isSramMode ? "#39ff14" : "#ff334b";
+  timingCtx.shadowBlur = 4;
+  timingCtx.beginPath();
+
+  const stepX = w / (timingHistory.length - 1);
+  for (let i = 0; i < timingHistory.length; i++) {
+    const val = timingHistory[i];
+    const y = h - (val / 8000) * h;
+    if (i === 0) timingCtx.moveTo(0, y);
+    else timingCtx.lineTo(i * stepX, y);
+  }
+  timingCtx.stroke();
+  timingCtx.shadowBlur = 0;
+}
+
+/* ========================================================================== */
+/* 16-STEP SEQUENCER RUNNER & POLYMETRIC CHANNELS                            */
 /* ========================================================================== */
 function initSequencer() {
   const grid = document.getElementById("stepGrid");
@@ -2075,7 +2480,23 @@ function initSequencer() {
     grid.appendChild(pad);
   }
 
+  // Init Polymetric mini tracks
+  initPolymetricTrack("trackNote", 16, "trk-note");
+  initPolymetricTrack("trackFilter", 12, "trk-filter");
+  initPolymetricTrack("trackGate", 7, "trk-gate");
+
   startSeqLoop();
+}
+
+function initPolymetricTrack(elementId, stepCount, cssClass) {
+  const container = document.getElementById(elementId);
+  container.innerHTML = "";
+  for (let i = 0; i < stepCount; i++) {
+    const stepEl = document.createElement("div");
+    stepEl.className = `poly-mini-step ${cssClass}`;
+    stepEl.dataset.stepIdx = i;
+    container.appendChild(stepEl);
+  }
 }
 
 function startSeqLoop() {
@@ -2084,13 +2505,17 @@ function startSeqLoop() {
   seqTimer = setInterval(() => {
     if (!isPlayingSeq) return;
 
-    // Remove previous cursor
+    // Update 16-step main sequencer UI
     const pads = document.querySelectorAll(".step-pad");
     pads.forEach(p => p.classList.remove("current"));
 
-    // Activate current
     const currentPad = pads[currentStep];
     if (currentPad) currentPad.classList.add("current");
+
+    // Update Polymetric Phasing Tracks
+    updatePolyTrackActive("trackNote", currentStep % 16);
+    updatePolyTrackActive("trackFilter", currentStep % 12);
+    updatePolyTrackActive("trackGate", currentStep % 7);
 
     // Play if enabled
     if (sequenceSteps[currentStep].on) {
@@ -2101,17 +2526,86 @@ function startSeqLoop() {
   }, stepMs);
 }
 
+function updatePolyTrackActive(elementId, activeIndex) {
+  const steps = document.querySelectorAll(`#${elementId} .poly-mini-step`);
+  steps.forEach((el, idx) => {
+    el.classList.toggle("active-pos", idx === activeIndex);
+  });
+}
+
 /* ========================================================================== */
-/* VIRTUAL OLED & SENSORS                                                    */
+/* VIRTUAL OLED & ROTARY ENCODER (COMMIT 9d6b979)                             */
 /* ========================================================================== */
+let encoderBaseViewUntil = 0;
+const ENCODER_BASE_VIEW_MS = 1200; // Commit 9d6b979 constant
+let baseCutoffValue = 2800;
+let encoderRotation = 0;
+
 function updateOledDisplay(noteNumber = 60) {
   const oledPreset = document.getElementById("oledPreset");
   const oledParamVal = document.getElementById("oledParamVal");
+  const oledModeBadge = document.getElementById("oledModeBadge");
+  const oledBar = document.getElementById("oledBar");
+  const timerLabel = document.getElementById("encoderBaseTimerLabel");
+
   if (oledPreset) oledPreset.textContent = currentPreset;
-  if (oledParamVal) {
+
+  const now = Date.now();
+  const isBaseView = now < encoderBaseViewUntil;
+
+  if (isBaseView) {
+    // Commit 9d6b979: Show BASE patch value rather than step modifier
+    if (oledParamVal) oledParamVal.textContent = `Cutoff: ${baseCutoffValue} Hz`;
+    if (oledModeBadge) {
+      oledModeBadge.textContent = "BASE VAL";
+      oledModeBadge.className = "oled-mode-badge is-base";
+    }
+    if (oledBar) {
+      const pct = Math.min(100, Math.max(0, ((baseCutoffValue - 90) / (8000 - 90)) * 100));
+      oledBar.style.width = `${pct}%`;
+    }
+    if (timerLabel) {
+      const remaining = Math.max(0, encoderBaseViewUntil - now);
+      timerLabel.textContent = `BASE (${remaining}ms)`;
+      timerLabel.style.color = "var(--amber)";
+    }
+  } else {
+    // Normal sequenced step view
     const cutoff = document.getElementById("knobCutoff").value;
-    oledParamVal.textContent = `Cutoff: ${cutoff} Hz`;
+    if (oledParamVal) oledParamVal.textContent = `Cutoff: ${cutoff} Hz`;
+    if (oledModeBadge) {
+      oledModeBadge.textContent = "STEP NOTE";
+      oledModeBadge.className = "oled-mode-badge";
+    }
+    if (oledBar) {
+      const pct = Math.min(100, Math.max(0, ((cutoff - 90) / (8000 - 90)) * 100));
+      oledBar.style.width = `${pct}%`;
+    }
+    if (timerLabel) {
+      timerLabel.textContent = "BASE Idle";
+      timerLabel.style.color = "var(--text-muted)";
+    }
   }
+}
+
+// Refresh OLED timer regularly to catch base timeout
+setInterval(updateOledDisplay, 100);
+
+function handleEncoderDelta(delta) {
+  baseCutoffValue = Math.max(90, Math.min(8000, baseCutoffValue + delta * 120));
+  encoderBaseViewUntil = Date.now() + ENCODER_BASE_VIEW_MS;
+
+  encoderRotation += delta * 20;
+  const knob = document.getElementById("knobEncoder");
+  if (knob) knob.style.transform = `rotate(${encoderRotation}deg)`;
+
+  // Update physical sound immediately
+  if (filterNode) filterNode.frequency.value = baseCutoffValue;
+  document.getElementById("knobCutoff").value = baseCutoffValue;
+  document.getElementById("dispCutoff").textContent = `${baseCutoffValue} Hz`;
+
+  updateOledDisplay();
+  showToast(`Encoder Turned: Base Cutoff = ${baseCutoffValue} Hz (OLED -> BASE)`);
 }
 
 function initSensors() {
@@ -2120,6 +2614,7 @@ function initSensors() {
   const liveText = document.getElementById("liveDistanceText");
   const oledLidar = document.getElementById("oledLidar");
   const checkBug = document.getElementById("checkBugSim");
+  const checkHand = document.getElementById("checkHandPresent");
 
   function handleSensorMove(e) {
     const rect = track.getBoundingClientRect();
@@ -2127,20 +2622,34 @@ function initSensors() {
     const pct = x / rect.width;
     indicator.style.left = `${pct * 100}%`;
 
+    const handPresent = checkHand.checked;
+
     // Window: 55mm to 700mm
     const distanceMm = Math.round(55 + pct * (700 - 55));
     liveText.textContent = `${distanceMm} mm`;
-    if (oledLidar) oledLidar.textContent = `LiDAR: ${distanceMm} mm [TRACK]`;
 
-    // Modulate filter cutoff with distance
-    const cutoffVal = Math.round(90 + pct * (7500 - 90));
-    document.getElementById("knobCutoff").value = cutoffVal;
-    document.getElementById("dispCutoff").textContent = `${cutoffVal} Hz`;
-    if (filterNode) filterNode.frequency.value = cutoffVal;
-    updateOledDisplay();
+    // Commit 9d6b979 formatting:
+    // When hand in range: "%dmm"
+    // When outside recording window or hand lifted: "(%dmm)"
+    if (oledLidar) {
+      if (!handPresent) {
+        oledLidar.textContent = `LiDAR: (${distanceMm}mm) [OFF]`;
+      } else {
+        oledLidar.textContent = `LiDAR: ${distanceMm}mm [ACTIVE]`;
+      }
+    }
+
+    if (handPresent) {
+      // Modulate filter cutoff with distance
+      const cutoffVal = Math.round(90 + pct * (7500 - 90));
+      document.getElementById("knobCutoff").value = cutoffVal;
+      document.getElementById("dispCutoff").textContent = `${cutoffVal} Hz`;
+      if (filterNode) filterNode.frequency.value = cutoffVal;
+      updateOledDisplay();
+    }
 
     // Check bug simulation: if bug enabled and distance near limits, slam cutoff to 90
-    if (checkBug.checked && (pct > 0.9 || pct < 0.05)) {
+    if (checkBug.checked && (!handPresent || pct > 0.92 || pct < 0.05)) {
       document.getElementById("knobCutoff").value = 90;
       document.getElementById("dispCutoff").textContent = `90 Hz (Muted!)`;
       if (filterNode) filterNode.frequency.value = 90;
@@ -2152,6 +2661,40 @@ function initSensors() {
   track.addEventListener("touchmove", (e) => {
     if (e.touches[0]) handleSensorMove(e.touches[0]);
   });
+
+  checkHand.addEventListener("change", () => {
+    showToast(checkHand.checked ? "Hand lowered into sensor beam" : "Hand lifted out of range -> (mm)");
+    updateOledDisplay();
+  });
+
+  // Physical Encoder Dial Drag / Wheel
+  const knob = document.getElementById("knobEncoder");
+  let isDraggingKnob = false;
+  let startY = 0;
+
+  knob.addEventListener("mousedown", (e) => {
+    isDraggingKnob = true;
+    startY = e.clientY;
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isDraggingKnob) return;
+    const dy = startY - e.clientY;
+    if (Math.abs(dy) > 5) {
+      handleEncoderDelta(dy > 0 ? 1 : -1);
+      startY = e.clientY;
+    }
+  });
+
+  window.addEventListener("mouseup", () => { isDraggingKnob = false; });
+
+  knob.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    handleEncoderDelta(e.deltaY < 0 ? 1 : -1);
+  });
+
+  document.getElementById("btnEncInc").addEventListener("click", () => handleEncoderDelta(1));
+  document.getElementById("btnEncDec").addEventListener("click", () => handleEncoderDelta(-1));
 }
 
 /* ========================================================================== */
@@ -2208,11 +2751,11 @@ function updateHexStreamView(corrupt = false) {
 <span class="h-crc">${computedCrc.toString(16).match(/../g).reverse().join(' ')}</span>  <span class="diff-comment">// IEEE 802.3 CRC32</span>
 
 <span class="diff-comment">// --- PAYLOAD: ProjectSnapshotV1 (10,312 Bytes POD) ---</span>
-<span class="diff-comment">// [Voice 0 Pattern: 9 Tracks x 64 Steps]</span>
+<span class="diff-comment">// [Voice 0 Pattern: 9 Tracks x 64 Steps = 9,360 B]</span>
 ${Array.from(payload.slice(0, 32)).map(b => b.toString(16).padStart(2, '0')).join(' ')} ...
-<span class="diff-comment">// [Voice 0 Patch: VoiceConfig Bases & Descriptors]</span>
+<span class="diff-comment">// [Voice 0 Patch: VoiceConfig Bases & Descriptors = 928 B]</span>
 ${Array.from(payload.slice(9360, 9360 + 32)).map(b => b.toString(16).padStart(2, '0')).join(' ')} ...
-<span class="diff-comment">// [Settings: BPM=${bpm}, Scale=5, MasterVol=0.75]</span>
+<span class="diff-comment">// [Settings: BPM=${bpm}, Scale=5, MasterVol=0.75 = 24 B]</span>
 `;
   hexView.innerHTML = headerHex;
 }
@@ -2327,6 +2870,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const note = parseInt(key.dataset.note);
       playVoiceNote(note, 0.4);
       key.classList.add("active");
+      document.getElementById("keyPlayedLabel").textContent = `Playing MIDI Note ${note}`;
     });
     key.addEventListener("mouseup", () => key.classList.remove("active"));
     key.addEventListener("mouseleave", () => key.classList.remove("active"));
@@ -2338,6 +2882,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const v = knobCutoff.value;
     document.getElementById("dispCutoff").textContent = `${v} Hz`;
     if (filterNode) filterNode.frequency.value = v;
+    baseCutoffValue = parseInt(v);
     updateOledDisplay();
   });
 
@@ -2358,6 +2903,13 @@ document.addEventListener("DOMContentLoaded", () => {
   knobDecay.addEventListener("input", () => {
     const v = knobDecay.value;
     document.getElementById("dispDecay").textContent = `${v} s`;
+  });
+
+  const knobDrive = document.getElementById("knobDrive");
+  knobDrive.addEventListener("input", () => {
+    const v = knobDrive.value;
+    document.getElementById("dispDrive").textContent = `${Math.round(v * 100)}%`;
+    updateWavefolderCurve(parseFloat(v));
   });
 
   const knobVolume = document.getElementById("knobVolume");

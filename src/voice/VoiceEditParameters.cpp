@@ -510,20 +510,21 @@ constexpr const char *kGroups[] = {
     "Oscillator 3",    "Envelope", "Main filter",  "High-pass",
     "Overdrive",       "Engine",   "Output"};
 constexpr float kTimeMin = 0.001f, kTimeMax = 10.0f;
-float timeNormalize(float seconds) {
+} // namespace
+float timeNormalize(float seconds) noexcept {
   return std::log(std::clamp(seconds, kTimeMin, kTimeMax) / kTimeMin) /
          std::log(kTimeMax / kTimeMin);
 }
-float timeMap(float n) {
+float timeMap(float n) noexcept {
   return kTimeMin * std::pow(kTimeMax / kTimeMin, std::clamp(n, 0.0f, 1.0f));
 }
-int recipeIndex(const VoiceConfig &c) {
+int recipeIndex(const VoiceConfig &c) noexcept {
   for (int i = 0; i < kRecipeCount; ++i)
     if (c.recipe == kRecipes[i].recipe)
       return i;
   return 0;
 }
-void selectRecipe(VoiceConfig &c, int i) {
+void selectRecipe(VoiceConfig &c, int i) noexcept {
   i = std::clamp(i, 0, kRecipeCount - 1);
   c.recipe = kRecipes[i].recipe;
   c.parameters = kRecipes[i].layout;
@@ -533,7 +534,7 @@ void selectRecipe(VoiceConfig &c, int i) {
     c.*(b.target) = std::clamp(c.*(b.target), b.minimum, b.maximum);
   }
 }
-float laneBase(ParamId id, const VoiceConfig &c) {
+float laneBase(ParamId id, const VoiceConfig &c) noexcept {
   const auto &b = VoiceParameters::binding(c, id);
   if (b.target)
     return b.normalize(c.*(b.target));
@@ -603,7 +604,6 @@ const VoiceParameterBinding *bindingFor(Id id, const VoiceConfig &c) {
   const auto &b = VoiceParameters::binding(c, lane);
   return (b.target || b.unit != VoiceParameterUnit::Standard) ? &b : nullptr;
 }
-} // namespace
 const Parameter &parameter(Id id) noexcept {
   return kParameters[static_cast<size_t>(id) < std::size(kParameters)
                          ? static_cast<size_t>(id)
@@ -981,8 +981,15 @@ float composeLane(ParamId id, float stored, const void *context) noexcept {
   if (id == ParamId::Note)
     return std::round(std::clamp(stored + c.baseNote, 0.0f, 36.0f));
   const float n = id == ParamId::GateLength ? (stored - 0.001f) / 0.999f : stored;
-  const float effective = std::clamp(
-      laneBase(id, c) + std::clamp(n, 0.0f, 1.0f) - 0.5f, 0.0f, 1.0f);
+  const float base = laneBase(id, c);
+  const float n_clamped = std::clamp(n, 0.0f, 1.0f);
+  float effective;
+  if (n_clamped >= 0.5f) {
+    effective = base + (n_clamped - 0.5f) * 2.0f * (1.0f - base);
+  } else {
+    effective = base + (n_clamped - 0.5f) * 2.0f * base;
+  }
+  effective = std::clamp(effective, 0.0f, 1.0f);
   if (id == ParamId::GateLength)
     return 0.001f + effective * 0.999f;
   return effective;

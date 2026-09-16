@@ -108,7 +108,28 @@ inline void format(ParamId id, const Step &step, const VoiceConfig &config,
     time(seconds, out, size); return;
   }
   if (VoiceParameters::formatValue(config, id, normalized, out, size)) return;
-  // Velocity is an amplitude multiplier, not a MIDI velocity byte.
-  std::snprintf(out, size, "%.2fx", normalized);
+  if (id == ParamId::Velocity) {
+    // Velocity is an amplitude multiplier, not a MIDI velocity byte.
+    std::snprintf(out, size, "%.2fx", normalized);
+    return;
+  }
+  if (id == ParamId::Filter) {
+    const auto &p = VoiceParameters::layout(config);
+    const float frequency = dspmap::fmap(std::clamp(normalized, 0.0f, 1.0f),
+                                        p.cutoffMinimum, p.cutoffMaximum, dspmap::Mapping::EXP);
+    std::snprintf(out, size, "%.0fHz", frequency);
+    return;
+  }
+  if (id == ParamId::Attack || id == ParamId::Decay) {
+    float seconds;
+    if (!VoiceParameters::layout(config).envelopeFromTracks)
+      seconds = id == ParamId::Attack ? config.defaultAttack : config.defaultDecay;
+    else if (config.usePatchBases) seconds = envelopeSeconds(normalized);
+    else if (id == ParamId::Attack) seconds = dspmap::fmap(normalized, 0.002f, 0.75f, dspmap::Mapping::LINEAR);
+    else seconds = 0.075f + 0.32f * dspmap::fmap(normalized, 0.01f, 0.5f, dspmap::Mapping::LOG);
+    time(seconds, out, size);
+    return;
+  }
+  std::snprintf(out, size, "%.2f", normalized);
 }
 } // namespace MusicalValues

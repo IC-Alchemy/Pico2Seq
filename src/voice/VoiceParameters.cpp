@@ -146,7 +146,12 @@ bool formatValue(const VoiceConfig &config, ParamId id, float normalized,
   case VoiceParameterUnit::Semitones: std::snprintf(output, capacity, "%+.1fst", value); break;
   case VoiceParameterUnit::Ratio: std::snprintf(output, capacity, "%.2fx", value); break;
   case VoiceParameterUnit::Hertz: std::snprintf(output, capacity, "%.0fHz", value); break;
-  default: return false;
+  default:
+    if (b.target) {
+      std::snprintf(output, capacity, "%.0f%%", value * 100.0f);
+      return true;
+    }
+    return false;
   }
   return true;
 }

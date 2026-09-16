@@ -10,8 +10,9 @@ analog faders, an 8-button function set, a magnetic encoder joystick, a hands-fr
 distance sensor, an OLED display, and a USB CDC diagnostics console — all on one panel.
 
 > This manual was compiled from the firmware source and documentation in this repository
-> (2026-09-03; updated 2026-09-11 for the USB MIDI removal, the delay effect removal, the
-> new master volume, and the Voice Editing mode). The code is authoritative; anything that
+> (2026-09-03; updated 2026-09-16 for Project Snapshot persistence / flash session management,
+> hot audio in SRAM, the 29-preset sound bank across 2 pages, the 55–700 mm lidar window with
+> pause-on-out-of-range, and encoder base value editing). The code is authoritative; anything that
 > could not be verified against the code is explicitly marked **[unverified]**. Voice
 > numbering: the panel and docs use **Voice 1–4**; the internal firmware and some OLED
 > screens use 0-based indices **0–3** for the same voices.
