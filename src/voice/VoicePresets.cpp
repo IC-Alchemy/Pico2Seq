@@ -27,7 +27,9 @@ constexpr bool validBank()
     if (p.config.parameters) {
       for (const auto &b : p.config.parameters->slots) {
         if (b.maximum <= b.minimum) return false;
-        if (b.curve == dspmap::Mapping::LOG && b.minimum <= 0.0f) return false;
+        const bool exponential = b.curve == dspmap::Mapping::LOG || b.curve == dspmap::Mapping::OCT;
+        if (exponential && b.minimum <= 0.0f) return false;
+        if (b.isCentered() && (b.center < b.minimum || b.center > b.maximum)) return false;
       }
     }
   }

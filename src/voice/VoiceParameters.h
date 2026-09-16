@@ -4,6 +4,7 @@
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 #include "../utils/DspMapping.h"
 #include <array>
+#include <limits>
 
 class Sequencer;
 
@@ -13,6 +14,10 @@ enum class VoiceParameterUnit : uint8_t { Standard, Percent, Seconds, Semitones,
 // A null target keeps the shared pitch/gate/envelope behavior for that lane.
 struct VoiceParameterBinding
 {
+  // Marks "no center". Finite on purpose: the firmware compiles with
+  // -ffast-math, which lets the compiler assume a NaN marker never occurs.
+  static constexpr float kUncentered = std::numeric_limits<float>::lowest();
+
   const char *name = nullptr; // null keeps the standard lane label
   float VoiceConfig::*target = nullptr;
   float minimum = 0.0f;
@@ -21,7 +26,11 @@ struct VoiceParameterBinding
   VoiceParameterUnit unit = VoiceParameterUnit::Standard;
   bool seed = false;
   float defaultNormalized = 0.5f; // used when seed=true and target=null
+  // Value at lane 0.5 (the sweet spot). Each half of the lane then follows
+  // the curve between that center and one range end.
+  float center = kUncentered;
 
+  constexpr bool isCentered() const noexcept { return center != kUncentered; }
   float map(float normalized) const noexcept;
   float normalize(float value) const noexcept;
 };

@@ -6,6 +6,8 @@
 
 float VoiceParameterBinding::map(float normalized) const noexcept
 {
+  if (isCentered())
+    return dspmap::fmapCentered(normalized, minimum, maximum, center, curve);
   return dspmap::fmap(std::clamp(normalized, 0.0f, 1.0f), minimum, maximum, curve);
 }
 
@@ -13,11 +15,13 @@ float VoiceParameterBinding::normalize(float value) const noexcept
 {
   if (maximum <= minimum)
     return 0.0f;
+  if (isCentered())
+    return dspmap::normalizeCentered(value, minimum, maximum, center, curve);
   value = std::clamp(value, minimum, maximum);
   const float linear = (value - minimum) / (maximum - minimum);
   if (curve == dspmap::Mapping::EXP)
     return std::sqrt(linear);
-  if (curve == dspmap::Mapping::LOG)
+  if (curve == dspmap::Mapping::LOG || curve == dspmap::Mapping::OCT)
     return std::log(value / minimum) / std::log(maximum / minimum);
   return linear;
 }
