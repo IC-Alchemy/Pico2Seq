@@ -54,6 +54,10 @@ public:
     // Audio Processing
     void init(float sampleRate);
     float processAllVoices() noexcept;
+
+    static constexpr uint32_t kMaxBlock = 256;
+    // Audio thread only. Overwrites n samples, splitting larger calls into blocks.
+    void processBlock(float *out, uint32_t n) noexcept;
     float processVoice(uint8_t voiceId);
 
     // Voice Control
@@ -102,6 +106,7 @@ private:
     // transportMuted_ are targets; advanceMasterGain_() eases toward them so
     // volume moves and transport mute don't step the output (zipper/click).
     float masterGain_ = 0.0f;
+    std::array<float, kMaxBlock> voiceScratch_{}; // Core 1 scratch; keep off its 2 KiB stack
     float masterGainAlpha_ = 1.0f;
 
     struct ManagedVoice

@@ -102,7 +102,7 @@ extern VoiceSystem voiceSystem;
 ## 4. Subsystem Integration
 
 ### 4.1 Dual-Core Role Division
-- **Core 1 (Audio Thread)**: Synthesizes audio samples via `voiceManager->processAllVoices()`. It does not access `voiceSystem.gates` directly; parameter and pitch updates are staged lock-free from `VoiceState` into each `Voice` instance.
+- **Core 1 (Audio Thread)**: Synthesizes audio samples via `voiceManager->processBlock()`. It does not access `voiceSystem.gates` directly; parameter and pitch updates are staged lock-free from `VoiceState` into each `Voice` instance.
 - **Core 0 (Control Thread)**: Updates `voiceSystem.voiceStates` on sequencer steps, toggles `voiceSystem.gates`, updates `voiceSystem.gateTimers`, and routes MIDI events.
 
 ### 4.2 UIState Integration

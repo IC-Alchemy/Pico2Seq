@@ -358,44 +358,40 @@ void VoiceManager::init(float sr)
     }
 }
 
-/**
- * Processes all enabled voices and returns mixed output
- * Core audio processing function called every sample frame
- *
- * @return float Mixed audio output from all enabled voices (-1.0 to 1.0 range)
- *
- * Processes each enabled voice, applies individual mix levels, sums together
- * Finally applies global volume scaling before returning
- * Optimized for embedded systems with minimal branching
- */
+void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noexcept
+{
+    while (n > 0)
+    {
+        const uint32_t count = std::min(n, kMaxBlock);
+        std::fill_n(out, count, 0.0f);
+        for (auto &managedVoice : voices)
+        {
+            if (!managedVoice->voice) continue;
+            managedVoice->voice->processBlock(voiceScratch_.data(), count);
+            const float mix = managedVoice->mixLevel.load(std::memory_order_relaxed);
+            for (uint32_t k = 0; k < count; ++k)
+                out[k] += voiceScratch_[k] * mix;
+        }
+        const float target = transportMuted_.load(std::memory_order_relaxed)
+                                 ? 0.0f : globalVolume.load(std::memory_order_relaxed);
+        float gain = masterGain_;
+        const float alpha = masterGainAlpha_;
+        for (uint32_t k = 0; k < count; ++k)
+        {
+            gain += alpha * (target - gain);
+            out[k] *= gain;
+        }
+        masterGain_ = gain;
+        out += count;
+        n -= count;
+    }
+}
+
 float PICO2SEQ_AUDIO_FUNC(VoiceManager::processAllVoices)() noexcept
 {
-    float mixedOutput = 0.0f;
-
-    // Pitch/frequency commit note:
-    // - Voice handles pitch change detection and frequency caching internally (pitchParamsChanged_ + updatePitchCache_).
-    // - Any required Oscillator::SetFreq is deferred and applied inside Voice::process() on the audio thread,
-    //   guarded by ShouldApplyFreq_. Do not set oscillator frequencies from VoiceManager.
-    for (auto &managedVoice : voices)
-    {
-        if (managedVoice->voice)
-        {
-            float voiceOutput = managedVoice->voice->process();
-            mixedOutput += voiceOutput * managedVoice->mixLevel.load(std::memory_order_relaxed);
-        }
-    }
-
-    return mixedOutput * advanceMasterGain_();
-    /*
-         // Master-bus compression (currently disabled, matching the pre-rpdsp
-         // behavior). If enabled, call rpdsp::Compressor::process() per sample
-         // on the master mix — its dB-domain detection costs two libm
-         // transcendentals per sample, which is fine for a single bus instance.
-         float compressed = compressor.process(mixedOutput);
-
-         // Final global volume and hard clamp to safe output range
-         return compressed * globalVolume;
-    */
+    float sample = 0.0f;
+    processBlock(&sample, 1);
+    return sample;
 }
 
 float PICO2SEQ_AUDIO_FUNC(VoiceManager::advanceMasterGain_)() noexcept
