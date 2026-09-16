@@ -182,22 +182,48 @@ bool FaderMap::accept(uint8_t channel, uint16_t rawCounts)
   {
     return false;
   }
-  const bool send = !valid_[channel] ||
-                    faderDelta(lastSent_[channel], rawCounts) >= kDeadbandCounts;
-  if (send)
+
+  // Seed baseline position on first sample after reset/begin without sending
+  if (!hasBaseline_[channel])
+  {
+    baseline_[channel] = rawCounts;
+    hasBaseline_[channel] = true;
+    return false;
+  }
+
+  // If not yet engaged, require an obvious move from the baseline
+  if (!engaged_[channel])
+  {
+    if (faderDelta(baseline_[channel], rawCounts) >= kMoveThresholdCounts)
+    {
+      engaged_[channel] = true;
+      lastSent_[channel] = rawCounts;
+      return true;
+    }
+    return false;
+  }
+
+  // Once engaged, send only when movement meets or exceeds deadband
+  if (faderDelta(lastSent_[channel], rawCounts) >= kDeadbandCounts)
   {
     lastSent_[channel] = rawCounts;
-    valid_[channel] = true;
+    return true;
   }
-  return send;
+  return false;
 }
 
 void FaderMap::resetDeadband()
 {
   for (uint8_t i = 0; i < kChannelCount; ++i)
   {
-    valid_[i] = false;
+    hasBaseline_[i] = false;
+    engaged_[i] = false;
   }
+}
+
+bool FaderMap::isEngaged(uint8_t channel) const
+{
+  return channel < kChannelCount && engaged_[channel];
 }
 
 // --- EncoderMotion --------------------------------------------------------------

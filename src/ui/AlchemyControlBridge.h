@@ -128,6 +128,7 @@ private:
   bool playSettingsOpenedThisPress_ = false;
   bool saveLoadLatch_ = false; // session button: hold consumed, release suppressed
   uint8_t modeSwitchPin_ = 7; // GP7 default; setup1 sets PIN_ALCHEMY_MODE_SWITCH
+  uint8_t lastVoiceIndex_ = 0;
 };
 
 #endif // ALCHEMY_CONTROL_BRIDGE_H
