@@ -470,6 +470,32 @@ TEST_CASE("FaderMap resetDeadband disarms channels until moved again", "[control
     CHECK(map.isEngaged(2));
 }
 
+TEST_CASE("FaderMap disarms across voice switches", "[control_surface]")
+{
+    FaderMap map;
+
+    // Voice 0: Move fader 3 (Gate Length in utility mode) and engage it
+    CHECK_FALSE(map.accept(3, 1000));
+    CHECK(map.accept(3, 1100)); // +100 counts >= 64: engaged
+    CHECK(map.isEngaged(3));
+
+    // Voice switch occurs: bridge calls resetDeadband()
+    map.resetDeadband();
+    CHECK_FALSE(map.isEngaged(3));
+
+    // Voice 1: First sample after switch seeds baseline without sending
+    CHECK_FALSE(map.accept(3, 1100));
+    CHECK_FALSE(map.isEngaged(3));
+
+    // Small jitter / touch on Voice 1 is ignored
+    CHECK_FALSE(map.accept(3, 1110)); // +10 counts < 64
+    CHECK_FALSE(map.isEngaged(3));
+
+    // Intentional move on Voice 1 engages fader
+    CHECK(map.accept(3, 1200)); // +100 counts >= 64
+    CHECK(map.isEngaged(3));
+}
+
 TEST_CASE("FaderMap normalize maps 12-bit counts to 0..1", "[control_surface]")
 {
     CHECK(FaderMap::normalize(0) == Catch::Approx(0.0f).margin(0.0001f));
