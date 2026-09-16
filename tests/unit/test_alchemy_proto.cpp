@@ -254,3 +254,142 @@ TEST_CASE("TileButton catches a press that lands entirely between polls", "[alch
     CHECK(button.releaseTap());
     CHECK_FALSE(button.held());
 }
+
+// ---------------------------------------------------------------------------
+// The standardized state packet
+// ---------------------------------------------------------------------------
+
+TEST_CASE("the state packet is the agreed 11-byte layout", "[alchemy_proto]")
+{
+    // Byte-for-byte the format the satellites and the hub agreed on:
+    //   0 seq | 1 buttons | 2-3 slider0 | 4-5 slider1 | 6-7 slider2 |
+    //   8-9 slider3 | 10 status. A change here is a wire-format change and
+    //   breaks every satellite in the field, so it is pinned by a test.
+    CHECK(ap::kStatePacketLen == 11);
+    CHECK(ap::kPacketSeq == 0);
+    CHECK(ap::kPacketButtons == 1);
+    CHECK(ap::kPacketSliders == 2);
+    CHECK(ap::kPacketStatus == 10);
+    CHECK(ap::kPacketSlidersPerTile == 4);
+}
+
+TEST_CASE("a state packet round-trips through its wire bytes", "[alchemy_proto]")
+{
+    ap::StatePacket in;
+    in.seq = 0x2A;
+    in.buttons = 0x81; // buttons 0 and 7
+    in.sliders[0] = 0x0000;
+    in.sliders[1] = 0x0123;
+    in.sliders[2] = 0x0ABC;
+    in.sliders[3] = 0x0FFF;
+    in.status = ap::kStatusHeartbeat;
+
+    std::uint8_t wire[ap::kStatePacketLen] = {0};
+    ap::encodeStatePacket(in, wire);
+
+    CHECK(wire[0] == 0x2A);
+    CHECK(wire[1] == 0x81);
+    CHECK(wire[2] == 0x00); // slider 0 occupies bytes 2-3...
+    CHECK(wire[3] == 0x00);
+    CHECK(wire[4] == 0x23); // ...slider 1 bytes 4-5, low byte first
+    CHECK(wire[5] == 0x01);
+    CHECK(wire[8] == 0xFF); // slider 3 bytes 8-9
+    CHECK(wire[9] == 0x0F);
+    CHECK(wire[10] == ap::kStatusHeartbeat);
+
+    const ap::StatePacket out = ap::decodeStatePacket(wire);
+    CHECK(out.seq == in.seq);
+    CHECK(out.buttons == in.buttons);
+    for (std::uint8_t ch = 0; ch < ap::kPacketSlidersPerTile; ++ch)
+    {
+        CHECK(out.sliders[ch] == in.sliders[ch]);
+    }
+    CHECK(out.status == in.status);
+}
+
+TEST_CASE("the packet status byte carries flags only, never the SEQ nibble", "[alchemy_proto]")
+{
+    // SEQ has its own byte. Leaving it in the status byte too would mean two
+    // fields that can disagree after a partial update.
+    ap::StatePacket in;
+    in.seq = 9;
+    in.status = 0xF0 | ap::kStatusLocalFault; // a v2 STATUS byte's seq nibble
+
+    std::uint8_t wire[ap::kStatePacketLen] = {0};
+    ap::encodeStatePacket(in, wire);
+    CHECK(wire[ap::kPacketStatus] == ap::kStatusLocalFault);
+    CHECK(wire[ap::kPacketSeq] == 9);
+}
+
+TEST_CASE("a v2 slider frame maps onto the canonical packet", "[alchemy_proto]")
+{
+    std::uint8_t frame[1 + ap::kSliderDataLen + 1] = {0};
+    const std::uint16_t faders[4] = {0x0001, 0x0100, 0x0800, 0x0FFF};
+    const std::uint8_t status = (5u << ap::kStatusSeqShift) | ap::kStatusHeartbeat;
+    buildSliderFrame(status, faders, /*level=*/0x0C, /*pressed=*/0x04,
+                     /*released=*/0x08, frame);
+
+    const ap::DecodedFrame decoded =
+        ap::decodeFrame(ap::kTypeSliderButton, frame, ap::kSliderDataLen);
+    REQUIRE(decoded.valid);
+
+    CHECK(decoded.packet.seq == 5);
+    CHECK(decoded.packet.buttons == 0x0C);
+    CHECK(decoded.packet.status == ap::kStatusHeartbeat);
+    for (std::uint8_t ch = 0; ch < 4; ++ch)
+    {
+        CHECK(decoded.packet.sliders[ch] == faders[ch]);
+    }
+
+    // The sticky edges ride alongside the packet and are never part of it:
+    // they are true for this one read only.
+    CHECK(decoded.edges.pressed == 0x04);
+    CHECK(decoded.edges.released == 0x08);
+}
+
+TEST_CASE("a v2 button frame maps onto the same packet with no sliders", "[alchemy_proto]")
+{
+    std::uint8_t frame[1 + ap::kSliderDataLen + 1] = {0};
+    buildButtonFrame((3u << ap::kStatusSeqShift), /*level=*/0x81,
+                     /*pressed=*/0x80, /*released=*/0x01, frame);
+
+    const ap::DecodedFrame decoded =
+        ap::decodeFrame(ap::kTypeButton4, frame, ap::kButtonDataLen);
+    REQUIRE(decoded.valid);
+
+    CHECK(decoded.packet.seq == 3);
+    CHECK(decoded.packet.buttons == 0x81);
+    for (std::uint8_t ch = 0; ch < 4; ++ch)
+    {
+        CHECK(decoded.packet.sliders[ch] == 0); // a button tile has none
+    }
+    CHECK(decoded.edges.pressed == 0x80);
+    CHECK(decoded.edges.released == 0x01);
+}
+
+TEST_CASE("a frame that does not verify decodes to nothing at all", "[alchemy_proto]")
+{
+    std::uint8_t frame[1 + ap::kSliderDataLen + 1] = {0};
+    const std::uint16_t faders[4] = {0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF};
+    buildSliderFrame(0x10, faders, 0x0F, 0, 0, frame);
+    REQUIRE(ap::decodeFrame(ap::kTypeSliderButton, frame, ap::kSliderDataLen).valid);
+
+    SECTION("a flipped bit takes the whole frame with it")
+    {
+        frame[3] ^= 0x40; // corrupt a fader byte
+        const ap::DecodedFrame decoded =
+            ap::decodeFrame(ap::kTypeSliderButton, frame, ap::kSliderDataLen);
+        CHECK_FALSE(decoded.valid);
+        // No field survives: a plausible-looking fader word out of a corrupt
+        // frame is exactly what must not reach the audio path.
+        CHECK(decoded.packet.buttons == 0);
+        CHECK(decoded.packet.sliders[0] == 0);
+    }
+
+    SECTION("a DATA_LEN too short for the tile type is refused")
+    {
+        // A slider tile that claims a 3-byte DATA block has no room for the
+        // button bytes its type puts at offset 8.
+        CHECK_FALSE(ap::decodeFrame(ap::kTypeSliderButton, frame, 3).valid);
+    }
+}
