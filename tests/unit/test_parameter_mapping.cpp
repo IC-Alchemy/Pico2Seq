@@ -237,3 +237,58 @@ TEST_CASE("Hard sync follows the oscillator bank and keeps the preset cutoff lan
     REQUIRE(VoiceParameters::binding(c, ParamId::Velocity).name == nullptr);
     REQUIRE(VoiceParameters::velocityToAmplitude(c));
 }
+
+namespace {
+struct LaneSpot { const char *name; float minimum, center, maximum; Mapping curve; };
+void requireLane(const VoiceConfig &c, ParamId id, const LaneSpot &spot) {
+    INFO("lane " << spot.name);
+    const auto &b = VoiceParameters::binding(c, id);
+    REQUIRE(b.name != nullptr);
+    REQUIRE(std::string(b.name) == spot.name);
+    REQUIRE(b.target != nullptr);
+    REQUIRE(b.curve == spot.curve);
+    REQUIRE(b.isCentered());
+    REQUIRE(b.minimum == spot.minimum);
+    REQUIRE(b.center == spot.center);
+    REQUIRE(b.maximum == spot.maximum);
+    REQUIRE_THAT(b.map(0.0f), WithinRel(spot.minimum, 1e-4f) || WithinAbs(spot.minimum, 1e-6f));
+    REQUIRE_THAT(b.map(0.5f), WithinRel(spot.center, 1e-4f) || WithinAbs(spot.center, 1e-6f));
+    REQUIRE_THAT(b.map(1.0f), WithinRel(spot.maximum, 1e-4f));
+}
+} // namespace
+
+TEST_CASE("String presets own T60, brightness and pick lanes centered on their resting values", "[mapping][presets]") {
+    struct StringSpots { const char *preset; LaneSpot t60, bright, pick; };
+    const StringSpots strings[] = {
+        {"WgPluck", {"T60", 0.15f, 1.8f, 4.0f, Mapping::OCT}, {"Bright", 0.2f, 0.78f, 0.95f, Mapping::LINEAR},
+         {"Pick", 0.2f, 0.85f, 1.0f, Mapping::LINEAR}},
+        {"WgNylon", {"T60", 0.6f, 3.2f, 8.0f, Mapping::OCT}, {"Bright", 0.05f, 0.28f, 0.6f, Mapping::LINEAR},
+         {"Pick", 0.05f, 0.22f, 0.6f, Mapping::LINEAR}},
+        {"WgBell", {"T60", 0.25f, 1.4f, 3.0f, Mapping::OCT}, {"Bright", 0.55f, 0.9f, 0.98f, Mapping::LINEAR},
+         {"Pick", 0.7f, 1.0f, 1.0f, Mapping::LINEAR}},
+        {"WgShimmer", {"T60", 1.5f, 6.5f, 10.0f, Mapping::OCT}, {"Bright", 0.3f, 0.55f, 0.8f, Mapping::LINEAR},
+         {"Pick", 0.3f, 0.6f, 0.9f, Mapping::LINEAR}},
+    };
+    for (const auto &s : strings) {
+        INFO(s.preset);
+        const auto &c = VoicePresets::getPresetConfigByName(s.preset);
+        REQUIRE(c.parameters != nullptr);
+        REQUIRE_FALSE(VoiceParameters::layout(c).envelopeFromTracks);
+        REQUIRE_FALSE(VoiceParameters::velocityToAmplitude(c));
+        requireLane(c, ParamId::Decay, s.t60);
+        requireLane(c, ParamId::Filter, s.bright);
+        requireLane(c, ParamId::Attack, s.pick);
+        // The preset's resting string sits mid-lane.
+        const auto &t60 = VoiceParameters::binding(c, ParamId::Decay);
+        REQUIRE(t60.normalize(c.wgT60) >= 0.4f);
+        REQUIRE(t60.normalize(c.wgT60) <= 0.6f);
+    }
+    // Engine-switched voices still fall back to the shared 0.05..10 s table.
+    VoiceConfig fallback{};
+    fallback.engine = ENGINE_WAVEGUIDE;
+    fallback.paramSet = PARAMSET_WAVEGUIDE;
+    const auto &t60 = VoiceParameters::binding(fallback, ParamId::Decay);
+    REQUIRE(t60.minimum == VoiceParameters::kWaveguideT60Min);
+    REQUIRE(t60.maximum == VoiceParameters::kWaveguideT60Max);
+    REQUIRE_FALSE(t60.isCentered());
+}

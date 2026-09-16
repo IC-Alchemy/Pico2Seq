@@ -193,7 +193,7 @@ TEST_CASE("Preset seeding survives the first audio update and preserves musical 
     }
     char text[24]{};
     REQUIRE(VoiceParameters::formatValue(VoicePresets::getWaveguidePluckVoice(), ParamId::Decay, 1.0f, text, sizeof(text)));
-    REQUIRE(std::string(text) == "10.00s");
+    REQUIRE(std::string(text) == "4.00s"); // top of WgPluck's T60 lane
     REQUIRE_FALSE(VoiceParameters::formatValue(VoicePresets::getAnalogVoice(), ParamId::Note, 10.0f, text, sizeof(text)));
 }
 

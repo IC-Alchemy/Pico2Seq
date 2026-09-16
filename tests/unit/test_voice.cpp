@@ -576,7 +576,7 @@ TEST_CASE("Waveguide slots drive T60 via Decay track", "[voice]") {
     vs.noteIndex = 0.0f;
     vs.filterCutoff = cfg.wgBrightness;        // Bright slot
     vs.attackTimeSeconds = cfg.wgPickHardness; // Pick slot
-    vs.decayTimeSeconds = 0.0f;                // T60 slot: fmap(0, 0.05, 10, EXP) = 0.05 s
+    vs.decayTimeSeconds = 0.0f;                // T60 slot: bottom of WgPluck's lane = 0.15 s
     v.updateParameters(vs);
     v.setGate(true);
     for (int i = 0; i < 4800; ++i)
@@ -591,7 +591,7 @@ TEST_CASE("Waveguide slots drive T60 via Decay track", "[voice]") {
         early = std::max(early, std::abs(v.process()));
     REQUIRE(early > 0.0f);
 
-    // Half a second later a T60 of 0.05 s is 10^-10 of its level; the preset's
+    // Half a second later a T60 of 0.15 s is ~10^-10 of its level; the preset's
     // unrouted 1.8 s T60 would still hold ~53% — the ratio discriminates hard.
     for (int i = 0; i < 23520; ++i)
         v.process();
@@ -678,10 +678,10 @@ TEST_CASE("presetIndexForPad maps pads 8..8+count-1", "[voice][presets]") {
     REQUIRE(VoicePresets::presetIndexForPad(23, 15) == -1);
     REQUIRE(VoicePresets::presetIndexForPad(8, 0) == -1);
 
-    // Round-trip of the T60 seeding map
+    // Round-trip of the T60 seeding map (WgPluck's 0.15..4 s lane)
     const float norm = VoicePresets::wgT60ToNormalized(3.2f);
-    REQUIRE_THAT(dspmap::fmap(norm, 0.05f, 10.0f, dspmap::Mapping::EXP),
-                 WithinAbs(3.2f, 0.01f));
+    const auto &t60 = VoiceParameters::binding(VoicePresets::getWaveguidePluckVoice(), ParamId::Decay);
+    REQUIRE_THAT(t60.map(norm), WithinAbs(3.2f, 0.01f));
 }
 
 TEST_CASE("Preset switch while gate high keeps the held note sounding", "[voice]") {

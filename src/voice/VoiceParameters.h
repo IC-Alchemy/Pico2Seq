@@ -60,6 +60,18 @@ namespace VoiceParameters {
 inline constexpr float kWaveguideT60Min = 0.05f;
 inline constexpr float kWaveguideT60Max = 10.0f;
 
+// A lane's musical span and the resting value its midpoint lands on.
+struct Span { float minimum, center, maximum; };
+// Retunes a binding's range, center and curve, keeping its name, target and unit.
+constexpr VoiceParameterBinding spanned(VoiceParameterBinding b, Span span, dspmap::Mapping curve)
+{
+  b.minimum = span.minimum;
+  b.center = span.center;
+  b.maximum = span.maximum;
+  b.curve = curve;
+  return b;
+}
+
 // Layouts selected by paramSet when a config owns no layout (for example
 // after an engine change). Preset headers start their owned layouts here.
 constexpr VoiceParameterBinding control(const char *name, float VoiceConfig::*target)
