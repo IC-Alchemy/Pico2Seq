@@ -375,7 +375,7 @@ private:
   uint8_t cachedOscCount_ = 0;
   // Bypass flags computed on config apply to avoid unnecessary DSP work
   bool hpfBypass_ = false;
-  bool velocityToAmplitude_ = true; // Cached from the immutable parameter layout
+  bool velocityToAmplitude_ = true; // Cached from the layout and hard-sync paramSet
   // Which StateVariableFilter output the main filter reads when
   // filterType == FILTER_SVF: 0 lowpass, 1 bandpass, 2 highpass (from
   // filterMode, cached on config apply).

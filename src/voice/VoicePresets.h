@@ -46,9 +46,9 @@ namespace VoicePresets {
   const VoiceConfig& getPresetConfig(uint8_t presetIndex) noexcept;
   uint8_t getPresetCount() noexcept;
 
-  // Sequencer-slot interop for non-standard param sets. Inverse of Voice's
-  // waveguide T60 mapping (fmap EXP 0.05..10 s) so preset values can be
-  // seeded into the re-purposed Decay track.
+  // Sequencer-slot interop for non-standard param sets. Inverse of WgPluck's
+  // T60 lane (0.15..4 s, centered on 1.8 s) so preset values can be seeded
+  // into the re-purposed Decay track.
   float wgT60ToNormalized(float t60Seconds) noexcept;
 
   // Which sequencer parameter set a preset exposes. Out-of-range or unknown

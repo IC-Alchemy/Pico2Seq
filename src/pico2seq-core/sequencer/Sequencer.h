@@ -134,7 +134,8 @@ public:
     void start() { running = true; }
     void stop() { running = false; }
     void reset();
-    void randomizeParameters();
+    void randomizeParameters(uint8_t depthPercent = ParameterManager::kDefaultRandomizeDepth,
+                             uint64_t seed = 0);
     // Note/Envelope handling
     void startNote(uint8_t note, uint8_t velocity, uint16_t duration);
     void handleNoteOff(VoiceState *voiceState);

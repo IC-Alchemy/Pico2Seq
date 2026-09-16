@@ -15,6 +15,13 @@ inline int midiNote(float note, int octave, int harmony, const int *row) noexcep
 inline float envelopeSeconds(float normalized) noexcept {
   return 0.001f * std::pow(10000.0f, std::clamp(normalized, 0.0f, 1.0f));
 }
+// Attack lane: 1 ms..2 s, so lane 0.5 is ~45 ms. Inverse: VoiceEdit::attackNormalize.
+inline float attackSeconds(float normalized) noexcept {
+  return 0.001f * std::pow(VoiceEdit::kAttackMaxSeconds / 0.001f, std::clamp(normalized, 0.0f, 1.0f));
+}
+inline float laneSeconds(ParamId id, float normalized) noexcept {
+  return id == ParamId::Attack ? attackSeconds(normalized) : envelopeSeconds(normalized);
+}
 inline void time(float seconds, char *out, size_t size) noexcept {
   if (seconds < 1.0f) std::snprintf(out, size, "%.1fms", seconds * 1000);
   else std::snprintf(out, size, "%.2fs", seconds);
@@ -102,7 +109,7 @@ inline void format(ParamId id, const Step &step, const VoiceConfig &config,
     float seconds;
     if (!VoiceParameters::layout(config).envelopeFromTracks)
       seconds = id == ParamId::Attack ? config.defaultAttack : config.defaultDecay;
-    else if (config.usePatchBases) seconds = envelopeSeconds(normalized);
+    else if (config.usePatchBases) seconds = laneSeconds(id, normalized);
     else if (id == ParamId::Attack) seconds = dspmap::fmap(normalized, 0.002f, 0.75f, dspmap::Mapping::LINEAR);
     else seconds = 0.075f + 0.32f * dspmap::fmap(normalized, 0.01f, 0.5f, dspmap::Mapping::LOG);
     time(seconds, out, size); return;
@@ -114,17 +121,15 @@ inline void format(ParamId id, const Step &step, const VoiceConfig &config,
     return;
   }
   if (id == ParamId::Filter) {
-    const auto &p = VoiceParameters::layout(config);
-    const float frequency = dspmap::fmap(std::clamp(normalized, 0.0f, 1.0f),
-                                        p.cutoffMinimum, p.cutoffMaximum, dspmap::Mapping::EXP);
-    std::snprintf(out, size, "%.0fHz", frequency);
+    std::snprintf(out, size, "%.0fHz",
+                  VoiceParameters::mapCutoff(VoiceParameters::layout(config), normalized));
     return;
   }
   if (id == ParamId::Attack || id == ParamId::Decay) {
     float seconds;
     if (!VoiceParameters::layout(config).envelopeFromTracks)
       seconds = id == ParamId::Attack ? config.defaultAttack : config.defaultDecay;
-    else if (config.usePatchBases) seconds = envelopeSeconds(normalized);
+    else if (config.usePatchBases) seconds = laneSeconds(id, normalized);
     else if (id == ParamId::Attack) seconds = dspmap::fmap(normalized, 0.002f, 0.75f, dspmap::Mapping::LINEAR);
     else seconds = 0.075f + 0.32f * dspmap::fmap(normalized, 0.01f, 0.5f, dspmap::Mapping::LOG);
     time(seconds, out, size);

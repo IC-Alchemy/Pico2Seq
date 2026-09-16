@@ -27,13 +27,19 @@ constexpr bool validBank()
     if (p.config.parameters) {
       for (const auto &b : p.config.parameters->slots) {
         if (b.maximum <= b.minimum) return false;
-        if (b.curve == dspmap::Mapping::LOG && b.minimum <= 0.0f) return false;
+        const bool exponential = b.curve == dspmap::Mapping::LOG || b.curve == dspmap::Mapping::OCT;
+        if (exponential && b.minimum <= 0.0f) return false;
+        if (b.isCentered() && (b.center < b.minimum || b.center > b.maximum)) return false;
+        // A resting value outside its lane would jump on the first step.
+        if (b.target && (p.config.*(b.target) < b.minimum || p.config.*(b.target) > b.maximum))
+          return false;
       }
     }
   }
   return true;
 }
-static_assert(validBank(), "Each recipe needs a parameter layout with valid control ranges");
+static_assert(validBank(), "Each recipe needs a parameter layout with valid control ranges, "
+                          "centers and resting values");
 char lowerAscii(char c) noexcept { return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c; }
 bool sameName(std::string_view a, std::string_view b) noexcept
 {

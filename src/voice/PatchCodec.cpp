@@ -117,7 +117,13 @@ bool applyPatch(uint8_t presetIndex, const persistence::PatchSnapshot &in, Voice
     // The preset's layout descriptor is only valid for the preset's own
     // engine/paramSet. If the saved patch re-purposed the slots, drop the
     // pointer — VoiceParameters::layout() then derives it from paramSet.
-    if (out.engine != presetEngine || out.paramSet != presetParamSet)
+    // Hard sync is the exception: the oscillator bank toggles it on top of
+    // the preset's layout, so that layout's cutoff lane still applies.
+    const auto oscillatorSlots = [](uint8_t set)
+    { return set == PARAMSET_STANDARD || set == PARAMSET_HARDSYNC; };
+    const bool sameSlots = out.paramSet == presetParamSet ||
+        (out.engine == ENGINE_OSC && oscillatorSlots(out.paramSet) && oscillatorSlots(presetParamSet));
+    if (out.engine != presetEngine || !sameSlots)
         out.parameters = nullptr;
     else
         out.parameters = presetParameters;
