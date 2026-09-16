@@ -172,8 +172,9 @@ Maintains momentary button holds and single-parameter Shift latching.
 
 ### 4. `FaderMap`
 Fader target assignment, 12-bit ADC normalization (0–4095 to 0.0–1.0), and deadband filtering.
-- `kDeadbandCounts = 8`: Suppresses jitter and spurious I2C updates.
-- `accept(uint8_t channel, uint16_t rawCounts)`: Returns `true` only when movement exceeds deadband or immediately after a mode reset.
+- `kDeadbandCounts = 8`: Suppresses jitter and spurious I2C updates once engaged.
+- `kMoveThresholdCounts = 64`: Movement threshold (~1.5% of throw) required to engage a fader after reset / mode flip.
+- `accept(uint8_t channel, uint16_t rawCounts)`: Returns `true` only when an obvious move ($\ge 64$ counts) engages the fader, and subsequent moves exceed the deadband. Does not send on the initial sample after mode flip.
 - `assignmentFor(Mode mode, uint8_t channel)`: Maps channel index to `FaderAssignment{target, paramId}`.
 
 ---

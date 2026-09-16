@@ -124,6 +124,14 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
     handleUtilityButtons(nowMs, uiState);
   }
 
+  // If selected voice changed (via voice buttons or pad bank selection),
+  // disarm faders so newly focused voice does not snap on minor movement.
+  if (uiState.selectedVoiceIndex != lastVoiceIndex_)
+  {
+    lastVoiceIndex_ = uiState.selectedVoiceIndex;
+    faders_.resetDeadband();
+  }
+
   handleFaders(uiState, sequencers, sequencerCount);
 }
 
