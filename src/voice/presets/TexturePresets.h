@@ -17,7 +17,7 @@ namespace VoicePresets {
     mix = spanned(mix, {0.15f, 0.50f, 0.95f}, dspmap::Mapping::LINEAR);
     p.cutoffMinimum = 200.0f; // supersaw register
     p.cutoffMaximum = 12000.0f;
-    p.cutoffCurve = dspmap::Mapping::OCT;
+    p.cutoffCurve = dspmap::Mapping::OCTAVE;
     p.cutoffCenter = 3200.0f;
     return p;
   }

@@ -21,7 +21,7 @@ float VoiceParameterBinding::normalize(float value) const noexcept
   const float linear = (value - minimum) / (maximum - minimum);
   if (curve == dspmap::Mapping::EXP)
     return std::sqrt(linear);
-  if (curve == dspmap::Mapping::LOG || curve == dspmap::Mapping::OCT)
+  if (curve == dspmap::Mapping::LOG || curve == dspmap::Mapping::OCTAVE)
     return std::log(value / minimum) / std::log(maximum / minimum);
   return linear;
 }

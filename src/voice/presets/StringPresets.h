@@ -15,7 +15,7 @@ namespace VoicePresets {
     auto &decay = p.slots[static_cast<size_t>(ParamId::Decay)];
     auto &filter = p.slots[static_cast<size_t>(ParamId::Filter)];
     auto &attack = p.slots[static_cast<size_t>(ParamId::Attack)];
-    decay = spanned(decay, t60, dspmap::Mapping::OCT);
+    decay = spanned(decay, t60, dspmap::Mapping::OCTAVE);
     filter = spanned(filter, bright, dspmap::Mapping::LINEAR);
     attack = spanned(attack, pick, dspmap::Mapping::LINEAR);
     return p;

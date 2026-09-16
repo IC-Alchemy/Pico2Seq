@@ -8,7 +8,7 @@ constexpr VoiceParameterLayout reedPipeLayout()
 {
   using M = dspmap::Mapping;
   using U = VoiceParameterUnit;
-  return recipeLayout(macroLane("Formant", &VoiceConfig::macro1, {1.0f, 3.0f, 6.0f}, M::OCT, U::Ratio),
+  return recipeLayout(macroLane("Formant", &VoiceConfig::macro1, {1.0f, 3.0f, 6.0f}, M::OCTAVE, U::Ratio),
                       macroLane("Bloom", &VoiceConfig::macro2, {0.0f, 0.7f, 1.0f}, M::LINEAR, U::Percent),
                       macroLane("Body", &VoiceConfig::macro3, {0.1f, 0.4f, 0.8f}, M::LINEAR, U::Percent));
 }
@@ -26,7 +26,7 @@ constexpr VoiceParameterLayout hollowBellLayout()
 {
   using M = dspmap::Mapping;
   using U = VoiceParameterUnit;
-  return recipeLayout(macroLane("Ratio", &VoiceConfig::macro1, {0.5f, 2.0f, 6.0f}, M::OCT, U::Ratio),
+  return recipeLayout(macroLane("Ratio", &VoiceConfig::macro1, {0.5f, 2.0f, 6.0f}, M::OCTAVE, U::Ratio),
                       macroLane("Edge", &VoiceConfig::macro2, {0.0f, 0.15f, 0.45f}, M::LINEAR, U::Percent),
                       macroLane("Ring", &VoiceConfig::macro3, {0.0f, 0.5f, 0.85f}, M::LINEAR, U::Percent));
 }
@@ -34,7 +34,7 @@ constexpr VoiceParameterLayout syncLeadLayout()
 {
   using M = dspmap::Mapping;
   using U = VoiceParameterUnit;
-  return recipeLayout(macroLane("Sync", &VoiceConfig::macro1, {1.0f, 2.0f, 5.0f}, M::OCT, U::Ratio),
+  return recipeLayout(macroLane("Sync", &VoiceConfig::macro1, {1.0f, 2.0f, 5.0f}, M::OCTAVE, U::Ratio),
                       macroLane("Edge", &VoiceConfig::macro2, {0.0f, 0.25f, 0.65f}, M::LINEAR, U::Percent),
                       macroLane("Bite", &VoiceConfig::macro3, {0.1f, 0.45f, 0.8f}, M::LINEAR, U::Percent));
 }
