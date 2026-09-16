@@ -292,3 +292,26 @@ TEST_CASE("String presets own T60, brightness and pick lanes centered on their r
     REQUIRE(t60.maximum == VoiceParameters::kWaveguideT60Max);
     REQUIRE_FALSE(t60.isCentered());
 }
+
+TEST_CASE("Texture presets own spans that keep their effect zones at the top", "[mapping][presets]") {
+    const auto &hyper = VoicePresets::getHypersawVoice();
+    REQUIRE(hyper.parameters != nullptr);
+    requireLane(hyper, ParamId::Attack, {"Detune", 0.0f, 0.30f, 0.75f, Mapping::LINEAR});
+    requireLane(hyper, ParamId::Decay, {"Mix", 0.15f, 0.50f, 0.95f, Mapping::LINEAR});
+    REQUIRE(VoiceParameters::binding(hyper, ParamId::Filter).target == nullptr); // stays Cutoff
+    const auto &cutoff = VoiceParameters::layout(hyper);
+    REQUIRE(cutoff.cutoffMinimum == 200.0f);
+    REQUIRE(cutoff.cutoffMaximum == 12000.0f);
+    REQUIRE(hyper.filterCutoffBase == 0.5f);
+    REQUIRE_THAT(VoiceParameters::mapCutoff(cutoff, hyper.filterCutoffBase), WithinRel(3200.0f, 1e-4f));
+
+    const auto &storm = VoicePresets::getNoiseStormVoice();
+    REQUIRE(storm.parameters != nullptr);
+    requireLane(storm, ParamId::Filter, {"Color", 0.0f, 0.60f, 1.0f, Mapping::LINEAR});
+    requireLane(storm, ParamId::Attack, {"Regen", 0.0f, 0.90f, 1.2f, Mapping::LINEAR});
+    requireLane(storm, ParamId::Decay, {"Chaos", 0.0f, 0.40f, 0.8f, Mapping::LINEAR});
+    // The documented 1.0..1.2 regen bloom is reachable from the lane's top.
+    REQUIRE_THAT(VoiceParameters::binding(storm, ParamId::Attack).map(1.0f), WithinAbs(1.2f, 1e-6f));
+    // The re-purposed Filter lane leaves the static cutoff on the shared curve.
+    REQUIRE_FALSE(VoiceParameters::layout(storm).cutoffCentered());
+}

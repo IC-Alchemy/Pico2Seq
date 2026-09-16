@@ -602,7 +602,12 @@ TEST_CASE("Waveguide slots drive T60 via Decay track", "[voice]") {
 }
 
 TEST_CASE("Noise/Hypersaw slots are re-purposed on the audio-thread config", "[voice]") {
-    Voice vn(0, VoicePresets::getNoiseStormVoice());
+    // Each lane lands where the preset's own binding maps it.
+    const auto mapped = [](const VoiceConfig &c, ParamId id, float lane) {
+        return VoiceParameters::binding(c, id).map(lane);
+    };
+    const auto &storm = VoicePresets::getNoiseStormVoice();
+    Voice vn(0, storm);
     initVoiceWithScale(vn);
     VoiceState vs;
     vs.isGateHigh = true;
@@ -611,18 +616,20 @@ TEST_CASE("Noise/Hypersaw slots are re-purposed on the audio-thread config", "[v
     vs.decayTimeSeconds = 0.4f;   // Chaos slot
     vn.updateParameters(vs);
     vn.process();
-    REQUIRE(vn.getConfig().noiseSwarmColor == 0.9f);
-    REQUIRE(vn.getConfig().noiseSwarmRegen == 0.7f);
-    REQUIRE(vn.getConfig().noiseChaosLevel == 0.4f);
+    REQUIRE_THAT(vn.getConfig().noiseSwarmColor, WithinAbs(mapped(storm, ParamId::Filter, 0.9f), 1e-6f));
+    REQUIRE_THAT(vn.getConfig().noiseSwarmRegen, WithinAbs(mapped(storm, ParamId::Attack, 0.7f), 1e-6f));
+    REQUIRE_THAT(vn.getConfig().noiseChaosLevel, WithinAbs(mapped(storm, ParamId::Decay, 0.4f), 1e-6f));
+    REQUIRE(vn.getConfig().noiseSwarmRegen > storm.noiseSwarmRegen); // above-center lane: more regen
 
-    Voice vh(0, VoicePresets::getHypersawVoice());
+    const auto &hyper = VoicePresets::getHypersawVoice();
+    Voice vh(0, hyper);
     initVoiceWithScale(vh);
     vs.attackTimeSeconds = 0.5f;  // Native Hypersaw detune slot
     vs.decayTimeSeconds = 0.25f;  // Native Hypersaw mix slot
     vh.updateParameters(vs);
     vh.process();
-    REQUIRE(vh.getConfig().hypersawDetune == 0.5f);
-    REQUIRE(vh.getConfig().hypersawMix == 0.25f);
+    REQUIRE_THAT(vh.getConfig().hypersawDetune, WithinAbs(mapped(hyper, ParamId::Attack, 0.5f), 1e-6f));
+    REQUIRE_THAT(vh.getConfig().hypersawMix, WithinAbs(mapped(hyper, ParamId::Decay, 0.25f), 1e-6f));
 }
 
 TEST_CASE("HardSyncSaw sequencer slave lane offsets the master pitch", "[voice]") {
