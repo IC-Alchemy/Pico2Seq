@@ -132,6 +132,9 @@ Voice::Voice(uint8_t id, const VoiceConfig &cfg)
 
 void Voice::init(float sr)
 {
+#if P2S_VOICE_IDLE_SKIP
+  quietRun_ = 0;
+#endif
   // Setup only: neither core may access this Voice concurrently with init().
   // Fold any pre-init setters into the initial state without running DSP early.
   ControlUpdate unused;
@@ -333,41 +336,135 @@ void PICO2SEQ_AUDIO_FUNC(Voice::applyControlUpdate_)() noexcept
     filterFrequency = update.filterHz;
 }
 
-float PICO2SEQ_AUDIO_FUNC(Voice::process)() noexcept
+void PICO2SEQ_AUDIO_FUNC(Voice::processBlock)(float *out, uint32_t n) noexcept
 {
-  // Consume controls even while disabled, so queued re-enables can take effect.
-  applyControlUpdate_();
-  if (!config.enabled)
-    return 0.0f;
-
-  // 1) Envelope
-  float envelopeValue = computeEnvelope();
-  // Cache envelope value for cheap per-voice checks in hot paths (avoids reprocessing ADSR)
-  lastEnvelopeValue = envelopeValue;
-
-  // Apply a staged structural config as soon as the gate allows it (nothing
-  // sounding), so live preset swaps never click a held note or cut a tail.
-  if (structuralPending_ && !gate)
+  uint32_t i = 0;
+  while (i < n)
   {
-    applyStructuralConfig_();
+    if (!controlQueue_.consumerEmpty())
+    {
+      applyControlUpdate_();   // exactly one update per sample while any are queued
+      renderSpan_(out + i, 1);
+      ++i;
+      continue;
+    }
+    const uint32_t span = std::min<uint32_t>(n - i, kMaxSpan);
+    renderSpan_(out + i, span);
+    i += span;
   }
-
-  // 2) Filter cutoff update (uses envelope)
-  if (config.hasFilter)
-  {
-    updateFilter(envelopeValue);
-  }
-
-  // 3) Oscillator/engine mixing (+ slide updates)
-  float mixed = mixOscillators();
-
-  // 4) Effects and gain shaping pre-filter
-
-  // 5) Filter processing, HPF, and final scaling
-  return finalizeOutput(mixed, envelopeValue);
 }
 
-float Voice::computeEnvelope()
+float PICO2SEQ_AUDIO_FUNC(Voice::process)() noexcept
+{
+  float sample = 0.0f;
+  processBlock(&sample, 1);
+  return sample;
+}
+
+void PICO2SEQ_AUDIO_FUNC(Voice::renderSpan_)(float *out, uint32_t n) noexcept
+{
+  if (!config.enabled) { std::fill_n(out, n, 0.0f); return; }
+#if P2S_VOICE_IDLE_SKIP
+  if (canSkipSilentSpan_())
+  {
+    advanceSilentSpan_(n);
+    std::fill_n(out, n, 0.0f);
+    return;
+  }
+#endif
+  const float *env = spanEnv_.data();
+  float *sig = spanSignal_.data();
+
+  // (1) gate and shouldRetrigger cannot change inside a span, so the per-sample
+  //     edge logic only acts on the first sample.
+  handleGateEdges_();
+
+  // (2) Envelope on a local copy (state stays in registers).
+  if (config.hasEnvelope)
+  {
+    rpdsp::ADSR adsr = envelope;
+    for (uint32_t k = 0; k < n; ++k) spanEnv_[k] = adsr.process();
+    envelope = adsr;
+  }
+  else
+  {
+    std::fill_n(spanEnv_.data(), n, 1.0f);
+  }
+  lastEnvelopeValue = spanEnv_[n - 1];
+
+  // (3) Today this runs after sample 0's envelope. applyStructuralConfig_() never
+  //     touches the ADSR, so running it after the whole envelope loop is equivalent.
+  if (structuralPending_ && !gate) applyStructuralConfig_();
+
+  // (4) Cutoff smoother + setFreq throttle; coefficient updates recorded by index.
+  const uint32_t events = config.hasFilter ? planFilterUpdates_(env, n) : 0;
+
+  // (5) Sources retain the per-sample silence gate and pending pitch commits.
+  renderSources_(sig, env, n);
+
+  // (6) VCA, then pre-filter effects in sample order.
+  for (uint32_t k = 0; k < n; ++k) sig[k] *= env[k];
+  if (config.hasOverdrive || cachedEngine_ == static_cast<uint8_t>(ENGINE_NOISEFX))
+    for (uint32_t k = 0; k < n; ++k) applyEffects(sig[k]);
+
+  // (7) Velocity (state cannot change inside a span).
+  const float amplitude = velocityToAmplitude_ ? state.velocityLevel : 1.0f;
+  for (uint32_t k = 0; k < n; ++k) sig[k] *= amplitude;
+
+  // (8) Main filter, applying (4)'s updates before their sample.
+  if (config.hasFilter) runMainFilter_(sig, n, events);
+
+  // (9) High-pass on a local copy.
+  if (!hpfBypass_)
+  {
+    rpdsp::StateVariableFilter hpf = highPassFilter;
+    for (uint32_t k = 0; k < n; ++k) sig[k] = hpf.process(sig[k]).highpass;
+    highPassFilter = hpf;
+  }
+
+  // (10) Output level.
+  const float level = config.outputLevel;
+  for (uint32_t k = 0; k < n; ++k) out[k] = sig[k] * level;
+#if P2S_VOICE_IDLE_SKIP
+  trackQuietOutput_(out, n);
+#endif
+}
+
+#if P2S_VOICE_IDLE_SKIP
+bool PICO2SEQ_AUDIO_FUNC(Voice::canSkipSilentSpan_)() const noexcept
+{
+  return quietRun_ >= kQuietHold && config.hasEnvelope && !gate && !gateHighPrev_ &&
+         !state.shouldRetrigger && !structuralPending_ && !envelope.isActive() &&
+         cachedEngine_ != ENGINE_WAVEGUIDE && cachedEngine_ != ENGINE_NOISEFX;
+}
+
+void PICO2SEQ_AUDIO_FUNC(Voice::advanceSilentSpan_)(uint32_t n) noexcept
+{
+  // Keep cutoff smoothing and its throttle alive; freezing them changes
+  // the attack of the next note even after the audible tail has finished.
+  lastEnvelopeValue = 0.0f;
+  if (!config.hasFilter) return;
+  std::fill_n(spanEnv_.data(), n, 0.0f);
+  const uint32_t events = planFilterUpdates_(spanEnv_.data(), n);
+  if (events > 0)
+  {
+    // No filter samples run between these updates, so the last coefficients win.
+    const float hz = spanFilterEvents_[events - 1].cutoffHz;
+    if (config.filterType == FILTER_SVF) filterSvf_.setCutoff(hz);
+    else filter.setFreq(hz);
+  }
+}
+
+void PICO2SEQ_AUDIO_FUNC(Voice::trackQuietOutput_)(const float *out, uint32_t n) noexcept
+{
+  uint32_t trailing = 0;
+  while (trailing < n && std::fabs(out[n - 1 - trailing]) < kQuietLevel) ++trailing;
+  const uint32_t run = trailing == n ? quietRun_ + n : trailing;
+  quietRun_ = static_cast<uint16_t>(std::min<uint32_t>(run, kQuietHold));
+}
+#endif
+
+void Voice::handleGateEdges_() noexcept
 {
   // Track gate edges for the event-style ADSR (noteOn on rise, noteOff on fall).
   // This must happen even when the ADSR is bypassed: hasEnvelope == false means
@@ -405,40 +502,67 @@ float Voice::computeEnvelope()
     if (config.hasEnvelope)
       envelope.noteOff();
   }
-
-  if (!config.hasEnvelope)
-  {
-    return 1.0f;
-  }
-
-  return envelope.process();
 }
 
-void Voice::updateFilter(float envelopeValue)
+uint32_t PICO2SEQ_AUDIO_FUNC(Voice::planFilterUpdates_)(const float *env, uint32_t n) noexcept
 {
-  // Compute the intended (instantaneous) cutoff target using previous logic
-  const float targetCutoff = filterFrequency *
-      (envelopeValue * config.filterEnvelopeAmount + config.filterEnvelopeFloor);
-
-  // Exponential smoothing to prevent zipper noise when targetCutoff jumps.
-  // filterCutoffAlpha was initialized in init() (per-sample coefficient).
-  filterCutoffCurrent += filterCutoffAlpha * (targetCutoff - filterCutoffCurrent);
-
-  // Throttle setFreq to avoid per-sample work if change is tiny (setFreq is
-  // polynomial in rpdsp, but the throttle also caps coefficient churn)
-  if (filterUpdateCounter == 0)
+  float current = filterCutoffCurrent;
+  float lastApplied = lastAppliedFilterCutoff;
+  uint8_t counter = filterUpdateCounter;
+  const float alpha = filterCutoffAlpha;
+  uint32_t events = 0;
+  for (uint32_t k = 0; k < n; ++k)
   {
-    if (ShouldApplyFilterFreq_(filterCutoffCurrent, lastAppliedFilterCutoff))
+    const float targetCutoff = filterFrequency *
+        (env[k] * config.filterEnvelopeAmount + config.filterEnvelopeFloor);
+    current += alpha * (targetCutoff - current);
+    if (counter == 0 && ShouldApplyFilterFreq_(current, lastApplied))
+    {
+      spanFilterEvents_[events++] = {static_cast<uint8_t>(k), current};
+      lastApplied = current;
+    }
+    counter = static_cast<uint8_t>((counter + 1) & (kFilterUpdateInterval - 1));
+  }
+  filterCutoffCurrent = current;
+  lastAppliedFilterCutoff = lastApplied;
+  filterUpdateCounter = counter;
+  return events;
+}
+
+void PICO2SEQ_AUDIO_FUNC(Voice::runMainFilter_)(float *sig, uint32_t n, uint32_t events) noexcept
+{
+  uint32_t pos = 0;
+  for (uint32_t e = 0; e <= events; ++e)
+  {
+    const uint32_t end = (e < events) ? spanFilterEvents_[e].index : n;
+    if (end > pos)
     {
       if (config.filterType == FILTER_SVF)
-        filterSvf_.setCutoff(filterCutoffCurrent);
+      {
+        rpdsp::StateVariableFilter svf = filterSvf_;
+        const uint8_t sel = svfOutputSel_;
+        for (uint32_t k = pos; k < end; ++k)
+        {
+          const rpdsp::StateVariableOutput o = svf.process(sig[k]);
+          sig[k] = (sel == 1) ? o.bandpass : (sel == 2) ? o.highpass : o.lowpass;
+        }
+        filterSvf_ = svf;
+      }
       else
-        filter.setFreq(filterCutoffCurrent);
-      lastAppliedFilterCutoff = filterCutoffCurrent;
+      {
+        rpdsp::LadderFilter ladder = filter;
+        for (uint32_t k = pos; k < end; ++k) sig[k] = ladder.process(sig[k]);
+        filter = ladder;
+      }
     }
+    if (e < events)
+    {
+      const float hz = spanFilterEvents_[e].cutoffHz;
+      if (config.filterType == FILTER_SVF) filterSvf_.setCutoff(hz);
+      else filter.setFreq(hz);
+    }
+    pos = end;
   }
-  // Mask wrap: kFilterUpdateInterval is a power of two (static_assert in Voice.h)
-  filterUpdateCounter = static_cast<uint8_t>((filterUpdateCounter + 1) & (kFilterUpdateInterval - 1));
 }
 
 void Voice::configureMainFilterFromConfig_() noexcept
@@ -460,35 +584,9 @@ void Voice::configureMainFilterFromConfig_() noexcept
   }
 }
 
-float Voice::mixOscillators()
+void PICO2SEQ_AUDIO_FUNC(Voice::commitOscillatorPitch_)() noexcept
 {
-  float mixedOscillators = 0.0f;
-
-  // Very cheap per-voice silence short-circuit: if envelope is enabled and the cached
-  // envelope value is effectively zero, skip oscillator/noise processing entirely.
-  if (config.hasEnvelope && lastEnvelopeValue <= 0.001f)
-  {
-    return 0.0f;
-  }
-
-  // Alternate engines replace the oscillator bank entirely; the shared
-  // envelope -> filter -> output chain still runs in finalizeOutput().
-  if (cachedEngine_ == static_cast<uint8_t>(ENGINE_WAVEGUIDE))
-  {
-    return processWaveguide_();
-  }
-  if (cachedEngine_ == ENGINE_HYPERSAW || cachedEngine_ == ENGINE_RECIPE)
-  {
-    return processPitchedEngine_();
-  }
-  if (cachedEngine_ == static_cast<uint8_t>(ENGINE_NOISEFX))
-  {
-    return processNoiseFxSource_();
-  }
-
-  // Determine number of oscillators to process (max 3 pre-sized)
   const size_t oscCount = cachedOscCount_;
-
   // Audio-thread commit of frequency changes:
   // - Only when gate HIGH (no repitch during release)
   // - Audio-local cache version prevents redundant commits
@@ -528,40 +626,70 @@ float Voice::mixOscillators()
     }
   }
 
-  if (oscCount > 0)
+}
+
+void PICO2SEQ_AUDIO_FUNC(Voice::renderSources_)(float *sig, const float *env, uint32_t n) noexcept
+{
+  std::fill_n(sig, n, 0.0f);
+  const bool gateBySilence = config.hasEnvelope;
+  uint32_t first = 0;
+  while (first < n && gateBySilence && env[first] <= 0.001f) ++first;
+  if (first == n) return; // Pitch commits wait until a source can advance.
+
+  if (cachedEngine_ == ENGINE_WAVEGUIDE)
   {
-    // Update frequencies (slew when sliding) and process oscillators.
-    // rpdsp oscillators have no amp parameter, so oscAmplitudes[] scales at mix time.
-    for (size_t i = 0; i < oscCount; i++)
-    {
-      if (state.hasSlide)
-      {
-        processFrequencySlew(i, freqSlew[i].targetFreq);
-        const float fcur = freqSlew[i].currentFreq;
-        if (ShouldApplyFreq_(fcur, lastAppliedOscFreq_[i]))
-        {
-          oscillators[i].setFreq(fcur);
-          lastAppliedOscFreq_[i] = fcur;
-        }
-        if (config.oscWaveforms[i] == WAVE_HARDSYNC_SAW)
-        {
-          const float targetMaster = pitchCache_.finalFreq[i];
-          const float slaveRatio = (targetMaster > 0.0f)
-                                       ? (pitchCache_.slaveFreq[i] / targetMaster)
-                                       : 1.0f;
-          oscillators[i].setSlaveFrequency(fcur * slaveRatio);
-        }
-      }
-      mixedOscillators += oscillators[i].process() * config.oscAmplitudes[i];
-    }
+    for (uint32_t k = first; k < n; ++k)
+      if (!gateBySilence || env[k] > 0.001f) sig[k] = processWaveguide_();
+    return;
   }
-  else
+  if (cachedEngine_ == ENGINE_HYPERSAW || cachedEngine_ == ENGINE_RECIPE)
   {
-    // Special case for percussion voices (no oscillators, only noise)
-    mixedOscillators = noise_.process();
+    for (uint32_t k = first; k < n; ++k)
+      if (!gateBySilence || env[k] > 0.001f) sig[k] = processPitchedEngine_();
+    return;
+  }
+  if (cachedEngine_ == ENGINE_NOISEFX)
+  {
+    for (uint32_t k = first; k < n; ++k)
+      if (!gateBySilence || env[k] > 0.001f) sig[k] = processNoiseFxSource_();
+    return;
+  }
+  if (cachedOscCount_ == 0)
+  {
+    for (uint32_t k = first; k < n; ++k)
+      if (!gateBySilence || env[k] > 0.001f) sig[k] = noise_.process();
+    return;
   }
 
-  return mixedOscillators;
+  commitOscillatorPitch_();
+  for (size_t i = 0; i < cachedOscCount_; ++i)
+  {
+    if (!state.hasSlide)
+    {
+      oscillators[i].renderAdd(sig, env, n, config.oscAmplitudes[i], gateBySilence);
+      continue;
+    }
+    for (uint32_t k = first; k < n; ++k)
+    {
+      if (gateBySilence && env[k] <= 0.001f) continue;
+      processFrequencySlew(i, freqSlew[i].targetFreq);
+      const float fcur = freqSlew[i].currentFreq;
+      if (ShouldApplyFreq_(fcur, lastAppliedOscFreq_[i]))
+      {
+        oscillators[i].setFreq(fcur);
+        lastAppliedOscFreq_[i] = fcur;
+      }
+      if (config.oscWaveforms[i] == WAVE_HARDSYNC_SAW)
+      {
+        const float targetMaster = pitchCache_.finalFreq[i];
+        const float slaveRatio = (targetMaster > 0.0f)
+                                     ? (pitchCache_.slaveFreq[i] / targetMaster)
+                                     : 1.0f;
+        oscillators[i].setSlaveFrequency(fcur * slaveRatio);
+      }
+      sig[k] += oscillators[i].process() * config.oscAmplitudes[i];
+    }
+  }
 }
 
 void PICO2SEQ_AUDIO_FUNC(Voice::applyEffects)(float &signal)
@@ -583,7 +711,7 @@ void PICO2SEQ_AUDIO_FUNC(Voice::applyEffects)(float &signal)
                              config.noiseSwarmRegen, noiseSwarmState_);
   }
 
-  // Level adjustments removed from here; handled in finalizeOutput
+  // Level adjustments removed from here; handled in renderSpan_
 }
 
 // Provide a wrapper to maintain API compatibility
@@ -723,49 +851,6 @@ void Voice::resetAlternateEngines_() noexcept
   noiseDiffuseBuf_.fill(0.0f);
 }
 
-inline float Voice::finalizeOutput(float signal, float envelopeValue) noexcept
-{
-  float preEffects = signal * envelopeValue;
-  // Apply effects (pre-filter)
-  //    VCA envelope is applied pre effects so that the overdrive sounds more dynamic
-  applyEffects(preEffects);
-
-  // With the main filter bypassed, velocity scales the signal directly —
-  // the filter input was its only entry point.
-  // Hard-sync presets re-purpose Velocity as their slave-frequency lane, so
-  // it must not also change the VCA level. Their fixed outputLevel remains
-  // the gain control; all other voices keep the normal velocity response.
-  const float amplitude = velocityToAmplitude_ ? state.velocityLevel : 1.0f;
-  const float filterInput = preEffects * amplitude;
-  float shaped;
-  if (!config.hasFilter)
-  {
-    shaped = filterInput;
-  }
-  else if (config.filterType == FILTER_SVF)
-  {
-    const rpdsp::StateVariableOutput svf = filterSvf_.process(filterInput);
-    shaped = (svfOutputSel_ == 1)   ? svf.bandpass
-             : (svfOutputSel_ == 2) ? svf.highpass
-                                    : svf.lowpass;
-  }
-  else
-  {
-    shaped = filter.process(filterInput);
-  }
-
-  // Apply optional high-pass filter
-  float postHpf = shaped;
-  if (!hpfBypass_)
-  {
-    postHpf = highPassFilter.process(shaped).highpass;
-  }
-
-  float finalOutput = postHpf * config.outputLevel;
-
-  return finalOutput;
-}
-
 void Voice::updateOscillatorFrequencies()
 {
   // Deprecated path for direct control-thread commits; retained for backward compatibility.
@@ -894,7 +979,7 @@ void Voice::updateParameters(const VoiceState &newState)
 // Fields watched: noteIndex, octaveOffset, harmony[0..oscCount-1], oscCount, detuneVersion_,
 // hasSlide, pitch bend/mod in semitones.
 // Audio-local versioning: recompute the cache and bump pitchGen_;
-// audio thread commits in mixOscillators() when pitchGen_ != appliedPitchGen_.
+// audio thread commits in renderSources_() when pitchGen_ != appliedPitchGen_.
 // setFreq gating: ShouldApplyFreq_ uses kPitchRelEps and kPitchAbsEpsHz (≈0.017 cent minimum)
 // to cut redundant oscillator.setFreq calls, including during slide slews.
 
@@ -1095,7 +1180,7 @@ void Voice::applyParameters_(const VoiceState &newState) noexcept
     applyEnvelopeParameters();
   applyEngineConfig_();
 
-  // Stage pitch recompute; audio thread will commit oscillator freq via mixOscillators
+  // Stage pitch recompute; audio thread will commit oscillator freq via renderSources_
   refreshPitch_();
 }
 
@@ -1137,6 +1222,10 @@ void Voice::applyStructuralConfig_() noexcept
 // Audio thread only: queue slots have already been released after a local copy.
 void Voice::applyConfig_(const VoiceConfig &newConfig) noexcept
 {
+#if P2S_VOICE_IDLE_SKIP
+  // A new configuration must prove silence before it may be skipped.
+  quietRun_ = 0;
+#endif
   bool structuralChange = stagedOscCount_ != newConfig.oscillatorCount ||
       stagedEngine_ != newConfig.engine || config.recipe != newConfig.recipe;
   for(size_t i=0;i<3;++i)

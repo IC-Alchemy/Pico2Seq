@@ -33,12 +33,14 @@ increase is required by these changes; validate at the stable **150 MHz** first.
 
 ## Hot audio code in SRAM
 
-Pico builds now place the buffer renderer, voice mixer, `Voice::process()`, its
-per-sample helpers and all ten recipe process callbacks in `.time_critical.*`.
+Pico builds place the buffer renderer, block mixer, voice span stages,
+oscillator span loops and all ten recipe process callbacks in `.time_critical.*`.
 `src/utils/AudioRam.h` wraps the Pico SDK's `__not_in_flash_func`; the existing
 linker script places these sections in SRAM and startup copies their code from
-the flash image. The always-inlined oscillator, envelope and filter stages stay
-inside their RAM caller. Host builds use ordinary function placement.
+the flash image. Envelope and filter kernels inline into their RAM callers.
+Oscillator span loops use explicit RAM helpers so an out-of-line `std::visit`
+dispatcher cannot move their sample processing into flash. Host builds use
+ordinary function placement.
 
 This reduces instruction fetches competing with Core 0 for XIP cache space.
 It does not make the entire audio core independent of flash: preset/configuration
@@ -116,6 +118,105 @@ Keep the device state identical across both captures. An idle capture (transport
 running, gates off) is already comparable — every enabled voice renders each
 sample — but FM/waveguide presets with dense gates exercise the relocated code
 hardest.
+
+## Block rendering and silent-voice skip
+
+The block renderer starts from `DeCluttered` at `8b09f71`. That commit pins
+`rpdsp` to `c8369de`, which lacks the coefficient APIs already used by its
+recipe sources. Prerequisite commit `684d56c` restores the matching `25b3549`
+revision. All comparisons use that repaired baseline, with 315 existing host
+checks passing. No DSP implementation was changed for block rendering.
+
+Core 1 mixes 256-frame blocks; each voice checks its queue between spans of
+at most 32 samples. Queued controls still get one sample each. A concurrently
+published update can wait up to 0.67 ms for the next span. Master/mix targets
+are read per block; master gain still eases every sample. Member/static scratch
+keeps sample arrays off Core 1's 2 KiB stack.
+
+Measurements use the supplied Unicorn 2.1.4 Cortex-M33 harness, pqt-gcc
+5.0.0-9576866 (GCC 16.1), `-O3 -ffast-math`, softfp, and Arduino-Pico 6.1.0's
+wrapped float math. These are executed instructions, not cycles or hardware
+utilization. The scripted null test covers all 29 presets in eight groups,
+214,272 mono samples per group, including slides, queued gates, preset swaps,
+releases, and master-volume changes.
+
+Stage 1 (block plumbing) is PCM16 bit-identical in every group. Its instruction
+counts are 1,134.17/684.75 for default voices playing/released and
+1,937.23/932.50 for heavy voices, versus baseline 1,187.96/732.05 and
+1,990.52/979.80 respectively. The repaired recipe implementation makes the heavy
+baseline slightly cheaper than the older plan's 2,029.52 figure.
+
+Final stage results (instructions per output sample, four voices):
+
+| Scenario | Baseline | Stage 2, skip off | Final block, skip on | Final reduction |
+|---|---:|---:|---:|---:|
+| Default playing (4, 2, 1, 6) | 1,187.96 | 744.86 | 711.93 | 40.1% |
+| Heavy playing (13, 28, 3, 0) | 1,990.52 | 1,539.38 | 1,517.39 | 23.8% |
+| Default released | 732.05 | 415.70 | 142.14 | 80.6% |
+| Heavy released | 979.80 | 612.04 | 123.51 | 87.4% |
+
+Both playing sets exceed the required 15% reduction and both released sets
+exceed 50%. Default playing also exceeds the 30% target; heavy playing does
+not. Optional engine rewriting was omitted: the remaining heavy cost is
+mostly existing DSP kernels rather than engine dispatch.
+
+| Preset group | Skip off: differing samples / null dB | Skip on: differing samples / null dB |
+|---|---:|---:|
+| 0, 1, 2, 3 | 12 / -111.0 | 23 / -108.2 |
+| 4, 5, 6, 7 | 0 / exact | 2 / -102.6 |
+| 8, 9, 10, 11 | 0 / exact | 10 / -111.5 |
+| 12, 13, 14, 15 | 0 / exact | 26 / -107.4 |
+| 16, 17, 18, 19 | 0 / exact | 44 / -109.2 |
+| 20, 21, 22, 23 | 0 / exact | 18 / -112.4 |
+| 24, 25, 26, 27 | 0 / exact | 17 / -114.4 |
+| 28, 0, 1, 2 | 16 / -110.8 | 42 / -106.6 |
+
+Every nonzero PCM difference is exactly 1 LSB. Null dB is residual RMS relative
+to reference RMS, using the original scripted comparison. All six non-ladder
+groups are bit-identical with skip off. An instrumented float capture reproduced
+the same PCM mismatches in the two ladder groups: maximum float differences
+were `8.9407e-8` and `5.9605e-8`, with float nulls of -144.16 and -142.59 dB.
+
+Rounding fixes preserve the original oscillator dispatch boundary using GCC's
+`__builtin_assoc_barrier` (a volatile float fallback on other compilers), and
+process each stored oscillator directly. Isolated probes showed that copied
+B-spline state changed fast-math contraction inside the oscillator loop.
+Reverting envelope/SVF/HPF copies did not fix those mismatches; restoring the
+scalar source loop did. The final oscillator loop retains one dispatch per
+span and restores exact non-ladder PCM. The ladder's block API and a local-copy
+loop of scalar `process()` both retained small contraction differences; the
+final code uses the scalar local-copy loop and meets the plan's ladder allowance.
+
+Final placement inspection found the compiler had emitted oscillator span loops
+inside a flash-resident `std::visit` helper. Explicit per-waveform RAM helpers
+keep those loops in `.time_critical.*`; this also reduced emulator call/dispatch
+overhead. Their PCM results are identical to the preceding silent-skip stage.
+The 640-byte maximum stack observation covers 32 scripted render calls in that
+preceding stage, including triggers, slides and structural swaps; it excludes
+setup/control publication, interrupts and the firmware's outer audio loop.
+
+Host validation passes 329 CTest entries, including all existing suites and new
+coverage for every preset, irregular blocks, queue probes, every oscillator
+waveform, queued gate edges, disabled voices, master ramps, zero/oversized
+blocks, and released-voice wakeup. Documentation links also pass.
+
+The final firmware build passed at **225 MHz**, with audio code in SRAM:
+
+```powershell
+./scripts/build_pico2seq.ps1 -CpuMHz 225 -BuildDirectory build/fw-block-final
+```
+
+Artifacts are `build/fw-block-final/Pico2Seq.ino.{uf2,elf,bin,map}`. The compiler
+reports 307,844 bytes of program storage and 110,404 bytes of global RAM.
+The final ELF places the buffer renderer, block mixer, span/filter/skip helpers,
+and all eight concrete oscillator span loops at SRAM execution addresses.
+The UF2 contains code through `5d5dcd0`; subsequent documentation commits do not
+change its firmware sources. Build warnings came from bundled libraries and
+existing unused parameters; compilation and linking exited successfully.
+
+Hardware A/B, upload and listening were omitted at the user's request. The
+software checks were accepted and a 225 MHz firmware build requested instead.
+Emulator and host results do not establish physical audio behavior.
 
 ## Reading the serial heartbeat
 
