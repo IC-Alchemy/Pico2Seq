@@ -314,9 +314,9 @@ TEST_CASE("Recipe coefficients follow sample rate and controls and survive trigg
     voice.init(96000.0f);
     auto state = seededState(config);
     state.velocityLevel = 1.0f;
-    state.filterCutoff = 0.5f; // square curve: Index = 0.25
+    state.filterCutoff = 0.5f; // FMGlass's Index lane centers on 0.30
     voice.updateParameters(state);
-    REQUIRE_THAT(voice.process(), WithinAbs(0.25f / 96000.0f, 1.0e-9f));
+    REQUIRE_THAT(voice.process(), WithinAbs(0.30f / 96000.0f, 1.0e-9f));
     state.filterCutoff = 1.0f;
     state.shouldRetrigger = true;
     voice.updateParameters(state);

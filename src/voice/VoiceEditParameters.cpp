@@ -13,17 +13,18 @@ struct RecipeChoice {
   const VoiceParameterLayout *layout;
   const char *name;
 };
+// Picking a recipe in the editor borrows the lanes of its first preset.
 constexpr RecipeChoice kRecipes[] = {
-    {&VoiceRecipes::kFeedbackFm, &VoicePresets::kFmParameters, "Feedback FM"},
-    {&VoiceRecipes::kPhaseMorph, &VoicePresets::kPhaseParameters, "Phase morph"},
-    {&VoiceRecipes::kSpectralDsf, &VoicePresets::kDsfParameters, "Spectral DSF"},
-    {&VoiceRecipes::kPrism, &VoicePresets::kPrismParameters, "Prism"},
-    {&VoiceRecipes::kReedPipe, &VoicePresets::kReedPipeParameters, "Reed pipe"},
-    {&VoiceRecipes::kSilkPad, &VoicePresets::kSilkPadParameters, "Silk pad"},
-    {&VoiceRecipes::kHollowBell, &VoicePresets::kHollowBellParameters, "Hollow bell"},
-    {&VoiceRecipes::kSyncLead, &VoicePresets::kSyncLeadParameters, "Sync lead"},
-    {&VoiceRecipes::kOrbitPluck, &VoicePresets::kOrbitPluckParameters, "Orbit pluck"},
-    {&VoiceRecipes::kAirChime, &VoicePresets::kAirChimeParameters, "Air chime"}};
+    {&VoiceRecipes::kFeedbackFm, &VoicePresets::kFmGlassLayout, "Feedback FM"},
+    {&VoiceRecipes::kPhaseMorph, &VoicePresets::kPhaseMorphLayout, "Phase morph"},
+    {&VoiceRecipes::kSpectralDsf, &VoicePresets::kSpectralLayout, "Spectral DSF"},
+    {&VoiceRecipes::kPrism, &VoicePresets::kPrismLayout, "Prism"},
+    {&VoiceRecipes::kReedPipe, &VoicePresets::kReedPipeLayout, "Reed pipe"},
+    {&VoiceRecipes::kSilkPad, &VoicePresets::kSilkPadLayout, "Silk pad"},
+    {&VoiceRecipes::kHollowBell, &VoicePresets::kHollowBellLayout, "Hollow bell"},
+    {&VoiceRecipes::kSyncLead, &VoicePresets::kSyncLeadLayout, "Sync lead"},
+    {&VoiceRecipes::kOrbitPluck, &VoicePresets::kOrbitPluckLayout, "Orbit pluck"},
+    {&VoiceRecipes::kAirChime, &VoicePresets::kAirChimeLayout, "Air chime"}};
 constexpr int kRecipeCount = static_cast<int>(std::size(kRecipes));
 constexpr Parameter kParameters[] = {
     {Id::Note, "Note", Group::Sequenced, Unit::Number, 0.0f, 36.0f, false,
@@ -530,8 +531,10 @@ int recipeIndex(const VoiceConfig &c) noexcept {
 }
 void selectRecipe(VoiceConfig &c, int i) noexcept {
   i = std::clamp(i, 0, kRecipeCount - 1);
+  // Re-selecting the current recipe keeps the preset's own lanes.
+  if (c.recipe != kRecipes[i].recipe || !c.parameters)
+    c.parameters = kRecipes[i].layout;
   c.recipe = kRecipes[i].recipe;
-  c.parameters = kRecipes[i].layout;
   // Each recipe owns macro units; normalize old values through the new ranges.
   for (ParamId lane : {ParamId::Filter, ParamId::Attack, ParamId::Decay}) {
     const auto &b = VoiceParameters::binding(c, lane);

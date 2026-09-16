@@ -17,22 +17,61 @@ constexpr VoiceParameterLayout recipeLayout(VoiceParameterBinding color,
   p.slots[static_cast<size_t>(ParamId::Decay)] = character;
   return p;
 }
-inline constexpr auto kFmParameters = recipeLayout(
-    {"Index", &VoiceConfig::macro1, 0.0f, 1.0f, dspmap::Mapping::EXP, VoiceParameterUnit::Percent, true},
-    {"Ratio", &VoiceConfig::macro2, 0.5f, 8.0f, dspmap::Mapping::LINEAR, VoiceParameterUnit::Ratio, true},
-    {"Feedback", &VoiceConfig::macro3, 0.0f, 0.5f, dspmap::Mapping::EXP, VoiceParameterUnit::Percent, true});
-inline constexpr auto kPhaseParameters = recipeLayout(
-    {"Shape", &VoiceConfig::macro1, 0.0f, 1.0f, dspmap::Mapping::LINEAR, VoiceParameterUnit::Percent, true},
-    {"Skew", &VoiceConfig::macro2, -1.0f, 1.0f, dspmap::Mapping::LINEAR, VoiceParameterUnit::Percent, true},
-    {"Blend", &VoiceConfig::macro3, 0.0f, 1.0f, dspmap::Mapping::LINEAR, VoiceParameterUnit::Percent, true});
-inline constexpr auto kDsfParameters = recipeLayout(
-    {"Bright", &VoiceConfig::macro1, 0.0f, 0.9f, dspmap::Mapping::LINEAR, VoiceParameterUnit::Percent, true},
-    {"Spacing", &VoiceConfig::macro2, 0.5f, 8.0f, dspmap::Mapping::LINEAR, VoiceParameterUnit::Ratio, true},
-    {"Sub", &VoiceConfig::macro3, 0.0f, 1.0f, dspmap::Mapping::LINEAR, VoiceParameterUnit::Percent, true});
-inline constexpr auto kPrismParameters = recipeLayout(
-    {"Focus", &VoiceConfig::macro1, 0.0f, 1.0f, dspmap::Mapping::LINEAR, VoiceParameterUnit::Percent, true},
-    {"Spread", &VoiceConfig::macro2, 0.0f, 1.0f, dspmap::Mapping::LINEAR, VoiceParameterUnit::Percent, true},
-    {"Drift", &VoiceConfig::macro3, 0.0f, 1.0f, dspmap::Mapping::LINEAR, VoiceParameterUnit::Percent, true});
+// A macro lane: its span's center is the musical operating point at lane 0.5.
+constexpr VoiceParameterBinding macroLane(const char *name, float VoiceConfig::*macro,
+                                          VoiceParameters::Span span, dspmap::Mapping curve,
+                                          VoiceParameterUnit unit)
+{
+  return {name, macro, span.minimum, span.maximum, curve, unit, true, 0.5f, span.center};
+}
+
+// Every preset owns its layout object. Presets on the same recipe start from
+// one family builder, so retuning one preset never moves its siblings.
+
+// FM: Bessel index stays vocal below ~0.5 and saw-like near 1; integer ratios
+// stay tonal, and 4.77 is Yamaha's documented metallic extreme; feedback past
+// ~0.35 turns to noise, so the lane stops there.
+constexpr VoiceParameterLayout fmLayout()
+{
+  using M = dspmap::Mapping;
+  using U = VoiceParameterUnit;
+  return recipeLayout(macroLane("Index", &VoiceConfig::macro1, {0.0f, 0.30f, 1.0f}, M::EXP, U::Percent),
+                      macroLane("Ratio", &VoiceConfig::macro2, {0.5f, 2.0f, 4.77f}, M::OCT, U::Ratio),
+                      macroLane("Feedback", &VoiceConfig::macro3, {0.0f, 0.10f, 0.35f}, M::EXP, U::Percent));
+}
+constexpr VoiceParameterLayout phaseLayout()
+{
+  using M = dspmap::Mapping;
+  using U = VoiceParameterUnit;
+  return recipeLayout(macroLane("Shape", &VoiceConfig::macro1, {0.0f, 0.5f, 1.0f}, M::LINEAR, U::Percent),
+                      macroLane("Skew", &VoiceConfig::macro2, {-1.0f, 0.0f, 1.0f}, M::LINEAR, U::Percent),
+                      macroLane("Blend", &VoiceConfig::macro3, {0.0f, 0.5f, 1.0f}, M::LINEAR, U::Percent));
+}
+// DSF: spacing on an octave taper reaches both the odd and even harmonic zones.
+constexpr VoiceParameterLayout dsfLayout()
+{
+  using M = dspmap::Mapping;
+  using U = VoiceParameterUnit;
+  return recipeLayout(macroLane("Bright", &VoiceConfig::macro1, {0.0f, 0.45f, 0.9f}, M::LINEAR, U::Percent),
+                      macroLane("Spacing", &VoiceConfig::macro2, {0.5f, 2.0f, 5.07f}, M::OCT, U::Ratio),
+                      macroLane("Sub", &VoiceConfig::macro3, {0.0f, 0.3f, 1.0f}, M::LINEAR, U::Percent));
+}
+// Prism: drift past ~0.65 is seasick, so the lane stops at 0.85 (ChaosPrism
+// rests at 0.65).
+constexpr VoiceParameterLayout prismLayout()
+{
+  using M = dspmap::Mapping;
+  using U = VoiceParameterUnit;
+  return recipeLayout(macroLane("Focus", &VoiceConfig::macro1, {0.0f, 0.45f, 1.0f}, M::LINEAR, U::Percent),
+                      macroLane("Spread", &VoiceConfig::macro2, {0.0f, 0.55f, 1.0f}, M::LINEAR, U::Percent),
+                      macroLane("Drift", &VoiceConfig::macro3, {0.0f, 0.30f, 0.85f}, M::LINEAR, U::Percent));
+}
+inline constexpr auto kFmGlassLayout = fmLayout();
+inline constexpr auto kFmBassLayout = fmLayout();
+inline constexpr auto kPhaseMorphLayout = phaseLayout();
+inline constexpr auto kSpectralLayout = dsfLayout();
+inline constexpr auto kPrismLayout = prismLayout();
+inline constexpr auto kChaosPrismLayout = prismLayout();
 
 constexpr VoiceConfig recipeVoice(const VoiceRecipe &recipe, const VoiceParameterLayout &parameters,
                                  float color, float shape, float character)
@@ -58,35 +97,35 @@ constexpr VoiceConfig recipeVoice(const VoiceRecipe &recipe, const VoiceParamete
 }
 constexpr VoiceConfig makeFmGlass() noexcept
 {
-  auto c = recipeVoice(VoiceRecipes::kFeedbackFm, kFmParameters, 0.32f, 3.5f, 0.08f);
+  auto c = recipeVoice(VoiceRecipes::kFeedbackFm, kFmGlassLayout, 0.32f, 3.5f, 0.08f);
   c.defaultSustain = 0.12f;
   c.defaultRelease = 0.5f;
   return c;
 }
 constexpr VoiceConfig makeFmBass() noexcept
 {
-  auto c = recipeVoice(VoiceRecipes::kFeedbackFm, kFmParameters, 0.18f, 1.0f, 0.2f);
+  auto c = recipeVoice(VoiceRecipes::kFeedbackFm, kFmBassLayout, 0.18f, 1.0f, 0.2f);
   c.defaultDecay = 0.16f;
   c.defaultRelease = 0.08f;
   return c;
 }
 constexpr VoiceConfig makePhaseMorph() noexcept
 {
-  return recipeVoice(VoiceRecipes::kPhaseMorph, kPhaseParameters, 0.6f, 0.2f, 0.25f);
+  return recipeVoice(VoiceRecipes::kPhaseMorph, kPhaseMorphLayout, 0.6f, 0.2f, 0.25f);
 }
 constexpr VoiceConfig makeSpectral() noexcept
 {
-  return recipeVoice(VoiceRecipes::kSpectralDsf, kDsfParameters, 0.65f, 2.0f, 0.15f);
+  return recipeVoice(VoiceRecipes::kSpectralDsf, kSpectralLayout, 0.65f, 2.0f, 0.15f);
 }
 constexpr VoiceConfig makePrism() noexcept
 {
-  auto c = recipeVoice(VoiceRecipes::kPrism, kPrismParameters, 0.3f, 0.6f, 0.12f);
+  auto c = recipeVoice(VoiceRecipes::kPrism, kPrismLayout, 0.3f, 0.6f, 0.12f);
   c.defaultAttack = 0.04f;
   c.defaultSustain = 0.7f;
   return c;
 }
 constexpr VoiceConfig makeChaosPrism() noexcept
 {
-  return recipeVoice(VoiceRecipes::kPrism, kPrismParameters, 0.7f, 0.3f, 0.65f);
+  return recipeVoice(VoiceRecipes::kPrism, kChaosPrismLayout, 0.7f, 0.3f, 0.65f);
 }
 } // namespace VoicePresets

@@ -1,7 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "utils/DspMapping.h"
 #include "voice/MusicalValues.h"
@@ -314,4 +318,92 @@ TEST_CASE("Texture presets own spans that keep their effect zones at the top", "
     REQUIRE_THAT(VoiceParameters::binding(storm, ParamId::Attack).map(1.0f), WithinAbs(1.2f, 1e-6f));
     // The re-purposed Filter lane leaves the static cutoff on the shared curve.
     REQUIRE_FALSE(VoiceParameters::layout(storm).cutoffCentered());
+}
+
+TEST_CASE("Recipe presets own macro lanes centered on their musical operating points", "[mapping][presets][recipes]") {
+    constexpr auto LIN = Mapping::LINEAR;
+    struct Family { LaneSpot color, shape, character; };
+    const Family fm{{"Index", 0.0f, 0.30f, 1.0f, Mapping::EXP}, {"Ratio", 0.5f, 2.0f, 4.77f, Mapping::OCT},
+                    {"Feedback", 0.0f, 0.10f, 0.35f, Mapping::EXP}};
+    const Family phase{{"Shape", 0.0f, 0.5f, 1.0f, LIN}, {"Skew", -1.0f, 0.0f, 1.0f, LIN},
+                       {"Blend", 0.0f, 0.5f, 1.0f, LIN}};
+    const Family dsf{{"Bright", 0.0f, 0.45f, 0.9f, LIN}, {"Spacing", 0.5f, 2.0f, 5.07f, Mapping::OCT},
+                     {"Sub", 0.0f, 0.3f, 1.0f, LIN}};
+    const Family prism{{"Focus", 0.0f, 0.45f, 1.0f, LIN}, {"Spread", 0.0f, 0.55f, 1.0f, LIN},
+                       {"Drift", 0.0f, 0.30f, 0.85f, LIN}};
+    const Family reed{{"Formant", 1.0f, 3.0f, 6.0f, Mapping::OCT}, {"Bloom", 0.0f, 0.7f, 1.0f, LIN},
+                      {"Body", 0.1f, 0.4f, 0.8f, LIN}};
+    const Family silk{{"Silk", 0.0f, 0.25f, 0.65f, LIN}, {"Detune", 0.0f, 0.35f, 1.0f, LIN},
+                      {"Blend", 0.1f, 0.35f, 0.6f, LIN}};
+    const Family bell{{"Ratio", 0.5f, 2.0f, 6.0f, Mapping::OCT}, {"Edge", 0.0f, 0.15f, 0.45f, LIN},
+                      {"Ring", 0.0f, 0.5f, 0.85f, LIN}};
+    const Family sync{{"Sync", 1.0f, 2.0f, 5.0f, Mapping::OCT}, {"Edge", 0.0f, 0.25f, 0.65f, LIN},
+                      {"Bite", 0.1f, 0.45f, 0.8f, LIN}};
+    const Family orbit{{"Index", 0.0f, 1.2f, 3.0f, Mapping::EXP}, {"Ratio", 0.5f, 2.0f, 4.0f, LIN},
+                       {"Body", 0.1f, 0.4f, 0.8f, LIN}};
+    const Family chime{{"Focus", 0.0f, 0.3f, 0.8f, LIN}, {"Spread", 0.1f, 0.55f, 1.0f, LIN},
+                       {"OctMix", 0.0f, 0.25f, 0.65f, LIN}};
+    struct RecipePreset { const char *name; const Family *family; };
+    const RecipePreset presets[] = {
+        {"FMGlass", &fm},    {"FMBass", &fm},        {"VelvetKeys", &fm}, {"PhaseMorph", &phase},
+        {"Spectral", &dsf},  {"CopperBass", &dsf},   {"Prism", &prism},   {"ChaosPrism", &prism},
+        {"ReedPipe", &reed}, {"SilkPad", &silk},     {"HollowBell", &bell}, {"SyncLead", &sync},
+        {"OrbitPluck", &orbit}, {"AirChime", &chime}};
+    int recipes = 0;
+    for (uint8_t p = 0; p < VoicePresets::getPresetCount(); ++p)
+        recipes += VoicePresets::getPresetConfig(p).engine == ENGINE_RECIPE;
+    REQUIRE(recipes == static_cast<int>(std::size(presets)));
+    for (const auto &preset : presets) {
+        INFO(preset.name);
+        const auto &c = VoicePresets::getPresetConfigByName(preset.name);
+        REQUIRE(c.engine == ENGINE_RECIPE);
+        const std::pair<ParamId, LaneSpot> lanes[] = {{ParamId::Filter, preset.family->color},
+                                                      {ParamId::Attack, preset.family->shape},
+                                                      {ParamId::Decay, preset.family->character}};
+        for (const auto &[id, spot] : lanes) {
+            requireLane(c, id, spot);
+            // No preset base is glued to a rail.
+            const auto &b = VoiceParameters::binding(c, id);
+            const float rest = b.normalize(c.*(b.target));
+            CHECK(rest >= 0.15f);
+            CHECK(rest <= 0.85f);
+        }
+    }
+}
+
+TEST_CASE("Every preset owns a distinct lane layout", "[mapping][presets]") {
+    std::vector<const VoiceParameterLayout *> seen;
+    for (uint8_t p = 0; p < VoicePresets::getPresetCount(); ++p) {
+        INFO(VoicePresets::getPresetName(p));
+        const auto *layout = VoicePresets::getPresetConfig(p).parameters;
+        REQUIRE(layout != nullptr);
+        REQUIRE(std::find(seen.begin(), seen.end(), layout) == seen.end());
+        seen.push_back(layout);
+    }
+}
+
+TEST_CASE("Recipe selection keeps a preset's own lanes until the recipe changes", "[mapping][presets][recipes]") {
+    using VoiceEdit::Id;
+    auto c = VoicePresets::getPresetConfigByName("FMBass");
+    const auto *own = c.parameters;
+    const float fm = VoiceEdit::value(Id::Recipe, c);
+    VoiceEdit::setValue(Id::Recipe, c, fm);
+    REQUIRE(c.parameters == own);
+
+    VoiceEdit::setValue(Id::Recipe, c, fm + 1.0f);
+    REQUIRE(c.recipe == VoicePresets::getPresetConfigByName("PhaseMorph").recipe);
+    REQUIRE(c.parameters == VoicePresets::getPresetConfigByName("PhaseMorph").parameters);
+    for (ParamId lane : {ParamId::Filter, ParamId::Attack, ParamId::Decay}) {
+        const auto &b = VoiceParameters::binding(c, lane);
+        REQUIRE(c.*(b.target) >= b.minimum);
+        REQUIRE(c.*(b.target) <= b.maximum);
+    }
+    VoiceEdit::setValue(Id::Recipe, c, fm);
+    REQUIRE(c.parameters == VoicePresets::getPresetConfigByName("FMGlass").parameters);
+
+    // A patch parked beyond a narrowed lane clamps onto its end.
+    auto glass = VoicePresets::getPresetConfigByName("FMGlass");
+    glass.macro2 = 6.0f;
+    VoiceEdit::setValue(Id::Recipe, glass, VoiceEdit::value(Id::Recipe, glass));
+    REQUIRE_THAT(glass.macro2, WithinAbs(4.77f, 1e-5f));
 }
