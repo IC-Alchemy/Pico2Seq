@@ -25,7 +25,11 @@ constexpr uint32_t kDiagnosticIntervalMs = 2000;
 // recurs shortly after every boot resume forever.
 constexpr uint32_t kHealthyLoopIntervalMs = 15000;
 bool recoveryMode = false;
-persistence::ProjectSnapshotV1 g_pendingBootSnapshot;
+// The one snapshot buffer for every load, capture and save in this file.
+// Static, not stack: a snapshot is ~10.3 KB, and Core 0's loop stack runs into
+// Core 1's stack after ~4 KB and the heap after ~8 KB (a stack copy here hard-
+// faulted the board within seconds). Uses are sequential on Core 0, never nested.
+persistence::ProjectSnapshotV1 g_sessionSnapshot;
 bool g_bootSnapshotPending = false;
 
 // Serial and watchdog diagnostics stay on Core 0.
@@ -110,26 +114,24 @@ void Application::begin()
     // LittleFS format can take seconds and must not reboot us mid-format.
     freezeWatchdogMark(FW_SETUP_STORAGE); // breadcrumb only; not armed yet
     SessionStorage::begin();
-    persistence::ProjectSnapshotV1 snapshot;
     bool loaded;
     if (resumeFromRetained)
     {
-        loaded = RetainedSession::takeResumeSnapshot(snapshot);
+        loaded = RetainedSession::takeResumeSnapshot(g_sessionSnapshot);
         if (!loaded)
             Serial.println("[STORAGE] retained session invalid; factory defaults");
     }
     else
     {
-        loaded = SessionStorage::load(snapshot) == SessionStorage::LoadResult::Ok;
+        loaded = SessionStorage::load(g_sessionSnapshot) == SessionStorage::LoadResult::Ok;
     }
     Session::g_bootLoadedOk = loaded;
     if (loaded)
     {
-        Session::applyBeforeVoices(snapshot);
-        g_pendingBootSnapshot = snapshot;
+        Session::applyBeforeVoices(g_sessionSnapshot);
         g_bootSnapshotPending = true;
         Session::setLastSavedCrc(persistence::crc32(
-            reinterpret_cast<const uint8_t *>(&snapshot), sizeof(snapshot)));
+            reinterpret_cast<const uint8_t *>(&g_sessionSnapshot), sizeof(g_sessionSnapshot)));
         Serial.println("[STORAGE] session loaded");
     }
     else
@@ -144,14 +146,14 @@ void Application::begin()
     freezeWatchdogFeed(FW_SETUP_VOICES);
     initializeVoices(); // consumes uiState.voicePresetIndices
     if (g_bootSnapshotPending)
-        Session::applyAfterVoices(g_pendingBootSnapshot);
+        Session::applyAfterVoices(g_sessionSnapshot);
     ControlIO::observeVoiceChanges();
     ControlIO::beginMatrixAndTiles();
 
     freezeWatchdogFeed(FW_SETUP_UCLOCK);
     initializeClock();
     if (g_bootSnapshotPending)
-        Session::applyAfterClock(g_pendingBootSnapshot);
+        Session::applyAfterClock(g_sessionSnapshot);
     Serial.println("[VOICE EDIT] Patch bases + lidar modifiers; Shift + slider 4 opens editor");
     Serial.println("[CORE0] Setup complete!");
     voicesReady.store(true, std::memory_order_release);
@@ -159,9 +161,9 @@ void Application::begin()
     // Seed the retained-RAM mirror so a freeze 100 ms into loop() still finds
     // a fresh session. markBootCompleted() deliberately does NOT run here —
     // the resume-attempt counter only clears after a proven-healthy loop.
-    persistence::ProjectSnapshotV1 snap;
-    Session::captureSession(snap);
-    RetainedSession::refresh(snap);
+    // The boot snapshot has been fully applied, so its buffer is free again.
+    Session::captureSession(g_sessionSnapshot);
+    RetainedSession::refresh(g_sessionSnapshot);
 }
 
 void Application::update()
@@ -199,9 +201,8 @@ void Application::update()
     if (nowMs - lastRetainedRefreshMs >= 1000)
     {
         lastRetainedRefreshMs = nowMs;
-        persistence::ProjectSnapshotV1 snap;
-        Session::captureSession(snap);
-        RetainedSession::refresh(snap);
+        Session::captureSession(g_sessionSnapshot);
+        RetainedSession::refresh(g_sessionSnapshot);
     }
 
     // One-time confirmation that a session was restored at boot.
@@ -227,14 +228,12 @@ void Application::update()
             stopClockForEditor(); // also drains pending steps (ClockService.cpp)
         voiceManager->flushControlUpdates();
 
-        persistence::ProjectSnapshotV1 snap;
-        Session::captureSession(snap);
-        const uint32_t crc = persistence::crc32(
-            reinterpret_cast<const uint8_t *>(&snap), sizeof(snap));
-
         if (action == Session::PendingAction::Save)
         {
-            if (SessionStorage::save(snap))
+            Session::captureSession(g_sessionSnapshot);
+            const uint32_t crc = persistence::crc32(
+                reinterpret_cast<const uint8_t *>(&g_sessionSnapshot), sizeof(g_sessionSnapshot));
+            if (SessionStorage::save(g_sessionSnapshot))
             {
                 Session::setLastSavedCrc(crc);
                 uiState.oledNoticeKind = UIState::OledNoticeKind::Saved;
@@ -252,14 +251,13 @@ void Application::update()
         }
         else // Load
         {
-            persistence::ProjectSnapshotV1 loaded{};
-            if (SessionStorage::load(loaded) == SessionStorage::LoadResult::Ok)
+            if (SessionStorage::load(g_sessionSnapshot) == SessionStorage::LoadResult::Ok)
             {
-                Session::applyBeforeVoices(loaded);
-                Session::applyAfterVoices(loaded);
-                Session::applyAfterClock(loaded);
+                Session::applyBeforeVoices(g_sessionSnapshot);
+                Session::applyAfterVoices(g_sessionSnapshot);
+                Session::applyAfterClock(g_sessionSnapshot);
                 Session::setLastSavedCrc(persistence::crc32(
-                    reinterpret_cast<const uint8_t *>(&loaded), sizeof(loaded)));
+                    reinterpret_cast<const uint8_t *>(&g_sessionSnapshot), sizeof(g_sessionSnapshot)));
                 uiState.oledNoticeKind = UIState::OledNoticeKind::Loaded;
                 uiState.oledNoticeUntil = nowMs + OLED_NOTICE_DURATION_MS;
                 Serial.println("[STORAGE] loaded");
@@ -284,13 +282,12 @@ void Application::update()
     if (stopEdgeMs != 0 && !isClockRunning && nowMs - stopEdgeMs >= 1000)
     {
         stopEdgeMs = 0;
-        persistence::ProjectSnapshotV1 snap;
-        Session::captureSession(snap);
+        Session::captureSession(g_sessionSnapshot);
         const uint32_t crc = persistence::crc32(
-            reinterpret_cast<const uint8_t *>(&snap), sizeof(snap));
+            reinterpret_cast<const uint8_t *>(&g_sessionSnapshot), sizeof(g_sessionSnapshot));
         if (crc != Session::lastSavedCrc())
         {
-            if (SessionStorage::save(snap))
+            if (SessionStorage::save(g_sessionSnapshot))
             {
                 Session::setLastSavedCrc(crc);
                 Serial.println("[STORAGE] autosaved on stop");
