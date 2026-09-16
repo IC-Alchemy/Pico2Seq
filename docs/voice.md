@@ -439,6 +439,10 @@ since the Attack/Decay tracks no longer carry envelope times. Live preset switch
 gate-safe: scalar config applies immediately, but the oscillator rebuild and engine
 reset are deferred until the gate falls (`applyStructuralConfig_()`), so swapping
 presets while playing never clicks a held note or cuts a ringing tail.
+Switching away from the waveguide engine also clears the main and high-pass
+filter memory together with the string. At high pitches a faded string keeps an
+inaudible DC offset circulating, which the high-pass cancels by storing the same
+offset, so clearing only the string released that offset as a click.
 
 ---
 

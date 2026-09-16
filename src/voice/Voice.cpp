@@ -1119,6 +1119,17 @@ void Voice::applyStructuralConfig_() noexcept
   // Alternate engines: clear stale tails when switching engines.
   if (stagedEngine_ != cachedEngine_)
   {
+    // At high pitches a faded string keeps an inaudible DC offset circulating
+    // (its loop gain clamps just below 1), and the high-pass cancels it by
+    // holding the same offset in its integrator. Clearing only the string would
+    // release that stored offset as a step, so the filter memory goes with it.
+    // Other engine switches keep it: they can land mid-release, still sounding.
+    if (cachedEngine_ == ENGINE_WAVEGUIDE)
+    {
+      filter.reset();
+      filterSvf_.reset();
+      highPassFilter.reset();
+    }
     resetAlternateEngines_();
   }
   cachedEngine_ = stagedEngine_;

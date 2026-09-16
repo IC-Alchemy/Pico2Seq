@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include "voice/Voice.h"
+#include "voice/VoiceEditParameters.h"
 #include "voice/VoiceManager.h"
 #include "voice/VoicePresets.h"
 #include <algorithm>
@@ -46,6 +47,13 @@ VoiceConfig probeConfig()
     c.hasEnvelope = false;
     c.highPassFreq = 0.0f;
     c.outputLevel = 1.0f;
+    return c;
+}
+// The firmware applies presets as patches (see applyVoicePreset()).
+VoiceConfig presetPatch(VoicePresets::Id preset)
+{
+    VoiceConfig c = VoicePresets::getPresetConfig(static_cast<uint8_t>(preset));
+    VoiceEdit::enablePatch(c);
     return c;
 }
 }
@@ -135,6 +143,51 @@ TEST_CASE("Waveguide settings survive engine resets and sample rate changes", "[
             peak = std::max(peak, std::abs(actual));
         }
         REQUIRE(peak > 0.01f);
+    }
+}
+
+TEST_CASE("Swapping a faded waveguide voice to another engine stays silent", "[voice][waveguide]")
+{
+    // A high note leaves a DC offset circulating in the string after its tail
+    // fades, cancelled by the same offset in the high-pass integrator. On the
+    // Cortex-M33 build the swap released it: PCM16 stepped from 0 to -269.
+    using Id = VoicePresets::Id;
+    struct Swap { Id from, to; };
+    for (const Swap swap : {Swap{Id::WgNylon, Id::FmGlass}, Swap{Id::WgPluck, Id::NoiseStorm}}) {
+        for (const bool nextNote : {true, false}) {
+            INFO(VoicePresets::getPresetName(static_cast<uint8_t>(swap.from)) << " -> "
+                 << VoicePresets::getPresetName(static_cast<uint8_t>(swap.to))
+                 << (nextNote ? ", next note in the same buffer" : ", gate stays low"));
+            VoiceManager manager(1); // default master volume
+            const auto id = manager.addVoice(presetPatch(swap.from));
+            manager.setVoiceSlide(id, 0.040f);
+            VoiceState state;
+            state.noteIndex = 24.0f;
+            state.isGateHigh = true;
+            manager.updateVoiceState(id, state);
+            for (int i = 0; i < 24000; ++i) manager.processAllVoices();
+            state.isGateHigh = false;
+            manager.updateVoiceState(id, state);
+            for (int i = 0; i < 67200; ++i) manager.processAllVoices();
+            float tail = 0.0f;
+            for (int i = 0; i < 4800; ++i) tail = std::max(tail, std::abs(manager.processAllVoices()));
+            REQUIRE(tail < 1.0e-6f);
+
+            manager.setVoiceConfig(id, presetPatch(swap.to));
+            if (nextNote) {
+                state.noteIndex = 31.0f;
+                state.isGateHigh = true;
+                manager.updateVoiceState(id, state);
+                // Audio applies one queued update per sample, so the gate
+                // lands after this sample: the new envelope is still at zero.
+                REQUIRE(std::abs(manager.processAllVoices()) < 1.0e-4f);
+            } else {
+                // The released step would take tens of ms to decay.
+                float peak = 0.0f;
+                for (int i = 0; i < 4800; ++i) peak = std::max(peak, std::abs(manager.processAllVoices()));
+                REQUIRE(peak < 1.0e-4f);
+            }
+        }
     }
 }
 
