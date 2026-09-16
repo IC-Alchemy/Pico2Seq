@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../rpdsp/src/rpdsp/oscillator.h"
+#include "../utils/AudioRam.h"
 
 #include <cstdint>
 #include <type_traits>
@@ -78,24 +79,33 @@ class VoiceOscillator {
   // GCC's contraction of its integrator and fails the PCM16 comparison.
   void renderAdd(float *mix, const float *env, uint32_t n, float amp, bool gateBySilence) noexcept {
     std::visit([&](auto& osc) {
-      for (uint32_t k = 0; k < n; ++k) {
-        if (gateBySilence && env[k] <= 0.001f) continue;
-        // Preserve the scalar dispatch boundary: finish rounding the waveform
-        // before applying gain. Fast-math may otherwise fuse waveform math
-        // into the mixer now that each loop knows the concrete oscillator type.
-#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 10
-        const float source = __builtin_assoc_barrier(osc.process());
-#else
-        const volatile float source = osc.process();
-#endif
-        mix[k] += source * amp;
-      }
+      renderOscillatorAdd_(osc, mix, env, n, amp, gateBySilence);
     }, osc_);
   }
 
   uint8_t waveform() const { return waveform_; }
 
  private:
+  // Keep the sample loops in SRAM even when std::visit emits an out-of-line
+  // dispatch helper in flash. Dispatch itself happens only once per span.
+  template <typename T>
+#if defined(__GNUC__)
+  __attribute__((noinline))
+#endif
+  static void PICO2SEQ_AUDIO_FUNC(renderOscillatorAdd_)(
+      T &osc, float *mix, const float *env, uint32_t n, float amp, bool gateBySilence) noexcept {
+    for (uint32_t k = 0; k < n; ++k) {
+      if (gateBySilence && env[k] <= 0.001f) continue;
+      // Round the waveform before gain; preserve the scalar dispatch boundary.
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 10
+      const float source = __builtin_assoc_barrier(osc.process());
+#else
+      const volatile float source = osc.process();
+#endif
+      mix[k] += source * amp;
+    }
+  }
+
   using Osc = std::variant<rpdsp::BSplineSawOsc,
                            rpdsp::BSplineSquareOsc,
                            rpdsp::SineOscillator, rpdsp::TriangleOscillator,
