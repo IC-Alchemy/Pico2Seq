@@ -861,9 +861,8 @@ void Voice::updateOscillatorFrequencies()
 inline void Voice::applyEnvelopeParameters() noexcept
 {
   if(config.usePatchBases) {
-    const auto seconds = MusicalValues::envelopeSeconds;
-    envelope.setAttack(seconds(state.attackTimeSeconds));
-    envelope.setDecay(seconds(state.decayTimeSeconds));
+    envelope.setAttack(MusicalValues::attackSeconds(state.attackTimeSeconds));
+    envelope.setDecay(MusicalValues::envelopeSeconds(state.decayTimeSeconds));
     envelope.setSustain(config.defaultSustain);
     envelope.setRelease(config.defaultRelease);
     return;

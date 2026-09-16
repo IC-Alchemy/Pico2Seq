@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "utils/DspMapping.h"
+#include "voice/MusicalValues.h"
 #include "voice/VoiceParameters.h"
 
 // Sweet-spot lane mapping: the true-exponential OCT curve and the centered
@@ -130,4 +131,19 @@ TEST_CASE("The no-center marker survives fast-math builds", "[mapping][voice]") 
     REQUIRE(std::isfinite(VoiceParameterBinding::kUncentered));
     REQUIRE(std::isfinite(VoiceParameterBinding{}.center));
     REQUIRE_FALSE(VoiceParameterBinding{}.isCentered());
+}
+
+// ─── Envelope lane curves ────────────────────────────────────────────────────
+
+TEST_CASE("Attack lane spans 1 ms to 2 s; decay keeps 1 ms to 10 s", "[mapping][voice]") {
+    REQUIRE_THAT(MusicalValues::attackSeconds(0.0f), WithinRel(0.001f, 1e-4f));
+    REQUIRE_THAT(MusicalValues::attackSeconds(0.5f), WithinRel(std::sqrt(0.001f * 2.0f), 1e-4f)); // ~45 ms
+    REQUIRE_THAT(MusicalValues::attackSeconds(1.0f), WithinRel(2.0f, 1e-4f));
+    REQUIRE_THAT(MusicalValues::attackSeconds(-1.0f), WithinRel(0.001f, 1e-4f));
+    REQUIRE_THAT(MusicalValues::envelopeSeconds(0.5f), WithinRel(0.1f, 1e-4f));
+    REQUIRE_THAT(MusicalValues::envelopeSeconds(1.0f), WithinRel(10.0f, 1e-4f));
+    for (float seconds : {0.001f, 0.002f, 0.015f, 0.4f, 2.0f})
+        REQUIRE_THAT(MusicalValues::attackSeconds(VoiceEdit::attackNormalize(seconds)), WithinRel(seconds, 1e-4f));
+    REQUIRE_THAT(VoiceEdit::attackNormalize(5.0f), WithinAbs(1.0f, 1e-6f));
+    REQUIRE_THAT(VoiceEdit::attackNormalize(0.0f), WithinAbs(0.0f, 1e-6f));
 }

@@ -32,8 +32,8 @@ constexpr Parameter kParameters[] = {
      false, nullptr, nullptr},
     {Id::Cutoff, "Cutoff", Group::Sequenced, Unit::Percent, 0.0f, 1.0f, false,
      nullptr, nullptr},
-    {Id::Attack, "Attack", Group::Sequenced, Unit::Seconds, 0.001f, 10.0f, true,
-     nullptr, nullptr},
+    {Id::Attack, "Attack", Group::Sequenced, Unit::Seconds, 0.001f,
+     kAttackMaxSeconds, true, nullptr, nullptr},
     {Id::Decay, "Decay", Group::Sequenced, Unit::Seconds, 0.001f, 10.0f, true,
      nullptr, nullptr},
     {Id::Octave, "Octave", Group::Sequenced, Unit::Semitones, -24.0f, 24.0f,
@@ -518,6 +518,10 @@ float timeNormalize(float seconds) noexcept {
 float timeMap(float n) noexcept {
   return kTimeMin * std::pow(kTimeMax / kTimeMin, std::clamp(n, 0.0f, 1.0f));
 }
+float attackNormalize(float seconds) noexcept {
+  return std::log(std::clamp(seconds, kTimeMin, kAttackMaxSeconds) / kTimeMin) /
+         std::log(kAttackMaxSeconds / kTimeMin);
+}
 int recipeIndex(const VoiceConfig &c) noexcept {
   for (int i = 0; i < kRecipeCount; ++i)
     if (c.recipe == kRecipes[i].recipe)
@@ -546,7 +550,7 @@ float laneBase(ParamId id, const VoiceConfig &c) noexcept {
   case ParamId::Filter:
     return c.filterCutoffBase;
   case ParamId::Attack:
-    return timeNormalize(c.defaultAttack);
+    return attackNormalize(c.defaultAttack);
   case ParamId::Decay:
     return timeNormalize(c.defaultDecay);
   case ParamId::Octave:
@@ -576,7 +580,7 @@ void setLaneBase(ParamId id, VoiceConfig &c, float v) {
     c.filterCutoffBase = std::clamp(v, 0.0f, 1.0f);
     break;
   case ParamId::Attack:
-    c.defaultAttack = std::clamp(v, kTimeMin, kTimeMax);
+    c.defaultAttack = std::clamp(v, kTimeMin, kAttackMaxSeconds);
     break;
   case ParamId::Decay:
     c.defaultDecay = std::clamp(v, kTimeMin, kTimeMax);
@@ -777,9 +781,18 @@ float value(Id id, const VoiceConfig &c) noexcept {
     return static_cast<float>(static_cast<int>(v) / 2);
   return v;
 }
+namespace {
+// While the Attack lane drives the envelope, the envelope page's Attack edits
+// the same base and must keep to that lane's shorter range.
+Id envelopeAlias(Id id, const VoiceConfig &c) noexcept {
+  return id == Id::EnvAttack && sequenceLane(id, c) == ParamId::Attack ? Id::Attack
+                                                                       : id;
+}
+} // namespace
 void setValue(Id id, VoiceConfig &c, float v) noexcept {
   if (id >= Id::Count || !std::isfinite(v))
     return;
+  id = envelopeAlias(id, c);
   if (id <= Id::Slide) {
     setLaneBase(static_cast<ParamId>(id), c, v);
     return;
@@ -837,6 +850,7 @@ bool stepped(Id id) noexcept {
 void adjust(Id id, VoiceConfig &c, float delta) noexcept {
   if (!available(id, c) || !std::isfinite(delta) || delta == 0)
     return;
+  id = envelopeAlias(id, c);
   const auto &p = parameter(id);
   const auto *b = bindingFor(id, c);
   const float lo = b ? b->minimum : p.minimum, hi = b ? b->maximum : p.maximum;
