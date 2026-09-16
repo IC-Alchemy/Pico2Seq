@@ -35,6 +35,13 @@ ap::StatePacket packet(std::uint8_t seq, std::uint8_t buttons,
     return p;
 }
 
+/** The same packet with HEARTBEAT flipped, as the next sample sweep serves it. */
+ap::StatePacket swept(ap::StatePacket p)
+{
+    p.status = static_cast<std::uint8_t>(p.status ^ ap::kStatusHeartbeat);
+    return p;
+}
+
 ap::SatelliteLink freshLink(std::uint32_t timeoutMs = 100)
 {
     ap::SatelliteLink link;
@@ -192,22 +199,46 @@ TEST_CASE("holdButtonsWhileStale is available for a latching surface", "[satelli
 
 TEST_CASE("recovery republishes even when the satellite's SEQ never moved", "[satellite_link]")
 {
-    // The outage told consumers the buttons were up. When the link comes
-    // back with the same snapshot, they have to be told the truth again or a
-    // button that was held throughout stays invisible until the next press.
+    // The outage was on the wire, not in the tile: it went on sweeping the
+    // whole time with a button held and nothing else changing. The outage
+    // told consumers the buttons were up, so when the link comes back they
+    // have to be told the truth again or a button that was held throughout
+    // stays invisible until the next press.
     ap::SatelliteLink link = freshLink(100);
-    REQUIRE(link.onPacket(packet(6, 0x40, 1234), 0));
+    const ap::StatePacket held = packet(6, 0x40, 1234);
+    REQUIRE(link.onPacket(held, 0));
 
     link.tick(100);
     REQUIRE(link.stale());
     REQUIRE(link.buttons() == 0);
 
-    CHECK(link.onPacket(packet(6, 0x40, 1234), 150)); // same SEQ, publishes
+    CHECK(link.onPacket(swept(held), 150)); // same SEQ, still publishes
     CHECK(link.fresh());
     CHECK(link.buttons() == 0x40);
 
-    // And the re-sync is one-shot: the next identical read is a duplicate.
-    CHECK_FALSE(link.onPacket(packet(6, 0x40, 1234), 154));
+    // And the re-sync is one-shot: the next sweep is just a duplicate.
+    CHECK_FALSE(link.onPacket(held, 154));
+}
+
+TEST_CASE("recovery costs at most one extra poll when the heartbeat aliases", "[satellite_link]")
+{
+    // HEARTBEAT is a single bit, so an outage spanning an even number of
+    // sweeps hands back a byte-identical frame, which is indistinguishable
+    // from a frozen tile until the following sweep. Being one poll (~4 ms)
+    // late to recover is the right side of that trade: the alternative is
+    // trusting a tile that has genuinely stopped.
+    ap::SatelliteLink link = freshLink(100);
+    const ap::StatePacket held = packet(6, 0x40, 1234);
+    REQUIRE(link.onPacket(held, 0));
+    link.tick(100);
+    REQUIRE(link.stale());
+
+    CHECK_FALSE(link.onPacket(held, 150)); // aliased: still not proof of life
+    CHECK(link.stale());
+
+    CHECK(link.onPacket(swept(held), 154)); // the next sweep settles it
+    CHECK(link.fresh());
+    CHECK(link.buttons() == 0x40);
 }
 
 // ---------------------------------------------------------------------------
@@ -296,4 +327,89 @@ TEST_CASE("a satellite dropping out and returning never emits garbage", "[satell
     CHECK(link.buttons() == 0x08);
     CHECK(link.slider(0) == 1500);
     CHECK(link.staleEvents() == 1);
+}
+
+// ---------------------------------------------------------------------------
+// Liveness: sampling, not merely answering
+// ---------------------------------------------------------------------------
+
+TEST_CASE("a satellite that answers but stops sampling goes stale", "[satellite_link]")
+{
+    // The PY32 firmware can stall its publish path while the I2C slave keeps
+    // serving the buffer it last latched: every read returns the same
+    // well-formed, checksum-correct frame forever. "A packet arrived" is
+    // therefore not evidence of life, and a timeout fed by it would trust a
+    // dead snapshot indefinitely.
+    ap::SatelliteLink link = freshLink(100);
+    const ap::StatePacket frozen = packet(3, 0x81, 2048);
+    REQUIRE(link.onPacket(frozen, 0));
+
+    for (std::uint32_t t = 4; t <= 100; t += 4)
+    {
+        link.onPacket(frozen, t); // byte-identical, every time
+    }
+
+    CHECK(link.stale());
+    CHECK(link.rejectedReads() == 0); // nothing ever failed
+    CHECK(link.goodPackets() > 1);    // every read "succeeded"
+    CHECK(link.buttons() == 0);       // and the holds are still dropped
+    CHECK(link.slider(0) == 2048);    // faders still held
+}
+
+TEST_CASE("a toggling heartbeat keeps an idle link fresh forever", "[satellite_link]")
+{
+    // The other half of the rule. A player touching nothing leaves SEQ frozen
+    // indefinitely; HEARTBEAT still toggles every sweep, and that has to be
+    // enough, or an untouched panel would drop its controls after 100 ms.
+    ap::SatelliteLink link = freshLink(100);
+    ap::StatePacket p = packet(9, 0x01, 1234);
+    REQUIRE(link.onPacket(p, 0));
+
+    for (std::uint32_t t = 4; t <= 4000; t += 4)
+    {
+        p = swept(p);
+        CHECK_FALSE(link.onPacket(p, t)); // nothing new to publish...
+    }
+
+    CHECK(link.fresh());               // ...but demonstrably alive
+    CHECK(link.staleEvents() == 0);
+    CHECK(link.buttons() == 0x01);     // a real hold is not dropped
+    CHECK(link.duplicatePackets() > 0);
+}
+
+TEST_CASE("SEQ moving is liveness even if the heartbeat lands the same", "[satellite_link]")
+{
+    // HEARTBEAT is one bit, so a poll that misses a sweep can see it
+    // unchanged. SEQ moving proves the sweep happened regardless.
+    ap::SatelliteLink link = freshLink(100);
+    ap::StatePacket p = packet(1, 0x00);
+    REQUIRE(link.onPacket(p, 0));
+
+    for (std::uint32_t t = 40; t <= 400; t += 40)
+    {
+        p.seq = static_cast<std::uint8_t>((p.seq + 1) & 0x0F); // same status byte
+        CHECK(link.onPacket(p, t));
+    }
+    CHECK(link.fresh());
+    CHECK(link.staleEvents() == 0);
+}
+
+TEST_CASE("a stale link publishes nothing until it is trusted again", "[satellite_link]")
+{
+    ap::SatelliteLink link = freshLink(100);
+    const ap::StatePacket frozen = packet(5, 0x0F, 900);
+    REQUIRE(link.onPacket(frozen, 0));
+
+    link.tick(100);
+    REQUIRE(link.stale());
+
+    // Still frozen: no liveness, so no publish and no un-releasing of buttons.
+    CHECK_FALSE(link.onPacket(frozen, 104));
+    CHECK(link.stale());
+    CHECK(link.buttons() == 0);
+
+    // Sweeping again: liveness returns, and so does the real button state.
+    CHECK(link.onPacket(swept(frozen), 108));
+    CHECK(link.fresh());
+    CHECK(link.buttons() == 0x0F);
 }

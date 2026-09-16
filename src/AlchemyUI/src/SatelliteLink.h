@@ -14,9 +14,15 @@
 //      unchanged snapshot never re-publishes and never re-fires an edge.
 //      Equality only: the counter wraps, so "newer" has no meaning.
 //
-//   2. Timeout — if no verified packet arrives within timeoutMs the link is
-//      Stale. Stale is a statement about the *link*, not about the data: the
-//      cached values stay readable, they are just no longer known to be true.
+//   2. Timeout — if the satellite does not prove within timeoutMs that it is
+//      still sampling, the link is Stale. The proof is SEQ moving or
+//      HEARTBEAT toggling, never merely "a packet arrived": the tile firmware
+//      has a path where its publish stalls while the I2C peripheral keeps
+//      serving the last frame, checksum and all, indefinitely. Counting that
+//      as liveness would freeze a snapshot into the audio path and call it
+//      healthy. Stale is a statement about the *link*, not about the data:
+//      the cached values stay readable, they are just no longer known to be
+//      true.
 //
 //   3. Last-known-good — a failed read (NACK, short read, bad checksum) is
 //      dropped whole. It never partially overwrites the cache, so the values
@@ -89,28 +95,45 @@ class SatelliteLink {
    *
    * @return true when the caller should publish this state: SEQ moved, this
    *         is the first packet since begin(), or the link is recovering from
-   *         Stale and consumers need re-syncing.
+   *         Stale and consumers need re-syncing. Always false while Stale —
+   *         a link the timeout does not trust publishes nothing.
    */
   bool onPacket(const StatePacket& packet, std::uint32_t nowMilliseconds) {
     const bool first = !hasGood_;
     const bool seqMoved = seqChanged(packet.seq, cache_.seq);
-    const bool republish = first || seqMoved || resyncPending_;
+    // HEARTBEAT toggles on every one of the satellite's sample sweeps, whether
+    // or not anything changed. Together with SEQ it is the only evidence that
+    // the satellite is still *sampling*, as opposed to merely still answering:
+    // a tile whose publish path has stalled keeps serving its last frame,
+    // checksum and all, forever. Refreshing the timeout on "a packet arrived"
+    // would call that healthy and hand the audio path a frozen snapshot.
+    const bool heartbeatToggled =
+        ((packet.status ^ cache_.status) & kStatusHeartbeat) != 0;
+    const bool sweeping = first || seqMoved || heartbeatToggled;
 
     if (seqMoved || first) {
       cache_ = packet;
     } else {
       // Same snapshot, re-read. Keep the cached values byte-for-byte and take
-      // only the liveness: STATUS flags can change (HEARTBEAT toggles every
-      // sweep, a fault can raise) without SEQ moving.
+      // only the flags: HEARTBEAT toggles every sweep and a fault can raise
+      // without SEQ moving.
       cache_.status = packet.status;
       ++duplicatePackets_;
     }
 
     hasGood_ = true;
-    resyncPending_ = false;
-    lastGoodMilliseconds_ = nowMilliseconds;
     ++goodPackets_;
+    if (sweeping) {
+      lastGoodMilliseconds_ = nowMilliseconds;
+    }
     evaluate(nowMilliseconds);
+
+    // A frozen tile answers every poll and never gets here: it cannot refresh
+    // the timeout, so it ages into Stale and stays there.
+    if (state_ != State::Fresh) return false;
+
+    const bool republish = first || seqMoved || resyncPending_;
+    if (republish) resyncPending_ = false;
     return republish;
   }
 

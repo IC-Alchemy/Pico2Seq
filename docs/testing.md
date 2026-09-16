@@ -71,8 +71,8 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 8 | `tests/unit/test_voiceoscillator.cpp` | Voice Oscillator Dispatch | `VoiceOscillator` variant dispatch, band-limited waveforms, pulse width modulation, pitch changes |
 | 9 | `tests/unit/test_control_surface_logic.cpp` | Tile UI Decision Logic | `ModeStabilizer` debouncing, `PadBank` voice-pair resolution, `ShiftLatch` latching, `FaderMap` deadband |
 | 10 | `tests/unit/test_alchemy_proto.cpp` | Alchemy Tile Wire Format | Per-tile-type button block offsets (slider DATA 8..10 vs button DATA 0..2), fader decode, SEQ/STATUS decode, frame checksum, identity validation, `TileButton` press/hold/tap |
-| 10a | `tests/unit/test_satellite_link.cpp` | Satellite cached control state | SEQ dedupe and wrap, timeout into Stale, buttons released / faders held while stale, recovery re-publish, rejected reads never overwriting the cache (`[satellite_link]`) |
-| 10b | `tests/unit/test_alchemy_tiles.cpp` | Alchemy tile driver (`pico2seq_tile_tests`) | One-transaction snapshot poll, sticky edges consumed once, a dead satellite holding faders but dropping button holds, corrupt/short frames refused (`[alchemy_tiles]`, isolated `tests/tile_stubs/`) |
+| 10a | `tests/unit/test_satellite_link.cpp` | Satellite cached control state | SEQ dedupe and wrap, liveness from SEQ/HEARTBEAT (a tile that answers but stopped sampling still goes Stale), timeout into Stale, buttons released / faders held while stale, recovery re-publish, rejected reads never overwriting the cache (`[satellite_link]`) |
+| 10b | `tests/unit/test_alchemy_tiles.cpp` | Alchemy tile driver (`pico2seq_tile_tests`) | One-transaction snapshot poll, sticky edges delivered once and never re-delivered from a re-read frame, a frozen-but-answering tile caught, a dead satellite holding faders but dropping button holds, corrupt/short frames refused (`[alchemy_tiles]`, isolated `tests/tile_stubs/`) |
 | 11 | `tests/unit/test_app_runtime.cpp` | App runtime helpers | PCM16 DAC conversion (clipping/truncation, `[app][pcm]`), lidar recording calibration across the 55–700 mm window (`[app][recording]`) |
 | 12 | `tests/unit/test_audio_i2s.cpp` | I2S output path (`pico2seq_audio_tests`) | Rendered buffers handed to DMA, starvation recovery (`[audio][i2s]`, isolated `tests/audio_stubs/`) |
 | 13 | `tests/unit/test_freeze_watchdog.cpp` | `FreezeWatchdog` (`pico2seq_watchdog_tests`) | Watchdog scratch evidence, boot vs late-serial reconnect, no stale reports on normal boot (`[watchdog]`, isolated `tests/watchdog_stubs/`) |
@@ -211,10 +211,11 @@ Three subsystems compile against their own dedicated stub sets instead of the sh
 separate CMake targets in `tests/CMakeLists.txt`.
 
 `tests/tile_stubs/` shadows only `Wire.h` (`Arduino.h` still comes from `tests/stubs/`),
-replacing the no-op bus with a scriptable one: tests attach `FakeTile` devices, make them
-NACK, short-read or corrupt their checksum, and assert both on what the driver decoded and
-on how many transactions it spent. That is the only place the one-transaction snapshot poll
-can actually be proven.
+replacing the no-op bus with a scriptable one: tests attach `FakeTile` devices, run their
+own 4 ms sample sweeps, and make them NACK, short-read, corrupt their checksum or freeze
+(answer perfectly while nothing behind the frame changes). Assertions cover both what the
+driver decoded and how many transactions it spent. That is the only place the
+one-transaction snapshot poll can actually be proven.
 
 ---
 

@@ -249,15 +249,20 @@ void AlchemyTiles::pollTile(int slot, std::uint32_t now) {
   tile.lastSeq = decoded.packet.seq;
   tile.dataChanged = links_[slot].onPacket(decoded.packet, now);
 
-  // Levels come from the link (so a recovering or stale link's view wins);
-  // sticky edges come straight from this frame and are never cached — an
-  // edge is true for exactly the one read that consumed it, and replaying a
-  // stored one would invent a press that never happened.
+  // Levels come from the link (so a recovering or stale link's view wins).
+  //
+  // Sticky edges ride only on a frame the link actually published. The tile
+  // clears them once a read cursor passes them and republishes on its next
+  // sweep, so two polls landing inside one sweep both see the same edge
+  // bytes — the second is one read's data arriving twice, not a second
+  // press, and delivering it would invent one. A stale link publishes
+  // nothing, so a frozen tile's edges stop here too.
   const std::uint8_t level = links_[slot].buttons();
+  const alchemy::ButtonBlock edges =
+      tile.dataChanged ? decoded.edges : alchemy::ButtonBlock{};
   for (std::uint8_t b = 0; b < alchemy::kButtonsPerTile; ++b) {
     const std::uint8_t mask = static_cast<std::uint8_t>(1u << b);
-    buttons_[slot][b].update((level & mask) != 0,
-                             (decoded.edges.pressed & mask) != 0,
-                             (decoded.edges.released & mask) != 0, now);
+    buttons_[slot][b].update((level & mask) != 0, (edges.pressed & mask) != 0,
+                             (edges.released & mask) != 0, now);
   }
 }

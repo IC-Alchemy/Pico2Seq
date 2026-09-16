@@ -92,16 +92,34 @@ slot inside `AlchemyTiles`.
 ### 1. Sequence counter
 
 SEQ advances only when the satellite's own state changed. An equal SEQ means
-"alive, nothing new": the link refreshes its liveness, takes the status byte (the
-heartbeat toggles every sweep and a fault can raise without the DATA block moving),
-and publishes nothing. A re-read of an unchanged snapshot therefore never
-re-triggers a control action.
+"nothing new": the link keeps its cached values byte-for-byte, takes the status byte
+(the heartbeat toggles every sweep and a fault can raise without the DATA block
+moving), and publishes nothing. A re-read of an unchanged snapshot therefore never
+re-triggers a control action, and its sticky edges are not delivered a second time.
+
+An equal SEQ on its own is *not* a claim that the satellite is alive — that is the
+timeout's business, below.
 
 ### 2. Timeout
 
-No verified packet for `kLinkTimeoutMs` (100 ms) and the link is **Stale**. That is
-a statement about the *link*, not the data: the cached values stay readable, they
-are just no longer known to be true.
+If the satellite does not prove within `kLinkTimeoutMs` (100 ms) that it is still
+*sampling*, the link is **Stale**. That is a statement about the *link*, not the
+data: the cached values stay readable, they are just no longer known to be true.
+
+The proof is **SEQ moving or HEARTBEAT toggling** — never merely "a packet
+arrived". The tile firmware guards its double buffer with a `servingBuf` interlock
+so a publish can never recycle a buffer a read is still serving; if that interlock
+is ever left latched (see [Open items on the tile side](#open-items-on-the-tile-side)),
+`publishFrame()` returns early forever. The I2C slave then keeps serving the last
+latched frame — correct checksum, prompt ACK, every field frozen, including
+HEARTBEAT. Treating arrival as liveness would call that healthy indefinitely and
+hold a pre-fault snapshot in front of the audio engine, which is exactly what this
+layer exists to prevent. The tile's own header says it plainly: *frozen SEQ +
+toggling HEARTBEAT = idle, both frozen = wedged.*
+
+The cost is one bit of aliasing: HEARTBEAT is a single bit, so an outage spanning an
+even number of sweeps hands back a byte-identical frame and recovery takes one extra
+poll (~4 ms). Invisible, and the right side of the trade.
 
 Staleness is evaluated on every `update()` pass for every claimed slot, **not** only
 when a slot's turn comes round in the polling rotation. Five slots sharing a
@@ -135,6 +153,47 @@ the right answer. It is off by default and the tile driver does not set it.
 When a satellite comes back, the link **re-publishes even if SEQ never moved**:
 consumers were shown released buttons for the whole outage and have to be told the
 truth again, or a button held throughout stays invisible until the next press.
+
+## What the tile firmware guarantees
+
+The hub's decisions lean on four properties of the PY32 sketches
+(`SliderModule.ino`, `ButtonModule8.ino`), which is why they are written down here:
+
+| Property | Why the hub depends on it |
+|---|---|
+| The frame is **double-buffered** and published with a single index flip; the ISR latches one buffer at ADDR-match and serves it for the whole transaction. | A frame read in one transaction is internally coherent. Splitting the read is what would tear it. |
+| **HEARTBEAT toggles on every sweep**, change or no change. | The only liveness signal that distinguishes "idle" from "wedged". |
+| **SEQ advances only when a DATA byte changed**, and wraps at 15. | Equality-only comparison; an unchanged SEQ means nothing new, not "older". |
+| Sticky press/release bits **clear only after a master's read cursor passes them**, deferred to the tile's loop so an aborted read loses nothing. | An edge is never lost, but the same edge is served again to any read landing before the tile's next sweep — hence the hub delivers edges only on a frame its link actually published. |
+| Over-reads pad with `0x00` and **never NACK mid-transaction**. | A wrong read length is safe and distinguishable from an empty bus. |
+
+Note that each button edge costs **two** SEQ advances: one publishing the edge, one
+publishing the cleared sticky bytes. Harmless here — the hub reads the whole snapshot
+every poll regardless — but it doubles the "changed" rate any SEQ-triggered logic sees.
+
+## Open items on the tile side
+
+Neither is fixable from this repository; both are recorded here because the hub's
+behaviour is shaped around them.
+
+1. **`servingBuf` is not reset when the peripheral is re-initialised.** It is cleared
+   only in `endTransaction()`. If `i2cBusWatchdog()` force-resets I2C1 mid-read, no
+   STOP or NACK ever arrives for that dead transaction, so `servingBuf` stays latched
+   at a buffer index. `publishFrame()` then hits `if (servingBuf == back) return;` on
+   every subsequent sweep and the tile's frame — SEQ, DATA and HEARTBEAT alike —
+   freezes permanently while the slave keeps answering. One line in `i2cSlaveBegin()`
+   (`servingBuf = 0xFF;`) closes it. The hub's heartbeat-based timeout is what
+   contains it until then.
+
+2. **The two tiles configure different bus speeds.** `SliderModule.ino` sets
+   `hi2c.Init.ClockSpeed = 100000`; `ButtonModule8.ino` sets `400000`. They share one
+   bank, and the hub drives it at 400 kHz (`kTileBusFrequencyHz` in
+   `src/app/ControlIO.cpp`) — while the comment on that same line, this repo's
+   `AlchemyTiles.h`, and the control-surface design spec all call 100 kHz the house
+   rate because "400 kHz stalls tile transfers on this rig". The tile configured for
+   standard mode is exactly the one whose stalling is documented. Cheap experiment:
+   set the slider tile to `400000` (or the hub to 100 kHz) and see whether the stall
+   follows the setting.
 
 ## Why audio cannot stall
 

@@ -45,10 +45,9 @@ public:
     /** Publish a new snapshot: SEQ, button level, and (slider tiles) faders. */
     void setState(uint8_t seq, uint8_t buttonLevel, const uint16_t *faders = nullptr)
     {
-        status_ = static_cast<uint8_t>((seq & alchemy::kStatusSeqMask)
-                                       << alchemy::kStatusSeqShift);
-        if (heartbeat_) status_ |= alchemy::kStatusHeartbeat;
+        seq_ = static_cast<uint8_t>(seq & alchemy::kStatusSeqMask);
         heartbeat_ = !heartbeat_;
+        rebuildStatus();
 
         for (uint8_t i = 0; i < alchemy::kSliderDataLen; ++i) data_[i] = 0;
         const uint8_t offset = alchemy::buttonBlockOffset(typeId_);
@@ -75,10 +74,33 @@ public:
         data_[offset + 2] = released;
     }
 
+    /**
+     * The satellite's own sample sweep, as the real firmware runs it: every
+     * SWEEP_INTERVAL_MS it republishes and HEARTBEAT toggles, whether or not
+     * anything changed. Driven from the test's clock so a tile left alone
+     * still looks alive rather than looking frozen.
+     */
+    void tick(uint32_t nowMilliseconds)
+    {
+        if (frozen_) return;
+        if (nowMilliseconds - lastSweepMs_ < kSweepIntervalMs) return;
+        lastSweepMs_ = nowMilliseconds;
+        heartbeat_ = !heartbeat_;
+        rebuildStatus();
+    }
+
     // Failure injection.
     void setOffline(bool offline) { offline_ = offline; }      // NACKs everything
     void setShortRead(bool shortRead) { shortRead_ = shortRead; }
     void setCorruptChecksum(bool corrupt) { corrupt_ = corrupt; }
+    /**
+     * Stop sweeping while still answering the bus perfectly: every read still
+     * returns a well-formed, checksum-correct frame, but STATUS and DATA are
+     * frozen. This is the tile firmware's publish-stall — the slave ISR keeps
+     * serving whichever buffer it last latched, so the failure is invisible to
+     * anything that treats "a packet arrived" as liveness.
+     */
+    void setFrozen(bool frozen) { frozen_ = frozen; }
 
     [[nodiscard]] uint8_t dataLen() const { return dataLen_; }
     [[nodiscard]] bool offline() const { return offline_; }
@@ -95,6 +117,14 @@ public:
     }
 
 private:
+    static constexpr uint32_t kSweepIntervalMs = 4; // SWEEP_INTERVAL_MS on the tile
+
+    void rebuildStatus()
+    {
+        status_ = static_cast<uint8_t>(seq_ << alchemy::kStatusSeqShift);
+        if (heartbeat_) status_ |= alchemy::kStatusHeartbeat;
+    }
+
     [[nodiscard]] uint8_t byteAt(uint8_t reg) const
     {
         if (reg < alchemy::kIdentityReadLength) return identity_[reg];
@@ -115,12 +145,15 @@ private:
     uint8_t identity_[alchemy::kIdentityReadLength] = {0};
     uint8_t data_[alchemy::kSliderDataLen] = {0};
     uint8_t status_ = 0;
+    uint8_t seq_ = 0;
     uint8_t stickyPressed_ = 0;
     uint8_t stickyReleased_ = 0;
+    uint32_t lastSweepMs_ = 0;
     bool heartbeat_ = false;
     bool offline_ = false;
     bool shortRead_ = false;
     bool corrupt_ = false;
+    bool frozen_ = false;
 };
 
 class TwoWire
@@ -185,6 +218,13 @@ public:
 
     void attach(uint8_t address, const FakeTile &tile) { tiles_[address] = tile; }
     FakeTile &tile(uint8_t address) { return tiles_[address]; }
+
+    /** Run every attached tile's own sample sweep up to `nowMilliseconds`. */
+    void tickAll(uint32_t nowMilliseconds)
+    {
+        for (auto &entry : tiles_) entry.second.tick(nowMilliseconds);
+    }
+
     [[nodiscard]] bool hasTile(uint8_t address) const
     {
         return tiles_.find(address) != tiles_.end();

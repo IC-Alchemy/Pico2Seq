@@ -46,10 +46,11 @@ struct Rig
     FakeTile &slider() { return bus.tile(kSliderAddress); }
     FakeTile &buttonTile() { return bus.tile(kButtonAddress); }
 
-    /** Advance time and run one update() pass. */
+    /** Advance time, let the tiles sweep, and run one update() pass. */
     void step(std::uint32_t deltaMs)
     {
         now += deltaMs;
+        bus.tickAll(now); // the satellites sample on their own clock
         tiles.update(now);
     }
 
@@ -326,4 +327,104 @@ TEST_CASE("an empty bus never claims a tile or reports a value", "[alchemy_tiles
     for (std::uint32_t t = 1; t <= 200; ++t) tiles.update(t);
     CHECK(tiles.presentTileCount() == 0);
     CHECK(tiles.faderRaw(0) == 0);
+}
+
+// ---------------------------------------------------------------------------
+// The tile that answers but has stopped sampling
+// ---------------------------------------------------------------------------
+
+TEST_CASE("a frozen tile is caught even though every read succeeds", "[alchemy_tiles]")
+{
+    // The PY32 firmware's publish path can stall while its I2C slave keeps
+    // serving the buffer it last latched. Every poll then returns a
+    // well-formed, checksum-correct frame forever. Nothing about the
+    // transaction is wrong; the data behind it is dead. A timeout fed by
+    // "a packet arrived" would call this healthy indefinitely and hand the
+    // audio path a snapshot from before the fault.
+    Rig rig;
+    rig.slider().setState(1, 0x01, kMidFaders);
+    rig.pollSlider();
+    REQUIRE(rig.tiles.link(0).fresh());
+    REQUIRE(rig.tiles.button(0, 0).held());
+
+    rig.slider().setFrozen(true);
+    rig.run(AlchemyTiles::kLinkTimeoutMs + 50);
+
+    // Reads kept succeeding the whole time...
+    CHECK(rig.tiles.link(0).rejectedReads() == 0);
+    CHECK(rig.tiles.info(0).present);
+    CHECK(rig.tiles.info(0).busErrors == 0);
+    // ...and the link still knows it cannot be believed.
+    CHECK(rig.tiles.link(0).stale());
+    CHECK_FALSE(rig.tiles.button(0, 0).held());
+    CHECK(rig.tiles.faderRaw(1) == 2000); // positions still held
+}
+
+TEST_CASE("an idle tile that keeps sweeping stays fresh indefinitely", "[alchemy_tiles]")
+{
+    // The other half of the same rule: a player touching nothing leaves SEQ
+    // frozen for as long as they like. HEARTBEAT still toggles every sweep,
+    // and that has to be enough to keep the link trusted, or an untouched
+    // panel would drop its controls after 100 ms.
+    Rig rig;
+    rig.slider().setState(3, 0x02, kMidFaders);
+    rig.pollSlider();
+    REQUIRE(rig.tiles.button(0, 1).held());
+
+    rig.run(10 * AlchemyTiles::kLinkTimeoutMs);
+
+    CHECK(rig.tiles.link(0).fresh());
+    CHECK(rig.tiles.link(0).staleEvents() == 0);
+    CHECK(rig.tiles.button(0, 1).held()); // a real hold is not dropped
+    CHECK(rig.tiles.faderRaw(3) == 4000);
+    CHECK(rig.tiles.link(0).duplicatePackets() > 0); // SEQ never moved
+}
+
+TEST_CASE("a frozen tile recovers when it starts sweeping again", "[alchemy_tiles]")
+{
+    Rig rig;
+    rig.slider().setState(1, 0x04, kMidFaders);
+    rig.pollSlider();
+
+    rig.slider().setFrozen(true);
+    rig.run(AlchemyTiles::kLinkTimeoutMs + 50);
+    REQUIRE(rig.tiles.link(0).stale());
+
+    rig.slider().setFrozen(false);
+    rig.run(50);
+
+    CHECK(rig.tiles.link(0).fresh());
+    CHECK(rig.tiles.button(0, 2).held()); // republished on recovery
+}
+
+TEST_CASE("a frame read more than once does not re-deliver its edges", "[alchemy_tiles]")
+{
+    // The tile clears its sticky bytes only once a read cursor has passed
+    // them, and republishes on its next sweep. If the tile's loop stalls, the
+    // hub can read the same frame — sticky bits and all — several times. Those
+    // are one read's data arriving repeatedly, not repeated presses.
+    Rig rig;
+    rig.slider().setState(1, 0x00, kMidFaders);
+    rig.pollSlider();
+
+    // A tap that landed entirely between polls: level already back down, both
+    // sticky bits set.
+    rig.slider().setEdges(/*pressed=*/0x01, /*released=*/0x01);
+    rig.slider().setState(2, 0x00, kMidFaders);
+    rig.pollSlider();
+    REQUIRE(rig.tiles.button(0, 0).pressEdge());
+
+    // The tile stops sweeping: same frame, same sticky bytes, every poll.
+    rig.slider().setFrozen(true);
+
+    rig.pollSlider();
+    CHECK(rig.tiles.button(0, 0).releaseTap()); // the tap resolves exactly once
+    CHECK_FALSE(rig.tiles.button(0, 0).held());
+
+    for (int poll = 0; poll < 3; ++poll)
+    {
+        rig.pollSlider();
+        CHECK_FALSE(rig.tiles.button(0, 0).pressEdge());
+        CHECK_FALSE(rig.tiles.button(0, 0).releaseTap());
+    }
 }
