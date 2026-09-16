@@ -40,8 +40,11 @@
 // AlchemyControlBridge; audio owns Core 1 alone).
 //
 // The bus clock is the sketch's business (it is shared with the OLED, the
-// TMAG5273 and the VL53L1X): call Wire.setClock() before begin(). 100 kHz is
-// the house rate — 400 kHz stalls transfers on this rig.
+// TMAG5273 and the VL53L1X): call Wire.setClock() before begin(). Whatever
+// rate it picks, every tile on the bank must be programmed for the same one —
+// a tile configured for standard-mode timing while the hub clocks it at fast
+// mode is the stall this comment used to blame on 400 kHz itself. The rig runs
+// 400 kHz, and tiles/*/*.ino say so too.
 
 #ifndef ALCHEMY_UI_TILES_H
 #define ALCHEMY_UI_TILES_H

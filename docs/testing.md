@@ -72,6 +72,8 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 9 | `tests/unit/test_control_surface_logic.cpp` | Tile UI Decision Logic | `ModeStabilizer` debouncing, `PadBank` voice-pair resolution, `ShiftLatch` latching, `FaderMap` deadband |
 | 10 | `tests/unit/test_alchemy_proto.cpp` | Alchemy Tile Wire Format | Per-tile-type button block offsets (slider DATA 8..10 vs button DATA 0..2), fader decode, SEQ/STATUS decode, frame checksum, identity validation, `TileButton` press/hold/tap |
 | 10a | `tests/unit/test_satellite_link.cpp` | Satellite cached control state | SEQ dedupe and wrap, liveness from SEQ/HEARTBEAT (a tile that answers but stopped sampling still goes Stale), timeout into Stale, buttons released / faders held while stale, recovery re-publish, rejected reads never overwriting the cache (`[satellite_link]`) |
+| 10c | `tests/unit/test_py32_slider_tile.cpp` | PY32 slider tile firmware (`py32_slider_tests`) | The sketch itself: identity block, coherent checksummed frame, SEQ vs HEARTBEAT, publish never stalled by an in-flight or abandoned read, survival of a peripheral rebuild, sticky edges cleared only once delivered, TXE+BTF in one snapshot, pointer parking (`[py32][slider]`, isolated `tests/py32_stubs/`) |
+| 10d | `tests/unit/test_py32_button_tile.cpp` | PY32 button tile firmware (`py32_button_tests`) | Same slave contract plus the 8-bit bitmap in a 3-byte DATA block and the shared bus rate (`[py32][button]`) |
 | 10b | `tests/unit/test_alchemy_tiles.cpp` | Alchemy tile driver (`pico2seq_tile_tests`) | One-transaction snapshot poll, sticky edges delivered once and never re-delivered from a re-read frame, a frozen-but-answering tile caught, a dead satellite holding faders but dropping button holds, corrupt/short frames refused (`[alchemy_tiles]`, isolated `tests/tile_stubs/`) |
 | 11 | `tests/unit/test_app_runtime.cpp` | App runtime helpers | PCM16 DAC conversion (clipping/truncation, `[app][pcm]`), lidar recording calibration across the 55–700 mm window (`[app][recording]`) |
 | 12 | `tests/unit/test_audio_i2s.cpp` | I2S output path (`pico2seq_audio_tests`) | Rendered buffers handed to DMA, starvation recovery (`[audio][i2s]`, isolated `tests/audio_stubs/`) |
@@ -204,11 +206,19 @@ voice.setCurrentScalePointer(&scaleIndex);
 ### 3. External Symbol Single-Definition Rule
 When testing files that declare `extern` globals (e.g. `slideMode` or `currentScale`), define those symbols **only once** in `tests/unit/test_helpers.cpp` to prevent linker multiple-definition collisions across test translation units.
 
-Three subsystems compile against their own dedicated stub sets instead of the shared
+Four subsystems compile against their own dedicated stub sets instead of the shared
 `tests/stubs/`: `src/audio/` (I2S driver) builds against `tests/audio_stubs/`,
-`src/utils/FreezeWatchdog.h` builds against `tests/watchdog_stubs/`, and
-`src/AlchemyUI/src/AlchemyTiles.cpp` builds against `tests/tile_stubs/` — all wired as
-separate CMake targets in `tests/CMakeLists.txt`.
+`src/utils/FreezeWatchdog.h` builds against `tests/watchdog_stubs/`,
+`src/AlchemyUI/src/AlchemyTiles.cpp` builds against `tests/tile_stubs/`, and the PY32
+tile sketches in `tiles/` build against `tests/py32_stubs/` — all wired as separate
+CMake targets in `tests/CMakeLists.txt`.
+
+`tests/py32_stubs/` is the odd one: it shims the PY32Duino core and its HAL so the tile
+sketches compile unmodified on the host, and `TileHarness.h` plays the RP2350 master
+against their I2C slave ISR flag by flag. That is the only way to reach the ISR's own
+edge cases — a master that stops mid-frame, BTF arriving with TXE already set, a
+peripheral reset in the middle of a read. It models no timing at all; anything that
+needs the part still needs the part.
 
 `tests/tile_stubs/` shadows only `Wire.h` (`Arduino.h` still comes from `tests/stubs/`),
 replacing the no-op bus with a scriptable one: tests attach `FakeTile` devices, run their
@@ -236,6 +246,7 @@ one-transaction snapshot poll can actually be proven.
 - [`docs/sequencer.md`](sequencer.md) — Sequencer engine and polymetric parameter tracks
 - [`docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`](superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md) — ControlSurfaceLogic design specification
 - [`docs/alchemy-satellite-link.md`](alchemy-satellite-link.md) — Satellite state packet format and the sequence/timeout/last-known-good contract
+- [`tiles/README.md`](../tiles/README.md) — PY32 tile firmware, its build, and the three rules the hub is built on
 
 ### Voice ownership regression suite
 
