@@ -284,7 +284,7 @@ Pico2Seq leverages the dual ARM Cortex-M33 cores of the RP2350:
 |       (UI, Sensors & MIDI)         |    |       (Real-Time Audio DSP)        |
 +------------------------------------+    +------------------------------------+
 | • 1ms sensor poll (TMAG, VL53L1X)   |    | • fill_audio_buffer() loop         |
-| • MPR121 32-pad touch matrix scan  |    | • VoiceManager::processAllVoices() |
+| • MPR121 32-pad touch matrix scan  |    | • VoiceManager::processBlock() |
 | • Alchemy tile panel polling (I2C1)|    | • 4-voice synthesis chain          |
 | • 50Hz OLED & WS2812B LED updates  |    | • FloatToPcm16() with __SSAT       |
 | • uClock sequencer step ticking    |    | • Non-blocking I2S DMA @ 48kHz     |

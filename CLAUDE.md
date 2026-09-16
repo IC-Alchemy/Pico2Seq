@@ -154,7 +154,7 @@ sensors,ButtonHandlers}.md` cover each subsystem. The essentials:
 ### Dual-core split (the most important thing to keep in mind for any change)
 
 - **Core 0** (`setup()`/`loop()`): everything else — USB CDC serial, TMAG5273 magnetic encoder and VL53L1X, distance sensor polling, MPR121 touch matrix scanning, `uClock` sequencer step ticking, LED matrix and OLED updates, UI state.
-- **Core 1** (`setup1()`/`loop1()` in `Pico2Seq.ino`): audio synthesis only. Pulls a buffer, calls `voiceManager->processAllVoices()` per-sample, writes I2S output. Nothing else should run here — this is real-time critical and must never block or allocate.
+- **Core 1** (`setup1()`/`loop1()` in `Pico2Seq.ino`): audio synthesis only. Pulls a buffer, calls `voiceManager->processBlock()` for each 256-frame buffer, writes I2S output. Nothing else should run here — this is real-time critical and must never block or allocate.
 - Cross-core communication is via `volatile` globals (e.g. `VoiceSystem::gates`,
   `ppqnTicksPending`) — there are no mutexes. When touching shared state, check whether it's
   read/written from both cores and keep the existing `volatile` discipline.
@@ -181,7 +181,7 @@ Matrix/TMAG5273/VL53L1X input  (Core 0)
     runs processSequencerStep)
   → VoiceSystem (gate timing, internal note lifecycle via MidiNoteManager — nothing
     has been transmitted since USB MIDI was removed 2026-09-06) → VoiceManager
-  → Voice DSP chain (oscillators → ladder filter → ADSR → overdrive/wavefolder)
+  → Voice spans (sources → envelope gain → effects → velocity → main filter → HPF)
   → fill_audio_buffer()  (Core 1)  → I2S @ 48kHz (final mix includes the master
     volume from `VoiceManager::setGlobalVolume()`, utility fader 3)
 ```
@@ -192,6 +192,13 @@ fixed-size array with an independent `currentStepCount` and modulo-wrapping `get
 is what makes "Note track at 16 steps, Filter track at 8 steps" possible on the same voice.
 
 ### Key conventions to preserve when editing
+
+- **Core 1 renders spans of at most 32 samples.** While controls are queued,
+  apply exactly one update and render one sample. Otherwise recheck the queue
+  at the next span boundary (up to 0.67 ms at 48 kHz). Keep span and mixer
+  scratch in members/static storage: Core 1's stack is 2 KiB. Only the audio
+  core may use applied DSP state or rendering scratch. One-sample wrappers
+  remain available for callers and tests.
 
 - **No heap allocation in the audio/sequencer hot path.** Static/fixed-size arrays
   (`ParameterTrack<MAX_SIZE>`, `voiceStates[MAX_VOICES]`) are deliberate — don't introduce

@@ -150,14 +150,18 @@ fixed storage and lock-free 32-bit indices. Neither side blocks or allocates.
 2. It copies the update into a free slot, then publishes the write index with
    release ordering. A published slot belongs to Core 1.
 3. Core 1 acquires the write index and copies one update locally at the start
-   of `Voice::process()`.
+   of a queued sample in `Voice::processBlock()`.
 4. Only after copying does Core 1 release the read index. Core 0 acquires that
    index before reusing the slot.
 5. Core 1 applies the local copy to its DSP state, then renders a sample.
 
 One update per sample bounds the drain and lets each queued gate edge reach the
-envelope. Updates still drain while disabled, so queued re-enables can take
-effect. Config, pitch caches, dirty flags, filter/slide coefficients, and gates
+envelope. When the queue is empty, Core 1 renders up to 32 samples before
+probing again; a concurrent publication can wait up to 0.67 ms at 48 kHz.
+Mix levels, master-volume and transport-mute targets are sampled per block
+(up to 256 frames); the master smoother still advances every sample.
+Updates still drain while disabled, so queued re-enables can take effect.
+Config, pitch caches, dirty flags, filter/slide coefficients, and gates
 are audio-owned. The pitch version is now ordinary single-core state.
 
 ### Full queues
@@ -235,7 +239,7 @@ extern VoiceSystem voiceSystem;
 ```
 
 ### 4.2 Voice Count & Subsystem Capabilities
-- **4 Polyphonic Voices (`MAX_VOICES = 4`)**: All 4 voices are fully synthesized in real time on Core 1 via `voiceManager->processAllVoices()`.
+- **4 Polyphonic Voices (`MAX_VOICES = 4`)**: All 4 voices are fully synthesized in real time on Core 1 via `voiceManager->processBlock()`.
 - **4-Voice Software Gates & Timers**: All four voices (indices 0–3) possess dedicated software gate flags (`gates[MAX_VOICES]`) and duration timers (`gateTimers[MAX_VOICES]`). On step triggers with high gates, `StepPlayback` sets the gate flag and starts the duration timer; PPQN ticks decrement the timers in `ClockService::processPendingGateTicks()`, turning gates off when durations expire and pushing immediate note-offs to `VoiceManager`.
 - **Internal Note Lifecycle Tracking (Voices 0 & 1)**: Internal note on/off state tracking via `MidiNoteManager` is maintained for voices 0 and 1 (USB MIDI output itself is removed; no bytes are transmitted externally).
 - **Safe Dummy Returns**:
@@ -249,63 +253,28 @@ extern VoiceSystem voiceSystem;
 
 All DSP components reside in the `rpdsp` namespace from `src/rpdsp/` (tracked as a Git submodule from `IC-Alchemy/RPDSP`).
 
+```text
+VoiceManager::processBlock() (Core 1, up to 256 frames per block)
+  For each voice in the established mix order:
+    Voice::processBlock(): one update + one sample while controls are queued;
+    otherwise renderSpan_() handles up to 32 samples:
+      gate edges / retrigger, then ADSR samples
+      deferred structural config when gate is low
+      cutoff smoothing; record coefficient updates at their sample indices
+      source generation / pitch commit / per-sample slide
+      envelope gain, effects, velocity
+      main filter split at coefficient updates, then HPF and output level
+    Add voice samples * mixLevel to the block
+  Advance master gain per sample and multiply the mixed block
+AudioSamples::toPcm16() -> identical left/right PCM16 -> I2S DMA at 48 kHz
 ```
-                              Voice::process() (Core 1 @ 48kHz)
-                                              │
-                    ┌─────────────────────────┴─────────────────────────┐
-                    │ 1. applyConfig_() & applyParameters_()  │
-                    └─────────────────────────┬─────────────────────────┘
-                                              │
-                                              ▼
-                    ┌───────────────────────────────────────────────────┐
-                    │ 2. computeEnvelope()                              │
-                    │    - rpdsp::ADSR (Gate rise/fall or retrigger)    │
-                    │    - Returns envelope amplitude E in [0.0, 1.0]   │
-                    └─────────────────────────┬─────────────────────────┘
-                                              │
-                                              ▼
-                    ┌───────────────────────────────────────────────────┐
-                    │ 3. updateFilter(E)                                │
-                    │    - One-pole cutoff smoothing (4ms tau)          │
-                    │    - Throttled filter.setFreq() every 8 samples   │
-                    └─────────────────────────┬─────────────────────────┘
-                                              │
-                                              ▼
-                    ┌───────────────────────────────────────────────────┐
-                    │ 4. mixOscillators()                               │
-                    │    - Silence short-circuit (if E <= 0.0005, ret 0)│
-                    │    - Slew pitch if slide active                   │
-                    │    - Commit pitch if gate HIGH                    │
-                    │    - VoiceConfig.engine dispatch: osc bank        │
-                    │      sum / waveguide / noise-FX source            │
-                    └─────────────────────────┬─────────────────────────┘
-                                              │
-                                              ▼
-                    ┌───────────────────────────────────────────────────┐
-                    │ 5. finalizeOutput()                               │
-                    │    - S_vca = S_osc * E (Pre-filter VCA envelope)  │
-                    │    - Overdrive: rpdsp::Waveshaper (if enabled)    │
-                    │    - Main filter per filterType:                  │
-                    │      Ladder (Analog/Lead) or StateVariableFilter  │
-                    │      (SVF: LP, BP or HP output per filterMode —   │
-                    │       12 dB; the 24 dB modes are ladder-only)     │
-                    │    - High-Pass: rpdsp::StateVariableFilter (HPF)  │
-                    │    - Scaling: S_out = S_hpf * outputLevel         │
-                    └─────────────────────────┬─────────────────────────┘
-                                              │
-                                              ▼
-                    ┌───────────────────────────────────────────────────┐
-                    │ VoiceManager::processAllVoices()                  │
-                    │   Sum(voice[i] * mixLevel[i]) * masterGain        │
-                    │   (globalVolume/mute eased per sample, ~15 ms)    │
-                    └─────────────────────────┬─────────────────────────┘
-                                              │
-                                              ▼
-                             AudioSamples::toPcm16() (Cortex-M33 __SSAT)
-                                              │
-                                              ▼
-                                 I2S DMA Stereo Output @ 48kHz
-```
+
+Fixed member/static scratch keeps sample arrays off Core 1's 2 KiB stack.
+`Voice::process()` and `VoiceManager::processAllVoices()` are one-sample wrappers;
+`processVoice()` retains its single-voice behavior. See the
+[voice pipeline](voice.md#4-dsp-processing-pipeline--signal-flow) for silent-skip
+eligibility and the [measurements](audio-performance.md#block-rendering-and-silent-voice-skip).
+
 
 ### 5.1 `VoiceOscillator` Class Dispatch
 `src/voice/VoiceOscillator.h` decouples numeric waveform identifiers from `rpdsp`'s class-per-waveform architecture using `std::variant`:
