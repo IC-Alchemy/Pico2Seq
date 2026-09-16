@@ -404,37 +404,70 @@ TEST_CASE("FaderMap rejects out-of-range channels", "[control_surface]")
     CHECK_FALSE(FaderMap().accept(4, 100));
 }
 
-TEST_CASE("FaderMap deadband sends the first sample then only real movement", "[control_surface]")
+TEST_CASE("FaderMap deadband requires an obvious move to engage then tracks real movement", "[control_surface]")
 {
     FaderMap map;
 
-    CHECK(map.accept(0, 2048));              // first sample always sends
-    CHECK_FALSE(map.accept(0, 2050));        // +2 counts: inside the deadband
-    CHECK_FALSE(map.accept(0, 2055));        // +7 counts cumulative: still inside
-    CHECK(map.accept(0, 2056));              // +8 counts: sent
+    // First sample establishes baseline, does NOT send
+    CHECK_FALSE(map.accept(0, 2048));
+    CHECK_FALSE(map.isEngaged(0));
 
-    // Drifting just under the threshold each time never sends (compare to the
-    // last *sent* value, not the last sample).
-    CHECK_FALSE(map.accept(0, 2059)); // +3 from 2056 (last sent): inside
-    CHECK_FALSE(map.accept(0, 2063)); // +7 from 2056 again, not from 2059
-    CHECK(map.accept(0, 2064));       // +8 from 2056: sent
+    // Jitter and small movements below move threshold (64 counts) are rejected
+    CHECK_FALSE(map.accept(0, 2050));        // +2 counts from baseline
+    CHECK_FALSE(map.accept(0, 2100));        // +52 counts: still < 64
+    CHECK_FALSE(map.isEngaged(0));
+
+    // Moving >= 64 counts from baseline engages the fader and sends the current value
+    CHECK(map.accept(0, 2112));              // +64 counts: engaged and sent!
+    CHECK(map.isEngaged(0));
+
+    // Once engaged, standard 8-count deadband applies:
+    CHECK_FALSE(map.accept(0, 2115));        // +3 counts from last sent (2112): rejected
+    CHECK_FALSE(map.accept(0, 2119));        // +7 counts from 2112: rejected
+    CHECK(map.accept(0, 2120));              // +8 counts from 2112: sent!
 }
 
-TEST_CASE("FaderMap channels are independent", "[control_surface]")
+TEST_CASE("FaderMap channels engage independently", "[control_surface]")
 {
     FaderMap map;
-    CHECK(map.accept(0, 100));
-    CHECK(map.accept(1, 102)); // different channel: first sample sends
-    CHECK_FALSE(map.accept(0, 105));
-    CHECK_FALSE(map.accept(1, 108)); // +6 from its own last-sent value
+    CHECK_FALSE(map.accept(0, 1000));
+    CHECK_FALSE(map.accept(1, 2000));
+
+    // Move channel 0 beyond threshold
+    CHECK(map.accept(0, 1064));
+    CHECK(map.isEngaged(0));
+    CHECK_FALSE(map.isEngaged(1));
+
+    // Channel 1 still unengaged and small change rejected
+    CHECK_FALSE(map.accept(1, 2020));
+    CHECK_FALSE(map.isEngaged(1));
+
+    // Move channel 1 downward beyond threshold
+    CHECK(map.accept(1, 1936)); // -64 counts from 2000
+    CHECK(map.isEngaged(1));
 }
 
-TEST_CASE("FaderMap resetDeadband forces the next sample to send", "[control_surface]")
+TEST_CASE("FaderMap resetDeadband disarms channels until moved again", "[control_surface]")
 {
     FaderMap map;
-    CHECK(map.accept(2, 3000));
-    map.resetDeadband();
-    CHECK(map.accept(2, 3001)); // same-ish value after a mode flip re-sends
+    CHECK_FALSE(map.accept(2, 3000)); // seed baseline
+    CHECK(map.accept(2, 3070));       // +70: engaged!
+    CHECK(map.isEngaged(2));
+
+    map.resetDeadband();              // mode flip disarms all channels
+    CHECK_FALSE(map.isEngaged(2));
+
+    // First sample in new mode establishes new baseline without sending
+    CHECK_FALSE(map.accept(2, 3070));
+    CHECK_FALSE(map.isEngaged(2));
+
+    // Small changes around 3070 do not send
+    CHECK_FALSE(map.accept(2, 3080)); // +10 counts < 64
+    CHECK_FALSE(map.isEngaged(2));
+
+    // Obvious move in new mode engages channel 2
+    CHECK(map.accept(2, 3134));       // +64 counts from 3070
+    CHECK(map.isEngaged(2));
 }
 
 TEST_CASE("FaderMap normalize maps 12-bit counts to 0..1", "[control_surface]")

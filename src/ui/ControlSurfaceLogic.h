@@ -313,6 +313,8 @@ public:
   static constexpr uint16_t kFaderMaxCounts = 4095;
   // Movement smaller than this (in 12-bit counts) is not sent.
   static constexpr uint16_t kDeadbandCounts = 8;
+  // An obvious move (in 12-bit counts) required to engage a fader after reset / mode flip.
+  static constexpr uint16_t kMoveThresholdCounts = 64;
 
   /** Target of one fader channel (0..3) in the given mode. */
   static FaderAssignment assignmentFor(Mode mode, uint8_t channel);
@@ -321,17 +323,22 @@ public:
   static float normalize(uint16_t rawCounts);
 
   /**
-   * Deadband filter: true when this channel's value should be sent (first
-   * sample after a reset always sends, so controls snap to fader positions).
+   * Deadband and motion filter: returns true only after an obvious move has
+   * engaged the fader, and subsequent moves exceed the deadband.
    */
   bool accept(uint8_t channel, uint16_t rawCounts);
 
-  /** Forget the last-sent values (mode flip): the next sample re-sends. */
+  /** Disarm all faders (e.g. on mode flip): faders must be moved before sending. */
   void resetDeadband();
 
+  /** True if the channel has detected an obvious move and is actively tracking. */
+  bool isEngaged(uint8_t channel) const;
+
 private:
+  uint16_t baseline_[kChannelCount] = {0, 0, 0, 0};
   uint16_t lastSent_[kChannelCount] = {0, 0, 0, 0};
-  bool valid_[kChannelCount] = {false, false, false, false};
+  bool hasBaseline_[kChannelCount] = {false, false, false, false};
+  bool engaged_[kChannelCount] = {false, false, false, false};
 };
 
 // ---------------------------------------------------------------------------
