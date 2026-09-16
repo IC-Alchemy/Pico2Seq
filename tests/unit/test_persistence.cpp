@@ -217,6 +217,22 @@ TEST_CASE("paramSet change clears the preset layout pointer", "[persistence]")
     REQUIRE(restored.parameters == nullptr); // layout() now derives from paramSet
 }
 
+TEST_CASE("hard-sync waveform edits keep an oscillator preset's cutoff layout", "[persistence]")
+{
+    const uint8_t digital = static_cast<uint8_t>(VoicePresets::findPreset("Digital"));
+    const VoiceConfig preset = VoicePresets::getPresetConfig(digital);
+    REQUIRE(preset.parameters != nullptr);
+    VoiceConfig edited = preset;
+    edited.oscWaveforms[0] = WAVE_HARDSYNC_SAW;
+    edited.paramSet = PARAMSET_HARDSYNC; // what the editor derives from the bank
+    persistence::PatchSnapshot snap;
+    voicecodec::capturePatch(edited, snap);
+    VoiceConfig restored;
+    REQUIRE(voicecodec::applyPatch(digital, snap, restored));
+    REQUIRE(restored.paramSet == PARAMSET_HARDSYNC);
+    REQUIRE(restored.parameters == preset.parameters); // cutoff lane survives reload
+}
+
 TEST_CASE("recipe engine without a recipe source is rejected", "[persistence]")
 {
     const VoiceConfig preset = VoicePresets::getPresetConfig(2); // non-recipe preset

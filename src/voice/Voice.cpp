@@ -142,7 +142,7 @@ void Voice::init(float sr)
   controls_.scaleIndex = currentScalePtr_ ? *currentScalePtr_ : 0;
   controls_.changes = 0;
   config = controls_.config;
-  velocityToAmplitude_ = VoiceParameters::layout(config).velocityToAmplitude;
+  velocityToAmplitude_ = VoiceParameters::velocityToAmplitude(config);
   state = controls_.state;
   gate = state.isGateHigh;
   scaleTable = controls_.scaleTable;
@@ -1173,8 +1173,8 @@ void Voice::applyParameters_(const VoiceState &newState) noexcept
   VoiceParameters::apply(config, state);
   const auto &parameters = VoiceParameters::layout(config);
   const bool repurposedFilter = VoiceParameters::binding(config, ParamId::Filter).target != nullptr;
-  filterFrequency = dspmap::fmap(repurposedFilter ? config.filterCutoffBase : state.filterCutoff,
-                                parameters.cutoffMinimum, parameters.cutoffMaximum, dspmap::Mapping::EXP);
+  filterFrequency = VoiceParameters::mapCutoff(
+      parameters, repurposedFilter ? config.filterCutoffBase : state.filterCutoff);
   if (parameters.envelopeFromTracks)
     applyEnvelopeParameters();
   applyEngineConfig_();
@@ -1231,7 +1231,7 @@ void Voice::applyConfig_(const VoiceConfig &newConfig) noexcept
     structuralChange = structuralChange || stagedWaveforms_[i] != newConfig.oscWaveforms[i] ||
         stagedPulseWidth_[i] != newConfig.oscPulseWidth[i];
   config = newConfig;
-  velocityToAmplitude_ = VoiceParameters::layout(config).velocityToAmplitude;
+  velocityToAmplitude_ = VoiceParameters::velocityToAmplitude(config);
 
   // Update filters (scalar; safe mid-note)
   if (config.hasFilter)

@@ -910,10 +910,8 @@ void format(Id id, const VoiceConfig &c, char *out, size_t capacity) noexcept {
     return;
   }
   if ((id == Id::Cutoff && !b) || id == Id::StaticCutoff) {
-    const auto &l = VoiceParameters::layout(c);
     std::snprintf(out, capacity, "%.0f Hz",
-                  dspmap::fmap(v, l.cutoffMinimum, l.cutoffMaximum,
-                               dspmap::Mapping::EXP));
+                  VoiceParameters::mapCutoff(VoiceParameters::layout(c), v));
     return;
   }
   if (b && b->unit == VoiceParameterUnit::Ratio) {

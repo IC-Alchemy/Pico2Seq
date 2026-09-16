@@ -544,9 +544,13 @@ TEST_CASE("RubberSub sequences full range without dead zones on Attack, Cutoff, 
   REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, 0.5f, &rubberSub)) == Approx(0.002f));
   REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, 1.0f, &rubberSub)) == Approx(2.0f));
 
-  // Cutoff: 0.37 base spans 120 Hz to 5000 Hz across hand range
+  // Cutoff: 0.5 base (the 320 Hz center) spans 90 Hz to 1200 Hz across hand range
   const float filterBase = laneBase(ParamId::Filter, rubberSub);
-  REQUIRE(filterBase == Approx(0.37f));
+  REQUIRE(filterBase == Approx(0.5f));
+  const auto &cutoff = VoiceParameters::layout(rubberSub);
+  REQUIRE(VoiceParameters::mapCutoff(cutoff, composeLane(ParamId::Filter, 0.0f, &rubberSub)) == Approx(90.0f));
+  REQUIRE(VoiceParameters::mapCutoff(cutoff, composeLane(ParamId::Filter, 0.5f, &rubberSub)) == Approx(320.0f));
+  REQUIRE(VoiceParameters::mapCutoff(cutoff, composeLane(ParamId::Filter, 1.0f, &rubberSub)) == Approx(1200.0f));
   REQUIRE(composeLane(ParamId::Filter, 0.0f, &rubberSub) == 0.0f);
   REQUIRE(composeLane(ParamId::Filter, 0.1f, &rubberSub) > 0.0f); // Zero dead zone!
   REQUIRE(composeLane(ParamId::Filter, 0.5f, &rubberSub) == Approx(filterBase));

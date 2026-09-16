@@ -121,10 +121,8 @@ inline void format(ParamId id, const Step &step, const VoiceConfig &config,
     return;
   }
   if (id == ParamId::Filter) {
-    const auto &p = VoiceParameters::layout(config);
-    const float frequency = dspmap::fmap(std::clamp(normalized, 0.0f, 1.0f),
-                                        p.cutoffMinimum, p.cutoffMaximum, dspmap::Mapping::EXP);
-    std::snprintf(out, size, "%.0fHz", frequency);
+    std::snprintf(out, size, "%.0fHz",
+                  VoiceParameters::mapCutoff(VoiceParameters::layout(config), normalized));
     return;
   }
   if (id == ParamId::Attack || id == ParamId::Decay) {

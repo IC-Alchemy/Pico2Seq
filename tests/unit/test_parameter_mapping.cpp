@@ -1,10 +1,14 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
+#include <string>
 
 #include "utils/DspMapping.h"
 #include "voice/MusicalValues.h"
+#include "voice/Voice.h"
+#include "voice/VoiceEditParameters.h"
 #include "voice/VoiceParameters.h"
+#include "voice/VoicePresets.h"
 
 // Sweet-spot lane mapping: the true-exponential OCT curve and the centered
 // piecewise map that puts a lane's midpoint on a chosen operating point.
@@ -146,4 +150,90 @@ TEST_CASE("Attack lane spans 1 ms to 2 s; decay keeps 1 ms to 10 s", "[mapping][
         REQUIRE_THAT(MusicalValues::attackSeconds(VoiceEdit::attackNormalize(seconds)), WithinRel(seconds, 1e-4f));
     REQUIRE_THAT(VoiceEdit::attackNormalize(5.0f), WithinAbs(1.0f, 1e-6f));
     REQUIRE_THAT(VoiceEdit::attackNormalize(0.0f), WithinAbs(0.0f, 1e-6f));
+}
+
+// ─── Preset lane layouts ─────────────────────────────────────────────────────
+
+namespace {
+struct CutoffSpot { const char *preset; float minimum, center, maximum; };
+// Hz: full lane travel is the musical span, lane 0.5 the preset's resting cutoff.
+constexpr CutoffSpot kOscillatorCutoffs[] = {
+    {"Analog", 150.0f, 1800.0f, 6000.0f},    {"Digital", 200.0f, 1500.0f, 5000.0f},
+    {"Bass", 60.0f, 320.0f, 1500.0f},        {"Lead", 200.0f, 1600.0f, 8000.0f},
+    {"Square", 250.0f, 900.0f, 4000.0f},     {"Pad", 250.0f, 2200.0f, 10000.0f},
+    {"Percussion", 800.0f, 4500.0f, 12000.0f}, {"SubFunk", 60.0f, 420.0f, 1600.0f},
+    {"RubberSub", 90.0f, 320.0f, 1200.0f}};
+} // namespace
+
+TEST_CASE("Oscillator presets own octave cutoff lanes centered on their resting cutoff", "[mapping][presets]") {
+    for (const auto &spot : kOscillatorCutoffs) {
+        INFO(spot.preset);
+        auto c = VoicePresets::getPresetConfigByName(spot.preset);
+        REQUIRE(c.parameters != nullptr);
+        const auto &layout = VoiceParameters::layout(c);
+        REQUIRE(layout.cutoffMinimum == spot.minimum);
+        REQUIRE(layout.cutoffMaximum == spot.maximum);
+        REQUIRE_THAT(VoiceParameters::mapCutoff(layout, 0.0f), WithinAbs(spot.minimum, 1.0f));
+        REQUIRE_THAT(VoiceParameters::mapCutoff(layout, 0.5f), WithinAbs(spot.center, 1.0f));
+        REQUIRE_THAT(VoiceParameters::mapCutoff(layout, 1.0f), WithinAbs(spot.maximum, 1.0f));
+        float previous = 0.0f;
+        for (int i = 0; i <= 100; ++i) {
+            const float hz = VoiceParameters::mapCutoff(layout, i / 100.0f);
+            REQUIRE(hz > previous);
+            previous = hz;
+        }
+
+        // A neutral modifier rests on the center, and every readout agrees.
+        VoiceEdit::enablePatch(c);
+        const float rest = VoiceEdit::composeLane(ParamId::Filter, 0.5f, &c);
+        REQUIRE_THAT(VoiceParameters::mapCutoff(layout, rest), WithinRel(spot.center, 1e-4f));
+        char text[24];
+        MusicalValues::format(ParamId::Filter, MusicalValues::baseStep(c), c, nullptr, 120.0f, text, sizeof(text));
+        REQUIRE(std::string(text) == std::to_string(static_cast<int>(spot.center)) + "Hz");
+        VoiceEdit::format(VoiceEdit::Id::Cutoff, c, text, sizeof(text));
+        REQUIRE(std::string(text) == std::to_string(static_cast<int>(spot.center)) + " Hz");
+
+        Voice voice(0, c);
+        voice.init(48000.0f);
+        VoiceState state;
+        state.filterCutoff = rest;
+        state.isGateHigh = true;
+        voice.updateParameters(state);
+        voice.process();
+        REQUIRE_THAT(voice.getFilterFrequency(), WithinRel(spot.center, 1e-4f));
+    }
+}
+
+TEST_CASE("Uncentered layouts keep the legacy square cutoff curve", "[mapping][presets]") {
+    VoiceConfig standard{}; // engine-switched voices fall back to paramSet layouts
+    const auto &layout = VoiceParameters::layout(standard);
+    REQUIRE_FALSE(layout.cutoffCentered());
+    for (float n : {0.0f, 0.37f, 0.5f, 1.0f})
+        REQUIRE_THAT(VoiceParameters::mapCutoff(layout, n),
+                     WithinAbs(dspmap::fmap(n, 120.0f, 5000.0f, Mapping::EXP), 1e-3f));
+}
+
+TEST_CASE("Hard sync follows the oscillator bank and keeps the preset cutoff lane", "[mapping][presets]") {
+    const auto &analog = VoicePresets::getAnalogVoice();
+    REQUIRE(analog.paramSet == PARAMSET_HARDSYNC);
+    REQUIRE(std::string(VoiceParameters::binding(analog, ParamId::Note).name) == "Master");
+    REQUIRE(std::string(VoiceParameters::binding(analog, ParamId::Velocity).name) == "Slave");
+    REQUIRE_FALSE(VoiceParameters::velocityToAmplitude(analog));
+
+    auto c = VoicePresets::getDigitalVoice();
+    VoiceEdit::enablePatch(c);
+    const auto *owned = c.parameters;
+    REQUIRE(owned != nullptr);
+    REQUIRE(VoiceParameters::velocityToAmplitude(c));
+    VoiceEdit::setValue(VoiceEdit::Id::Wave1, c, WAVE_HARDSYNC_SAW);
+    REQUIRE(c.paramSet == PARAMSET_HARDSYNC);
+    REQUIRE(c.parameters == owned);
+    REQUIRE(std::string(VoiceParameters::binding(c, ParamId::Velocity).name) == "Slave");
+    REQUIRE_FALSE(VoiceParameters::velocityToAmplitude(c));
+    REQUIRE_THAT(VoiceParameters::mapCutoff(VoiceParameters::layout(c), c.filterCutoffBase),
+                 WithinRel(1500.0f, 1e-4f));
+    VoiceEdit::setValue(VoiceEdit::Id::Wave1, c, WAVE_BSP_SQUARE);
+    REQUIRE(c.paramSet == PARAMSET_STANDARD);
+    REQUIRE(VoiceParameters::binding(c, ParamId::Velocity).name == nullptr);
+    REQUIRE(VoiceParameters::velocityToAmplitude(c));
 }
