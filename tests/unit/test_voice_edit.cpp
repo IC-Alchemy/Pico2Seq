@@ -365,7 +365,7 @@ TEST_CASE("Sequencer OLED formats final physical and preset-specific units", "[v
   }
 }
 
-TEST_CASE("Patch randomization preserves register and playable preset timing", "[voice_edit][recording]") {
+TEST_CASE("Patch randomization stays within its depth around the preset bases", "[voice_edit][recording]") {
   auto c = VoicePresets::getDigitalVoice();
   enablePatch(c);
   Sequencer seq;
@@ -373,18 +373,33 @@ TEST_CASE("Patch randomization preserves register and playable preset timing", "
   seq.setPlaybackTransform(composeLane, &c, mapOctave);
   for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane)
     seq.setParameterStepCount(static_cast<ParamId>(lane), 64);
-  for (int run = 0; run < 4; ++run) {
-    seq.randomizeParameters();
-    for (uint8_t i = 0; i < 64; ++i) {
-      auto step = seq.getPlaybackStep(i);
-      REQUIRE(step.noteIndex >= 0);
-      REQUIRE(step.noteIndex <= 12);
-      REQUIRE(step.noteIndex == std::round(step.noteIndex));
-      REQUIRE(step.octaveOffset == 0);
-      REQUIRE(step.gateLengthTicks == 60);
-      REQUIRE(MusicalValues::attackSeconds(step.attackTimeSeconds) >= c.defaultAttack * 0.6f);
-      REQUIRE(MusicalValues::attackSeconds(step.attackTimeSeconds) <= c.defaultAttack * 2.0f);
-      REQUIRE(MusicalValues::envelopeSeconds(step.decayTimeSeconds) >= c.defaultDecay * 0.6f);
+  // Depth D moves a step at most D% of the way from its base to a lane end.
+  const auto reach = [&](ParamId id, float effective, float depth) {
+    const float base = laneBase(id, c);
+    CHECK(effective >= base - depth * base - 1e-4f);
+    CHECK(effective <= base + depth * (1.0f - base) + 1e-4f);
+  };
+  for (uint8_t depth : {uint8_t{10}, ParameterManager::kDefaultRandomizeDepth, uint8_t{60}}) {
+    for (uint64_t seed : {1ull, 2ull, 3ull, 4ull}) {
+      INFO("depth " << int(depth) << " seed " << seed);
+      seq.randomizeParameters(depth, seed);
+      for (uint8_t i = 0; i < 64; ++i) {
+        auto step = seq.getPlaybackStep(i);
+        REQUIRE(step.noteIndex >= 0);
+        REQUIRE(step.noteIndex <= 12);
+        REQUIRE(step.noteIndex == std::round(step.noteIndex));
+        REQUIRE(step.octaveOffset == 0);
+        REQUIRE(step.gateLengthTicks == 60);
+        reach(ParamId::Velocity, step.velocityLevel, depth / 100.0f);
+        reach(ParamId::Filter, step.filterCutoff, depth / 100.0f);
+        reach(ParamId::Attack, step.attackTimeSeconds, depth / 100.0f);
+        reach(ParamId::Decay, step.decayTimeSeconds, depth / 100.0f);
+        if (depth == ParameterManager::kDefaultRandomizeDepth) {
+          // Digital's 15 ms attack stays a playable step attack (~6..83 ms).
+          REQUIRE(MusicalValues::attackSeconds(step.attackTimeSeconds) >= c.defaultAttack / 4.0f);
+          REQUIRE(MusicalValues::attackSeconds(step.attackTimeSeconds) <= c.defaultAttack * 6.0f);
+        }
+      }
     }
   }
 }

@@ -18,6 +18,7 @@ add_executable(pico2seq_tests
   unit/test_helpers.cpp
   unit/test_rpdsp_additions.cpp
   unit/test_parameter_mapping.cpp
+  unit/test_parameter_randomize.cpp
   unit/test_dsp_recipe_regressions.cpp
   unit/test_scales.cpp
   unit/test_sequencer.cpp
