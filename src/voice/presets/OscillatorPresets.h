@@ -66,8 +66,7 @@ namespace VoicePresets {
     VoiceConfig c{};
     c.oscillatorCount = 2;
     c.oscWaveforms[0] = WAVE_BSP_SQUARE;
-    c.oscWaveforms[1] = // Naive triangle: continuous waveform, band-limited enough without splines
-        WAVE_BSP_SQUARE;
+    c.oscWaveforms[1] = WAVE_BSP_SQUARE; // band-limited square pair, second one slightly detuned
 
     c.oscAmplitudes[0] = .75f;
     c.oscAmplitudes[1] = .65f;
@@ -212,7 +211,7 @@ namespace VoicePresets {
     c.hasOverdrive = false;
     c.overdriveGain = 0.85f;
     c.overdriveDrive = 0.25f;
-    c.defaultAttack = 0.02f;   // Slow attack for pad
+    c.defaultAttack = 0.4f;    // Slow attack for pad
     c.defaultDecay = 0.2f;
     c.defaultSustain = 0.5f;
     c.defaultRelease = .5f;    // Long release
