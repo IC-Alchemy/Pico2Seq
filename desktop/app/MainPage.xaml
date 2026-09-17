@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="Pico2Seq_App.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:Pico2Seq_App"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid Padding="16" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Header: transport + live status -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+            <ToggleButton
+                x:Name="TransportButton"
+                IsChecked="{x:Bind ViewModel.TransportRunning, Mode=OneWay}"
+                Command="{x:Bind ViewModel.ToggleTransportCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="{x:Bind GlyphFor(ViewModel.TransportRunning), Mode=OneWay}" FontSize="16" />
+                    <TextBlock Text="{x:Bind LabelFor(ViewModel.TransportRunning), Mode=OneWay}" />
+                </StackPanel>
+            </ToggleButton>
+            <TextBlock
+                Text="{x:Bind ViewModel.TempoText, Mode=OneWay}"
+                Style="{StaticResource SubtitleTextBlockStyle}"
+                VerticalAlignment="Center" />
+            <TextBlock
+                Text="{x:Bind ViewModel.VoiceText, Mode=OneWay}"
+                Style="{StaticResource BodyStrongTextBlockStyle}"
+                VerticalAlignment="Center" />
+            <TextBlock
+                Text="{x:Bind ViewModel.ScaleText, Mode=OneWay}"
+                Style="{StaticResource BodyTextBlockStyle}"
+                VerticalAlignment="Center" />
+            <TextBlock
+                Text="{x:Bind ViewModel.ShuffleText, Mode=OneWay}"
+                Style="{StaticResource BodyTextBlockStyle}"
+                VerticalAlignment="Center" />
+        </StackPanel>
+
+        <TextBlock
+            Grid.Row="1"
+            Text="{x:Bind ViewModel.StatusLine, Mode=OneWay}"
+            Style="{StaticResource CaptionTextBlockStyle}"
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+        <!-- Instrument body: pad grid + OLED -->
+        <Grid Grid.Row="2" ColumnSpacing="24">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- 8x4 pad grid, mirroring the touch matrix; cell glow = LED frame -->
+            <Grid x:Name="PadGrid" Grid.Column="0" ColumnSpacing="6" RowSpacing="6"
+                  HorizontalAlignment="Left" VerticalAlignment="Top" />
+
+            <!-- OLED canvas: native 128x64 frame, scaled 2.5x -->
+            <Border Grid.Column="1" CornerRadius="8" BorderThickness="1"
+                    BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}"
+                    Background="#FF101014" Padding="8" VerticalAlignment="Top">
+                <Image x:Name="OledImage" Width="320" Height="160" />
+            </Border>
+        </Grid>
+    </Grid>
+</Page>

@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Pico2Seq.App (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "Pico2Seq.App (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
