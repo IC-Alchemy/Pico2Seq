@@ -172,7 +172,7 @@ typedef struct {
 } StrapPair;
 
 #define FW_VER_MAJOR 0x01
-#define FW_VER_MINOR 0x04  // 1.04: 400 kHz, triple-buffered publish, ISR hardening
+#define FW_VER_MINOR 0x04  // 1.04: 400 kHz bus, stale-latch reclaim, ISR hardening
 
 // --- Config page defaults ---------------------------------------------------
 // Conditioning defaults must be conservative (§7.1): index 0 everywhere means

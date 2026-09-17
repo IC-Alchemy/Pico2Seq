@@ -174,7 +174,7 @@ typedef struct {
 } StrapPair;
 
 #define FW_VER_MAJOR 0x01
-#define FW_VER_MINOR 0x05  // 1.05: 400 kHz, triple-buffered publish, ISR hardening  // 1.03: adds the NUM_BUTTONS 4/8 panel-shape switch
+#define FW_VER_MINOR 0x05  // 1.05: 400 kHz bus, stale-latch reclaim, ISR hardening
 
 // --- Config page defaults ---------------------------------------------------
 // CFG_RATE / CFG_FILTER are accepted (config page stays writable, never NACK)
