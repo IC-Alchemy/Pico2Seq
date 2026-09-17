@@ -1,5 +1,6 @@
 #include "PatternCodec.h"
 #include "../sequencer/Sequencer.h"
+#include <algorithm>
 
 namespace persistence
 {
@@ -19,14 +20,15 @@ void capturePattern(const Sequencer &sequencer, PatternSnapshot &out) noexcept
     }
 }
 
-void applyPattern(const PatternSnapshot &in, Sequencer &sequencer) noexcept
+void applyPattern(const PatternSnapshot &in, Sequencer &sequencer, uint8_t maxStepCount) noexcept
 {
     for (uint8_t t = 0; t < PARAM_ID_COUNT; ++t)
     {
         const ParamId id = static_cast<ParamId>(t);
         const TrackSnapshot &track = in.tracks[t];
-        const uint8_t count = (track.stepCount >= 1 && track.stepCount <= SequencerConstants::MAX_STEPS_COUNT)
+        const uint8_t saved = (track.stepCount >= 1 && track.stepCount <= SequencerConstants::MAX_STEPS_COUNT)
                                   ? track.stepCount : SequencerConstants::DEFAULT_STEPS_COUNT;
+        const uint8_t count = std::min(saved, maxStepCount);
         // Grow to MAX first so the writes below land at their true indices —
         // track writes wrap modulo the active length, which would corrupt the
         // head of a shorter track with tail values. Growing fills the new
