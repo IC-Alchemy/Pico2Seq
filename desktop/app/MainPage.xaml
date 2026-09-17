@@ -16,33 +16,47 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- Header: transport + live status -->
+        <!-- Header: transport + live status (caption/value pairs so screen
+             readers announce label and value separately) -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
             <ToggleButton
                 x:Name="TransportButton"
                 IsChecked="{x:Bind ViewModel.TransportRunning, Mode=OneWay}"
-                Command="{x:Bind ViewModel.ToggleTransportCommand}">
+                Command="{x:Bind ViewModel.ToggleTransportCommand, Mode=OneTime}"
+                AutomationProperties.AutomationId="TransportButton"
+                ToolTipService.ToolTip="Play / Stop (Space)">
+                <ToggleButton.KeyboardAccelerators>
+                    <KeyboardAccelerator Key="Space" />
+                </ToggleButton.KeyboardAccelerators>
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <FontIcon Glyph="{x:Bind GlyphFor(ViewModel.TransportRunning), Mode=OneWay}" FontSize="16" />
                     <TextBlock Text="{x:Bind LabelFor(ViewModel.TransportRunning), Mode=OneWay}" />
                 </StackPanel>
             </ToggleButton>
-            <TextBlock
-                Text="{x:Bind ViewModel.TempoText, Mode=OneWay}"
-                Style="{StaticResource SubtitleTextBlockStyle}"
-                VerticalAlignment="Center" />
-            <TextBlock
-                Text="{x:Bind ViewModel.VoiceText, Mode=OneWay}"
-                Style="{StaticResource BodyStrongTextBlockStyle}"
-                VerticalAlignment="Center" />
-            <TextBlock
-                Text="{x:Bind ViewModel.ScaleText, Mode=OneWay}"
-                Style="{StaticResource BodyTextBlockStyle}"
-                VerticalAlignment="Center" />
-            <TextBlock
-                Text="{x:Bind ViewModel.ShuffleText, Mode=OneWay}"
-                Style="{StaticResource BodyTextBlockStyle}"
-                VerticalAlignment="Center" />
+            <StackPanel Orientation="Vertical" VerticalAlignment="Center"
+                        AutomationProperties.Name="Tempo">
+                <TextBlock Text="Tempo" Style="{StaticResource CaptionTextBlockStyle}" />
+                <TextBlock Text="{x:Bind ViewModel.TempoText, Mode=OneWay}"
+                           Style="{StaticResource SubtitleTextBlockStyle}" />
+            </StackPanel>
+            <StackPanel Orientation="Vertical" VerticalAlignment="Center"
+                        AutomationProperties.Name="Voice">
+                <TextBlock Text="Voice" Style="{StaticResource CaptionTextBlockStyle}" />
+                <TextBlock Text="{x:Bind ViewModel.VoiceText, Mode=OneWay}"
+                           Style="{StaticResource BodyStrongTextBlockStyle}" />
+            </StackPanel>
+            <StackPanel Orientation="Vertical" VerticalAlignment="Center"
+                        AutomationProperties.Name="Scale">
+                <TextBlock Text="Scale" Style="{StaticResource CaptionTextBlockStyle}" />
+                <TextBlock Text="{x:Bind ViewModel.ScaleText, Mode=OneWay}"
+                           Style="{StaticResource BodyTextBlockStyle}" />
+            </StackPanel>
+            <StackPanel Orientation="Vertical" VerticalAlignment="Center"
+                        AutomationProperties.Name="Shuffle">
+                <TextBlock Text="Shuffle" Style="{StaticResource CaptionTextBlockStyle}" />
+                <TextBlock Text="{x:Bind ViewModel.ShuffleText, Mode=OneWay}"
+                           Style="{StaticResource BodyTextBlockStyle}" />
+            </StackPanel>
         </StackPanel>
 
         <TextBlock
@@ -96,7 +110,8 @@
             <Border Grid.Column="1" CornerRadius="8" BorderThickness="1"
                     BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}"
                     Background="#FF101014" Padding="8" VerticalAlignment="Top">
-                <Image x:Name="OledImage" Width="320" Height="160" />
+                <Image x:Name="OledImage" Width="320" Height="160"
+                       AutomationProperties.Name="Device OLED screen" />
             </Border>
         </Grid>
     </Grid>

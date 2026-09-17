@@ -25,7 +25,7 @@ public partial class MainPageViewModel : ObservableObject
     public partial string StatusLine { get; set; } = "engine starting";
 
     [ObservableProperty]
-    public partial string VoiceText { get; set; } = "Voice: 1";
+    public partial string VoiceText { get; set; } = "Voice 1";
 
     [ObservableProperty]
     public partial string ScaleText { get; set; } = "";
@@ -33,25 +33,22 @@ public partial class MainPageViewModel : ObservableObject
     [ObservableProperty]
     public partial string ShuffleText { get; set; } = "";
 
-    [ObservableProperty]
-    public partial string EngineText { get; set; } = "";
-
     public void UpdateFromStatus(in EngineApi.Status status, string scaleName, string shuffleName)
     {
         TransportRunning = status.TransportRunning != 0;
         TempoText = $"{status.TempoBpm:0} BPM";
-        VoiceText = $"Voice: {status.SelectedVoice + 1}";
+        VoiceText = $"Voice {status.SelectedVoice + 1}";
         ScaleText = scaleName;
         ShuffleText = shuffleName;
-        EngineText = $"steps {status.ProcessedSteps}  led#{status.LedFrames}  oled#{status.OledFrames}";
     }
 
     [RelayCommand]
     private void ToggleTransport()
     {
+        TransportRunning = !TransportRunning;   // immediate feedback; poll reconciles
         if (TransportRunning)
-            EngineApi.p2s_transport_stop();
-        else
             EngineApi.p2s_transport_start();
+        else
+            EngineApi.p2s_transport_stop();
     }
 }
