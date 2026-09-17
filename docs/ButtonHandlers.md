@@ -242,24 +242,29 @@ The verified `BUTTON_PLAY_STOP` logic in `ButtonHandlers.cpp` directly coordinat
 case BUTTON_PLAY_STOP:
     if (isClockRunning)
     {
-        onClockStop();
+        uClock.stop();
         // Enter settings mode when stopping
-        state.settingsMode = true;
-        state.inPresetSelection = true;
+        openSettingsMode(state);
     }
     else
     {
-        onClockStart();
+        uClock.start();
         // Exit settings mode if active
         if (state.settingsMode)
         {
-            state.settingsMode = false;
-            state.inPresetSelection = false;
-            state.selectedStepForEdit = -1;
+            closeSettingsMode(state);
         }
     }
     break;
 ```
+
+Every path into or out of Settings (this one, the Utility Play long-press, and
+the running short-press close) goes through `openSettingsMode()` /
+`closeSettingsMode()` (`UIEventHandler.h`). Opening always starts in preset
+selection on the page holding the selected voice's preset; the preset grid,
+OLED and preset taps all follow `selectedVoiceIndex`. While Settings is open it
+consumes pad releases as well as presses, so a preset tap never toggles or
+selects a step on the pad's bank voice.
 
 ---
 
@@ -282,7 +287,6 @@ struct UIState {
     // Settings Mode States
     bool settingsMode = false;
     bool inPresetSelection = false;
-    uint8_t settingsMenuIndex = 0;
     uint8_t voicePresetIndices[4] = {4, 2, 1, 6};
 
     // Encoder Hold / Gate Seq Length

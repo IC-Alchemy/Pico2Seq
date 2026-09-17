@@ -36,7 +36,7 @@ constexpr VoiceParameterLayout fmLayout()
   using M = dspmap::Mapping;
   using U = VoiceParameterUnit;
   return recipeLayout(macroLane("Index", &VoiceConfig::macro1, {0.0f, 0.30f, 1.0f}, M::EXP, U::Percent),
-                      macroLane("Ratio", &VoiceConfig::macro2, {0.5f, 2.0f, 4.77f}, M::OCT, U::Ratio),
+                      macroLane("Ratio", &VoiceConfig::macro2, {0.5f, 2.0f, 4.77f}, M::OCTAVE, U::Ratio),
                       macroLane("Feedback", &VoiceConfig::macro3, {0.0f, 0.10f, 0.35f}, M::EXP, U::Percent));
 }
 constexpr VoiceParameterLayout phaseLayout()
@@ -53,7 +53,7 @@ constexpr VoiceParameterLayout dsfLayout()
   using M = dspmap::Mapping;
   using U = VoiceParameterUnit;
   return recipeLayout(macroLane("Bright", &VoiceConfig::macro1, {0.0f, 0.45f, 0.9f}, M::LINEAR, U::Percent),
-                      macroLane("Spacing", &VoiceConfig::macro2, {0.5f, 2.0f, 5.07f}, M::OCT, U::Ratio),
+                      macroLane("Spacing", &VoiceConfig::macro2, {0.5f, 2.0f, 5.07f}, M::OCTAVE, U::Ratio),
                       macroLane("Sub", &VoiceConfig::macro3, {0.0f, 0.3f, 1.0f}, M::LINEAR, U::Percent));
 }
 // Prism: drift past ~0.65 is seasick, so the lane stops at 0.85 (ChaosPrism

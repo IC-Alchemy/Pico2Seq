@@ -13,7 +13,7 @@ namespace VoicePresets {
     VoiceParameterLayout p{};
     p.cutoffMinimum = minimumHz;
     p.cutoffMaximum = maximumHz;
-    p.cutoffCurve = dspmap::Mapping::OCT;
+    p.cutoffCurve = dspmap::Mapping::OCTAVE;
     p.cutoffCenter = centerHz;
     return p;
   }

@@ -8,7 +8,10 @@ class Sequencer;
 namespace persistence
 {
 void capturePattern(const Sequencer &sequencer, PatternSnapshot &out) noexcept;
-void applyPattern(const PatternSnapshot &in, Sequencer &sequencer) noexcept;
+// maxStepCount caps each restored lane's active length. Values stored past the
+// cap are kept, as on any shortened lane.
+void applyPattern(const PatternSnapshot &in, Sequencer &sequencer,
+                  uint8_t maxStepCount = SequencerConstants::MAX_STEPS_COUNT) noexcept;
 } // namespace persistence
 
 #endif

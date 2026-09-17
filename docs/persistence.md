@@ -179,7 +179,11 @@ persistence::applyPattern(snap, restored);   // snapshot -> Sequencer
 
 `applyPattern` grows each lane to 64 **first**, writes all 64 raw values, then
 restores the saved length. (Writing through the length-aware setter on a short
-lane would wrap tail values into the head and corrupt it.)
+lane would wrap tail values into the head and corrupt it.) An optional third
+argument caps the restored length; the firmware (`Session::applyAfterVoices`)
+passes 16, the steps a voice can show and edit, and logs
+`[STORAGE] capped N saved track lengths to 16 steps` when a session held longer
+lanes. Stored values past the cap stay in the snapshot.
 
 ### 4.4 One patch only
 

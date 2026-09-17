@@ -160,6 +160,27 @@ TEST_CASE("pattern codec preserves every track of a random pattern", "[persisten
     }
 }
 
+TEST_CASE("pattern codec caps restored lengths without losing stored steps", "[persistence]")
+{
+    Sequencer seq(1);
+    seq.initializeParameters();
+    seq.setParameterStepCount(ParamId::Gate, 32);
+    seq.setStepParameterValue(ParamId::Gate, 20, 1.0f);
+    seq.setParameterStepCount(ParamId::Note, 12);
+
+    persistence::PatternSnapshot snap;
+    persistence::capturePattern(seq, snap);
+    REQUIRE(snap.tracks[static_cast<uint8_t>(ParamId::Gate)].stepCount == 32);
+
+    Sequencer restored(1);
+    restored.initializeParameters();
+    persistence::applyPattern(snap, restored, 16);
+
+    REQUIRE(restored.getParameterStepCount(ParamId::Gate) == 16);
+    REQUIRE(restored.getParameterStepCount(ParamId::Note) == 12); // shorter lanes keep their length
+    REQUIRE(restored.getRawStepValue(ParamId::Gate, 20) == 1.0f);  // the capped tail stays stored
+}
+
 TEST_CASE("patch codec round-trips a preset untouched", "[persistence]")
 {
     const VoiceConfig original = VoicePresets::getPresetConfig(4); // default voice-0 preset (Square)

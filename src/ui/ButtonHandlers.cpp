@@ -11,6 +11,7 @@
 #include "../voice/VoiceSystem.h"
 #include "ButtonManager.h"
 #include "UIConstants.h"
+#include "UIEventHandler.h"
 #include "UIState.h"
 #include "../sensors/EncoderManager.h"
 
@@ -216,8 +217,7 @@ void handleControlButton(int buttonId, UIState &state)
     {
       uClock.stop();
       // Enter settings mode when stopping
-      state.settingsMode = true;
-      state.inPresetSelection = true;
+      openSettingsMode(state);
     }
     else
     {
@@ -225,9 +225,7 @@ void handleControlButton(int buttonId, UIState &state)
       // Exit settings mode if active
       if (state.settingsMode)
       {
-        state.settingsMode = false;
-        state.inPresetSelection = false;
-        state.selectedStepForEdit = -1;
+        closeSettingsMode(state);
       }
     }
     break;

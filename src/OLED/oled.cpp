@@ -378,16 +378,16 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     displayHardware.setTextSize(2);
     displayHardware.print(gateLen);
 
-    // Horizontal bar spans the supported 64-step track length.
+    // Horizontal bar spans the 16 steps a voice can play.
     const int barY = 56;
     const int left = 2;
     const int right = OLEDConstants::SCREEN_WIDTH - 2;
     const int totalW = right - left;
-    const uint8_t cappedLen = std::min<uint8_t>(gateLen, SequencerConstants::MAX_STEPS_COUNT);
+    const uint8_t cappedLen = std::min<uint8_t>(gateLen, LEDConstants::MAX_STEP_BUTTONS);
     // Outline
     displayHardware.drawRect(left, barY - 6, totalW, 6, SH110X_WHITE);
     // Fill proportional to cappedLen
-    const int fillW = (totalW - 2) * cappedLen / SequencerConstants::MAX_STEPS_COUNT;
+    const int fillW = (totalW - 2) * cappedLen / LEDConstants::MAX_STEP_BUTTONS;
     if (fillW > 0)
     {
       displayHardware.fillRect(left + 1, barY - 5, fillW, 4, SH110X_WHITE);
@@ -546,12 +546,12 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
   if (uiState.inPresetSelection)
   {
     // Enhanced preset selection with cycling interface
-    int currentPresetIndex = (uiState.settingsMenuIndex < UIState::MAX_VOICES) ? uiState.voicePresetIndices[uiState.settingsMenuIndex] : 0;
+    int currentPresetIndex = (uiState.selectedVoiceIndex < UIState::MAX_VOICES) ? uiState.voicePresetIndices[uiState.selectedVoiceIndex] : 0;
 
     // Header with voice info
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, OLEDConstants::TEXT_MARGIN);
     displayHardware.print("VOICE ");
-    displayHardware.print(uiState.settingsMenuIndex + 1);
+    displayHardware.print(uiState.selectedVoiceIndex + 1);
 
     // Draw separator line
     displayHardware.drawFastHLine(OLEDConstants::TEXT_MARGIN, OLEDConstants::HEADER_HEIGHT,

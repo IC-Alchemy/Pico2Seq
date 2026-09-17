@@ -17,16 +17,16 @@ enum class Mapping
   LINEAR,
   EXP,
   LOG,
-  OCT,
+  OCTAVE, // not OCT: Arduino's Print.h defines OCT as a macro
 };
 
 // Maps a normalized [0, 1] control value onto [min, max] with the chosen
 // response curve. EXP is a square curve (min + in^2 * (max - min)); LOG is
 // logarithmic in the sense of DaisySP's fmap (min * 10^(in / a), where a makes
-// in == 1 land on max) and requires min, max > 0. OCT is the true exponential
-// taper min * (max / min)^in: equal travel covers equal octaves (or equal
-// time ratios), and it requires min > 0. OCT and LOG are the same curve; new
-// tables use OCT because the name says what the taper does.
+// in == 1 land on max) and requires min, max > 0. OCTAVE is the true
+// exponential taper min * (max / min)^in: equal travel covers equal octaves
+// (or equal time ratios), and it requires min > 0. OCTAVE and LOG are the same
+// curve; new tables use OCTAVE because the name says what the taper does.
 inline float fmap(float in, float min, float max, Mapping curve = Mapping::LINEAR)
 {
   auto clampf = [](float value, float low, float high)
@@ -40,7 +40,7 @@ inline float fmap(float in, float min, float max, Mapping curve = Mapping::LINEA
     const float a = 1.0f / std::log10(max / min);
     return clampf(min * std::pow(10.0f, in / a), min, max);
   }
-  case Mapping::OCT:
+  case Mapping::OCTAVE:
     return clampf(min * std::pow(max / min, in), min, max);
   case Mapping::LINEAR:
   default:
@@ -56,7 +56,7 @@ inline float halfMap(float x, float a, float b, Mapping curve)
   switch (curve)
   {
   case Mapping::LOG:
-  case Mapping::OCT:
+  case Mapping::OCTAVE:
     return a * std::pow(b / a, x);
   case Mapping::EXP:
     return a + (x * x) * (b - a);
@@ -74,7 +74,7 @@ inline float halfNormalize(float v, float a, float b, Mapping curve)
   switch (curve)
   {
   case Mapping::LOG:
-  case Mapping::OCT:
+  case Mapping::OCTAVE:
     return std::log(v / a) / std::log(b / a);
   case Mapping::EXP:
   {
