@@ -132,7 +132,7 @@ static inline void freezeWatchdogArm()
 #if defined(__arm__)
     if (exception_get_vtable_handler(HARDFAULT_EXCEPTION) != freezeWatchdogHardFaultHandler)
     {
-        exception_set_vtable_handler(HARDFAULT_EXCEPTION, freezeWatchdogHardFaultHandler);
+        exception_set_exclusive_handler(HARDFAULT_EXCEPTION, freezeWatchdogHardFaultHandler);
     }
 #endif
     freezeWatchdogMark(FW_NONE);

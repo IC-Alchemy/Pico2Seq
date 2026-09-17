@@ -318,11 +318,13 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
 
   // A held (or Shift-latched) parameter button outranks the settings and
   // sequence-length screens. It shows the composed value at that lane's
-  // playing cursor, which is exactly what live recording writes and the
-  // voice plays, plus the lidar distance.
-  if (held != ParamId::Count && !selected)
+  // playing cursor (or the selected step if in step edit), which is exactly
+  // what live recording writes and the voice plays, plus the lidar distance.
+  if (held != ParamId::Count)
   {
-    Step liveStep = sequence.getPlaybackStep();
+    const uint8_t targetStep = selected ? static_cast<uint8_t>(uiState.selectedStepForEdit)
+                                        : sequence.getCurrentStepForParameter(held);
+    Step liveStep = sequence.getPlaybackStep(selected ? targetStep : UINT8_MAX);
     if (AppState::performanceInput.handPresent)
     {
       const float norm = AppState::performanceInput.recordingValue();
@@ -357,7 +359,7 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
       }
     }
     displayParameterInfo(held, liveStep, uiState,
-               sequence.getCurrentStepForParameter(held), config, false, true, false);
+                         targetStep, config, selected, true, false);
     commitFrame();
     return;
   }

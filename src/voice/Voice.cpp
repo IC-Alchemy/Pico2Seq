@@ -1241,6 +1241,12 @@ void Voice::applyConfig_(const VoiceConfig &newConfig) noexcept
     filter.setPassbandGain(config.filterPassbandGain);
     filter.setMode(ladderModeFromVoiceMode(config.filterMode));
     configureMainFilterFromConfig_();
+
+    const auto &paramLayout = VoiceParameters::layout(config);
+    filterFrequency = VoiceParameters::mapCutoff(paramLayout, config.filterCutoffBase);
+    filter.setFreq(filterFrequency);
+    filterSvf_.setCutoff(filterFrequency);
+    filterCutoffCurrent = filterFrequency;
   }
 
   highPassFilter.setCutoff(config.highPassFreq);

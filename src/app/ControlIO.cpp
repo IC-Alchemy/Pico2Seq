@@ -228,12 +228,18 @@ void ControlIO::scanControls(uint32_t nowMs)
         // =======================
         //   REAL-TIME PARAMETER RECORDING
         // =======================
-        // Apply distance sensor values to selected step when parameter buttons are held
-        if (!uiState.voiceEditor.active && !uiState.controlsWaitRelease && uiState.selectedStepForEdit != -1 &&
+        // Apply distance sensor values to step when parameter buttons are held
+        if (!uiState.voiceEditor.active && !uiState.controlsWaitRelease &&
             getHeldParameterParamId(uiState) != ParamId::Count && AppState::performanceInput.handPresent)
         {
             freezeWatchdogMark(FW_LOOP_RECORD);
-            updateParametersForStep(uiState.selectedStepForEdit);
+            const int targetStep = uiState.selectedStepForEdit != -1
+                ? uiState.selectedStepForEdit
+                : (!isClockRunning ? AppState::sequencers[std::min<uint8_t>(uiState.selectedVoiceIndex, VoiceSystem::MAX_VOICES - 1)]->getCurrentStepForParameter(getHeldParameterParamId(uiState)) : -1);
+            if (targetStep >= 0 && targetStep < SequencerConstants::MAX_STEPS_COUNT)
+            {
+                updateParametersForStep(static_cast<uint8_t>(targetStep));
+            }
         }
     }
 }

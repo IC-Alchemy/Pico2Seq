@@ -995,6 +995,11 @@ float composeLane(ParamId id, float stored, const void *context) noexcept {
     return stored;
   if (id == ParamId::Note)
     return std::round(std::clamp(stored + c.baseNote, 0.0f, 36.0f));
+  if (id == ParamId::Octave) {
+    const int8_t trackOffset = mapOctave(stored);
+    const int8_t totalOffset = std::clamp<int8_t>(trackOffset + static_cast<int8_t>(c.baseOctave), -24, 24);
+    return std::clamp(static_cast<float>(totalOffset) / 48.0f + 0.5f, 0.0f, 1.0f);
+  }
   const float n = id == ParamId::GateLength ? (stored - 0.001f) / 0.999f : stored;
   const float base = laneBase(id, c);
   const float n_clamped = std::clamp(n, 0.0f, 1.0f);

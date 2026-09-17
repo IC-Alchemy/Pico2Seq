@@ -198,15 +198,6 @@ void updateVoiceMIDI(
 
 void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
 {
-    (void)stepIndex; // the playing cursors decide what is heard
-
-    // A stopped transport is muted, and the note lifecycle belongs to the
-    // clock: editing while stopped just stores the value.
-    if (!isClockRunning)
-    {
-        return;
-    }
-
     uint8_t voiceIndex = VoiceSystem::MAX_VOICES;
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i)
     {
@@ -227,7 +218,21 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
     // Refresh the sounding voice in place instead; an edit to a step that is
     // not playing is heard when its cursor comes round.
     VoiceState &activeVoiceState = voiceSystem.getVoiceState(voiceIndex);
-    activeSeq.refreshVoiceParameters(&activeVoiceState);
+    if (isClockRunning)
+    {
+        activeSeq.refreshVoiceParameters(&activeVoiceState);
+    }
+    else
+    {
+        const Step values = activeSeq.getPlaybackStep(stepIndex < SequencerConstants::MAX_STEPS_COUNT ? stepIndex : UINT8_MAX);
+        activeVoiceState.velocityLevel = values.velocityLevel;
+        activeVoiceState.filterCutoff = values.filterCutoff;
+        activeVoiceState.attackTimeSeconds = values.attackTimeSeconds;
+        activeVoiceState.decayTimeSeconds = values.decayTimeSeconds;
+        activeVoiceState.noteIndex = values.noteIndex;
+        activeVoiceState.octaveOffset = values.octaveOffset;
+        activeVoiceState.shouldRetrigger = false;
+    }
     updateVoiceMIDI(activeVoiceState, voiceIndex);
 }
 
