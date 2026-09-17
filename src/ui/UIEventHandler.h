@@ -104,6 +104,22 @@ void closeSettingsMode(UIState &uiState);
 void clearSequencerStep(Sequencer &sequencer, uint8_t stepIdx);
 
 /**
+ * @brief Clear one voice's whole pattern back to fresh state (Shift +
+ *        Randomize tap chord): every stored step value, gate and slide flag
+ *        wiped, track lengths back to their defaults, sounding note ended.
+ *        Voice presets, transport and tempo are untouched.
+ */
+void clearSequencerVoice(UIState &uiState, Sequencer &sequencer, uint8_t voiceIndex);
+
+/**
+ * @brief Clear every sequencer the way clearSequencerVoice clears one
+ *        (Shift + Randomize long-press chord): all voices, no values, no
+ *        gates — the whole project starts fresh.
+ */
+void clearAllSequencerVoices(UIState &uiState, Sequencer *const *sequencers,
+                             size_t sequencerCount);
+
+/**
  * @brief Firmware-side bridge that unpacks UIState button/edit-step fields and
  *        forwards them to Sequencer::advanceStep's primitive-argument overload.
  *

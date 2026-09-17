@@ -121,7 +121,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
   }
   else
   {
-    handleUtilityButtons(nowMs, uiState);
+    handleUtilityButtons(nowMs, uiState, sequencers, sequencerCount);
   }
 
   // If selected voice changed (via voice buttons or pad bank selection),
@@ -262,7 +262,9 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
 
 // --- ButtonModule8, Utility mode -------------------------------------------------
 
-void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState)
+void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState,
+                                                Sequencer *const *sequencers,
+                                                size_t sequencerCount)
 {
   for (uint8_t bit = 0; bit < 7; ++bit) // bits 0-6; bit 7 is Shift (read above)
   {
@@ -270,7 +272,9 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
     ButtonEdges &edges = buttonEdges_[kButtonRole][bit];
     // Play (0) and Session (1) also act part-way through a hold, on passes
     // with no edge. Skipping those passes made both long presses unreachable.
-    const bool actsWhileHeld = bit <= 1;
+    // The Randomize Shift chord needs the same mid-hold passes for its
+    // clear-all hold, but only while the chord is armed (Shift at press).
+    const bool actsWhileHeld = bit <= 1 || (bit == 6 && uiState.shiftHeld);
     if (!edges.take(tileButton) && !(actsWhileHeld && tileButton.held()))
     {
       continue;
@@ -363,10 +367,39 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
       }
       break;
 
-    case 6: // Randomize selected voice (long-press reset via pollUIHeldButtons)
+    case 6: // Randomize selected voice (long-press reset via pollUIHeldButtons).
+      // Shift chords: tap clears the selected voice's whole pattern, hold
+      // clears every voice. A chord press never begins a randomize press, so
+      // the poll-driven long-press reset cannot also fire from it.
       if (edges.pressEdge)
       {
-        beginRandomizePress(uiState.selectedVoiceIndex, uiState);
+        clearChordThisPress_ = uiState.shiftHeld;
+        if (clearChordThisPress_)
+        {
+          clearAllLatch_ = false;
+        }
+        else
+        {
+          beginRandomizePress(uiState.selectedVoiceIndex, uiState);
+        }
+      }
+      else if (clearChordThisPress_)
+      {
+        if (tileButton.held() && !clearAllLatch_ &&
+            tileButton.heldMilliseconds(nowMs) >= UITimingConstants::LONG_PRESS_THRESHOLD_MS)
+        {
+          clearAllLatch_ = true; // consume the hold; release must not also clear
+          clearAllSequencerVoices(uiState, sequencers, sequencerCount);
+        }
+        else if (edges.releaseEdge && !clearAllLatch_)
+        {
+          if (sequencers && uiState.selectedVoiceIndex < sequencerCount &&
+              sequencers[uiState.selectedVoiceIndex])
+          {
+            clearSequencerVoice(uiState, *sequencers[uiState.selectedVoiceIndex],
+                                uiState.selectedVoiceIndex);
+          }
+        }
       }
       else if (edges.releaseEdge)
       {

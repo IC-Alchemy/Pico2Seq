@@ -91,6 +91,18 @@ public:
     void resetAllSteps();
 
     /**
+     * @brief Wipe the whole pattern back to fresh-boot state
+     *
+     * Clears every stored step value (all MAX_STEPS_COUNT slots per track,
+     * not just the active length), turns all gates and slides off and
+     * restores every track's default step count. In patch mode (playback
+     * transform set) modifier steps are neutralized around the preset base
+     * instead of receiving raw defaults. A sounding note is released.
+     * Transport state and voice configuration are untouched.
+     */
+    void clearPattern();
+
+    /**
      * @brief Play a specific step immediately (preview mode)
      * @param stepIdx Step index to play (0-63)
      * @param voiceState Output voice state structure

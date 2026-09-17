@@ -93,7 +93,7 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, and system contr
 | **3** | `Swing Pattern` | Cycles through the 16 groove/shuffle templates in `ShuffleTemplates.h` |
 | **4** | `Theme Cycle` | Cycles visual LED color themes across `LEDTheme` presets |
 | **5** | `Encoder Target` | Short press cycles encoder target; hold enters Gate Sequence Length mode |
-| **6** | `Randomize` | Short press randomizes selected voice; long press (>1000 ms) resets voice |
+| **6** | `Randomize` | Short press randomizes selected voice; long press (>1000 ms) resets voice. Shift + tap clears the selected voice's whole pattern (`clearSequencerVoice` → `Sequencer::clearPattern`); Shift + long-press clears all four voices (`clearAllSequencerVoices`) |
 | **7** | `Shift` | Modifier for transport and utility chords |
 
 **Fader Channels in Utility Mode:**

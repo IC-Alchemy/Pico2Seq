@@ -284,6 +284,8 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     case UIState::OledNoticeKind::Saved:    line1 = "SAVED"; break;
     case UIState::OledNoticeKind::Loaded:   line1 = "LOADED"; break;
     case UIState::OledNoticeKind::LoadError: line1 = "LOAD ERR"; break;
+    case UIState::OledNoticeKind::VoiceCleared: line1 = "CLEARED"; break;
+    case UIState::OledNoticeKind::AllCleared:   line1 = "ALL CLEAR"; break;
     default: break;
     }
 
@@ -292,7 +294,8 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - line1Width) / 2, 16);
     displayHardware.print(line1);
 
-    if (uiState.oledNoticeKind == UIState::OledNoticeKind::Randomized)
+    if (uiState.oledNoticeKind == UIState::OledNoticeKind::Randomized ||
+        uiState.oledNoticeKind == UIState::OledNoticeKind::VoiceCleared)
     {
       displayHardware.setTextSize(1);
       char voiceLine[12];

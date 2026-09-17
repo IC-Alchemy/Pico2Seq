@@ -355,6 +355,12 @@ Other track behaviors worth knowing:
   even steps have a 75 % gate chance, odd steps ~33 %, slides ~8 %, short attacks and
   medium decays weighted, filter swept 20–95 %. **Long-press** Randomize (≥ 1 s) resets
   the selected voice's parameters instead.
+- **Shift + Randomize tap** clears the selected voice completely: every stored step
+  value, all gates and slides off, and all track lengths back to their 16-step
+  defaults. The OLED confirms with `CLEARED` + voice number.
+- **Shift + Randomize long-press** clears **all four voices** the same way — the whole
+  project starts fresh with no values and no gates (presets, tempo and transport
+  state are kept). The OLED confirms with `ALL CLEAR`.
 
 ### 3.3 Scales
 
@@ -560,7 +566,7 @@ the value into that step.
 | 4 Swing | Cycle through the 16 shuffle templates |
 | 5 Theme | Cycle the 10 LED matrix color themes |
 | 6 Encoder target | Short press: cycle encoder target. Hold: enter Gate Sequence Length mode (pads set the Gate track length) |
-| 7 Randomize | Short press (< 1 s): randomize the selected voice. Long press (≥ 1 s): reset it |
+| 7 Randomize | Short press (< 1 s): randomize the selected voice. Long press (≥ 1 s): reset it. **Shift + tap**: clear the selected voice's whole pattern (values, gates, track lengths). **Shift + long-press**: clear all four voices |
 | 8 Shift | Modifier for transport/utility chords |
 
 **What gets saved:** all four voices' patterns (every parameter lane, including

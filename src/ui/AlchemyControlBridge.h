@@ -34,7 +34,8 @@ class MidiNoteManager;
  *     Scale, Delay toggle).
  *   - ButtonModule8: parameter set (Note..Slide) or utility set (Play,
  *     Delay, Scale, Swing, Theme, Encoder, Randomize) per mode; Shift is
- *     bit 7 in both.
+ *     bit 7 in both. In Utility mode, Shift + Randomize clears the selected
+ *     voice's whole pattern (tap) or every voice's pattern (hold).
  *   - Faders: step-parameter recording in Param mode (same recording path
  *     as the lidar), tempo/swing/master-volume/gate-length in Utility mode.
  */
@@ -101,7 +102,8 @@ private:
   void handleVoiceButtons(UIState &uiState, MidiNoteManager &midiNoteManager,
                           Sequencer *const *sequencers, size_t sequencerCount);
   void handleParamButtons(UIState &uiState);
-  void handleUtilityButtons(uint32_t nowMs, UIState &uiState);
+  void handleUtilityButtons(uint32_t nowMs, UIState &uiState,
+                            Sequencer *const *sequencers, size_t sequencerCount);
   void handleFaders(UIState &uiState, Sequencer *const *sequencers,
                     size_t sequencerCount);
 
@@ -127,6 +129,11 @@ private:
   ButtonEdges buttonEdges_[kRoleCount][kButtonBits]; // [role][bit]
   bool playSettingsOpenedThisPress_ = false;
   bool saveLoadLatch_ = false; // session button: hold consumed, release suppressed
+  // Randomize button Shift chord state: the press edge latched whether this
+  // press is a clear chord (Shift held at press), and clearAllLatch_ consumes
+  // the hold so the release cannot also clear a single voice.
+  bool clearChordThisPress_ = false;
+  bool clearAllLatch_ = false;
   uint8_t modeSwitchPin_ = 7; // GP7 default; setup1 sets PIN_ALCHEMY_MODE_SWITCH
   uint8_t lastVoiceIndex_ = 0;
 };
