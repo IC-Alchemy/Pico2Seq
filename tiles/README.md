@@ -16,15 +16,46 @@ The hub side is `src/AlchemyUI/`; the whole arrangement is written up in
 ## Building
 
 These are Arduino sketches for the PY32Duino core, built and flashed
-independently of the Pico2Seq firmware:
-
-```bash
-arduino-cli compile --fqbn PY32duino:py32:PY32F0:pnum=PY32F030F2X6 \
-  tiles/SliderModule
-```
+independently of the Pico2Seq firmware. **Select the board variant that matches
+the part you actually have** — see [Fitting the part](#fitting-the-part); the
+variant decides the linker script's FLASH and RAM sizes, and picking a smaller
+one than the chip is the usual reason a link fails.
 
 Set `NUM_BUTTONS` to 4 or 8 in `ButtonModule8.ino` to match the PCB; nothing
 else differs between the two button variants, and no protocol version moves.
+
+## Fitting the part
+
+Measured with `arm-none-eabi-g++ -mcpu=cortex-m0plus -Os`, sketch code only —
+the core and HAL are on top of this:
+
+| Sketch | flash (.text) | RAM (.bss) |
+|---|---|---|
+| SliderModule | 2552 | 249 |
+| ButtonModule8 | 2112 | 200 |
+
+If the link overflows, get the numbers before changing code:
+
+```bash
+arm-none-eabi-g++ -mcpu=cortex-m0plus -mthumb -Os -fno-exceptions -fno-rtti \
+  -x c++ -std=gnu++17 -include Arduino.h -c tiles/SliderModule/SliderModule.ino -o /tmp/t.o
+arm-none-eabi-size /tmp/t.o
+```
+
+An overflow far larger than the sketch's own footprint is not a code problem.
+Check, in this order:
+
+1. **The selected board variant.** A 16 KB / 2 KB linker script under a larger
+   part fails by roughly the size of the core, no matter what the sketch does.
+2. **`--gc-sections`.** Without it every unreferenced core and HAL function is
+   linked in.
+3. **`--specs=nano.specs`**, for the small newlib.
+
+Only then trim the sketch. The obvious target is `regMap[REG_MAP_SIZE]`: 128
+bytes of RAM holding 26 bytes of mostly-constant identity, 3 bytes of config
+and ~99 bytes of zero padding. Serving the identity from a `const` table in
+flash, the UID straight from its factory address, and the config from a
+3-byte array frees ~125 bytes of RAM for a few tens of bytes of flash.
 
 ## Tested on the host
 
@@ -79,14 +110,14 @@ while being the core's default serial pin — so no `Serial` either.
   programmed for 100 kHz on a bank the hub clocks at 400 kHz — configured for
   standard-mode timing while being driven at fast mode. Keep this in lockstep
   with `kTileBusFrequencyHz` in `src/app/ControlIO.cpp`.
-- **Triple-buffered publish.** With two buffers a publish landing during a read
-  had nowhere to go and was skipped; the skip left `activeFrame` unchanged, so
-  every later publish was skipped too and SEQ, DATA and HEARTBEAT froze
-  together while the slave went on answering. A third buffer means a free slot
-  always exists.
-- **Transaction state is cleared when the peripheral is rebuilt.**
-  `servingBuf` was cleared only in `endTransaction()`, which a transaction
-  killed by the bus watchdog never reaches — leaving a buffer reserved forever.
+- **A stale publish latch is reclaimed.** `servingBuf` reserves a buffer for an
+  in-flight read and was cleared only in `endTransaction()`, which a
+  transaction killed by the bus watchdog never reaches. The reservation then
+  left nowhere to publish: `activeFrame` stopped moving and SEQ, DATA and
+  HEARTBEAT froze together while the slave went on answering. A transaction
+  lasts microseconds, so a latch still held two sweeps later is stale and the
+  buffer is taken back (and `LOCAL_FAULT` raised). Transaction state is also
+  cleared on every peripheral rebuild, which is where the leak came from.
 - **One DR write per byte slot.** TXE and BTF can both be live in a single SR1
   snapshot; servicing them as independent writes put two bytes into one slot
   and skewed every byte after it.

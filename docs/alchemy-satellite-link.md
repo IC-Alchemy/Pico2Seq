@@ -18,7 +18,7 @@ A satellite is a **cache**, not a peripheral the hub interrogates:
 ```
 PY32 ADC + buttons
   -> local filtering / debounce          (satellite, its own sample sweep)
-  -> compact state packet                (satellite, triple-buffered)
+  -> compact state packet                (satellite, double-buffered)
   -> one I2C read                        (RP2350 Core 0 control slice)
   -> SatelliteLink                       (sequence / timeout / last-known-good)
   -> UIState, Sequencer, VoiceManager    (Core 0)
@@ -162,7 +162,7 @@ The hub's decisions lean on four properties of the PY32 sketches
 
 | Property | Why the hub depends on it |
 |---|---|
-| The frame is **triple-buffered** and published with a single index flip; the ISR latches one buffer at ADDR-match and serves it for the whole transaction. | A frame read in one transaction is internally coherent. Splitting the read is what would tear it, and a third buffer means a publish never has to stall waiting for a reader. |
+| The frame is **double-buffered** and published with a single index flip; the ISR latches one buffer at ADDR-match and serves it for the whole transaction, and a latch still held two sweeps later is reclaimed. | A frame read in one transaction is internally coherent. Splitting the read is what would tear it; reclaiming a stale latch is what stops a dead reader from freezing the tile. |
 | **HEARTBEAT toggles on every sweep**, change or no change. | The only liveness signal that distinguishes "idle" from "wedged". |
 | **SEQ advances only when a DATA byte changed**, and wraps at 15. | Equality-only comparison; an unchanged SEQ means nothing new, not "older". |
 | Sticky press/release bits **clear only after a master's read cursor passes them**, deferred to the tile's loop so an aborted read loses nothing. | An edge is never lost, but the same edge is served again to any read landing before the tile's next sweep — hence the hub delivers edges only on a frame its link actually published. |
@@ -185,8 +185,9 @@ Two faults that shaped the hub's design have been fixed there:
    `endTransaction()` — which a transaction killed by the tile's bus watchdog
    never reaches. With only two buffers the reservation left nowhere to publish,
    so SEQ, DATA and HEARTBEAT froze together while the slave went on serving a
-   correct checksum. The tiles now triple-buffer and clear transaction state on
-   every peripheral rebuild. The hub's heartbeat-based timeout stays regardless:
+   correct checksum. The tiles now reclaim a latch still held two sweeps later
+   (a transaction lasts microseconds) and clear transaction state on every
+   peripheral rebuild. The hub's heartbeat-based timeout stays regardless:
    it is the general answer to "answers the bus, isn't sampling", and that class
    of fault will not have been exhausted by one instance of it.
 

@@ -228,7 +228,6 @@ static void handleRegisterWrite(uint8_t reg, uint8_t value);
 // I2C slave state, touched only from the ISR.
 static volatile uint8_t regPointer  = 0;      // set by a pointer write
 static volatile uint8_t txIndex     = 0;      // read cursor for the current read
-static volatile bool    rxFirstByte = false;  // next RX byte is the pointer
 
 // --- Double-buffered snapshot ------------------------------------------------
 // The sample loop builds a complete STATUS+DATA+SUM frame in the back buffer
@@ -238,14 +237,10 @@ static volatile bool    rxFirstByte = false;  // next RX byte is the pointer
 // so a sweep landing mid-read can never tear a frame.
 #define FRAME_LEN 13  // 1 STATUS + DATA_LEN + 1 SUM
 
-// Three buffers, not two. With two, a publish landing while a read is in
-// flight has nowhere to go and has to be skipped; skip twice running and the
-// tile stops publishing altogether, which on the wire is indistinguishable
-// from a dead panel because SEQ and HEARTBEAT freeze together. A third buffer
-// guarantees a slot that is neither the one the ISR will latch next nor the
-// one an in-flight read is serving, so a publish is never skipped and the
-// heartbeat never stalls for a bus reason.
-#define FRAME_BUFFERS 3
+// Two buffers. A third would guarantee a free slot but costs a whole frame of
+// RAM on a part that has very little; the stale-latch reclaim in publishFrame()
+// closes the same hole for one byte.
+#define FRAME_BUFFERS 2
 static volatile uint8_t frameBuf[FRAME_BUFFERS][FRAME_LEN];
 static volatile uint8_t activeFrame = 0;
 
@@ -266,17 +261,24 @@ static volatile uint8_t servingBuf = 0xFF;
 static volatile uint8_t stickyConsumed = 0;  // ISR-local, per transaction
 static volatile uint8_t stickyClearReq = 0;  // set by ISR, drained by loop()
 
-// Peripheral-watchdog bookkeeping. A plain counter, not millis(): the ISR
-// runs at priority 0 and millis() is not guaranteed reentrant against the
-// tick it reads. The loop only needs "did the ISR make progress", which a
-// monotonic counter answers without touching the time base.
-static volatile uint32_t isrActivity = 0;
+// Peripheral-watchdog bookkeeping. A plain counter, not millis(): the ISR runs
+// at priority 0 and millis() is not guaranteed reentrant against the tick it
+// reads. The loop only asks "did the ISR make progress", which a counter
+// answers without touching the time base. 16 bits: the loop samples it far
+// faster than 65536 interrupts can arrive, so it cannot alias.
+static volatile uint16_t isrActivity = 0;
 
-// Transfer direction, latched at ADDR-match. Re-reading SR2 later to ask the
-// peripheral again is how an ADDR event gets silently swallowed; the answer
-// cannot change inside one transaction, so latch it once.
-static volatile bool txDirection   = false;
-static volatile bool inTransaction = false;
+// Transaction state, one byte rather than two bools. TXF_READING is the
+// direction latched at ADDR-match -- re-reading SR2 later to ask the
+// peripheral again is how an ADDR event gets silently swallowed, and the
+// answer cannot change inside one transaction.
+#define TXF_READING 0x01
+#define TXF_ACTIVE  0x02
+#define TXF_POINTER 0x04   // next received byte is the register pointer
+static volatile uint8_t txFlags = 0;
+
+// Consecutive sweeps publishFrame() has skipped for a held buffer.
+static uint8_t staleLatchSweeps = 0;
 
 // Main-loop-owned live state, folded into the frame on each sweep.
 static uint8_t  stickyPressed  = 0;  // pressed-since-last-read, clear on read
@@ -313,7 +315,7 @@ static inline uint8_t readByte(uint8_t index)
 // saw, and a lost press is worse than a repeated one. A STATUS-only
 // poll reads byte 0x20 and stops: the cursor stops at 0x21, so no edge is
 // consumed by an idle tick.
-static inline void noteCursorPassed(uint8_t deliveredEnd)
+static void noteCursorPassed(uint8_t deliveredEnd)
 {
   if (deliveredEnd > Proto::REG_DATA + Proto::SliderTile::D_BTN_PRESSED) {
     stickyConsumed |= STICKY_PRESSED_BIT;
@@ -333,14 +335,12 @@ static inline void endTransaction(void)
   // The transaction is over, so the last byte written into DR did clock out.
   // This is the only place that can know it, and without it a full-frame read
   // would leave its final sticky byte uncleared forever.
-  if (txDirection) noteCursorPassed(txIndex);
+  if (txFlags & TXF_READING) noteCursorPassed(txIndex);
 
   I2C1->CR1 |= I2C_CR1_ACK;
   I2C1->CR2 &= ~I2C_CR2_ITBUFEN;
-  rxFirstByte   = false;
-  txDirection   = false;
-  inTransaction = false;
-  servingBuf    = 0xFF;                    // publish side may use it again
+  txFlags    = 0;
+  servingBuf = 0xFF;                       // publish side may use it again
   if (stickyConsumed) {
     stickyClearReq |= stickyConsumed;
     stickyConsumed = 0;
@@ -361,14 +361,12 @@ static inline void endTransaction(void)
  */
 static inline void i2cResetTransactionState(void)
 {
-  regPointer     = 0;
-  txIndex        = 0;
-  rxFirstByte    = false;
-  txDirection    = false;
-  inTransaction  = false;
+  // Only the state a dead transaction can strand. regPointer, txIndex and
+  // servedFrame are all rewritten at the next ADDR-match before anything
+  // reads them, so clearing them here would cost stores for nothing.
+  txFlags        = 0;
   servingBuf     = 0xFF;
   stickyConsumed = 0;
-  servedFrame    = frameBuf[activeFrame];
 }
 
 // One received byte: first byte after address-match is the register pointer,
@@ -377,11 +375,11 @@ static inline void i2cResetTransactionState(void)
 // discarded when the ISR is entered with BTF already set.
 static inline void rxByte(uint8_t data)
 {
-  if (rxFirstByte) {
+  if (txFlags & TXF_POINTER) {
     // Park, don't clamp: an out-of-range pointer must not silently land
     // somewhere unrelated in the map, least of all on SOFT_CMD.
     regPointer  = (data < REG_MAP_SIZE) ? data : (uint8_t)REG_PARK;
-    rxFirstByte = false;
+    txFlags &= (uint8_t)~TXF_POINTER;
     return;
   }
   handleRegisterWrite(regPointer, data);
@@ -565,10 +563,9 @@ extern "C" void I2C1_IRQHandler(void)
     uint32_t sr2 = I2C1->SR2;              // SR1 then SR2 clears ADDR
     I2C1->CR2 |= I2C_CR2_ITBUFEN;          // want TXE/RXNE while addressed
 
-    txDirection   = (sr2 & I2C_SR2_TRA) != 0;
-    inTransaction = true;
+    txFlags = (sr2 & I2C_SR2_TRA) ? (TXF_ACTIVE | TXF_READING) : TXF_ACTIVE;
 
-    if (txDirection) {                     // master is reading from us
+    if (txFlags & TXF_READING) {           // master is reading from us
       // Latch one published snapshot for the whole transaction.
       servingBuf  = activeFrame;
       servedFrame = frameBuf[activeFrame];
@@ -576,7 +573,7 @@ extern "C" void I2C1_IRQHandler(void)
       I2C1->DR = readByte(txIndex);        // prime the shifter
       if (txIndex < 0xFF) txIndex++;       // nothing is delivered yet
     } else {                               // master is writing to us
-      rxFirstByte = true;
+      txFlags |= TXF_POINTER;
     }
     return;                                // sr1 is stale; re-enter for data
   }
@@ -602,9 +599,9 @@ extern "C" void I2C1_IRQHandler(void)
   }
 
   // --- Data phase ------------------------------------------------------
-  if (!inTransaction) return;              // nothing addressed us; no cursor
+  if (!(txFlags & TXF_ACTIVE)) return;     // nothing addressed us; no cursor
 
-  if (txDirection) {
+  if (txFlags & TXF_READING) {
     // TXE and BTF are the same request here -- "the peripheral wants the next
     // byte" -- and get exactly one DR write between them.
     if (sr1 & (I2C_SR1_TXE | I2C_SR1_BTF)) {
@@ -689,8 +686,9 @@ static void i2cSlaveBegin(void)
 // to ~3 ms and reboots a perfectly healthy tile.
 static void iwdgWaitIdle(void)
 {
-  for (uint32_t guard = 0; guard < 1000000u && IWDG->SR != 0u; guard++) {
-    // Bounded: a backstop that hangs during its own setup is no backstop.
+  // Bounded: a backstop that hangs during its own setup is no backstop. A few
+  // LSI cycles at ~32 kHz is tens of core cycles, so this is generous.
+  for (uint16_t guard = 0; guard < 8000u && IWDG->SR != 0u; guard++) {
   }
 }
 
@@ -824,17 +822,21 @@ static uint8_t heartbeatState = 0;
 
 static void publishFrame(void)
 {
-  // Any buffer that is neither the one the ISR will latch next nor the one an
-  // in-flight read is already serving. With three buffers one always exists,
-  // so a publish is never skipped: HEARTBEAT keeps toggling every sweep, and a
-  // frozen STATUS byte therefore means the tile really has stopped sampling
-  // rather than merely having been read at an awkward moment. The hub reads it
-  // exactly that way.
-  uint8_t back = 0xFF;
-  for (uint8_t i = 0; i < FRAME_BUFFERS; i++) {
-    if (i != activeFrame && i != (uint8_t)servingBuf) { back = i; break; }
+  uint8_t back = (uint8_t)(activeFrame ^ 1u);
+
+  // Never overwrite a buffer an in-flight read is still serving -- but never
+  // wait on that latch forever either. A transaction lasts microseconds; if it
+  // is still held two sweeps later the reader is gone (a master reset
+  // mid-read, or the peripheral rebuilt under it) and the latch is stale.
+  // Skipping publishes indefinitely instead would freeze SEQ, DATA and
+  // HEARTBEAT together while the slave kept answering -- on the wire, a dead
+  // panel. One skipped sweep is 4 ms; the hub's link timeout is 100 ms.
+  if ((uint8_t)servingBuf == back) {
+    if (++staleLatchSweeps < 2u) return;
+    servingBuf = 0xFF;
+    localFault = true;   // surfaced in STATUS: this should not have happened
   }
-  if (back == 0xFF) return;   // unreachable with FRAME_BUFFERS >= 3
+  staleLatchSweeps = 0;
 
   volatile uint8_t* f = frameBuf[back];
 

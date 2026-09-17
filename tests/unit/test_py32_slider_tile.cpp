@@ -237,19 +237,18 @@ TEST_CASE("HEARTBEAT toggles on every sweep even when nothing changes", "[py32][
 
 TEST_CASE("a read in flight never stalls the next publish", "[py32][slider]")
 {
-    // The regression this exists for. With two buffers, a publish landing
-    // during a read had nowhere to go and was skipped; the skip left
-    // activeFrame unchanged, so every later publish was skipped too and SEQ,
-    // DATA and HEARTBEAT froze together while the slave went on answering
-    // perfectly. That is indistinguishable on the wire from a dead panel.
+    // The regression this exists for. A publish landing during a read has
+    // nowhere to go and is skipped; if the read never ends, the skip repeats
+    // forever, activeFrame stops moving, and SEQ, DATA and HEARTBEAT freeze
+    // together while the slave goes on answering perfectly. That is
+    // indistinguishable on the wire from a dead panel.
     Rig rig;
     rig.run(40);
 
     // Open a read and walk away from it: no NACK, no STOP, so the tile is
     // left holding the buffer it latched.
     rig.master.readAndAbandon(4);
-    const std::uint8_t latched = servingBuf;
-    REQUIRE(latched != 0xFF);
+    REQUIRE(servingBuf != 0xFF);
 
     // Observed from inside the sketch on purpose. Reading the frame over the
     // bus would open a fresh transaction, re-latch servingBuf and end it
@@ -265,8 +264,11 @@ TEST_CASE("a read in flight never stalls the next publish", "[py32][slider]")
         previous = now;
     }
 
-    CHECK(servingBuf == latched); // still held, exactly as on the part
-    CHECK(toggles >= 6);          // and every sweep still found a free buffer
+    // A transaction lasts microseconds, so a latch still held sweeps later is
+    // stale: the tile takes the buffer back rather than publishing nothing.
+    CHECK(servingBuf == 0xFF);
+    CHECK(toggles >= 6);
+    CHECK(rig.readFrame()[0] & tile::kStatusLocalFault); // and says it happened
 }
 
 TEST_CASE("the tile keeps publishing after its peripheral is rebuilt", "[py32][slider]")

@@ -173,8 +173,7 @@ TEST_CASE("an abandoned read never stalls the button tile's publishing", "[py32]
     rig.run(40);
 
     rig.master.readAndAbandon(3);
-    const std::uint8_t latched = servingBuf;
-    REQUIRE(latched != 0xFF);
+    REQUIRE(servingBuf != 0xFF);
 
     int toggles = 0;
     std::uint8_t previous = frameBuf[activeFrame][0] & ST_HEARTBEAT;
@@ -186,8 +185,10 @@ TEST_CASE("an abandoned read never stalls the button tile's publishing", "[py32]
         previous = now;
     }
 
-    CHECK(servingBuf == latched);
+    // Stale latch reclaimed rather than publishing nothing for ever.
+    CHECK(servingBuf == 0xFF);
     CHECK(toggles >= 6);
+    CHECK(rig.readFrame()[0] & tile::kStatusLocalFault);
 }
 
 TEST_CASE("the button tile keeps publishing after its peripheral is rebuilt", "[py32][button]")
