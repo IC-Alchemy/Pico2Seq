@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Pico2Seq_App.Native;
+using System.Collections.ObjectModel;
 
 namespace Pico2Seq_App.ViewModels;
 
@@ -10,6 +11,10 @@ namespace Pico2Seq_App.ViewModels;
 /// </summary>
 public partial class MainPageViewModel : ObservableObject
 {
+    /// <summary>Row-major pads of the 4x8 touch matrix; MainPage fills this
+    /// once before the page's XAML binds it.</summary>
+    public ObservableCollection<PadCellViewModel> Pads { get; } = new();
+
     [ObservableProperty]
     public partial bool TransportRunning { get; set; }
 

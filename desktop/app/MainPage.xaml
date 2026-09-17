@@ -6,6 +6,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:local="using:Pico2Seq_App"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:Pico2Seq_App.ViewModels"
     mc:Ignorable="d">
 
     <Grid Padding="16" RowSpacing="12">
@@ -57,9 +58,39 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <!-- 8x4 pad grid, mirroring the touch matrix; cell glow = LED frame -->
-            <Grid x:Name="PadGrid" Grid.Column="0" ColumnSpacing="6" RowSpacing="6"
-                  HorizontalAlignment="Left" VerticalAlignment="Top" />
+            <!-- 4x8 pad grid, mirroring the touch matrix; cell glow = LED frame -->
+            <ItemsRepeater x:Name="PadRepeater" Grid.Column="0"
+                           Width="458" HorizontalAlignment="Left" VerticalAlignment="Top"
+                           AutomationProperties.AutomationId="PadGrid"
+                           ElementPrepared="OnPadElementPrepared"
+                           ItemsSource="{x:Bind ViewModel.Pads, Mode=OneWay}">
+                <ItemsRepeater.Layout>
+                    <UniformGridLayout MinItemWidth="52" MinItemHeight="52"
+                                       MinColumnSpacing="6" MinRowSpacing="6" />
+                </ItemsRepeater.Layout>
+                <ItemsRepeater.ItemTemplate>
+                    <DataTemplate x:DataType="vm:PadCellViewModel">
+                        <Button Padding="0" CornerRadius="6"
+                                AutomationProperties.Name="{x:Bind Name}"
+                                AutomationProperties.AutomationId="{x:Bind AutomationId}"
+                                PointerPressed="{x:Bind OnPointerPressed}"
+                                PointerReleased="{x:Bind OnPointerReleased}"
+                                PointerCanceled="{x:Bind OnPointerReleased}"
+                                PointerCaptureLost="{x:Bind OnPointerReleased}">
+                            <Grid>
+                                <!-- Theme-aware idle base under the device-literal LED glow
+                                     (Rectangle has no CornerRadius in WinUI; RadiusX/Y = 4px). -->
+                                <Rectangle Margin="4" RadiusX="4" RadiusY="4"
+                                           Fill="{ThemeResource P2SPadIdleBrush}" />
+                                <Rectangle Margin="4" RadiusX="4" RadiusY="4"
+                                           Fill="{x:Bind LedBrush, Mode=OneWay}" />
+                                <TextBlock Text="{x:Bind Number}" FontSize="11"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Grid>
+                        </Button>
+                    </DataTemplate>
+                </ItemsRepeater.ItemTemplate>
+            </ItemsRepeater>
 
             <!-- OLED canvas: native 128x64 frame, scaled 2.5x -->
             <Border Grid.Column="1" CornerRadius="8" BorderThickness="1"

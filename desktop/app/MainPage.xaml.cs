@@ -40,7 +40,6 @@ public sealed partial class MainPage : Page
 
     public MainPageViewModel ViewModel { get; } = new();
 
-    private readonly Button[] _pads = new Button[32];
     private ushort _touchBits;
 
     private readonly byte[] _ledBytes = new byte[EngineApi.LedBytes];
@@ -53,9 +52,14 @@ public sealed partial class MainPage : Page
 
     public MainPage()
     {
+        // Data-driven pad grid: the view models must exist before the XAML's
+        // ItemsSource binding evaluates. Callbacks come back through
+        // OnPadTouch, which owns the electrode-bit encoding.
+        for (int pad = 0; pad < 32; ++pad)
+            ViewModel.Pads.Add(new PadCellViewModel(pad, OnPadTouch));
+
         InitializeComponent();
         OledImage.Source = _oledBitmap;
-        BuildPadGrid();
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
@@ -64,56 +68,35 @@ public sealed partial class MainPage : Page
     public string GlyphFor(bool running) => running ? "\uE769" : "\uE768";
     public string LabelFor(bool running) => running ? "Stop" : "Play";
 
-    private void BuildPadGrid()
+    private void OnPadTouch(int pad, bool isDown)
     {
-        for (int row = 0; row < 4; ++row)
-            PadGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(52) });
-        for (int col = 0; col < 8; ++col)
-            PadGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
+        _touchBits = isDown
+            ? (ushort)(_touchBits | ElectrodeBitsFor(pad))
+            : (ushort)(_touchBits & ~ElectrodeBitsFor(pad));
+        EngineApi.p2s_push_touch(_touchBits);
+    }
 
-        for (int pad = 0; pad < 32; ++pad)
+    // ButtonBase class-handles Space/Enter for its own click behavior (marks
+    // the KeyDown routed event handled), so a plain instance handler -- an
+    // x:Bind event binding included -- never sees the activation keys. Attach
+    // the VM handler during element preparation with handledEventsToo:true;
+    // the index is resolved per event, so recycling stays correct.
+    private KeyEventHandler? _padKeyDownHandler;
+
+    private void OnPadElementPrepared(ItemsRepeater sender, ItemsRepeaterElementPreparedEventArgs args)
+    {
+        _padKeyDownHandler ??= PadButtonKeyDown;
+        args.Element.RemoveHandler(KeyDownEvent, _padKeyDownHandler); // guard against re-preparation
+        args.Element.AddHandler(KeyDownEvent, _padKeyDownHandler, handledEventsToo: true);
+    }
+
+    private void PadButtonKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (sender is UIElement element
+            && PadRepeater.GetElementIndex(element) is int index && index >= 0)
         {
-            var button = new Button
-            {
-                CornerRadius = new CornerRadius(6),
-                Padding = new Thickness(0),
-                Content = new TextBlock
-                {
-                    Text = (pad % 16 + 1).ToString(),
-                    FontSize = 11,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                },
-            };
-            Grid.SetRow(button, pad / 8);
-            Grid.SetColumn(button, pad % 8);
-            button.PointerPressed += OnPadPressed;
-            button.PointerReleased += OnPadReleased;
-            button.PointerCanceled += OnPadReleased;
-            button.PointerCaptureLost += OnPadReleased;
-            PadGrid.Children.Add(button);
-            _pads[pad] = button;
+            ViewModel.Pads[index].OnKeyDown(sender, e);
         }
-    }
-
-    private void OnPadPressed(object sender, PointerRoutedEventArgs e)
-    {
-        var button = (Button)sender;
-        button.CapturePointer(e.Pointer);
-        int pad = Array.IndexOf(_pads, button);
-        _touchBits |= ElectrodeBitsFor(pad);
-        EngineApi.p2s_push_touch(_touchBits);
-    }
-
-    private void OnPadReleased(object sender, PointerRoutedEventArgs e)
-    {
-        var button = (Button)sender;
-        button.ReleasePointerCapture(e.Pointer);
-        int pad = Array.IndexOf(_pads, button);
-        if (pad < 0)
-            return;
-        _touchBits &= (ushort)~ElectrodeBitsFor(pad);
-        EngineApi.p2s_push_touch(_touchBits);
     }
 
     private static ushort ElectrodeBitsFor(int pad)
@@ -130,7 +113,7 @@ public sealed partial class MainPage : Page
             {
                 StorageDir = IntPtr.Zero,
                 StartAudioDevice = true,
-                StartControlThread = false, // TEMP bisect
+                StartControlThread = true,
             };
             int rc = EngineApi.p2s_init(options);
             ViewModel.StatusLine = rc == 0 ? "engine running" : "engine FAILED to start";
@@ -181,12 +164,10 @@ public sealed partial class MainPage : Page
         {
             int i = pad * 3; // LED index == pad grid index until proven otherwise
             byte r = _ledBytes[i], g = _ledBytes[i + 1], b = _ledBytes[i + 2];
-            // Glow = LED color; the faint blue base keeps pads discoverable
-            // when their LED is off.
-            var brush = r + g + b == 0
-                ? GetOrCreateBrush(16, 16, 28)
+            // Glow = LED color only; null restores the theme-aware idle fill.
+            ViewModel.Pads[pad].LedBrush = r + g + b == 0
+                ? null
                 : GetOrCreateBrush(r, g, b);
-            _pads[pad].Background = brush;
         }
     }
 
