@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `src/OLED/` subsystem manages the 128×64 monochrome OLED display for Pico2Seq using an **Adafruit SH1106G** driver over I2C (`Wire` @ `0x3C`).
+The `src/OLED/` subsystem manages the 128×64 monochrome OLED display for Pico2Seq using an **Adafruit SH1106G** driver over I2C (`Wire1` @ `0x3C`).
 
 The OLED provides real-time visualization of parameter values, sequence lengths, settings sub-menus, voice presets, and system status through a deterministic **7-tier priority rendering hierarchy**.
 
@@ -12,9 +12,9 @@ The OLED provides real-time visualization of parameter values, sequence lengths,
 
 - **Display Controller:** SH1106G 128×64 Monochrome I2C OLED
 - **Driver Library:** `Adafruit_SH1106G` (via `Adafruit_SH110X` / `Adafruit_GFX`)
-- **Bus:** `Wire` (I2C0)
-  - `SDA`: GP4
-  - `SCL`: GP5
+- **Bus:** `Wire1` (I2C1, shared with Alchemy tiles @ 100 kHz)
+  - `SDA`: GP14
+  - `SCL`: GP15
 - **I2C Address:** `0x3C` (`OLEDConstants::I2C_ADDRESS`)
 - **Reset Pin:** `-1` (unconnected / software reset)
 - **Display Dimensions:** 128 pixels wide × 64 pixels high

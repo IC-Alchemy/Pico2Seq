@@ -160,7 +160,7 @@ bool VoiceManager::setVoiceConfig(uint8_t voiceId, const VoiceConfig &config)
     if (managedVoice && managedVoice->voice)
     {
         managedVoice->voice->setConfig(config);
-        DBG_INFO("VoiceManager: setVoiceConfig id=%u", voiceId);
+        DBG_VERBOSE("VoiceManager: setVoiceConfig id=%u", voiceId);
         return true;
     }
     DBG_WARN("VoiceManager: setVoiceConfig failed id=%u not found", voiceId);

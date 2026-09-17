@@ -130,7 +130,10 @@ static inline void freezeWatchdogArm()
 {
     watchdog_hw->scratch[2] = watchdog_hw->scratch[2] + 1; // boot counter
 #if defined(__arm__)
-    exception_set_exclusive_handler(HARDFAULT_EXCEPTION, freezeWatchdogHardFaultHandler);
+    if (exception_get_vtable_handler(HARDFAULT_EXCEPTION) != freezeWatchdogHardFaultHandler)
+    {
+        exception_set_vtable_handler(HARDFAULT_EXCEPTION, freezeWatchdogHardFaultHandler);
+    }
 #endif
     freezeWatchdogMark(FW_NONE);
     watchdog_enable(2000, true); // 2s budget; worst loop iteration is ~0.5s
