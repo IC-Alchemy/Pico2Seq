@@ -41,6 +41,7 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
 +-------------------------------------------------------------------------+
 | Priority 3: Transitory Confirmation Notice                              |
 | (Active when millis() < uiState.oledNoticeUntil: "RANDOMIZED" + voice,  |
+|  "CLEARED" + voice, "ALL CLEAR", "SAVED"/"LOADED"/"LOAD ERR";           |
 |  replacing the old control-cluster LED flashes)                         |
 +-------------------------------------------------------------------------+
                                     | (if expired)
@@ -98,9 +99,11 @@ Triggered for a brief timeout window whenever the hardware GP7 mode strap change
 - **UTIL Mode:** Displays centered size-3 **"UTIL"** with subtitle `> utility <`.
 
 #### 3. Transitory Confirmation Notice (Priority 3)
-Shown for a short window after randomize/save/load actions (replacing the old control-cluster LED flashes):
+Shown for a short window after randomize/save/load/clear actions (replacing the old control-cluster LED flashes):
 - `RANDOMIZED` with a `Voice N` sub-line (1-based). *(The `DELAY ON`/`DELAY OFF` notices were
   removed with the delay effect, 2026-09-11.)*
+- `CLEARED` with a `Voice N` sub-line after Shift + Randomize tap clears that voice;
+  `ALL CLEAR` after Shift + Randomize long-press clears every voice (added 2026-09-16).
 - `SAVED` / `LOADED` after a session save or restore; `LOAD ERR` when storage fails
   (also used for a failed save).
 

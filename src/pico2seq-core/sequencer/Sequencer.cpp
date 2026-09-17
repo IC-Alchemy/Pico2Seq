@@ -157,6 +157,39 @@ void Sequencer::resetAllSteps()
         }
     }
 }
+
+void Sequencer::clearPattern()
+{
+    if (usesPlaybackTransform())
+    {
+        // resetModifierStep writes through setValue, which wraps at the active
+        // track length: widen every track first so the neutral modifiers land
+        // in all 64 slots and survive later track growth.
+        for (uint8_t param = 0; param < PARAM_ID_COUNT; ++param)
+        {
+            parameterManager.setStepCount(static_cast<ParamId>(param),
+                                          SequencerConstants::MAX_STEPS_COUNT);
+        }
+        for (uint8_t step = 0; step < SequencerConstants::MAX_STEPS_COUNT; ++step)
+        {
+            resetModifierStep(step);
+        }
+    }
+    else
+    {
+        // Re-run the boot initialization: it fills the full 64-slot capacity
+        // with each track's default value, not just the active length.
+        initializeParameters();
+    }
+    // Restore the default polyrhythm track lengths (16 steps everywhere).
+    for (uint8_t param = 0; param < PARAM_ID_COUNT; ++param)
+    {
+        parameterManager.setStepCount(static_cast<ParamId>(param),
+                                      CORE_PARAMETERS[param].defaultSteps);
+    }
+    // End a sounding note the same way reset() does.
+    handleNoteOff(nullptr);
+}
 void Sequencer::advanceStep(uint32_t current_uclock_step, int mm_distance,
                             bool is_note_button_held, bool is_velocity_button_held,
                             bool is_filter_button_held, bool is_attack_button_held,

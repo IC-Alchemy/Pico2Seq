@@ -779,6 +779,38 @@ void clearSequencerStep(Sequencer &sequencer, uint8_t stepIdx)
   sequencer.setStepParameterValue(ParamId::Gate, stepIdx, 0.0f);
 }
 
+void clearSequencerVoice(UIState &uiState, Sequencer &sequencer, uint8_t voiceIndex)
+{
+  sequencer.clearPattern();
+  uiState.oledNoticeKind = UIState::OledNoticeKind::VoiceCleared;
+  uiState.oledNoticeVoice = voiceIndex;
+  uiState.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
+  uiState.resetStepsLightsFlag = true;
+  uiState.selectedStepForEdit = -1;
+  uiState.currentEditParameter = ParamId::Count;
+}
+
+void clearAllSequencerVoices(UIState &uiState, Sequencer *const *sequencers,
+                             size_t sequencerCount)
+{
+  if (!sequencers)
+  {
+    return;
+  }
+  for (size_t voice = 0; voice < sequencerCount; ++voice)
+  {
+    if (sequencers[voice])
+    {
+      sequencers[voice]->clearPattern();
+    }
+  }
+  uiState.oledNoticeKind = UIState::OledNoticeKind::AllCleared;
+  uiState.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
+  uiState.resetStepsLightsFlag = true;
+  uiState.selectedStepForEdit = -1;
+  uiState.currentEditParameter = ParamId::Count;
+}
+
 void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_distance,
                           const UIState &uiState, VoiceState *voiceState)
 {

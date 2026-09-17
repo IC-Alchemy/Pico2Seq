@@ -333,6 +333,73 @@ TEST_CASE("Sequencer::resetAllSteps resets Note track even when gate is low", "[
     REQUIRE(seq.getStepParameterValue(ParamId::Note, 5) == 0.0f);
 }
 
+// ─── clearPattern: full voice wipe (values, gates, track lengths) ────────────
+
+TEST_CASE("Sequencer::clearPattern wipes every slot and restores default track lengths", "[sequencer]") {
+    Sequencer seq(0);
+    // Plant custom data across the full capacity while the tracks are long,
+    // then shrink so the leftovers live beyond the active length.
+    for (uint8_t step = 0; step < SequencerConstants::MAX_STEPS_COUNT; ++step) {
+        seq.setStepParameterValue(ParamId::Gate, step, 1.0f);
+        seq.setStepParameterValue(ParamId::Slide, step, 1.0f);
+        seq.setStepParameterValue(ParamId::Velocity, step, 0.9f);
+        seq.setStepParameterValue(ParamId::Attack, step, 0.8f);
+        seq.setStepParameterValue(ParamId::Note, step, 30.0f);
+    }
+    seq.setParameterStepCount(ParamId::Gate, 7);
+    seq.setParameterStepCount(ParamId::Velocity, 5);
+
+    seq.clearPattern();
+
+    // No gates, no slides, neutral values -- across the whole 64-slot
+    // capacity, not just the active length, so later track growth cannot
+    // resurrect pre-clear data.
+    for (uint8_t step = 0; step < SequencerConstants::MAX_STEPS_COUNT; ++step) {
+        REQUIRE(seq.getRawStepValue(ParamId::Gate, step) == 0.0f);
+        REQUIRE(seq.getRawStepValue(ParamId::Slide, step) == 0.0f);
+        REQUIRE(seq.getRawStepValue(ParamId::Velocity, step) == Catch::Approx(0.5f));
+        REQUIRE(seq.getRawStepValue(ParamId::Attack, step) == Catch::Approx(0.01f));
+        REQUIRE(seq.getRawStepValue(ParamId::Note, step) == Catch::Approx(0.0f));
+    }
+    for (uint8_t param = 0; param < PARAM_ID_COUNT; ++param) {
+        REQUIRE(seq.getParameterStepCount(static_cast<ParamId>(param)) ==
+                SequencerConstants::DEFAULT_STEPS_COUNT);
+    }
+}
+
+TEST_CASE("Sequencer::clearPattern neutralizes modifier steps in patch mode", "[sequencer]") {
+    Sequencer seq(0);
+    seq.setPlaybackTransform(
+        [](ParamId, float stored, const void *) { return stored; }, nullptr);
+    REQUIRE(seq.usesPlaybackTransform());
+
+    for (uint8_t step = 0; step < SequencerConstants::MAX_STEPS_COUNT; ++step) {
+        seq.setStepParameterValue(ParamId::Gate, step, 1.0f);
+        seq.setStepParameterValue(ParamId::Velocity, step, 0.9f);
+    }
+
+    seq.clearPattern();
+
+    // Patch mode plays stored values as modifiers around the preset base:
+    // cleared steps must sit at the neutral midpoint with gates off.
+    for (uint8_t step = 0; step < SequencerConstants::MAX_STEPS_COUNT; ++step) {
+        REQUIRE(seq.getRawStepValue(ParamId::Gate, step) == 0.0f);
+        REQUIRE(seq.getRawStepValue(ParamId::Velocity, step) == Catch::Approx(0.5f));
+    }
+    REQUIRE(seq.getParameterStepCount(ParamId::Gate) == SequencerConstants::DEFAULT_STEPS_COUNT);
+}
+
+TEST_CASE("Sequencer::clearPattern releases a sounding note", "[sequencer]") {
+    Sequencer seq(0);
+    seq.setStepParameterValue(ParamId::Gate, 0, 1.0f);
+    seq.startNote(60, 100, 480);
+    REQUIRE(seq.isNotePlaying());
+
+    seq.clearPattern();
+
+    REQUIRE_FALSE(seq.isNotePlaying());
+}
+
 TEST_CASE("ParameterManager::randomizeParameters produces only integer values for Note", "[paramtrack][sequencer]") {
     ParameterManager pm;
     pm.init();
