@@ -46,8 +46,8 @@ benefits from longer gates; bell and pluck gates can shorten their release tails
 Integer ratios keep FM/ring sounds harmonically related; fractional ratios
 provide more metallic textures. The chosen defaults use harmonic ratios.
 
-VelvetKeys, CopperBass and ReedPipe are the last three pads of page 1;
-SilkPad through AirChime occupy pads 8–12 of page 2 (pad 7 advances the page).
+VelvetKeys, CopperBass and ReedPipe sit on pads 21–23;
+SilkPad through AirChime occupy pads 24–28.
 All eight retain Note, Velocity, Octave, GateLength, Slide and the Gate trigger.
 The voice editor includes all ten recipe sources and their matching layouts.
 
@@ -153,10 +153,11 @@ preset. Native Hypersaw still uses one `rpdsp::Hypersaw` per voice.
 
 ## Selection and verification
 
-In preset settings, pads 0–3 select the voice, pads 6/7 select the previous/next
-page, and pads 8–31 select one of 24 presets on that page. Paging alone does not
-change the sound. OLED and LEDs use the same page mapping; the final page only
-offers populated slots. The current uint8_t IDs allow up to 255 presets.
+In preset settings, the voice buttons select the voice and pad N applies preset N
+on pads 0–30; pad 31 is unassigned and there are no pages. OLED and LEDs use the
+same mapping (`VoicePresets::presetIndexForPad`) and light only populated pads.
+The browser holds 31 presets, and a `static_assert` in `VoicePresets.cpp` stops
+the build if the bank grows past it; the uint8_t IDs themselves allow 255.
 
 Applying a preset seeds only its marked timbre tracks, keeping their independent
 lengths and preserving note/gate patterns. Startup uses the same seeding path.

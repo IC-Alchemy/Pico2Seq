@@ -365,7 +365,7 @@ TEST_CASE("Sequencer OLED formats final physical and preset-specific units", "[v
   }
 }
 
-TEST_CASE("Patch randomization preserves register and playable preset timing", "[voice_edit][recording]") {
+TEST_CASE("Patch randomization stays within its depth around the preset bases", "[voice_edit][recording]") {
   auto c = VoicePresets::getDigitalVoice();
   enablePatch(c);
   Sequencer seq;
@@ -373,20 +373,77 @@ TEST_CASE("Patch randomization preserves register and playable preset timing", "
   seq.setPlaybackTransform(composeLane, &c, mapOctave);
   for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane)
     seq.setParameterStepCount(static_cast<ParamId>(lane), 64);
-  for (int run = 0; run < 4; ++run) {
-    seq.randomizeParameters();
-    for (uint8_t i = 0; i < 64; ++i) {
-      auto step = seq.getPlaybackStep(i);
-      REQUIRE(step.noteIndex >= 0);
-      REQUIRE(step.noteIndex <= 12);
-      REQUIRE(step.noteIndex == std::round(step.noteIndex));
-      REQUIRE(step.octaveOffset == 0);
-      REQUIRE(step.gateLengthTicks == 60);
-      REQUIRE(MusicalValues::envelopeSeconds(step.attackTimeSeconds) >= c.defaultAttack * 0.6f);
-      REQUIRE(MusicalValues::envelopeSeconds(step.attackTimeSeconds) <= c.defaultAttack * 2.0f);
-      REQUIRE(MusicalValues::envelopeSeconds(step.decayTimeSeconds) >= c.defaultDecay * 0.6f);
+  // Depth D moves a step at most D% of the way from its base to a lane end.
+  const auto reach = [&](ParamId id, float effective, float depth) {
+    const float base = laneBase(id, c);
+    CHECK(effective >= base - depth * base - 1e-4f);
+    CHECK(effective <= base + depth * (1.0f - base) + 1e-4f);
+  };
+  for (uint8_t depth : {uint8_t{10}, ParameterManager::kDefaultRandomizeDepth, uint8_t{60}}) {
+    for (uint64_t seed : {1ull, 2ull, 3ull, 4ull}) {
+      INFO("depth " << int(depth) << " seed " << seed);
+      seq.randomizeParameters(depth, seed);
+      for (uint8_t i = 0; i < 64; ++i) {
+        auto step = seq.getPlaybackStep(i);
+        REQUIRE(step.noteIndex >= 0);
+        REQUIRE(step.noteIndex <= 12);
+        REQUIRE(step.noteIndex == std::round(step.noteIndex));
+        REQUIRE(step.octaveOffset == 0);
+        REQUIRE(step.gateLengthTicks == 60);
+        reach(ParamId::Velocity, step.velocityLevel, depth / 100.0f);
+        reach(ParamId::Filter, step.filterCutoff, depth / 100.0f);
+        reach(ParamId::Attack, step.attackTimeSeconds, depth / 100.0f);
+        reach(ParamId::Decay, step.decayTimeSeconds, depth / 100.0f);
+        if (depth == ParameterManager::kDefaultRandomizeDepth) {
+          // Digital's 15 ms attack stays a playable step attack (~6..83 ms).
+          REQUIRE(MusicalValues::attackSeconds(step.attackTimeSeconds) >= c.defaultAttack / 4.0f);
+          REQUIRE(MusicalValues::attackSeconds(step.attackTimeSeconds) <= c.defaultAttack * 6.0f);
+        }
+      }
     }
   }
+}
+
+TEST_CASE("Neutral envelope modifiers play each preset's own attack and decay",
+          "[voice_edit][envelope]") {
+  for (uint8_t preset = 0; preset < VoicePresets::getPresetCount(); ++preset) {
+    auto c = VoicePresets::getPresetConfig(preset);
+    enablePatch(c);
+    if (!VoiceParameters::layout(c).envelopeFromTracks ||
+        VoiceParameters::binding(c, ParamId::Attack).target)
+      continue;
+    INFO(VoicePresets::getPresetName(preset));
+    REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, 0.5f, &c)) ==
+            Approx(c.defaultAttack).epsilon(1e-3));
+    REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, 0.5f, &c)) ==
+            Approx(c.defaultDecay).epsilon(1e-3));
+    REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, 1.0f, &c)) == Approx(2.0f));
+    REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, 1.0f, &c)) == Approx(10.0f));
+  }
+}
+
+TEST_CASE("Attack base edits stay inside the attack lane", "[voice_edit][encoder]") {
+  auto c = VoicePresets::getDigitalVoice();
+  enablePatch(c);
+  setValue(Id::Attack, c, 5.0f);
+  REQUIRE(c.defaultAttack == Approx(2.0f));
+  c.defaultAttack = 0.01f;
+  // The envelope page edits the same base while the lane drives the envelope.
+  setValue(Id::EnvAttack, c, 5.0f);
+  REQUIRE(c.defaultAttack == Approx(2.0f));
+  c.defaultAttack = 1.0f;
+  adjust(Id::EnvAttack, c, 1.0f);
+  REQUIRE(c.defaultAttack == Approx(2.0f));
+  char text[24];
+  format(Id::EnvAttack, c, text, sizeof(text));
+  REQUIRE(std::string(text) == "2.000 s");
+
+  // Envelopes that ignore the lanes keep their long attack range.
+  auto pad = VoicePresets::getPresetConfigByName("SilkPad");
+  enablePatch(pad);
+  REQUIRE_FALSE(VoiceParameters::layout(pad).envelopeFromTracks);
+  setValue(Id::EnvAttack, pad, 5.0f);
+  REQUIRE(pad.defaultAttack == Approx(5.0f));
 }
 
 TEST_CASE("Stepped values move one step per adjust whatever the delta",
@@ -488,9 +545,9 @@ TEST_CASE("RubberSub sequences full range without dead zones on Attack, Cutoff, 
   VoiceConfig rubberSub = VoicePresets::getRubberSubVoice();
   enablePatch(rubberSub);
 
-  // Attack: 2 ms base (normalized ~0.075) spans 1 ms to 10 s across hand range
+  // Attack: 2 ms base (normalized ~0.09) spans 1 ms to 2 s across hand range
   const float attackBase = laneBase(ParamId::Attack, rubberSub);
-  REQUIRE(attackBase == Approx(timeNormalize(0.002f)));
+  REQUIRE(attackBase == Approx(attackNormalize(0.002f)));
   REQUIRE(composeLane(ParamId::Attack, 0.0f, &rubberSub) == 0.0f);
   REQUIRE(composeLane(ParamId::Attack, 0.1f, &rubberSub) > 0.0f); // Zero dead zone!
   REQUIRE(composeLane(ParamId::Attack, 0.25f, &rubberSub) > 0.0f);
@@ -498,13 +555,17 @@ TEST_CASE("RubberSub sequences full range without dead zones on Attack, Cutoff, 
   REQUIRE(composeLane(ParamId::Attack, 0.75f, &rubberSub) > attackBase);
   REQUIRE(composeLane(ParamId::Attack, 1.0f, &rubberSub) == 1.0f);
 
-  REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Attack, 0.0f, &rubberSub)) == Approx(0.001f));
-  REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Attack, 0.5f, &rubberSub)) == Approx(0.002f));
-  REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Attack, 1.0f, &rubberSub)) == Approx(10.0f));
+  REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, 0.0f, &rubberSub)) == Approx(0.001f));
+  REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, 0.5f, &rubberSub)) == Approx(0.002f));
+  REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, 1.0f, &rubberSub)) == Approx(2.0f));
 
-  // Cutoff: 0.37 base spans 120 Hz to 5000 Hz across hand range
+  // Cutoff: 0.5 base (the 320 Hz center) spans 90 Hz to 1200 Hz across hand range
   const float filterBase = laneBase(ParamId::Filter, rubberSub);
-  REQUIRE(filterBase == Approx(0.37f));
+  REQUIRE(filterBase == Approx(0.5f));
+  const auto &cutoff = VoiceParameters::layout(rubberSub);
+  REQUIRE(VoiceParameters::mapCutoff(cutoff, composeLane(ParamId::Filter, 0.0f, &rubberSub)) == Approx(90.0f));
+  REQUIRE(VoiceParameters::mapCutoff(cutoff, composeLane(ParamId::Filter, 0.5f, &rubberSub)) == Approx(320.0f));
+  REQUIRE(VoiceParameters::mapCutoff(cutoff, composeLane(ParamId::Filter, 1.0f, &rubberSub)) == Approx(1200.0f));
   REQUIRE(composeLane(ParamId::Filter, 0.0f, &rubberSub) == 0.0f);
   REQUIRE(composeLane(ParamId::Filter, 0.1f, &rubberSub) > 0.0f); // Zero dead zone!
   REQUIRE(composeLane(ParamId::Filter, 0.5f, &rubberSub) == Approx(filterBase));

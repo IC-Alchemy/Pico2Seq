@@ -130,8 +130,13 @@ Id nextParameter(Id current, int direction, const VoiceConfig &config,
                  bool changeGroup) noexcept;
 ParamId sequenceLane(Id id, const VoiceConfig &config) noexcept;
 
+// Attack lanes stop at 2 s so their travel stays on playable step attacks;
+// decay lanes keep the full 1 ms..10 s envelope range.
+inline constexpr float kAttackMaxSeconds = 2.0f;
+
 float laneBase(ParamId id, const VoiceConfig &config) noexcept;
 float timeNormalize(float seconds) noexcept;
+float attackNormalize(float seconds) noexcept;
 float composeLane(ParamId id, float stored, const void *config) noexcept;
 int8_t mapOctave(float normalized) noexcept;
 void seedModifiers(Sequencer &sequencer);

@@ -513,9 +513,11 @@ Step Sequencer::getPlaybackStep(uint8_t stepIdx) const
     return s;
 }
 
-void Sequencer::randomizeParameters()
+void Sequencer::randomizeParameters(uint8_t depthPercent, uint64_t seed)
 {
-    parameterManager.randomizeParameters(usesPlaybackTransform());
+    parameterManager.randomizeParameters(depthPercent, seed);
+    if (parameterManager.getLaneAmount(ParamId::Octave) == 0)
+        return;
     // Neutral octave across the entire track capacity (64 steps).
     for (uint8_t i = 0; i < SequencerConstants::MAX_STEPS_COUNT; ++i)
         setStepParameterValue(ParamId::Octave, i, 0.5f);

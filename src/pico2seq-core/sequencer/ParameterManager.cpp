@@ -24,6 +24,10 @@ void seed_lcg() {
       std::chrono::high_resolution_clock::now().time_since_epoch().count());
 }
 
+void seed_lcg(uint64_t seed) {
+  lcg_state = static_cast<uint32_t>(seed ^ (seed >> 32));
+}
+
 uint32_t lcg_rand() {
   lcg_state = 1664525u * lcg_state + 1013904223u;
   return lcg_state;
@@ -124,135 +128,50 @@ void ParameterManager::setRawValue(ParamId id, uint8_t stepIdx, float value) {
   _tracks[static_cast<size_t>(id)].setValue(stepIdx, value);
 }
 
-void ParameterManager::randomizeParameters(bool patchModifiers) {
-  // Seed the LCG with current time
-  seed_lcg();
+void ParameterManager::setLaneAmount(ParamId id, uint8_t percent) {
+  if (static_cast<size_t>(id) >= kParamCount)
+    return;
+  _laneAmounts[static_cast<size_t>(id)] = std::min<uint8_t>(percent, 100);
+}
 
+uint8_t ParameterManager::getLaneAmount(ParamId id) const {
+  return static_cast<size_t>(id) < kParamCount
+             ? _laneAmounts[static_cast<size_t>(id)]
+             : 0;
+}
+
+void ParameterManager::randomizeParameters(uint8_t depthPercent,
+                                           uint64_t seed) {
+  if (seed == 0)
+    seed_lcg();
+  else
+    seed_lcg(seed);
+
+  const float depth = std::min<uint8_t>(depthPercent, 100) / 100.0f;
   for (size_t i = 0; i < kParamCount; ++i) {
     const auto paramId = static_cast<ParamId>(i);
-
-    // Ensure Slide parameter track always uses maximum length (extents-safe)
-    if (paramId == ParamId::Slide) {
-      _tracks[i].resize(SequencerConstants::MAX_STEPS_COUNT);
-    }
-
-    const auto &def = CORE_PARAMETERS[i];
-    const float minVal = parameterValueAsFloat(def.minValue);
-    const float maxVal = parameterValueAsFloat(def.maxValue);
-
-    auto &track = _tracks[i];
-    const uint8_t steps = track.stepCount();
-
-    // Safety: bounds check on step count
-    if (steps == 0 || steps > SequencerConstants::MAX_STEPS_COUNT) {
+    // The rhythm stays the player's: gates and slides are never rewritten.
+    if (paramId == ParamId::Gate || paramId == ParamId::Slide ||
+        _laneAmounts[i] == 0)
       continue;
-    }
-
+    const float amount = _laneAmounts[i] / 100.0f;
+    const uint8_t steps = _tracks[i].stepCount();
     for (uint8_t step = 0; step < steps; ++step) {
-      if (patchModifiers && paramId != ParamId::Gate &&
-          paramId != ParamId::Slide) {
-        // Keep the patch recognizable: a compact range of scale steps, neutral
-        // transpose/timing, and small timbre/envelope/velocity variations.
-        const float value =
-            paramId == ParamId::Note ? float(lcg_rand_int(0, 12))
-            : (paramId == ParamId::Octave || paramId == ParamId::GateLength)
-                ? 0.5f
-                : lcg_rand_float(0.45f, 0.55f);
-        setValue(paramId, step,
-                 paramId == ParamId::GateLength
-                     ? mapNormalizedValueToParamRange(paramId, value)
-                     : value);
-        continue;
-      }
       switch (paramId) {
-      case ParamId::Slide: {
-        const bool on = (lcg_rand_int(0, 15) == 0); // 1/16 chance
-        track.setValue(step, on ? 1.0f : 0.0f);
-      } break;
-
-      case ParamId::Gate: {
-        if ((step % 2u) == 0u) [[likely]] {
-          // Even steps: 50% chance of being 1
-          const bool isZero = (lcg_rand_int(0, 1) == 0); // 1/2 zeros
-          track.setValue(step, isZero ? 0.0f : 1.0f);
-        } else {
-          // Odd steps: ~25% chance of being 1
-          const bool one = (lcg_rand_int(0, 3) == 0); // 1/4 ones
-          track.setValue(step, one ? 1.0f : 0.0f);
-        }
-      } break;
-
-      case ParamId::GateLength: {
-        // Draw once for consistent branching probability
-        const int draw = lcg_rand_int(0, 8);
-        if (draw == 0) {
-          track.setValue(step, lcg_rand_float(0.25f, 0.7f));
-        } else if (draw < 3) {
-          track.setValue(step, lcg_rand_float(0.05f, 0.5f));
-        } else {
-          track.setValue(step, lcg_rand_float(0.1f, 0.2f));
-        }
-      } break;
-
-      case ParamId::Filter: {
-        static constexpr float kFilterMin = 0.2f;
-        static constexpr float kFilterMax = 0.8f;
-        track.setValue(step, lcg_rand_float(kFilterMin, kFilterMax));
-      } break;
-
-      case ParamId::Attack: {
-        if ((step % 2u) == 0u) {
-          // Even steps: rare long attacks
-          if (lcg_rand_int(0, 8) == 0) { // 1/9 chance
-            track.setValue(step, lcg_rand_float(0.054f, 0.15f));
-          } else {
-            track.setValue(step, lcg_rand_float(0.004f, 0.05f));
-          }
-        } else {
-          // Odd steps
-          if (lcg_rand_int(0, 12) == 0) { // 1/13 chance
-            track.setValue(step, lcg_rand_float(0.1f, 0.2f));
-          } else {
-            track.setValue(step, lcg_rand_float(0.005f, 0.02f));
-          }
-        }
-      } break;
-
-      case ParamId::Decay: {
-        if ((step % 2u) == 0u) {
-          // Even steps: 25% chance long decay
-          if (lcg_rand_int(0, 3) == 0) { // 1/4 chance
-            track.setValue(step, lcg_rand_float(0.2f, 0.3f));
-          } else {
-            track.setValue(step, lcg_rand_float(0.155f, 0.2f));
-          }
-        } else {
-          track.setValue(step, lcg_rand_float(0.12f, 0.2f));
-        }
-      } break;
-
-      case ParamId::Note: {
-        track.setValue(
-            step, static_cast<float>(lcg_rand_int(static_cast<int>(minVal),
-                                                  static_cast<int>(maxVal))));
-      } break;
-
-      case ParamId::Octave: {
-        if (lcg_rand_int(0, 3) == 0) { // 1/4 chance
-          track.setValue(step, .7f);
-        } else {
-          track.setValue(step, .2f);
-        }
-      } break;
-
-      case ParamId::Velocity:
+      case ParamId::Note:
+        // A compact run of scale steps; playback quantizes them to the scale.
+        setValue(paramId, step, static_cast<float>(lcg_rand_int(0, 12)));
+        break;
+      case ParamId::Octave:
+      case ParamId::GateLength:
+        setValue(paramId, step, mapNormalizedValueToParamRange(paramId, 0.5f));
+        break;
       default: {
-
-        if (lcg_rand_int(0, 3) == 0) { // 1/4 chance
-          track.setValue(step, .5f);
-        } else {
-          track.setValue(step, .7f);
-        }
+        // The sum of two uniform draws is triangular on [-1, 1]: most steps
+        // stay near the base, a few reach the edge of the depth.
+        const float spread =
+            lcg_rand_float(0.0f, 1.0f) + lcg_rand_float(0.0f, 1.0f) - 1.0f;
+        setValue(paramId, step, 0.5f + 0.5f * spread * depth * amount);
       } break;
       }
     }

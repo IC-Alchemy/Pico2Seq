@@ -172,8 +172,9 @@ Maintains momentary button holds and single-parameter Shift latching.
 
 ### 4. `FaderMap`
 Fader target assignment, 12-bit ADC normalization (0–4095 to 0.0–1.0), and deadband filtering.
-- `kDeadbandCounts = 8`: Suppresses jitter and spurious I2C updates.
-- `accept(uint8_t channel, uint16_t rawCounts)`: Returns `true` only when movement exceeds deadband or immediately after a mode reset.
+- `kDeadbandCounts = 8`: Suppresses jitter and spurious I2C updates once engaged.
+- `kMoveThresholdCounts = 64`: Movement threshold (~1.5% of throw) required to engage a fader after reset / mode flip.
+- `accept(uint8_t channel, uint16_t rawCounts)`: Returns `true` only when an obvious move ($\ge 64$ counts) engages the fader, and subsequent moves exceed the deadband. Does not send on the initial sample after mode flip.
 - `assignmentFor(Mode mode, uint8_t channel)`: Maps channel index to `FaderAssignment{target, paramId}`.
 
 ---
@@ -241,24 +242,32 @@ The verified `BUTTON_PLAY_STOP` logic in `ButtonHandlers.cpp` directly coordinat
 case BUTTON_PLAY_STOP:
     if (isClockRunning)
     {
-        onClockStop();
+        uClock.stop();
         // Enter settings mode when stopping
-        state.settingsMode = true;
-        state.inPresetSelection = true;
+        openSettingsMode(state);
     }
     else
     {
-        onClockStart();
+        uClock.start();
         // Exit settings mode if active
         if (state.settingsMode)
         {
-            state.settingsMode = false;
-            state.inPresetSelection = false;
-            state.selectedStepForEdit = -1;
+            closeSettingsMode(state);
         }
     }
     break;
 ```
+
+Every path into or out of Settings (this one, the Utility Play long-press, and
+the running short-press close) goes through `openSettingsMode()` /
+`closeSettingsMode()` (`UIEventHandler.h`). Opening always starts in preset
+selection. The browser has one page: pad N applies preset N on pads 0–30 (pad
+31 is unassigned), and a `static_assert` in `VoicePresets.cpp` fails the build if
+the bank outgrows those pads. The preset grid, OLED and preset taps all follow
+`selectedVoiceIndex`, which only the voice buttons change while Settings is
+open; no pad selects a voice there. Settings also consumes pad releases as well
+as presses, so a preset tap never toggles or selects a step on the pad's bank
+voice.
 
 ---
 
@@ -281,7 +290,6 @@ struct UIState {
     // Settings Mode States
     bool settingsMode = false;
     bool inPresetSelection = false;
-    uint8_t settingsMenuIndex = 0;
     uint8_t voicePresetIndices[4] = {4, 2, 1, 6};
 
     // Encoder Hold / Gate Seq Length

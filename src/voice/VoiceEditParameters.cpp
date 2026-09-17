@@ -13,17 +13,18 @@ struct RecipeChoice {
   const VoiceParameterLayout *layout;
   const char *name;
 };
+// Picking a recipe in the editor borrows the lanes of its first preset.
 constexpr RecipeChoice kRecipes[] = {
-    {&VoiceRecipes::kFeedbackFm, &VoicePresets::kFmParameters, "Feedback FM"},
-    {&VoiceRecipes::kPhaseMorph, &VoicePresets::kPhaseParameters, "Phase morph"},
-    {&VoiceRecipes::kSpectralDsf, &VoicePresets::kDsfParameters, "Spectral DSF"},
-    {&VoiceRecipes::kPrism, &VoicePresets::kPrismParameters, "Prism"},
-    {&VoiceRecipes::kReedPipe, &VoicePresets::kReedPipeParameters, "Reed pipe"},
-    {&VoiceRecipes::kSilkPad, &VoicePresets::kSilkPadParameters, "Silk pad"},
-    {&VoiceRecipes::kHollowBell, &VoicePresets::kHollowBellParameters, "Hollow bell"},
-    {&VoiceRecipes::kSyncLead, &VoicePresets::kSyncLeadParameters, "Sync lead"},
-    {&VoiceRecipes::kOrbitPluck, &VoicePresets::kOrbitPluckParameters, "Orbit pluck"},
-    {&VoiceRecipes::kAirChime, &VoicePresets::kAirChimeParameters, "Air chime"}};
+    {&VoiceRecipes::kFeedbackFm, &VoicePresets::kFmGlassLayout, "Feedback FM"},
+    {&VoiceRecipes::kPhaseMorph, &VoicePresets::kPhaseMorphLayout, "Phase morph"},
+    {&VoiceRecipes::kSpectralDsf, &VoicePresets::kSpectralLayout, "Spectral DSF"},
+    {&VoiceRecipes::kPrism, &VoicePresets::kPrismLayout, "Prism"},
+    {&VoiceRecipes::kReedPipe, &VoicePresets::kReedPipeLayout, "Reed pipe"},
+    {&VoiceRecipes::kSilkPad, &VoicePresets::kSilkPadLayout, "Silk pad"},
+    {&VoiceRecipes::kHollowBell, &VoicePresets::kHollowBellLayout, "Hollow bell"},
+    {&VoiceRecipes::kSyncLead, &VoicePresets::kSyncLeadLayout, "Sync lead"},
+    {&VoiceRecipes::kOrbitPluck, &VoicePresets::kOrbitPluckLayout, "Orbit pluck"},
+    {&VoiceRecipes::kAirChime, &VoicePresets::kAirChimeLayout, "Air chime"}};
 constexpr int kRecipeCount = static_cast<int>(std::size(kRecipes));
 constexpr Parameter kParameters[] = {
     {Id::Note, "Note", Group::Sequenced, Unit::Number, 0.0f, 36.0f, false,
@@ -32,8 +33,8 @@ constexpr Parameter kParameters[] = {
      false, nullptr, nullptr},
     {Id::Cutoff, "Cutoff", Group::Sequenced, Unit::Percent, 0.0f, 1.0f, false,
      nullptr, nullptr},
-    {Id::Attack, "Attack", Group::Sequenced, Unit::Seconds, 0.001f, 10.0f, true,
-     nullptr, nullptr},
+    {Id::Attack, "Attack", Group::Sequenced, Unit::Seconds, 0.001f,
+     kAttackMaxSeconds, true, nullptr, nullptr},
     {Id::Decay, "Decay", Group::Sequenced, Unit::Seconds, 0.001f, 10.0f, true,
      nullptr, nullptr},
     {Id::Octave, "Octave", Group::Sequenced, Unit::Semitones, -24.0f, 24.0f,
@@ -518,6 +519,10 @@ float timeNormalize(float seconds) noexcept {
 float timeMap(float n) noexcept {
   return kTimeMin * std::pow(kTimeMax / kTimeMin, std::clamp(n, 0.0f, 1.0f));
 }
+float attackNormalize(float seconds) noexcept {
+  return std::log(std::clamp(seconds, kTimeMin, kAttackMaxSeconds) / kTimeMin) /
+         std::log(kAttackMaxSeconds / kTimeMin);
+}
 int recipeIndex(const VoiceConfig &c) noexcept {
   for (int i = 0; i < kRecipeCount; ++i)
     if (c.recipe == kRecipes[i].recipe)
@@ -526,8 +531,10 @@ int recipeIndex(const VoiceConfig &c) noexcept {
 }
 void selectRecipe(VoiceConfig &c, int i) noexcept {
   i = std::clamp(i, 0, kRecipeCount - 1);
+  // Re-selecting the current recipe keeps the preset's own lanes.
+  if (c.recipe != kRecipes[i].recipe || !c.parameters)
+    c.parameters = kRecipes[i].layout;
   c.recipe = kRecipes[i].recipe;
-  c.parameters = kRecipes[i].layout;
   // Each recipe owns macro units; normalize old values through the new ranges.
   for (ParamId lane : {ParamId::Filter, ParamId::Attack, ParamId::Decay}) {
     const auto &b = VoiceParameters::binding(c, lane);
@@ -546,7 +553,7 @@ float laneBase(ParamId id, const VoiceConfig &c) noexcept {
   case ParamId::Filter:
     return c.filterCutoffBase;
   case ParamId::Attack:
-    return timeNormalize(c.defaultAttack);
+    return attackNormalize(c.defaultAttack);
   case ParamId::Decay:
     return timeNormalize(c.defaultDecay);
   case ParamId::Octave:
@@ -576,7 +583,7 @@ void setLaneBase(ParamId id, VoiceConfig &c, float v) {
     c.filterCutoffBase = std::clamp(v, 0.0f, 1.0f);
     break;
   case ParamId::Attack:
-    c.defaultAttack = std::clamp(v, kTimeMin, kTimeMax);
+    c.defaultAttack = std::clamp(v, kTimeMin, kAttackMaxSeconds);
     break;
   case ParamId::Decay:
     c.defaultDecay = std::clamp(v, kTimeMin, kTimeMax);
@@ -777,9 +784,18 @@ float value(Id id, const VoiceConfig &c) noexcept {
     return static_cast<float>(static_cast<int>(v) / 2);
   return v;
 }
+namespace {
+// While the Attack lane drives the envelope, the envelope page's Attack edits
+// the same base and must keep to that lane's shorter range.
+Id envelopeAlias(Id id, const VoiceConfig &c) noexcept {
+  return id == Id::EnvAttack && sequenceLane(id, c) == ParamId::Attack ? Id::Attack
+                                                                       : id;
+}
+} // namespace
 void setValue(Id id, VoiceConfig &c, float v) noexcept {
   if (id >= Id::Count || !std::isfinite(v))
     return;
+  id = envelopeAlias(id, c);
   if (id <= Id::Slide) {
     setLaneBase(static_cast<ParamId>(id), c, v);
     return;
@@ -837,6 +853,7 @@ bool stepped(Id id) noexcept {
 void adjust(Id id, VoiceConfig &c, float delta) noexcept {
   if (!available(id, c) || !std::isfinite(delta) || delta == 0)
     return;
+  id = envelopeAlias(id, c);
   const auto &p = parameter(id);
   const auto *b = bindingFor(id, c);
   const float lo = b ? b->minimum : p.minimum, hi = b ? b->maximum : p.maximum;
@@ -896,10 +913,8 @@ void format(Id id, const VoiceConfig &c, char *out, size_t capacity) noexcept {
     return;
   }
   if ((id == Id::Cutoff && !b) || id == Id::StaticCutoff) {
-    const auto &l = VoiceParameters::layout(c);
     std::snprintf(out, capacity, "%.0f Hz",
-                  dspmap::fmap(v, l.cutoffMinimum, l.cutoffMaximum,
-                               dspmap::Mapping::EXP));
+                  VoiceParameters::mapCutoff(VoiceParameters::layout(c), v));
     return;
   }
   if (b && b->unit == VoiceParameterUnit::Ratio) {

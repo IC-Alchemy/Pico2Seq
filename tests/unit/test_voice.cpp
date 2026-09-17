@@ -576,7 +576,7 @@ TEST_CASE("Waveguide slots drive T60 via Decay track", "[voice]") {
     vs.noteIndex = 0.0f;
     vs.filterCutoff = cfg.wgBrightness;        // Bright slot
     vs.attackTimeSeconds = cfg.wgPickHardness; // Pick slot
-    vs.decayTimeSeconds = 0.0f;                // T60 slot: fmap(0, 0.05, 10, EXP) = 0.05 s
+    vs.decayTimeSeconds = 0.0f;                // T60 slot: bottom of WgPluck's lane = 0.15 s
     v.updateParameters(vs);
     v.setGate(true);
     for (int i = 0; i < 4800; ++i)
@@ -591,7 +591,7 @@ TEST_CASE("Waveguide slots drive T60 via Decay track", "[voice]") {
         early = std::max(early, std::abs(v.process()));
     REQUIRE(early > 0.0f);
 
-    // Half a second later a T60 of 0.05 s is 10^-10 of its level; the preset's
+    // Half a second later a T60 of 0.15 s is ~10^-10 of its level; the preset's
     // unrouted 1.8 s T60 would still hold ~53% — the ratio discriminates hard.
     for (int i = 0; i < 23520; ++i)
         v.process();
@@ -602,7 +602,12 @@ TEST_CASE("Waveguide slots drive T60 via Decay track", "[voice]") {
 }
 
 TEST_CASE("Noise/Hypersaw slots are re-purposed on the audio-thread config", "[voice]") {
-    Voice vn(0, VoicePresets::getNoiseStormVoice());
+    // Each lane lands where the preset's own binding maps it.
+    const auto mapped = [](const VoiceConfig &c, ParamId id, float lane) {
+        return VoiceParameters::binding(c, id).map(lane);
+    };
+    const auto &storm = VoicePresets::getNoiseStormVoice();
+    Voice vn(0, storm);
     initVoiceWithScale(vn);
     VoiceState vs;
     vs.isGateHigh = true;
@@ -611,18 +616,20 @@ TEST_CASE("Noise/Hypersaw slots are re-purposed on the audio-thread config", "[v
     vs.decayTimeSeconds = 0.4f;   // Chaos slot
     vn.updateParameters(vs);
     vn.process();
-    REQUIRE(vn.getConfig().noiseSwarmColor == 0.9f);
-    REQUIRE(vn.getConfig().noiseSwarmRegen == 0.7f);
-    REQUIRE(vn.getConfig().noiseChaosLevel == 0.4f);
+    REQUIRE_THAT(vn.getConfig().noiseSwarmColor, WithinAbs(mapped(storm, ParamId::Filter, 0.9f), 1e-6f));
+    REQUIRE_THAT(vn.getConfig().noiseSwarmRegen, WithinAbs(mapped(storm, ParamId::Attack, 0.7f), 1e-6f));
+    REQUIRE_THAT(vn.getConfig().noiseChaosLevel, WithinAbs(mapped(storm, ParamId::Decay, 0.4f), 1e-6f));
+    REQUIRE(vn.getConfig().noiseSwarmRegen > storm.noiseSwarmRegen); // above-center lane: more regen
 
-    Voice vh(0, VoicePresets::getHypersawVoice());
+    const auto &hyper = VoicePresets::getHypersawVoice();
+    Voice vh(0, hyper);
     initVoiceWithScale(vh);
     vs.attackTimeSeconds = 0.5f;  // Native Hypersaw detune slot
     vs.decayTimeSeconds = 0.25f;  // Native Hypersaw mix slot
     vh.updateParameters(vs);
     vh.process();
-    REQUIRE(vh.getConfig().hypersawDetune == 0.5f);
-    REQUIRE(vh.getConfig().hypersawMix == 0.25f);
+    REQUIRE_THAT(vh.getConfig().hypersawDetune, WithinAbs(mapped(hyper, ParamId::Attack, 0.5f), 1e-6f));
+    REQUIRE_THAT(vh.getConfig().hypersawMix, WithinAbs(mapped(hyper, ParamId::Decay, 0.25f), 1e-6f));
 }
 
 TEST_CASE("HardSyncSaw sequencer slave lane offsets the master pitch", "[voice]") {
@@ -671,17 +678,18 @@ TEST_CASE("Preset param sets and re-purposed slot names", "[voice][presets]") {
     REQUIRE(VP::getSequencerParamName(0, ParamId::Filter) == nullptr);
 }
 
-TEST_CASE("presetIndexForPad maps pads 8..8+count-1", "[voice][presets]") {
-    REQUIRE(VoicePresets::presetIndexForPad(7, 15) == -1);
-    REQUIRE(VoicePresets::presetIndexForPad(8, 15) == 0);
-    REQUIRE(VoicePresets::presetIndexForPad(22, 15) == 14);
-    REQUIRE(VoicePresets::presetIndexForPad(23, 15) == -1);
-    REQUIRE(VoicePresets::presetIndexForPad(8, 0) == -1);
+TEST_CASE("presetIndexForPad maps pads 0..count-1 to their own preset", "[voice][presets]") {
+    REQUIRE(VoicePresets::presetIndexForPad(0, 15) == 0);
+    REQUIRE(VoicePresets::presetIndexForPad(14, 15) == 14);
+    REQUIRE(VoicePresets::presetIndexForPad(15, 15) == -1);
+    REQUIRE(VoicePresets::presetIndexForPad(0, 0) == -1);
+    REQUIRE(VoicePresets::presetIndexForPad(30, 255) == 30);
+    REQUIRE(VoicePresets::presetIndexForPad(31, 255) == -1);
 
-    // Round-trip of the T60 seeding map
+    // Round-trip of the T60 seeding map (WgPluck's 0.15..4 s lane)
     const float norm = VoicePresets::wgT60ToNormalized(3.2f);
-    REQUIRE_THAT(dspmap::fmap(norm, 0.05f, 10.0f, dspmap::Mapping::EXP),
-                 WithinAbs(3.2f, 0.01f));
+    const auto &t60 = VoiceParameters::binding(VoicePresets::getWaveguidePluckVoice(), ParamId::Decay);
+    REQUIRE_THAT(t60.map(norm), WithinAbs(3.2f, 0.01f));
 }
 
 TEST_CASE("Preset switch while gate high keeps the held note sounding", "[voice]") {

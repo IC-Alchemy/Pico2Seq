@@ -160,6 +160,27 @@ TEST_CASE("pattern codec preserves every track of a random pattern", "[persisten
     }
 }
 
+TEST_CASE("pattern codec caps restored lengths without losing stored steps", "[persistence]")
+{
+    Sequencer seq(1);
+    seq.initializeParameters();
+    seq.setParameterStepCount(ParamId::Gate, 32);
+    seq.setStepParameterValue(ParamId::Gate, 20, 1.0f);
+    seq.setParameterStepCount(ParamId::Note, 12);
+
+    persistence::PatternSnapshot snap;
+    persistence::capturePattern(seq, snap);
+    REQUIRE(snap.tracks[static_cast<uint8_t>(ParamId::Gate)].stepCount == 32);
+
+    Sequencer restored(1);
+    restored.initializeParameters();
+    persistence::applyPattern(snap, restored, 16);
+
+    REQUIRE(restored.getParameterStepCount(ParamId::Gate) == 16);
+    REQUIRE(restored.getParameterStepCount(ParamId::Note) == 12); // shorter lanes keep their length
+    REQUIRE(restored.getRawStepValue(ParamId::Gate, 20) == 1.0f);  // the capped tail stays stored
+}
+
 TEST_CASE("patch codec round-trips a preset untouched", "[persistence]")
 {
     const VoiceConfig original = VoicePresets::getPresetConfig(4); // default voice-0 preset (Square)
@@ -215,6 +236,22 @@ TEST_CASE("paramSet change clears the preset layout pointer", "[persistence]")
     REQUIRE(voicecodec::applyPatch(2, snap, restored));
     REQUIRE(restored.paramSet == PARAMSET_WAVEGUIDE);
     REQUIRE(restored.parameters == nullptr); // layout() now derives from paramSet
+}
+
+TEST_CASE("hard-sync waveform edits keep an oscillator preset's cutoff layout", "[persistence]")
+{
+    const uint8_t digital = static_cast<uint8_t>(VoicePresets::findPreset("Digital"));
+    const VoiceConfig preset = VoicePresets::getPresetConfig(digital);
+    REQUIRE(preset.parameters != nullptr);
+    VoiceConfig edited = preset;
+    edited.oscWaveforms[0] = WAVE_HARDSYNC_SAW;
+    edited.paramSet = PARAMSET_HARDSYNC; // what the editor derives from the bank
+    persistence::PatchSnapshot snap;
+    voicecodec::capturePatch(edited, snap);
+    VoiceConfig restored;
+    REQUIRE(voicecodec::applyPatch(digital, snap, restored));
+    REQUIRE(restored.paramSet == PARAMSET_HARDSYNC);
+    REQUIRE(restored.parameters == preset.parameters); // cutoff lane survives reload
 }
 
 TEST_CASE("recipe engine without a recipe source is rejected", "[persistence]")

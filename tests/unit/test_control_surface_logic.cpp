@@ -202,6 +202,35 @@ TEST_CASE("PadBank clamps out-of-range pad indices", "[control_surface]")
 }
 
 // ---------------------------------------------------------------------------
+// Pad release classification
+// ---------------------------------------------------------------------------
+
+TEST_CASE("A pad release splits timed presses into tap and hold", "[control_surface]")
+{
+    constexpr uint32_t hold = 400;
+    CHECK(classifyPadRelease(10000, 10000, hold) == PadRelease::Tap);
+    CHECK(classifyPadRelease(10000, 10399, hold) == PadRelease::Tap);
+    CHECK(classifyPadRelease(10000, 10400, hold) == PadRelease::Hold);
+    CHECK(classifyPadRelease(10000, 60000, hold) == PadRelease::Hold);
+}
+
+TEST_CASE("A pad release after an untimed press does nothing", "[control_surface]")
+{
+    // Settings, Shift+clear and length modes consume the press without timing
+    // it. Measured from 0, the release would read as a hold of the uptime and
+    // select the step, moving the selected voice to the pad's bank.
+    CHECK(classifyPadRelease(0, 60000, 400) == PadRelease::Ignore);
+    CHECK(classifyPadRelease(0, 5, 400) == PadRelease::Ignore);
+}
+
+TEST_CASE("A pad release is timed across a millis() wrap", "[control_surface]")
+{
+    constexpr uint32_t pressedAt = std::numeric_limits<uint32_t>::max() - 99;
+    CHECK(classifyPadRelease(pressedAt, 200, 400) == PadRelease::Tap);  // 300 ms
+    CHECK(classifyPadRelease(pressedAt, 300, 400) == PadRelease::Hold); // 400 ms
+}
+
+// ---------------------------------------------------------------------------
 // LedLayout (pad-mirror LED geometry)
 // ---------------------------------------------------------------------------
 
@@ -404,37 +433,96 @@ TEST_CASE("FaderMap rejects out-of-range channels", "[control_surface]")
     CHECK_FALSE(FaderMap().accept(4, 100));
 }
 
-TEST_CASE("FaderMap deadband sends the first sample then only real movement", "[control_surface]")
+TEST_CASE("FaderMap deadband requires an obvious move to engage then tracks real movement", "[control_surface]")
 {
     FaderMap map;
 
-    CHECK(map.accept(0, 2048));              // first sample always sends
-    CHECK_FALSE(map.accept(0, 2050));        // +2 counts: inside the deadband
-    CHECK_FALSE(map.accept(0, 2055));        // +7 counts cumulative: still inside
-    CHECK(map.accept(0, 2056));              // +8 counts: sent
+    // First sample establishes baseline, does NOT send
+    CHECK_FALSE(map.accept(0, 2048));
+    CHECK_FALSE(map.isEngaged(0));
 
-    // Drifting just under the threshold each time never sends (compare to the
-    // last *sent* value, not the last sample).
-    CHECK_FALSE(map.accept(0, 2059)); // +3 from 2056 (last sent): inside
-    CHECK_FALSE(map.accept(0, 2063)); // +7 from 2056 again, not from 2059
-    CHECK(map.accept(0, 2064));       // +8 from 2056: sent
+    // Jitter and small movements below move threshold (64 counts) are rejected
+    CHECK_FALSE(map.accept(0, 2050));        // +2 counts from baseline
+    CHECK_FALSE(map.accept(0, 2100));        // +52 counts: still < 64
+    CHECK_FALSE(map.isEngaged(0));
+
+    // Moving >= 64 counts from baseline engages the fader and sends the current value
+    CHECK(map.accept(0, 2112));              // +64 counts: engaged and sent!
+    CHECK(map.isEngaged(0));
+
+    // Once engaged, standard 8-count deadband applies:
+    CHECK_FALSE(map.accept(0, 2115));        // +3 counts from last sent (2112): rejected
+    CHECK_FALSE(map.accept(0, 2119));        // +7 counts from 2112: rejected
+    CHECK(map.accept(0, 2120));              // +8 counts from 2112: sent!
 }
 
-TEST_CASE("FaderMap channels are independent", "[control_surface]")
+TEST_CASE("FaderMap channels engage independently", "[control_surface]")
 {
     FaderMap map;
-    CHECK(map.accept(0, 100));
-    CHECK(map.accept(1, 102)); // different channel: first sample sends
-    CHECK_FALSE(map.accept(0, 105));
-    CHECK_FALSE(map.accept(1, 108)); // +6 from its own last-sent value
+    CHECK_FALSE(map.accept(0, 1000));
+    CHECK_FALSE(map.accept(1, 2000));
+
+    // Move channel 0 beyond threshold
+    CHECK(map.accept(0, 1064));
+    CHECK(map.isEngaged(0));
+    CHECK_FALSE(map.isEngaged(1));
+
+    // Channel 1 still unengaged and small change rejected
+    CHECK_FALSE(map.accept(1, 2020));
+    CHECK_FALSE(map.isEngaged(1));
+
+    // Move channel 1 downward beyond threshold
+    CHECK(map.accept(1, 1936)); // -64 counts from 2000
+    CHECK(map.isEngaged(1));
 }
 
-TEST_CASE("FaderMap resetDeadband forces the next sample to send", "[control_surface]")
+TEST_CASE("FaderMap resetDeadband disarms channels until moved again", "[control_surface]")
 {
     FaderMap map;
-    CHECK(map.accept(2, 3000));
+    CHECK_FALSE(map.accept(2, 3000)); // seed baseline
+    CHECK(map.accept(2, 3070));       // +70: engaged!
+    CHECK(map.isEngaged(2));
+
+    map.resetDeadband();              // mode flip disarms all channels
+    CHECK_FALSE(map.isEngaged(2));
+
+    // First sample in new mode establishes new baseline without sending
+    CHECK_FALSE(map.accept(2, 3070));
+    CHECK_FALSE(map.isEngaged(2));
+
+    // Small changes around 3070 do not send
+    CHECK_FALSE(map.accept(2, 3080)); // +10 counts < 64
+    CHECK_FALSE(map.isEngaged(2));
+
+    // Obvious move in new mode engages channel 2
+    CHECK(map.accept(2, 3134));       // +64 counts from 3070
+    CHECK(map.isEngaged(2));
+}
+
+TEST_CASE("FaderMap disarms across voice switches", "[control_surface]")
+{
+    FaderMap map;
+
+    // Voice 0: Move fader 3 (Gate Length in utility mode) and engage it
+    CHECK_FALSE(map.accept(3, 1000));
+    CHECK(map.accept(3, 1100)); // +100 counts >= 64: engaged
+    CHECK(map.isEngaged(3));
+
+    // Voice switch occurs: bridge calls resetDeadband()
     map.resetDeadband();
-    CHECK(map.accept(2, 3001)); // same-ish value after a mode flip re-sends
+    CHECK_FALSE(map.isEngaged(3));
+
+    // Voice 1: First sample after switch seeds baseline without sending
+    CHECK_FALSE(map.accept(3, 1100));
+    CHECK_FALSE(map.isEngaged(3));
+
+    // Small jitter / touch on Voice 1 is ignored
+    CHECK_FALSE(map.accept(3, 1110)); // +10 counts < 64
+    CHECK_FALSE(map.isEngaged(3));
+
+    // Intentional move on Voice 1 engages fader
+    CHECK(map.accept(3, 1200)); // +100 counts >= 64
+    CHECK(map.isEngaged(3));
 }
 
 TEST_CASE("FaderMap normalize maps 12-bit counts to 0..1", "[control_surface]")

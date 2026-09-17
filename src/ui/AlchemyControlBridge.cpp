@@ -124,6 +124,14 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
     handleUtilityButtons(nowMs, uiState);
   }
 
+  // If selected voice changed (via voice buttons or pad bank selection),
+  // disarm faders so newly focused voice does not snap on minor movement.
+  if (uiState.selectedVoiceIndex != lastVoiceIndex_)
+  {
+    lastVoiceIndex_ = uiState.selectedVoiceIndex;
+    faders_.resetDeadband();
+  }
+
   handleFaders(uiState, sequencers, sequencerCount);
 }
 
@@ -260,7 +268,10 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
   {
     const TileButton &tileButton = buttonAt(buttonSlot_, bit);
     ButtonEdges &edges = buttonEdges_[kButtonRole][bit];
-    if (!edges.take(tileButton))
+    // Play (0) and Session (1) also act part-way through a hold, on passes
+    // with no edge. Skipping those passes made both long presses unreachable.
+    const bool actsWhileHeld = bit <= 1;
+    if (!edges.take(tileButton) && !(actsWhileHeld && tileButton.held()))
     {
       continue;
     }
@@ -283,15 +294,11 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
         playSettingsOpenedThisPress_ = true;
         if (uiState.settingsMode)
         {
-          uiState.settingsMode = false;
-          uiState.inPresetSelection = false;
-          uiState.inVoiceParameterMode = false;
+          closeSettingsMode(uiState);
         }
         else
         {
-          uiState.settingsMode = true;
-          uiState.currentSubMode = UIState::SettingsSubMode::PRESET_SELECTION;
-          uiState.inPresetSelection = true;
+          openSettingsMode(uiState);
         }
       }
       else if (edges.releaseEdge)
@@ -302,9 +309,7 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
           {
             // Short-press while running inside settings: exit settings only,
             // keep the transport playing.
-            uiState.settingsMode = false;
-            uiState.inPresetSelection = false;
-            uiState.inVoiceParameterMode = false;
+            closeSettingsMode(uiState);
           }
           else
           {

@@ -46,14 +46,13 @@ TEST_CASE("ParameterTrack resize extends with default values", "[paramtrack]") {
     }
 }
 
-// ─── Filter randomization audibility (regression: narrowed dead zone) ────────
+// ─── Randomization depth around the patch base ──────────────────────────────
 //
-// Playback composes track values as ±0.5 modifiers around the per-preset base
-// (VoiceEdit::composeLane): effective = clamp(laneBase + stored - 0.5, 0, 1).
-// A standard voice uses filterCutoffBase = 0.37, so any stored value < 0.13
-// clamps flat at 0 (inaudible dead zone) and the usable sweep width equals
-// the stored subrange width. The random subrange must therefore stay inside
-// [0.2, 0.8] — modifier-symmetric around 0.5 and dead-zone free.
+// Playback composes track values as modifiers around the per-preset base
+// (VoiceEdit::composeLane): 0.5 plays the base exactly, 0 and 1 reach the
+// lane's ends, and each half is linear in between. The randomizer draws
+// triangular offsets of at most depth/2 around 0.5, so depth D moves a step at
+// most D% of the way from its base toward either end of the lane.
 
 namespace
 {
@@ -65,59 +64,51 @@ float composeFilterEffective(float stored)
     VoiceEdit::enablePatch(config); // playback path (usePatchBases = true)
     return VoiceEdit::composeLane(ParamId::Filter, stored, &config);
 }
+
+struct Sweep { float minimum = 1.0f, maximum = 0.0f; };
+
+Sweep composedFilterSweep(uint8_t depth, uint64_t seed)
+{
+    ParameterManager pm;
+    pm.init();
+    pm.randomizeParameters(depth, seed);
+    Sweep sweep;
+    for (uint8_t step = 0; step < pm.getStepCount(ParamId::Filter); ++step) {
+        const float effective = composeFilterEffective(pm.getValue(ParamId::Filter, step));
+        sweep.minimum = std::min(sweep.minimum, effective);
+        sweep.maximum = std::max(sweep.maximum, effective);
+    }
+    return sweep;
+}
 } // namespace
 
-TEST_CASE("randomizeParameters Filter draws stay within the audible subrange [0.2, 0.8]", "[paramtrack][sequencer]") {
+TEST_CASE("randomizeParameters keeps Filter offsets inside the default depth radius", "[paramtrack][sequencer]") {
     ParameterManager pm;
     pm.init();
     const uint8_t steps = pm.getStepCount(ParamId::Filter);
     REQUIRE(steps > 0);
-
-    float observedMin = 1.0f;
-    float observedMax = 0.0f;
-    // randomizeParameters() is time-seeded; enough draws make the range
-    // assertions stable without depending on any particular seed.
+    const float radius = ParameterManager::kDefaultRandomizeDepth / 200.0f;
+    // The default call is clock-seeded; the radius holds for any seed.
     for (int round = 0; round < 16; ++round) {
         pm.randomizeParameters();
-        for (uint8_t step = 0; step < steps; ++step) {
-            const float value = pm.getValue(ParamId::Filter, step);
-            observedMin = std::min(observedMin, value);
-            observedMax = std::max(observedMax, value);
-        }
+        for (uint8_t step = 0; step < steps; ++step)
+            REQUIRE(std::abs(pm.getValue(ParamId::Filter, step) - 0.5f) <= radius + 1e-5f);
     }
-
-    // lcg_rand_float() never leaves [min, max], so after the fix the observed
-    // range can only tighten inward; the epsilon only absorbs float rounding.
-    constexpr float kEps = 1e-3f;
-    REQUIRE(observedMin >= 0.2f - kEps);
-    REQUIRE(observedMax <= 0.8f + kEps);
 }
 
-TEST_CASE("randomizeParameters Filter draws stay out of the standard-voice dead zone", "[paramtrack][sequencer]") {
-    ParameterManager pm;
-    pm.init();
-    const uint8_t steps = pm.getStepCount(ParamId::Filter);
-    REQUIRE(steps > 0);
-
-    float effectiveMin = 1.0f;
-    float effectiveMax = 0.0f;
+TEST_CASE("randomizeParameters composes a sweep that widens with depth and never goes dead", "[paramtrack][sequencer]") {
     // A neutral 0.5 modifier must compose to exactly the standard lane base.
     REQUIRE(composeFilterEffective(0.5f) == Catch::Approx(kFilterLaneBase));
-    for (int round = 0; round < 16; ++round) {
-        pm.randomizeParameters();
-        for (uint8_t step = 0; step < steps; ++step) {
-            const float effective =
-                composeFilterEffective(pm.getValue(ParamId::Filter, step));
-            // Draws below the laneBase floor clamp flat at 0: no audible change.
-            REQUIRE(effective > 0.0f);
-            effectiveMin = std::min(effectiveMin, effective);
-            effectiveMax = std::max(effectiveMax, effective);
-        }
+    for (uint64_t seed : {7ull, 99ull, 2026ull}) {
+        INFO("seed " << seed);
+        const Sweep subtle = composedFilterSweep(10, seed);
+        const Sweep adventurous = composedFilterSweep(60, seed);
+        REQUIRE(adventurous.maximum - adventurous.minimum > subtle.maximum - subtle.minimum);
+        // Depth 60 reaches at most 60% of the way to either end: never a flat zero.
+        REQUIRE(adventurous.minimum >= kFilterLaneBase * 0.4f - 1e-4f);
+        REQUIRE(adventurous.maximum <= kFilterLaneBase + 0.6f * (1.0f - kFilterLaneBase) + 1e-4f);
+        REQUIRE(adventurous.minimum > 0.0f);
     }
-
-    // The composed sweep across the legal subrange must stay audibly wide
-    // (~4 octaves at env peak on standard voices), not collapse to a sliver.
-    REQUIRE(effectiveMax - effectiveMin >= 0.5f);
 }
 
 TEST_CASE("Step filterCutoff default is the neutral modifier value 0.5", "[seqdefs]") {
@@ -349,12 +340,12 @@ TEST_CASE("ParameterManager::randomizeParameters produces only integer values fo
     REQUIRE(steps > 0);
 
     for (int round = 0; round < 16; ++round) {
-        pm.randomizeParameters(false);
+        pm.randomizeParameters(round % 2 ? 100 : 0);
         for (uint8_t step = 0; step < steps; ++step) {
             float val = pm.getValue(ParamId::Note, step);
             REQUIRE(val == std::floor(val));
             REQUIRE(val >= 0.0f);
-            REQUIRE(val <= 36.0f);
+            REQUIRE(val <= 12.0f); // a compact run of scale steps at any depth
         }
     }
 }
