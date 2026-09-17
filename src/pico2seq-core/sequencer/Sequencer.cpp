@@ -47,6 +47,19 @@ float parameterValueAsFloat(const ParameterValueType &value)
 // Helper function to map a normalized value (0.0-1.0) to a parameter's defined min/max range.
 float mapNormalizedValueToParamRange(ParamId id, float normalizedValue)
 {
+    if (id == ParamId::Octave)
+    {
+        if (normalizedValue <= SequencerConstants::OCTAVE_NORM_MINUS_2_MAX)
+            return SequencerConstants::OCTAVE_TRACK_MINUS_2;
+        if (normalizedValue <= SequencerConstants::OCTAVE_NORM_MINUS_1_MAX)
+            return SequencerConstants::OCTAVE_TRACK_MINUS_1;
+        if (normalizedValue <= SequencerConstants::OCTAVE_NORM_ZERO_MAX)
+            return SequencerConstants::OCTAVE_TRACK_ZERO;
+        if (normalizedValue <= SequencerConstants::OCTAVE_NORM_PLUS_1_MAX)
+            return SequencerConstants::OCTAVE_TRACK_PLUS_1;
+        return SequencerConstants::OCTAVE_TRACK_PLUS_2;
+    }
+
     const auto &def = CORE_PARAMETERS[static_cast<size_t>(id)];
     const float minVal = parameterValueAsFloat(def.minValue);
     const float maxVal = parameterValueAsFloat(def.maxValue);
@@ -501,15 +514,7 @@ void Sequencer::setStep(uint8_t stepIdx, const Step &step)
     setStepParameterValue(ParamId::Gate, stepIdx, step.isGateActive ? 1.0f : 0.0f);
     setStepParameterValue(ParamId::Slide, stepIdx, step.hasSlide ? 1.0f : 0.0f);
 
-    float octaveVal = 0.5f;
-    if (step.octaveOffset < 0)
-    {
-        octaveVal = 0.0f;
-    }
-    else if (step.octaveOffset > 0)
-    {
-        octaveVal = 1.0f;
-    }
+    const float octaveVal = std::clamp(static_cast<float>(step.octaveOffset) / 48.0f + 0.5f, 0.0f, 1.0f);
     setStepParameterValue(ParamId::Octave, stepIdx, octaveVal);
 
     const float gateLenFraction = static_cast<float>(step.gateLengthTicks) /

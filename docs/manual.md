@@ -329,7 +329,7 @@ supports up to 64):
 | 2 | **Filter** | 0–100 % | Filter cutoff (mapped exponentially, ~20 Hz–20 kHz) |
 | 3 | **Attack** | 0–1 s | Envelope attack time |
 | 4 | **Decay** | 0–1 s | Envelope decay time |
-| 5 | **Octave** | −1 / 0 / +1 | Quantized octave shift |
+| 5 | **Octave** | −2 / −1 / 0 / +1 / +2 | Quantized octave shift |
 | 6 | **GateLength** | 0.1–100 % of a step | How long each note is held |
 | 7 | **Gate** | on/off | Whether the step triggers at all |
 | 8 | **Slide** | on/off | Portamento into that step (no envelope retrigger; pitch glides) |
@@ -384,8 +384,12 @@ Cycle scales with **Shift + V3** or Utility button 3:
 | 11 | Wholetone | Symmetrical, impressionistic |
 | 12 | Chromatic | All 12 semitones, 1:1 mapping |
 
-The **Octave** parameter is quantized to three positions: values below 0.15 transpose down
-an octave, above 0.40 up an octave, in between is nominal.
+The **Octave** parameter is quantized to five discrete positions mapped from hand distance:
+- **-2 octaves**: sensor minimum (55 mm) to 90 mm (stored `0.00`)
+- **-1 octave**: 91 mm to 280 mm (stored `0.25`)
+- **0 octaves**: 281 mm to 425 mm (stored `0.50`)
+- **+1 octave**: 426 mm to 550 mm (stored `0.75`)
+- **+2 octaves**: 551 mm to sensor maximum 700 mm (stored `1.00`)
 
 ### 3.4 Shuffle / swing
 

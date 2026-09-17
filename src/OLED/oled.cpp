@@ -346,8 +346,7 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
           liveStep.noteIndex = composed;
           break;
         case ParamId::Octave:
-          liveStep.octaveOffset = config ? VoiceEdit::mapOctave(composed) :
-              static_cast<int8_t>(std::round((std::clamp(composed, 0.0f, 1.0f) - 0.5f) * 2.0f) * 12);
+          liveStep.octaveOffset = VoiceEdit::mapOctave(composed);
           break;
         case ParamId::GateLength:
           liveStep.gateLengthTicks = static_cast<uint16_t>(std::max(1.0f,

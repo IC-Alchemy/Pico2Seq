@@ -84,7 +84,7 @@ enum class ParamId : uint8_t
   Filter,     // 2 - Filter cutoff frequency (0.0-1.0)
   Attack,     // 3 - Envelope attack time (0.0-1.0 seconds)
   Decay,      // 4 - Envelope decay time (0.0-1.0 seconds)
-  Octave,     // 5 - Normalized octave control, mapped to -12/0/+12 semitones
+  Octave,     // 5 - Normalized octave control, mapped to -24/-12/0/+12/+24 semitones (-2..+2 oct)
   GateLength, // 6 - Gate duration fraction (0.001-1.0 of step)
   Gate,       // 7 - Gate on/off state (boolean: 0.0 or 1.0)
   Slide,      // 8 - Portamento / glide enable (boolean: 0.0 or 1.0)
@@ -257,12 +257,14 @@ When `advanceStep()` is called on each 16th note clock tick:
 6. **Step Processing (`processStep`)**:
    Calls `processStep(UINT8_MAX, voiceState)` to populate the output `VoiceState`:
    - Extracts all parameter values at their respective `currentStepPerParam[id]` indices.
-   - Calculates final note value and clamps to valid MIDI range `[0, 127]`.
-   - Converts octave parameter via `mapFloatToOctaveOffset()` (or injected `octaveMapper_`):
-     - `octave < 0.15` &rarr; `-12` semitones
-     - `octave > 0.40` &rarr; `+12` semitones
-     - `0.15 <= octave <= 0.40` &rarr; `0` semitones
-   - Slide Handling: If `!slideVal || !noteActive`, envelope retriggers (`voiceState->shouldRetrigger = true`). If sliding from an already active note (`slideVal && noteActive`), `shouldRetrigger = false` and note frequency transitions smoothly via slewing in `Voice`.
+    - Calculates final note value and clamps to valid MIDI range `[0, 127]`.
+    - Converts octave parameter via `VoiceEdit::mapOctave()` (or injected `octaveMapper_`):
+      - Stored `0.00` &rarr; `-24` semitones (-2 oct)
+      - Stored `0.25` &rarr; `-12` semitones (-1 oct)
+      - Stored `0.50` &rarr; `0` semitones (0 oct)
+      - Stored `0.75` &rarr; `+12` semitones (+1 oct)
+      - Stored `1.00` &rarr; `+24` semitones (+2 oct)
+    - Slide Handling: If `!slideVal || !noteActive`, envelope retriggers (`voiceState->shouldRetrigger = true`). If sliding from an already active note (`slideVal && noteActive`), `shouldRetrigger = false` and note frequency transitions smoothly via slewing in `Voice`.
    - Gate-Controlled Note Output: If Gate is LOW, previous `noteIndex` and `octaveOffset` are retained in `VoiceState`, allowing sustaining/releasing notes to fade out naturally without glitching.
 
 ---

@@ -16,6 +16,8 @@
 #include "voice/VoiceEditParameters.h"
 #include "voice/VoiceParameters.h"
 #include "voice/VoicePresets.h"
+#include "pico2seq-core/sequencer/SequencerDefs.h"
+#include "sensors/SensorConstants.h"
 
 // Sweet-spot lane mapping: the true-exponential OCTAVE curve and the centered
 // piecewise map that puts a lane's midpoint on a chosen operating point.
@@ -409,4 +411,54 @@ TEST_CASE("Recipe selection keeps a preset's own lanes until the recipe changes"
     glass.macro2 = 6.0f;
     VoiceEdit::setValue(Id::Recipe, glass, VoiceEdit::value(Id::Recipe, glass));
     REQUIRE_THAT(glass.macro2, WithinAbs(4.77f, 1e-5f));
+}
+
+TEST_CASE("Octave parameter track distance zones map to discrete octaves", "[mapping][octave]") {
+    // Distance thresholds:
+    // -2 octaves: min (55 mm) to 90 mm
+    // -1 octave:  91 mm to 280 mm
+    //  0 octaves: 281 mm to 425 mm
+    // +1 octave:  426 mm to 550 mm
+    // +2 octaves: 551 mm to max (700 mm)
+
+    auto normFromDistanceMm = [](int distanceMm) -> float {
+        constexpr float minMm = SensorConstants::DistanceSensor::MIN_DISTANCE_HEIGHT_MM;
+        constexpr float maxMm = SensorConstants::DistanceSensor::MAX_DISTANCE_HEIGHT_MM;
+        const float clamped = std::clamp(static_cast<float>(distanceMm), minMm, maxMm);
+        return (clamped - minMm) / (maxMm - minMm);
+    };
+
+    // Minimum boundary (55 mm) and upper edge of -2 zone (90 mm)
+    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(55)) == 0.0f);
+    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(55))) == -24);
+    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(90)) == 0.0f);
+    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(90))) == -24);
+
+    // Lower edge of -1 zone (91 mm) and upper edge (280 mm)
+    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(91)) == 0.25f);
+    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(91))) == -12);
+    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(280)) == 0.25f);
+    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(280))) == -12);
+
+    // Lower edge of 0 zone (281 mm) and upper edge (425 mm)
+    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(281)) == 0.5f);
+    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(281))) == 0);
+    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(425)) == 0.5f);
+    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(425))) == 0);
+
+    // Midpoint normalization 0.5f sits safely in 0 octave zone
+    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, 0.5f) == 0.5f);
+    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, 0.5f)) == 0);
+
+    // Lower edge of +1 zone (426 mm) and upper edge (550 mm)
+    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(426)) == 0.75f);
+    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(426))) == 12);
+    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(550)) == 0.75f);
+    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(550))) == 12);
+
+    // Lower edge of +2 zone (551 mm) and max sensor height (700 mm)
+    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(551)) == 1.0f);
+    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(551))) == 24);
+    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(700)) == 1.0f);
+    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(700))) == 24);
 }

@@ -29,6 +29,28 @@ namespace SequencerConstants
   static constexpr uint16_t DEFAULT_GATE_LENGTH_TICKS = PULSES_PER_SEQUENCER_STEP_TICKS / 2;
   static constexpr uint16_t MIN_GATE_LENGTH_TICKS = 1;
   static constexpr uint16_t MAX_GATE_LENGTH_TICKS = PULSES_PER_SEQUENCER_STEP_TICKS;
+
+  // Distance thresholds (in millimeters) and normalized ranges for Octave parameter track
+  static constexpr float SENSOR_MIN_DISTANCE_MM = 55.0f;
+  static constexpr float SENSOR_MAX_DISTANCE_MM = 700.0f;
+  static constexpr float SENSOR_SPAN_MM = SENSOR_MAX_DISTANCE_MM - SENSOR_MIN_DISTANCE_MM;
+
+  static constexpr float OCTAVE_ZONE_MINUS_2_MAX_MM = 90.0f;
+  static constexpr float OCTAVE_ZONE_MINUS_1_MAX_MM = 280.0f;
+  static constexpr float OCTAVE_ZONE_ZERO_MAX_MM    = 425.0f;
+  static constexpr float OCTAVE_ZONE_PLUS_1_MAX_MM  = 550.0f;
+
+  static constexpr float OCTAVE_NORM_MINUS_2_MAX = (OCTAVE_ZONE_MINUS_2_MAX_MM - SENSOR_MIN_DISTANCE_MM) / SENSOR_SPAN_MM;
+  static constexpr float OCTAVE_NORM_MINUS_1_MAX = (OCTAVE_ZONE_MINUS_1_MAX_MM - SENSOR_MIN_DISTANCE_MM) / SENSOR_SPAN_MM;
+  static constexpr float OCTAVE_NORM_ZERO_MAX    = (OCTAVE_ZONE_ZERO_MAX_MM - SENSOR_MIN_DISTANCE_MM) / SENSOR_SPAN_MM;
+  static constexpr float OCTAVE_NORM_PLUS_1_MAX  = (OCTAVE_ZONE_PLUS_1_MAX_MM - SENSOR_MIN_DISTANCE_MM) / SENSOR_SPAN_MM;
+
+  // Stored track discrete values corresponding to -2, -1, 0, +1, +2 octaves
+  static constexpr float OCTAVE_TRACK_MINUS_2 = 0.0f;
+  static constexpr float OCTAVE_TRACK_MINUS_1 = 0.25f;
+  static constexpr float OCTAVE_TRACK_ZERO    = 0.5f;
+  static constexpr float OCTAVE_TRACK_PLUS_1  = 0.75f;
+  static constexpr float OCTAVE_TRACK_PLUS_2  = 1.0f;
 }
 
 // Legacy constants for backward compatibility - will be phased out

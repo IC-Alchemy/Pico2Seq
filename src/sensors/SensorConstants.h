@@ -44,6 +44,13 @@ namespace SensorConstants
     // Consecutive rejected measurements (about 35 ms each) before the last
     // distance is discarded as stale.
     static constexpr uint8_t INVALID_READINGS_BEFORE_DROPOUT = 3;
+
+    // Octave parameter track distance zones (in millimeters)
+    static constexpr int OCTAVE_ZONE_MINUS_2_MAX_MM = 90;   // -2 octaves: min (55 mm) to 90 mm
+    static constexpr int OCTAVE_ZONE_MINUS_1_MAX_MM = 280;  // -1 octave:  91 mm to 280 mm
+    static constexpr int OCTAVE_ZONE_ZERO_MAX_MM    = 425;  //  0 octaves: 281 mm to 425 mm
+    static constexpr int OCTAVE_ZONE_PLUS_1_MAX_MM  = 550;  // +1 octave:  426 mm to 550 mm
+    // > 550 mm maps to +2 octaves up to MAX_DISTANCE_HEIGHT_MM (700 mm)
   }
 
   // ======================
