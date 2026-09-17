@@ -89,6 +89,15 @@ void endEncoderControlHold(UIState &uiState);
 void selectVoice(UIState &uiState, MidiNoteManager &midiNoteManager, uint8_t voiceIndex);
 
 /**
+ * @brief Open or close Settings (the preset browser).
+ * Every control that opens or closes Settings goes through these, so the
+ * sub-mode, its legacy mirror flags and the preset page always agree. Opening
+ * starts in preset selection on the page holding the selected voice's preset.
+ */
+void openSettingsMode(UIState &uiState);
+void closeSettingsMode(UIState &uiState);
+
+/**
  * @brief Shift + step pad action: clear one step (gate off, params reset to
  * defaults) on the given voice's sequencer.
  */

@@ -14,6 +14,7 @@
 //
 //   ModeStabilizer — raw GP7 readings in, stable Mode out (20 ms), + edge.
 //   PadBank        — pad index + selected voice -> (voice, step).
+//   classifyPadRelease — pad press time + release time -> ignore/tap/hold.
 //   ShiftLatch     — shift level + param edges -> parameterButtonHeld state
 //                    with Shift+tap latching.
 //   FaderMap       — mode + fader channel -> control target, with a send
@@ -171,6 +172,34 @@ public:
   /** Resolve a raw pad index (0..31, clamped) to its voice and step. */
   static PadAddress resolve(uint8_t padIndex, uint8_t selectedVoice);
 };
+
+/** What releasing a step pad does. */
+enum class PadRelease : uint8_t
+{
+  Ignore, // the press was never timed: a mode consumed it
+  Tap,    // short press: toggle the step
+  Hold,   // long press: select the step for editing
+};
+
+/**
+ * Classify a step pad release.
+ *
+ * @param pressedAtMs Time the press was recorded, or 0 when a mode consumed
+ *                    the press (Settings, Shift+clear, gate or parameter
+ *                    length) and never timed it. Timing a release against 0
+ *                    would read as a hold as long as the uptime.
+ * @param nowMs       Release time (millis() wraps; unsigned math handles it).
+ * @param holdMs      Long-press threshold.
+ */
+constexpr PadRelease classifyPadRelease(uint32_t pressedAtMs, uint32_t nowMs,
+                                        uint32_t holdMs)
+{
+  if (pressedAtMs == 0)
+  {
+    return PadRelease::Ignore;
+  }
+  return (nowMs - pressedAtMs >= holdMs) ? PadRelease::Hold : PadRelease::Tap;
+}
 
 // ---------------------------------------------------------------------------
 // LED layout (pad-mirror geometry)

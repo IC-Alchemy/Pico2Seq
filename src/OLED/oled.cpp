@@ -546,12 +546,12 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
   if (uiState.inPresetSelection)
   {
     // Enhanced preset selection with cycling interface
-    int currentPresetIndex = (uiState.settingsMenuIndex < UIState::MAX_VOICES) ? uiState.voicePresetIndices[uiState.settingsMenuIndex] : 0;
+    int currentPresetIndex = (uiState.selectedVoiceIndex < UIState::MAX_VOICES) ? uiState.voicePresetIndices[uiState.selectedVoiceIndex] : 0;
 
     // Header with voice info
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, OLEDConstants::TEXT_MARGIN);
     displayHardware.print("VOICE ");
-    displayHardware.print(uiState.settingsMenuIndex + 1);
+    displayHardware.print(uiState.selectedVoiceIndex + 1);
 
     // Draw separator line
     displayHardware.drawFastHLine(OLEDConstants::TEXT_MARGIN, OLEDConstants::HEADER_HEIGHT,

@@ -72,6 +72,7 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
 static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount);
 
 // Settings sub-mode helpers (settings mode refactor)
+static void showSelectedVoicePresetPage(UIState &uiState);
 static void toggleSettingsSubMode(UIState &uiState);
 static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState);
 static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState, VoiceManager *voiceManager);
@@ -258,15 +259,24 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
    * Navigation uses raw pad indices (no bank resolution): pads 0-3 select a
    * voice, pads 8 and up apply presets in the preset sub-mode.
    */
-  if (uiState.settingsMode && evt.type == MATRIX_BUTTON_PRESSED)
+  if (uiState.settingsMode)
   {
+    // Settings owns every pad edge while open. A release that fell through
+    // would reach the step handling below, select a step and move the voice
+    // selection to the pad's bank voice, so the next preset tap would land
+    // on a different voice than the one on screen.
+    if (evt.type != MATRIX_BUTTON_PRESSED)
+    {
+      uiState.padPressTimestamps[evt.buttonIndex] = 0;
+      return true;
+    }
+
     // Buttons 0-3 always select voice index (0..3) - used for both voice selection and voice parameter navigation (0-3)
     if (evt.buttonIndex < UIEventConstants::MAX_VOICES)
     {
       uiState.selectedVoiceIndex = evt.buttonIndex;
       uiState.isVoice2Mode = (uiState.selectedVoiceIndex == UIEventConstants::VOICE_2_INDEX); // legacy compat
-      uiState.presetPage = uiState.voicePresetIndices[evt.buttonIndex] / VoicePresets::kPresetsPerPage;
-      uiState.settingsMenuIndex = evt.buttonIndex;                                            // used by OLED/LED menus
+      showSelectedVoicePresetPage(uiState);
       return true;
     }
 
@@ -355,49 +365,52 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
   }
 
   // Handle normal step pad presses (short/long press detection)
-  if (!isAnyParameterButtonHeld(uiState))
+  if (evt.type == MATRIX_BUTTON_PRESSED)
   {
-    if (evt.type == MATRIX_BUTTON_PRESSED)
-    {
-      // Record press timestamp for long press detection
-      uiState.padPressTimestamps[evt.buttonIndex] = millis();
-    }
-    else if (evt.type == MATRIX_BUTTON_RELEASED)
-    {
-      unsigned long pressDurationMs = millis() - uiState.padPressTimestamps[evt.buttonIndex];
-      uiState.padPressTimestamps[evt.buttonIndex] = 0; // Clear timestamp
+    // Record press timestamp for long press detection. Presses consumed by a
+    // branch above return first and stay untimed, so their release is ignored.
+    uiState.padPressTimestamps[evt.buttonIndex] = millis();
+    return true;
+  }
 
-      if (isLongPress(pressDurationMs))
-      {
-        // Long press: Toggle step edit mode for detailed parameter editing.
-        // Editing always happens on the selected voice, so entering edit
-        // from a pad of the partner voice moves selection to that voice.
-        if (currentActiveSequencerPtr == padSequencerPtr && uiState.selectedStepForEdit == pad.step)
-        {
-          // Exit edit mode for this step
-          uiState.selectedStepForEdit = -1;
-          uiState.currentEditParameter = ParamId::Count; // Clear edit parameter
-        }
-        else
-        {
-          // Enter edit mode for this step on the pad's own voice
-          uiState.selectedVoiceIndex = pad.voice;
-          uiState.isVoice2Mode = (pad.voice == UIEventConstants::VOICE_2_INDEX); // legacy compat
-          uiState.voiceSwitchTriggered = true;                                   // immediate OLED update
-          uiState.selectedStepForEdit = pad.step;
-        }
-      }
-      else
-      {
-        // Short press: Toggle step on/off on the pad's own voice and exit edit mode
-        if (padSequencerPtr)
-        {
-          padSequencerPtr->toggleStep(pad.step);
-        }
-        uiState.selectedStepForEdit = -1;
-        uiState.currentEditParameter = ParamId::Count; // Clear edit parameter
-      }
+  const ControlSurface::PadRelease release = ControlSurface::classifyPadRelease(
+      uiState.padPressTimestamps[evt.buttonIndex], millis(),
+      UITimingConstants::LONG_PRESS_THRESHOLD_MS);
+  uiState.padPressTimestamps[evt.buttonIndex] = 0; // Clear timestamp
+  if (isAnyParameterButtonHeld(uiState))
+  {
+    return true;
+  }
+
+  if (release == ControlSurface::PadRelease::Hold)
+  {
+    // Long press: Toggle step edit mode for detailed parameter editing.
+    // Editing always happens on the selected voice, so entering edit
+    // from a pad of the partner voice moves selection to that voice.
+    if (currentActiveSequencerPtr == padSequencerPtr && uiState.selectedStepForEdit == pad.step)
+    {
+      // Exit edit mode for this step
+      uiState.selectedStepForEdit = -1;
+      uiState.currentEditParameter = ParamId::Count; // Clear edit parameter
     }
+    else
+    {
+      // Enter edit mode for this step on the pad's own voice
+      uiState.selectedVoiceIndex = pad.voice;
+      uiState.isVoice2Mode = (pad.voice == UIEventConstants::VOICE_2_INDEX); // legacy compat
+      uiState.voiceSwitchTriggered = true;                                   // immediate OLED update
+      uiState.selectedStepForEdit = pad.step;
+    }
+  }
+  else if (release == ControlSurface::PadRelease::Tap)
+  {
+    // Short press: Toggle step on/off on the pad's own voice and exit edit mode
+    if (padSequencerPtr)
+    {
+      padSequencerPtr->toggleStep(pad.step);
+    }
+    uiState.selectedStepForEdit = -1;
+    uiState.currentEditParameter = ParamId::Count; // Clear edit parameter
   }
   return true; // Event was handled as step pad
 }
@@ -421,6 +434,38 @@ static void autoSelectEncoderParameter(ParamId paramId, UIState &uiState)
 // =======================
 // Settings sub-mode helpers
 // =======================
+
+/**
+ * Point the preset browser at the page holding the selected voice's preset.
+ */
+static void showSelectedVoicePresetPage(UIState &uiState)
+{
+  const uint8_t voice = uiState.selectedVoiceIndex < UIEventConstants::MAX_VOICES
+                            ? uiState.selectedVoiceIndex
+                            : UIEventConstants::VOICE_1_INDEX;
+  uiState.presetPage = uiState.voicePresetIndices[voice] / VoicePresets::kPresetsPerPage;
+}
+
+void openSettingsMode(UIState &uiState)
+{
+  uiState.settingsMode = true;
+  // Always open on presets. A sub-mode left on Voice Parameter would send
+  // preset-pad taps to the envelope/overdrive/filter toggles while the LEDs
+  // still show the preset grid.
+  uiState.currentSubMode = UIState::SettingsSubMode::PRESET_SELECTION;
+  uiState.inPresetSelection = true;
+  uiState.inVoiceParameterMode = false;
+  uiState.selectedStepForEdit = -1;
+  showSelectedVoicePresetPage(uiState);
+}
+
+void closeSettingsMode(UIState &uiState)
+{
+  uiState.settingsMode = false;
+  uiState.inPresetSelection = false;
+  uiState.inVoiceParameterMode = false;
+  uiState.selectedStepForEdit = -1;
+}
 
 /**
  * Toggle Settings sub-mode between Preset Selection and Voice Parameter.
@@ -707,6 +752,11 @@ void selectVoice(UIState &uiState, MidiNoteManager &midiNoteManager, uint8_t voi
   uiState.isVoice2Mode = (voiceIndex == UIEventConstants::VOICE_2_INDEX); // Legacy compatibility
   uiState.selectedStepForEdit = -1;                                       // Clear step editing when switching voices
   uiState.voiceSwitchTriggered = true;                                    // Set flag for immediate OLED update
+  if (uiState.settingsMode)
+  {
+    // Preset taps apply to the selected voice, so the browser follows it.
+    showSelectedVoicePresetPage(uiState);
+  }
 }
 
 static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount)

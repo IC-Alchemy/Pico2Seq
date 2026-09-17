@@ -479,8 +479,8 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState)
         const uint8_t presetCount = VoicePresets::presetCountOnPage(totalPresets, uiState.presetPage);
 
         // Keep preset selection in the hue assigned to the configured voice.
-        CRGB selectedColor = getVoiceGateColor(*activeThemeColors, uiState.settingsMenuIndex, true);
-        CRGB availableColor = getVoiceGateColor(*activeThemeColors, uiState.settingsMenuIndex, false);
+        CRGB selectedColor = getVoiceGateColor(*activeThemeColors, uiState.selectedVoiceIndex, true);
+        CRGB availableColor = getVoiceGateColor(*activeThemeColors, uiState.selectedVoiceIndex, false);
 
         if (uiState.presetPage > 0)
             ledMatrix.setLED(VoicePresets::kPreviousPagePad, 0, availableColor);
@@ -493,8 +493,8 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState)
             CRGB color;
 
             // Highlight currently selected preset
-            const uint8_t voiceIndex = uiState.settingsMenuIndex < UIState::MAX_VOICES
-                                           ? uiState.settingsMenuIndex
+            const uint8_t voiceIndex = uiState.selectedVoiceIndex < UIState::MAX_VOICES
+                                           ? uiState.selectedVoiceIndex
                                            : 0;
             const uint8_t currentPresetIndex = uiState.voicePresetIndices[voiceIndex];
 
@@ -526,10 +526,10 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState)
         for (int voiceIndex = 0; voiceIndex < 4; voiceIndex++)
         {
             CRGB voiceColor = getVoiceGateColor(*activeThemeColors, static_cast<uint8_t>(voiceIndex),
-                                                 uiState.settingsMenuIndex == voiceIndex);
+                                                 uiState.selectedVoiceIndex == voiceIndex);
 
             // Add pulsing effect for selected option
-            if (uiState.settingsMenuIndex == voiceIndex)
+            if (uiState.selectedVoiceIndex == voiceIndex)
             {
                 uint32_t time = millis();
                 float pulse = 0.5f + 0.5f * sinf(time * 0.006f);

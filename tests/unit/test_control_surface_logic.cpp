@@ -202,6 +202,35 @@ TEST_CASE("PadBank clamps out-of-range pad indices", "[control_surface]")
 }
 
 // ---------------------------------------------------------------------------
+// Pad release classification
+// ---------------------------------------------------------------------------
+
+TEST_CASE("A pad release splits timed presses into tap and hold", "[control_surface]")
+{
+    constexpr uint32_t hold = 400;
+    CHECK(classifyPadRelease(10000, 10000, hold) == PadRelease::Tap);
+    CHECK(classifyPadRelease(10000, 10399, hold) == PadRelease::Tap);
+    CHECK(classifyPadRelease(10000, 10400, hold) == PadRelease::Hold);
+    CHECK(classifyPadRelease(10000, 60000, hold) == PadRelease::Hold);
+}
+
+TEST_CASE("A pad release after an untimed press does nothing", "[control_surface]")
+{
+    // Settings, Shift+clear and length modes consume the press without timing
+    // it. Measured from 0, the release would read as a hold of the uptime and
+    // select the step, moving the selected voice to the pad's bank.
+    CHECK(classifyPadRelease(0, 60000, 400) == PadRelease::Ignore);
+    CHECK(classifyPadRelease(0, 5, 400) == PadRelease::Ignore);
+}
+
+TEST_CASE("A pad release is timed across a millis() wrap", "[control_surface]")
+{
+    constexpr uint32_t pressedAt = std::numeric_limits<uint32_t>::max() - 99;
+    CHECK(classifyPadRelease(pressedAt, 200, 400) == PadRelease::Tap);  // 300 ms
+    CHECK(classifyPadRelease(pressedAt, 300, 400) == PadRelease::Hold); // 400 ms
+}
+
+// ---------------------------------------------------------------------------
 // LedLayout (pad-mirror LED geometry)
 // ---------------------------------------------------------------------------
 
