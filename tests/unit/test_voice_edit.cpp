@@ -314,13 +314,13 @@ TEST_CASE("Displayed notes use the same tuning as rendered oscillator pitches", 
   Step step;
   step.noteIndex = 1;
   MusicalValues::noteName(step.noteIndex, 0, scale[0], text, sizeof(text));
-  REQUIRE(std::string(text) == "D3");
+  REQUIRE(std::string(text) == "D5");
   MusicalValues::noteName(step.noteIndex, 0, scale[2], text, sizeof(text));
-  REQUIRE(std::string(text) == "C#3");
+  REQUIRE(std::string(text) == "C#5");
   c = VoicePresets::getBassVoice();
   step.noteIndex = 0;
   MusicalValues::format(ParamId::Note, step, c, scale[0], 90, text, sizeof(text));
-  REQUIRE(std::string(text) == "C2/C3");
+  REQUIRE(std::string(text) == "C4/C5");
 }
 
 TEST_CASE("Sequencer OLED formats final physical and preset-specific units", "[voice_edit][oled]") {
@@ -332,7 +332,7 @@ TEST_CASE("Sequencer OLED formats final physical and preset-specific units", "[v
     MusicalValues::format(id, step, c, scale[0], 120, text, sizeof(text));
     return std::string(text);
   };
-  REQUIRE(formatted(ParamId::Note) == "C3");
+  REQUIRE(formatted(ParamId::Note) == "C5");
   REQUIRE(formatted(ParamId::Attack) == "20.0ms");
   REQUIRE(formatted(ParamId::Decay) == "400.0ms");
   REQUIRE(formatted(ParamId::Velocity) == "0.50x");

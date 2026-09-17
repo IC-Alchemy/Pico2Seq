@@ -625,7 +625,7 @@ private:
    *
    * Single pitch lookup path: resolves the step via the injected scale table
    * (chromatic mapping when no table was injected) to a MIDI note centered at
-   * C3 (48), clamped to the 128-entry frequency lookup table.
+   * C5 (72), clamped to the 128-entry frequency lookup table.
    */
   float calculateNoteFrequency(float note, int8_t octaveOffset, int harmony) noexcept;
 

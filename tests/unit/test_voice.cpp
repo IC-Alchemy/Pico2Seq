@@ -155,13 +155,13 @@ TEST_CASE("Pitch lookup honors the injected scale table over the global", "[voic
     v.updateParameters(vs);
     v.process();
     REQUIRE_THAT(v.getCachedFrequency(0),
-                 WithinRel(rpdsp::midiNoteToHz(53.0f), 0.001f)); // semitone 5
+                 WithinRel(rpdsp::midiNoteToHz(77.0f), 0.001f)); // semitone 5 + 72
 
     scaleIdx = 1; // one octave up in the injected table
     v.updateParameters(vs);
     v.process();
     REQUIRE_THAT(v.getCachedFrequency(0),
-                 WithinRel(rpdsp::midiNoteToHz(65.0f), 0.001f)); // semitone 17
+                 WithinRel(rpdsp::midiNoteToHz(89.0f), 0.001f)); // semitone 17 + 72
 }
 
 TEST_CASE("No injected table falls back to chromatic mapping", "[voice]") {
@@ -176,7 +176,7 @@ TEST_CASE("No injected table falls back to chromatic mapping", "[voice]") {
     v.updateParameters(vs);
     v.process();
     REQUIRE_THAT(v.getCachedFrequency(0),
-                 WithinRel(rpdsp::midiNoteToHz(52.0f), 0.001f)); // 4 semitones above C3
+                 WithinRel(rpdsp::midiNoteToHz(76.0f), 0.001f)); // 4 semitones above C5
 }
 
 TEST_CASE("Voice combines note indices with octave track semitones", "[voice]") {
@@ -193,19 +193,19 @@ TEST_CASE("Voice combines note indices with octave track semitones", "[voice]") 
     v.updateParameters(vs);
     v.process();
     REQUIRE_THAT(v.getCachedFrequency(0),
-                 WithinRel(rpdsp::midiNoteToHz(72.0f), 0.001f));
+                 WithinRel(rpdsp::midiNoteToHz(96.0f), 0.001f));
 
     vs.octaveOffset = 0;
     v.updateParameters(vs);
     v.process();
     REQUIRE_THAT(v.getCachedFrequency(0),
-                 WithinRel(rpdsp::midiNoteToHz(84.0f), 0.001f));
+                 WithinRel(rpdsp::midiNoteToHz(108.0f), 0.001f));
 
     vs.octaveOffset = 12;
     v.updateParameters(vs);
     v.process();
     REQUIRE_THAT(v.getCachedFrequency(0),
-                 WithinRel(rpdsp::midiNoteToHz(96.0f), 0.001f));
+                 WithinRel(rpdsp::midiNoteToHz(120.0f), 0.001f));
 }
 
 TEST_CASE("Pitch lookup clamps out-of-range indices", "[voice]") {
@@ -223,14 +223,15 @@ TEST_CASE("Pitch lookup clamps out-of-range indices", "[voice]") {
     vs.isGateHigh = true;
     vs.octaveOffset = 0;
 
-    // note 46 + harmony 12 clamps to the row's last entry: semitone 67, MIDI 115.
+    // note 46 + harmony 12 clamps to the row's last entry: semitone 67.
+    // 72 + 67 = 139 -> clamped to 127.
     vs.noteIndex = 46.0f;
     v.updateParameters(vs);
     v.process();
     REQUIRE_THAT(v.getCachedFrequency(0),
-                 WithinRel(rpdsp::midiNoteToHz(115.0f), 0.001f));
+                 WithinRel(rpdsp::midiNoteToHz(127.0f), 0.001f));
 
-    // A +24 octave shift on the top step would index MIDI 139; saturate at the
+    // A +24 octave shift on the top step would index MIDI 163; saturate at the
     // frequency table's top instead of reading past it.
     vs.noteIndex = 47.0f;
     vs.octaveOffset = 24;
@@ -541,7 +542,7 @@ TEST_CASE("Waveguide ring-out is not rescaled by a later velocity push", "[voice
     initVoiceWithScale(v);
 
     VoiceState vs;
-    vs.noteIndex = 12.0f;
+    vs.noteIndex = 0.0f;
     vs.velocityLevel = 1.0f;
     vs.isGateHigh = true;
     v.updateParameters(vs);

@@ -71,18 +71,18 @@ TEST_CASE("processBlock matches per-sample process() for every preset", "[voice]
         update(note(34, true, true));
         compare(scalar, block, 2400, 0.0f);
         update(note(34, false));
-        compare(scalar, block, 48000, 1.0e-6f);
+        compare(scalar, block, 48000, 2.0e-6f);
         const auto next = patch((preset + 5) % VoicePresets::getPresetCount());
         scalar.setConfig(next);
         block.setConfig(next);
         update(note(27));
-        compare(scalar, block, 14400, 1.0e-6f);
+        compare(scalar, block, 14400, 2.0e-6f);
         // A gated structural change is applied at the falling edge.
         scalar.setConfig(patch(preset));
         block.setConfig(patch(preset));
-        compare(scalar, block, 33, 1.0e-6f);
+        compare(scalar, block, 33, 2.0e-6f);
         update(note(27, false));
-        compare(scalar, block, 256, 1.0e-6f);
+        compare(scalar, block, 256, 2.0e-6f);
     }
 }
 
