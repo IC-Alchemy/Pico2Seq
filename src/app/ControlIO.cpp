@@ -8,7 +8,11 @@ namespace
 {
 constexpr uint32_t kControlIntervalMs = 1;
 constexpr uint32_t kDisplayIntervalMs = 50; // 50 frames/s for OLED and LEDs
-constexpr uint32_t kTileBusFrequencyHz = 400000; // This panel stalls at 400 kHz.
+// Must match the ClockSpeed both tile sketches program (kBusClockHz in
+// tiles/*/*.ino). The stall this line used to warn about was a slider tile
+// configured for standard-mode timing on a bank clocked at fast mode; both
+// tiles now agree with the hub. Change all three together or not at all.
+constexpr uint32_t kTileBusFrequencyHz = 400000;
 constexpr uint32_t kMainBusFrequencyHz = 400000;
 constexpr uint8_t kStartupLedBrightness = 150;
 constexpr uint8_t kTouchSensorAddress = 0x5A;
