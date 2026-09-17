@@ -319,7 +319,42 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
   // voice plays, plus the lidar distance.
   if (held != ParamId::Count && !selected)
   {
-    displayParameterInfo(held, sequence.getPlaybackStep(), uiState,
+    Step liveStep = sequence.getPlaybackStep();
+    if (AppState::performanceInput.handPresent)
+    {
+      const float norm = AppState::performanceInput.recordingValue();
+      const float stored = mapNormalizedValueToParamRange(held, norm);
+      const float composed = config ? VoiceEdit::composeLane(held, stored, config) : stored;
+      switch (held)
+      {
+        case ParamId::Velocity:
+          liveStep.velocityLevel = composed;
+          break;
+        case ParamId::Filter:
+          liveStep.filterCutoff = composed;
+          break;
+        case ParamId::Attack:
+          liveStep.attackTimeSeconds = composed;
+          break;
+        case ParamId::Decay:
+          liveStep.decayTimeSeconds = composed;
+          break;
+        case ParamId::Note:
+          liveStep.noteIndex = composed;
+          break;
+        case ParamId::Octave:
+          liveStep.octaveOffset = config ? VoiceEdit::mapOctave(composed) :
+              static_cast<int8_t>(std::round((std::clamp(composed, 0.0f, 1.0f) - 0.5f) * 2.0f) * 12);
+          break;
+        case ParamId::GateLength:
+          liveStep.gateLengthTicks = static_cast<uint16_t>(std::max(1.0f,
+              composed * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS));
+          break;
+        default:
+          break;
+      }
+    }
+    displayParameterInfo(held, liveStep, uiState,
                sequence.getCurrentStepForParameter(held), config, false, true, false);
     commitFrame();
     return;

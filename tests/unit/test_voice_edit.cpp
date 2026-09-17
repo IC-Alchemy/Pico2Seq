@@ -663,3 +663,101 @@ TEST_CASE("RubberSub audio synthesis produces fat audible sub-bass and distinct 
   });
   REQUIRE(openCutoffRms > 0.02);
 }
+
+TEST_CASE("SubFunk audio synthesis produces audible sub-bass and distinct filter response",
+          "[voice_edit][subfunk][audio]") {
+  const uint8_t subFunk = static_cast<uint8_t>(VoicePresets::findPreset("SubFunk"));
+  const auto config = VoicePresets::getSubFunkVoice();
+  REQUIRE(config.highPassFreq == 25.0f);
+  REQUIRE(config.filterEnvelopeFloor == 0.35f);
+  REQUIRE(config.oscWaveforms[1] == WAVE_BSP_SQUARE);
+  REQUIRE(config.oscAmplitudes[1] == Approx(0.35f));
+  REQUIRE(config.filterRes == Approx(0.6f));
+  REQUIRE(config.overdriveDrive == Approx(0.45f));
+
+  const double untouchedRms = rmsWhileEditing(subFunk, [](Sequencer &, VoiceState &) {});
+  REQUIRE(untouchedRms > 0.05); // Robust, audible output
+
+  const double lowCutoffRms = rmsWhileEditing(subFunk, [](Sequencer &s, VoiceState &v) {
+    s.setStepParameterValue(ParamId::Filter, 0, 0.0f);
+    s.refreshVoiceParameters(&v);
+  });
+  REQUIRE(lowCutoffRms > 0.05);
+
+  const double openCutoffRms = rmsWhileEditing(subFunk, [](Sequencer &s, VoiceState &v) {
+    s.setStepParameterValue(ParamId::Filter, 0, 1.0f);
+    s.refreshVoiceParameters(&v);
+  });
+  REQUIRE(openCutoffRms > 0.05);
+}
+
+TEST_CASE("Live parameter modulation with distance sensor produces distinct values across all lanes",
+          "[voice_edit][live_modulation]") {
+  auto config = VoicePresets::getSubFunkVoice();
+  enablePatch(config);
+
+  // Helper simulating live composed step calculation as done on the OLED
+  auto composeLive = [&](ParamId id, float norm) -> Step {
+    Step s{};
+    const float stored = mapNormalizedValueToParamRange(id, norm);
+    const float composed = VoiceEdit::composeLane(id, stored, &config);
+    switch (id) {
+      case ParamId::Velocity: s.velocityLevel = composed; break;
+      case ParamId::Filter: s.filterCutoff = composed; break;
+      case ParamId::Attack: s.attackTimeSeconds = composed; break;
+      case ParamId::Decay: s.decayTimeSeconds = composed; break;
+      case ParamId::Note: s.noteIndex = composed; break;
+      case ParamId::Octave: s.octaveOffset = VoiceEdit::mapOctave(composed); break;
+      case ParamId::GateLength:
+        s.gateLengthTicks = static_cast<uint16_t>(std::max(1.0f,
+            composed * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS));
+        break;
+      default: break;
+    }
+    return s;
+  };
+
+  // Filter cutoff: min, mid, max format distinct frequencies
+  char lowBuf[32], midBuf[32], highBuf[32];
+  MusicalValues::format(ParamId::Filter, composeLive(ParamId::Filter, 0.0f), config, nullptr, 120.0f, lowBuf, sizeof(lowBuf));
+  MusicalValues::format(ParamId::Filter, composeLive(ParamId::Filter, 0.5f), config, nullptr, 120.0f, midBuf, sizeof(midBuf));
+  MusicalValues::format(ParamId::Filter, composeLive(ParamId::Filter, 1.0f), config, nullptr, 120.0f, highBuf, sizeof(highBuf));
+  CHECK(std::string(lowBuf) == "60Hz");
+  CHECK(std::string(midBuf) == "420Hz");
+  CHECK(std::string(highBuf) == "1600Hz");
+
+  // Attack: min, mid, max format distinct times
+  MusicalValues::format(ParamId::Attack, composeLive(ParamId::Attack, 0.0f), config, nullptr, 120.0f, lowBuf, sizeof(lowBuf));
+  MusicalValues::format(ParamId::Attack, composeLive(ParamId::Attack, 0.5f), config, nullptr, 120.0f, midBuf, sizeof(midBuf));
+  MusicalValues::format(ParamId::Attack, composeLive(ParamId::Attack, 1.0f), config, nullptr, 120.0f, highBuf, sizeof(highBuf));
+  CHECK(std::string(lowBuf) == "1.0ms");
+  CHECK(std::string(midBuf) == "4.0ms");
+  CHECK(std::string(highBuf) == "2.00s");
+
+  // Decay: min, mid, max format distinct times
+  MusicalValues::format(ParamId::Decay, composeLive(ParamId::Decay, 0.0f), config, nullptr, 120.0f, lowBuf, sizeof(lowBuf));
+  MusicalValues::format(ParamId::Decay, composeLive(ParamId::Decay, 0.5f), config, nullptr, 120.0f, midBuf, sizeof(midBuf));
+  MusicalValues::format(ParamId::Decay, composeLive(ParamId::Decay, 1.0f), config, nullptr, 120.0f, highBuf, sizeof(highBuf));
+  CHECK(std::string(lowBuf) == "1.0ms");
+  CHECK(std::string(midBuf) == "220.0ms");
+  CHECK(std::string(highBuf) == "10.00s");
+
+  // Velocity: min, mid, max format distinct multipliers
+  MusicalValues::format(ParamId::Velocity, composeLive(ParamId::Velocity, 0.0f), config, nullptr, 120.0f, lowBuf, sizeof(lowBuf));
+  MusicalValues::format(ParamId::Velocity, composeLive(ParamId::Velocity, 0.5f), config, nullptr, 120.0f, midBuf, sizeof(midBuf));
+  MusicalValues::format(ParamId::Velocity, composeLive(ParamId::Velocity, 1.0f), config, nullptr, 120.0f, highBuf, sizeof(highBuf));
+  CHECK(std::string(lowBuf) != std::string(midBuf));
+  CHECK(std::string(midBuf) != std::string(highBuf));
+
+  // Octave: min, mid, max format distinct octaves
+  MusicalValues::format(ParamId::Octave, composeLive(ParamId::Octave, 0.0f), config, nullptr, 120.0f, lowBuf, sizeof(lowBuf));
+  MusicalValues::format(ParamId::Octave, composeLive(ParamId::Octave, 0.5f), config, nullptr, 120.0f, midBuf, sizeof(midBuf));
+  MusicalValues::format(ParamId::Octave, composeLive(ParamId::Octave, 1.0f), config, nullptr, 120.0f, highBuf, sizeof(highBuf));
+  CHECK(std::string(lowBuf) == "-2 oct");
+  CHECK(std::string(midBuf) == "+0 oct");
+  CHECK(std::string(highBuf) == "+2 oct");
+}
+
+
+
+

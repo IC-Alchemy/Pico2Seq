@@ -250,28 +250,30 @@ namespace VoicePresets {
     VoiceConfig c{};
     c.oscillatorCount = 3;
     c.oscWaveforms[0] = WAVE_SIN;
-    c.oscWaveforms[1] = WAVE_TRI;
+    c.oscWaveforms[1] = WAVE_BSP_SQUARE;
     c.oscWaveforms[2] = WAVE_SIN;
     c.oscAmplitudes[0] = 1.0f;
-    c.oscAmplitudes[1] = 0.8f;
+    c.oscAmplitudes[1] = 0.35f;
     c.oscAmplitudes[2] = 0.65f;
-    c.oscDetuning[0] = -12.0f; // sub octave
-    c.oscDetuning[1] = -12.0f; // sub octave color
+    c.oscDetuning[0] = -12.0f; // sub octave fundamental
+    c.oscDetuning[1] = -12.0f; // sub octave odd harmonics for funk bite
     c.oscDetuning[2] = 0.0f;   // fundamental body
     c.harmony[0] = 0;
     c.harmony[1] = 0;
     c.harmony[2] = 0;
 
-    c.filterRes = 0.5f;
+    c.filterRes = 0.6f;
     c.filterType = FILTER_SVF; // resonant low-pass keeps the sub stable under env sweeps
     c.filterMode = VoiceFilterMode::LP12; // SVF response: low-pass
-    c.highPassFreq = 55.0f; // keep the sub, shed the rumble
+    c.highPassFreq = 25.0f; // Lower HPF cutoff from 55 Hz so sub-octave fundamental passes
+    c.highPassRes = 0.0f;
+    c.filterEnvelopeFloor = 0.35f; // Keep low-pass floor open during sustain/decay to prevent silence
     c.parameters = &kSubFunkLayout;
     c.filterCutoffBase = 0.5f; // rests on the 420 Hz lane center
 
     c.hasOverdrive = true;
     c.overdriveGain = 0.9f;
-    c.overdriveDrive = 0.35f; // warm grit
+    c.overdriveDrive = 0.45f; // warm grit
 
     c.defaultAttack = 0.004f;
     c.defaultDecay = 0.22f;
