@@ -5,10 +5,12 @@ They live here, beside the hub, because the two halves share one contract and
 breaking it from either side is silent: a tile that stops sweeping still answers
 the bus perfectly, and a hub that trusts the wrong signal never notices.
 
-| Sketch | MCU | Type | Addresses | DATA_LEN |
-|---|---|---|---|---|
-| [`SliderModule/SliderModule.ino`](SliderModule/SliderModule.ino) | PY32F030F28U6TR | `0x01` | 0x08–0x0A | 11 |
-| [`ButtonModule8/ButtonModule8.ino`](ButtonModule8/ButtonModule8.ino) | PY32F030F28U6TR | `0x02` | 0x0B–0x0D | 3 |
+Both run on a **PY32F030F28U6TR**: TSSOP-20, 64 KB flash, 8 KB SRAM.
+
+| Sketch | Type | Addresses | DATA_LEN |
+|---|---|---|---|
+| [`SliderModule/SliderModule.ino`](SliderModule/SliderModule.ino) | `0x01` | 0x08–0x0A | 11 |
+| [`ButtonModule8/ButtonModule8.ino`](ButtonModule8/ButtonModule8.ino) | `0x02` | 0x0B–0x0D | 3 |
 
 The hub side is `src/AlchemyUI/`; the whole arrangement is written up in
 [`docs/alchemy-satellite-link.md`](../docs/alchemy-satellite-link.md).
@@ -43,19 +45,26 @@ arm-none-eabi-size /tmp/t.o
 ```
 
 An overflow far larger than the sketch's own footprint is not a code problem.
-Check, in this order:
 
-1. **The selected board variant.** A 16 KB / 2 KB linker script under a larger
-   part fails by roughly the size of the core, no matter what the sketch does.
-2. **`--gc-sections`.** Without it every unreferenced core and HAL function is
+**The board part number is the thing to check first.** `PY32F030F28U6TR` is
+TSSOP-20 with density code 8: **64 KB flash, 8 KB SRAM**. Selecting a 16 KB /
+2 KB variant instead fails by roughly the size of the core no matter what the
+sketch does — a real instance of this overflowed FLASH by 952 bytes and RAM by
+48, which works out to an image of ~17.3 KB and ~2.1 KB. The same image is
+about a quarter of the correct part. The sketch itself was 2.5 KB of it.
+
+After that, in order:
+
+1. **`--gc-sections`.** Without it every unreferenced core and HAL function is
    linked in.
-3. **`--specs=nano.specs`**, for the small newlib.
+2. **`--specs=nano.specs`**, for the small newlib.
 
-Only then trim the sketch. The obvious target is `regMap[REG_MAP_SIZE]`: 128
-bytes of RAM holding 26 bytes of mostly-constant identity, 3 bytes of config
-and ~99 bytes of zero padding. Serving the identity from a `const` table in
-flash, the UID straight from its factory address, and the config from a
-3-byte array frees ~125 bytes of RAM for a few tens of bytes of flash.
+Only then trim the sketch, and there is one obvious target if you ever do:
+`regMap[REG_MAP_SIZE]` is 128 bytes of RAM holding 26 bytes of mostly-constant
+identity, 3 bytes of config and ~99 bytes of zero padding. Serving the identity
+from a `const` table in flash, the UID straight from its factory address, and
+the config from a 3-byte array frees ~125 bytes of RAM for a few tens of bytes
+of flash. On a 64 KB / 8 KB part there is no reason to bother.
 
 ## Tested on the host
 
