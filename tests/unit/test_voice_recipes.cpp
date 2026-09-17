@@ -277,17 +277,32 @@ TEST_CASE("Recipe voices share note octave velocity slide and queued switching",
     REQUIRE(voice.process() < 0.0f);
 }
 
-TEST_CASE("Recipe envelope responds to gate-off and retrigger", "[voice][recipes]")
+TEST_CASE("Recipe drones keep sounding through gate-off and retrigger", "[voice][recipes]")
 {
     auto config = VoicePresets::getPresetConfigByName("FMBass");
     Voice v(0, config);
     v.init(48000.0f);
     auto s = seededState(config);
     v.updateParameters(s);
-    for (int i = 0; i < 4096; ++i) v.process();
+    for (int i = 0; i < 4096; ++i) v.process(); // settle past the initial trigger transient
+    double gatedEnergy = 0.0;
+    for (int i = 0; i < 4096; ++i) {
+        const float sample = v.process();
+        gatedEnergy += sample * sample;
+    }
+    const float gatedRms = static_cast<float>(std::sqrt(gatedEnergy / 4096));
+    // Drone build: gate-off no longer silences recipe engines. They keep
+    // rendering at the last committed pitch instead of releasing to zero.
     v.setGate(false);
-    for (int i = 0; i < 48000; ++i) v.process();
-    REQUIRE(std::abs(v.process()) < 0.0001f);
+    double ungatedEnergy = 0.0;
+    for (int i = 0; i < 48000; ++i) {
+        const float sample = v.process();
+        ungatedEnergy += sample * sample;
+    }
+    const float ungatedRms = static_cast<float>(std::sqrt(ungatedEnergy / 48000));
+    REQUIRE(ungatedRms > 0.001f);          // audible drone, not the old < 1e-4 release tail
+    REQUIRE(ungatedRms > gatedRms * 0.5f); // stationary drone: no envelope dip after the fall
+    // A gate rise still fires the recipe trigger and keeps the drone speaking.
     v.setGate(true);
     float peak = 0.0f;
     for (int i = 0; i < 2048; ++i) peak = std::max(peak, std::abs(v.process()));
@@ -319,7 +334,7 @@ TEST_CASE("Recipe coefficients follow sample rate and controls and survive trigg
     REQUIRE_THAT(voice.process(), WithinAbs(1.0f / 96000.0f, 1.0e-9f));
 }
 
-TEST_CASE("Musical preset defaults speak and release across the playing range", "[voice][recipes][musical]")
+TEST_CASE("Musical preset drones speak across the playing range and survive gate-off", "[voice][recipes][musical]")
 {
     for (const char *name : {"VelvetKeys", "CopperBass", "ReedPipe", "SilkPad",
                              "HollowBell", "SyncLead", "OrbitPluck", "AirChime"}) {
@@ -342,12 +357,16 @@ TEST_CASE("Musical preset defaults speak and release across the playing range", 
             }
             REQUIRE(std::sqrt(energy / 24000) > 0.015);
             REQUIRE(peak < 1.0f);
+            // Drone build: gate-off holds the drone at the committed pitch and
+            // level instead of releasing to silence.
             voice.setGate(false);
             for (int i = 0; i < 144000; ++i) voice.process();
-            float tail = 0.0f;
-            for (int i = 0; i < 1024; ++i)
-                tail = std::max(tail, std::abs(voice.process()));
-            REQUIRE(tail < 0.0001f);
+            double tailEnergy = 0.0;
+            for (int i = 0; i < 1024; ++i) {
+                const float sample = voice.process();
+                tailEnergy += sample * sample;
+            }
+            REQUIRE(std::sqrt(tailEnergy / 1024) > 0.002);
             voice.setGate(true);
             peak = 0.0f;
             for (int i = 0; i < 24000; ++i)

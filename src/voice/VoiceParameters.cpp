@@ -68,15 +68,6 @@ bool velocityToAmplitude(const VoiceConfig &config) noexcept
   return config.paramSet != PARAMSET_HARDSYNC && layout(config).velocityToAmplitude;
 }
 
-float mapCutoff(const VoiceParameterLayout &p, float normalized) noexcept
-{
-  if (p.cutoffCentered())
-    return dspmap::fmapCentered(normalized, p.cutoffMinimum, p.cutoffMaximum, p.cutoffCenter,
-                                p.cutoffCurve);
-  return dspmap::fmap(std::clamp(normalized, 0.0f, 1.0f), p.cutoffMinimum, p.cutoffMaximum,
-                      p.cutoffCurve);
-}
-
 void apply(VoiceConfig &config, const VoiceState &state) noexcept
 {
   // Pitch, octave and timing retain their shared musical units. These four
@@ -109,10 +100,6 @@ bool formatValue(const VoiceConfig &config, ParamId id, float normalized,
   if (!output || capacity == 0)
     return false;
   const auto &b = binding(config, id);
-  if (id == ParamId::Filter && !b.target) {
-    std::snprintf(output, capacity, "%.0fHz", mapCutoff(layout(config), normalized));
-    return true;
-  }
   const float value = b.map(normalized);
   switch (b.unit) {
   case VoiceParameterUnit::Percent: std::snprintf(output, capacity, "%.0f%%", value * 100.0f); break;

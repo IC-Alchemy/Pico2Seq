@@ -3,8 +3,9 @@
 Pico2Seq is a 4-voice polyphonic step sequencer and synthesizer built around a Raspberry
 Pi Pico 2 (RP2350) in a laser-cut wooden chassis. Each of its four synthesizer voices is
 driven by its own independent step sequencer, and every sound parameter (pitch, velocity,
-filter, envelopes, octave, gate, slide) can run on its own step length, so patterns drift
-against each other polymetrically instead of staying locked in lockstep. The playing
+the Filter/Attack/Decay macro lanes, octave, gate, slide) can run on its own step length,
+so patterns drift against each other polymetrically instead of staying locked in lockstep.
+The playing
 surface is a 32-pad capacitive touch grid backed by a mirrored LED matrix, with four
 analog faders, an 8-button function set, a magnetic encoder joystick, a hands-free laser
 distance sensor, an OLED display, and a USB CDC diagnostics console — all on one panel.
@@ -12,7 +13,10 @@ distance sensor, an OLED display, and a USB CDC diagnostics console — all on o
 > This manual was compiled from the firmware source and documentation in this repository
 > (2026-09-03; updated 2026-09-16 for Project Snapshot persistence / flash session management,
 > hot audio in SRAM, the 29-preset sound bank on one browser page, the 55–700 mm lidar window with
-> pause-on-out-of-range, and encoder base value editing). The code is authoritative; anything that
+> pause-on-out-of-range, and encoder base value editing; updated 2026-09-17 for the **drone
+> build** — the per-voice main filters and ADSR envelopes were removed, voices render
+> continuously, and the Filter/Attack/Decay sequencer lanes now carry engine macros or
+> nothing). The code is authoritative; anything that
 > could not be verified against the code is explicitly marked **[unverified]**. Voice
 > numbering: the panel and docs use **Voice 1–4**; the internal firmware and some OLED
 > screens use 0-based indices **0–3** for the same voices.
@@ -113,9 +117,9 @@ record into the armed step while a step is in Step Edit:
 
 | Fader | Controls |
 |---|---|
-| 1 | Filter cutoff |
-| 2 | Attack time |
-| 3 | Decay time |
+| 1 | Filter lane (engine macro; inert on the oscillator presets) |
+| 2 | Attack lane (engine macro; inert on the oscillator presets) |
+| 3 | Decay lane (engine macro; inert on the oscillator presets) |
 | 4 | Velocity |
 
 **Utility mode** (mode switch toward Utility):
@@ -173,6 +177,10 @@ range. It edits whatever the **encoder target** is — cycle targets with the Ut
   the selected voice**. Each voice stores its own bases in its patch, and at step time
   every voice applies its own base — see §9 and
   [`docs/voice-edit.md`](voice-edit.md) for how bases combine with recorded modifiers.
+  The Filter/Attack/Decay bases are engine macros where the preset binds them
+  (waveguide Bright/Pick/T60, recipe macro 1/2/3, Hypersaw Detune/Mix, NoiseStorm
+  Color/Regen/Chaos); on the nine oscillator presets those lanes are unbound and
+  turning the encoder stores nothing audible (the OLED reads `--`).
 - Note and Octave move one step per short turn; continuous targets follow turn speed.
 - Slide Time sets the portamento glide time.
 - In Step Edit mode the encoder edits the **selected step's stored value** instead: the
@@ -225,8 +233,8 @@ five-tier hierarchy:
 1. **Mode banner** — transient `PARAM` / `UTIL` splash when the mode switch flips.
 2. **Settings & presets** — a preset browser for
    the selected voice (current name in large type, `<`/`>` neighbors, "Sound Buffet" list
-   of all four voices' presets) and voice-architecture toggles (envelope on/off, overdrive
-   on/off, filter mode, filter resonance). Reached by stopping the transport or by
+   of all four voices' presets) and the voice-parameter page (Overdrive on/off — the
+   drone build removed the Envelope, Filter Mode and Filter Resonance entries). Reached by stopping the transport or by
    long-pressing Play, which toggles Settings without stopping playback (preset applies
    are staged and click-safe while running).
 3. **Gate Sequence Length gauge** — while Gate Length mode is held: voice number, length
@@ -291,7 +299,9 @@ only — the `MidiNoteManager` state machine still runs gate/note bookkeeping fo
    the pair's first voice, the high bank (rows 3–4) for its partner.
 6. **Shape the sound** — make sure the mode switch is on **Param**, then use faders 1–4
    (Filter / Attack / Decay / Velocity) or turn the magnetic encoder (Velocity target by
-   default).
+   default). On macro engines (waveguide, recipes, Hypersaw, NoiseStorm) the first three
+   faders drive the engine's timbre macros; on the oscillator presets those lanes are
+   unbound and have no effect.
 7. **Try polymeter** — hold a parameter button (e.g. Filter) and tap pad 5: the Filter
    track is now 5 steps long and cycles against the 16-step Gate track.
 8. **Change key feel** — hold Shift and tap V3 to cycle through the 13 scales.
@@ -326,13 +336,13 @@ supports up to 64):
 |---|---|---|---|
 | 0 | **Note** | 0–21 scale steps | Scale-degree index for pitch |
 | 1 | **Velocity** | 0–100 % | Voice amplitude |
-| 2 | **Filter** | 0–100 % | Filter cutoff (mapped exponentially, ~20 Hz–20 kHz) |
-| 3 | **Attack** | 0–1 s | Envelope attack time |
-| 4 | **Decay** | 0–1 s | Envelope decay time |
+| 2 | **Filter** | 0–100 % | Macro lane — first engine timbre macro (waveguide Bright, recipe macro 1 such as FM Index, NoiseStorm Color); unbound/inert on the oscillator presets |
+| 3 | **Attack** | 0–100 % | Macro lane — second engine macro (Pick, recipe macro 2, Hypersaw Detune, Regen); unbound/inert on the oscillator presets |
+| 4 | **Decay** | 0–100 % | Macro lane — third engine macro (T60, recipe macro 3, Hypersaw Mix, Chaos); unbound/inert on the oscillator presets |
 | 5 | **Octave** | −2 / −1 / 0 / +1 / +2 | Quantized octave shift |
 | 6 | **GateLength** | 0.1–100 % of a step | How long each note is held |
 | 7 | **Gate** | on/off | Whether the step triggers at all |
-| 8 | **Slide** | on/off | Portamento into that step (no envelope retrigger; pitch glides) |
+| 8 | **Slide** | on/off | Portamento into that step (no engine retrigger; pitch glides) |
 
 Every track wraps on its own length (`step modulo trackLength`), so a 16-step Gate track
 with an 8-step Filter track, a 5-step Velocity track, and a 3-step Octave track all run
@@ -348,12 +358,14 @@ Other track behaviors worth knowing:
 
 - **Note edits are gate-protected**: pitch can't be written into a step whose Gate is off
   (from pads, sensor recording, or step edit).
-- **Slide steps don't retrigger the envelope**; the pitch slews smoothly into the new note
+- **Slide steps don't retrigger the voice's engines**; the pitch slews smoothly into the new note
   at the Slide Time set by the encoder. A gate-off step right after a slide step lets the
-  note ring out instead of choking it.
+  drone keep sounding.
 - **Randomize** (Utility button 7 short press, or Shift + V2) applies musical heuristics:
-  even steps have a 75 % gate chance, odd steps ~33 %, slides ~8 %, short attacks and
-  medium decays weighted, filter swept 20–95 %. **Long-press** Randomize (≥ 1 s) resets
+  even steps have a 75 % gate chance, odd steps ~33 %, slides ~8 %, and the
+  Filter/Attack/Decay lanes randomize around their midpoints like the other continuous
+  lanes (macro values on macro engines; on the oscillator presets the randomized values
+  are stored but inert). **Long-press** Randomize (≥ 1 s) resets
   the selected voice's parameters instead.
 - **Shift + Randomize tap** clears the selected voice completely: every stored step
   value, all gates and slides off, and all track lengths back to their 16-step
@@ -423,10 +435,13 @@ Utility **fader 2** adds continuous swing amount on top of the selected template
 
 ### 4.1 The DSP chain
 
-Each voice runs a full synthesis chain at 48 kHz on the audio core:
+Each voice runs a synthesis chain at 48 kHz on the audio core. Since the **drone build**
+(2026-09-17) the voices are Eurorack-style oscillators: there is **no per-voice amplitude
+envelope and no main filter** — every engine renders continuously and gate-off does not
+silence a voice:
 
 ```
- sequencer step values (pitch, velocity, envelope, gate, slide)
+ sequencer step values (pitch, velocity, macros, gate, slide)
         |
         v
  SOURCE STAGE (one of five engines, chosen by the preset)
@@ -445,33 +460,37 @@ Each voice runs a full synthesis chain at 48 kHz on the audio core:
      ring modulation, reversing sync, spectral and chaotic prisms)
         |
         v
- ADSR ENVELOPE (pre-filter VCA; attack/decay edited per step or live)
+ OVERDRIVE waveshaper (per preset, optional; the only Settings toggle)
         |
         v
- OVERDRIVE waveshaper (per preset, optional; toggle in Settings)
+ VELOCITY — amplitude multiplier (except waveguide/hard-sync voices)
         |
         v
- MAIN FILTER — ladder (Analog + Lead only) or state-variable SVF (all
- other filtered presets); multi-mode: LP24, LP12, BP24, BP12, HP24, HP12,
- with resonance (and ladder drive on the two ladder voices); cutoff
- tracks the envelope
-        |
-        v
- HIGH-PASS filter (per preset, tames lows)
+ HIGH-PASS filter — waveguide engines only (tames sub energy under the
+ Karplus tails); all other engines pass their source untouched
         |
         v
  voice output level -> summed with the other 3 voices -> Stereo Out
 ```
+
+Gate edges still do work: a gate-on fires each engine's trigger (waveguide
+pluck, Hypersaw phase randomize, recipe reset) and commits pitch; gate-off only
+stops triggering — the drone keeps sounding.
+
+**The per-voice ADSR envelope and main filter were removed** (2026-09-17 drone
+build): the ladder filter, the state-variable filter, and every control that
+drove them (the Envelope / Filter Mode / Filter Resonance settings entries and
+the editor's Envelope and main-filter groups) are gone from the audio path.
+`VoiceConfig` keeps the legacy filter/envelope fields only so saved patches
+round-trip unchanged — they are audio-inert.
 
 **The delay effect was removed** (2026-09-11): the global delay line, its boot
 parameters, and every control that drove it (Utility button 2, Shift + V4,
 Utility fader 3, and the encoder's Delay Time / Delay Feedback targets) are
 gone from the codebase, reclaiming ~338 KiB of RAM.
 
-Filter **mode** (LP24 … HP12) and **resonance** are cycled/set from the OLED Settings
-screen's voice-parameter page; envelope and overdrive can be switched off per voice there
-too. On SVF voices the mode picks the response (LP→low-pass, BP→band-pass, HP→high-pass);
-only **Analog** and **Lead** still run the true ladder filter.
+The only voice-parameter toggle left on the OLED Settings screen is
+**Overdrive** (on/off per voice).
 
 ### 4.2 The 29 presets
 

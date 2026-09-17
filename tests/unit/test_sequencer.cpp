@@ -56,11 +56,11 @@ TEST_CASE("ParameterTrack resize extends with default values", "[paramtrack]") {
 
 namespace
 {
-constexpr float kFilterLaneBase = 0.37f; // VoiceConfig::filterCutoffBase default
+constexpr float kFilterLaneBase = 0.5f; // unbound drone lanes compose around a neutral base
 
 float composeFilterEffective(float stored)
 {
-    VoiceConfig config{};           // standard voice: filterCutoffBase = 0.37f
+    VoiceConfig config{};           // standard voice: the Filter lane is unbound (no base field)
     VoiceEdit::enablePatch(config); // playback path (usePatchBases = true)
     return VoiceEdit::composeLane(ParamId::Filter, stored, &config);
 }

@@ -3,30 +3,11 @@
 #include "../VoiceConfig.h"
 #include "../VoiceParameters.h"
 
+// Eurorack oscillator presets: raw oscillator banks with no main filter, no
+// amplitude envelope and no high-pass — voices drone and external modules
+// shape tone and dynamics. Only waveform, blend, drive and level tuning
+// remain per preset.
 namespace VoicePresets {
-  // Owned cutoff lanes. Full travel is the preset's musical span on an octave
-  // taper; lane 0.5 (filterCutoffBase 0.5) is its resting cutoff; the top
-  // ~20% of travel is reserved for scream/sizzle. Hard sync layers its
-  // Master/Slave lanes on top via paramSet, so these stay standard-shaped.
-  constexpr VoiceParameterLayout cutoffLayout(float minimumHz, float centerHz, float maximumHz) noexcept
-  {
-    VoiceParameterLayout p{};
-    p.cutoffMinimum = minimumHz;
-    p.cutoffMaximum = maximumHz;
-    p.cutoffCurve = dspmap::Mapping::OCTAVE;
-    p.cutoffCenter = centerHz;
-    return p;
-  }
-  inline constexpr auto kAnalogLayout = cutoffLayout(150.0f, 1800.0f, 6000.0f);      // bright sync pluck
-  inline constexpr auto kDigitalLayout = cutoffLayout(200.0f, 1500.0f, 5000.0f);     // hollow square pair
-  inline constexpr auto kBassLayout = cutoffLayout(60.0f, 320.0f, 1500.0f);          // SVF growl; sub untouched
-  inline constexpr auto kLeadLayout = cutoffLayout(200.0f, 1600.0f, 8000.0f);        // driven ladder lead
-  inline constexpr auto kSquareLayout = cutoffLayout(250.0f, 900.0f, 4000.0f);       // BP24 band center
-  inline constexpr auto kPadLayout = cutoffLayout(250.0f, 2200.0f, 10000.0f);        // chord wash
-  inline constexpr auto kPercussionLayout = cutoffLayout(800.0f, 4500.0f, 12000.0f); // hat..splash brightness
-  inline constexpr auto kSubFunkLayout = cutoffLayout(60.0f, 420.0f, 1600.0f);       // sub funk
-  inline constexpr auto kRubberSubLayout = cutoffLayout(90.0f, 320.0f, 1200.0f);     // resonant honk
-
   constexpr VoiceConfig makeAnalog() noexcept
   {
     VoiceConfig c{};
@@ -38,25 +19,11 @@ namespace VoicePresets {
     c.oscDetuning[0] = 0.0f;
     c.harmony[0] = 0;          // Root note
     c.paramSet = PARAMSET_HARDSYNC;
-    c.parameters = &kAnalogLayout;
-    c.filterCutoffBase = 0.5f; // rests on the 1800 Hz lane center
-
-    c.filterRes = 0.33f;
-    c.filterDrive = 2.1f;
-    // Ladder on purpose: this is one of only two presets still using it
-    // (with Lead); the test suite pins that count.
-    c.filterMode = VoiceFilterMode::LP24;
-    c.filterPassbandGain = 0.23f;
-    c.highPassFreq = 120.0f;
 
     c.hasOverdrive = false;
     c.overdriveGain = 0.8f;
     c.overdriveDrive = 0.25f;
 
-    c.defaultAttack = 0.07f;
-    c.defaultDecay = 0.24f;
-    c.defaultSustain = 0.5f;
-    c.defaultRelease = 0.16f;
     c.outputLevel = 0.5f;
     return c;
   }
@@ -70,25 +37,14 @@ namespace VoicePresets {
 
     c.oscAmplitudes[0] = .75f;
     c.oscAmplitudes[1] = .65f;
-    c.oscDetuning[0] = 0.0f; // Fixed duplicate assignment
-    c.oscDetuning[1] = 0.01f;  // Fixed duplicate assignment
+    c.oscDetuning[0] = 0.0f;
+    c.oscDetuning[1] = 0.01f;
 
     c.harmony[0] = 0; // Root note
-    c.filterRes = 0.4f;
-    c.filterType = FILTER_SVF; // clean resonant low-pass replaces the ladder
-    c.highPassFreq = 111.0f;
-    c.highPassRes = 0.15f;
-    c.filterMode = VoiceFilterMode::LP12; // SVF response: low-pass
-    c.parameters = &kDigitalLayout;
-    c.filterCutoffBase = 0.5f; // rests on the 1500 Hz lane center
 
     c.hasOverdrive = false;
     c.overdriveGain = 0.7f;
     c.overdriveDrive = 0.51f;
-    c.defaultAttack = 0.015f;
-    c.defaultDecay = 0.1f;
-    c.defaultSustain = 0.5f;
-    c.defaultRelease = 0.15f;
     c.outputLevel = 0.5f;
     return c;
   }
@@ -106,20 +62,9 @@ namespace VoicePresets {
     c.oscDetuning[1] = 0.0f;
     c.harmony[0] = 0; // Root note
     c.harmony[1] = 0; // Unison (bass typically monophonic)
-    c.highPassRes = 0.4f;
-    c.filterRes = 0.45f; // SVF resonance carries the growl (no ladder drive)
-    c.filterType = FILTER_SVF; // TPT state-variable low-pass: tight, stable bass
-    c.highPassFreq = 45.0f; // Lower for bass
-    c.filterMode = VoiceFilterMode::LP12; // SVF response: low-pass
-    c.parameters = &kBassLayout;
-    c.filterCutoffBase = 0.5f; // rests on the 320 Hz lane center
     c.hasOverdrive = true;
     c.overdriveGain = 0.95f;
     c.overdriveDrive = 0.16f; // Subtle overdrive
-    c.defaultAttack = 0.01f;
-    c.defaultDecay = 0.3f;
-    c.defaultSustain = 0.85f;
-    c.defaultRelease = 0.2f;
     c.outputLevel = .85f;
     return c;
   }
@@ -135,26 +80,12 @@ namespace VoicePresets {
     c.oscDetuning[0] = 0.0f;
     c.oscDetuning[1] = 0.00f;
     c.harmony[0] = 0; // Root note
-    c.harmony[1] = 3; 
+    c.harmony[1] = 3;
 
-    c.filterRes = 0.4f;
-    c.filterDrive = 3.f;
-    c.filterPassbandGain = 0.23f;
-    c.highPassFreq = 160.0f;
-    // Ladder on purpose: this is one of only two presets still using it
-    // (with Analog); the test suite pins that count.
-    c.filterType = FILTER_LADDER; // Use ladder filter for lead
-    c.filterMode = VoiceFilterMode::LP12;
-    c.parameters = &kLeadLayout;
-    c.filterCutoffBase = 0.5f; // rests on the 1600 Hz lane center
     c.hasOverdrive = false;
     c.overdriveGain = 0.7f;
     c.overdriveDrive = 0.45f;
 
-    c.defaultAttack = 0.02f;
-    c.defaultDecay = 0.2f;
-    c.defaultSustain = 0.5f;
-    c.defaultRelease = 0.15f;
     c.outputLevel = 0.5f;
     return c;
   }
@@ -168,20 +99,10 @@ namespace VoicePresets {
     c.harmony[0] = 0; // Root note
     c.oscPulseWidth[0] = 0.2f;
 
-    c.filterRes = 0.6f; // 
-    c.filterType = FILTER_SVF;
-    c.highPassFreq = 150.0f;
-    c.filterMode = VoiceFilterMode::BP24; // SVF response: band-pass
-    c.parameters = &kSquareLayout;
-    c.filterCutoffBase = 0.5f; // rests on the 900 Hz lane center
     c.hasOverdrive = false;
     c.overdriveGain = 0.75f;
     c.overdriveDrive = 0.35f;
 
-    c.defaultAttack = 0.02f;
-    c.defaultDecay = 0.4f;
-    c.defaultSustain = 0.0f;
-    c.defaultRelease = 0.25f;
     c.outputLevel = .56f;
     return c;
   }
@@ -200,21 +121,9 @@ namespace VoicePresets {
     c.harmony[1] = 4; // Perfect Fifth
     c.harmony[2] = 9;  // Major Third
 
-    c.filterRes = 0.3f;
-    c.filterType = FILTER_SVF; // smooth state-variable low-pass
-    c.highPassFreq = 140.0f;
-    c.highPassRes = 0.08f;
-    c.filterMode = VoiceFilterMode::LP12; // SVF response: low-pass
-    c.parameters = &kPadLayout;
-    c.filterCutoffBase = 0.5f; // rests on the 2200 Hz lane center
-
     c.hasOverdrive = false;
     c.overdriveGain = 0.85f;
     c.overdriveDrive = 0.25f;
-    c.defaultAttack = 0.4f;    // Slow attack for pad
-    c.defaultDecay = 0.2f;
-    c.defaultSustain = 0.5f;
-    c.defaultRelease = .5f;    // Long release
     c.outputLevel = 0.5f;      // Lower level for pad
     return c;
   }
@@ -226,21 +135,10 @@ namespace VoicePresets {
     c.oscWaveforms[0] = WAVE_NOISE;  // Use noise for percussive texture
     c.oscAmplitudes[0] = 1.f;
 
-    c.filterRes = 0.4f;
-    c.filterType = FILTER_SVF;
-    c.highPassFreq = 200.0f;
-    c.filterMode = VoiceFilterMode::LP24; // SVF response: low-pass
-    c.parameters = &kPercussionLayout;
-    c.filterCutoffBase = 0.5f; // rests on the 4500 Hz lane center
-
     c.hasOverdrive = false;
     c.overdriveGain = 0.45f;
     c.overdriveDrive = 0.3f;
 
-    c.defaultAttack = 0.005f;
-    c.defaultDecay = 0.08f;
-    c.defaultSustain = 0.0f;
-    c.defaultRelease = 0.07f;
     c.outputLevel = 0.5f;
     return c;
   }
@@ -262,23 +160,10 @@ namespace VoicePresets {
     c.harmony[1] = 0;
     c.harmony[2] = 0;
 
-    c.filterRes = 0.6f;
-    c.filterType = FILTER_SVF; // resonant low-pass keeps the sub stable under env sweeps
-    c.filterMode = VoiceFilterMode::LP12; // SVF response: low-pass
-    c.highPassFreq = 25.0f; // Lower HPF cutoff from 55 Hz so sub-octave fundamental passes
-    c.highPassRes = 0.0f;
-    c.filterEnvelopeFloor = 0.35f; // Keep low-pass floor open during sustain/decay to prevent silence
-    c.parameters = &kSubFunkLayout;
-    c.filterCutoffBase = 0.5f; // rests on the 420 Hz lane center
-
     c.hasOverdrive = true;
     c.overdriveGain = 0.9f;
     c.overdriveDrive = 0.45f; // warm grit
 
-    c.defaultAttack = 0.004f;
-    c.defaultDecay = 0.22f;
-    c.defaultSustain = 0.35f;
-    c.defaultRelease = 0.12f;
     c.outputLevel = 0.9f;
     return c;
   }
@@ -300,23 +185,10 @@ namespace VoicePresets {
     c.harmony[1] = 0;
     c.harmony[2] = 0;
 
-    c.filterRes = 0.7f; // SVF band-pass honk (2-pole: higher Q than the old BP24 ladder)
-    c.filterType = FILTER_SVF;
-    c.filterMode = VoiceFilterMode::BP24; // SVF response: band-pass
-    c.highPassFreq = 25.0f; // Lower HPF cutoff from 70 Hz so sub-octave fundamental passes
-    c.highPassRes = 0.0f;
-    c.filterEnvelopeFloor = 0.35f; // Keep band-pass floor open during sustain/decay to prevent silence
-    c.parameters = &kRubberSubLayout;
-    c.filterCutoffBase = 0.5f; // rests on the 320 Hz lane center
-
     c.hasOverdrive = true;
     c.overdriveGain = 1.0f;
     c.overdriveDrive = 0.55f; // spit
 
-    c.defaultAttack = 0.002f;
-    c.defaultDecay = 0.16f;
-    c.defaultSustain = 0.25f;
-    c.defaultRelease = 0.09f;
     c.outputLevel = 0.85f;
     return c;
   }

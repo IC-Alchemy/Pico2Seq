@@ -15,10 +15,6 @@ namespace VoicePresets {
     auto &mix = p.slots[static_cast<size_t>(ParamId::Decay)];
     detune = spanned(detune, {0.0f, 0.30f, 0.75f}, dspmap::Mapping::LINEAR);
     mix = spanned(mix, {0.15f, 0.50f, 0.95f}, dspmap::Mapping::LINEAR);
-    p.cutoffMinimum = 200.0f; // supersaw register
-    p.cutoffMaximum = 12000.0f;
-    p.cutoffCurve = dspmap::Mapping::OCTAVE;
-    p.cutoffCenter = 3200.0f;
     return p;
   }
   // Swarm: regen's top ~25% (1.0..1.2) is the deliberate howl/bloom zone the
@@ -48,18 +44,8 @@ namespace VoicePresets {
     c.hypersawDetune = 0.2f;
     c.hypersawMix = 0.5f;
 
-    c.filterRes = 0.35f;
-    c.filterType = FILTER_SVF; // wide-open clean low-pass
-    c.filterCutoffBase = 0.5f; // rests on the 3200 Hz lane center
-    c.highPassFreq = 180.0f;
-    c.filterMode = VoiceFilterMode::LP24; // SVF response: low-pass
-
     c.hasOverdrive = false;
 
-    c.defaultAttack = 0.012f;
-    c.defaultDecay = 0.3f;
-    c.defaultSustain = 0.8f;
-    c.defaultRelease = 0.25f;
     c.outputLevel = 0.5f;
     return c;
   }
@@ -77,19 +63,10 @@ namespace VoicePresets {
     c.noiseSwarmRegen = 0.95f;
     c.noiseChaosLevel = 0.4f;
 
-    c.filterRes = 0.72f;      // resonant filter pings with the env
-    c.filterType = FILTER_SVF;
-    c.highPassFreq = 220.0f;
-    c.filterMode = VoiceFilterMode::LP24; // SVF response: low-pass
-
     c.hasOverdrive = true;
     c.overdriveGain = 0.8f;
     c.overdriveDrive = 0.4f;
 
-    c.defaultAttack = 0.003f;
-    c.defaultDecay = 0.5f;
-    c.defaultSustain = 0.55f;
-    c.defaultRelease = 0.45f;
     c.outputLevel = 0.45f;    // diffuse + swarm can sum hot
     return c;
   }

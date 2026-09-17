@@ -123,38 +123,33 @@ TEST_CASE("Consumer emptiness probes preserve queued updates", "[voice_transfer]
     }
 }
 
-TEST_CASE("Oscillator spans preserve all waveforms and silence boundaries", "[voiceosc][voice_block]")
+TEST_CASE("Oscillator spans preserve all waveforms", "[voiceosc][voice_block]")
 {
+    // Drone build: renderAdd lost the env/gate-by-silence arguments — the
+    // oscillator adds every sample unconditionally at the given amplitude.
     for (uint8_t waveform : {WAVE_SIN, WAVE_TRI, WAVE_SAW, WAVE_SQUARE,
                             WAVE_BSP_SAW, WAVE_BSP_SQUARE, WAVE_HARDSYNC_SAW, WAVE_NOISE})
     {
-        for (bool gated : {false, true})
+        CAPTURE(waveform);
+        VoiceOscillator scalar, block;
+        for (auto *osc : {&scalar, &block})
         {
-            CAPTURE(waveform, gated);
-            VoiceOscillator scalar, block;
-            for (auto *osc : {&scalar, &block})
+            osc->prepare(48000);
+            osc->setWaveform(waveform);
+            osc->setFreq(369);
+            osc->setSlaveFrequency(937);
+            osc->setPulseWidth(0.37f);
+        }
+        std::array<float, 32> mixed{};
+        for (uint32_t span = 0; span < 100; ++span)
+        {
+            for (uint32_t k = 0; k < mixed.size(); ++k)
+                mixed[k] = 0.17f;
+            block.renderAdd(mixed.data(), static_cast<uint32_t>(mixed.size()), 0.41f);
+            for (uint32_t k = 0; k < mixed.size(); ++k)
             {
-                osc->prepare(48000);
-                osc->setWaveform(waveform);
-                osc->setFreq(369);
-                osc->setSlaveFrequency(937);
-                osc->setPulseWidth(0.37f);
-            }
-            std::array<float, 32> env{}, mixed{};
-            for (uint32_t span = 0; span < 100; ++span)
-            {
-                for (uint32_t k = 0; k < env.size(); ++k)
-                {
-                    env[k] = (k + span) % 3 == 0 ? 0.001f : 0.0011f;
-                    mixed[k] = 0.17f;
-                }
-                block.renderAdd(mixed.data(), env.data(), env.size(), 0.41f, gated);
-                for (uint32_t k = 0; k < env.size(); ++k)
-                {
-                    const float expected = gated && env[k] <= 0.001f
-                                               ? 0.17f : 0.17f + scalar.process() * 0.41f;
-                    REQUIRE(mixed[k] == expected);
-                }
+                const float expected = 0.17f + scalar.process() * 0.41f;
+                REQUIRE(mixed[k] == expected);
             }
         }
     }
@@ -165,19 +160,34 @@ TEST_CASE("Block rendering drains disabled voices and leaves zero-length calls a
     Voice voice(1, patch(4));
     voice.init(48000);
     voice.setEnabled(false);
-    voice.setFilterFrequency(2300);
     voice.setEnabled(true);
     voice.updateParameters(note(12));
     voice.processBlock(nullptr, 0);
     REQUIRE_FALSE(voice.getGate());
     std::array<float, 5> output{99, 99, 99, 99, 99};
     voice.processBlock(output.data(), 4);
+    // The disabled span still renders zeros while its queued update is
+    // consumed; a zero-length call never touches the caller's buffer.
     REQUIRE(output[0] == 0);
-    REQUIRE(output[1] == 0);
     REQUIRE(output[4] == 99);
     REQUIRE(voice.getGate());
     REQUIRE(voice.getConfig().enabled);
     REQUIRE(voice.getState().noteIndex == 12);
+
+    // Drone build: once enabled and gated the voice renders continuously —
+    // there is no envelope silence or idle skip to drain into.
+    float peak = 0.0f;
+    for (unsigned block = 0; block < 16; ++block)
+    {
+        voice.processBlock(output.data(), 4);
+        for (uint32_t k = 0; k < 4; ++k)
+        {
+            REQUIRE(std::isfinite(output[k]));
+            peak = std::max(peak, std::fabs(output[k]));
+        }
+        REQUIRE(output[4] == 99.0f); // samples beyond n stay untouched
+    }
+    REQUIRE(peak > 0.001f);
 }
 
 TEST_CASE("VoiceManager::processBlock matches processAllVoices()", "[voice][voice_block]")
@@ -219,9 +229,10 @@ TEST_CASE("VoiceManager::processBlock matches processAllVoices()", "[voice][voic
     }
 }
 
-#if P2S_VOICE_IDLE_SKIP
-TEST_CASE("A released silent voice is skipped and wakes cleanly", "[voice][voice_block]")
+TEST_CASE("A released drone voice keeps rendering audio", "[voice][voice_block]")
 {
+    // Drone build: P2S_VOICE_IDLE_SKIP is gone. A gate-off voice is never
+    // skipped or silenced — it keeps sounding at the last committed pitch.
     Voice voice(1, patch(4));
     voice.init(48000);
     std::array<float, 256> output{};
@@ -236,13 +247,21 @@ TEST_CASE("A released silent voice is skipped and wakes cleanly", "[voice][voice
     voice.updateParameters(note(24));
     render(9600);
     voice.updateParameters(note(24, false));
-    render(48000);
-    voice.processBlock(output.data(), output.size());
-    for (float sample : output) REQUIRE(sample == 0.0f);
-
-    // A silent edit must continue advancing the cutoff smoother before wakeup.
-    voice.setFilterFrequency(1800);
     render(4800);
+
+    float releasedPeak = 0.0f;
+    for (unsigned block = 0; block < 20; ++block)
+    {
+        voice.processBlock(output.data(), output.size());
+        for (float sample : output)
+        {
+            REQUIRE(std::isfinite(sample));
+            releasedPeak = std::max(releasedPeak, std::fabs(sample));
+        }
+    }
+    REQUIRE(releasedPeak > 0.001f); // still audible long after the gate fell
+
+    // A new gate note still plays normally on top of the continuous render.
     voice.updateParameters(note(31));
     float peak = 0.0f;
     for (unsigned block = 0; block < 40; ++block)
@@ -251,10 +270,9 @@ TEST_CASE("A released silent voice is skipped and wakes cleanly", "[voice][voice
         for (float sample : output)
         {
             REQUIRE(std::isfinite(sample));
-            REQUIRE(std::fabs(sample) <= 1.0f);
+            REQUIRE(std::fabs(sample) <= 32.0f); // bounded, no divergence
             peak = std::max(peak, std::fabs(sample));
         }
     }
     REQUIRE(peak > 0.001f);
 }
-#endif

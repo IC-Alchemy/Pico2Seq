@@ -146,101 +146,69 @@ TEST_CASE("The no-center marker survives fast-math builds", "[mapping][voice]") 
     REQUIRE_FALSE(VoiceParameterBinding{}.isCentered());
 }
 
-// ─── Envelope lane curves ────────────────────────────────────────────────────
+// ─── Time normalization helpers ──────────────────────────────────────────────
 
-TEST_CASE("Attack lane spans 1 ms to 2 s; decay keeps 1 ms to 10 s", "[mapping][voice]") {
-    REQUIRE_THAT(MusicalValues::attackSeconds(0.0f), WithinRel(0.001f, 1e-4f));
-    REQUIRE_THAT(MusicalValues::attackSeconds(0.5f), WithinRel(std::sqrt(0.001f * 2.0f), 1e-4f)); // ~45 ms
-    REQUIRE_THAT(MusicalValues::attackSeconds(1.0f), WithinRel(2.0f, 1e-4f));
-    REQUIRE_THAT(MusicalValues::attackSeconds(-1.0f), WithinRel(0.001f, 1e-4f));
-    REQUIRE_THAT(MusicalValues::envelopeSeconds(0.5f), WithinRel(0.1f, 1e-4f));
-    REQUIRE_THAT(MusicalValues::envelopeSeconds(1.0f), WithinRel(10.0f, 1e-4f));
-    for (float seconds : {0.001f, 0.002f, 0.015f, 0.4f, 2.0f})
-        REQUIRE_THAT(MusicalValues::attackSeconds(VoiceEdit::attackNormalize(seconds)), WithinRel(seconds, 1e-4f));
-    REQUIRE_THAT(VoiceEdit::attackNormalize(5.0f), WithinAbs(1.0f, 1e-6f));
+TEST_CASE("Time normalization keeps the exported 1 ms..10 s table and the 2 s attack ceiling",
+          "[mapping][voice]") {
+    // The amplitude envelope is gone from the drone build, but the exported
+    // conversions remain part of the API with their musical ranges: decay
+    // lanes share the full 1 ms..10 s table, attack lanes stop at 2 s.
+    REQUIRE_THAT(VoiceEdit::timeNormalize(0.001f), WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(VoiceEdit::timeNormalize(10.0f), WithinAbs(1.0f, 1e-6f));
+    REQUIRE(VoiceEdit::timeNormalize(0.16f) < VoiceEdit::timeNormalize(1.6f));
+    REQUIRE_THAT(VoiceEdit::attackNormalize(0.001f), WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(VoiceEdit::attackNormalize(VoiceEdit::kAttackMaxSeconds), WithinAbs(1.0f, 1e-6f));
+    REQUIRE_THAT(VoiceEdit::attackNormalize(5.0f), WithinAbs(1.0f, 1e-6f)); // clamps at the ceiling
     REQUIRE_THAT(VoiceEdit::attackNormalize(0.0f), WithinAbs(0.0f, 1e-6f));
+    REQUIRE(VoiceEdit::attackNormalize(0.001f) < VoiceEdit::attackNormalize(0.01f));
+    REQUIRE(VoiceEdit::attackNormalize(0.01f) < VoiceEdit::attackNormalize(0.1f));
+    REQUIRE(VoiceEdit::attackNormalize(0.1f) < VoiceEdit::attackNormalize(1.0f));
 }
 
 // ─── Preset lane layouts ─────────────────────────────────────────────────────
 
-namespace {
-struct CutoffSpot { const char *preset; float minimum, center, maximum; };
-// Hz: full lane travel is the musical span, lane 0.5 the preset's resting cutoff.
-constexpr CutoffSpot kOscillatorCutoffs[] = {
-    {"Analog", 150.0f, 1800.0f, 6000.0f},    {"Digital", 200.0f, 1500.0f, 5000.0f},
-    {"Bass", 60.0f, 320.0f, 1500.0f},        {"Lead", 200.0f, 1600.0f, 8000.0f},
-    {"Square", 250.0f, 900.0f, 4000.0f},     {"Pad", 250.0f, 2200.0f, 10000.0f},
-    {"Percussion", 800.0f, 4500.0f, 12000.0f}, {"SubFunk", 60.0f, 420.0f, 1600.0f},
-    {"RubberSub", 90.0f, 320.0f, 1200.0f}};
-} // namespace
+// ─── Oscillator drone presets: inert macro lanes ─────────────────────────────
 
-TEST_CASE("Oscillator presets own octave cutoff lanes centered on their resting cutoff", "[mapping][presets]") {
-    for (const auto &spot : kOscillatorCutoffs) {
-        INFO(spot.preset);
-        auto c = VoicePresets::getPresetConfigByName(spot.preset);
-        REQUIRE(c.parameters != nullptr);
-        const auto &layout = VoiceParameters::layout(c);
-        REQUIRE(layout.cutoffMinimum == spot.minimum);
-        REQUIRE(layout.cutoffMaximum == spot.maximum);
-        REQUIRE_THAT(VoiceParameters::mapCutoff(layout, 0.0f), WithinAbs(spot.minimum, 1.0f));
-        REQUIRE_THAT(VoiceParameters::mapCutoff(layout, 0.5f), WithinAbs(spot.center, 1.0f));
-        REQUIRE_THAT(VoiceParameters::mapCutoff(layout, 1.0f), WithinAbs(spot.maximum, 1.0f));
-        float previous = 0.0f;
-        for (int i = 0; i <= 100; ++i) {
-            const float hz = VoiceParameters::mapCutoff(layout, i / 100.0f);
-            REQUIRE(hz > previous);
-            previous = hz;
+TEST_CASE("Oscillator presets leave the Filter/Attack/Decay lanes unbound and displayed inert",
+          "[mapping][presets]") {
+    // Drone build: the nine oscillator presets own no layout (the legacy
+    // standard layout applies), so none of the F/A/D lanes binds an engine
+    // macro and the OLED shows them as inactive.
+    const char *oscillatorPresets[] = {"Analog", "Digital", "Bass", "Lead",
+                                       "Square", "Pad", "Percussion",
+                                       "SubFunk", "RubberSub"};
+    for (const char *preset : oscillatorPresets) {
+        INFO(preset);
+        const auto &c = VoicePresets::getPresetConfigByName(preset);
+        REQUIRE(c.parameters == nullptr);
+        for (ParamId lane : {ParamId::Filter, ParamId::Attack, ParamId::Decay}) {
+            REQUIRE(VoiceParameters::binding(c, lane).target == nullptr);
+            Step step{};
+            char text[24];
+            MusicalValues::format(lane, step, c, nullptr, 120.0f, text, sizeof(text));
+            REQUIRE(std::string(text) == "--");
         }
-
-        // A neutral modifier rests on the center, and every readout agrees.
-        VoiceEdit::enablePatch(c);
-        const float rest = VoiceEdit::composeLane(ParamId::Filter, 0.5f, &c);
-        REQUIRE_THAT(VoiceParameters::mapCutoff(layout, rest), WithinRel(spot.center, 1e-4f));
-        char text[24];
-        MusicalValues::format(ParamId::Filter, MusicalValues::baseStep(c), c, nullptr, 120.0f, text, sizeof(text));
-        REQUIRE(std::string(text) == std::to_string(static_cast<int>(spot.center)) + "Hz");
-        VoiceEdit::format(VoiceEdit::Id::Cutoff, c, text, sizeof(text));
-        REQUIRE(std::string(text) == std::to_string(static_cast<int>(spot.center)) + " Hz");
-
-        Voice voice(0, c);
-        voice.init(48000.0f);
-        VoiceState state;
-        state.filterCutoff = rest;
-        state.isGateHigh = true;
-        voice.updateParameters(state);
-        voice.process();
-        REQUIRE_THAT(voice.getFilterFrequency(), WithinRel(spot.center, 1e-4f));
     }
 }
 
-TEST_CASE("Uncentered layouts keep the legacy square cutoff curve", "[mapping][presets]") {
-    VoiceConfig standard{}; // engine-switched voices fall back to paramSet layouts
-    const auto &layout = VoiceParameters::layout(standard);
-    REQUIRE_FALSE(layout.cutoffCentered());
-    for (float n : {0.0f, 0.37f, 0.5f, 1.0f})
-        REQUIRE_THAT(VoiceParameters::mapCutoff(layout, n),
-                     WithinAbs(dspmap::fmap(n, 120.0f, 5000.0f, Mapping::EXP), 1e-3f));
-}
-
-TEST_CASE("Hard sync follows the oscillator bank and keeps the preset cutoff lane", "[mapping][presets]") {
+TEST_CASE("Hard sync follows the oscillator bank with Master/Slave lanes", "[mapping][presets]") {
     const auto &analog = VoicePresets::getAnalogVoice();
     REQUIRE(analog.paramSet == PARAMSET_HARDSYNC);
     REQUIRE(std::string(VoiceParameters::binding(analog, ParamId::Note).name) == "Master");
     REQUIRE(std::string(VoiceParameters::binding(analog, ParamId::Velocity).name) == "Slave");
     REQUIRE_FALSE(VoiceParameters::velocityToAmplitude(analog));
+    // Oscillator presets own no layout: only the paramSet lanes exist.
+    REQUIRE(analog.parameters == nullptr);
+    REQUIRE(VoiceParameters::binding(analog, ParamId::Filter).target == nullptr);
 
     auto c = VoicePresets::getDigitalVoice();
     VoiceEdit::enablePatch(c);
-    const auto *owned = c.parameters;
-    REQUIRE(owned != nullptr);
+    REQUIRE(c.parameters == nullptr);
     REQUIRE(VoiceParameters::velocityToAmplitude(c));
     VoiceEdit::setValue(VoiceEdit::Id::Wave1, c, WAVE_HARDSYNC_SAW);
     REQUIRE(c.paramSet == PARAMSET_HARDSYNC);
-    REQUIRE(c.parameters == owned);
     REQUIRE(std::string(VoiceParameters::binding(c, ParamId::Velocity).name) == "Slave");
     REQUIRE_FALSE(VoiceParameters::velocityToAmplitude(c));
-    REQUIRE_THAT(VoiceParameters::mapCutoff(VoiceParameters::layout(c), c.filterCutoffBase),
-                 WithinRel(1500.0f, 1e-4f));
     VoiceEdit::setValue(VoiceEdit::Id::Wave1, c, WAVE_BSP_SQUARE);
     REQUIRE(c.paramSet == PARAMSET_STANDARD);
     REQUIRE(VoiceParameters::binding(c, ParamId::Velocity).name == nullptr);
@@ -282,7 +250,6 @@ TEST_CASE("String presets own T60, brightness and pick lanes centered on their r
         INFO(s.preset);
         const auto &c = VoicePresets::getPresetConfigByName(s.preset);
         REQUIRE(c.parameters != nullptr);
-        REQUIRE_FALSE(VoiceParameters::layout(c).envelopeFromTracks);
         REQUIRE_FALSE(VoiceParameters::velocityToAmplitude(c));
         requireLane(c, ParamId::Decay, s.t60);
         requireLane(c, ParamId::Filter, s.bright);
@@ -307,12 +274,8 @@ TEST_CASE("Texture presets own spans that keep their effect zones at the top", "
     REQUIRE(hyper.parameters != nullptr);
     requireLane(hyper, ParamId::Attack, {"Detune", 0.0f, 0.30f, 0.75f, Mapping::LINEAR});
     requireLane(hyper, ParamId::Decay, {"Mix", 0.15f, 0.50f, 0.95f, Mapping::LINEAR});
-    REQUIRE(VoiceParameters::binding(hyper, ParamId::Filter).target == nullptr); // stays Cutoff
-    const auto &cutoff = VoiceParameters::layout(hyper);
-    REQUIRE(cutoff.cutoffMinimum == 200.0f);
-    REQUIRE(cutoff.cutoffMaximum == 12000.0f);
-    REQUIRE(hyper.filterCutoffBase == 0.5f);
-    REQUIRE_THAT(VoiceParameters::mapCutoff(cutoff, hyper.filterCutoffBase), WithinRel(3200.0f, 1e-4f));
+    // Hypersaw binds no Filter macro: that lane stays inert on the drone.
+    REQUIRE(VoiceParameters::binding(hyper, ParamId::Filter).target == nullptr);
 
     const auto &storm = VoicePresets::getNoiseStormVoice();
     REQUIRE(storm.parameters != nullptr);
@@ -321,8 +284,6 @@ TEST_CASE("Texture presets own spans that keep their effect zones at the top", "
     requireLane(storm, ParamId::Decay, {"Chaos", 0.0f, 0.40f, 0.8f, Mapping::LINEAR});
     // The documented 1.0..1.2 regen bloom is reachable from the lane's top.
     REQUIRE_THAT(VoiceParameters::binding(storm, ParamId::Attack).map(1.0f), WithinAbs(1.2f, 1e-6f));
-    // The re-purposed Filter lane leaves the static cutoff on the shared curve.
-    REQUIRE_FALSE(VoiceParameters::layout(storm).cutoffCentered());
 }
 
 TEST_CASE("Recipe presets own macro lanes centered on their musical operating points", "[mapping][presets][recipes]") {
@@ -376,15 +337,22 @@ TEST_CASE("Recipe presets own macro lanes centered on their musical operating po
     }
 }
 
-TEST_CASE("Every preset owns a distinct lane layout", "[mapping][presets]") {
+TEST_CASE("Macro presets own distinct lane layouts; oscillator presets own none", "[mapping][presets]") {
     std::vector<const VoiceParameterLayout *> seen;
     for (uint8_t p = 0; p < VoicePresets::getPresetCount(); ++p) {
         INFO(VoicePresets::getPresetName(p));
-        const auto *layout = VoicePresets::getPresetConfig(p).parameters;
-        REQUIRE(layout != nullptr);
-        REQUIRE(std::find(seen.begin(), seen.end(), layout) == seen.end());
-        seen.push_back(layout);
+        const auto &config = VoicePresets::getPresetConfig(p);
+        if (config.engine == ENGINE_OSC) {
+            // Drone oscillator presets intentionally keep no layout: the
+            // legacy standard layout leaves every F/A/D lane inert.
+            REQUIRE(config.parameters == nullptr);
+            continue;
+        }
+        REQUIRE(config.parameters != nullptr);
+        REQUIRE(std::find(seen.begin(), seen.end(), config.parameters) == seen.end());
+        seen.push_back(config.parameters);
     }
+    REQUIRE(seen.size() == VoicePresets::getPresetCount() - 9);
 }
 
 TEST_CASE("Recipe selection keeps a preset's own lanes until the recipe changes", "[mapping][presets][recipes]") {

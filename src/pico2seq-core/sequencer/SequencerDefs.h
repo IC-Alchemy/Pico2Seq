@@ -71,9 +71,9 @@ enum class ParamId : uint8_t
 {
   Note,       // 0 - Scale step index (0-36, maps to SCALE_STEPS array)
   Velocity,   // 1 - Voice amplitude (0.0-1.0)
-  Filter,     // 2 - Filter cutoff frequency (0.0-1.0)
-  Attack,     // 3 - Envelope attack time (0.0-1.0 seconds)
-  Decay,      // 4 - Envelope decay time (0.0-1.0 seconds)
+  Filter,     // 2 - Macro lane (engine-specific; inert when unbound on drone voices)
+  Attack,     // 3 - Macro lane (engine-specific; inert when unbound on drone voices)
+  Decay,      // 4 - Macro lane (engine-specific; inert when unbound on drone voices)
   Octave,     // 5 - Normalized octave control, mapped to -12/0/+12 semitones
   GateLength, // 6 - Gate duration (0.001-1.0 as fraction of step)
   Gate,       // 7 - Gate on/off state (boolean)

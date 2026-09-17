@@ -73,13 +73,12 @@ class VoiceOscillator {
     return std::visit([](auto& osc) { return osc.process(); }, osc_);
   }
 
-  // One variant dispatch per span. Preserve oscillator summation order and
-  // freeze source state on the same envelope-silenced samples as process().
+  // One variant dispatch per span. Preserve oscillator summation order.
   // Process the stored oscillator directly: a copied B-spline saw changes
   // GCC's contraction of its integrator and fails the PCM16 comparison.
-  void renderAdd(float *mix, const float *env, uint32_t n, float amp, bool gateBySilence) noexcept {
+  void renderAdd(float *mix, uint32_t n, float amp) noexcept {
     std::visit([&](auto& osc) {
-      renderOscillatorAdd_(osc, mix, env, n, amp, gateBySilence);
+      renderOscillatorAdd_(osc, mix, n, amp);
     }, osc_);
   }
 
@@ -93,9 +92,8 @@ class VoiceOscillator {
   __attribute__((noinline))
 #endif
   static void PICO2SEQ_AUDIO_FUNC(renderOscillatorAdd_)(
-      T &osc, float *mix, const float *env, uint32_t n, float amp, bool gateBySilence) noexcept {
+      T &osc, float *mix, uint32_t n, float amp) noexcept {
     for (uint32_t k = 0; k < n; ++k) {
-      if (gateBySilence && env[k] <= 0.001f) continue;
       // Round the waveform before gain; preserve the scalar dispatch boundary.
 #if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 10
       const float source = __builtin_assoc_barrier(osc.process());

@@ -47,11 +47,6 @@ namespace UIEventConstants
   // Voice parameter button range (buttons 9-24 in settings mode)
   static constexpr uint8_t VOICE_PARAM_BUTTON_MIN = 8;
   static constexpr uint8_t VOICE_PARAM_BUTTON_MAX = 24;
-
-  // Filter mode cycling constants (mode list lives in voiceui::kFilterModes)
-  static constexpr float FILTER_RESONANCE_STEP = 0.025f;
-  static constexpr float FILTER_RESONANCE_MAX = 1.0f;
-  static constexpr float FILTER_RESONANCE_MIN = 0.0f;
 }
 
 static_assert(UIState::NUM_RANDOMIZE >= UIEventConstants::MAX_VOICES,
@@ -526,13 +521,7 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
 
   switch (evt.buttonIndex)
   {
-  case 8: // Toggle envelope on/off
-    voiceConfig.hasEnvelope = !voiceConfig.hasEnvelope;
-    Serial.print("Voice ");
-    Serial.print(displayVoiceNumber);
-    Serial.print(" envelope ");
-    Serial.println(voiceConfig.hasEnvelope ? "ON" : "OFF");
-    break;
+  // case 8 (envelope toggle) removed with the voice envelope (drone build)
 
   case 9: // Toggle overdrive
     voiceConfig.hasOverdrive = !voiceConfig.hasOverdrive;
@@ -544,41 +533,8 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
 
   // case 10 (wavefolder toggle) removed with the wavefolder effect
 
-  case 11: // Cycle filter mode
-  {
-    // Cycle through the shared filter-mode table (names and modes stay in sync)
-    int currentIndex = 0;
-    for (int i = 0; i < voiceui::kFilterModeCount; ++i)
-    {
-      if (voiceConfig.filterMode == voiceui::kFilterModes[i])
-      {
-        currentIndex = i;
-        break;
-      }
-    }
-    const int nextIndex = (currentIndex + 1) % voiceui::kFilterModeCount;
-    voiceConfig.filterMode = voiceui::kFilterModes[nextIndex];
-
-    Serial.print("Voice ");
-    Serial.print(displayVoiceNumber);
-    Serial.print(" filter mode: ");
-    Serial.println(voiceui::kFilterModeNames[nextIndex]);
-  }
-  break;
-
-  case 12: // Step filter resonance
-  {
-    float currentResonance = voiceConfig.filterRes;
-    currentResonance += UIEventConstants::FILTER_RESONANCE_STEP;
-    if (currentResonance > UIEventConstants::FILTER_RESONANCE_MAX)
-    {
-      currentResonance = UIEventConstants::FILTER_RESONANCE_MIN;
-    }
-    voiceConfig.filterRes = currentResonance;
-    // Serial.print("Voice "); Serial.print(displayVoiceNumber);
-    // Serial.print(" filter resonance: "); Serial.println(currentResonance, 2);
-  }
-  break;
+  // case 11 (filter mode cycling) and case 12 (filter resonance stepping)
+  // removed with the voice main filter (drone build)
 
   // case 13 (delay time to dotted quarter) removed with the delay effect
 

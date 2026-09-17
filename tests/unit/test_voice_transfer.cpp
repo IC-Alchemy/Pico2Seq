@@ -176,10 +176,13 @@ TEST_CASE("Scalar controls wait for audio and disabled voices still consume upda
     voice.init(48000);
     voice.setEnabled(false);
     REQUIRE(voice.process() == 0.0f);
-    voice.setFilterFrequency(2300);
-    REQUIRE(voice.getFilterFrequency() != 2300);
+    // The main-filter setters are gone; setFrequency exercises the same
+    // control queue instead: the applied-value getter lags until the audio
+    // thread consumes one queued update per sample.
+    voice.setFrequency(2300);
+    REQUIRE(voice.getCachedFrequency(0) != 2300);
     voice.process();
-    REQUIRE(voice.getFilterFrequency() == 2300);
+    REQUIRE(voice.getCachedFrequency(0) == 2300);
     voice.setEnabled(true);
     voice.process();
     REQUIRE(voice.getConfig().enabled);

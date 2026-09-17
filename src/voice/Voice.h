@@ -3,9 +3,7 @@
 #include "VoiceConfig.h"
 #include "VoiceParameters.h"
 #include "engines/RecipeEngine.h"
-#include "../rpdsp/src/rpdsp/ladder.h"
 #include "../rpdsp/src/rpdsp/filter.h"
-#include "../rpdsp/src/rpdsp/envelope.h"
 #include "../rpdsp/src/rpdsp/effects.h"
 #include "../rpdsp/src/rpdsp/hypersaw.h"
 #include "../rpdsp/src/rpdsp/waveguide.h"
@@ -20,11 +18,6 @@
 #include <cstdint>
 #include <atomic>
 #include <cmath>
-
-// Compile out idle skipping for exact-output/performance comparisons.
-#ifndef P2S_VOICE_IDLE_SKIP
-#define P2S_VOICE_IDLE_SKIP 1
-#endif
 
 // Keep tiny audio helpers inside their RAM-resident span caller.
 #if defined(__GNUC__)
@@ -45,10 +38,14 @@ struct VoiceSlewParams
 };
 
 /**
- * @brief A complete synthesizer voice with oscillators, filter, envelope, and effects
+ * @brief A synthesizer voice: sources, optional effects, output level
  *
- * This class encapsulates all the audio processing components needed for a single voice,
- * making it easy to create multiple independent voices with different characteristics.
+ * Eurorack oscillator build: voices carry no main filter and no amplitude
+ * envelope — every engine renders continuously (drone) so external modules
+ * can shape tone and dynamics. The waveguide engines keep their fixed
+ * sub-shedding high-pass; all other engines pass their raw source to the
+ * output stage. Gate edges still fire engine triggers (waveguide plucks,
+ * Hypersaw phase randomization, recipe resets) and commit pitch.
  *
  * Scale data access and testability:
  * - Voice no longer reads global scale variables directly. Instead, scale data is injected
@@ -183,19 +180,6 @@ public:
    */
   bool getGate() const noexcept { return gate; }
 
-  // Filter control
-  /**
-   * @brief Set filter cutoff frequency
-   * @param freq Frequency in Hz (20.0-20000.0)
-   */
-  void setFilterFrequency(float freq);
-
-  /**
-   * @brief Get current filter frequency
-   * @return float Current filter frequency in Hz
-   */
-  float getFilterFrequency() const noexcept { return filterFrequency; }
-
   // Voice identification
   /**
    * @brief Get voice ID
@@ -281,10 +265,9 @@ private:
   // Audio processing components
   std::array<VoiceOscillator, 3> oscillators;
   rpdsp::NoiseOscillator noise_;
-  rpdsp::LadderFilter filter;
-  rpdsp::StateVariableFilter filterSvf_;  // Alternate main-filter topology (FILTER_SVF)
+  // Fixed per-voice high-pass. Only the waveguide engines run it (sub-shedding
+  // for the Karplus tails); every other engine bypasses it entirely.
   rpdsp::StateVariableFilter highPassFilter;
-  rpdsp::ADSR envelope;
   rpdsp::Waveshaper overdrive;
 
   // Alternate engines are fixed-storage members so Voice stays allocation-free;
@@ -329,57 +312,14 @@ private:
 
   // Voice state and control
   VoiceState state;
-  float filterFrequency;
-  // Smoothed filter cutoff to avoid zipper noise when envelope modulates cutoff.
-  // filterCutoffCurrent is the per-sample smoothed cutoff (Hz).
-  // filterCutoffAlpha is the per-sample exponential smoothing coefficient (0..1).
-  float filterCutoffCurrent = 1000.0f;
-  float filterCutoffAlpha = 0.0f;
-  // Cache of last applied cutoff to avoid redundant filter.SetFreq calls in the hotpath.
-  // Initialized to -1.0f in ctor/init to guarantee first SetFreq occurs.
-  float lastAppliedFilterCutoff = -1.0f;
-  // Throttle expensive filter.setFreq() updates: coefficients are recomputed
-  // at most once every kFilterUpdateInterval samples. Power of two so the
-  // rolling counter wraps with a mask instead of a per-sample UDIV.
-  static constexpr uint8_t kFilterUpdateInterval = 8;
-  static_assert(kMaxSpan % kFilterUpdateInterval == 0);
-  std::array<float, kMaxSpan> spanEnv_{};
-  std::array<float, kMaxSpan> spanSignal_{};
-  struct FilterEvent { uint8_t index; float cutoffHz; };
-  std::array<FilterEvent, kMaxSpan / kFilterUpdateInterval> spanFilterEvents_{};
-#if P2S_VOICE_IDLE_SKIP
-  static constexpr uint16_t kQuietHold = 256;
-  static constexpr float kQuietLevel = 1.0e-6f;
-  uint16_t quietRun_ = 0;
-  bool canSkipSilentSpan_() const noexcept;
-  void advanceSilentSpan_(uint32_t n) noexcept;
-  void trackQuietOutput_(const float *out, uint32_t n) noexcept;
-#endif
-  static_assert((kFilterUpdateInterval & (kFilterUpdateInterval - 1)) == 0,
-                "kFilterUpdateInterval must be a power of two");
-  uint8_t filterUpdateCounter = 0;               // rolling counter
-  static constexpr float kFilterRelEps = 2e-3f;  // 0.2% relative change
-  static constexpr float kFilterAbsEpsHz = 1.0f; // or at least 1 Hz change
-  inline static bool ShouldApplyFilterFreq_(float f_new, float f_last)
-  {
-    const float maxf = (f_new > f_last ? f_new : f_last);
-    const float rel = kFilterRelEps * maxf;
-    const float thr = (rel > kFilterAbsEpsHz ? rel : kFilterAbsEpsHz);
-    return (f_last < 0.0f) || (fabsf(f_new - f_last) > thr);
-  }
-  // Cached envelope value updated each frame to allow a very cheap silence short-circuit.
-  float lastEnvelopeValue = 0.0f;
   VoiceSlewParams freqSlew[3]; // For slide functionality
+  std::array<float, kMaxSpan> spanSignal_{};
   bool gate; // audio thread only
   // Cached active oscillator count (0..3), updated on config apply to avoid per-sample min()
   uint8_t cachedOscCount_ = 0;
   // Bypass flags computed on config apply to avoid unnecessary DSP work
   bool hpfBypass_ = false;
   bool velocityToAmplitude_ = true; // Cached from the layout and hard-sync paramSet
-  // Which StateVariableFilter output the main filter reads when
-  // filterType == FILTER_SVF: 0 lowpass, 1 bandpass, 2 highpass (from
-  // filterMode, cached on config apply).
-  uint8_t svfOutputSel_ = 0;
 
   // Slide/portamento control
   // slideTimeSeconds is the exponential time constant in seconds
@@ -408,7 +348,7 @@ private:
     GateChanged = 1u << 2, ScaleChanged = 1u << 3,
     SlideChanged = 1u << 4, BendChanged = 1u << 5,
     ModulationChanged = 1u << 6, FrequencyChanged = 1u << 7,
-    FilterChanged = 1u << 8, PitchRefresh = 1u << 9
+    PitchRefresh = 1u << 9
   };
   struct ControlUpdate
   {
@@ -421,7 +361,6 @@ private:
     float bendSemitones = 0.0f;
     float modulationSemitones = 0.0f;
     float frequency = 440.0f;
-    float filterHz = 1000.0f;
     uint32_t changes = 0;
   };
   // Only the control thread touches controls_ / currentScalePtr_. If full,
@@ -530,9 +469,7 @@ private:
   // Audio-thread span stages. Scratch is per Voice; Core 1 has a 2 KiB stack.
   void renderSpan_(float *out, uint32_t n) noexcept;
   PICO2SEQ_HOT_INLINE void handleGateEdges_() noexcept;
-  uint32_t planFilterUpdates_(const float *env, uint32_t n) noexcept;
-  void renderSources_(float *sig, const float *env, uint32_t n) noexcept;
-  void runMainFilter_(float *sig, uint32_t n, uint32_t events) noexcept;
+  void renderSources_(float *sig, uint32_t n) noexcept;
   void commitOscillatorPitch_() noexcept;
 
   /**
@@ -541,14 +478,6 @@ private:
    */
   void checkScaleIndexChanged_() noexcept;
 
-
-  /**
-   * @brief Push topology-dependent filter config (resonance, SVF response)
-   *        into the state-variable path. Control-rate: called from init() and
-   *        applyConfig_(); cutoff itself is updated per-sample by
-   *        planFilterUpdates_().
-   */
-  void configureMainFilterFromConfig_() noexcept;
 
   /**
    * @brief Recompute cached detune multipliers from configuration
@@ -600,21 +529,6 @@ private:
    * Only updates frequencies when gate is HIGH.
    */
   void updateOscillatorFrequencies();
-
-  /**
-   * @brief Apply envelope parameters to the ADSR envelope
-   *
-   * Updates attack, decay, sustain, and release values from voice state.
-   */
-  void applyEnvelopeParameters() noexcept;
-
-  /**
-   * @brief Apply the config's default envelope segment times to the ADSR
-   *
-   * Used when paramSet re-purposes the Attack/Decay sequencer slots so they no
-   * longer carry envelope times; the preset defaults then define the shape.
-   */
-  void applyEnvelopeDefaults_() noexcept;
 
   /**
    * @brief Calculate frequency for a given note with octave offset

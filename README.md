@@ -1,19 +1,17 @@
 # Pico2Seq
 
-A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry Pi Pico 2 (RP2350 microcontroller), featuring real-time parameter control, polymetric sequencing, and comprehensive synthesizer voice management.
+A powerful 4-voice polyphonic step sequencer and Eurorack-style drone oscillator for the Raspberry Pi Pico 2 (RP2350 microcontroller), featuring real-time parameter control, polymetric sequencing, and comprehensive synthesizer voice management.
 
 ## Features
 
 ### Synthesis
-- **4 Independent Polyphonic Voices**: Each with a complete DSP chain (B-spline oscillator bank, resonant main filter, ADSR envelope, overdrive distortion)
+- **4 Independent Drone Voices**: Eurorack-style oscillator voices that render continuously — raw waveforms out, with no per-voice main filter or amplitude envelope (shape tone and dynamics with external modules); gate edges still fire engine triggers and commit pitch
 - **Five Sound Engines per Voice**: A classic oscillator bank (up to 3 oscillators, or raw noise), a Karplus-Strong **waveguide** engine for plucked/nylon/bell/shimmer strings, a **noise-FX texture** engine (prime-tap diffuser, regenerative allpass swarm, pitch-tracked Lorenz chaos growl), a native 7-voice **hypersaw** engine, and a **recipe** engine for modular rpdsp sound synthesis patches (FM, phase distortion, DSF, formant synthesis, ring modulation, reversing sync, spectral, and chaotic prisms)
-- **Two Filter Topologies**: A 24dB multi-mode ladder filter (LP12, LP24, BP12, BP24, HP12, HP24) with drive and passband gain compensation on the character voices, plus a clean modulation-stable state-variable filter (LP/BP/HP) everywhere else — including all three bass presets
 - **Effects Processing**: Per-voice overdrive distortion
-- **ADSR Envelopes**: Fast, analog-modeled attack, decay, sustain, and release stages with microsecond accuracy
-- **29 Voice Presets**: Stored as `constexpr` tables in flash (.rodata), all on one browser page, covering classic subtractive, sub-bass, waveguide string, hypersaw, noise-texture, and 14 recipe/musical sounds
+- **29 Voice Presets**: Stored as `constexpr` tables in flash (.rodata), all on one browser page, covering raw oscillator banks, sub-bass, waveguide string, hypersaw, noise-texture, and 14 recipe/musical sounds
 
 ### Advanced Sequencing
-- **Polymetric Sequencing**: Independent track step lengths for each parameter (Notes: 16 steps, Filter: 8 steps, Velocity: 12 steps, etc.)
+- **Polymetric Sequencing**: Independent track step lengths for each parameter (Notes: 16 steps, T60: 8 steps, Velocity: 12 steps, etc.)
 - **Real-time Recording**: Live parameter capture during playback using the TOF distance sensor, magnetic encoder, and physical faders
 - **Scale Support**: 13 built-in musical scales with chromatic fallback and precomputed rank tables
 - **Shuffle & Swing**: 16 PPQN shuffle templates for groovy swing timing
@@ -226,7 +224,7 @@ MIDI, displays, sensors, or controls on physical hardware.
 4. **Select a voice:** Press Voice 1–4 buttons on the SliderModule to switch active voices directly.
 5. **Adjust parameters:** Rotate the TMAG5273 magnetic encoder or move physical faders to dial parameter values with live OLED/LED feedback.
 6. **Real-time recording:** Hold (or Shift+tap to latch) a parameter button and touch step pads to record automation into the pattern.
-7. **Switch function sets:** Toggle the GP7 mode strap between **Param** (Note, Velocity, Filter, Attack, Decay, Octave, Slide, Shift) and **Utility** (Play/Stop, Session Save/Load, Scale, Swing, Theme, Encoder Target, Randomize, Shift).
+7. **Switch function sets:** Toggle the GP7 mode strap between **Param** (Note, Velocity, Filter, Attack, Decay, Octave, Slide, Shift — Filter/Attack/Decay are macro lanes whose mapping depends on the preset: engine macros on waveguide/hypersaw/noise/recipe/hard-sync voices, unbound on the nine oscillator presets) and **Utility** (Play/Stop, Session Save/Load, Scale, Swing, Theme, Encoder Target, Randomize, Shift).
 8. **Voice Editing mode:** Hold **Shift** and press slider button 4 to stop transport and edit any voice's sound parameters directly with the encoder (button tiles navigate groups/parameters; slider buttons 1–4 pick the voice). See [`docs/voice-edit.md`](docs/voice-edit.md).
 9. **Master volume:** In Utility mode, fader 3 sets the final output volume (applied on Core 1's final mix).
 10. **Clear a voice / start fresh:** In Utility mode, **Shift + Randomize tap** wipes the selected voice's whole pattern (all step values, gates, slides and per-track lengths); **Shift + Randomize long-press** wipes all four voices the same way. Voice presets, tempo and transport state are kept.
@@ -236,15 +234,15 @@ MIDI, displays, sensors, or controls on physical hardware.
 Each synthesizer voice supports 29 built-in sound presets (held as `constexpr` tables in flash) accessible through a single-page selection browser in Settings mode (preset *n* sits on pad *n*−1):
 
 **Pads 0–23:**
-1. **Analog** — Triple-saw classic subtractive synth with warm 24dB ladder filtering
-2. **Digital** — Square + triangle hybrid with sharp 12dB lowpass cutoff
+1. **Analog** — Hard-sync saw drone with an independently sequenced slave pitch (Master/Slave lanes)
+2. **Digital** — Slightly detuned band-limited square pair with a hollow digital bite
 3. **Bass** — Deep sub-octave detuned sine/triangle bass
 4. **Lead** — Dual-saw octave-harmony lead synth
-5. **Square** — PWM pulse-width square wave with resonant bite
-6. **Pad** — Atmospheric 3-oscillator chord pad with slow attack and release
-7. **Percussion** — Fast-decaying noise-textured percussive transient
+5. **Square** — Narrow PWM pulse-width square wave with a hollow, reedy pulse
+6. **Pad** — Atmospheric 3-oscillator chord wash (root, fifth, major third)
+7. **Percussion** — Raw noise-textured voice for percussive textures (shape its contour downstream)
 8. **SubFunk** — Sub-octave sine/triangle sub bass with warm overdrive grit
-9. **RubberSub** — Rubbery sub bass: sub-octave square grind under a resonant band-pass honk, harder drive on transients
+9. **RubberSub** — Rubbery sub bass: sub-octave square grind with hard overdrive spit
 10. **WgPluck** — Classic Karplus-Strong plucked string (waveguide engine); bright burst, short natural tail
 11. **WgNylon** — Dark, felt-soft nylon string; damped loop, gentle pick, long sympathetic tail
 12. **WgBell** — Stiff dispersive waveguide string; inharmonic bell/kalimba partials, quick tail
@@ -257,16 +255,16 @@ Each synthesizer voice supports 29 built-in sound presets (held as `constexpr` t
 19. **Spectral** — Spectral harmonic oscillator stack with animated formants
 20. **Prism** — Dispersive multi-partial prism cluster with crystalline timbre
 21. **ChaosPrism** — Chaotic non-linear prism texture with pitch-tracked divergence
-22. **VelvetKeys** — Soft electric keys: dual `osc_fbfm` operators at 2:1 ratio, gentle attack and warm release
+22. **VelvetKeys** — Soft electric keys: dual `osc_fbfm` operators at 2:1 ratio, rounded and mellow
 23. **CopperBass** — Harmonically rich bass: `osc_dsf` harmonic spacing with a sub sine from `osc_pdmorph`
 24. **ReedPipe** — Held acoustic reed tone: `osc_formant` bursts blended with sine fundamental
 
 **Pads 24–28:**
-25. **SilkPad** — Slow orchestral swell: two detuned `osc_pdmorph` voices with free-running phase and 1.25s release
-26. **HollowBell** — Hollow metallic bell: dual `osc_pdmorph` sources ring-modulated at 2:1, zero sustain
+25. **SilkPad** — Slow orchestral drone: two detuned `osc_pdmorph` voices with free-running phase
+26. **HollowBell** — Hollow metallic bell: dual `osc_pdmorph` sources ring-modulated at 2:1
 27. **SyncLead** — Aggressive sync lead: `osc_revsync` blended with pitched `osc_pdmorph` body
 28. **OrbitPluck** — Metallic pluck: sine-modulated `osc_tzfm` with clean fundamental body
-29. **AirChime** — Ethereal harmonic chime: `osc_prism` blended with octave sine and extended decay
+29. **AirChime** — Ethereal harmonic chime: `osc_prism` blended with an octave sine
 
 **Browser Navigation:**
 - In Settings mode, touch **Pads 0–30** to instantly assign that pad's preset to the active voice (pads 0–28 hold the 29 presets; pad 31 is unassigned). There are no pages.
@@ -324,7 +322,7 @@ For more details on test stubs and writing unit tests, see [`docs/testing.md`](d
 Comprehensive subsystem documentation is maintained in the [`docs/`](docs/) directory:
 
 - [`docs/architecture.md`](docs/architecture.md) — System architecture, dual-core division, and component interactions
-- [`docs/voice.md`](docs/voice.md) — Synthesizer voice DSP pipeline, VoiceOscillator, filters, ADSR, and preset definitions
+- [`docs/voice.md`](docs/voice.md) — Synthesizer voice DSP pipeline, VoiceOscillator, drone signal path, and preset definitions
 - [`docs/voice-edit.md`](docs/voice-edit.md) — Voice Editing mode: musical OLED values, melody recording, and sequenced modifiers
 - [`docs/VoiceSystem.md`](docs/VoiceSystem.md) — Centralized VoiceSystem data structures, accessor pattern, and voice routing
 - [`docs/sequencer.md`](docs/sequencer.md) — 4-voice step sequencer engine, polymetric parameter tracks, and uClock integration

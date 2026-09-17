@@ -119,13 +119,7 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)
 
   switch (paramIndex)
   {
-  case 8: // Toggle hasEnvelope per voice
-    config.hasEnvelope = !config.hasEnvelope;
-    Serial.print("Voice ");
-    Serial.print(displayVoiceNumber);
-    Serial.print(" envelope ");
-    Serial.println(config.hasEnvelope ? "ON" : "OFF");
-    break;
+  // case 8 (envelope toggle) removed with the voice envelope (drone build)
   case 9: // Toggle hasOverdrive
     config.hasOverdrive = !config.hasOverdrive;
     Serial.print("Voice ");
@@ -134,54 +128,8 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)
     Serial.println(config.hasOverdrive ? "ON" : "OFF");
     break;
   // case 10 (hasWavefolder toggle) removed with the wavefolder effect
-  case 11:
-  { // Cycle through the shared filter-mode table (names and modes stay in sync)
-    if (!config.hasFilter)
-    {
-      Serial.print("Voice ");
-      Serial.print(displayVoiceNumber);
-      Serial.println(" has no filter (waveguide preset); filter mode ignored");
-      break;
-    }
-    int currentIndex = 0;
-    for (int i = 0; i < voiceui::kFilterModeCount; ++i)
-    {
-      if (config.filterMode == voiceui::kFilterModes[i])
-      {
-        currentIndex = i;
-        break;
-      }
-    }
-    const int nextIndex = (currentIndex + 1) % voiceui::kFilterModeCount;
-    config.filterMode = voiceui::kFilterModes[nextIndex];
-
-    Serial.print("Voice ");
-    Serial.print(displayVoiceNumber);
-    Serial.print(" filter mode: ");
-    Serial.println(voiceui::kFilterModeNames[nextIndex]);
-  }
-  break;
-  case 12:
-  { // Cycle through filter resonance amounts
-    if (!config.hasFilter)
-    {
-      Serial.print("Voice ");
-      Serial.print(displayVoiceNumber);
-      Serial.println(" has no filter (waveguide preset); resonance ignored");
-      break;
-    }
-    float currentResonance = config.filterRes;
-    currentResonance += 0.1f;
-    if (currentResonance > 1.0f)
-      currentResonance = 0.0f;
-    config.filterRes = currentResonance;
-
-    Serial.print("Voice ");
-    Serial.print(displayVoiceNumber);
-    Serial.print(" filter resonance: ");
-    Serial.println(currentResonance, 2);
-  }
-  break;
+  // cases 11 (filter mode) and 12 (filter resonance) removed with the voice
+  // main filter (drone build)
 
   default:
     // Buttons 15-24 reserved for future voice parameters

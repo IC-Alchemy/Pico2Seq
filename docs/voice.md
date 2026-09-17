@@ -4,13 +4,13 @@ For adding sounds, start with the [voice and preset extension guide](../src/voic
 
 ## 1. Overview
 
-The voice module provides a comprehensive synthesizer voice system with multi-oscillator synthesis, selectable ladder/state-variable filtering, effects processing, lock-free parameter staging, and preset management. It is designed specifically for the dual-core Raspberry Pi Pico 2 (RP2350) architecture and integrates with the sequencer, UI, and MIDI systems.
+The voice module provides a comprehensive synthesizer voice system with multi-engine source synthesis, overdrive effects processing, lock-free parameter staging, and preset management. Since the drone build re-purposed the firmware as a Eurorack oscillator voice, voices carry no main filter and no amplitude envelope: every engine renders continuously (drone), and raw waveforms leave the voice for external shaping. It is designed specifically for the dual-core Raspberry Pi Pico 2 (RP2350) architecture and integrates with the sequencer, UI, and MIDI systems.
 
 ### 1.1 Architecture Components
 
 The voice system consists of several key components:
 
-- **`Voice`**: Individual synthesizer voice encapsulating oscillators, a main filter (ladder or state-variable, per `filterType`), high-pass filter, ADSR envelope, overdrive waveshaper, and lock-free parameter/pitch staging.
+- **`Voice`**: Individual synthesizer voice encapsulating the engine sources (oscillator bank, waveguide, noise-FX, Hypersaw, recipe), an overdrive waveshaper, a waveguide-only sub-shedding high-pass, and lock-free parameter/pitch staging. The per-voice main filter and ADSR envelope were removed with the drone build; voices render continuously, and gate edges only fire engine triggers (waveguide plucks, Hypersaw phase randomization, recipe resets) and commit pitch.
 - **`VoiceManager`**: Manages multiple voices with allocation, deallocation, master volume scaling, per-voice mix levels, and unified block audio processing.
 - **`VoiceSystem`**: Centralized structure consolidating voice IDs, states, gates, and gate countdown timers into arrays for `MAX_VOICES = 4` voices.
 - **`VoicePresets`**: Registry of 29 presets, built from grouped preset headers and one `PresetBank.h` list. Fourteen recipe presets cover FM, phase distortion, DSF, formants, ring modulation, reversing sync and spectral/chaotic synthesis. See the [musical preset bank](../src/voice/README.md#musical-preset-bank) for the latest eight sounds and their controls.
@@ -58,11 +58,14 @@ Defined in `src/voice/VoiceConfig.h`:
 
 ```cpp
 enum VoiceEngine : uint8_t {
+    // Engines share the source -> effects -> velocity -> output chain; drone
+    // build: no per-voice filter or amplitude envelope. Only the source stage
+    // (and, for the noise engine, the pre-output effect inserts) differs.
     ENGINE_OSC = 0,       // Up to 3 oscillators (or raw noise when oscillatorCount == 0)
     ENGINE_WAVEGUIDE = 1, // Karplus-Strong plucked string (rpdsp::PluckedStringVoice)
     ENGINE_NOISEFX = 2,   // Noise + chaos source through diffuser/swarm inserts
     ENGINE_HYPERSAW = 3,  // One rpdsp::Hypersaw (internally seven detuned saw voices)
-    ENGINE_RECIPE = 4,    // Fixed-state rpdsp patch
+    ENGINE_RECIPE = 4,    // Fixed-state rpdsp recipe selected by config.recipe
 };
 
 struct VoiceConfig {
@@ -75,7 +78,7 @@ struct VoiceConfig {
     int harmony[3] = {0, 0, 0};                                             // Harmony intervals in scale steps (-12 to +12)
 
     // Sound engine selection (VoiceEngine). Ignored fields stay at their defaults.
-    uint8_t engine = ENGINE_OSC;                                            // ENGINE_OSC, ENGINE_WAVEGUIDE, ENGINE_NOISEFX, or ENGINE_HYPERSAW
+    uint8_t engine = ENGINE_OSC;                                            // ENGINE_OSC, ENGINE_WAVEGUIDE, ENGINE_NOISEFX, ENGINE_HYPERSAW, or ENGINE_RECIPE
     uint8_t paramSet = PARAMSET_STANDARD;                                   // Sequencer-slot re-purposing (STANDARD/WAVEGUIDE/HYPERSAW/NOISESTORM/HARDSYNC)
 
     const VoiceParameterLayout *parameters = nullptr; // Immutable layout in flash
@@ -101,29 +104,34 @@ struct VoiceConfig {
     float noiseSwarmRegen = 0.9f;                                           // Allpass swarm regeneration (0.0-1.2)
     float noiseChaosLevel = 0.35f;                                          // Pitch-tracked chaos_lorenz growl mix (0.0-1.0)
 
-    // Filter settings. filterType picks the topology; filterDrive and
-    // filterPassbandGain only affect the ladder and are ignored by the SVF.
-    // filterMode is voice-owned: ladder voices map it to a native ladder
-    // mode, while SVF voices select the matching LP/BP/HP output.
-    uint8_t filterType = FILTER_LADDER;                                     // Main filter topology (FILTER_LADDER or FILTER_SVF)
-    float filterRes = 0.2f;                                                 // Filter resonance (0.0-1.0)
-    float filterDrive = 1.8f;                                               // Ladder drive amount (0.0-4.0; SVF ignores)
-    float filterPassbandGain = 0.23f;                                       // Ladder passband gain compensation (0.0-0.5; SVF ignores)
-    VoiceFilterMode filterMode = VoiceFilterMode::LP24;                     // Filter mode (LP24, LP12, BP24, BP12, HP24, HP12)
-    float filterCutoffBase = 0.37f;                                         // Normalized static cutoff used when paramSet re-purposes the Filter slot
+    // Legacy main-filter and envelope settings. The drone build removed the
+    // main filter and the amplitude envelope from the audio path; these fields
+    // survive only so PatchCodec keeps round-tripping saved patches unchanged
+    // (the binary PatchSnapshot layout is locked). Nothing in the firmware
+    // reads them for sound.
+    uint8_t filterType = FILTER_LADDER;                                     // Legacy: main filter topology (FILTER_LADDER or FILTER_SVF)
+    float filterRes = 0.2f;                                                 // Legacy: filter resonance (0.0-1.0)
+    float filterDrive = 1.8f;                                               // Legacy: ladder drive amount
+    float filterPassbandGain = 0.23f;                                       // Legacy: ladder passband gain compensation
+    VoiceFilterMode filterMode = VoiceFilterMode::LP24;                     // Legacy: filter response (LP24, LP12, BP24, BP12, HP24, HP12)
+    float filterCutoffBase = 0.37f;                                         // Legacy: normalized static cutoff
+    float filterEnvelopeAmount = 1.0f;                                      // Legacy: envelope-to-cutoff depth
+    float filterEnvelopeFloor = 0.1f;                                       // Legacy: envelope-to-cutoff floor
 
-    // High-pass filter settings
+    // High-pass filter settings. Rendered by the waveguide engines only
+    // (sub-shedding for the Karplus tails); inert for every other engine.
     float highPassFreq = 80.0f;                                             // High-pass cutoff frequency in Hz (20.0-20000.0)
     float highPassRes = 0.1f;                                               // High-pass resonance (0.0-1.0)
 
     // Effects chain configuration
     bool hasOverdrive = false;                                              // Enable overdrive effect
-    bool hasEnvelope = true;                                                // Enable envelope (recommended: true)
-    bool hasFilter = true;                                                  // Enable the main filter (false = bypass, velocity scales output)
+    bool hasEnvelope = true;                                                // Legacy flag: drones ignore it (patch format compatibility)
+    bool hasFilter = true;                                                  // Legacy flag: drones ignore it (patch format compatibility)
     float overdriveGain = 0.34f;                                            // Overdrive output gain (0.0-2.0)
     float overdriveDrive = 0.25f;                                           // Overdrive drive amount (0.0-1.0)
 
-    // Envelope default settings
+    // Legacy envelope defaults. Inert since the drone build removed the ADSR;
+    // retained for the locked PatchSnapshot layout.
     float defaultAttack = 0.04f;                                            // Default attack time in seconds (0.001-10.0)
     float defaultDecay = 0.14f;                                             // Default decay time in seconds (0.001-10.0)
     float defaultSustain = 0.5f;                                            // Default sustain level (0.0-1.0)
@@ -135,21 +143,16 @@ struct VoiceConfig {
 };
 ```
 
-#### UI Filter Modes (`voiceui` namespace)
-```cpp
-namespace voiceui {
-inline constexpr VoiceFilterMode kFilterModes[] = {
-    VoiceFilterMode::LP24, VoiceFilterMode::LP12,
-    VoiceFilterMode::BP24, VoiceFilterMode::BP12,
-    VoiceFilterMode::HP24, VoiceFilterMode::HP12
-};
-inline constexpr const char* kFilterModeNames[] = {"LP24", "LP12", "BP24", "BP12", "HP24", "HP12"};
-inline constexpr int kFilterModeCount = 6;
-}
-// Mode cycling (ButtonHandlers/UIEventHandler) writes filterMode for both
-// filter topologies: on SVF voices LP* selects the lowpass output, BP* the
-// bandpass output, HP* the highpass output (12/24 dB suffix is ladder-only).
-```
+**Patch-format compatibility:** the legacy filter/envelope fields above (including the
+`hasFilter`/`hasEnvelope` flags and the A/D/S/R defaults) exist purely so the locked binary
+`PatchSnapshot` layout keeps round-tripping saved patches unchanged. Old sessions load
+byte-for-byte as before; the fields are audio-inert.
+
+#### Legacy filter enums (`VoiceFilterType`, `VoiceFilterMode`)
+Retained only as the storage types of the legacy persisted fields. The former
+`voiceui` mode-cycling table (`kFilterModes`/`kFilterModeNames`) and the ButtonHandlers
+filter-mode/resonance handlers were removed with the main filter (drone build); no firmware
+code selects a filter response anymore.
 
 ---
 
@@ -191,9 +194,8 @@ public:
     void setGate(bool gateState);
     bool getGate() const noexcept;
 
-    // Filter control
-    void setFilterFrequency(float freq);
-    float getFilterFrequency() const noexcept;
+    // Filter control (setFilterFrequency/getFilterFrequency) removed with
+    // the main filter (drone build)
 
     // Voice identification and enable
     uint8_t getId() const noexcept;
@@ -223,16 +225,23 @@ Defined in `src/pico2seq-core/sequencer/SequencerDefs.h`:
 struct VoiceState {
     float noteIndex = 0.0f;                                                   // Scale step index (0-21)
     float velocityLevel = 0.5f;                                               // Voice amplitude (0.0-1.0); hard-sync presets use this centered value as zero slave-frequency offset
-    float filterCutoff = 0.37f;                                               // Filter cutoff frequency (0.0-1.0 normalized)
-    float attackTimeSeconds = 0.01f;                                          // Envelope attack time (0.0-1.0s)
-    float decayTimeSeconds = 0.01f;                                           // Envelope decay time (0.0-1.0s)
+    float filterCutoff = 0.37f;                                               // Filter lane value (macro input; inert on oscillator presets)
+    float attackTimeSeconds = 0.01f;                                          // Attack lane value (macro input; inert on oscillator presets)
+    float decayTimeSeconds = 0.01f;                                           // Decay lane value (macro input; inert on oscillator presets)
     float octaveOffset = 0.0f;                                                // Normalized octave offset (0.0=C2, 0.5=C3, 1.0=C4)
     uint16_t gateLengthTicks = SequencerConstants::DEFAULT_GATE_LENGTH_TICKS; // Gate duration (default 60 ticks @ 480 PPQN)
     bool isGateHigh = false;                                                  // Voice gate state (active note on)
     bool hasSlide = false;                                                    // Portamento / slide enable flag
-    bool shouldRetrigger = false;                                             // Envelope restart flag
+    bool shouldRetrigger = false;                                             // Retrigger flag (fires the engine triggers)
 };
 ```
+
+Since the drone build removed the per-voice filter and ADSR, `filterCutoff`,
+`attackTimeSeconds` and `decayTimeSeconds` no longer carry cutoff/envelope times. They
+transport the Filter/Attack/Decay lane values; `Voice::applyParameters_()` routes them into
+engine macros where a binding exists (see the param-set table in section 3) and ignores
+them on unbound lanes. Gate fall never silences a voice — drones keep rendering through
+gate-off at the last committed pitch.
 
 ---
 
@@ -364,48 +373,51 @@ presets are detailed below, followed by six recipe presets (15–20) and eight m
 presets (21–28) described in the [voice and preset extension guide](../src/voice/README.md)
 and [musical preset bank](../src/voice/README.md#musical-preset-bank).
 
-| # | Preset Name | Engine | Oscillators | Amplitudes | Detune (Semis) | Harmony | Filter Mode | Filter Settings | Overdrive | Envelope (A/D/S/R) | Output Level |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| **0** | **Analog** | osc | 1x `WAVE_HARDSYNC_SAW` | `[1.0]` | `[0.0]` | `[0]` | **LP24** (ladder) | Res: 0.33, Drive: 2.1, Passband: 0.23, HPF: 120 Hz | Off (Gain: 0.8, Drive: 0.25) | `0.07s / 0.24s / 0.5 / 0.16s` | `0.5` |
-| **1** | **Digital** | osc | 2x `WAVE_BSP_SQUARE` | `[0.75, 0.65]` | `[0.0, +0.01]` | `[0, 0]` | **LP12** (SVF) | Res: 0.40, SVF low-pass, HPF: 111 Hz (Res: 0.15) | Off (Gain: 0.7, Drive: 0.51) | `0.015s / 0.1s / 0.5 / 0.15s` | `0.5` |
-| **2** | **Bass** | osc | 2x (`WAVE_SIN`, `WAVE_TRI`) | `[1.0, 1.0]` | `[-12.0, 0.0]` | `[0, 0]` | **LP12** (SVF) | Res: 0.45, SVF low-pass, HPF: 45 Hz (Res: 0.4) | On (Gain: 0.95, Drive: 0.16) | `0.01s / 0.3s / 0.85 / 0.2s` | `0.85` |
-| **3** | **Lead** | osc | 2x `WAVE_BSP_SAW` | `[0.6, 0.4]` | `[0.0, 0.0]` | `[0, 3]` | **LP12** (ladder) | Res: 0.40, Drive: 3.0, Passband: 0.23, HPF: 160 Hz | Off (Gain: 0.7, Drive: 0.45) | `0.02s / 0.2s / 0.5 / 0.15s` | `0.5` |
-| **4** | **Square** | osc | 1x `WAVE_BSP_SQUARE` (PW: 0.2) | `[1.0]` | `[0.0]` | `[0]` | **BP24** (SVF) | Res: 0.60, SVF band-pass, HPF: 150 Hz | Off (Gain: 0.75, Drive: 0.35) | `0.02s / 0.4s / 0.0 / 0.25s` | `0.56` |
-| **5** | **Pad** | osc | 3x `WAVE_BSP_SAW` | `[0.33, 0.33, 0.33]` | `[0.0, 0.0, 0.0]` | `[0, +4, +9]` | **LP12** (SVF) | Res: 0.30, SVF low-pass, HPF: 140 Hz (Res: 0.08) | Off (Gain: 0.85, Drive: 0.25) | `0.02s / 0.2s / 0.5 / 0.5s` | `0.5` |
-| **6** | **Percussion** | osc | **0 oscs** (`WAVE_NOISE`, `NoiseOscillator`) | `[1.0]` | `[0.0]` | `[0]` | **LP24** (SVF) | Res: 0.40, SVF low-pass, HPF: 200 Hz | Off (Gain: 0.45, Drive: 0.30) | `0.005s / 0.08s / 0.0 / 0.07s` | `0.5` |
-| **7** | **SubFunk** | osc | (`WAVE_SIN`, `WAVE_BSP_SQUARE`, `WAVE_SIN`) | `[1.0, 0.35, 0.65]` | `[-12.0, -12.0, 0.0]` | `[0, 0, 0]` | **LP12** (SVF) | Res: 0.60, SVF low-pass, HPF: 25 Hz | On (Gain: 0.9, Drive: 0.45) | `0.004s / 0.22s / 0.35 / 0.12s` | `0.9` |
-| **8** | **RubberSub** | osc | (`WAVE_SIN`, `WAVE_BSP_SQUARE`, `WAVE_TRI`) | `[0.9, 0.3, 0.5]` | `[-12.0, -12.0, 0.0]` | `[0, 0, 0]` | **BP24** (SVF) | Res: 0.70, SVF band-pass, HPF: 25 Hz | On (Gain: 1.0, Drive: 0.55) | `0.002s / 0.16s / 0.25 / 0.09s` | `0.85` |
-| **9** | **WgPluck** | waveguide | — (wg: T60 1.8s, bright 0.78, pick 0.26/0.85, stiff 0.0, det 4c) | — | — | — | **none** (`hasFilter=false`) | ladder bypassed; sub-shed HPF 55 Hz | Off | **none** (`hasEnvelope=false`; natural T60 ring) | `0.85` |
-| **10** | **WgNylon** | waveguide | — (wg: T60 3.2s, bright 0.28, pick 0.42/0.22, stiff 0.05, det 9c) | — | — | — | **none** (`hasFilter=false`) | ladder bypassed; sub-shed HPF 66 Hz | Off | **none** (`hasEnvelope=false`; natural T60 ring) | `0.9` |
-| **11** | **WgBell** | waveguide | — (wg: T60 1.4s, bright 0.9, pick 0.08/1.0, stiff 0.88, det 0c) | — | — | — | **none** (`hasFilter=false`) | ladder + HPF bypassed | Off | **none** (`hasEnvelope=false`; natural T60 ring) | `0.75` |
-| **12** | **WgShimmer** | waveguide | — (wg: T60 6.5s, bright 0.55, pick 0.35/0.6, stiff 0.15, det 26c) | — | — | — | **none** (`hasFilter=false`) | ladder + HPF bypassed | Off | **none** (`hasEnvelope=false`; natural T60 ring) | `0.8` |
-| **13** | **Hypersaw** | hypersaw | one `rpdsp::Hypersaw` (seven internal saws) | — | Detune: 0.2 (native 0–1) | — | **LP24** (SVF) | Res: 0.35, SVF low-pass, HPF: 180 Hz | Off | `0.012s / 0.3s / 0.8 / 0.25s` | `0.5` |
-| **14** | **NoiseStorm** | noise-FX | — (nf: diffuse 0.85/0.65, swarm 0.6/0.95, chaos 0.4) | — | — | — | **LP24** (SVF) | Res: 0.72, SVF low-pass, HPF: 220 Hz | On (Gain: 0.8, Drive: 0.4) | `0.003s / 0.5s / 0.55 / 0.45s` | `0.45` |
+| # | Preset Name | Engine | Oscillators | Amplitudes | Detune (Semis) | Harmony | F/A/D Lanes | High-pass | Overdrive | Output Level |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **0** | **Analog** | osc | 1x `WAVE_HARDSYNC_SAW` | `[1.0]` | `[0.0]` | `[0]` | **unbound** (`--`; Note/Velocity are Master/Slave) | — | Off (Gain: 0.8, Drive: 0.25) | `0.5` |
+| **1** | **Digital** | osc | 2x `WAVE_BSP_SQUARE` | `[0.75, 0.65]` | `[0.0, +0.01]` | `[0, 0]` | **unbound** (`--`) | — | Off (Gain: 0.7, Drive: 0.51) | `0.5` |
+| **2** | **Bass** | osc | 2x (`WAVE_SIN`, `WAVE_TRI`) | `[1.0, 1.0]` | `[-12.0, 0.0]` | `[0, 0]` | **unbound** (`--`) | — | On (Gain: 0.95, Drive: 0.16) | `0.85` |
+| **3** | **Lead** | osc | 2x `WAVE_BSP_SAW` | `[0.6, 0.4]` | `[0.0, 0.0]` | `[0, 3]` | **unbound** (`--`) | — | Off (Gain: 0.7, Drive: 0.45) | `0.5` |
+| **4** | **Square** | osc | 1x `WAVE_BSP_SQUARE` (PW: 0.2) | `[1.0]` | `[0.0]` | `[0]` | **unbound** (`--`) | — | Off (Gain: 0.75, Drive: 0.35) | `0.56` |
+| **5** | **Pad** | osc | 3x `WAVE_BSP_SAW` | `[0.33, 0.33, 0.33]` | `[0.0, 0.0, 0.0]` | `[0, +4, +9]` | **unbound** (`--`) | — | Off (Gain: 0.85, Drive: 0.25) | `0.5` |
+| **6** | **Percussion** | osc | **0 oscs** (`WAVE_NOISE`, `NoiseOscillator`) | `[1.0]` | `[0.0]` | `[0]` | **unbound** (`--`) | — | Off (Gain: 0.45, Drive: 0.30) | `0.5` |
+| **7** | **SubFunk** | osc | (`WAVE_SIN`, `WAVE_BSP_SQUARE`, `WAVE_SIN`) | `[1.0, 0.35, 0.65]` | `[-12.0, -12.0, 0.0]` | `[0, 0, 0]` | **unbound** (`--`) | — | On (Gain: 0.9, Drive: 0.45) | `0.9` |
+| **8** | **RubberSub** | osc | (`WAVE_SIN`, `WAVE_BSP_SQUARE`, `WAVE_TRI`) | `[0.9, 0.3, 0.5]` | `[-12.0, -12.0, 0.0]` | `[0, 0, 0]` | **unbound** (`--`) | — | On (Gain: 1.0, Drive: 0.55) | `0.85` |
+| **9** | **WgPluck** | waveguide | — (wg: T60 1.8s, bright 0.78, pick 0.26/0.85, stiff 0.0, det 4c) | — | — | — | **Bright / Pick / T60** | 55 Hz sub-shed | Off | `0.85` |
+| **10** | **WgNylon** | waveguide | — (wg: T60 3.2s, bright 0.28, pick 0.42/0.22, stiff 0.05, det 9c) | — | — | — | **Bright / Pick / T60** | 66 Hz sub-shed | Off | `0.9` |
+| **11** | **WgBell** | waveguide | — (wg: T60 1.4s, bright 0.9, pick 0.08/1.0, stiff 0.88, det 0c) | — | — | — | **Bright / Pick / T60** | bypassed | Off | `0.75` |
+| **12** | **WgShimmer** | waveguide | — (wg: T60 6.5s, bright 0.55, pick 0.35/0.6, stiff 0.15, det 26c) | — | — | — | **Bright / Pick / T60** | bypassed | Off | `0.8` |
+| **13** | **Hypersaw** | hypersaw | one `rpdsp::Hypersaw` (seven internal saws) | — | Detune: 0.2 (native 0–1) | — | **Detune / Mix** | — | Off | `0.5` |
+| **14** | **NoiseStorm** | noise-FX | — (nf: diffuse 0.85/0.65, swarm 0.6/0.95, chaos 0.4) | — | — | — | **Color / Regen / Chaos** | — | On (Gain: 0.8, Drive: 0.4) | `0.45` |
 
-Filter topology: only **Analog** and **Lead** still run the `rpdsp::LadderFilter`
-(one of the few invariants the host test suite pins by count). All other
-filtered presets use the TPT `rpdsp::StateVariableFilter` — chosen for stability
-under the envelope's cutoff sweeps and its resonant low-pass/band-pass character
-(especially on the three bass presets); its response is selected by the same
-`VoiceFilterMode` values (LP→lowpass, BP→bandpass, HP→highpass), and it ignores `filterDrive`/
-`filterPassbandGain`.
+F/A/D Lanes: the sequencer's Filter/Attack/Decay lanes. The lanes and the saved-pattern
+format are unchanged, but since the drone build removed the per-voice main filter and ADSR
+they are macro-only: **Analog** through **RubberSub** (0–8) leave them unbound — they shape
+nothing and the OLED shows `--`; only waveform blend, overdrive and output level tune those
+voices. Waveguide binds Bright/Pick/T60, Hypersaw binds Detune/Mix, NoiseStorm binds
+Color/Regen/Chaos, and recipe presets 15–28 bind three engine macros each (FM
+Index/Ratio/Feedback, Formant/Bloom/Body, ... — see the [voice and preset extension
+guide](../src/voice/README.md)). The per-voice main filter — both the `rpdsp::LadderFilter`
+and the TPT `rpdsp::StateVariableFilter` topology — was removed with the drone build; the
+high-pass column survives only on the waveguide engine, sub-shedding rumble from the
+Karplus tails (55/66 Hz on WgPluck/WgNylon, bypassed on WgBell/WgShimmer).
 
-The eight presets added with the expansion bank: **SubFunk** — bouncy sub bass; a sine sub an octave down carries the weight, a triangle adds movement, and a resonant SVF low-pass plus warm overdrive grit gives the filtered-growl funk character. **RubberSub** — rubbery sub bass; a sub-octave square grinds under a sine through a resonant SVF band-pass ("rubbery honk"), with harder overdrive that spits on transients. **WgPluck** — classic Karplus-Strong plucked string: bright burst, harmonic loop, short natural tail. **WgNylon** — dark felt-soft nylon: heavily damped loop, gentle pick, long sympathetic tail. **WgBell** — stiff dispersive string whose inharmonic upper partials read as bell/kalimba; hard bridge pick, quick tail. **WgShimmer** — wide-detuned (26-cent) two-string course with a very long T60 tail; slow chorusing sustain turns the pluck into a ringing pad. **Hypersaw** — one native seven-voice `rpdsp::Hypersaw`; its Detune and Mix sequencer slots drive the engine directly, under a wide-open SVF low-pass. **NoiseStorm** — noise-based texture: noise plus a pitch-tracked Lorenz chaos growl feed a prime-tap diffuser and a regenerative allpass swarm, then a resonant SVF low-pass pings with the envelope.
+The eight presets added with the expansion bank: **SubFunk** — bouncy sub bass; a sine sub an octave down carries the weight, a triangle adds movement, and warm overdrive grit gives the growl funk character. **RubberSub** — rubbery sub bass; a sub-octave square grinds under a sine, with harder overdrive that spits on transients. **WgPluck** — classic Karplus-Strong plucked string: bright burst, harmonic loop, short natural tail. **WgNylon** — dark felt-soft nylon: heavily damped loop, gentle pick, long sympathetic tail. **WgBell** — stiff dispersive string whose inharmonic upper partials read as bell/kalimba; hard bridge pick, quick tail. **WgShimmer** — wide-detuned (26-cent) two-string course with a very long T60 tail; slow chorusing sustain turns the pluck into a ringing pad. **Hypersaw** — one native seven-voice `rpdsp::Hypersaw`; its Detune and Mix sequencer slots drive the engine directly. **NoiseStorm** — noise-based texture: noise plus a pitch-tracked Lorenz chaos growl feed a prime-tap diffuser and a regenerative allpass swarm.
 
 Preset 9-12 use `engine = ENGINE_WAVEGUIDE` (`rpdsp::PluckedStringVoice`, 2048-sample
 delay): each gate rise (or retrigger) plucks the string at the current base pitch, and
 the `wg*` config fields tune T60, loop brightness, pick position/hardness, stiffness
-(inharmonic dispersion), and two-string course detune. The waveguide presets also set
-`hasFilter = false` and `hasEnvelope = false`: the main filter and ADSR are both
-bypassed, velocity scales the pluck excitation itself (soft picks inject less energy,
-and the ringing tail is never rescaled by later velocity changes), and the string
-rings past gate fall on its own T60 (gate edges still arm plucks — see
-`handleGateEdges_()`).
+(inharmonic dispersion), and two-string course detune. As with every drone voice, gate
+fall never silences them: the string keeps sounding at the last committed pitch, and
+velocity scales the pluck excitation itself (soft picks inject less energy, and the
+sounding tail is never rescaled by later velocity changes). Gate edges still arm plucks
+— see `handleGateEdges_()`.
 WgPluck/WgNylon keep a gentle 55/66 Hz high-pass to shed subsonic rumble that
-Karplus tails otherwise accumulate; WgBell/WgShimmer bypass the high-pass too.
+Karplus tails otherwise accumulate; WgBell/WgShimmer bypass the high-pass.
 Preset 13 uses `engine = ENGINE_HYPERSAW`: one `rpdsp::Hypersaw` instance supplies
 its internal seven saw voices. Its Attack and Decay sequencer slots are re-purposed
-as normalized Detune and Mix controls, respectively; Filter remains the live cutoff.
+as normalized Detune and Mix controls, respectively; its Filter lane is unbound.
 
 Preset 0, Analog, uses one `WAVE_HARDSYNC_SAW`. Its Note/Master track sets the
 master frequency. Its Velocity/Slave track is centered at 0.5 and maps to a
@@ -415,7 +427,7 @@ apply that re-purposed lane as VCA velocity.
 
 Preset 14 uses `engine = ENGINE_NOISEFX`: `NoiseOscillator` plus a pitch-tracked
 `chaos_lorenz` growl feed `fx_diffuse` (prime-tap diffuser) and `fx_swarm` (regenerative
-allpass swarm) from `rpdsp/DSPFunctions.h`, pre-filter so the SVF shapes the texture.
+allpass swarm) from `rpdsp/DSPFunctions.h`.
 
 ### Per-preset sequencer parameter sets
 
@@ -429,14 +441,18 @@ values survive the first sequencer update.
 
 | Param set | Presets | Note / Velocity slots | Filter slot | Attack slot | Decay slot |
 |---|---|---|---|---|---|
-| HARDSYNC | 0 | Master pitch / Slave offset (-24..+24 st; 0.5 = follow master) | Cutoff | Attack | Decay |
-| STANDARD | 1–8 | Note / velocity | Cutoff (120 Hz–5 kHz, EXP) | Attack (0.002–0.75 s) | Decay (0.01–0.5 s, LOG) |
-| WAVEGUIDE | 9–12 | Note / velocity | Brightness (0–1) | Pick hardness (0–1) | T60 (0.05–7 s at runtime, EXP; `wgT60ToNormalized` seeding assumes a 0.05–10 s curve) |
-| HYPERSAW | 13 | Note / velocity | Cutoff (live) | Native seven-voice detune (0–1) | Native center/side mix (0–1) |
-| NOISESTORM | 14 | Note / velocity | Swarm color | Swarm regen | Chaos level (the SVF keeps the preset's static `filterCutoffBase`) |
+| HARDSYNC | 0 | Master pitch / Slave offset (-24..+24 st; 0.5 = follow master) | unbound (`--`) | unbound (`--`) | unbound (`--`) |
+| STANDARD | 1–8 | Note / velocity (amplitude) | unbound (`--`) | unbound (`--`) | unbound (`--`) |
+| WAVEGUIDE | 9–12 | Note / velocity (pluck excitation) | Brightness (0–1) | Pick hardness (0–1) | T60 (0.05–10 s, EXP; `wgT60ToNormalized` seeding assumes the same curve) |
+| HYPERSAW | 13 | Note / velocity | unbound (`--`) | Native seven-voice detune (0–1) | Native center/side mix (0–1) |
+| NOISESTORM | 14 | Note / velocity | Swarm color | Swarm regen | Chaos level |
 
-For HYPERSAW/NOISESTORM the ADSR times come from the preset defaults (`applyEnvelopeDefaults_()`),
-since the Attack/Decay tracks no longer carry envelope times. Live preset switches are
+Since the drone build removed the per-voice filter and ADSR, the Filter/Attack/Decay lanes
+are macro-only: an unbound slot shapes nothing and the OLED shows `--` for it, while a bound
+slot is a macro control routed into a `VoiceConfig` member by `Voice::applyParameters_()`
+(recipe presets bind three engine macros each, e.g. FM Index/Ratio/Feedback). The MIDI CC
+transmission of the lane values (CC 74/73/72, 78/77/76) still runs and now carries those
+macro values — or inert values on the oscillator presets. Live preset switches are
 gate-safe: scalar config applies immediately, but the oscillator rebuild and engine
 reset are deferred until the gate falls (`applyStructuralConfig_()`), so swapping
 presets while playing never clicks a held note or cuts a ringing tail.
@@ -461,30 +477,25 @@ restricted to the audio thread or quiescent tests.
 Each span runs these stages on Core 1. All sample scratch belongs to the voice,
 so no per-span arrays use Core 1's 2 KiB stack.
 
-1. `handleGateEdges_()` consumes gate rise/fall and retrigger, including pluck
-   triggers when the ADSR is bypassed. The ADSR then generates each sample.
+1. `handleGateEdges_()` consumes gate rise/fall and retrigger. Voices are drones:
+   gate fall does not silence them. Rise/retrigger arms the engine triggers
+   (waveguide pluck, Hypersaw phase randomization, recipe reset) and pitch
+   commits happen while the gate is high.
 2. Apply deferred structural configuration if the gate is low.
-3. `planFilterUpdates_()` advances cutoff smoothing per sample. The target is
-   `filterFrequency * (env * filterEnvelopeAmount + filterEnvelopeFloor)`.
-   Coefficient updates retain their every-eight-samples throttle and change
-   threshold; their exact sample indices are recorded in fixed storage.
-4. `renderSources_()` selects the engine once per span. With an envelope,
-   samples at or below `0.001f` leave the source and pending pitch commit alone.
-   Oscillator-bank pitch commits require a high gate; slides advance every
-   sounding sample. Each oscillator renders into the mix in its original order.
-5. Apply envelope gain, then overdrive/NoiseStorm effects when needed, then
-   velocity (amplitude remains 1 for layouts that repurpose velocity).
-6. `runMainFilter_()` processes segments between coefficient updates, applying
-   each update before its sample. Then apply the optional HPF and output level.
-7. Track consecutive output samples below `1e-6` for the silent skip.
+3. `renderSources_()` selects the engine once per span and renders every
+   sample — there is no envelope silence gate. Oscillator-bank pitch commits
+   require a high gate; slides advance every sounding sample. Each oscillator
+   renders into the mix in its original order.
+4. Apply pre-output effects in sample order (overdrive, plus the NoiseStorm
+   diffuser/swarm inserts).
+5. Apply velocity (amplitude remains 1 for layouts that repurpose velocity,
+   e.g. hard-sync Master/Slave and waveguide pluck excitation).
+6. Render the high-pass on waveguide engines only (sub-shedding for the
+   Karplus tails), then apply the output level.
 
-A voice can skip DSP after 256 quiet samples only with an idle ADSR, released
-gate, no pending gate edge/retrigger or structural change, and an envelope.
-Waveguide and NoiseStorm engines stay active so their internal tail state keeps
-evolving. Skipped spans still advance cutoff smoothing and its update counter;
-every configuration change resets the quiet count. Set `P2S_VOICE_IDLE_SKIP=0`
-to compare the full renderer. The skip can leave tiny frozen filter/HPF states;
-the resulting next-note differences are checked by PCM16 null tests.
+The quiet-span idle skip (256 silent samples) was removed with the drone build:
+with no envelope there is no voice-level silence to detect, so every span
+renders and waveguide/NoiseStorm tail state keeps evolving.
 
 `VoiceManager::processBlock()` sums voice blocks in the original voice order.
 Per-voice mix, master-volume and mute targets are read once per block of up to
@@ -516,7 +527,7 @@ voice->setCurrentScalePointer(&currentScale);
 - No per-scale preprocessing happens at injection time — `setScaleTable()` only stores the pointer and marks the base frequency dirty (the former unique-rank caches were write-only and were removed 2026-09-05).
 
 ### 5.3 Gate-Controlled Pitch Commit
-To prevent audible pitch clicks and glitches when release tails ring out after a sequencer step transition, pitch changes are **committed to oscillators only when `state.isGateHigh == true`**. When the gate is low, the active voice rings out at its last assigned frequency.
+To prevent audible pitch clicks and glitches when voices keep sounding across a sequencer step transition, pitch changes are **committed to oscillators only when `state.isGateHigh == true`**. When the gate is low, the voice keeps droning at its last assigned frequency — and since the drone build this also holds through gate-off: gate edges fire engine triggers, never amplitude.
 
 ---
 
@@ -548,7 +559,7 @@ voiceManager.init(48000.0f);
 VoiceState newState;
 newState.noteIndex = 12.0f;           // 12th step in scale
 newState.velocityLevel = 0.85f;       // 85% velocity
-newState.filterCutoff = 0.6f;         // 60% filter cutoff
+newState.filterCutoff = 0.6f;         // 60% Filter lane value (macro input; inert on oscillator presets)
 newState.isGateHigh = true;           // Gate ON
 newState.hasSlide = false;
 newState.octaveOffset = 0.0f;

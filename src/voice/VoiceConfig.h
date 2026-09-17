@@ -3,10 +3,10 @@
 #include "VoiceOscillator.h"
 #include <cstdint>
 
-// Sound-generation engine selected by VoiceConfig::engine. Engines other than
-// the default still run the shared envelope -> filter -> output chain; only
-// the source stage (and, for the noise engine, the pre-filter effect inserts)
-// differs.
+// Sound-generation engine selected by VoiceConfig::engine. Engines share the
+// source -> effects -> velocity -> output chain; drone build: no per-voice
+// filter or amplitude envelope. Only the source stage (and, for the noise
+// engine, the pre-output effect inserts) differs.
 enum VoiceEngine : uint8_t
 {
   ENGINE_OSC = 0,       // Up to 3 oscillators (or raw noise when oscillatorCount == 0)
@@ -17,9 +17,10 @@ enum VoiceEngine : uint8_t
 };
 
 // How the sequencer's parameter slots are interpreted for this voice. STANDARD
-// = velocity + filter cutoff + ADSR times; the alternates re-purpose selected
-// slots for engine-specific parameters (routed in
-// Voice::applyParameters_(), named via VoicePresets::getSequencerParamName).
+// leaves Velocity as the only active shaping lane (drone voices carry no
+// filter/envelope lanes); the alternates re-purpose selected slots for
+// engine-specific macros (routed in Voice::applyParameters_(), named via
+// VoicePresets::getSequencerParamName).
 enum VoiceParamSet : uint8_t
 {
   PARAMSET_STANDARD = 0,
@@ -29,20 +30,16 @@ enum VoiceParamSet : uint8_t
   PARAMSET_HARDSYNC = 4,
 };
 
-// Topology of the voice's main filter (when hasFilter is set). The ladder is
-// the character filter (drive + passband-gain compensation, 12/24 dB responses);
-// the state-variable filter is a clean TPT resonant filter whose response is
-// chosen by filterMode (LP* -> lowpass, BP* -> bandpass, HP* -> highpass).
+// Legacy main-filter topology value persisted in saved patches. The drone
+// build removed the main filter; the enum survives as the field's storage type.
 enum VoiceFilterType : uint8_t
 {
   FILTER_LADDER = 0,
   FILTER_SVF = 1,
 };
 
-// Voice-owned response names.  They deliberately do not expose a LadderFilter
-// type: ladder voices map all six values to their native modes, while SVF
-// voices map LP/BP/HP to the appropriate simultaneous SVF output.  The 12/24
-// labels remain available to the UI even though the current SVF is two-pole.
+// Filter modes retained as the legacy persisted field type. The drone build
+// removed the main filter; only the enum values survive inside saved patches.
 enum class VoiceFilterMode : uint8_t
 {
   LP24 = 0,
@@ -107,8 +104,6 @@ struct VoiceConfig
   bool recipeRetrigger = true;
   float noiseSourceLevel = 1.0f;
   float noiseChaosRate = 1.0f;
-  float filterEnvelopeAmount = 1.0f;
-  float filterEnvelopeFloor = 0.1f;
 
   // Waveguide engine parameters (ENGINE_WAVEGUIDE only)
   float wgT60 = 2.5f;          // String tail T60 in seconds (0.05-10.0)
@@ -129,30 +124,34 @@ struct VoiceConfig
   float noiseSwarmRegen = 0.9f;  // Allpass swarm regeneration (0.0-1.2)
   float noiseChaosLevel = 0.35f; // Pitch-tracked chaos_lorenz growl mix (0.0-1.0)
 
-  // Filter settings. filterType picks the topology; filterDrive and
-  // filterPassbandGain only affect the ladder and are ignored by the SVF.
-  // filterMode is topology-neutral: it selects a native ladder mode or the
-  // matching SVF output (LP*, BP*, HP*).
-  uint8_t filterType = FILTER_LADDER; // Main filter topology (VoiceFilterType)
-  float filterRes = 0.2f;            // Filter resonance (0.0-1.0)
-  float filterDrive = 1.8f;          // Ladder drive amount (0.0-4.0; SVF ignores)
-  float filterPassbandGain = 0.23f;  // Ladder passband gain compensation (0.0-0.5; SVF ignores)
-  VoiceFilterMode filterMode = VoiceFilterMode::LP24;
-  float filterCutoffBase = 0.37f;    // Normalized static cutoff (0.0-1.0) used when
-                                     // paramSet re-purposes the Filter slot (e.g. NoiseStorm)
+  // Legacy main-filter and envelope settings. The drone build removed the
+  // main filter and the amplitude envelope from the audio path; these fields
+  // survive only so PatchCodec keeps round-tripping saved patches unchanged
+  // (the binary PatchSnapshot layout is locked). Nothing in the firmware
+  // reads them for sound.
+  uint8_t filterType = FILTER_LADDER; // Legacy: main filter topology (VoiceFilterType)
+  float filterRes = 0.2f;            // Legacy: filter resonance (0.0-1.0)
+  float filterDrive = 1.8f;          // Legacy: ladder drive amount
+  float filterPassbandGain = 0.23f;  // Legacy: ladder passband gain compensation
+  VoiceFilterMode filterMode = VoiceFilterMode::LP24; // Legacy: filter response
+  float filterCutoffBase = 0.37f;    // Legacy: normalized static cutoff
+  float filterEnvelopeAmount = 1.0f; // Legacy: envelope-to-cutoff depth
+  float filterEnvelopeFloor = 0.1f;  // Legacy: envelope-to-cutoff floor
 
-  // High-pass filter settings
+  // High-pass filter settings. Rendered by the waveguide engines only
+  // (sub-shedding for the Karplus tails); inert for every other engine.
   float highPassFreq = 80.0f; // High-pass cutoff frequency in Hz (20.0-20000.0)
   float highPassRes = 0.1f;   // High-pass resonance (0.0-1.0)
 
   // Effects chain configuration
   bool hasOverdrive = false;     // Enable overdrive effect
-  bool hasEnvelope = true;       // Enable envelope (recommended: true)
-  bool hasFilter = true;         // Enable the main filter (false = bypass, velocity scales output)
+  bool hasEnvelope = true;       // Legacy flag: drones ignore it (patch format compatibility)
+  bool hasFilter = true;         // Legacy flag: drones ignore it (patch format compatibility)
   float overdriveGain = 0.34f;   // Overdrive output gain (0.0-2.0)
   float overdriveDrive = 0.25f;  // Overdrive drive amount (0.0-1.0)
 
-  // Envelope default settings
+  // Legacy envelope defaults. Inert since the drone build removed the ADSR;
+  // retained for the locked PatchSnapshot layout.
   float defaultAttack = 0.04f; // Default attack time in seconds (0.001-10.0)
   float defaultDecay = 0.14f;  // Default decay time in seconds (0.001-10.0)
   float defaultSustain = 0.5f; // Default sustain level (0.0-1.0)
@@ -162,16 +161,3 @@ struct VoiceConfig
   float outputLevel = 0.6f; // Voice output level (0.0-1.0)
   bool enabled = true;      // Voice enabled state
 };
-
-// Filter modes exposed to the UI, in cycle order, with matching display names.
-// Cycling code must use these tables together so labels and enum values can
-// never disagree (the old UI hardcoded a name list that mismatched the enum).
-namespace voiceui {
-inline constexpr VoiceFilterMode kFilterModes[] = {
-    VoiceFilterMode::LP24, VoiceFilterMode::LP12,
-    VoiceFilterMode::BP24, VoiceFilterMode::BP12,
-    VoiceFilterMode::HP24, VoiceFilterMode::HP12};
-inline constexpr const char *kFilterModeNames[] = {"LP24", "LP12", "BP24",
-                                                   "BP12", "HP24", "HP12"};
-inline constexpr int kFilterModeCount = 6;
-} // namespace voiceui

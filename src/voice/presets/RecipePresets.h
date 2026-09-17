@@ -11,7 +11,6 @@ constexpr VoiceParameterLayout recipeLayout(VoiceParameterBinding color,
                                             VoiceParameterBinding character)
 {
   VoiceParameterLayout p{};
-  p.envelopeFromTracks = false;
   p.slots[static_cast<size_t>(ParamId::Filter)] = color;
   p.slots[static_cast<size_t>(ParamId::Attack)] = shape;
   p.slots[static_cast<size_t>(ParamId::Decay)] = character;
@@ -84,30 +83,16 @@ constexpr VoiceConfig recipeVoice(const VoiceRecipe &recipe, const VoiceParamete
   c.macro1 = color;
   c.macro2 = shape;
   c.macro3 = character;
-  c.filterType = FILTER_SVF;
-  c.hasFilter = false;
-  c.highPassFreq = 30.0f;
-  c.highPassRes = 0.0f;
-  c.defaultAttack = 0.003f;
-  c.defaultDecay = 0.4f;
-  c.defaultSustain = 0.45f;
-  c.defaultRelease = 0.2f;
   c.outputLevel = 0.65f;
   return c;
 }
 constexpr VoiceConfig makeFmGlass() noexcept
 {
-  auto c = recipeVoice(VoiceRecipes::kFeedbackFm, kFmGlassLayout, 0.32f, 3.5f, 0.08f);
-  c.defaultSustain = 0.12f;
-  c.defaultRelease = 0.5f;
-  return c;
+  return recipeVoice(VoiceRecipes::kFeedbackFm, kFmGlassLayout, 0.32f, 3.5f, 0.08f);
 }
 constexpr VoiceConfig makeFmBass() noexcept
 {
-  auto c = recipeVoice(VoiceRecipes::kFeedbackFm, kFmBassLayout, 0.18f, 1.0f, 0.2f);
-  c.defaultDecay = 0.16f;
-  c.defaultRelease = 0.08f;
-  return c;
+  return recipeVoice(VoiceRecipes::kFeedbackFm, kFmBassLayout, 0.18f, 1.0f, 0.2f);
 }
 constexpr VoiceConfig makePhaseMorph() noexcept
 {
@@ -119,10 +104,7 @@ constexpr VoiceConfig makeSpectral() noexcept
 }
 constexpr VoiceConfig makePrism() noexcept
 {
-  auto c = recipeVoice(VoiceRecipes::kPrism, kPrismLayout, 0.3f, 0.6f, 0.12f);
-  c.defaultAttack = 0.04f;
-  c.defaultSustain = 0.7f;
-  return c;
+  return recipeVoice(VoiceRecipes::kPrism, kPrismLayout, 0.3f, 0.6f, 0.12f);
 }
 constexpr VoiceConfig makeChaosPrism() noexcept
 {

@@ -39,21 +39,10 @@ struct VoiceParameterLayout
 {
   // Eight controls plus Gate. Indexed by ParamId so every engine receives
   // the same sequencer contract, including Octave, GateLength, and Slide.
+  // A lane with a null target binding is inert: drone voices carry no
+  // filter or envelope, so only engine macros consume these lanes.
   std::array<VoiceParameterBinding, PARAM_ID_COUNT> slots{};
-  bool envelopeFromTracks = true;
   bool velocityToAmplitude = true;
-  // Main-filter cutoff in Hz for a target-less Filter lane, or for
-  // filterCutoffBase when that lane is re-purposed. With a center,
-  // filterCutoffBase 0.5 rests on it.
-  float cutoffMinimum = 120.0f;
-  float cutoffMaximum = 5000.0f;
-  dspmap::Mapping cutoffCurve = dspmap::Mapping::EXP;
-  float cutoffCenter = VoiceParameterBinding::kUncentered;
-
-  constexpr bool cutoffCentered() const noexcept
-  {
-    return cutoffCenter != VoiceParameterBinding::kUncentered;
-  }
 };
 
 namespace VoiceParameters {
@@ -81,7 +70,6 @@ constexpr VoiceParameterBinding control(const char *name, float VoiceConfig::*ta
 constexpr VoiceParameterLayout waveguideLayout()
 {
   VoiceParameterLayout p{};
-  p.envelopeFromTracks = false;
   // Velocity lives in the pluck excitation (Voice::processWaveguide_). Scaling
   // the raw output too would double-apply it and zipper the ringing string
   // every time a later step pushes a new velocity value.
@@ -95,9 +83,6 @@ constexpr VoiceParameterLayout waveguideLayout()
 constexpr VoiceParameterLayout hypersawLayout()
 {
   VoiceParameterLayout p{};
-  p.envelopeFromTracks = false;
-  p.cutoffMinimum = 150.0f;
-  p.cutoffMaximum = 8000.0f;
   p.slots[static_cast<size_t>(ParamId::Attack)] = control("Detune", &VoiceConfig::hypersawDetune);
   p.slots[static_cast<size_t>(ParamId::Decay)] = control("Mix", &VoiceConfig::hypersawMix);
   return p;
@@ -123,11 +108,9 @@ constexpr VoiceParameterLayout hardSyncLayout()
 const VoiceParameterLayout &layout(const VoiceConfig &config) noexcept;
 // Hard sync is a property of the oscillator bank: PARAMSET_HARDSYNC supplies
 // the Master/Slave lanes and disables velocity-to-amplitude on top of any
-// owned layout, so a waveform edit keeps the preset's cutoff lane.
+// owned layout.
 const VoiceParameterBinding &binding(const VoiceConfig &config, ParamId id) noexcept;
 bool velocityToAmplitude(const VoiceConfig &config) noexcept;
-// Cutoff in Hz for a normalized Filter lane value under this layout.
-float mapCutoff(const VoiceParameterLayout &layout, float normalized) noexcept;
 void apply(VoiceConfig &config, const VoiceState &state) noexcept;
 void seedTracks(Sequencer &sequencer, const VoiceConfig &config);
 bool formatValue(const VoiceConfig &config, ParamId id, float normalized,

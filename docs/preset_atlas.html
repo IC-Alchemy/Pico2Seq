@@ -132,7 +132,7 @@ footer .m{color:var(--dim)}
     <div class="stat"><b>29</b><span>presets</span></div>
     <div class="stat"><b>5</b><span>engines</span></div>
     <div class="stat"><b>10</b><span>recipe graphs</span></div>
-    <div class="stat"><b>2</b><span>filter topologies</span></div>
+    <div class="stat"><b>0</b><span>main filters — drones</span></div>
     <div class="stat"><b>3</b><span>macro lanes / patch</span></div>
   </div>
 </header>
@@ -141,18 +141,19 @@ footer .m{color:var(--dim)}
   <h2><span class="n">01</span>How a Pico2Seq voice is built</h2>
   <p class="lead">Every preset — whatever engine it uses — flows through the same shared chain. The engine only
   replaces the <b>source stage</b>; everything after it is common, which is why a patch is fully described by its
-  source plus a handful of chain settings.</p>
+  source plus a handful of chain settings. Since the <b>drone build</b> the per-voice main filter and amplitude
+  envelope are gone from the audio path entirely: sources render continuously, gate-off does not silence them
+  (they keep sounding at the last committed pitch), and a gate rise only re-triggers the engines (waveguide pluck,
+  Hypersaw phase randomize, recipe reset) and commits pitch.</p>
 
   <div class="chainbig">
     <div class="cstage"><b>Source</b><span id="arch-src">osc bank · waveguide · hypersaw · noise-FX · recipe</span></div>
     <div class="carrow">→</div>
-    <div class="cstage"><b>VCA</b><span>linear ADSR (or free-ring)</span></div>
-    <div class="carrow">→</div>
     <div class="cstage"><b>Overdrive</b><span>tanh soft-clip, pre-gain 0–2</span></div>
     <div class="carrow">→</div>
-    <div class="cstage"><b>Main filter</b><span>Moog ladder or TPT SVF</span></div>
+    <div class="cstage"><b>Velocity</b><span>amplitude scale where bound</span></div>
     <div class="carrow">→</div>
-    <div class="cstage"><b>HPF</b><span>rumble shed, 20 Hz–20 kHz</span></div>
+    <div class="cstage"><b>HPF</b><span>waveguide only — sub shed</span></div>
     <div class="carrow">→</div>
     <div class="cstage"><b>Out</b><span>level 0–1 per voice</span></div>
   </div>
@@ -160,17 +161,21 @@ footer .m{color:var(--dim)}
   <div class="engines" id="engine-cards"></div>
 
   <div class="lanes-note"><b>Sequencer lanes:</b> Note, Velocity, Filter, Attack, Decay, Octave, Gate-Length, Slide and
-  Gate are the nine recorded tracks. Each preset re-purposes <b>Velocity / Filter / Attack / Decay</b> through a
-  <i>parameter set</i>: <span class="m">STANDARD</span> keeps cutoff + ADSR times; <span class="m">WAVEGUIDE</span>
-  swaps them for string Brightness / Pick / T60; <span class="m">HYPERSAW</span> for Detune / Mix;
-  <span class="m">NOISESTORM</span> for swarm Color / Regen / Lorenz Chaos; <span class="m">HARDSYNC</span> turns
-  Velocity into the sync slave ratio (±24 st); and every <b>recipe</b> patch defines its own three named macro lanes
-  (color / shape / character). Note, Octave, Gate-Length, Slide and Gate always keep their shared meanings.</div>
+  Gate are the nine recorded tracks. Filter / Attack / Decay are <b>macro-only</b>: each preset either binds them to
+  engine macros or leaves them inert (the OLED shows <span class="m">"--"</span>).
+  <span class="m">WAVEGUIDE</span> binds Brightness / Pick / T60; every <b>recipe</b> patch defines its own three
+  named macro lanes (color / shape / character); <span class="m">HYPERSAW</span> binds Detune / Mix and leaves the
+  Filter lane inert; <span class="m">NOISESTORM</span> binds swarm Color / Regen / Lorenz Chaos;
+  <span class="m">HARDSYNC</span> renames Note / Velocity to Master / Slave — Velocity becomes the sync slave ratio
+  (±24 st) — and leaves Filter / Attack / Decay inert. The nine <b>oscillator</b> presets (Analog … RubberSub) have no
+  filter, envelope or cutoff spans at all: their Filter / Attack / Decay lanes are unbound and inert. Only there does
+  Velocity still scale amplitude; waveguide spends it on pluck energy instead. Note, Octave, Gate-Length, Slide and
+  Gate always keep their shared meanings.</div>
 </section>
 
 <section class="wrap" id="atlas">
   <h2><span class="n">02</span>The presets</h2>
-  <p class="lead">Click any card for the full patch breakdown: source-stage scope trace, spectrum, ADSR, signal path,
+  <p class="lead">Click any card for the full patch breakdown: source-stage scope trace, spectrum, signal path,
   lane mapping and listening notes. Waveforms are rendered at the note shown in each caption.</p>
   <div id="famtabs"></div>
   <div id="grid"></div>
@@ -178,9 +183,10 @@ footer .m{color:var(--dim)}
 </section>
 
 <footer class="wrap">
-  Generated 2026-09-15 from the <span class="m">DeCluttered</span> branch sources — preset data:
-  <span class="m">src/voice/presets/*.h</span> · recipes: <span class="m">src/voice/engines/RecipeSources.h</span> ·
-  engines: <span class="m">src/rpdsp/</span> · chain: <span class="m">src/voice/Voice.cpp</span>.
+  Generated 2026-09-17 from the <span class="m">DeCluttered</span> branch sources after the <b>drone build</b> —
+  preset data: <span class="m">src/voice/presets/*.h</span> · recipes:
+  <span class="m">src/voice/engines/RecipeSources.h</span> · engines: <span class="m">src/rpdsp/</span> ·
+  chain: <span class="m">src/voice/Voice.cpp</span>.
   Browser traces are faithful ports of the DSP math for visualization; the hardware is the final word on tone.
 </footer>
 
@@ -191,13 +197,13 @@ const wrap01 = p => p - Math.floor(p);
 const clamp01 = v => v<0?0:v>1?1:v;
 const FAM = {
   osc:   {name:'Oscillator', color:'#58a6ff', full:'Oscillator Engine',
-    blurb:'Classic subtractive core: up to three oscillators per voice (band-limited B-spline saw & square, pure sine, triangle, or a band-limited hard-sync saw), or raw white noise when the oscillator count is zero. Detune is in semitones, harmony in scale steps. The shared chain then does filter, drive and envelope. Presets: Analog, Digital, Bass, Lead, Square, Pad, Percussion, SubFunk, RubberSub.'},
+    blurb:'Classic oscillator core: up to three oscillators per voice (band-limited B-spline saw & square, pure sine, triangle, or a band-limited hard-sync saw), or raw white noise when the oscillator count is zero. Detune is in semitones, harmony in scale steps. Raw mixes only — no filter, no envelope, no high-pass: just overdrive and output level, droning at the last committed pitch. Presets: Analog, Digital, Bass, Lead, Square, Pad, Percussion, SubFunk, RubberSub.'},
   wg:    {name:'Waveguide', color:'#3fb950', full:'Waveguide Strings',
-    blurb:'A Jaffe–Smith Karplus-Strong plucked pair: a filtered noise burst (pick hardness) with a pick-position comb feeds two slightly detuned delay-line loops whose damping filter (brightness) and loop gain (T60) set material and tail. Stiffness allpasses stretch the upper partials inharmonic. Velocity lands in the pluck energy; the VCA and main filter are bypassed — the string rings naturally. Presets: WgPluck, WgNylon, WgBell, WgShimmer.'},
+    blurb:'A Jaffe–Smith Karplus-Strong plucked pair: a filtered noise burst (pick hardness) with a pick-position comb feeds two slightly detuned delay-line loops whose damping filter (brightness) and loop gain (T60) set material and tail. Stiffness allpasses stretch the upper partials inharmonic. Velocity lands in the pluck energy; the drone build has no VCA or main filter at all — the string rings naturally behind a 55/66 Hz sub-shedding high-pass. Presets: WgPluck, WgNylon, WgBell, WgShimmer.'},
   tex:   {name:'Texture', color:'#e3b341', full:'Texture Engines',
-    blurb:'Two single-purpose engines. Hypersaw: seven band-limited saws on a fixed JP-style detune table (detune mapped through an x⁴ curve) with mix-dependent center/side gains and a pitch-tracked cleanup highpass. NoiseStorm: white noise blended with a pitch-tracked Lorenz-attractor growl, smeared by a prime-tap diffuser, then set ringing by an energy-governed allpass swarm. Presets: Hypersaw, NoiseStorm.'},
+    blurb:'Two single-purpose engines. Hypersaw: seven band-limited saws on a fixed JP-style detune table (detune mapped through an x⁴ curve) with mix-dependent center/side gains and a pitch-tracked cleanup highpass — Attack/Decay lanes map to Detune/Mix and the Filter lane is inert. NoiseStorm: white noise blended with a pitch-tracked Lorenz-attractor growl, smeared by a prime-tap diffuser, then set ringing by an energy-governed allpass swarm. Presets: Hypersaw, NoiseStorm.'},
   rec:   {name:'Recipe', color:'#bc8cff', full:'Recipe Engines',
-    blurb:'Small fixed rpdsp patch graphs — two-operator feedback FM, Casio-style phase distortion, morphing tri/square, DSF additive stacks, a six-partial spectral prism with logistic-map drift, FOF formant grains, ring modulation, reversing sync and through-zero FM. Each patch exposes exactly three named macro lanes (color/shape/character); the main filter is bypassed and preset envelopes shape the note. 14 of the 29 presets live here.'},
+    blurb:'Small fixed rpdsp patch graphs — two-operator feedback FM, Casio-style phase distortion, morphing tri/square, DSF additive stacks, a six-partial spectral prism with logistic-map drift, FOF formant grains, ring modulation, reversing sync and through-zero FM. Each patch exposes exactly three named macro lanes (color/shape/character) and feeds straight into the shared drive/level chain — no filter, no envelope. 14 of the 29 presets live here.'},
 };
 
 /* ============ DSP ports (visualization-faithful rpdsp ports) ============ */
@@ -382,9 +388,8 @@ const SIMS = {
   Lead: f=>mix([smooth3(genWave('saw',f,0.5,0,0.09)), smooth3(genWave('saw',f,0.5,3,0.09))],[0.6,0.4]),
   Square: f=>smooth3(genWave('sq',f,0.2,0,0.09)),
   Pad: f=>mix([smooth3(genWave('saw',f,0.5,0,0.09)), smooth3(genWave('saw',f,0.5,4,0.09)), smooth3(genWave('saw',f,0.5,9,0.09))],[0.33,0.33,0.33]),
-  Percussion: f=>{const n=genWave('noise',f,0,0,0.09); const a=0.005,d=0.08,s=0,r=0.07;
-    for(let i=0;i<n.length;i++){const t=i/SR; const env=t<a?t/a:t<a+d?1-(1-s)*(t-a)/d:t<a+d+0.05?s:s*Math.max(0,1-(t-a-d)/r); n[i]*=env;} return n;},
-  SubFunk: f=>mix([genWave('sin',f,0.5,-12,0.09), genWave('tri',f,0.5,-12,0.09), genWave('sin',f,0.5,0,0.09)],[1,0.8,0.65]),
+  Percussion: f=>genWave('noise',f,0,0,0.09),
+  SubFunk: f=>mix([genWave('sin',f,0.5,-12,0.09), smooth3(genWave('sq',f,0.5,-12,0.09)), genWave('sin',f,0.5,0,0.09)],[1,0.35,0.65]),
   RubberSub: f=>mix([genWave('sin',f,0.5,-12,0.09), smooth3(genWave('sq',f,0.5,-12,0.09)), genWave('tri',f,0.5,0,0.09)],[0.9,0.3,0.5]),
   WgPluck: f=>ksSim(f,{t60:1.8,bright:0.78,pos:0.26,hard:0.85,stiff:0,det:4}),
   WgNylon: f=>ksSim(f,{t60:3.2,bright:0.28,pos:0.42,hard:0.22,stiff:0.05,det:9}),
@@ -434,161 +439,160 @@ const SIMS = {
 const L = (slot,name,range)=>({slot,name,range});
 const PRESETS = [
 {id:0,key:'Analog',name:'Analog',fam:'osc',simF:220,
- tag:'Sequenced hard-sync saw through a driven Moog ladder',
+ tag:'Sequenced hard-sync saw, raw and droning',
  badges:['ENGINE_OSC','HARDSYNC set'],
  src:{kind:'osc',oscs:[['Hard-sync saw','amp 1.0','slave 1:1 at rest — Velocity lane sweeps it ±24 st']]},
- filt:{topo:'Ladder',mode:'LP24',res:0.33,drive:2.1},hpf:120,od:null,env:[0.07,0.24,0.5,0.16],out:0.5,
- lanes:['Velocity → sync slave ratio ±24 st','Filter → cutoff 120 Hz–5 kHz (exp)','Attack / Decay → ADSR 2–750 ms / decay+release'],
+ od:null,velAmp:false,out:0.5,
+ lanes:['Note → master pitch (lane renames "Master")','Velocity → sync slave ratio ±24 st ("Slave")','Filter / Attack / Decay → inert (OLED "--")'],
  simNote:'Slave ratio defaults to 1:1, so the scope shows a clean band-limited saw — sweep Velocity and the sync sidebands carve in.',
  made:`<p>Built on a single <b>band-limited hard-sync saw</b> — one rpdsp <span class="m">HardSyncSaw</span> where a slave
- saw is force-reset by a master. It is one of only two presets that still use the <b>Moog ladder</b> filter
- (LP24, drive 2.1, resonance 0.33, passband-gain compensation 0.23), and the only one whose Velocity lane is
- re-tasked as the <b>sync slave ratio</b>, ±24 semitones around 1:1.</p>
- <p>Sequencer lanes: Velocity = sync ratio, Filter = cutoff (120 Hz–5 kHz exp), Attack/Decay = envelope times.
- A 120 Hz highpass sheds rumble.</p>`,
+ saw is force-reset by a master. It is the only preset whose Velocity lane is re-tasked as the <b>sync slave ratio</b>,
+ ±24 semitones around 1:1 — on this preset the lane pair renames to <b>Master / Slave</b> on the OLED.</p>
+ <p>Drone build: no filter, no envelope, no high-pass anywhere in the chain — the raw sync saw feeds straight into
+ overdrive (off here) and output level, holding each committed pitch until the next gate rise. Filter / Attack /
+ Decay are unbound and inert.</p>`,
  sound:`<p>At rest it plays a clean analog saw; push Velocity and the slave ratio climbs, sharpening the tone into the
- trademark sync <i>zip</i> — glassy, biting, formant-emphasized. The ladder's drive 2.1 adds warm tanh saturation that
- the LP24 then tames, so hard-velocity steps snarl while soft ones stay round. The 70 ms attack and 240 ms decay make
- each step a deliberate sync-blip rather than a click. Classic aggressive-lead territory that stays precise because
- the sync saw is band-limited.</p>`},
+ trademark sync <i>zip</i> — glassy, biting, formant-emphasized. With nothing filtering or shaping the tone
+ downstream, every harmonic the sync saw produces arrives untouched, and steps never fade: the voice holds each
+ pitch like a bench oscillator until the next gate re-commits. Classic aggressive-lead material that stays precise
+ because the sync saw is band-limited.</p>`},
 
 {id:1,key:'Digital',name:'Digital',fam:'osc',simF:220,
- tag:'Twin band-limited squares under a clean SVF lowpass',
- badges:['ENGINE_OSC','STANDARD set'],
+ tag:'Twin band-limited squares, 1 cent apart — pure and hollow',
+ badges:['ENGINE_OSC','lanes unbound'],
  src:{kind:'osc',oscs:[['B-spline square','amp 0.75','unison'],['B-spline square','amp 0.65','+1 cent detune']]},
- filt:{topo:'SVF',mode:'LP12',res:0.4},hpf:111,od:null,env:[0.015,0.1,0.5,0.15],out:0.5,
- lanes:['Velocity → level','Filter → cutoff 120 Hz–5 kHz (exp)','Attack / Decay → ADSR times'],
- made:`<p>Two <b>band-limited B-spline squares</b> — the second detuned one cent for a slow phasing shimmer — into the
- <b>TPT state-variable filter</b> (LP12, res 0.4), chosen deliberately over the ladder for a clean resonant slope.
- The B-spline square is built as the integral of band-limited edge impulses, so its PWM-style edges are chirp-free.</p>
- <p>Standard lanes throughout: Velocity = level, Filter = cutoff, Attack/Decay = envelope. A 111 Hz highpass with a
- touch of resonance (0.15) tightens the bottom.</p>`,
+ od:null,velAmp:true,out:0.5,
+ lanes:['Velocity → level (velocity-to-amplitude)','Filter / Attack / Decay → inert (OLED "--")'],
+ made:`<p>Two <b>band-limited B-spline squares</b> — the second detuned one cent for a slow phasing shimmer — and
+ nothing else. The B-spline square is built as the integral of band-limited edge impulses, so its PWM-style edges
+ are chirp-free. In the drone build the pair feeds straight into overdrive (off here) and output level; the former
+ TPT SVF stage, ADSR and 111 Hz high-pass are gone from the audio path entirely.</p>
+ <p>Velocity still scales the voice level; Filter / Attack / Decay are unbound and inert.</p>`,
  sound:`<p>Hollow and nasal like a classic digital-era synth patch, but polished — the band-limited squares keep the
- 1-cent-beat pair from ever going sour. The clean SVF resonance pings gently as steps sweep the cutoff, and the 15 ms
- attack / 100 ms decay give it a tight, sequencer-percussive articulation. Think square-wave chiptune grown up:
- glassy, composed, slightly hollow, never harsh.</p>`},
+ 1-cent-beat pair from ever going sour. As a drone it sits and shimmers at one pitch, the slow beat between the two
+ squares doing the moving that a filter sweep used to. Think square-wave chiptune grown up: glassy, composed,
+ slightly hollow, never harsh.</p>`},
 
 {id:2,key:'Bass',name:'Bass',fam:'osc',simF:55,
- tag:'Sub sine + triangle body with resonant SVF growl and light drive',
- badges:['ENGINE_OSC','STANDARD set'],
+ tag:'Sub sine + triangle body with light drive',
+ badges:['ENGINE_OSC','lanes unbound'],
  src:{kind:'osc',oscs:[['Sine','amp 1.0','−12 st sub'],['Triangle','amp 1.0','unison']]},
- filt:{topo:'SVF',mode:'LP12',res:0.45},hpf:45,od:{gain:0.95,drive:0.16},env:[0.01,0.3,0.85,0.2],out:0.85,
- lanes:['Velocity → level','Filter → cutoff 120 Hz–5 kHz (exp)','Attack / Decay → ADSR times'],
+ od:{gain:0.95,drive:0.16},velAmp:true,out:0.85,
+ lanes:['Velocity → level (velocity-to-amplitude)','Filter / Attack / Decay → inert (OLED "--")'],
  made:`<p>A pure <b>sine an octave down</b> carries the sub; an unison <b>naive triangle</b> adds hollow odd-harmonic body.
- Filtering is the clean <b>SVF in LP12</b> — the header comment calls it out: resonance 0.45 "carries the growl",
- giving tight stable bass where a driven ladder would flutter. A gentle <b>overdrive</b> (gain 0.95, drive 0.16)
- sits before the filter for subtle warmth, and the highpass parks at just 45 Hz to keep the sub intact.</p>
- <p>Standard lanes; sustain 0.85 means notes hold nearly full level while gated.</p>`,
- sound:`<p>A round, dense sub bass with a soft woody edge from the triangle. The SVF resonance blooms into a controlled
- growl whenever the cutoff lane sweeps, and the light tanh drive glues sine and triangle into one body instead of two
- layers. The 10 ms attack keeps it punchy but not clicky; the long 300 ms decay with high sustain lets bass notes
- sustain like an analog synth under the fingers. Tight, stable, deep — a workhorse.</p>`},
+ That is the whole patch: a gentle <b>overdrive</b> (gain 0.95, drive 0.16) for subtle warmth, then output level.
+ The old SVF "growl" stage and its envelope are gone in the drone build — the tone you hear is the raw mix, and the
+ drive is the only color left.</p>
+ <p>Velocity still scales the level; Filter / Attack / Decay are unbound and inert.</p>`,
+ sound:`<p>A round, dense sub bass with a soft woody edge from the triangle, glued into one body by the light tanh
+ drive. Where the old preset growled when its cutoff lane swept, this one now holds a steady fundamental and lets
+ Velocity accents do the dynamics — hard steps bark a little harder through the drive, soft steps sit underneath.
+ Tight, stable, deep — a workhorse drone bass.</p>`},
 
 {id:3,key:'Lead',name:'Lead',fam:'osc',simF:220,
- tag:'Interval-stacked saws through a hot-driven ladder',
- badges:['ENGINE_OSC','STANDARD set'],
+ tag:'Interval-stacked saws, wide open',
+ badges:['ENGINE_OSC','lanes unbound'],
  src:{kind:'osc',oscs:[['B-spline saw','amp 0.6','root'],['B-spline saw','amp 0.4','+3 scale steps']]},
- filt:{topo:'Ladder',mode:'LP12',res:0.4,drive:3.0},hpf:160,od:null,env:[0.02,0.2,0.5,0.15],out:0.5,
- lanes:['Velocity → level','Filter → cutoff 120 Hz–5 kHz (exp)','Attack / Decay → ADSR times'],
+ od:null,velAmp:true,out:0.5,
+ lanes:['Velocity → level (velocity-to-amplitude)','Filter / Attack / Decay → inert (OLED "--")'],
  made:`<p>Two band-limited saws, the second harmonized <b>+3 scale steps</b> (the exact interval follows the active
- scale), summed into the second of the two <b>ladder-filter</b> presets — here at drive 3.0, the hottest setting in
- the bank, in LP12 with resonance 0.4. The 160 Hz highpass keeps the harmony stack clear of mud.</p>
- <p>Standard lanes; the Filter lane drives the ladder cutoff, so filtered leads scream with drive behind them.</p>`,
- sound:`<p>A big expressive saw lead that plays duet with itself. Drive 3.0 pushes the ladder's tanh stages hard, adding
- the classic Moog grind — brightness that thickens rather than buzzes — and the resonance whistles sweetly as the
- cutoff lane rides. The +3-step harmony means every note is already a dyad, giving melodic lines an instant anthem
- quality. 20 ms attack, 200 ms decay: singing but disciplined.</p>`},
+ scale), summed straight to the output. No drive, no filter — the former drive-3.0 ladder stage is gone, so the
+ dyad sounds exactly as the oscillator math drew it: complete, bright, band-limited.</p>
+ <p>Velocity still scales the level; Filter / Attack / Decay are unbound and inert.</p>`,
+ sound:`<p>A big, honest saw lead that plays duet with itself. Without the ladder grind the tone is cleaner than it
+ used to be — the +3-step harmony means every note is already a dyad, giving melodic lines an instant anthem
+ quality, and as a drone the dyad just hangs there shimmering at beat-free unison. Pair it with external filtering
+ if you want the old aggression back.</p>`},
 
 {id:4,key:'Square',name:'Square',fam:'osc',simF:220,
- tag:'Narrow pulse through a resonant bandpass — hollow pluck',
- badges:['ENGINE_OSC','STANDARD set'],
+ tag:'Narrow pulse — reedy and hollow on its own',
+ badges:['ENGINE_OSC','lanes unbound'],
  src:{kind:'osc',oscs:[['B-spline square','amp 1.0','pulse width 0.2']]},
- filt:{topo:'SVF',mode:'BP24',res:0.6},hpf:150,od:null,env:[0.02,0.4,0.0,0.25],out:0.56,
- lanes:['Velocity → level','Filter → cutoff 120 Hz–5 kHz (exp)','Attack / Decay → ADSR times'],
- made:`<p>One <b>band-limited square at pulse width 0.2</b> — already thin and reedy — into the SVF configured as a
- <b>bandpass</b> (res 0.6). Bandpass means both filter slopes act at once: the tone keeps only a singing band around
- the cutoff. Sustain is 0, so the voice is a pure pluck: attack, decay to silence.</p>
- <p>Standard lanes; the cutoff lane sweeps the bandpass center, reed-like.</p>`,
- sound:`<p>A hollow, pinched <i>bloink</i>. The 20% pulse gives a nasal squawk, the bandpass Focuses it into a single
- resonant vowel, and zero sustain makes every step a wooden pluck that decays over 400 ms. Sweep the Filter lane and
- it morphs from sub-harmonic thud to upper-register squeak without ever getting loud in between — great for percussive
- melodic hooks that sit in their own tonal pocket.</p>`},
+ od:null,velAmp:true,out:0.56,
+ lanes:['Velocity → level (velocity-to-amplitude)','Filter / Attack / Decay → inert (OLED "--")'],
+ made:`<p>One <b>band-limited square at pulse width 0.2</b> — already thin and reedy — direct to the output. The old
+ SVF bandpass (which focused the tone into a single singing band) is gone; what you hear now is the full harmonic
+ spread of the narrow pulse, unfiltered.</p>
+ <p>Velocity still scales the level; Filter / Attack / Decay are unbound and inert.</p>`,
+ sound:`<p>A nasal, pinched drone — the 20% pulse keeps the fundamental present while a dense trail of upper
+ harmonics gives it that classic thin-square squawk. Where the bandpass version bloomed through one resonant
+ vowel, this one lays out the whole spectrum and lets the pulse's own comb notches do the shaping. Great raw
+ material for external wavefolders and filters.</p>`},
 
 {id:5,key:'Pad',name:'Pad',fam:'osc',simF:220,
- tag:'Three-saw scale chord under a smooth SVF',
- badges:['ENGINE_OSC','STANDARD set'],
+ tag:'Three-saw scale chord, untouched',
+ badges:['ENGINE_OSC','lanes unbound'],
  src:{kind:'osc',oscs:[['B-spline saw','amp 0.33','root'],['B-spline saw','amp 0.33','+4 scale steps'],['B-spline saw','amp 0.33','+9 scale steps']]},
- filt:{topo:'SVF',mode:'LP12',res:0.3},hpf:140,od:null,env:[0.02,0.2,0.5,0.5],out:0.5,
- lanes:['Velocity → level','Filter → cutoff 120 Hz–5 kHz (exp)','Attack / Decay → ADSR times'],
+ od:null,velAmp:true,out:0.5,
+ lanes:['Velocity → level (velocity-to-amplitude)','Filter / Attack / Decay → inert (OLED "--")'],
  made:`<p>Three equal band-limited saws stacked at <b>scale-degree offsets 0 / 4 / 9</b> — the concrete interval follows
- the loaded scale, so the same preset re-voices itself per song — through the clean SVF in LP12, resonance a gentle
- 0.3. The comment calls for a slow attack but the shipped value is 20 ms; the 500 ms release is what gives it the
- pad behaviour, letting steps overlap into a wash.</p>
- <p>Standard lanes; the highpass at 140 Hz keeps the chord from crowding the bass.</p>`,
- sound:`<p>A wide, soft-edged chord swell: each note is really a triad, and successive steps smear into one moving
- harmony thanks to the long release. The B-spline saws stay silky where naive saws would sizzle, and the mild SVF
- slope darkens the top without ever squashing the chord's breadth. Brighten the cutoff lane for an anthemic trance
- pad, darken it for a warm blanket behind a lead.</p>`},
+ the loaded scale, so the same preset re-voices itself per song. The mild SVF slope that used to darken the top is
+ gone; the chord arrives with all of its B-spline shimmer intact, and the drone build means it sustains as long as
+ you leave the voice enabled.</p>
+ <p>Velocity still scales the level; Filter / Attack / Decay are unbound and inert.</p>`,
+ sound:`<p>A wide, bright chord wash: each note is really a triad, and the detuned-but-band-limited saws stay silky
+ where naive saws would sizzle. As a drone it is a static, glowing harmony — no more cutoff-lane brightening, just
+ pure moving beat patterns between the three stacks. External low-pass it if it needs to sit behind a lead.</p>`},
 
 {id:6,key:'Percussion',name:'Percussion',fam:'osc',simF:220,
- tag:'Raw white noise shaped into a tight tick',
- badges:['ENGINE_OSC','STANDARD set'],
+ tag:'Raw white noise, full-flat spectrum',
+ badges:['ENGINE_OSC','lanes unbound'],
  src:{kind:'osc',oscs:[['White noise','amp 1.0','oscillatorCount 0 = noise source']]},
- filt:{topo:'SVF',mode:'LP24',res:0.4},hpf:200,od:null,env:[0.005,0.08,0.0,0.07],out:0.5,
- lanes:['Velocity → level','Filter → cutoff 120 Hz–5 kHz (exp)','Attack / Decay → ADSR times'],
+ od:null,velAmp:true,out:0.5,
+ lanes:['Velocity → level (velocity-to-amplitude)','Filter / Attack / Decay → inert (OLED "--")'],
  made:`<p>Oscillator count zero — which in this engine means the source is <b>raw white noise</b> (a xorshift32
- generator, flat spectrum, no filtering). The SVF in LP24 with resonance 0.4 tints it, the 200 Hz highpass removes
- thump, and an extremely short envelope (5 ms attack, 80 ms decay, sustain 0, 70 ms release) carves the hit.</p>
- <p>Standard lanes: the cutoff lane sweeps from closed hat to full splash; Velocity hits harder or softer.</p>`,
- sound:`<p>A dry, unpitched <i>tss</i> — somewhere between a shaker and a closed hat depending on where the cutoff lane
- sits. Because the source is true white noise, every hit is statistically unique, which keeps rapid hi-hat sequences
- alive rather than sample-repetitive. At high cutoff settings it opens into a brushed splash; closed down it becomes
- a tick that tightens the groove without eating space.</p>`},
+ generator, flat spectrum). No filter tints it, no envelope carves it, no high-pass trims the thump: the drone build
+ outputs the noise stream as-is, with only Velocity scaling its level.</p>
+ <p>Filter / Attack / Decay are unbound and inert; the tick-and-splash articulation the old cutoff lane provided now
+ belongs to whatever module follows.</p>`,
+ sound:`<p>A steady unpitched <i>hiss</i> — statistically unique sample-by-sample, never looping. As a drone it is a
+ reference white-noise bed, brighter than the old LP24-tinted tick and flat all the way up. Velocity is the only
+ dynamics control left on-patch: accents pump the noise level, everything else is downstream.</p>`},
 
 {id:7,key:'SubFunk',name:'SubFunk',fam:'osc',simF:55,
  tag:'Double sub-oscillator funk bass with warm grit',
- badges:['ENGINE_OSC','STANDARD set'],
- src:{kind:'osc',oscs:[['Sine','amp 1.0','−12 st sub'],['Triangle','amp 0.8','−12 st color'],['Sine','amp 0.65','unison body']]},
- filt:{topo:'SVF',mode:'LP12',res:0.5},hpf:55,od:{gain:0.9,drive:0.35},env:[0.004,0.22,0.35,0.12],out:0.9,
- lanes:['Velocity → level','Filter → cutoff 120 Hz–5 kHz (exp)','Attack / Decay → ADSR times'],
- made:`<p>Three oscillators, two of them an octave down: a full-level <b>sub sine</b>, a <b>triangle</b> beside it for
- sub-octave harmonic color, and a unison sine for the fundamental body. The clean SVF (LP12, res 0.5) stays stable
- under envelope sweeps, the 55 Hz highpass keeps "the sub, sheds the rumble", and a firmer <b>overdrive</b>
- (gain 0.9, drive 0.35) adds the warm grit the comment promises.</p>
- <p>Standard lanes; the 4 ms attack and low sustain 0.35 make it a plucked, bouncy bass.</p>`,
- sound:`<p>A deep, rubbery funk bass. The doubled sub octave makes notes feel felt-more-than-heard, the triangle
- sneaks in just enough edge to articulate fast lines, and the drive pushes a satisfying <i>frrm</i> onto accented
- steps as the envelope smacks the SVF. Sustain 0.35 means notes fall away quickly — thumb-and-string phrasing at
- sequencer speed.</p>`},
+ badges:['ENGINE_OSC','lanes unbound'],
+ src:{kind:'osc',oscs:[['Sine','amp 1.0','−12 st sub'],['B-spline square','amp 0.35','−12 st grit'],['Sine','amp 0.65','unison body']]},
+ od:{gain:0.9,drive:0.45},velAmp:true,out:0.9,
+ lanes:['Velocity → level (velocity-to-amplitude)','Filter / Attack / Decay → inert (OLED "--")'],
+ made:`<p>Three oscillators, two of them an octave down: a full-level <b>sub sine</b>, a <b>band-limited square</b>
+ beside it for sub-octave odd-harmonic bite, and a unison sine for the fundamental body. A firmer <b>overdrive</b>
+ (gain 0.9, drive 0.45) adds the warm grit the comment promises — and in the drone build that drive is the only
+ tone-shaping stage left: no SVF, no envelope, no high-pass.</p>
+ <p>Velocity still scales the level; Filter / Attack / Decay are unbound and inert.</p>`,
+ sound:`<p>A deep, rubbery funk drone. The doubled sub octave makes notes feel felt-more-than-heard, the little square
+ sneaks in just enough edge to keep the bass audible on small speakers, and the drive pushes a satisfying
+ <i>frrm</i> onto Velocity accents. Where the old preset bounced on its envelope, this one squares up and stays
+ there — thumb-and-string phrasing frozen into a holding growl.</p>`},
 
 {id:8,key:'RubberSub',name:'RubberSub',fam:'osc',simF:55,
- tag:'Bandpassed sub stack with maximum spit',
- badges:['ENGINE_OSC','STANDARD set'],
+ tag:'Sub stack with maximum drive spit',
+ badges:['ENGINE_OSC','lanes unbound'],
  src:{kind:'osc',oscs:[['Sine','amp 0.9','−12 st sub'],['B-spline square','amp 0.3','−12 st grit'],['Triangle','amp 0.5','unison body']]},
- filt:{topo:'SVF',mode:'BP24',res:0.7},hpf:70,od:{gain:1.0,drive:0.55},env:[0.002,0.16,0.25,0.09],out:0.85,
- lanes:['Velocity → level','Filter → cutoff 120 Hz–5 kHz (exp)','Attack / Decay → ADSR times'],
+ od:{gain:1.0,drive:0.55},velAmp:true,out:0.85,
+ lanes:['Velocity → level (velocity-to-amplitude)','Filter / Attack / Decay → inert (OLED "--")'],
  made:`<p>Sibling to SubFunk with two twists: the color oscillator is a <b>band-limited square</b> an octave down
- (harmonic grit instead of triangle smoothness), and the filter is the SVF as a <b>bandpass at resonance 0.7</b> —
- the comment notes the 2-pole SVF honks harder than the old BP24 ladder. Overdrive goes to the bank maximum:
- gain 1.0, drive 0.55, "spit".</p>
- <p>Standard lanes; 2 ms attack, 160 ms decay, sustain 0.25 — the shortest, springiest envelope of the bass family.</p>`,
- sound:`<p>Exactly what the name says: a rubber band in synth form. The bandpass focuses the sub stack into a boingy
- honk that twangs as the cutoff lane moves, while the hot drive spits harmonics onto every attack. Where SubFunk
- purrs, RubberSub barks — use it for percussive basslines that need attitude, or push the resonance lane for
- quasi-lead bass squeals.</p>`},
+ (harmonic grit instead of triangle smoothness), and the overdrive sits at the bank maximum — gain 1.0, drive 0.55,
+ "spit". The BP24 honk that gave the old preset its boing is gone; the bark now comes purely from the hot tanh
+ stage grinding the square's edge.</p>
+ <p>Velocity still scales the level; Filter / Attack / Decay are unbound and inert.</p>`,
+ sound:`<p>Still exactly what the name says: a rubber band in synth form — but held taut instead of twanged. The
+ drive spits a constant halo of harmonics off the sub-square pair, and Velocity accents snap it harder. Where
+ SubFunk purrs, RubberSub growls — use it for attitude basslines that need to sustain, or feed it to an external
+ bandpass to recover the old honk.</p>`},
 
 {id:9,key:'WgPluck',name:'WgPluck',fam:'wg',simF:220,
  tag:'Bright steel-string pluck, natural 1.8 s ring',
  badges:['ENGINE_WAVEGUIDE','WAVEGUIDE set','no VCA · no filter'],
  src:{kind:'wg',params:[['T60','1.8 s'],['Brightness','0.78 glassy'],['Pick position','0.26'],['Pick hardness','0.85 hard'],['Stiffness','0'],['Course detune','4 cents']]},
- hpf:55,noFilter:true,noEnv:true,out:0.85,
+ hpf:55,velAmp:false,out:0.85,
  lanes:['Velocity → pluck energy','Filter → string Brightness 0–1','Attack → pick hardness 0–1','Decay → T60 0.05–10 s'],
  simNote:'Trace shows the first ~0.45 s of both detuned strings summed — decay, brightness and 4-cent course beating all live.',
  made:`<p>A Jaffe–Smith <b>Karplus-Strong course</b>: two independently plucked strings 4 cents apart, each fed a
  one-period noise burst hardened by a 0.85 pick (bright transient), combed by pick position 0.26, then looping
  through a damping filter at brightness 0.78 and a loop gain solved for a <b>1.8 second T60</b>. Zero stiffness
  keeps partials perfectly harmonic — a plain string. Velocity is injected <i>into the burst</i>, so soft notes
- also decay softer. The VCA, filter and envelope are all bypassed; only a 55 Hz highpass sheds loop rumble.</p>`,
+ also decay softer. The drone build has no VCA, main filter or envelope anywhere; only the waveguide 55 Hz highpass sheds loop rumble.</p>`,
  sound:`<p>A convincing steel-string guitar pluck: hard-pick attack, glassy sustain, natural decay you never have to
  gate. The 4-cent detune makes the course shimmer gently as the two strings drift in and out of phase. Because the
  envelope is the physics itself, velocity feels acoustic — a soft step is a lighter touch, not just a quieter one.
@@ -598,7 +602,7 @@ const PRESETS = [
  tag:'Dark classical nylon, felt-soft, long hollow tail',
  badges:['ENGINE_WAVEGUIDE','WAVEGUIDE set','no VCA · no filter'],
  src:{kind:'wg',params:[['T60','3.2 s'],['Brightness','0.28 dark'],['Pick position','0.42 near middle'],['Pick hardness','0.22 felt'],['Stiffness','0.05'],['Course detune','9 cents']]},
- hpf:66,noFilter:true,noEnv:true,out:0.9,
+ hpf:66,velAmp:false,out:0.9,
  lanes:['Velocity → pluck energy','Filter → string Brightness 0–1','Attack → pick hardness 0–1','Decay → T60 0.05–10 s'],
  simNote:'Dark loop damping plus middle-of-string pick comb (even-harmonic nulls) give the soft hollow trace.',
  made:`<p>The same Karplus-Strong course tuned for <b>nylon</b>: loop damping at brightness 0.28 (a ~1.7 kHz cutoff —
@@ -614,7 +618,7 @@ const PRESETS = [
  tag:'Bridge-plucked, stiffness-stretched — a struck bell from a string',
  badges:['ENGINE_WAVEGUIDE','WAVEGUIDE set','no VCA · no filter'],
  src:{kind:'wg',params:[['T60','1.4 s'],['Brightness','0.90 glassy'],['Pick position','0.08 bridge'],['Pick hardness','1.0 hard'],['Stiffness','0.88 inharmonic'],['Course detune','0 cents']]},
- hpf:0,noFilter:true,noEnv:true,out:0.75,
+ hpf:0,velAmp:false,out:0.75,
  lanes:['Velocity → pluck energy','Filter → string Brightness 0–1','Attack → pick hardness 0–1','Decay → T60 0.05–10 s'],
  simNote:'Stiffness allpasses stretch upper partials sharp of integer ratios — the spectrum stops looking string-like and starts chiming.',
  made:`<p>The waveguide pushed until it stops being a string. <b>Stiffness 0.88</b> inserts two first-order allpasses
@@ -631,7 +635,7 @@ const PRESETS = [
  tag:'26-cent course under a 6.5 s tail — slow 12-string swell',
  badges:['ENGINE_WAVEGUIDE','WAVEGUIDE set','no VCA · no filter'],
  src:{kind:'wg',params:[['T60','6.5 s'],['Brightness','0.55'],['Pick position','0.35'],['Pick hardness','0.6'],['Stiffness','0.15'],['Course detune','26 cents wide']]},
- hpf:0,noFilter:true,noEnv:true,out:0.8,
+ hpf:0,velAmp:false,out:0.8,
  lanes:['Velocity → pluck energy','Filter → string Brightness 0–1','Attack → pick hardness 0–1','Decay → T60 0.05–10 s'],
  simNote:'Only the first 0.9 s of a 6.5 s tail is drawn — the slow beating between the 26-cent strings keeps swelling long after.',
  made:`<p>The ambient end of the waveguide: <b>T60 6.5 seconds</b> — near the engine's 10 s ceiling — with the course
@@ -646,69 +650,67 @@ const PRESETS = [
 {id:13,key:'Hypersaw',name:'Hypersaw',fam:'tex',simF:110,
  tag:'Seven-voice supersaw with x⁴ detune law',
  badges:['ENGINE_HYPERSAW','HYPERSAW set'],
- src:{kind:'hyp',params:[['Voices','7 × band-limited saw'],['Detune','0.2 (×⁴ curve → subtle)'],['Mix','0.5'],['Cleanup HPF','pitch-tracked']]},
- filt:{topo:'SVF',mode:'LP24',res:0.35},hpf:180,od:null,env:[0.012,0.3,0.8,0.25],out:0.5,
- lanes:['Velocity → level','Filter → cutoff 150 Hz–8 kHz (exp)','Attack → Detune 0–1','Decay → Mix 0–1'],
+ src:{kind:'hyp',params:[['Voices','7 × band-limited saw'],['Detune','0.2 (×⁴ curve → subtle)'],['Mix','0.5'],['Cleanup HPF','pitch-tracked (inside the engine)']]},
+ od:null,velAmp:false,out:0.5,
+ lanes:['Attack → Detune 0–1','Decay → Mix 0–1','Filter lane → inert (OLED "--")'],
  simNote:'Seven saws on the fixed Szabo ratio table. At rest detune 0.2 maps through the x⁴ curve to only ±0.3 cents — the trace reads as one thick saw; the Attack lane (Detune) spreads it to ±185 cents at max.',
  made:`<p>One rpdsp <b>Hypersaw</b>: seven band-limited saws — a fixed center plus six side voices on a measured
  JP-8000-style ratio table (±1.9%, ±6.2%, ±10.7% at full). The detune amount maps through an <b>x⁴ curve</b>, so
  the preset's 0.2 is deliberately tame while lane sweeps get explosive late. The mix parameter follows the original
  paper's gain curves, trading center level for side-voice width. Each voice starts at a randomized phase, stacked
- instances never line up, and a pitch-tracked highpass keeps low notes clear of sub mud. The shared SVF sits wide
- open in LP24.</p>`,
- sound:`<p>The trance supersaw: a fat, slowly whooshing saw choir whose comb notches drift through the tone as the
+ instances never line up, and a pitch-tracked highpass <i>inside the engine</i> keeps low notes clear of sub mud.
+ No filter or envelope follows: the engine output feeds straight into the output level.</p>`,
+ sound:`<p>The trance supersaw drone: a fat, slowly whooshing saw choir whose comb notches drift through the tone as the
  seven voices beat. At rest it is a controlled thickening of one saw; push the Decay lane (= Mix) and it blooms
- into the full screaming ensemble. Velocity-as-level plus the 12 ms attack makes chords punch like a brass section.
- The go-to big lead/pad hybrid.</p>`},
+ into the full screaming ensemble. Every gate rise re-randomizes the seven phases, so each re-trigger lands a fresh
+ comb pattern. The go-to big lead/pad hybrid.</p>`},
 
 {id:14,key:'NoiseStorm',name:'NoiseStorm',fam:'tex',simF:220,
  tag:'Noise + Lorenz growl → diffuser → governed swarm = weather',
  badges:['ENGINE_NOISEFX','NOISESTORM set','diffuser+swarm inserts'],
  src:{kind:'noise',params:[['Diffuse size / mix','0.85 / 0.65'],['Swarm color / regen','0.6 / 0.95'],['Lorenz chaos level','0.4'],['Chaos rate','tracks pitch']]},
- filt:{topo:'SVF',mode:'LP24',res:0.72,static:'cutoff frozen at filterCutoffBase ≈ 1.2 kHz (lane stolen)'},hpf:220,
- od:{gain:0.8,drive:0.4},env:[0.003,0.5,0.55,0.45],out:0.45,
- lanes:['Velocity → level','Filter → swarm Color 0–1','Attack → swarm Regen 0–1','Decay → Lorenz Chaos 0–1'],
- simNote:'Trace: white noise + Lorenz growl through a faithful diffuser → energy-governed allpass swarm port. Real hardware additionally sweeps the resonant filter with the envelope.',
+ od:{gain:0.8,drive:0.4},velAmp:false,out:0.45,
+ lanes:['Filter → swarm Color 0–1','Attack → swarm Regen 0–1','Decay → Lorenz Chaos 0–1'],
+ simNote:'Trace: white noise + Lorenz growl through a faithful diffuser → energy-governed allpass swarm port.',
  made:`<p>A fixed texture chain: <b>white noise</b> blended at 0.4 with a <b>Lorenz-attractor growl</b> whose
  traversal rate is pitch-tracked to the sequenced note (so the rumble follows the melody). That sum feeds a
  <b>prime-tap diffuser</b> (taps at 241/563/1181/1979 samples × size) that smears transients into a 40 ms wind,
  then a <b>regenerative allpass swarm</b> whose feedback governor — regen divided by squared signal energy — parks
- the loop at the edge of self-oscillation and backs off as it blooms. A resonant SVF (0.72) pings with the
- envelope — the Filter lane is stolen for swarm color, so its cutoff is frozen at the base setting — and tanh
- overdrive glues it together.</p>`,
- sound:`<p>Its name is the description: each step ignites a gust — a hiss burst instantly smeared into wind, then
- swelling with metallic resonant overtones like sheet metal in a gale, while a guttural pitched growl moves
- underneath in sync with the melody. Regen at 0.95 means gusts bloom and subside organically; the chaos lane
- takes the growl from texture to menace. The only preset that sounds like weather.</p>`},
+ the loop at the edge of self-oscillation and backs off as it blooms. Tanh overdrive glues it together, and the
+ drone build adds nothing else: no filter, no envelope, no high-pass.</p>`,
+ sound:`<p>Its name is the description: a standing gust — hiss smeared into wind, swelling with metallic resonant
+ overtones like sheet metal in a gale, while a guttural pitched growl moves underneath in sync with the melody.
+ Regen at 0.95 means the swarm blooms and subsides organically around its edge-of-howl point; the chaos lane
+ takes the growl from texture to menace. Gate rises stir the storm afresh. The only preset that sounds like weather.</p>`},
 
 {id:15,key:'FMGlass',name:'FMGlass',fam:'rec',simF:440,
  tag:'Two-op feedback FM tuned to a glassy chime',
  badges:['ENGINE_RECIPE','kFeedbackFm','macros Index · Ratio · Feedback'],
  src:{kind:'recipe',pipe:['sine modulator @ Ratio 3.5 × f0','×','Index 0.32','→ feedback-FM carrier','self-fb 0.08']},
- filt:null,hpf:30,od:null,env:[0.003,0.4,0.12,0.5],out:0.65,
+ od:null,velAmp:false,out:0.65,
  lanes:['Filter → Index 0–1 (exp)','Attack → Ratio 0.5–8','Decay → Feedback 0–0.5'],
  made:`<p>The <span class="m">kFeedbackFm</span> recipe: a <b>sine modulator at Ratio × f0</b> (3.5 here — a
  deliberately non-integer, inharmonic-ish spacing) feeds a feedback-FM carrier whose <b>self-feedback is 0.08</b>
  and modulation index 0.32. In <span class="m">osc_fbfm</span> the carrier's last two outputs are averaged and fed
- back into its phase, so even modest indices pile up sidebands. Sustain is dropped to 0.12 with a 500 ms release —
- a struck-glass envelope. The recipe presets bypass the main filter entirely; only a 30 Hz highpass remains.</p>`,
+ back into its phase, so even modest indices pile up sidebands. The recipe path adds nothing after the graph —
+ no filter, no envelope, no high-pass in the drone build; the modulated carrier feeds straight into output level.</p>`,
  sound:`<p>A delicate glassy ping, like tapping a wineglass with a pen: pure bell attack, a slight metallic fuzz
  from the feedback term, inharmonic sparkle from the 3.5× ratio that keeps it from sounding like a marimba. Push
  the Index lane toward 1 and the glass shatters into bright FM noise-edged textures; raise Feedback for saw-ish
- snarl. At rest it is one of the prettiest preset plucks in the bank.</p>`},
+ snarl. At rest it is one of the prettiest voices in the bank.</p>`},
 
 {id:16,key:'FMBass',name:'FMBass',fam:'rec',simF:55,
  tag:'Ratio-1 feedback FM — the FM bass that behaves like a saw',
  badges:['ENGINE_RECIPE','kFeedbackFm','macros Index · Ratio · Feedback'],
  src:{kind:'recipe',pipe:['sine modulator @ Ratio 1.0 × f0','×','Index 0.18','→ feedback-FM carrier','self-fb 0.2']},
- filt:null,hpf:30,od:null,env:[0.003,0.16,0.45,0.08],out:0.65,
+ od:null,velAmp:false,out:0.65,
  lanes:['Filter → Index 0–1 (exp)','Attack → Ratio 0.5–8','Decay → Feedback 0–0.5'],
  made:`<p>Same <span class="m">kFeedbackFm</span> recipe as FMGlass, re-voiced for bass: <b>Ratio 1.0</b> — a
  harmonic modulator — so the sidebands land on integer multiples and read as a saw-ish harmonic stack rather than a
  bell. Index 0.18 keeps the tone controlled; feedback 0.2 thickens the midrange the way a second oscillator would.
- The envelope snaps: 160 ms decay, 80 ms release, moderate sustain — a tight funk-FM bass patch.</p>`,
+ No filter or envelope follows — a tight funk-FM bass drone that holds as long as the voice is enabled.</p>`,
  sound:`<p>A classic DX-style bass: hollow-edged, harmonically rich, with the feedback term adding exactly the kind of
- buzz sawtooth layers usually provide. The short decay keeps steps punchy and separate even at fast tempos; push the
+ buzz sawtooth layers usually provide. Push the
  Index lane and it growls into reed-bass territory, pull toward zero for a pure sine sub. Surprisingly well-behaved
  for FM — ratio 1 is why.</p>`},
 
@@ -716,7 +718,7 @@ const PRESETS = [
  tag:'Casio-style phase distortion blended with a morphing triangle',
  badges:['ENGINE_RECIPE','kPhaseMorph','macros Shape · Skew · Blend'],
  src:{kind:'recipe',pipe:['PD osc — knee @ Shape 0.6','+','morph tri/square — Skew 0.2','× Blend 0.25']},
- filt:null,hpf:30,od:null,env:[0.003,0.4,0.45,0.2],out:0.65,
+ od:null,velAmp:false,out:0.65,
  lanes:['Filter → Shape 0–1','Attack → Skew −1–1','Decay → Blend 0–1'],
  made:`<p>The <span class="m">kPhaseMorph</span> recipe crossfades two rpdsp oscillators. The main voice is
  <b>phase distortion</b>: the sine's phase is warped around a moving knee (knee = 0.5 − 0.49·shape), compressing
@@ -733,7 +735,7 @@ const PRESETS = [
  tag:'DSF additive stack at ratio 2 — hollow harmonics + sub',
  badges:['ENGINE_RECIPE','kSpectralDsf','macros Bright · Spacing · Sub'],
  src:{kind:'recipe',pipe:['DSF — a 0.65, ratio 2.0','+','PD sine sub @ 0.5×f0','× Sub 0.15']},
- filt:null,hpf:30,od:null,env:[0.003,0.4,0.45,0.2],out:0.65,
+ od:null,velAmp:false,out:0.65,
  lanes:['Filter → Bright 0–0.9','Attack → Spacing 0.5–8','Decay → Sub 0–1'],
  made:`<p>The <span class="m">kSpectralDsf</span> recipe evaluates a <b>discrete summation formula</b> — an infinite
  additive stack in closed form, <span class="m">Σ aⁿ·sin(θ+nβ)</span> — with brightness a = 0.65 and partial spacing
@@ -749,24 +751,24 @@ const PRESETS = [
  tag:'Six-partial spectral prism, gently drifting',
  badges:['ENGINE_RECIPE','kPrism','macros Focus · Spread · Drift'],
  src:{kind:'recipe',pipe:['prism — focus 0.3 · spread 0.6','+','logistic-drift sine (chaos 0.12)','× Drift 0.12']},
- filt:null,hpf:30,od:null,env:[0.04,0.4,0.7,0.2],out:0.65,
+ od:null,velAmp:false,out:0.65,
  lanes:['Filter → Focus 0–1','Attack → Spread 0–1','Decay → Drift 0–1'],
  made:`<p>The <span class="m">kPrism</span> recipe sums six sine partials whose amplitudes are <b>squared tents</b>
  parked at harmonic <span class="m">1 + 5·focus</span> with width <span class="m">1 + 5·spread</span> — a formant
  built out of oscillators. Focus 0.3 centers the bump low (around harmonics 2–3), spread 0.6 widens it into a warm
  blend. Per-partial Nyquist fades are applied and normalization keeps the level steady. Mixed in at 12% is an
  <b>osc_chaosdrift</b> sine whose pitch is wobbled by a logistic map (r = 3.6–4.0 with chaos) — here only a breath
- of analog sag. Longer attack (40 ms) and sustain 0.7 make it a holding voice.</p>`,
+ of analog sag. It is a holding voice by nature — a static vowel the drone build sustains for as long as the voice is enabled.</p>`,
  sound:`<p>A vowel-like sustained tone — think wordless choir meeting glass harmonica. The partial-bump gives it an
  "ah"-ish coloration that follows the Focus lane up and down the harmonic series, and the logistic drift adds a
- barely-audible pitch sag, like an old VCO settling. Sustain 0.7 and the soft attack make it ideal for slow moving
+ barely-audible pitch sag, like an old VCO settling. Ideal for slow moving
  sequences that need to breathe rather than pluck.</p>`},
 
 {id:20,key:'ChaosPrism',name:'ChaosPrism',fam:'rec',simF:220,
  tag:'Same prism, high and narrow, drunk on drift',
  badges:['ENGINE_RECIPE','kPrism','macros Focus · Spread · Drift'],
  src:{kind:'recipe',pipe:['prism — focus 0.7 · spread 0.3','+','logistic-drift sine (chaos 0.65)','× Drift 0.65']},
- filt:null,hpf:30,od:null,env:[0.003,0.4,0.45,0.2],out:0.65,
+ od:null,velAmp:false,out:0.65,
  lanes:['Filter → Focus 0–1','Attack → Spread 0–1','Decay → Drift 0–1'],
  made:`<p>The same <span class="m">kPrism</span> recipe flipped to its unstable extreme: <b>Focus 0.7</b> parks the
  partial bump up around harmonics 4–5 (thin, glassy), <b>Spread 0.3</b> narrows it to a near-sine with high-partial
@@ -781,14 +783,14 @@ const PRESETS = [
  tag:'Whisper-quiet FM — an electric-piano key',
  badges:['ENGINE_RECIPE','kFeedbackFm','macros Index · Ratio · Feedback'],
  src:{kind:'recipe',pipe:['sine modulator @ Ratio 2.0 × f0','×','Index 0.10','→ feedback-FM carrier','self-fb 0.025']},
- filt:null,hpf:30,od:null,env:[0.006,0.85,0.16,0.45],out:0.62,
+ od:null,velAmp:false,out:0.62,
  lanes:['Filter → Index 0–1 (exp)','Attack → Ratio 0.5–8','Decay → Feedback 0–0.5'],
  made:`<p>The gentlest possible settings of <span class="m">kFeedbackFm</span>: modulator at <b>ratio 2</b>
  (odd-harmonic sidebands only), carrier index just <b>0.10</b> and self-feedback <b>0.025</b> — enough to break the
- sine's symmetry without ever snarling. The envelope does the rest of the voicing: 6 ms attack, a long
- <b>850 ms decay</b> to sustain 0.16, 450 ms release — a struck, decaying key rather than a sustained tone.</p>`,
- sound:`<p>A felted electric-piano key: soft mallet attack, a delicate FM shimmer where a tine would ding, and a
- long, even decay. The ratio-2 hollow spectrum keeps it bell-adjacent but the tiny index means it reads as "soft
+ sine's symmetry without ever snarling. That tiny index and whisper of feedback are the whole voicing — in the drone build nothing
+ follows the graph, so the key hangs as a soft, sustained FM tone instead of decaying away.</p>`,
+ sound:`<p>A felted electric-piano key: a delicate FM shimmer where a tine would ding, sitting on a
+ soft, even body that holds indefinitely. The ratio-2 hollow spectrum keeps it bell-adjacent but the tiny index means it reads as "soft
  instrument", not "FM". Velocity through the Index lane behaves like key velocity on a real EP — harder steps get
  brighter and bark a little, soft steps stay round. Lovely for introspective sequences.</p>`},
 
@@ -796,12 +798,11 @@ const PRESETS = [
  tag:'Ratio-1 DSF stack + sub octave — metallic bass',
  badges:['ENGINE_RECIPE','kSpectralDsf','macros Bright · Spacing · Sub'],
  src:{kind:'recipe',pipe:['DSF — a 0.42, ratio 1.0','+','PD sine sub @ 0.5×f0','× Sub 0.32']},
- filt:null,hpf:20,od:null,env:[0.004,0.22,0.38,0.1],out:0.72,
+ od:null,velAmp:false,out:0.72,
  lanes:['Filter → Bright 0–0.9','Attack → Spacing 0.5–8','Decay → Sub 0–1'],
  made:`<p>The DSF recipe re-voiced for low end: <b>ratio 1.0</b> so the additive stack is a full harmonic series —
  with a = 0.42, essentially a smooth, slightly dark saw — blended with a hefty <b>32% sub-octave</b> phase-distortion
- sine. The highpass is dropped to 20 Hz (effectively bypassed) so the sub arrives untouched, and the envelope is
- tight: 220 ms decay, 100 ms release, sustain 0.38.</p>`,
+ sine. No high-pass, no filter, no envelope stand between the stack and the output — the sub arrives untouched.</p>`,
  sound:`<p>A bass with metallic sheen — the DSF stack has the perfect evenness of an additive saw but with a faint
  brushed-copper tang from the closed-form evaluation's texture, and the sub octave gives it real weight. It sits
  between an analog bass and a digital one: snappy like SubFunk but with a more exotic,工业 edge. The Spacing lane
@@ -811,16 +812,15 @@ const PRESETS = [
  tag:'FOF formant grains — an oboe that tracks the sequence',
  badges:['ENGINE_RECIPE','kReedPipe','macros Formant · Bloom · Body'],
  src:{kind:'recipe',pipe:['FOF — formant @ 3×f0, bloom 0.74','+','PD sine body','× Body 0.32']},
- filt:null,hpf:30,od:null,env:[0.025,0.2,0.75,0.16],out:0.72,
+ od:null,velAmp:false,out:0.72,
  lanes:['Filter → Formant 1–6','Attack → Bloom 0–1','Decay → Body 0.1–0.8'],
  made:`<p>The <span class="m">kReedPipe</span> recipe is built on rpdsp's <b>FOF-style formant oscillator</b>: at
  every cycle of the fundamental, a band-limited sine burst re-triggers at the <b>formant frequency</b> — here
  <b>3× f0</b>, so the vowel color tracks the note — inside an exponentially decaying window. The Bloom macro sets
  the window's retention (0.74 → ≈0.997 per-sample), i.e. how many carrier cycles survive per period: short = dark
- pipe, long = brassy. A plain PD sine body underlays it at 32% for fundamental weight. Sustain 0.75 — a blowing,
- held voice.</p>`,
- sound:`<p>An oboe or reed-organ pipe: buzzy, hollow, unmistakably woodwind. The 25 ms attack mimics a reed catching
- air, the formant at 3× f0 gives a consistent "eh/aw" vowel that climbs with the melody, and higher Bloom turns the
+ pipe, long = brassy. A plain PD sine body underlays it at 32% for fundamental weight — a blowing,
+ held voice by nature, sustained indefinitely by the drone build.</p>`,
+ sound:`<p>An oboe or reed-organ pipe: buzzy, hollow, unmistakably woodwind. The formant at 3× f0 gives a consistent "eh/aw" vowel that climbs with the melody, and higher Bloom turns the
  tone from recorder-soft to strident. This is a physical-modelling flavored voice hiding in a subtractive synth —
  sequences played on it sound like a choir of pipes.</p>`},
 
@@ -828,45 +828,46 @@ const PRESETS = [
  tag:'Twin detuned PD oscillators, free-running phases',
  badges:['ENGINE_RECIPE','kSilkPad','macros Silk · Detune · Blend','no retrigger'],
  src:{kind:'recipe',pipe:['PD osc @ f×1.00198 — Silk 0.22','+','PD osc @ f÷1.00198','× Blend 0.5']},
- filt:null,hpf:30,od:null,env:[0.35,0.75,0.82,1.25],out:0.55,noRetrigger:true,
+ od:null,velAmp:false,out:0.55,noRetrigger:true,
  lanes:['Filter → Silk 0–0.65','Attack → Detune 0–1','Decay → Blend 0.1–0.5'],
  made:`<p>The <span class="m">kSilkPad</span> recipe runs <b>two phase-distortion oscillators symmetrically detuned</b>
  — ±0.2% (≈3.4 cents) from the Detune macro — sharing one phase-shape coefficient (Silk 0.22, a mildly brightened
  sine) and crossfaded by Blend. Uniquely in the bank it sets <span class="m">recipeRetrigger = false</span>: the
  oscillator phases <b>keep running across gates</b>, so each note starts from wherever the free-running pair happens
- to be — no two attacks are identical. The envelope is pure pad: 350 ms attack, 1.25 s release, sustain 0.82.</p>`,
+ to be — no two re-triggers sound alike. The drone build simply holds the voice: a standing pad
+ that keeps whichever phase alignment the free-running pair last found.</p>`,
  sound:`<p>A slow-breathing pad with a soft silvery edge — the gentle PD brightness reads as "silk" rather than
  "digital". The slight detune gives it width without chorus hardware, and because phases never reset, sustained
- chords evolve with tiny continuous beating, like breath behind the tone. The longest attack and release in the
- preset bank; built for washing between melodic steps, not for rhythm.</p>`},
+ chords evolve with tiny continuous beating, like breath behind the tone. Built for washing beneath melodic
+ steps, not for rhythm.</p>`},
 
 {id:25,key:'HollowBell',name:'HollowBell',fam:'rec',simF:440,
  tag:'Phase-distortion body ring-modded by its own octave',
  badges:['ENGINE_RECIPE','kHollowBell','macros Ratio · Edge · Ring'],
  src:{kind:'recipe',pipe:['PD osc — Edge 0.06','×','PD sine @ Ratio 2×f0','× Ring 0.68']},
- filt:null,hpf:30,od:null,env:[0.002,1.4,0.0,0.8],out:0.72,
+ od:null,velAmp:false,out:0.72,
  lanes:['Filter → Ratio 0.5–6','Attack → Edge 0–0.45','Decay → Ring 0–0.85'],
  made:`<p>The <span class="m">kHollowBell</span> recipe is a <b>ring modulator</b> assembled from two existing
  oscillators: a near-sine phase-distortion body (Edge 0.06) multiplied by a clean sine at <b>2× f0</b>, the wet
  ring tone taking 68% of the output (the rest is the dry body). Ring-modding a tone with its own octave produces
  sum/difference components at f and 3f while the multiplication scoops the body's direct level — the "hollow".
- The envelope is a struck bell: 2 ms attack, <b>1.4 s decay to silence</b>, 800 ms release.</p>`,
- sound:`<p>A tubular bell with its middle scooped out — the strike is bright and immediate, but instead of a string's
- harmonic wash the tail is an eerie, slightly detuned-from-itself chime with a phantom fundamental. Hard strikes
- (high Velocity) just increase level; the character stays bell-like at any dynamic. Between FMGlass's delicacy and
+ No envelope follows: the struck-bell character is the ring-mod spectrum itself, held as a standing tone.</p>`,
+ sound:`<p>A tubular bell with its middle scooped out, frozen at the instant after the strike — instead of a string's
+ harmonic wash the standing tone is an eerie, slightly detuned-from-itself chime with a phantom fundamental,
+ bell-like at every pitch. Between FMGlass's delicacy and
  WgBell's harshness sits this: the churchyard bell of the bank.</p>`},
 
 {id:26,key:'SyncLead',name:'SyncLead',fam:'rec',simF:220,
  tag:'Reversing sync — the glassy zip without the bite',
  badges:['ENGINE_RECIPE','kSyncLead','macros Sync · Edge · Bite'],
  src:{kind:'recipe',pipe:['reversing sync — ratio 2.0','+','PD osc — Edge 0.30','× Bite 0.45']},
- filt:null,hpf:30,od:null,env:[0.009,0.18,0.68,0.12],out:0.56,
+ od:null,velAmp:false,out:0.56,
  lanes:['Filter → Sync 1–5','Attack → Edge 0–0.65','Decay → Bite 0.1–0.8'],
  made:`<p>Built on rpdsp's <b>reversing hard sync</b> (<span class="m">osc_revsync</span>): instead of force-resetting
  a slave saw, the master flips the <i>direction</i> of a sine's phase advance at every master cycle — the sine
  audibly runs backward for part of each period, producing folded, shimmering sync flavor with no reset click and
  no saw harshness. The preset runs it at <b>ratio 2.0</b>, blended 45% ("Bite") with a phase-distortion body at
- Edge 0.30 for fundamental strength. Sustain 0.68 — a holding lead.</p>`,
+ Edge 0.30 for fundamental strength — a holding lead.</p>`,
  sound:`<p>Liquid and slightly queasy: the sync-sweep "zip" is there, but sine-based — more theremin than Moog.
  The PD body keeps the center of the tone solid while the reversing sync smears a glassy, folded halo around it.
  Sweep the Sync lane and the fold point travels, whistling up and down the harmonic series. A sci-fi lead that
@@ -876,13 +877,13 @@ const PRESETS = [
  tag:'Through-zero FM pluck — sidebands that orbit, never droop',
  badges:['ENGINE_RECIPE','kOrbitPluck','macros Index · Ratio · Body'],
  src:{kind:'recipe',pipe:['PD sine mod @ Ratio 2×f0','×','Index 1.4','→ TZ-FM carrier (servo-stabilized)','+ PD body × 0.28']},
- filt:null,hpf:30,od:null,env:[0.003,0.38,0.0,0.24],out:0.64,
+ od:null,velAmp:false,out:0.64,
  lanes:['Filter → Index 0–3 (exp)','Attack → Ratio 0.5–4','Decay → Body 0.1–0.8'],
  made:`<p>The <span class="m">kOrbitPluck</span> recipe is one of the few users of rpdsp's <b>through-zero FM</b>:
  a sine modulator at 2× f0 drives the carrier's increment <i>below zero</i> — the phase genuinely reverses — while a
  slow one-pole pitch servo (τ ≈ 0.1 s) subtracts the modulation's DC so heavy indices never detune the note.
- Index 1.4 at ratio 2 gives bright symmetric sidebands; a clean PD sine body at 28% anchors the pluck. Sustain 0,
- 380 ms decay — pure percussive figure.</p>`,
+ Index 1.4 at ratio 2 gives bright symmetric sidebands; a clean PD sine body at 28% anchors the tone — a standing
+ percussive figure that never falls away.</p>`,
  sound:`<p>A pluck with a metallic halo: the TZFM sidebands flare symmetrically around the fundamental on every
  attack — brighter and stranger than an ordinary FM pluck at equal depth, because the modulation sweeps through
  stillness instead of bunching at it, yet the pitch stays rock-steady thanks to the servo. It sits beautifully in
@@ -892,14 +893,14 @@ const PRESETS = [
  tag:'Prism partials + clean octave — wind chimes without the drift',
  badges:['ENGINE_RECIPE','kAirChime','macros Focus · Spread · OctMix'],
  src:{kind:'recipe',pipe:['prism — focus 0.25 · spread 0.65','+','PD sine @ 2×f0','× OctMix 0.24']},
- filt:null,hpf:30,od:null,env:[0.012,1.1,0.08,0.85],out:0.68,
+ od:null,velAmp:false,out:0.68,
  lanes:['Filter → Focus 0–0.8','Attack → Spread 0.1–1','Decay → OctMix 0–0.65'],
  made:`<p>The <span class="m">kAirChime</span> recipe is deliberately the <i>stable</i> prism: six tent-weighted
  partials with the bump low (Focus 0.25) and wide (Spread 0.65), blended with 24% of a clean <b>octave sine</b> —
- and critically, <b>no chaos drift</b>, unlike its cousin Prism. The envelope is a chime strike: 12 ms attack,
- <b>1.1 s decay</b> to sustain 0.08, 850 ms release, so notes hang and overlap like metal tubes in a breeze.</p>`,
- sound:`<p>Wind-chime glassiness with none of ChaosPrism's instability — each strike is a soft cluster of
- mid-forward partials topped by a pure octave glint, decaying evenly and in tune. Where FMGlass is a single wineglass
+ and critically, <b>no chaos drift</b>, unlike its cousin Prism. Nothing shapes it afterward — the cluster hangs
+ and shimmers like metal tubes in a breeze, a standing chime bed.</p>`,
+ sound:`<p>Wind-chime glassiness with none of ChaosPrism's instability — a soft cluster of
+ mid-forward partials topped by a pure octave glint, holding evenly and in tune. Where FMGlass is a single wineglass
  and WgBell a struck bar, AirChime is the whole porch-mobile: gentle, bed-like, perfectly melodic under sequences.
  Pushing the OctMix lane thins it toward whistle; Focus sweeps the chime's vowel.</p>`},
 ];
@@ -986,33 +987,8 @@ function drawSpectrum(cv, buf, color){
   g.fillStyle='rgba(130,150,175,.8)'; g.font='10px '+cssVar('--mono');
   g.fillText('20 Hz',4,H-4); g.fillText('1k',W*0.435,H-4); g.fillText('20 kHz',W-44,H-4);
 }
-/* ---- ADSR draw ---- */
-function drawADSR(cv, env, color){
-  const [g,W,H]=setupCanvas(cv); g.clearRect(0,0,W,H);
-  const [a,d,s,r]=env;
-  const hold=Math.max(d*1.2,0.25);
-  const total=a+d+hold+r, x=t=>t/total*W;
-  g.strokeStyle='rgba(120,140,165,.25)'; g.strokeRect(0.5,0.5,W-1,H-1);
-  const y=v=>H-4-v*(H-14);
-  g.beginPath();
-  g.moveTo(0,H-4); g.lineTo(x(a),y(1)); g.lineTo(x(a+d),y(s)); g.lineTo(x(a+d+hold),y(s)); g.lineTo(x(total),H-4);
-  const grad=g.createLinearGradient(0,0,0,H);
-  grad.addColorStop(0,hexA(color,0.4)); grad.addColorStop(1,hexA(color,0.02));
-  g.lineTo(0,H-4); g.closePath(); g.fillStyle=grad; g.fill();
-  g.beginPath();
-  g.moveTo(0,H-4); g.lineTo(x(a),y(1)); g.lineTo(x(a+d),y(s)); g.lineTo(x(a+d+hold),y(s)); g.lineTo(x(total),H-4);
-  g.strokeStyle=color; g.lineWidth=1.8; g.stroke();
-  g.fillStyle='rgba(130,150,175,.9)'; g.font='10px '+cssVar('--mono');
-  const lbl=(t,v,txt)=>g.fillText(txt,Math.min(W-34,Math.max(2,x(t)-12)),y(v)-5);
-  lbl(a,1,'A '+fmtT(a)); lbl(a+d,s,'D '+fmtT(d));
-  if(s>0.02) lbl(a+d+hold*0.5,s,'S '+s.toFixed(2)); else g.fillText('S 0',x(a+d),H-8);
-  g.fillText('R '+fmtT(r),Math.min(W-36,x(total)-30),H-8);
-}
-function fmtT(t){return t<1?Math.round(t*1000)+'ms':t.toFixed(2)+'s';}
-
-/* ---- flow builder ---- */
+/* ---- flow builder (drone chain: sources → overdrive → velocity → [waveguide HPF] → out) ---- */
 function flowHTML(p){
-  const c=famOf(p).color;
   const box=(title,sub,off)=>`<div class="fbox${off?' off':''}"><b>${title}</b><span>${sub}</span></div>`;
   const arr=`<span class="farr">→</span>`;
   let srcTitle='Source', srcSub='';
@@ -1024,13 +1000,12 @@ function flowHTML(p){
     case 'recipe': srcTitle='Recipe'; srcSub=p.src.pipe[0]; break;
   }
   let html=box(srcTitle,srcSub)+arr;
-  html+=box('VCA ADSR', p.noEnv?'bypassed — natural ring':`A ${fmtT(p.env[0])} · D ${fmtT(p.env[1])} · S ${p.env[2]} · R ${fmtT(p.env[3])}`, p.noEnv);
-  if(p.od) html+=arr+box('Overdrive',`gain ${p.od.gain} · drive ${p.od.drive}`);
-  if(p.src.kind==='noise') html+=arr+box('FX inserts','diffuser + swarm');
-  if(p.filt) html+=arr+box(p.filt.topo+' filter',`${p.filt.mode} · res ${p.filt.res}${p.filt.drive?' · drive '+p.filt.drive:''}${p.filt.static?' · '+p.filt.static:''}`);
-  else html+=arr+box('Filter','bypassed',true);
-  html+=arr+box('HPF',p.hpf<=20?'bypassed':p.hpf+' Hz', p.hpf<=20);
-  html+=arr+box('Out','× '+p.out);
+  if(p.src.kind==='noise') html+=box('FX inserts','diffuser + swarm')+arr;
+  if(p.od) html+=box('Overdrive',`gain ${p.od.gain} · drive ${p.od.drive}`)+arr;
+  else html+=box('Overdrive','off',true)+arr;
+  html+=box('Velocity', p.velAmp?'→ amplitude':'fixed ×1', !p.velAmp)+arr;
+  if(p.src.kind==='wg') html+=box('HPF',p.hpf>20?p.hpf+' Hz':'bypassed',p.hpf<=20)+arr;
+  html+=box('Out','× '+p.out);
   return `<div class="flow">${html}</div>`;
 }
 
@@ -1067,10 +1042,9 @@ function renderDetail(p){
       <div class="cap">${freqNote}${p.simNote?' — '+p.simNote:''}</div></div>
     <div class="viz"><h4>Source stage — spectrum</h4><canvas id="cv-spec"></canvas>
       <div class="cap">Hann-windowed 8192-pt FFT of the trace at left, log frequency.</div></div>
-    <div class="viz"><h4>Envelope (VCA)</h4><canvas id="cv-adsr"></canvas>
-      <div class="cap">${p.noEnv?'This preset bypasses the VCA — the source rings down on its own (physics is the envelope).':'Linear ADSR from the preset defaults'+(p.noRetrigger?' · phases free-run across gates (no retrigger)':'')+'.'}</div></div>
-    <div class="viz"><h4>Signal path</h4>${flowHTML(p)}
-      <div class="cap">Shared chain stages; dashed = bypassed for this preset.</div></div>
+    <div class="viz" style="grid-column:1/-1"><h4>Signal path — drone chain</h4>${flowHTML(p)}
+      <div class="cap">Shared chain stages; dashed = off for this preset. Voices are drones: sources render
+      continuously, gate-off never silences them, and a gate rise only re-triggers the engine and commits pitch.</div></div>
   </div>
   <div class="dsec" style="--fc:${c}"><h4>How it's created</h4>
     <div class="prose">${p.made}</div>
@@ -1086,11 +1060,6 @@ function renderDetail(p){
   </div>`;
   drawWave(document.getElementById('cv-wave'),buf,c);
   drawSpectrum(document.getElementById('cv-spec'),buf,c);
-  if(!p.noEnv) drawADSR(document.getElementById('cv-adsr'),p.env,c);
-  else {const cv=document.getElementById('cv-adsr');const [g,W,H]=setupCanvas(cv);
-    g.fillStyle='rgba(130,150,175,.7)';g.font='12px '+cssVar('--mono');
-    g.fillText('VCA bypassed — natural T60 ring',12,H/2);
-    g.strokeStyle='rgba(120,140,165,.35)';g.beginPath();g.moveTo(0,H/2);g.lineTo(W,H/2);g.stroke();}
 }
 function step(d){
   const i=(sel?sel.id:0)+d;

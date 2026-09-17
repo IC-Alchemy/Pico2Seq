@@ -110,16 +110,6 @@ TEST_CASE("Voice gate toggles via setGate", "[voice]") {
     REQUIRE_FALSE(v.getState().isGateHigh);
 }
 
-// ─── Filter frequency ────────────────────────────────────────────────────────
-
-TEST_CASE("Voice filter frequency can be set and read back", "[voice]") {
-    Voice v(0, defaultConfig());
-    v.init(48000.0f);
-    v.setFilterFrequency(2000.0f);
-    v.process();
-    REQUIRE_THAT(v.getFilterFrequency(), WithinAbs(2000.0f, 0.01f));
-}
-
 // ─── Scale injection ─────────────────────────────────────────────────────────
 
 TEST_CASE("Voice accepts scale table injection without crash", "[voice]") {
@@ -254,22 +244,36 @@ TEST_CASE("Voice process() returns finite float when gate is on", "[voice]") {
     }
 }
 
-TEST_CASE("Voice process() returns zero or near-zero when gate is off and envelope decays", "[voice]") {
-    VoiceConfig cfg = defaultConfig();
-    cfg.defaultAttack  = 0.001f;
-    cfg.defaultDecay   = 0.001f;
-    cfg.defaultSustain = 0.0f;
-    cfg.defaultRelease = 0.001f;
-
-    Voice v(0, cfg);
+TEST_CASE("A released non-waveguide voice keeps sounding (drone build)", "[voice]") {
+    // Drone build: gate-off no longer closes a VCA. Non-waveguide voices keep
+    // rendering at the last committed pitch so external modules shape tone and
+    // dynamics — the RMS must stay well above zero after the gate falls.
+    Voice v(0, VoicePresets::getAnalogVoice());
     initVoiceWithScale(v);
 
     v.setGate(true);
-    for (int i = 0; i < 50; ++i) v.process();
-    v.setGate(false);
-    for (int i = 0; i < 2000; ++i) v.process();
+    for (int i = 0; i < 480; ++i)
+        v.process(); // let the start-up transient settle
+    float gatedRms = 0.0f;
+    for (int i = 0; i < 4800; ++i)
+    {
+        const float s = v.process();
+        gatedRms += s * s;
+    }
+    gatedRms = std::sqrt(gatedRms / 4800.0f);
 
-    REQUIRE(std::abs(v.process()) < 0.01f);
+    v.setGate(false);
+    float releasedRms = 0.0f;
+    for (int i = 0; i < 4800; ++i)
+    {
+        const float s = v.process();
+        releasedRms += s * s;
+    }
+    releasedRms = std::sqrt(releasedRms / 4800.0f);
+
+    REQUIRE(gatedRms > 0.01f);
+    REQUIRE(releasedRms > 0.01f);
+    REQUIRE(releasedRms > gatedRms * 0.25f); // the drone did not decay away
 }
 
 // ─── updateParameters ────────────────────────────────────────────────────────
@@ -377,68 +381,10 @@ TEST_CASE("Waveguide presets bypass filter and envelope", "[voice][presets]") {
     }
 }
 
-TEST_CASE("Only Analog and Lead keep the ladder filter", "[voice][presets]") {
-    int ladderCount = 0;
-    for (uint8_t p = 0; p < VoicePresets::getPresetCount(); ++p)
-    {
-        const VoiceConfig &c = VoicePresets::getPresetConfig(p);
-        if (c.hasFilter && c.filterType == FILTER_LADDER)
-        {
-            INFO("preset " << static_cast<int>(p) << " ("
-                           << VoicePresets::getPresetName(p) << ") uses the ladder");
-            ++ladderCount;
-        }
-    }
-    REQUIRE(ladderCount == 2);
-    REQUIRE(VoicePresets::getAnalogVoice().filterType == FILTER_LADDER);
-    REQUIRE(VoicePresets::getLeadVoice().filterType == FILTER_LADDER);
-}
-
-TEST_CASE("Bass presets use the state-variable filter", "[voice][presets]") {
-    for (const uint8_t p : {2u, 7u, 8u}) // Bass, SubFunk, RubberSub
-    {
-        const VoiceConfig &c = VoicePresets::getPresetConfig(p);
-        INFO(VoicePresets::getPresetName(p));
-        REQUIRE(c.hasFilter);
-        REQUIRE(c.filterType == FILTER_SVF);
-    }
-}
-
-TEST_CASE("SVF main filter tracks cutoff on the audio path", "[voice]") {
-    // A tone a few octaves above the closed-cutoff point: near-silent while
-    // the SVF low-pass sits below it, near-unity when the cutoff opens.
-    VoiceConfig cfg = defaultConfig();
-    cfg.filterType = FILTER_SVF;
-    cfg.filterMode = VoiceFilterMode::LP24;
-    cfg.filterRes = 0.45f;
-    Voice v(0, cfg);
-    initVoiceWithScale(v);
-
-    VoiceState vs;
-    vs.noteIndex = 24.0f; // ~C4, well above the closed cutoff
-    vs.isGateHigh = true;
-    v.updateParameters(vs);
-    v.setGate(true);
-
-    auto settledRms = [&](float cutoffBaseHz) {
-        v.setFilterFrequency(cutoffBaseHz);
-        for (int i = 0; i < 24000; ++i)
-            v.process(); // settle the ADSR and cutoff smoothing
-        float sum = 0.0f;
-        for (int i = 0; i < 48000; ++i)
-        {
-            const float s = v.process();
-            sum += s * s;
-        }
-        return std::sqrt(sum / 48000.0f);
-    };
-
-    const float closed = settledRms(120.0f);
-    const float open = settledRms(6000.0f);
-    REQUIRE(std::isfinite(closed));
-    REQUIRE(std::isfinite(open));
-    REQUIRE(open > closed * 4.0f); // the SVF low-pass actually filters
-}
+// Drone build: per-voice main filters (ladder/SVF) are gone, so the old
+// "which preset keeps which filter" and "SVF tracks cutoff" tests were removed.
+// VoiceConfig still carries the legacy filter fields for patch round-trips;
+// they no longer describe audio behavior worth pinning here.
 
 TEST_CASE("Waveguide engine plucks on gate rise and decays after gate fall", "[voice]") {
     VoiceConfig cfg = VoicePresets::getWaveguidePluckVoice();
@@ -463,6 +409,8 @@ TEST_CASE("Waveguide engine plucks on gate rise and decays after gate fall", "[v
 }
 
 TEST_CASE("Bypassed envelope still plucks the waveguide on gate rise", "[voice]") {
+    // hasEnvelope is inert in the drone build (and already false on every
+    // waveguide preset): the gate edge itself arms the pluck, no ADSR needed.
     VoiceConfig cfg = VoicePresets::getWaveguidePluckVoice();
     cfg.hasEnvelope = false;
     Voice v(0, cfg);

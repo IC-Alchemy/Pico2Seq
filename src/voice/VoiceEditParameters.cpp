@@ -175,92 +175,6 @@ constexpr Parameter kParameters[] = {
        c.harmony[2] =
            static_cast<std::remove_reference_t<decltype(c.harmony[2])>>(v);
      }},
-    {Id::EnvelopeOn, "Envelope", Group::Envelope, Unit::Toggle, 0.0f, 1.0f,
-     false,
-     +[](const VoiceConfig &c) { return static_cast<float>(c.hasEnvelope); },
-     +[](VoiceConfig &c, float v) {
-       c.hasEnvelope =
-           static_cast<std::remove_reference_t<decltype(c.hasEnvelope)>>(v);
-     }},
-    {Id::EnvAttack, "Attack", Group::Envelope, Unit::Seconds, 0.001f, 10.0f,
-     true,
-     +[](const VoiceConfig &c) { return static_cast<float>(c.defaultAttack); },
-     +[](VoiceConfig &c, float v) {
-       c.defaultAttack =
-           static_cast<std::remove_reference_t<decltype(c.defaultAttack)>>(v);
-     }},
-    {Id::EnvDecay, "Decay", Group::Envelope, Unit::Seconds, 0.001f, 10.0f, true,
-     +[](const VoiceConfig &c) { return static_cast<float>(c.defaultDecay); },
-     +[](VoiceConfig &c, float v) {
-       c.defaultDecay =
-           static_cast<std::remove_reference_t<decltype(c.defaultDecay)>>(v);
-     }},
-    {Id::Sustain, "Sustain", Group::Envelope, Unit::Percent, 0.0f, 1.0f, false,
-     +[](const VoiceConfig &c) { return static_cast<float>(c.defaultSustain); },
-     +[](VoiceConfig &c, float v) {
-       c.defaultSustain =
-           static_cast<std::remove_reference_t<decltype(c.defaultSustain)>>(v);
-     }},
-    {Id::Release, "Release", Group::Envelope, Unit::Seconds, 0.001f, 10.0f,
-     true,
-     +[](const VoiceConfig &c) { return static_cast<float>(c.defaultRelease); },
-     +[](VoiceConfig &c, float v) {
-       c.defaultRelease =
-           static_cast<std::remove_reference_t<decltype(c.defaultRelease)>>(v);
-     }},
-    {Id::FilterOn, "Main filter", Group::Filter, Unit::Toggle, 0.0f, 1.0f,
-     false,
-     +[](const VoiceConfig &c) { return static_cast<float>(c.hasFilter); },
-     +[](VoiceConfig &c, float v) {
-       c.hasFilter =
-           static_cast<std::remove_reference_t<decltype(c.hasFilter)>>(v);
-     }},
-    {Id::FilterType, "Topology", Group::Filter, Unit::Choice, 0.0f, 1.0f, false,
-     +[](const VoiceConfig &c) { return static_cast<float>(c.filterType); },
-     +[](VoiceConfig &c, float v) {
-       c.filterType =
-           static_cast<std::remove_reference_t<decltype(c.filterType)>>(v);
-     }},
-    {Id::FilterMode, "Response", Group::Filter, Unit::Choice, 0.0f, 5.0f, false,
-     +[](const VoiceConfig &c) { return static_cast<float>(c.filterMode); },
-     +[](VoiceConfig &c, float v) {
-       c.filterMode =
-           static_cast<std::remove_reference_t<decltype(c.filterMode)>>(v);
-     }},
-    {Id::StaticCutoff, "Cutoff", Group::Filter, Unit::Percent, 0.0f, 1.0f,
-     false,
-     +[](const VoiceConfig &c) {
-       return static_cast<float>(c.filterCutoffBase);
-     },
-     +[](VoiceConfig &c, float v) {
-       c.filterCutoffBase =
-           static_cast<std::remove_reference_t<decltype(c.filterCutoffBase)>>(
-               v);
-     }},
-    {Id::Resonance, "Resonance", Group::Filter, Unit::Percent, 0.0f, 1.0f,
-     false,
-     +[](const VoiceConfig &c) { return static_cast<float>(c.filterRes); },
-     +[](VoiceConfig &c, float v) {
-       c.filterRes =
-           static_cast<std::remove_reference_t<decltype(c.filterRes)>>(v);
-     }},
-    {Id::FilterDrive, "Input drive", Group::Filter, Unit::Number, 0.0f, 4.0f,
-     false,
-     +[](const VoiceConfig &c) { return static_cast<float>(c.filterDrive); },
-     +[](VoiceConfig &c, float v) {
-       c.filterDrive =
-           static_cast<std::remove_reference_t<decltype(c.filterDrive)>>(v);
-     }},
-    {Id::Passband, "Passband gain", Group::Filter, Unit::Percent, 0.0f, 0.5f,
-     false,
-     +[](const VoiceConfig &c) {
-       return static_cast<float>(c.filterPassbandGain);
-     },
-     +[](VoiceConfig &c, float v) {
-       c.filterPassbandGain =
-           static_cast<std::remove_reference_t<decltype(c.filterPassbandGain)>>(
-               v);
-     }},
     {Id::HighPassFreq, "HP cutoff", Group::HighPass, Unit::Hertz, 20.0f,
      20000.0f, true,
      +[](const VoiceConfig &c) { return static_cast<float>(c.highPassFreq); },
@@ -485,31 +399,14 @@ constexpr Parameter kParameters[] = {
      +[](VoiceConfig &c, float v) {
        c.noiseChaosRate = static_cast<decltype(c.noiseChaosRate)>(v);
      }},
-    {Id::FilterEnvAmount, "Env amount", Group::Filter, Unit::Number, 0.0f, 2.0f,
-     false,
-     +[](const VoiceConfig &c) {
-       return static_cast<float>(c.filterEnvelopeAmount);
-     },
-     +[](VoiceConfig &c, float v) {
-       c.filterEnvelopeAmount =
-           static_cast<decltype(c.filterEnvelopeAmount)>(v);
-     }},
-    {Id::FilterEnvFloor, "Env floor", Group::Filter, Unit::Number, 0.0f, 1.0f,
-     false,
-     +[](const VoiceConfig &c) {
-       return static_cast<float>(c.filterEnvelopeFloor);
-     },
-     +[](VoiceConfig &c, float v) {
-       c.filterEnvelopeFloor = static_cast<decltype(c.filterEnvelopeFloor)>(v);
-     }},
 };
 static_assert(std::size(kParameters) == static_cast<size_t>(Id::Count));
 static_assert(static_cast<uint8_t>(Id::Slide) ==
               static_cast<uint8_t>(ParamId::Slide));
 constexpr const char *kGroups[] = {
     "Sequenced bases", "Source",   "Oscillator 1", "Oscillator 2",
-    "Oscillator 3",    "Envelope", "Main filter",  "High-pass",
-    "Overdrive",       "Engine",   "Output"};
+    "Oscillator 3",    "High-pass", "Overdrive",   "Engine",
+    "Output"};
 constexpr float kTimeMin = 0.001f, kTimeMax = 10.0f;
 } // namespace
 float timeNormalize(float seconds) noexcept {
@@ -550,17 +447,13 @@ float laneBase(ParamId id, const VoiceConfig &c) noexcept {
     return c.baseNote / 36.0f;
   case ParamId::Velocity:
     return c.baseVelocity;
-  case ParamId::Filter:
-    return c.filterCutoffBase;
-  case ParamId::Attack:
-    return attackNormalize(c.defaultAttack);
-  case ParamId::Decay:
-    return timeNormalize(c.defaultDecay);
   case ParamId::Octave:
     return (c.baseOctave + 24.0f) / 48.0f;
   case ParamId::GateLength:
     return (c.baseGateLength - 0.001f) / 0.999f;
   default:
+    // Unbound Filter/Attack/Decay lanes are inert on drone voices; a neutral
+    // base keeps any composed modifier values centered and harmless.
     return 0.5f;
   }
 }
@@ -578,15 +471,6 @@ void setLaneBase(ParamId id, VoiceConfig &c, float v) {
     c.baseVelocity = b.unit == VoiceParameterUnit::Semitones
                          ? b.normalize(v)
                          : std::clamp(v, 0.0f, 1.0f);
-    break;
-  case ParamId::Filter:
-    c.filterCutoffBase = std::clamp(v, 0.0f, 1.0f);
-    break;
-  case ParamId::Attack:
-    c.defaultAttack = std::clamp(v, kTimeMin, kAttackMaxSeconds);
-    break;
-  case ParamId::Decay:
-    c.defaultDecay = std::clamp(v, kTimeMin, kTimeMax);
     break;
   case ParamId::Octave:
     c.baseOctave = std::round(std::clamp(v, -24.0f, 24.0f) / 12.0f) * 12.0f;
@@ -659,16 +543,6 @@ ParamId sequenceLane(Id id, const VoiceConfig &c) noexcept {
   case Id::Macro3:
     target = &VoiceConfig::macro3;
     break;
-  case Id::EnvAttack:
-    return VoiceParameters::layout(c).envelopeFromTracks ? ParamId::Attack
-                                                         : ParamId::Count;
-  case Id::EnvDecay:
-    return VoiceParameters::layout(c).envelopeFromTracks ? ParamId::Decay
-                                                         : ParamId::Count;
-  case Id::StaticCutoff:
-    return VoiceParameters::binding(c, ParamId::Filter).target
-               ? ParamId::Count
-               : ParamId::Filter;
   default:
     break;
   }
@@ -729,19 +603,17 @@ bool available(Id id, const VoiceConfig &c) noexcept {
     return c.engine == ENGINE_HYPERSAW;
   if (id >= Id::DiffuseSize && id <= Id::ChaosLevel)
     return c.engine == ENGINE_NOISEFX;
-  if (id == Id::FilterDrive || id == Id::Passband)
-    return c.hasFilter && c.filterType == FILTER_LADDER;
-  if (g == Group::Filter && id != Id::FilterOn)
-    return c.hasFilter;
+  // The high-pass runs for the waveguide engines only.
+  if (id == Id::HighPassFreq || id == Id::HighPassRes)
+    return c.engine == ENGINE_WAVEGUIDE;
   if (g == Group::Drive && id != Id::DriveOn)
     return c.hasOverdrive;
-  if (g == Group::Envelope && id != Id::EnvelopeOn)
-    return c.hasEnvelope;
+  // Drone voices: the Filter/Attack/Decay lanes exist only where the active
+  // layout binds them to an engine macro (waveguide, recipes, textures).
   if (id == Id::Attack || id == Id::Decay)
-    return VoiceParameters::binding(c, static_cast<ParamId>(id)).target ||
-           (c.hasEnvelope && VoiceParameters::layout(c).envelopeFromTracks);
+    return VoiceParameters::binding(c, static_cast<ParamId>(id)).target != nullptr;
   if (id == Id::Cutoff)
-    return VoiceParameters::binding(c, ParamId::Filter).target || c.hasFilter;
+    return VoiceParameters::binding(c, ParamId::Filter).target != nullptr;
   return true;
 }
 float value(Id id, const VoiceConfig &c) noexcept {
@@ -756,12 +628,6 @@ float value(Id id, const VoiceConfig &c) noexcept {
     case Id::Velocity:
       return b.unit == VoiceParameterUnit::Semitones ? b.map(c.baseVelocity)
                                                      : c.baseVelocity;
-    case Id::Cutoff:
-      return c.filterCutoffBase;
-    case Id::Attack:
-      return c.defaultAttack;
-    case Id::Decay:
-      return c.defaultDecay;
     case Id::Octave:
       return c.baseOctave;
     case Id::GateLength:
@@ -771,7 +637,9 @@ float value(Id id, const VoiceConfig &c) noexcept {
     case Id::Slide:
       return c.baseSlide;
     default:
-      break;
+      // Unbound Cutoff/Attack/Decay lanes are inert (and unavailable); report
+      // a neutral value rather than dereferencing their null parameter getter.
+      return 0.5f;
     }
   }
   if (id == Id::Recipe)
@@ -780,22 +648,11 @@ float value(Id id, const VoiceConfig &c) noexcept {
   if ((id == Id::Wave1 || id == Id::Wave2 || id == Id::Wave3) &&
       v == WAVE_NOISE)
     return 7;
-  if (id == Id::FilterMode && c.filterType == FILTER_SVF)
-    return static_cast<float>(static_cast<int>(v) / 2);
   return v;
 }
-namespace {
-// While the Attack lane drives the envelope, the envelope page's Attack edits
-// the same base and must keep to that lane's shorter range.
-Id envelopeAlias(Id id, const VoiceConfig &c) noexcept {
-  return id == Id::EnvAttack && sequenceLane(id, c) == ParamId::Attack ? Id::Attack
-                                                                       : id;
-}
-} // namespace
 void setValue(Id id, VoiceConfig &c, float v) noexcept {
   if (id >= Id::Count || !std::isfinite(v))
     return;
-  id = envelopeAlias(id, c);
   if (id <= Id::Slide) {
     setLaneBase(static_cast<ParamId>(id), c, v);
     return;
@@ -833,8 +690,6 @@ void setValue(Id id, VoiceConfig &c, float v) noexcept {
     if (v == 7)
       v = WAVE_NOISE;
   }
-  if (id == Id::FilterMode && c.filterType == FILTER_SVF)
-    v = std::clamp(v, 0.0f, 2.0f) * 2;
   p.set(c, v);
   if (c.engine == ENGINE_OSC && (id == Id::Wave1 || id == Id::Wave2 ||
                                  id == Id::Wave3 || id == Id::OscCount)) {
@@ -853,7 +708,6 @@ bool stepped(Id id) noexcept {
 void adjust(Id id, VoiceConfig &c, float delta) noexcept {
   if (!available(id, c) || !std::isfinite(delta) || delta == 0)
     return;
-  id = envelopeAlias(id, c);
   const auto &p = parameter(id);
   const auto *b = bindingFor(id, c);
   const float lo = b ? b->minimum : p.minimum, hi = b ? b->maximum : p.maximum;
@@ -896,25 +750,6 @@ void format(Id id, const VoiceConfig &c, char *out, size_t capacity) noexcept {
                        "BS Saw", "BS Square", "Hard sync", "Noise"};
     std::snprintf(out, capacity, "%s",
                   n[std::clamp(static_cast<int>(v), 0, 7)]);
-    return;
-  }
-  if (id == Id::FilterType) {
-    std::snprintf(out, capacity, "%s",
-                  c.filterType == FILTER_LADDER ? "Ladder" : "SVF");
-    return;
-  }
-  if (id == Id::FilterMode) {
-    const char *n[] = {"Low-pass", "Band-pass", "High-pass"};
-    std::snprintf(out, capacity, "%s",
-                  c.filterType == FILTER_SVF
-                      ? n[std::clamp(static_cast<int>(v), 0, 2)]
-                      : voiceui::kFilterModeNames[std::clamp(
-                            static_cast<int>(c.filterMode), 0, 5)]);
-    return;
-  }
-  if ((id == Id::Cutoff && !b) || id == Id::StaticCutoff) {
-    std::snprintf(out, capacity, "%.0f Hz",
-                  VoiceParameters::mapCutoff(VoiceParameters::layout(c), v));
     return;
   }
   if (b && b->unit == VoiceParameterUnit::Ratio) {

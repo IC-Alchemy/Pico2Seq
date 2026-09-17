@@ -9,8 +9,6 @@ enum class Group : uint8_t {
   Osc1,
   Osc2,
   Osc3,
-  Envelope,
-  Filter,
   HighPass,
   Drive,
   Engine,
@@ -28,6 +26,9 @@ enum class Unit : uint8_t {
   Choice
 };
 // Append new IDs; editor cursors refer to these stable IDs, never visible rows.
+// Drone build: no envelope or main-filter groups exist — the lane editors
+// (Cutoff/Attack/Decay) only appear when the active layout binds them to an
+// engine macro.
 enum class Id : uint8_t {
   Note,
   Velocity,
@@ -56,18 +57,6 @@ enum class Id : uint8_t {
   Detune3,
   Pulse3,
   Harmony3,
-  EnvelopeOn,
-  EnvAttack,
-  EnvDecay,
-  Sustain,
-  Release,
-  FilterOn,
-  FilterType,
-  FilterMode,
-  StaticCutoff,
-  Resonance,
-  FilterDrive,
-  Passband,
   HighPassFreq,
   HighPassRes,
   DriveOn,
@@ -100,8 +89,6 @@ enum class Id : uint8_t {
   RecipeRetrigger,
   NoiseLevel,
   ChaosRate,
-  FilterEnvAmount,
-  FilterEnvFloor,
   Count
 };
 struct Parameter {

@@ -133,7 +133,7 @@ TEST_CASE("Parameter catalogue is reachable and bounded for every engine",
   for (uint8_t preset = 0; preset < VoicePresets::getPresetCount(); ++preset) {
     auto c = VoicePresets::getPresetConfig(preset);
     enablePatch(c);
-    c.hasFilter = c.hasEnvelope = c.hasOverdrive = true;
+    c.hasOverdrive = true;
     INFO(VoicePresets::getPresetName(preset));
     std::set<Id> reachable;
     Id group = Id::Note;
@@ -171,9 +171,18 @@ TEST_CASE("Parameter catalogue is reachable and bounded for every engine",
   }
   setValue(Id::Wave1, c, 7);
   REQUIRE(c.oscWaveforms[0] == WAVE_NOISE);
-  c.filterType = FILTER_SVF;
-  setValue(Id::FilterMode, c, 2);
-  REQUIRE(c.filterMode == VoiceFilterMode::HP24);
+  // Drone build: the Envelope and Filter editor groups are gone; no group
+  // name may reintroduce them.
+  for (int g = 0; g < static_cast<int>(Group::Count); ++g) {
+    const char *group = groupName(static_cast<Group>(g));
+    REQUIRE(std::strcmp(group, "Envelope") != 0);
+    REQUIRE(std::strcmp(group, "Filter") != 0);
+  }
+  // Oscillator presets expose no cutoff/attack/decay editors at all.
+  auto osc = VoicePresets::getDigitalVoice();
+  enablePatch(osc);
+  for (Id id : {Id::Cutoff, Id::Attack, Id::Decay})
+    REQUIRE_FALSE(available(id, osc));
 }
 
 TEST_CASE("Every preset recipe survives an editor selection round trip", "[voice_edit][recipes]") {
@@ -223,7 +232,6 @@ TEST_CASE("Muted editor still drains queued changes for all four voices",
   manager.setTransportMuted(true);
   for (uint8_t i = 0; i < 4; ++i) {
     auto c = *manager.getVoiceConfig(ids[i]);
-    c.hasEnvelope = false;
     c.baseVelocity = 0.1f * (i + 1);
     enablePatch(c);
     manager.setVoiceConfig(ids[i], c);
@@ -323,8 +331,8 @@ TEST_CASE("Displayed notes use the same tuning as rendered oscillator pitches", 
   REQUIRE(std::string(text) == "C4/C5");
 }
 
-TEST_CASE("Sequencer OLED formats final physical and preset-specific units", "[voice_edit][oled]") {
-  auto c = VoicePresets::getSquareVoice();
+TEST_CASE("Sequencer OLED formats physical units and marks inert drone lanes", "[voice_edit][oled]") {
+  auto c = VoicePresets::getDigitalVoice();
   enablePatch(c);
   Step step = MusicalValues::baseStep(c);
   char text[48];
@@ -332,19 +340,17 @@ TEST_CASE("Sequencer OLED formats final physical and preset-specific units", "[v
     MusicalValues::format(id, step, c, scale[0], 120, text, sizeof(text));
     return std::string(text);
   };
-  REQUIRE(formatted(ParamId::Note) == "C5");
-  REQUIRE(formatted(ParamId::Attack) == "20.0ms");
-  REQUIRE(formatted(ParamId::Decay) == "400.0ms");
+  REQUIRE(formatted(ParamId::Note).rfind("C5", 0) == 0);
+  // Digital is an oscillator drone preset: its Filter/Attack/Decay lanes bind
+  // no engine macro, so they display as inactive rather than as units.
+  REQUIRE(formatted(ParamId::Filter) == "--");
+  REQUIRE(formatted(ParamId::Attack) == "--");
+  REQUIRE(formatted(ParamId::Decay) == "--");
   REQUIRE(formatted(ParamId::Velocity) == "0.50x");
   REQUIRE(formatted(ParamId::GateLength) == "62.5ms");
   REQUIRE(formatted(ParamId::Octave) == "+0 oct");
   REQUIRE(formatted(ParamId::Slide) == "Off");
   REQUIRE(formatted(ParamId::Gate) == "On");
-  REQUIRE(formatted(ParamId::Filter).find("Hz") != std::string::npos);
-  c.hasFilter = false;
-  REQUIRE(formatted(ParamId::Filter) == "Bypass");
-  c.hasEnvelope = false;
-  REQUIRE(formatted(ParamId::Attack) == "Off");
   for (uint8_t preset = 0; preset < VoicePresets::getPresetCount(); ++preset) {
     c = VoicePresets::getPresetConfig(preset);
     enablePatch(c);
@@ -394,66 +400,35 @@ TEST_CASE("Patch randomization stays within its depth around the preset bases", 
         reach(ParamId::Filter, step.filterCutoff, depth / 100.0f);
         reach(ParamId::Attack, step.attackTimeSeconds, depth / 100.0f);
         reach(ParamId::Decay, step.decayTimeSeconds, depth / 100.0f);
-        if (depth == ParameterManager::kDefaultRandomizeDepth) {
-          // Digital's 15 ms attack stays a playable step attack (~6..83 ms).
-          REQUIRE(MusicalValues::attackSeconds(step.attackTimeSeconds) >= c.defaultAttack / 4.0f);
-          REQUIRE(MusicalValues::attackSeconds(step.attackTimeSeconds) <= c.defaultAttack * 6.0f);
-        }
       }
     }
   }
 }
 
-TEST_CASE("Neutral envelope modifiers play each preset's own attack and decay",
-          "[voice_edit][envelope]") {
-  for (uint8_t preset = 0; preset < VoicePresets::getPresetCount(); ++preset) {
-    auto c = VoicePresets::getPresetConfig(preset);
-    enablePatch(c);
-    if (!VoiceParameters::layout(c).envelopeFromTracks ||
-        VoiceParameters::binding(c, ParamId::Attack).target)
-      continue;
-    INFO(VoicePresets::getPresetName(preset));
-    REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, 0.5f, &c)) ==
-            Approx(c.defaultAttack).epsilon(1e-3));
-    REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, 0.5f, &c)) ==
-            Approx(c.defaultDecay).epsilon(1e-3));
-    REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, 1.0f, &c)) == Approx(2.0f));
-    REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, 1.0f, &c)) == Approx(10.0f));
-  }
-}
-
-TEST_CASE("Attack base edits stay inside the attack lane", "[voice_edit][encoder]") {
-  auto c = VoicePresets::getDigitalVoice();
-  enablePatch(c);
-  setValue(Id::Attack, c, 5.0f);
-  REQUIRE(c.defaultAttack == Approx(2.0f));
-  c.defaultAttack = 0.01f;
-  // The envelope page edits the same base while the lane drives the envelope.
-  setValue(Id::EnvAttack, c, 5.0f);
-  REQUIRE(c.defaultAttack == Approx(2.0f));
-  c.defaultAttack = 1.0f;
-  adjust(Id::EnvAttack, c, 1.0f);
-  REQUIRE(c.defaultAttack == Approx(2.0f));
-  char text[24];
-  format(Id::EnvAttack, c, text, sizeof(text));
-  REQUIRE(std::string(text) == "2.000 s");
-
-  // Envelopes that ignore the lanes keep their long attack range.
-  auto pad = VoicePresets::getPresetConfigByName("SilkPad");
-  enablePatch(pad);
-  REQUIRE_FALSE(VoiceParameters::layout(pad).envelopeFromTracks);
-  setValue(Id::EnvAttack, pad, 5.0f);
-  REQUIRE(pad.defaultAttack == Approx(5.0f));
+TEST_CASE("Time normalization helpers keep their exported musical ranges",
+          "[voice_edit][encoder]") {
+  // No firmware caller remains after the drone build removed the ADSR, but
+  // the helpers stay exported and keep their ranges: the shared 1 ms..10 s
+  // table and the 2 s attack ceiling.
+  REQUIRE(timeNormalize(0.001f) == Approx(0.0f));
+  REQUIRE(timeNormalize(10.0f) == Approx(1.0f));
+  REQUIRE(timeNormalize(0.16f) < timeNormalize(1.6f));
+  REQUIRE(attackNormalize(0.001f) == Approx(0.0f));
+  REQUIRE(attackNormalize(kAttackMaxSeconds) == Approx(1.0f));
+  REQUIRE(attackNormalize(5.0f) == Approx(1.0f)); // clamps at the attack ceiling
+  REQUIRE(attackNormalize(0.0f) == Approx(0.0f));
+  REQUIRE(attackNormalize(0.08f) > 0.0f);
+  REQUIRE(attackNormalize(0.08f) < 1.0f);
 }
 
 TEST_CASE("Stepped values move one step per adjust whatever the delta",
           "[voice_edit][encoder]") {
   for (Id id : {Id::Note, Id::Octave, Id::Engine, Id::Recipe, Id::OscCount,
                 Id::Wave1, Id::Harmony1, Id::Harmony2, Id::Harmony3,
-                Id::EnvelopeOn, Id::Gate, Id::Slide})
+                Id::Gate, Id::Slide})
     CHECK(stepped(id));
   for (Id id : {Id::Velocity, Id::Cutoff, Id::Attack, Id::Decay,
-                Id::GateLength, Id::Resonance, Id::SlideTime, Id::Level1})
+                Id::GateLength, Id::SlideTime, Id::Level1})
     CHECK_FALSE(stepped(id));
 
   auto config = VoicePresets::getDigitalVoice();
@@ -522,11 +497,12 @@ double rmsWhileEditing(uint8_t preset, void (*edit)(Sequencer &, VoiceState &)) 
 }
 } // namespace
 
-TEST_CASE("Live step edits keep oscillator voices sounding",
+TEST_CASE("Live step edits keep oscillator drones sounding",
           "[voice_edit][recording]") {
-  // Re-running the step for each edit retriggered the envelope every
-  // millisecond: oscillator voices fell near silent while waveguides, which
-  // re-pluck, stayed loud. Refreshing in place must sound like no edit.
+  // Re-running the step used to retrigger the amplitude envelope every
+  // millisecond, and oscillator voices fell near silent while waveguides,
+  // which re-pluck, stayed loud. Drones carry no envelope: both an in-place
+  // refresh and a full step re-run must sound like no edit at all.
   const uint8_t square = static_cast<uint8_t>(VoicePresets::findPreset("Square"));
   const double untouched = rmsWhileEditing(square, [](Sequencer &, VoiceState &) {});
   const double refreshed = rmsWhileEditing(square, [](Sequencer &s, VoiceState &v) {
@@ -537,65 +513,65 @@ TEST_CASE("Live step edits keep oscillator voices sounding",
   });
   REQUIRE(untouched > 0.01);
   CHECK(refreshed == Approx(untouched).epsilon(0.05));
-  CHECK(retriggered < untouched * 0.5);
+  CHECK(retriggered == Approx(untouched).epsilon(0.05));
 }
 
-TEST_CASE("RubberSub sequences full range without dead zones on Attack, Cutoff, Decay",
-          "[voice_edit][rubbersub]") {
-  VoiceConfig rubberSub = VoicePresets::getRubberSubVoice();
-  enablePatch(rubberSub);
-
-  // Attack: 2 ms base (normalized ~0.09) spans 1 ms to 2 s across hand range
-  const float attackBase = laneBase(ParamId::Attack, rubberSub);
-  REQUIRE(attackBase == Approx(attackNormalize(0.002f)));
-  REQUIRE(composeLane(ParamId::Attack, 0.0f, &rubberSub) == 0.0f);
-  REQUIRE(composeLane(ParamId::Attack, 0.1f, &rubberSub) > 0.0f); // Zero dead zone!
-  REQUIRE(composeLane(ParamId::Attack, 0.25f, &rubberSub) > 0.0f);
-  REQUIRE(composeLane(ParamId::Attack, 0.5f, &rubberSub) == Approx(attackBase));
-  REQUIRE(composeLane(ParamId::Attack, 0.75f, &rubberSub) > attackBase);
-  REQUIRE(composeLane(ParamId::Attack, 1.0f, &rubberSub) == 1.0f);
-
-  REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, 0.0f, &rubberSub)) == Approx(0.001f));
-  REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, 0.5f, &rubberSub)) == Approx(0.002f));
-  REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, 1.0f, &rubberSub)) == Approx(2.0f));
-
-  // Cutoff: 0.5 base (the 320 Hz center) spans 90 Hz to 1200 Hz across hand range
-  const float filterBase = laneBase(ParamId::Filter, rubberSub);
-  REQUIRE(filterBase == Approx(0.5f));
-  const auto &cutoff = VoiceParameters::layout(rubberSub);
-  REQUIRE(VoiceParameters::mapCutoff(cutoff, composeLane(ParamId::Filter, 0.0f, &rubberSub)) == Approx(90.0f));
-  REQUIRE(VoiceParameters::mapCutoff(cutoff, composeLane(ParamId::Filter, 0.5f, &rubberSub)) == Approx(320.0f));
-  REQUIRE(VoiceParameters::mapCutoff(cutoff, composeLane(ParamId::Filter, 1.0f, &rubberSub)) == Approx(1200.0f));
-  REQUIRE(composeLane(ParamId::Filter, 0.0f, &rubberSub) == 0.0f);
-  REQUIRE(composeLane(ParamId::Filter, 0.1f, &rubberSub) > 0.0f); // Zero dead zone!
-  REQUIRE(composeLane(ParamId::Filter, 0.5f, &rubberSub) == Approx(filterBase));
-  REQUIRE(composeLane(ParamId::Filter, 1.0f, &rubberSub) == 1.0f);
-
-  // Decay: 160 ms base spans 1 ms to 10 s across hand range
-  const float decayBase = laneBase(ParamId::Decay, rubberSub);
-  REQUIRE(decayBase == Approx(timeNormalize(0.16f)));
-  REQUIRE(composeLane(ParamId::Decay, 0.0f, &rubberSub) == 0.0f);
-  REQUIRE(composeLane(ParamId::Decay, 0.5f, &rubberSub) == Approx(decayBase));
-  REQUIRE(composeLane(ParamId::Decay, 1.0f, &rubberSub) == 1.0f);
-  REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, 0.0f, &rubberSub)) == Approx(0.001f));
-  REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, 0.5f, &rubberSub)) == Approx(0.16f));
-  REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, 1.0f, &rubberSub)) == Approx(10.0f));
-}
-
-TEST_CASE("All factory presets sequence full continuous range without dead zones",
+TEST_CASE("Oscillator presets leave the filter and envelope lanes inert",
           "[voice_edit][presets]") {
+  // Drone build: the nine oscillator presets own no layout, so the legacy
+  // standard layout applies and no F/A/D lane binds an engine macro. The
+  // lane editors disappear, read a neutral value and never move a base.
+  for (const char *presetName : {"Analog", "Digital", "Bass", "Lead", "Square",
+                                 "Pad", "Percussion", "SubFunk", "RubberSub"}) {
+    auto c = VoicePresets::getPresetConfigByName(presetName);
+    enablePatch(c);
+    INFO(presetName);
+    REQUIRE(c.parameters == nullptr);
+    for (Id id : {Id::Cutoff, Id::Attack, Id::Decay}) {
+      REQUIRE_FALSE(available(id, c));
+      REQUIRE(value(id, c) == Approx(0.5f)); // neutral fallback, not a base
+      adjust(id, c, 0.5f); // unavailable ids never move
+      REQUIRE(value(id, c) == Approx(0.5f));
+      setValue(id, c, 0.1f); // setLaneBase is a no-op for unbound lanes
+      REQUIRE(value(id, c) == Approx(0.5f));
+    }
+    REQUIRE(laneBase(ParamId::Filter, c) == Approx(0.5f));
+    REQUIRE(laneBase(ParamId::Attack, c) == Approx(0.5f));
+    REQUIRE(laneBase(ParamId::Decay, c) == Approx(0.5f));
+    // Only the pitch and gate bases remain active shaping lanes.
+    for (Id id : {Id::Note, Id::Velocity, Id::Octave, Id::GateLength, Id::Gate,
+                  Id::Slide})
+      REQUIRE(available(id, c));
+    // The high-pass editor only exists for the waveguide engines.
+    REQUIRE_FALSE(available(Id::HighPassFreq, c));
+    REQUIRE_FALSE(available(Id::HighPassRes, c));
+  }
+  auto wg = VoicePresets::getWaveguidePluckVoice();
+  enablePatch(wg);
+  REQUIRE(available(Id::HighPassFreq, wg));
+  REQUIRE(available(Id::HighPassRes, wg));
+}
+
+TEST_CASE("Bound macro lanes compose the full continuous range; inert lanes read neutral",
+          "[voice_edit][presets]") {
+  const auto formatLane = [](const VoiceConfig &config, ParamId lane) {
+    const Step step = MusicalValues::baseStep(config);
+    char text[48];
+    MusicalValues::format(lane, step, config, nullptr, 120.0f, text, sizeof(text));
+    return std::string(text);
+  };
   for (uint8_t p = 0; p < VoicePresets::getPresetCount(); ++p) {
     VoiceConfig c = VoicePresets::getPresetConfig(p);
     enablePatch(c);
     INFO("Testing preset: " << VoicePresets::getPresetName(p));
 
-    for (ParamId lane : {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Decay, ParamId::Octave}) {
+    // The pitch-adjacent bases every preset keeps span their lane without
+    // dead zones.
+    for (ParamId lane : {ParamId::Velocity, ParamId::Octave}) {
       const float base = laneBase(lane, c);
       REQUIRE(composeLane(lane, 0.0f, &c) == 0.0f);
       REQUIRE(composeLane(lane, 0.5f, &c) == Approx(base));
       REQUIRE(composeLane(lane, 1.0f, &c) == 1.0f);
-
-      // Verify no dead zones: strictly monotonic progression
       if (base > 0.0f) {
         REQUIRE(composeLane(lane, 0.25f, &c) > 0.0f);
         REQUIRE(composeLane(lane, 0.25f, &c) < base);
@@ -605,90 +581,65 @@ TEST_CASE("All factory presets sequence full continuous range without dead zones
         REQUIRE(composeLane(lane, 0.75f, &c) < 1.0f);
       }
     }
+
+    // Filter/Attack/Decay span their full macro range only where a layout
+    // binds them to an engine macro; otherwise they are inert drone lanes.
+    for (ParamId lane : {ParamId::Filter, ParamId::Attack, ParamId::Decay}) {
+      if (!VoiceParameters::binding(c, lane).target) {
+        REQUIRE(laneBase(lane, c) == Approx(0.5f));
+        REQUIRE(composeLane(lane, 0.5f, &c) == Approx(0.5f));
+        REQUIRE(formatLane(c, lane) == "--");
+        continue;
+      }
+      const float base = laneBase(lane, c);
+      REQUIRE(composeLane(lane, 0.0f, &c) == 0.0f);
+      REQUIRE(composeLane(lane, 0.5f, &c) == Approx(base));
+      REQUIRE(composeLane(lane, 1.0f, &c) == 1.0f);
+      if (base > 0.0f) {
+        REQUIRE(composeLane(lane, 0.25f, &c) > 0.0f);
+        REQUIRE(composeLane(lane, 0.25f, &c) < base);
+      }
+      if (base < 1.0f) {
+        REQUIRE(composeLane(lane, 0.75f, &c) > base);
+        REQUIRE(composeLane(lane, 0.75f, &c) < 1.0f);
+      }
+      // Bound lanes carry their macro unit, never the inert marker.
+      REQUIRE(formatLane(c, lane) != "--");
+    }
   }
 }
 
-TEST_CASE("OLED display formatting never outputs ratio fallback (.xx) on Attack, Cutoff, or Decay",
+TEST_CASE("OLED lane formatting is a macro unit or the inert marker, never a raw fallback",
           "[voice_edit][oled]") {
   for (uint8_t p = 0; p < VoicePresets::getPresetCount(); ++p) {
     VoiceConfig c = VoicePresets::getPresetConfig(p);
     enablePatch(c);
     INFO("Testing OLED format for preset: " << VoicePresets::getPresetName(p));
 
-    Step step{};
-    for (float val : {0.0f, 0.01f, 0.1f, 0.37f, 0.5f, 0.75f, 1.0f}) {
-      step.attackTimeSeconds = val;
-      step.filterCutoff = val;
-      step.decayTimeSeconds = val;
-      step.velocityLevel = val;
-
-      char buf[48];
-      // Attack must format as time (or custom unit), never %.2fx fallback
-      MusicalValues::format(ParamId::Attack, step, c, nullptr, 120.0f, buf, sizeof(buf));
-      std::string atk(buf);
-      REQUIRE(atk != "0.01x");
-      if (VoicePresets::getPresetName(p) == std::string("RubberSub")) {
-        REQUIRE((atk.find("ms") != std::string::npos || atk.find("s") != std::string::npos));
-      }
-
-      // Cutoff must format as Hz (or custom unit), never %.2fx fallback
-      MusicalValues::format(ParamId::Filter, step, c, nullptr, 120.0f, buf, sizeof(buf));
-      std::string flt(buf);
-      REQUIRE(flt != "0.01x");
-      if (VoicePresets::getPresetName(p) == std::string("RubberSub")) {
-        REQUIRE(flt.find("Hz") != std::string::npos);
-      }
-
-      // Decay must format as time (or custom unit), never %.2fx fallback
-      MusicalValues::format(ParamId::Decay, step, c, nullptr, 120.0f, buf, sizeof(buf));
-      std::string dec(buf);
-      REQUIRE(dec != "0.01x");
-      if (VoicePresets::getPresetName(p) == std::string("RubberSub")) {
-        REQUIRE((dec.find("ms") != std::string::npos || dec.find("s") != std::string::npos));
+    for (ParamId lane : {ParamId::Filter, ParamId::Attack, ParamId::Decay}) {
+      const auto &binding = VoiceParameters::binding(c, lane);
+      for (float val : {0.0f, 0.01f, 0.1f, 0.37f, 0.5f, 0.75f, 1.0f}) {
+        Step step{};
+        switch (lane) {
+        case ParamId::Filter: step.filterCutoff = val; break;
+        case ParamId::Attack: step.attackTimeSeconds = val; break;
+        case ParamId::Decay: step.decayTimeSeconds = val; break;
+        default: break;
+        }
+        char buf[48];
+        MusicalValues::format(lane, step, c, nullptr, 120.0f, buf, sizeof(buf));
+        std::string text(buf);
+        if (binding.target) {
+          // Bound lanes format through their macro's unit and range.
+          REQUIRE_FALSE(text.empty());
+          REQUIRE(text != "--");
+        } else {
+          // Unbound drone lanes read as inactive whatever is recorded.
+          REQUIRE(text == "--");
+        }
       }
     }
   }
-}
-
-TEST_CASE("RubberSub audio synthesis produces fat audible sub-bass and distinct filter response",
-          "[voice_edit][rubbersub][audio]") {
-  const uint8_t rubberSub = static_cast<uint8_t>(VoicePresets::findPreset("RubberSub"));
-  const double untouchedRms = rmsWhileEditing(rubberSub, [](Sequencer &, VoiceState &) {});
-  REQUIRE(untouchedRms > 0.02); // Robust, audible audio output
-
-  // Verify cutoff sweep produces audible timbre change
-  const double openCutoffRms = rmsWhileEditing(rubberSub, [](Sequencer &s, VoiceState &v) {
-    v.filterCutoff = 1.0f;
-    s.refreshVoiceParameters(&v);
-  });
-  REQUIRE(openCutoffRms > 0.02);
-}
-
-TEST_CASE("SubFunk audio synthesis produces audible sub-bass and distinct filter response",
-          "[voice_edit][subfunk][audio]") {
-  const uint8_t subFunk = static_cast<uint8_t>(VoicePresets::findPreset("SubFunk"));
-  const auto config = VoicePresets::getSubFunkVoice();
-  REQUIRE(config.highPassFreq == 25.0f);
-  REQUIRE(config.filterEnvelopeFloor == 0.35f);
-  REQUIRE(config.oscWaveforms[1] == WAVE_BSP_SQUARE);
-  REQUIRE(config.oscAmplitudes[1] == Approx(0.35f));
-  REQUIRE(config.filterRes == Approx(0.6f));
-  REQUIRE(config.overdriveDrive == Approx(0.45f));
-
-  const double untouchedRms = rmsWhileEditing(subFunk, [](Sequencer &, VoiceState &) {});
-  REQUIRE(untouchedRms > 0.05); // Robust, audible output
-
-  const double lowCutoffRms = rmsWhileEditing(subFunk, [](Sequencer &s, VoiceState &v) {
-    s.setStepParameterValue(ParamId::Filter, 0, 0.0f);
-    s.refreshVoiceParameters(&v);
-  });
-  REQUIRE(lowCutoffRms > 0.05);
-
-  const double openCutoffRms = rmsWhileEditing(subFunk, [](Sequencer &s, VoiceState &v) {
-    s.setStepParameterValue(ParamId::Filter, 0, 1.0f);
-    s.refreshVoiceParameters(&v);
-  });
-  REQUIRE(openCutoffRms > 0.05);
 }
 
 TEST_CASE("Live parameter modulation with distance sensor produces distinct values across all lanes",
@@ -708,44 +659,34 @@ TEST_CASE("Live parameter modulation with distance sensor produces distinct valu
       case ParamId::Decay: s.decayTimeSeconds = composed; break;
       case ParamId::Note: s.noteIndex = composed; break;
       case ParamId::Octave: s.octaveOffset = VoiceEdit::mapOctave(composed); break;
-      case ParamId::GateLength:
-        s.gateLengthTicks = static_cast<uint16_t>(std::max(1.0f,
-            composed * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS));
-        break;
       default: break;
     }
     return s;
   };
 
-  // Filter cutoff: min, mid, max format distinct frequencies
   char lowBuf[32], midBuf[32], highBuf[32];
-  MusicalValues::format(ParamId::Filter, composeLive(ParamId::Filter, 0.0f), config, nullptr, 120.0f, lowBuf, sizeof(lowBuf));
-  MusicalValues::format(ParamId::Filter, composeLive(ParamId::Filter, 0.5f), config, nullptr, 120.0f, midBuf, sizeof(midBuf));
-  MusicalValues::format(ParamId::Filter, composeLive(ParamId::Filter, 1.0f), config, nullptr, 120.0f, highBuf, sizeof(highBuf));
-  CHECK(std::string(lowBuf) == "60Hz");
-  CHECK(std::string(midBuf) == "420Hz");
-  CHECK(std::string(highBuf) == "1600Hz");
-
-  // Attack: min, mid, max format distinct times
-  MusicalValues::format(ParamId::Attack, composeLive(ParamId::Attack, 0.0f), config, nullptr, 120.0f, lowBuf, sizeof(lowBuf));
-  MusicalValues::format(ParamId::Attack, composeLive(ParamId::Attack, 0.5f), config, nullptr, 120.0f, midBuf, sizeof(midBuf));
-  MusicalValues::format(ParamId::Attack, composeLive(ParamId::Attack, 1.0f), config, nullptr, 120.0f, highBuf, sizeof(highBuf));
-  CHECK(std::string(lowBuf) == "1.0ms");
-  CHECK(std::string(midBuf) == "4.0ms");
-  CHECK(std::string(highBuf) == "2.00s");
-
-  // Decay: min, mid, max format distinct times
-  MusicalValues::format(ParamId::Decay, composeLive(ParamId::Decay, 0.0f), config, nullptr, 120.0f, lowBuf, sizeof(lowBuf));
-  MusicalValues::format(ParamId::Decay, composeLive(ParamId::Decay, 0.5f), config, nullptr, 120.0f, midBuf, sizeof(midBuf));
-  MusicalValues::format(ParamId::Decay, composeLive(ParamId::Decay, 1.0f), config, nullptr, 120.0f, highBuf, sizeof(highBuf));
-  CHECK(std::string(lowBuf) == "1.0ms");
-  CHECK(std::string(midBuf) == "220.0ms");
-  CHECK(std::string(highBuf) == "10.00s");
+  // SubFunk is an oscillator drone preset: its Filter/Attack/Decay lanes bind
+  // no engine macro, so every hand position reads as inactive.
+  for (ParamId lane : {ParamId::Filter, ParamId::Attack, ParamId::Decay}) {
+    MusicalValues::format(lane, composeLive(lane, 0.0f), config, nullptr, 120.0f, lowBuf, sizeof(lowBuf));
+    MusicalValues::format(lane, composeLive(lane, 0.5f), config, nullptr, 120.0f, midBuf, sizeof(midBuf));
+    MusicalValues::format(lane, composeLive(lane, 1.0f), config, nullptr, 120.0f, highBuf, sizeof(highBuf));
+    CHECK(std::string(lowBuf) == "--");
+    CHECK(std::string(midBuf) == "--");
+    CHECK(std::string(highBuf) == "--");
+  }
 
   // Velocity: min, mid, max format distinct multipliers
   MusicalValues::format(ParamId::Velocity, composeLive(ParamId::Velocity, 0.0f), config, nullptr, 120.0f, lowBuf, sizeof(lowBuf));
   MusicalValues::format(ParamId::Velocity, composeLive(ParamId::Velocity, 0.5f), config, nullptr, 120.0f, midBuf, sizeof(midBuf));
   MusicalValues::format(ParamId::Velocity, composeLive(ParamId::Velocity, 1.0f), config, nullptr, 120.0f, highBuf, sizeof(highBuf));
+  CHECK(std::string(lowBuf) != std::string(midBuf));
+  CHECK(std::string(midBuf) != std::string(highBuf));
+
+  // Note: min, mid, max format distinct scale notes
+  MusicalValues::format(ParamId::Note, composeLive(ParamId::Note, 0.0f), config, scale[0], 120.0f, lowBuf, sizeof(lowBuf));
+  MusicalValues::format(ParamId::Note, composeLive(ParamId::Note, 0.5f), config, scale[0], 120.0f, midBuf, sizeof(midBuf));
+  MusicalValues::format(ParamId::Note, composeLive(ParamId::Note, 1.0f), config, scale[0], 120.0f, highBuf, sizeof(highBuf));
   CHECK(std::string(lowBuf) != std::string(midBuf));
   CHECK(std::string(midBuf) != std::string(highBuf));
 

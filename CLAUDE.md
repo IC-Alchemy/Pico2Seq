@@ -175,13 +175,15 @@ out-of-range indices.
 Matrix/TMAG5273/VL53L1X input  (Core 0)
   → UIEventHandler / ButtonHandlers  → UIState (single struct, no loose globals)
   → 4 independent Sequencer instances (seq1..seq4, one per voice, polymetric: each
-    ParamId track can have its own step count, e.g. Note:16 steps, Filter:8 steps)
+    ParamId track can have its own step count, e.g. Note:16 steps, T60:8 steps)
   → VoiceState produced per step (the uClock ISR only stages the step into
     the stepQueue SpscQueue; loop() drains it via processClockEvents() and
     runs processSequencerStep)
   → VoiceSystem (gate timing, internal note lifecycle via MidiNoteManager — nothing
     has been transmitted since USB MIDI was removed 2026-09-06) → VoiceManager
-  → Voice spans (sources → envelope gain → effects → velocity → main filter → HPF)
+  → Voice spans (sources → overdrive → velocity → waveguide HPF (waveguide only)
+    → output level; drone voices render through gate-off — the drone build
+    removed the per-voice envelope gain and main filter stages)
   → fill_audio_buffer()  (Core 1)  → I2S @ 48kHz (final mix includes the master
     volume from `VoiceManager::setGlobalVolume()`, utility fader 3)
 ```
@@ -189,7 +191,14 @@ Matrix/TMAG5273/VL53L1X input  (Core 0)
 `Sequencer::ParameterTrack<N>` (in `SequencerDefs.h`) is the polymetric building block: each
 `ParamId` (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide) gets its own
 fixed-size array with an independent `currentStepCount` and modulo-wrapping `getValue()`. This
-is what makes "Note track at 16 steps, Filter track at 8 steps" possible on the same voice.
+is what makes "Note track at 16 steps, T60 track at 8 steps" possible on the same voice. The
+9-lane contract and the saved-pattern format are unchanged, but since the drone build removed
+the per-voice filter and envelope, the Filter/Attack/Decay lanes are macro-only: waveguide binds
+Bright/Pick/T60, recipe presets bind three engine macros (e.g. FM Index/Ratio/Feedback), Hypersaw
+binds Detune/Mix, NoiseStorm binds Color/Regen/Chaos, and hard-sync re-labels Note/Velocity as
+Master/Slave — on the nine oscillator presets (Analog … RubberSub) the lanes are unbound and
+inert (the OLED shows "--"). MIDI CC transmission of the lane values (CC 74/73/72, 78/77/76)
+still runs and now carries those macro values.
 
 ### Key conventions to preserve when editing
 

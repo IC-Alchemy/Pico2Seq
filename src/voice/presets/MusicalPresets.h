@@ -66,41 +66,24 @@ inline constexpr auto kAirChimeLayout = airChimeLayout();
 constexpr VoiceConfig makeVelvetKeys() noexcept
 {
   auto c = recipeVoice(VoiceRecipes::kFeedbackFm, kVelvetKeysLayout, 0.10f, 2.0f, 0.025f);
-  c.defaultAttack = 0.006f;
-  c.defaultDecay = 0.85f;
-  c.defaultSustain = 0.16f;
-  c.defaultRelease = 0.45f;
   c.outputLevel = 0.62f;
   return c;
 }
 constexpr VoiceConfig makeCopperBass() noexcept
 {
   auto c = recipeVoice(VoiceRecipes::kSpectralDsf, kCopperBassLayout, 0.42f, 1.0f, 0.32f);
-  c.highPassFreq = 20.0f;
-  c.defaultAttack = 0.004f;
-  c.defaultDecay = 0.22f;
-  c.defaultSustain = 0.38f;
-  c.defaultRelease = 0.10f;
   c.outputLevel = 0.72f;
   return c;
 }
 constexpr VoiceConfig makeReedPipe() noexcept
 {
   auto c = recipeVoice(VoiceRecipes::kReedPipe, kReedPipeLayout, 3.0f, 0.74f, 0.32f);
-  c.defaultAttack = 0.025f;
-  c.defaultDecay = 0.20f;
-  c.defaultSustain = 0.75f;
-  c.defaultRelease = 0.16f;
   c.outputLevel = 0.72f;
   return c;
 }
 constexpr VoiceConfig makeSilkPad() noexcept
 {
   auto c = recipeVoice(VoiceRecipes::kSilkPad, kSilkPadLayout, 0.22f, 0.33f, 0.5f);
-  c.defaultAttack = 0.35f;
-  c.defaultDecay = 0.75f;
-  c.defaultSustain = 0.82f;
-  c.defaultRelease = 1.25f;
   c.recipeRetrigger = false; // Leave oscillator phases running across pad gates.
   c.outputLevel = 0.55f;
   return c;
@@ -108,40 +91,24 @@ constexpr VoiceConfig makeSilkPad() noexcept
 constexpr VoiceConfig makeHollowBell() noexcept
 {
   auto c = recipeVoice(VoiceRecipes::kHollowBell, kHollowBellLayout, 2.0f, 0.06f, 0.68f);
-  c.defaultAttack = 0.002f;
-  c.defaultDecay = 1.4f;
-  c.defaultSustain = 0.0f;
-  c.defaultRelease = 0.8f;
   c.outputLevel = 0.72f;
   return c;
 }
 constexpr VoiceConfig makeSyncLead() noexcept
 {
   auto c = recipeVoice(VoiceRecipes::kSyncLead, kSyncLeadLayout, 2.0f, 0.30f, 0.45f);
-  c.defaultAttack = 0.009f;
-  c.defaultDecay = 0.18f;
-  c.defaultSustain = 0.68f;
-  c.defaultRelease = 0.12f;
   c.outputLevel = 0.56f;
   return c;
 }
 constexpr VoiceConfig makeOrbitPluck() noexcept
 {
   auto c = recipeVoice(VoiceRecipes::kOrbitPluck, kOrbitPluckLayout, 1.4f, 2.0f, 0.28f);
-  c.defaultAttack = 0.003f;
-  c.defaultDecay = 0.38f;
-  c.defaultSustain = 0.0f;
-  c.defaultRelease = 0.24f;
   c.outputLevel = 0.64f;
   return c;
 }
 constexpr VoiceConfig makeAirChime() noexcept
 {
   auto c = recipeVoice(VoiceRecipes::kAirChime, kAirChimeLayout, 0.25f, 0.65f, 0.24f);
-  c.defaultAttack = 0.012f;
-  c.defaultDecay = 1.1f;
-  c.defaultSustain = 0.08f;
-  c.defaultRelease = 0.85f;
   c.outputLevel = 0.68f;
   return c;
 }

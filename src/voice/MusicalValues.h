@@ -12,16 +12,6 @@ inline int midiNote(float note, int octave, int harmony, const int *row) noexcep
   const int index = std::clamp(static_cast<int>(note) + harmony, 0, int(SCALE_STEPS) - 1);
   return std::clamp(72 + (row ? row[index] : index) + octave, 0, 127);
 }
-inline float envelopeSeconds(float normalized) noexcept {
-  return 0.001f * std::pow(10000.0f, std::clamp(normalized, 0.0f, 1.0f));
-}
-// Attack lane: 1 ms..2 s, so lane 0.5 is ~45 ms. Inverse: VoiceEdit::attackNormalize.
-inline float attackSeconds(float normalized) noexcept {
-  return 0.001f * std::pow(VoiceEdit::kAttackMaxSeconds / 0.001f, std::clamp(normalized, 0.0f, 1.0f));
-}
-inline float laneSeconds(ParamId id, float normalized) noexcept {
-  return id == ParamId::Attack ? attackSeconds(normalized) : envelopeSeconds(normalized);
-}
 inline void time(float seconds, char *out, size_t size) noexcept {
   if (seconds < 1.0f) std::snprintf(out, size, "%.1fms", seconds * 1000);
   else std::snprintf(out, size, "%.2fs", seconds);
@@ -101,48 +91,17 @@ inline void format(ParamId id, const Step &step, const VoiceConfig &config,
   default: std::snprintf(out, size, "--"); return;
   }
   const auto &binding = VoiceParameters::binding(config, id);
-  if (id == ParamId::Filter && !binding.target && !config.hasFilter) {
-    std::snprintf(out, size, "Bypass"); return;
-  }
-  if ((id == ParamId::Attack || id == ParamId::Decay) && !binding.target) {
-    if (!config.hasEnvelope) { std::snprintf(out, size, "Off"); return; }
-    float seconds;
-    if (!VoiceParameters::layout(config).envelopeFromTracks)
-      seconds = id == ParamId::Attack ? config.defaultAttack : config.defaultDecay;
-    else if (config.usePatchBases) seconds = laneSeconds(id, normalized);
-    else if (id == ParamId::Attack) seconds = dspmap::fmap(normalized, 0.002f, 0.75f, dspmap::Mapping::LINEAR);
-    else seconds = 0.075f + 0.32f * dspmap::fmap(normalized, 0.01f, 0.5f, dspmap::Mapping::LOG);
-    time(seconds, out, size); return;
+  // Drone voices: unbound Filter/Attack/Decay lanes shape nothing, so they
+  // display as inactive rather than as cutoff or envelope times.
+  if ((id == ParamId::Filter || id == ParamId::Attack || id == ParamId::Decay) &&
+      !binding.target) {
+    std::snprintf(out, size, "--");
+    return;
   }
   if (VoiceParameters::formatValue(config, id, normalized, out, size)) return;
   if (id == ParamId::Velocity) {
     // Velocity is an amplitude multiplier, not a MIDI velocity byte.
     std::snprintf(out, size, "%.2fx", normalized);
-    return;
-  }
-  if (id == ParamId::Filter) {
-    std::snprintf(out, size, "%.0fHz",
-                  VoiceParameters::mapCutoff(VoiceParameters::layout(config), normalized));
-    return;
-  }
-  if (id == ParamId::Attack || id == ParamId::Decay) {
-    // Fallback envelope formatting: if a binding failed to format in VoiceParameters::formatValue,
-    // guarantee that Attack/Decay format as musical time (ms/s) rather than a raw float ("%.2f").
-    float seconds;
-    if (!VoiceParameters::layout(config).envelopeFromTracks)
-      // Synthesis engine disables track-driven envelopes (e.g. Waveguide/Hypersaw) -> show static patch default.
-      seconds = id == ParamId::Attack ? config.defaultAttack : config.defaultDecay;
-    else if (config.usePatchBases)
-      // Modern patch-base architecture: laneSeconds() applies percussive curve (Attack: 1ms..2s,
-      // ~45ms midpoint) or exponential curve (Decay: 1ms..10s).
-      seconds = laneSeconds(id, normalized);
-    else if (id == ParamId::Attack)
-      // Legacy linear attack mapping: 2 ms .. 750 ms.
-      seconds = dspmap::fmap(normalized, 0.002f, 0.75f, dspmap::Mapping::LINEAR);
-    else
-      // Legacy log decay mapping: 75 ms .. ~235 ms.
-      seconds = 0.075f + 0.32f * dspmap::fmap(normalized, 0.01f, 0.5f, dspmap::Mapping::LOG);
-    time(seconds, out, size);
     return;
   }
   std::snprintf(out, size, "%.2f", normalized);

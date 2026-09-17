@@ -161,10 +161,7 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
   };
 
   const VoiceParameterDisplayInfo parameterInfo[] = {
-      {"Envelope", 8},
-      {"Overdrive", 9},
-      {"Filter Mode", 11},
-      {"Filter Res", 12}};
+      {"Overdrive", 9}};
 
   constexpr int parameterCount = sizeof(parameterInfo) / sizeof(parameterInfo[0]);
 
@@ -183,28 +180,8 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
     displayHardware.setCursor(70, currentYPosition);
     switch (parameterInfo[paramIndex].buttonNumber)
     {
-    case 8: // Envelope
-      displayHardware.print(voiceConfiguration->hasEnvelope ? "ON" : "OFF");
-      break;
     case 9: // Overdrive
       displayHardware.print(voiceConfiguration->hasOverdrive ? "ON" : "OFF");
-      break;
-    case 11: // Filter Mode
-    {
-      const int filterModeIndex = static_cast<int>(voiceConfiguration->filterMode);
-      if (filterModeIndex >= 0 && filterModeIndex < voiceui::kFilterModeCount)
-      {
-        displayHardware.print(voiceui::kFilterModeNames[filterModeIndex]);
-      }
-      else
-      {
-        displayHardware.print("UNK");
-      }
-    }
-    break;
-    case 12: // Filter Resonance
-      displayHardware.print(static_cast<int>(voiceConfiguration->filterRes * 100));
-      displayHardware.print("%");
       break;
     default:
       break;
@@ -569,8 +546,7 @@ void OLEDDisplay::displayParameterInfo(ParamId id, const Step &values,
   } else if (id == ParamId::Slide && config && values.hasSlide) {
     char glide[24]; MusicalValues::time(config->slideSeconds, glide, sizeof(glide));
     displayHardware.print("Glide "); displayHardware.print(glide);
-  } else if (id == ParamId::Filter && config && !VoiceParameters::binding(*config, id).target)
-    displayHardware.print("Cutoff before env");
+  }
 }
 
 void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
@@ -707,31 +683,9 @@ void OLEDDisplay::displayVoiceParameterInfo(const UIState &uiState, VoiceManager
 
   switch (uiState.lastVoiceParameterButton)
   {
-  case 8:
-    paramName = "Envelope";
-    paramValue = config->hasEnvelope ? "ON" : "OFF";
-    break;
   case 9:
     paramName = "Overdrive";
     paramValue = config->hasOverdrive ? "ON" : "OFF";
-    break;
-  case 11:
-  {
-    paramName = "Filter Mode";
-    int mode = static_cast<int>(config->filterMode);
-    if (mode >= 0 && mode < voiceui::kFilterModeCount)
-    {
-      paramValue = voiceui::kFilterModeNames[mode];
-    }
-    else
-    {
-      paramValue = "Unknown";
-    }
-  }
-  break;
-  case 12:
-    paramName = "Filter Res";
-    paramValue = String(config->filterRes, 2);
     break;
   default:
     paramName = "Parameter";
