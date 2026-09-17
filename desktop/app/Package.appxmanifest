@@ -16,7 +16,7 @@
   <mp:PhoneIdentity PhoneProductId="9E648C06-4DE1-4A08-85B5-04E35655243E" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
   <Properties>
-    <DisplayName>Pico2Seq.App</DisplayName>
+    <DisplayName>Pico2Seq</DisplayName>
     <PublisherDisplayName>AppPublisher</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
@@ -35,8 +35,8 @@
       Executable="$targetnametoken$.exe"
       EntryPoint="$targetentrypoint$">
       <uap:VisualElements
-        DisplayName="Pico2Seq.App"
-        Description="Pico2Seq.App"
+        DisplayName="Pico2Seq"
+        Description="Desktop companion for the Pico2Seq sequencer"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">
