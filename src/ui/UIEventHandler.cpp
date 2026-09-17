@@ -72,7 +72,6 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
 static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount);
 
 // Settings sub-mode helpers (settings mode refactor)
-static void showSelectedVoicePresetPage(UIState &uiState);
 static void toggleSettingsSubMode(UIState &uiState);
 static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState);
 static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState, VoiceManager *voiceManager);
@@ -256,8 +255,8 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
    * Handle settings mode navigation and voice configuration
    *
    * Settings mode allows configuration of voice presets and voice parameters.
-   * Navigation uses raw pad indices (no bank resolution): pads 0-3 select a
-   * voice, pads 8 and up apply presets in the preset sub-mode.
+   * Navigation uses raw pad indices (no bank resolution). Pads never change
+   * the selected voice here; only the voice buttons do (selectVoice).
    */
   if (uiState.settingsMode)
   {
@@ -268,15 +267,6 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
     if (evt.type != MATRIX_BUTTON_PRESSED)
     {
       uiState.padPressTimestamps[evt.buttonIndex] = 0;
-      return true;
-    }
-
-    // Buttons 0-3 always select voice index (0..3) - used for both voice selection and voice parameter navigation (0-3)
-    if (evt.buttonIndex < UIEventConstants::MAX_VOICES)
-    {
-      uiState.selectedVoiceIndex = evt.buttonIndex;
-      uiState.isVoice2Mode = (uiState.selectedVoiceIndex == UIEventConstants::VOICE_2_INDEX); // legacy compat
-      showSelectedVoicePresetPage(uiState);
       return true;
     }
 
@@ -435,17 +425,6 @@ static void autoSelectEncoderParameter(ParamId paramId, UIState &uiState)
 // Settings sub-mode helpers
 // =======================
 
-/**
- * Point the preset browser at the page holding the selected voice's preset.
- */
-static void showSelectedVoicePresetPage(UIState &uiState)
-{
-  const uint8_t voice = uiState.selectedVoiceIndex < UIEventConstants::MAX_VOICES
-                            ? uiState.selectedVoiceIndex
-                            : UIEventConstants::VOICE_1_INDEX;
-  uiState.presetPage = uiState.voicePresetIndices[voice] / VoicePresets::kPresetsPerPage;
-}
-
 void openSettingsMode(UIState &uiState)
 {
   uiState.settingsMode = true;
@@ -456,7 +435,6 @@ void openSettingsMode(UIState &uiState)
   uiState.inPresetSelection = true;
   uiState.inVoiceParameterMode = false;
   uiState.selectedStepForEdit = -1;
-  showSelectedVoicePresetPage(uiState);
 }
 
 void closeSettingsMode(UIState &uiState)
@@ -484,8 +462,7 @@ static void toggleSettingsSubMode(UIState &uiState)
 
 /**
  * Handle Preset Selection sub-mode.
- * - Buttons 0-3 (handled in caller) select current voice.
- * - Pads 6/7 change page; pads 8..31 apply a preset on that page.
+ * - Pads 0..30 apply that preset to the selected voice (voice buttons pick it).
  * - Remain in Preset Selection mode after applying a preset.
  * Safe while the transport runs: applyVoicePreset stages the config and the
  * voice applies it without stopping playback.
@@ -495,14 +472,7 @@ static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState
   if (evt.type != MATRIX_BUTTON_PRESSED)
     return;
 
-  const uint8_t count = VoicePresets::getPresetCount();
-  if (evt.buttonIndex == VoicePresets::kPreviousPagePad || evt.buttonIndex == VoicePresets::kNextPagePad)
-  {
-    uiState.presetPage = VoicePresets::changePresetPage(uiState.presetPage,
-        evt.buttonIndex == VoicePresets::kNextPagePad ? 1 : -1, count);
-    return;
-  }
-  const int presetIndex = VoicePresets::presetIndexForPad(evt.buttonIndex, count, uiState.presetPage);
+  const int presetIndex = VoicePresets::presetIndexForPad(evt.buttonIndex, VoicePresets::getPresetCount());
   if (presetIndex >= 0)
   {
     // Apply to currently selected voice (0..3 for applyVoicePreset)
@@ -752,11 +722,6 @@ void selectVoice(UIState &uiState, MidiNoteManager &midiNoteManager, uint8_t voi
   uiState.isVoice2Mode = (voiceIndex == UIEventConstants::VOICE_2_INDEX); // Legacy compatibility
   uiState.selectedStepForEdit = -1;                                       // Clear step editing when switching voices
   uiState.voiceSwitchTriggered = true;                                    // Set flag for immediate OLED update
-  if (uiState.settingsMode)
-  {
-    // Preset taps apply to the selected voice, so the browser follows it.
-    showSelectedVoicePresetPage(uiState);
-  }
 }
 
 static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount)

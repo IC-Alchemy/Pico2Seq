@@ -138,28 +138,20 @@ TEST_CASE("Waveguide settings survive engine resets and sample rate changes", "[
     }
 }
 
-TEST_CASE("Preset pages reach the whole bank without addressing nonexistent pads", "[voice][presets]")
+TEST_CASE("Preset browser pads reach the whole bank without addressing nonexistent pads", "[voice][presets]")
 {
-    for (uint8_t count : {0, 1, 24, 25, 65, 255}) {
+    const uint8_t bank = VoicePresets::getPresetCount();
+    for (uint8_t count : {uint8_t{0}, uint8_t{1}, bank, uint8_t{31}, uint8_t{255}}) {
         unsigned visited = 0;
-        for (uint8_t page = 0; page < VoicePresets::presetPageCount(count); ++page) {
-            unsigned onPage = 0;
-            for (uint8_t pad = 0; pad < 64; ++pad) {
-                const int index = VoicePresets::presetIndexForPad(pad, count, page);
-                if (index < 0) continue;
-                REQUIRE(pad >= 8);
-                REQUIRE(pad < 32);
-                REQUIRE(index == visited++);
-                ++onPage;
-            }
-            REQUIRE(onPage == VoicePresets::presetCountOnPage(count, page));
+        for (uint8_t pad = 0; pad < 64; ++pad) {
+            const int index = VoicePresets::presetIndexForPad(pad, count);
+            if (index < 0) continue;
+            REQUIRE(pad < VoicePresets::kPresetPadCount); // pads 0-30; pad 31 stays free
+            REQUIRE(index == pad);
+            ++visited;
         }
-        REQUIRE(visited == count);
+        REQUIRE(visited == std::min<unsigned>(count, VoicePresets::kPresetPadCount));
     }
-    REQUIRE(VoicePresets::changePresetPage(0, -1, 65) == 0);
-    REQUIRE(VoicePresets::changePresetPage(1, 1, 65) == 2);
-    REQUIRE(VoicePresets::changePresetPage(2, 1, 65) == 2);
-    REQUIRE(VoicePresets::changePresetPage(2, 1, 0) == 0);
 }
 
 TEST_CASE("Preset seeding survives the first audio update and preserves musical tracks", "[voice][presets]")

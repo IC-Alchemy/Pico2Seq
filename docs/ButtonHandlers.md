@@ -261,10 +261,13 @@ case BUTTON_PLAY_STOP:
 Every path into or out of Settings (this one, the Utility Play long-press, and
 the running short-press close) goes through `openSettingsMode()` /
 `closeSettingsMode()` (`UIEventHandler.h`). Opening always starts in preset
-selection on the page holding the selected voice's preset; the preset grid,
-OLED and preset taps all follow `selectedVoiceIndex`. While Settings is open it
-consumes pad releases as well as presses, so a preset tap never toggles or
-selects a step on the pad's bank voice.
+selection. The browser has one page: pad N applies preset N on pads 0–30 (pad
+31 is unassigned), and a `static_assert` in `VoicePresets.cpp` fails the build if
+the bank outgrows those pads. The preset grid, OLED and preset taps all follow
+`selectedVoiceIndex`, which only the voice buttons change while Settings is
+open; no pad selects a voice there. Settings also consumes pad releases as well
+as presses, so a preset tap never toggles or selects a step on the pad's bank
+voice.
 
 ---
 

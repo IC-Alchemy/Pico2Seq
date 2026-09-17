@@ -575,21 +575,17 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
     // Navigation indicators
     displayHardware.setTextSize(1);
 
+    // Pad N holds preset N (VoicePresets::presetIndexForPad)
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 45);
-    displayHardware.print("Pads 8-");
-    displayHardware.print(7 + VoicePresets::presetCountOnPage(VoicePresets::getPresetCount(), uiState.presetPage));
+    displayHardware.print("Pads 0-");
+    displayHardware.print(VoicePresets::getPresetCount() - 1);
     displayHardware.print(" #");
     displayHardware.print(currentPresetIndex + 1);
     displayHardware.print("/");
     displayHardware.print(VoicePresets::getPresetCount());
 
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 56);
-    displayHardware.print("Page ");
-    displayHardware.print(uiState.presetPage + 1);
-    displayHardware.print("/");
-    displayHardware.print(VoicePresets::presetPageCount(VoicePresets::getPresetCount()));
-    displayHardware.print(" 6< >7");
-
+    displayHardware.print("V1-V4 select voice");
   }
   else
   {
@@ -625,11 +621,11 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
       displayHardware.print(presetName);
     }
 
-    // Prompt for preset selection buttons when in Preset sub-mode
-    // (pads 8 .. 8+presetCount-1, e.g. 8-22 for the 15-preset bank)
+    // Prompt for preset selection pads when in Preset sub-mode
+    // (pads 0 .. presetCount-1, e.g. 0-28 for the 29-preset bank)
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 56);
-    displayHardware.print("Pads 8-");
-    displayHardware.print(7 + VoicePresets::presetCountOnPage(VoicePresets::getPresetCount(), uiState.presetPage));
+    displayHardware.print("Pads 0-");
+    displayHardware.print(VoicePresets::getPresetCount() - 1);
   }
 }
 

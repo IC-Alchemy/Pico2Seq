@@ -678,12 +678,13 @@ TEST_CASE("Preset param sets and re-purposed slot names", "[voice][presets]") {
     REQUIRE(VP::getSequencerParamName(0, ParamId::Filter) == nullptr);
 }
 
-TEST_CASE("presetIndexForPad maps pads 8..8+count-1", "[voice][presets]") {
-    REQUIRE(VoicePresets::presetIndexForPad(7, 15) == -1);
-    REQUIRE(VoicePresets::presetIndexForPad(8, 15) == 0);
-    REQUIRE(VoicePresets::presetIndexForPad(22, 15) == 14);
-    REQUIRE(VoicePresets::presetIndexForPad(23, 15) == -1);
-    REQUIRE(VoicePresets::presetIndexForPad(8, 0) == -1);
+TEST_CASE("presetIndexForPad maps pads 0..count-1 to their own preset", "[voice][presets]") {
+    REQUIRE(VoicePresets::presetIndexForPad(0, 15) == 0);
+    REQUIRE(VoicePresets::presetIndexForPad(14, 15) == 14);
+    REQUIRE(VoicePresets::presetIndexForPad(15, 15) == -1);
+    REQUIRE(VoicePresets::presetIndexForPad(0, 0) == -1);
+    REQUIRE(VoicePresets::presetIndexForPad(30, 255) == 30);
+    REQUIRE(VoicePresets::presetIndexForPad(31, 255) == -1);
 
     // Round-trip of the T60 seeding map (WgPluck's 0.15..4 s lane)
     const float norm = VoicePresets::wgT60ToNormalized(3.2f);

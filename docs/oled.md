@@ -116,9 +116,8 @@ Activated when `uiState.settingsMode` is true:
   - Displays currently selected preset name centered in size-2 (or size-1 if name exceeds 10 chars) text.
   - Animated underline indicator.
   - Preset counter (`#1/29` through `#29/29`; dynamic from `VoicePresets::getPresetCount()`).
-  - Page navigation (`Page 1/2 6< >7`): pads 6 (`<`) and 7 (`>`) navigate pages.
-  - Page 1 hosts presets 1–24 across pads 8–31 (`Pads 8-31`).
-  - Page 2 hosts presets 25–29 across pads 8–12 (`Pads 8-12`).
+  - Pad range (`Pads 0-28`): pad N applies preset N+1 (1-based on screen). All presets share one page; pads 0–30 are reserved for presets and pad 31 is unassigned.
+  - Hint line `V1-V4 select voice`: only the voice buttons change the target voice.
   - When browsing root settings, displays the **"Sound Buffet"** listing current presets assigned across all 4 voices (0–3).
 
 The parameter name/value screens are preset-aware: for voices whose preset re-purposes the

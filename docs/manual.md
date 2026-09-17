@@ -11,7 +11,7 @@ distance sensor, an OLED display, and a USB CDC diagnostics console — all on o
 
 > This manual was compiled from the firmware source and documentation in this repository
 > (2026-09-03; updated 2026-09-16 for Project Snapshot persistence / flash session management,
-> hot audio in SRAM, the 29-preset sound bank across 2 pages, the 55–700 mm lidar window with
+> hot audio in SRAM, the 29-preset sound bank on one browser page, the 55–700 mm lidar window with
 > pause-on-out-of-range, and encoder base value editing). The code is authoritative; anything that
 > could not be verified against the code is explicitly marked **[unverified]**. Voice
 > numbering: the panel and docs use **Voice 1–4**; the internal firmware and some OLED
@@ -132,7 +132,8 @@ record into the armed step while a step is in Step Edit:
 Next to the faders: four buttons for **direct voice selection** in both modes.
 
 - **Tap V1–V4** — selects the voice all voice-scoped controls (encoder, distance sensor,
-  faders in Param mode) act on.
+  faders in Param mode) act on. They are also the only way to change the voice the preset
+  browser edits.
 - **Shift chords** (hold the Shift button, then press a voice button):
   - **Shift + V1** — Play / Stop transport
   - **Shift + V2** — Randomize the selected voice
@@ -464,9 +465,9 @@ only **Analog** and **Lead** still run the true ladder filter.
 
 ### 4.2 The 29 presets
 
-The sound bank contains 29 built-in presets (held as `constexpr` flash tables), organized into a 2-page browser in Settings mode:
+The sound bank contains 29 built-in presets (held as `constexpr` flash tables), all on one browser page in Settings mode. Preset *n* sits on pad *n*−1:
 
-#### Page 1 (Pads 8–31: Presets 1–24)
+#### Pads 0–23: Presets 1–24
 
 | # | Preset | Engine | Character | Timbre controls (Filter / Attack / Decay) |
 |---|---|---|---|---|
@@ -495,7 +496,7 @@ The sound bank contains 29 built-in presets (held as `constexpr` flash tables), 
 | 23 | **CopperBass** | recipe | Rounded DSF bass: harmonic spacing with a sub sine from `osc_pdmorph` | Bright / Spacing / Sub |
 | 24 | **ReedPipe** | recipe | Held acoustic reed tone: `osc_formant` bursts blended with sine fundamental | Formant / Bloom / Body |
 
-#### Page 2 (Pads 8–12: Presets 25–29)
+#### Pads 24–28: Presets 25–29
 
 | # | Preset | Engine | Character | Timbre controls (Filter / Attack / Decay) |
 |---|---|---|---|---|
@@ -505,12 +506,11 @@ The sound bank contains 29 built-in presets (held as `constexpr` flash tables), 
 | 28 | **OrbitPluck** | recipe | Metallic pluck: sine-modulated `osc_tzfm` with clean fundamental body | Index / Ratio / Body |
 | 29 | **AirChime** | recipe | Ethereal harmonic chime: `osc_prism` blended with octave sine, slow decay | Focus / Spread / OctMix |
 
-#### Preset Selection & Paging in Settings Mode
+#### Preset Selection in Settings Mode
 
 Presets live in flash and are auditioned and applied per voice in the **preset browser** (long-press Play, or stop the transport to open Settings on the OLED):
-- **Voice Selection**: Tap **pads 0–3** (or the SliderModule V1–V4 buttons) to switch which voice is being edited.
-- **Paging**: Tap **Pad 6** for previous page or **Pad 7** for next page (`6< >7`).
-- **Applying Presets**: Touch **pads 8–31** on Page 1 or **pads 8–12** on Page 2 (matching the lit pads on the LED matrix mirror) to instantly assign that preset to the active voice.
+- **Voice Selection**: Press the SliderModule **V1–V4** buttons to switch which voice is being edited. Pads never change the voice while Settings is open.
+- **Applying Presets**: Touch **pads 0–30** (the lit pads on the LED matrix mirror; pads 0–28 hold today's 29 presets) to instantly assign that preset to the active voice. Pad 31 is unassigned. There are no pages.
 - **Voice Parameters**: Pressing the encoder button toggles the Settings screen between the preset browser and the voice-parameter toggles (envelope, overdrive, filter mode, filter resonance).
 
 ---
@@ -527,7 +527,7 @@ Presets live in flash and are auditioned and applied per voice in the **preset b
 | Hold a parameter button + tap pad | Set that parameter track's length to the pad number |
 | Hold (or Shift+latch) a parameter button + touch pads during playback | Record live values into the armed parameter of the current step (Note only on gate-on steps) |
 | Pad press while Gate Length mode is held | Set the selected voice's Gate track length (2–16 steps) |
-| Tap a pad while the preset browser is open | Apply that preset to the selected voice — pads 8–22 = presets 1–15; pads 0–3 switch the target voice |
+| Tap a pad while the preset browser is open | Apply that preset to the selected voice — pads 0–28 = presets 1–29 (pads 0–30 are preset slots); V1–V4 switch the target voice |
 
 ### Faders
 
