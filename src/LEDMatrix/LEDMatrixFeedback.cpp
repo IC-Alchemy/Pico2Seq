@@ -458,8 +458,9 @@ void setupLEDMatrixFeedback()
  * @brief Updates LED matrix to show settings mode interface
  *
  * Displays menu options and preset selections using step LEDs:
- * - Main menu: Shows Voice 1 and Voice 2 options (steps 0-1)
- * - Preset selection: Shows available presets (steps 0-5 for 6 presets)
+ * - Preset selection: lights each pad that holds a preset (pad N = preset N)
+ *   and pulses the selected voice's current preset
+ * - Voice parameter sub-mode: shows the selected voice on pads 0-3
  * - Uses different colors to indicate current selection and available options
  */
 void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState)
@@ -474,31 +475,31 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState)
 
     if (uiState.inPresetSelection)
     {
-        // Preset selection mode - show available presets
+        // Preset selection mode - light every pad that holds a preset
         const uint8_t totalPresets = VoicePresets::getPresetCount();
-        const uint8_t presetCount = VoicePresets::presetCountOnPage(totalPresets, uiState.presetPage);
 
         // Keep preset selection in the hue assigned to the configured voice.
         CRGB selectedColor = getVoiceGateColor(*activeThemeColors, uiState.selectedVoiceIndex, true);
         CRGB availableColor = getVoiceGateColor(*activeThemeColors, uiState.selectedVoiceIndex, false);
 
-        if (uiState.presetPage > 0)
-            ledMatrix.setLED(VoicePresets::kPreviousPagePad, 0, availableColor);
-        if (uiState.presetPage + 1 < VoicePresets::presetPageCount(totalPresets))
-            ledMatrix.setLED(VoicePresets::kNextPagePad, 0, availableColor);
+        const uint8_t voiceIndex = uiState.selectedVoiceIndex < UIState::MAX_VOICES
+                                       ? uiState.selectedVoiceIndex
+                                       : 0;
+        const uint8_t currentPresetIndex = uiState.voicePresetIndices[voiceIndex];
 
-        // Preset pads occupy the three rows below voice/page navigation.
-        for (uint8_t i = 0; i < presetCount; i++)
+        // Pad N holds preset N, so each LED mirrors its pad.
+        for (uint8_t pad = 0; pad < VoicePresets::kPresetPadCount; pad++)
         {
+            const int presetIndex = VoicePresets::presetIndexForPad(pad, totalPresets);
+            if (presetIndex < 0)
+            {
+                continue;
+            }
+
             CRGB color;
 
             // Highlight currently selected preset
-            const uint8_t voiceIndex = uiState.selectedVoiceIndex < UIState::MAX_VOICES
-                                           ? uiState.selectedVoiceIndex
-                                           : 0;
-            const uint8_t currentPresetIndex = uiState.voicePresetIndices[voiceIndex];
-
-            if (uiState.presetPage * VoicePresets::kPresetsPerPage + i == currentPresetIndex)
+            if (presetIndex == currentPresetIndex)
             {
                 // Current preset - bright pulsing
                 uint32_t time = millis();
@@ -513,16 +514,13 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState)
                 color.nscale8(64);
             }
 
-            // Calculate LED position
-            int x = i % LEDMatrix::WIDTH;
-            int y = i / LEDMatrix::WIDTH;
-            ledMatrix.setLED(x, y + 1, color);
+            ledMatrix.setLED(pad % LEDMatrix::WIDTH, pad / LEDMatrix::WIDTH, color);
         }
     }
     else
     {
-        // Main settings menu - show all 4 voice options
-        // Show all 4 voice options in first row
+        // Voice parameter sub-mode - the first row shows which voice the
+        // toggles edit (chosen with the voice buttons)
         for (int voiceIndex = 0; voiceIndex < 4; voiceIndex++)
         {
             CRGB voiceColor = getVoiceGateColor(*activeThemeColors, static_cast<uint8_t>(voiceIndex),

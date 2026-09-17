@@ -147,7 +147,7 @@ Implements the multi-mode sequencing and navigation visualizer:
 2. **Step Gate & Playhead Visualization:** Displays active gates for the current voice pair across band rows 0–1 (pair low voice) and 2–3 (pair high voice), with a distinct `playheadAccent` indicating the current 16th-note playhead position.
 3. **Polyrhythmic Track Overlays:** Visualizes independent parameter track step lengths and positions for Note, Velocity, and Filter tracks.
 4. **Parameter Edit Mode:** Shows step values, track lengths, and value adjustments when holding a parameter button or editing a step.
-5. **Settings & Preset Selection:** Displays active voice selection and page navigation (pads 6 and 7 illuminated for `<` and `>` when page navigation is available), highlighting available presets on the active page (Page 1: pads 8–31 for presets 1–24; Page 2: pads 8–12 for presets 25–29) with bright pulsing on the active preset and dim steady illumination on available presets.
+5. **Settings & Preset Selection:** Lights every pad that holds a preset (pad N = preset N+1 in 1-based terms: pads 0–28 for the 29-preset bank, on one page) with bright pulsing on the selected voice's active preset and dim steady illumination on the others. Pads without a preset stay dark (29–31 today; pad 31 never holds one). The voice-parameter sub-mode instead shows the selected voice on pads 0–3.
 
 #### 10 LED Color Themes (`enum class LEDTheme`)
 

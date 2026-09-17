@@ -10,7 +10,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **Two Filter Topologies**: A 24dB multi-mode ladder filter (LP12, LP24, BP12, BP24, HP12, HP24) with drive and passband gain compensation on the character voices, plus a clean modulation-stable state-variable filter (LP/BP/HP) everywhere else — including all three bass presets
 - **Effects Processing**: Per-voice overdrive distortion
 - **ADSR Envelopes**: Fast, analog-modeled attack, decay, sustain, and release stages with microsecond accuracy
-- **29 Voice Presets**: Stored as `constexpr` tables in flash (.rodata), organized across a 2-page browser, covering classic subtractive, sub-bass, waveguide string, hypersaw, noise-texture, and 14 recipe/musical sounds
+- **29 Voice Presets**: Stored as `constexpr` tables in flash (.rodata), all on one browser page, covering classic subtractive, sub-bass, waveguide string, hypersaw, noise-texture, and 14 recipe/musical sounds
 
 ### Advanced Sequencing
 - **Polymetric Sequencing**: Independent track step lengths for each parameter (Notes: 16 steps, Filter: 8 steps, Velocity: 12 steps, etc.)
@@ -232,9 +232,9 @@ MIDI, displays, sensors, or controls on physical hardware.
 
 ### Preset System
 
-Each synthesizer voice supports 29 built-in sound presets (held as `constexpr` tables in flash) accessible through a 2-page selection browser in Settings mode:
+Each synthesizer voice supports 29 built-in sound presets (held as `constexpr` tables in flash) accessible through a single-page selection browser in Settings mode (preset *n* sits on pad *n*−1):
 
-**Page 1 (Pads 8–31):**
+**Pads 0–23:**
 1. **Analog** — Triple-saw classic subtractive synth with warm 24dB ladder filtering
 2. **Digital** — Square + triangle hybrid with sharp 12dB lowpass cutoff
 3. **Bass** — Deep sub-octave detuned sine/triangle bass
@@ -260,7 +260,7 @@ Each synthesizer voice supports 29 built-in sound presets (held as `constexpr` t
 23. **CopperBass** — Harmonically rich bass: `osc_dsf` harmonic spacing with a sub sine from `osc_pdmorph`
 24. **ReedPipe** — Held acoustic reed tone: `osc_formant` bursts blended with sine fundamental
 
-**Page 2 (Pads 8–12):**
+**Pads 24–28:**
 25. **SilkPad** — Slow orchestral swell: two detuned `osc_pdmorph` voices with free-running phase and 1.25s release
 26. **HollowBell** — Hollow metallic bell: dual `osc_pdmorph` sources ring-modulated at 2:1, zero sustain
 27. **SyncLead** — Aggressive sync lead: `osc_revsync` blended with pitched `osc_pdmorph` body
@@ -268,9 +268,8 @@ Each synthesizer voice supports 29 built-in sound presets (held as `constexpr` t
 29. **AirChime** — Ethereal harmonic chime: `osc_prism` blended with octave sine and extended decay
 
 **Browser Navigation:**
-- In Settings mode, **Pad 6** and **Pad 7** page left (`<`) and right (`>`).
-- Touch **Pads 8–31** on Page 1 or **Pads 8–12** on Page 2 to instantly assign a preset to the active voice.
-- Press **Pads 0–3** (or SliderModule V1–V4 buttons) to select which voice is being configured.
+- In Settings mode, touch **Pads 0–30** to instantly assign that pad's preset to the active voice (pads 0–28 hold the 29 presets; pad 31 is unassigned). There are no pages.
+- Press the SliderModule **V1–V4** buttons to select which voice is being configured. Pads never change the voice in Settings.
 
 ---
 

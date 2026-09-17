@@ -5,7 +5,6 @@
 #include "presets/TexturePresets.h"
 #include "presets/RecipePresets.h"
 #include "presets/MusicalPresets.h"
-#include <algorithm>
 #include <iterator>
 
 namespace VoicePresets {
@@ -19,6 +18,9 @@ constexpr Preset kPresets[] = {
 };
 static_assert(std::size(kPresets) == static_cast<size_t>(Id::Count));
 static_assert(std::size(kPresets) <= 255, "Preset IDs must fit in uint8_t");
+static_assert(std::size(kPresets) <= kPresetPadCount,
+              "The preset browser has one pad per preset (pads 0-30); "
+              "give it pages before adding more presets");
 constexpr bool validBank()
 {
   for (const auto &p : kPresets) {
@@ -101,24 +103,8 @@ float wgT60ToNormalized(float seconds) noexcept
 {
   return VoiceParameters::binding(getWaveguidePluckVoice(), ParamId::Decay).normalize(seconds);
 }
-uint8_t presetPageCount(uint8_t count) noexcept
+int presetIndexForPad(uint8_t pad, uint8_t count) noexcept
 {
-  return static_cast<uint8_t>((static_cast<unsigned>(count) + kPresetsPerPage - 1) / kPresetsPerPage);
-}
-uint8_t presetCountOnPage(uint8_t count, uint8_t page) noexcept
-{
-  const unsigned first = static_cast<unsigned>(page) * kPresetsPerPage;
-  return first < count ? static_cast<uint8_t>(std::min<unsigned>(kPresetsPerPage, count - first)) : 0;
-}
-int presetIndexForPad(uint8_t pad, uint8_t count, uint8_t page) noexcept
-{
-  if (pad < kFirstPresetPad || pad >= kFirstPresetPad + kPresetsPerPage) return -1;
-  const unsigned index = static_cast<unsigned>(page) * kPresetsPerPage + pad - kFirstPresetPad;
-  return index < count ? static_cast<int>(index) : -1;
-}
-uint8_t changePresetPage(uint8_t page, int direction, uint8_t count) noexcept
-{
-  const int pages = presetPageCount(count);
-  return pages ? static_cast<uint8_t>(std::clamp(static_cast<int>(page) + direction, 0, pages - 1)) : 0;
+  return pad < kPresetPadCount && pad < count ? pad : -1;
 }
 } // namespace VoicePresets
