@@ -11,6 +11,7 @@
 #include "../pico2seq-core/scales/scales.h"
 #include "../ui/ButtonManager.h"
 #include "../ui/ControlSurfaceLogic.h"
+#include "../utils/FreezeWatchdog.h"
 #include <algorithm>
 #include <cstring> // For strcmp, strlen
 #include <Arduino.h>
@@ -973,12 +974,16 @@ void OLEDDisplay::drawStepIndicators(const Sequencer &sequencer, int yPosition)
 
 void OLEDDisplay::runStartupAnimation()
 {
-  // Professional startup animation with wipe effect and title bounce
+  // Professional startup animation with wipe effect and title bounce.
+  // ~26 full-frame pushes: ~1.4 s total at 400 kHz, but ~3.4 s on the 100 kHz
+  // Wire1 bus (~103 ms per frame) — longer than the 2 s watchdog armed before
+  // setup reaches us. Feed once per frame so the budget covers one frame.
   displayHardware.clearDisplay();
 
   // Horizontal wipe effect across screen
   for (int wipeWidth = 0; wipeWidth <= OLEDConstants::SCREEN_WIDTH; wipeWidth += 10)
   {
+    freezeWatchdogFeed(FW_SETUP_OLED);
     displayHardware.fillRect(0, 0, wipeWidth, OLEDConstants::SCREEN_HEIGHT, SH110X_WHITE);
     commitFrame();
     delay(OLEDConstants::STARTUP_WIPE_DELAY_MS);
@@ -997,6 +1002,7 @@ void OLEDDisplay::runStartupAnimation()
   // Animate title dropping down and bouncing
   for (int titleY = -16; titleY <= 18; titleY += 3)
   {
+    freezeWatchdogFeed(FW_SETUP_OLED);
     displayHardware.clearDisplay();
 
     displayHardware.setTextSize(2);
@@ -1008,6 +1014,7 @@ void OLEDDisplay::runStartupAnimation()
   }
 
   // Final settle with subtitle
+  freezeWatchdogFeed(FW_SETUP_OLED);
   displayHardware.setTextSize(1);
   displayHardware.setCursor(18, 44);
   displayHardware.print("Let's play");
