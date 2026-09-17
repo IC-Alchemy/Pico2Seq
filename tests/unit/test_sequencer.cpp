@@ -501,6 +501,98 @@ TEST_CASE("Sequencer::getStep reflects configured octaveMapper", "[sequencer]") 
     REQUIRE(s.octaveOffset == -24);
 }
 
+TEST_CASE("Step readers share lane conversions without sharing playback transforms", "[sequencer]") {
+    Sequencer seq(0);
+    // Raw writes retain fractional binary values to exercise the decoder threshold.
+    seq.setRawStepValue(ParamId::Note, 0, 7.25f);
+    seq.setRawStepValue(ParamId::Velocity, 0, 0.2f);
+    seq.setRawStepValue(ParamId::Filter, 0, 0.3f);
+    seq.setRawStepValue(ParamId::Attack, 0, 0.4f);
+    seq.setRawStepValue(ParamId::Decay, 0, 0.6f);
+
+    const float offset = 0.1f;
+    for (bool transformed : {false, true}) {
+        seq.setPlaybackTransform(transformed ? +[](ParamId, float stored, const void *context) {
+            return stored + *static_cast<const float *>(context);
+        } : nullptr, &offset);
+        for (float binary : {0.49f, 0.5f, 0.51f}) {
+            seq.setRawStepValue(ParamId::Gate, 0, binary);
+            seq.setRawStepValue(ParamId::Slide, 0, binary);
+            for (float octave : {0.0f, 1.0f / 3.0f, 0.5f, 2.0f / 3.0f, 1.0f}) {
+                seq.setRawStepValue(ParamId::Octave, 0, octave);
+                for (float length : {0.0f, 0.001f, 0.123f, 1.0f}) {
+                    seq.setRawStepValue(ParamId::GateLength, 0, length);
+                    for (bool playback : {false, true}) {
+                        CAPTURE(transformed, binary, octave, length, playback);
+                        const float delta = transformed && playback ? offset : 0.0f;
+                        const Step s = playback ? seq.getPlaybackStep(0) : seq.getStep(0);
+                        REQUIRE(s.noteIndex == Catch::Approx(7.25f + delta));
+                        REQUIRE(s.velocityLevel == Catch::Approx(0.2f + delta));
+                        REQUIRE(s.filterCutoff == Catch::Approx(0.3f + delta));
+                        REQUIRE(s.attackTimeSeconds == Catch::Approx(0.4f + delta));
+                        REQUIRE(s.decayTimeSeconds == Catch::Approx(0.6f + delta));
+                        REQUIRE(s.isGateActive == (binary + delta > 0.5f));
+                        REQUIRE(s.hasSlide == (binary + delta > 0.5f));
+                        const float mapped = octave + delta;
+                        REQUIRE(s.octaveOffset == (mapped < 1.0f / 3.0f ? -12 :
+                                                  mapped > 2.0f / 3.0f ? 12 : 0));
+                        REQUIRE(s.gateLengthTicks == static_cast<uint16_t>(std::max(
+                            1.0f, (length + delta) * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS)));
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("Playback decoding selects each lane cursor before transforming", "[sequencer]") {
+    Sequencer seq(0);
+    Sequencer expected(0);
+    const auto transform = [](ParamId, float stored, const void *) { return stored * 0.5f; };
+    const auto octaveMapper = [](float value) -> int8_t { return value < 0.25f ? -24 : 24; };
+    seq.setPlaybackTransform(transform, nullptr, octaveMapper);
+    expected.setPlaybackTransform(transform, nullptr, octaveMapper);
+    for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane) {
+        const auto id = static_cast<ParamId>(lane);
+        const uint8_t count = lane + 2;
+        seq.setParameterStepCount(id, count);
+        for (uint8_t step = 0; step < count; ++step)
+            seq.setRawStepValue(id, step, static_cast<float>(step + 1) / count);
+    }
+    seq.start();
+    VoiceState state{};
+    constexpr uint32_t clockStep = 263; // Must not truncate before each lane's modulo.
+    seq.advanceStep(clockStep, -1, false, false, false, false, false, false, -1, &state);
+    const auto currentStep = seq.getCurrentStep();
+    const auto currentNote = seq.getCurrentNote();
+    const bool notePlaying = seq.isNotePlaying();
+    for (uint8_t selected : {uint8_t{UINT8_MAX}, uint8_t{1}}) {
+        for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane) {
+            const auto id = static_cast<ParamId>(lane);
+            const uint8_t cursor = clockStep % (lane + 2);
+            REQUIRE(seq.getCurrentStepForParameter(id) == cursor);
+            expected.setRawStepValue(id, 0, seq.getStepParameterValue(
+                id, selected == UINT8_MAX ? cursor : selected));
+        }
+        const Step actual = seq.getPlaybackStep(selected);
+        const Step reference = expected.getPlaybackStep(0);
+        REQUIRE(actual.noteIndex == reference.noteIndex);
+        REQUIRE(actual.velocityLevel == reference.velocityLevel);
+        REQUIRE(actual.filterCutoff == reference.filterCutoff);
+        REQUIRE(actual.attackTimeSeconds == reference.attackTimeSeconds);
+        REQUIRE(actual.decayTimeSeconds == reference.decayTimeSeconds);
+        REQUIRE(actual.isGateActive == reference.isGateActive);
+        REQUIRE(actual.hasSlide == reference.hasSlide);
+        REQUIRE(actual.octaveOffset == reference.octaveOffset);
+        REQUIRE(actual.gateLengthTicks == reference.gateLengthTicks);
+    }
+    REQUIRE(seq.getCurrentStep() == currentStep);
+    REQUIRE(seq.getCurrentNote() == currentNote);
+    REQUIRE(seq.isNotePlaying() == notePlaying);
+    for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane)
+        REQUIRE(seq.getCurrentStepForParameter(static_cast<ParamId>(lane)) == clockStep % (lane + 2));
+}
+
 TEST_CASE("previewActiveStep preserves independent polyrhythmic parameter cursors", "[sequencer]") {
     Sequencer seq(0);
     seq.start();
