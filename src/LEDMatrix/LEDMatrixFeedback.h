@@ -53,10 +53,10 @@ static constexpr uint8_t LED_THEME_VOICE_COUNT = 4;
  */
 struct LEDThemeColors
 {
-  // Voice gate state colors
-  // Every voice keeps its own nearby hue in a theme. Gate-off uses a darker
-  // secondary hue from that theme, making gate state distinct by both colour
-  // and brightness without introducing an unrelated palette.
+  // Voice gate colors: gateOn carries each voice's identity hue at full
+  // brightness; gateOff is the SAME hue dimmed to ~1/8 so an off step
+  // still reads as its voice, just clearly "off". Gate state is therefore
+  // brightness, voice identity is hue — the two never fight.
   CRGB gateOn[LED_THEME_VOICE_COUNT];
   CRGB gateOff[LED_THEME_VOICE_COUNT];
 
