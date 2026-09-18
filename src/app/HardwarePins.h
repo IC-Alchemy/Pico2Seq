@@ -1,8 +1,8 @@
 #pragma once
 #include <cstdint>
 
-// Main I2C bus (Wire, I2C0): OLED display (SH1106, 0x3C), touch pads (MPR121),
-// magnetic encoder (TMAG5273) and distance sensor (VL53L1X).
+// Main I2C bus (Wire, I2C0, 400 kHz): OLED display (SH1106, 0x3C), touch pads
+// (MPR121), magnetic encoder (TMAG5273) and distance sensor (VL53L1X).
 constexpr uint8_t PIN_WIRE_SDA = 4;
 constexpr uint8_t PIN_WIRE_SCL = 5;
 // Secondary I2C bus (Wire1, I2C1): Alchemy tiles only, at 100 kHz.
