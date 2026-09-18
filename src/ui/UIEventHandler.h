@@ -13,6 +13,7 @@
 
 // Forward declarations to prevent circular dependencies
 class Sequencer;
+class SequencerView;
 
 // =======================
 //   CONSTANTS
@@ -25,25 +26,20 @@ class Sequencer;
 
 /**
  * @brief Main matrix event handler (Arduino-friendly consolidated signature).
- *        Accepts an array of Sequencer* plus count to support any number of voices.
+ *        Accepts the fixed voice routing table view shared by all UI consumers.
  *
  * @param evt             Matrix button event (button index and press/release type).
  * @param uiState         Central UI state object (mutable).
- * @param sequencers      Array of non-owning Sequencer* pointers. Must have at least two
- *                        entries for full functionality; additional entries are allowed.
- * @param sequencerCount  Number of entries in the sequencers array.
+ * @param sequencers      Fixed voice-order view of the four voice sequencers.
  */
 void matrixEventHandler(const MatrixButtonEvent &evt,
                         UIState &uiState,
-                        Sequencer *const *sequencers,
-                        size_t sequencerCount);
+                        const SequencerView &sequencers);
 
 /**
- * Poll UI-held buttons (long-press detection) using the supplied sequencer array.
- *
- * The canonical implementation accepts a sequencer pointer array and its length.
+ * Poll UI-held buttons (long-press detection) using the fixed voice routing table.
  */
-void pollUIHeldButtons(UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount);
+void pollUIHeldButtons(UIState &uiState, const SequencerView &sequencers);
 
 // =======================
 //   ALCHEMY TILE BRIDGE ENTRY POINTS
@@ -108,8 +104,7 @@ void clearSequencerVoice(UIState &uiState, Sequencer &sequencer, uint8_t voiceIn
  *        (Shift + Randomize long-press chord): all voices, no values, no
  *        gates — the whole project starts fresh.
  */
-void clearAllSequencerVoices(UIState &uiState, Sequencer *const *sequencers,
-                             size_t sequencerCount);
+void clearAllSequencerVoices(UIState &uiState, const SequencerView &sequencers);
 
 /**
  * @brief Firmware-side bridge that unpacks UIState button/edit-step fields and

@@ -65,11 +65,10 @@ extern const ParameterDefinition CORE_PARAMETERS[];
 
 // Helper function declarations (static to this file)
 static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
-                                  UIState &uiState, Sequencer *const *sequencers,
-                                  size_t sequencerCount);
+                                  UIState &uiState, const SequencerView &sequencers);
 
 // Private helper handlers for matrixEventHandler
-static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount);
+static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, const SequencerView &sequencers);
 
 // Settings sub-mode helpers (settings mode refactor)
 static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState);
@@ -134,12 +133,12 @@ void endEncoderControlHold(UIState &uiState)
  * of assuming the single selected voice.
  */
 void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
-                        Sequencer *const *sequencers, size_t sequencerCount)
+                        const SequencerView &sequencers)
 {
 
   if(uiState.voiceEditor.active || uiState.controlsWaitRelease) return;
-  // Poll held buttons (long press detection) using the supplied array.
-  pollUIHeldButtons(uiState, sequencers, sequencerCount);
+  // Poll held buttons (long press detection) using the shared routing table.
+  pollUIHeldButtons(uiState, sequencers);
 
   // =======================
   //   SLIDE MODE STEP HANDLING
@@ -230,13 +229,11 @@ void handleParameterButtonById(uint8_t paramId, bool pressed, UIState &uiState)
  *
  * @param evt Matrix button event containing button index and press/release type
  * @param uiState Reference to the UI state object for tracking modes and timing
- * @param sequencers Array of non-owning sequencer pointers, one per voice
- * @param sequencerCount Number of entries in the sequencers array
+ * @param sequencers Fixed voice-order view of the voice sequencers
  * @return true if the event was handled as a step button event, false otherwise
  */
 static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
-                                  UIState &uiState, Sequencer *const *sequencers,
-                                  size_t sequencerCount)
+                                  UIState &uiState, const SequencerView &sequencers)
 {
   // Ignore out-of-bounds pad indices (all 32 matrix indices are step pads now)
   if (evt.buttonIndex >= NUMBER_OF_STEP_PADS)
@@ -283,11 +280,7 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
   // the two voices visible for the current pair, step = index%16.
   const ControlSurface::PadAddress pad =
       ControlSurface::PadBank::resolve(evt.buttonIndex, uiState.selectedVoiceIndex);
-  Sequencer *padSequencerPtr = nullptr;
-  if (sequencers && pad.voice < sequencerCount)
-  {
-    padSequencerPtr = sequencers[pad.voice];
-  }
+  Sequencer *padSequencerPtr = sequencers.get(pad.voice);
 
   // =======================
   //   SHIFT + PAD: CLEAR STEP
@@ -328,11 +321,7 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
   }
 
   // Select the previously "active" (selected voice) sequencer for legacy paths
-  Sequencer *currentActiveSequencerPtr = nullptr;
-  if (sequencers && uiState.selectedVoiceIndex < sequencerCount)
-  {
-    currentActiveSequencerPtr = sequencers[uiState.selectedVoiceIndex];
-  }
+  Sequencer *currentActiveSequencerPtr = sequencers.get(uiState.selectedVoiceIndex);
 
   // Handle parameter length adjustment when holding parameter buttons
   if (isAnyParameterButtonHeld(uiState) && evt.type == MATRIX_BUTTON_PRESSED)
@@ -588,16 +577,15 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
  * to ensure responsive long press detection during button holds.
  *
  * @param uiState Reference to UI state containing button press timing data
- * @param seq1 Reference to sequencer 1 for potential reset
- * @param seq2 Reference to sequencer 2 for potential reset
+ * @param sequencers Fixed voice-order view of the voice sequencers
  */
-void pollUIHeldButtons(UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount)
+void pollUIHeldButtons(UIState &uiState, const SequencerView &sequencers)
 {
   if(uiState.voiceEditor.active || uiState.controlsWaitRelease) return;
   unsigned long currentTimeMs = millis();
 
-  // Check for long press resets on all supported voices (up to MAX_VOICES)
-  for (uint8_t voiceIndex = 0; voiceIndex < UIEventConstants::MAX_VOICES; voiceIndex++)
+  // Check for long press resets on every voice in the routing table.
+  for (uint8_t voiceIndex = 0; voiceIndex < sequencers.size(); voiceIndex++)
   {
     if (uiState.randomizeWasPressed[voiceIndex] &&
         !uiState.randomizeResetTriggered[voiceIndex])
@@ -605,12 +593,9 @@ void pollUIHeldButtons(UIState &uiState, Sequencer *const *sequencers, size_t se
       unsigned long pressDurationMs = currentTimeMs - uiState.randomizePressTime[voiceIndex];
       if (isLongPress(pressDurationMs))
       {
-        // Use the supplied sequencer for this voice when available; otherwise ignore.
-        Sequencer *targetSequencer = nullptr;
-        if (sequencers && voiceIndex < sequencerCount)
-        {
-          targetSequencer = sequencers[voiceIndex];
-        }
+        // The routing table owns one sequencer per voice; get() rejects
+        // out-of-range indices instead of resetting the wrong voice.
+        Sequencer *targetSequencer = sequencers.get(voiceIndex);
 
         if (targetSequencer)
         {
@@ -658,16 +643,12 @@ void selectVoice(UIState &uiState, uint8_t voiceIndex)
   UITransitions::selectPerformanceVoice(uiState, voiceIndex);
 }
 
-static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount)
+static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, const SequencerView &sequencers)
 {
   // Resolve the pad to its own voice through the bank mapping
   const ControlSurface::PadAddress pad =
       ControlSurface::PadBank::resolve(evt.buttonIndex, uiState.selectedVoiceIndex);
-  Sequencer *activeSequencerPtr = nullptr;
-  if (sequencers && pad.voice < sequencerCount)
-  {
-    activeSequencerPtr = sequencers[pad.voice];
-  }
+  Sequencer *activeSequencerPtr = sequencers.get(pad.voice);
 
   if (activeSequencerPtr)
   {
@@ -724,18 +705,13 @@ void clearSequencerVoice(UIState &uiState, Sequencer &sequencer, uint8_t voiceIn
   uiState.currentEditParameter = ParamId::Count;
 }
 
-void clearAllSequencerVoices(UIState &uiState, Sequencer *const *sequencers,
-                             size_t sequencerCount)
+void clearAllSequencerVoices(UIState &uiState, const SequencerView &sequencers)
 {
-  if (!sequencers)
+  for (size_t voice = 0; voice < sequencers.size(); ++voice)
   {
-    return;
-  }
-  for (size_t voice = 0; voice < sequencerCount; ++voice)
-  {
-    if (sequencers[voice])
+    if (Sequencer *seq = sequencers.get(voice))
     {
-      sequencers[voice]->clearPattern();
+      seq->clearPattern();
     }
   }
   uiState.oledNoticeKind = UIState::OledNoticeKind::AllCleared;

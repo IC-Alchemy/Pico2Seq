@@ -13,7 +13,6 @@
 // Existing UI/sensor APIs refer to these objects by name. Keep their types and
 // program-long lifetimes; their mutable control state belongs to Core 0.
 extern UIState uiState;
-extern Sequencer seq1, seq2, seq3, seq4;
 extern std::unique_ptr<VoiceManager> voiceManager;
 extern VoiceSystem voiceSystem;
 extern uint8_t currentScale;

@@ -9,6 +9,7 @@
 #include "UIState.h"
 
 class Sequencer;
+class SequencerView;
 
 /**
  * @brief Glue between the Alchemy tile panel and the existing firmware UI.
@@ -51,10 +52,10 @@ public:
 
   /**
    * Poll tiles and translate edges into UI actions.
-   * @param sequencers Array of the 4 voice sequencers (voice index order).
+   * @param sequencers Fixed voice-order view of the 4 voice sequencers.
    */
   void update(uint32_t nowMs, UIState &uiState,
-              Sequencer *const *sequencers, size_t sequencerCount);
+              const SequencerView &sequencers);
 
   /** Read-only driver access, for boot scan reports and diagnostics pages. */
   [[nodiscard]] const AlchemyTiles &tiles() const { return panel_.tiles(); }
@@ -100,9 +101,8 @@ private:
   void handleVoiceButtons(UIState &uiState);
   void handleParamButtons(UIState &uiState);
   void handleUtilityButtons(uint32_t nowMs, UIState &uiState,
-                            Sequencer *const *sequencers, size_t sequencerCount);
-  void handleFaders(UIState &uiState, Sequencer *const *sequencers,
-                    size_t sequencerCount);
+                            const SequencerView &sequencers);
+  void handleFaders(UIState &uiState, const SequencerView &sequencers);
 
   AlchemyPanel panel_;
   ControlSurface::ModeStabilizer mode_;

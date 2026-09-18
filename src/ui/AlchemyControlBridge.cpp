@@ -76,7 +76,7 @@ void AlchemyControlBridge::begin(TwoWire &bankA, TwoWire *bankB, uint32_t nowMs)
 }
 
 void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
-                                  Sequencer *const *sequencers, size_t sequencerCount)
+                                  const SequencerView &sequencers)
 {
   // Poll due tiles first: one transaction pair at most per pass.
   panel_.update(nowMs);
@@ -119,7 +119,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
   }
   else
   {
-    handleUtilityButtons(nowMs, uiState, sequencers, sequencerCount);
+    handleUtilityButtons(nowMs, uiState, sequencers);
   }
 
   // If selected voice changed (via voice buttons or pad bank selection),
@@ -130,7 +130,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
     faders_.resetDeadband();
   }
 
-  handleFaders(uiState, sequencers, sequencerCount);
+  handleFaders(uiState, sequencers);
 }
 
 // --- Mode strap ----------------------------------------------------------------
@@ -260,8 +260,7 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
 // --- ButtonModule8, Utility mode -------------------------------------------------
 
 void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState,
-                                                Sequencer *const *sequencers,
-                                                size_t sequencerCount)
+                                                const SequencerView &sequencers)
 {
   for (uint8_t bit = 0; bit < 7; ++bit) // bits 0-6; bit 7 is Shift (read above)
   {
@@ -386,14 +385,13 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
             tileButton.heldMilliseconds(nowMs) >= UITimingConstants::LONG_PRESS_THRESHOLD_MS)
         {
           clearAllLatch_ = true; // consume the hold; release must not also clear
-          clearAllSequencerVoices(uiState, sequencers, sequencerCount);
+          clearAllSequencerVoices(uiState, sequencers);
         }
         else if (edges.releaseEdge && !clearAllLatch_)
         {
-          if (sequencers && uiState.selectedVoiceIndex < sequencerCount &&
-              sequencers[uiState.selectedVoiceIndex])
+          if (Sequencer *selected = sequencers.get(uiState.selectedVoiceIndex))
           {
-            clearSequencerVoice(uiState, *sequencers[uiState.selectedVoiceIndex],
+            clearSequencerVoice(uiState, *selected,
                                 uiState.selectedVoiceIndex);
           }
         }
@@ -413,8 +411,7 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
 // --- Faders ----------------------------------------------------------------------
 
 void AlchemyControlBridge::handleFaders(UIState &uiState,
-                                        Sequencer *const *sequencers,
-                                        size_t sequencerCount)
+                                        const SequencerView &sequencers)
 {
   for (uint8_t channel = 0; channel < ControlSurface::FaderMap::kChannelCount; ++channel)
   {
@@ -439,9 +436,7 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
             (held == ParamId::Count && (uiState.currentEditParameter == assignment.paramId || uiState.currentEditParameter == ParamId::Count)))
         {
           const uint8_t step = static_cast<uint8_t>(uiState.selectedStepForEdit);
-          Sequencer *selectedSeq = (sequencers && uiState.selectedVoiceIndex < sequencerCount)
-                                       ? sequencers[uiState.selectedVoiceIndex]
-                                       : nullptr;
+          Sequencer *selectedSeq = sequencers.get(uiState.selectedVoiceIndex);
           if (selectedSeq)
           {
             if (assignment.paramId != ParamId::Note ||
@@ -486,11 +481,7 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
 
     case ControlSurface::FaderTarget::GateLength:
     {
-      Sequencer *selectedSequencer = nullptr;
-      if (sequencers && uiState.selectedVoiceIndex < sequencerCount)
-      {
-        selectedSequencer = sequencers[uiState.selectedVoiceIndex];
-      }
+      Sequencer *selectedSequencer = sequencers.get(uiState.selectedVoiceIndex);
       if (selectedSequencer)
       {
         const float gateLengthValue =

@@ -190,13 +190,13 @@ void ControlIO::beginMatrixAndTiles()
         Serial.print(evt.buttonIndex);
         Serial.print(evt.type == MATRIX_BUTTON_PRESSED ? " pressed" : " released");
         Serial.println();
-        matrixEventHandler(evt, uiState, AppState::sequencers, VoiceSystem::MAX_VOICES); });
+        matrixEventHandler(evt, uiState, AppState::sequencerView); });
 }
 
 void ControlIO::pollHeldButtons()
 {
     freezeWatchdogFeed(FW_LOOP_HELD_BUTTONS);
-    pollUIHeldButtons(uiState, AppState::sequencerView.data(), AppState::sequencerView.size());
+    pollUIHeldButtons(uiState, AppState::sequencerView);
 }
 
 void ControlIO::scanControls(uint32_t nowMs)
@@ -213,7 +213,7 @@ void ControlIO::scanControls(uint32_t nowMs)
         // Poll the Alchemy tiles (param/utility buttons, voice selects,
         // faders, GP7 mode strap) and translate edges into UI actions.
         freezeWatchdogMark(FW_LOOP_TILES);
-        controls.alchemyBridge.update(nowMs, uiState, AppState::sequencers, VoiceSystem::MAX_VOICES);
+        controls.alchemyBridge.update(nowMs, uiState, AppState::sequencerView);
 
         // Update magnetic encoder for base parameter control
         freezeWatchdogMark(FW_LOOP_ENCODER);
