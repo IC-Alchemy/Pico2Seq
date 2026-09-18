@@ -482,22 +482,35 @@ void Sequencer::toggleStep(uint8_t stepIdx)
     setStepParameterValue(ParamId::Gate, stepIdx, (gate > 0.5f) ? 0.0f : 1.0f);
 }
 
-Step Sequencer::getStep(uint8_t stepIdx) const
+namespace
+{
+// Share conversions only; the accessor owns cursor selection and playback mapping.
+// A concrete callable keeps decoding allocation-free without type erasure.
+template <typename ValueAccessor>
+Step decodeStep(const ValueAccessor &value, Sequencer::OctaveMapper octaveMapper)
 {
     Step s;
-    s.noteIndex = getStepParameterValue(ParamId::Note, stepIdx);
-    s.velocityLevel = getStepParameterValue(ParamId::Velocity, stepIdx);
-    s.filterCutoff = getStepParameterValue(ParamId::Filter, stepIdx);
-    s.attackTimeSeconds = getStepParameterValue(ParamId::Attack, stepIdx);
-    s.decayTimeSeconds = getStepParameterValue(ParamId::Decay, stepIdx);
-    s.isGateActive = getStepParameterValue(ParamId::Gate, stepIdx) > 0.5f;
-    s.hasSlide = getStepParameterValue(ParamId::Slide, stepIdx) > 0.5f;
-    const float octave = getStepParameterValue(ParamId::Octave, stepIdx);
-    s.octaveOffset = octaveMapper_ ? octaveMapper_(octave) : mapFloatToOctaveOffset(octave);
-
-    const float gateLengthProportion = getStepParameterValue(ParamId::GateLength, stepIdx);
-    s.gateLengthTicks = static_cast<uint16_t>(std::max(1.0f, gateLengthProportion * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS));
+    s.noteIndex = value(ParamId::Note);
+    s.velocityLevel = value(ParamId::Velocity);
+    s.filterCutoff = value(ParamId::Filter);
+    s.attackTimeSeconds = value(ParamId::Attack);
+    s.decayTimeSeconds = value(ParamId::Decay);
+    s.isGateActive = value(ParamId::Gate) > 0.5f;
+    s.hasSlide = value(ParamId::Slide) > 0.5f;
+    const float octave = value(ParamId::Octave);
+    s.octaveOffset = octaveMapper ? octaveMapper(octave) : mapFloatToOctaveOffset(octave);
+    s.gateLengthTicks = static_cast<uint16_t>(std::max(1.0f,
+        value(ParamId::GateLength) * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS));
     return s;
+}
+} // namespace
+
+Step Sequencer::getStep(uint8_t stepIdx) const
+{
+    const auto value = [&](ParamId id) {
+        return getStepParameterValue(id, stepIdx);
+    };
+    return decodeStep(value, octaveMapper_);
 }
 
 void Sequencer::setStep(uint8_t stepIdx, const Step &step)
@@ -536,19 +549,7 @@ Step Sequencer::getPlaybackStep(uint8_t stepIdx) const
     const auto value = [&](ParamId id) {
         return playbackValue(id, stepIdx == UINT8_MAX ? getCurrentStepForParameter(id) : stepIdx);
     };
-    Step s;
-    s.noteIndex = value(ParamId::Note);
-    s.velocityLevel = value(ParamId::Velocity);
-    s.filterCutoff = value(ParamId::Filter);
-    s.attackTimeSeconds = value(ParamId::Attack);
-    s.decayTimeSeconds = value(ParamId::Decay);
-    s.isGateActive = value(ParamId::Gate) > 0.5f;
-    s.hasSlide = value(ParamId::Slide) > 0.5f;
-    const float octave = value(ParamId::Octave);
-    s.octaveOffset = octaveMapper_ ? octaveMapper_(octave) : mapFloatToOctaveOffset(octave);
-    s.gateLengthTicks = static_cast<uint16_t>(std::max(1.0f,
-        value(ParamId::GateLength) * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS));
-    return s;
+    return decodeStep(value, octaveMapper_);
 }
 
 void Sequencer::randomizeParameters(uint8_t depthPercent, uint64_t seed)

@@ -14,5 +14,6 @@ bool isClockRunning = true;
 namespace AppState
 {
 Sequencer *const sequencers[VoiceSystem::MAX_VOICES] = {&seq1, &seq2, &seq3, &seq4};
+const SequencerView sequencerView{sequencers};
 PerformanceInput performanceInput;
 }

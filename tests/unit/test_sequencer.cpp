@@ -9,6 +9,25 @@
 
 #include <algorithm>
 
+TEST_CASE("Descriptor edit kinds preserve track storage rules", "[sequencer][parameter_metadata]") {
+    ParameterManager parameters;
+    parameters.init();
+    for (ParamId id : {ParamId::Gate, ParamId::Slide}) {
+        parameters.setValue(id, 0, 0.5f);
+        CHECK(parameters.getValue(id, 0) == 0.0f);
+        parameters.setValue(id, 0, 0.5001f);
+        CHECK(parameters.getValue(id, 0) == 1.0f);
+    }
+    // Both are detented when edited by encoder, but only Note stores integers.
+    parameters.setValue(ParamId::Note, 0, 4.6f);
+    CHECK(parameters.getValue(ParamId::Note, 0) == 5.0f);
+    parameters.setValue(ParamId::Octave, 0, 0.37f);
+    CHECK(parameters.getValue(ParamId::Octave, 0) == Catch::Approx(0.37f));
+    // No record button does not prohibit explicit editing of the timing lane.
+    parameters.setValue(ParamId::GateLength, 0, 0.37f);
+    CHECK(parameters.getValue(ParamId::GateLength, 0) == Catch::Approx(0.37f));
+}
+
 // ─── ParameterTrack template ─────────────────────────────────────────────────
 
 TEST_CASE("ParameterTrack initialises all steps to default value", "[paramtrack]") {
@@ -501,6 +520,98 @@ TEST_CASE("Sequencer::getStep reflects configured octaveMapper", "[sequencer]") 
     REQUIRE(s.octaveOffset == -24);
 }
 
+TEST_CASE("Step readers share lane conversions without sharing playback transforms", "[sequencer]") {
+    Sequencer seq(0);
+    // Raw writes retain fractional binary values to exercise the decoder threshold.
+    seq.setRawStepValue(ParamId::Note, 0, 7.25f);
+    seq.setRawStepValue(ParamId::Velocity, 0, 0.2f);
+    seq.setRawStepValue(ParamId::Filter, 0, 0.3f);
+    seq.setRawStepValue(ParamId::Attack, 0, 0.4f);
+    seq.setRawStepValue(ParamId::Decay, 0, 0.6f);
+
+    const float offset = 0.1f;
+    for (bool transformed : {false, true}) {
+        seq.setPlaybackTransform(transformed ? +[](ParamId, float stored, const void *context) {
+            return stored + *static_cast<const float *>(context);
+        } : nullptr, &offset);
+        for (float binary : {0.49f, 0.5f, 0.51f}) {
+            seq.setRawStepValue(ParamId::Gate, 0, binary);
+            seq.setRawStepValue(ParamId::Slide, 0, binary);
+            for (float octave : {0.0f, 1.0f / 3.0f, 0.5f, 2.0f / 3.0f, 1.0f}) {
+                seq.setRawStepValue(ParamId::Octave, 0, octave);
+                for (float length : {0.0f, 0.001f, 0.123f, 1.0f}) {
+                    seq.setRawStepValue(ParamId::GateLength, 0, length);
+                    for (bool playback : {false, true}) {
+                        CAPTURE(transformed, binary, octave, length, playback);
+                        const float delta = transformed && playback ? offset : 0.0f;
+                        const Step s = playback ? seq.getPlaybackStep(0) : seq.getStep(0);
+                        REQUIRE(s.noteIndex == Catch::Approx(7.25f + delta));
+                        REQUIRE(s.velocityLevel == Catch::Approx(0.2f + delta));
+                        REQUIRE(s.filterCutoff == Catch::Approx(0.3f + delta));
+                        REQUIRE(s.attackTimeSeconds == Catch::Approx(0.4f + delta));
+                        REQUIRE(s.decayTimeSeconds == Catch::Approx(0.6f + delta));
+                        REQUIRE(s.isGateActive == (binary + delta > 0.5f));
+                        REQUIRE(s.hasSlide == (binary + delta > 0.5f));
+                        const float mapped = octave + delta;
+                        REQUIRE(s.octaveOffset == (mapped < 1.0f / 3.0f ? -12 :
+                                                  mapped > 2.0f / 3.0f ? 12 : 0));
+                        REQUIRE(s.gateLengthTicks == static_cast<uint16_t>(std::max(
+                            1.0f, (length + delta) * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS)));
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("Playback decoding selects each lane cursor before transforming", "[sequencer]") {
+    Sequencer seq(0);
+    Sequencer expected(0);
+    const auto transform = [](ParamId, float stored, const void *) { return stored * 0.5f; };
+    const auto octaveMapper = [](float value) -> int8_t { return value < 0.25f ? -24 : 24; };
+    seq.setPlaybackTransform(transform, nullptr, octaveMapper);
+    expected.setPlaybackTransform(transform, nullptr, octaveMapper);
+    for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane) {
+        const auto id = static_cast<ParamId>(lane);
+        const uint8_t count = lane + 2;
+        seq.setParameterStepCount(id, count);
+        for (uint8_t step = 0; step < count; ++step)
+            seq.setRawStepValue(id, step, static_cast<float>(step + 1) / count);
+    }
+    seq.start();
+    VoiceState state{};
+    constexpr uint32_t clockStep = 263; // Must not truncate before each lane's modulo.
+    seq.advanceStep(clockStep, -1, false, false, false, false, false, false, -1, &state);
+    const auto currentStep = seq.getCurrentStep();
+    const auto currentNote = seq.getCurrentNote();
+    const bool notePlaying = seq.isNotePlaying();
+    for (uint8_t selected : {uint8_t{UINT8_MAX}, uint8_t{1}}) {
+        for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane) {
+            const auto id = static_cast<ParamId>(lane);
+            const uint8_t cursor = clockStep % (lane + 2);
+            REQUIRE(seq.getCurrentStepForParameter(id) == cursor);
+            expected.setRawStepValue(id, 0, seq.getStepParameterValue(
+                id, selected == UINT8_MAX ? cursor : selected));
+        }
+        const Step actual = seq.getPlaybackStep(selected);
+        const Step reference = expected.getPlaybackStep(0);
+        REQUIRE(actual.noteIndex == reference.noteIndex);
+        REQUIRE(actual.velocityLevel == reference.velocityLevel);
+        REQUIRE(actual.filterCutoff == reference.filterCutoff);
+        REQUIRE(actual.attackTimeSeconds == reference.attackTimeSeconds);
+        REQUIRE(actual.decayTimeSeconds == reference.decayTimeSeconds);
+        REQUIRE(actual.isGateActive == reference.isGateActive);
+        REQUIRE(actual.hasSlide == reference.hasSlide);
+        REQUIRE(actual.octaveOffset == reference.octaveOffset);
+        REQUIRE(actual.gateLengthTicks == reference.gateLengthTicks);
+    }
+    REQUIRE(seq.getCurrentStep() == currentStep);
+    REQUIRE(seq.getCurrentNote() == currentNote);
+    REQUIRE(seq.isNotePlaying() == notePlaying);
+    for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane)
+        REQUIRE(seq.getCurrentStepForParameter(static_cast<ParamId>(lane)) == clockStep % (lane + 2));
+}
+
 TEST_CASE("previewActiveStep preserves independent polyrhythmic parameter cursors", "[sequencer]") {
     Sequencer seq(0);
     seq.start();
@@ -588,56 +699,20 @@ TEST_CASE("ParameterManager::copyStep copies values across tracks and bounds-che
     pm.copyStep(0, 100);
 }
 
-TEST_CASE("VoiceSystem provides 4-voice independent gate and timer tracking", "[voice][voicesystem]") {
-    VoiceSystem vs;
-    REQUIRE(VoiceSystem::MAX_VOICES == 4);
-
-    // All gates default to false
+TEST_CASE("VoiceSystem retains independent control states for all four voices", "[voice][voicesystem]") {
+    VoiceSystem system;
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
-        REQUIRE(vs.getGate(i) == false);
-        REQUIRE(vs.getGateTimer(i).isActive == false);
+        REQUIRE_FALSE(system.getVoiceState(i).isGateHigh);
+        system.setVoiceId(i, i + 10);
+        system.getVoiceState(i).noteIndex = i + 4;
     }
-
-    // Set voice 2 and 3 gates and timers
-    vs.getGate(2) = true;
-    vs.getGateTimer(2).start(10);
-    vs.getGate(3) = true;
-    vs.getGateTimer(3).start(5);
-
-    REQUIRE(vs.getGate(2) == true);
-    REQUIRE(vs.getGate(3) == true);
-    REQUIRE(vs.getGate(0) == false);
-    REQUIRE(vs.getGate(1) == false);
-
-    // Tick timers 5 times
-    for (int t = 0; t < 5; ++t) {
-        vs.tickAllGateTimers();
-    }
-
-    // Voice 3 timer expired (duration was 5), voice 2 still has 5 ticks remaining
-    REQUIRE(vs.getGate(3) == false);
-    REQUIRE(vs.getGateTimer(3).isActive == false);
-    REQUIRE(vs.getGate(2) == true);
-    REQUIRE(vs.getGateTimer(2).isActive == true);
-    REQUIRE(vs.getGateTimer(2).ticksRemaining == 5);
-
-    // Tick remaining 5 times
-    for (int t = 0; t < 5; ++t) {
-        vs.tickAllGateTimers();
-    }
-    REQUIRE(vs.getGate(2) == false);
-    REQUIRE(vs.getGateTimer(2).isActive == false);
-
-    // stopAllGates
-    vs.getGate(0) = true;
-    vs.getGate(1) = true;
-    vs.getGate(2) = true;
-    vs.getGate(3) = true;
-    vs.stopAllGates();
+    system.getVoiceState(3).isGateHigh = true;
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
-        REQUIRE(vs.getGate(i) == false);
-        REQUIRE(vs.getGateTimer(i).isActive == false);
+        REQUIRE(system.getVoiceId(i) == i + 10);
+        REQUIRE(system.getVoiceState(i).noteIndex == i + 4);
+        REQUIRE(system.getVoiceState(i).isGateHigh == (i == 3));
     }
+    REQUIRE(&system.getVoiceState(255) == &system.getVoiceState(0));
 }
 
 TEST_CASE("CORE_PARAMETERS metadata defines valid bounds and types for all parameters", "[seqdefs]") {

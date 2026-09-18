@@ -4,8 +4,13 @@
 #include <cmath>
 
 #include "../pico2seq-core/sequencer/Sequencer.h"
+#include "../app/SequencerView.h"
 #include "../ui/ButtonManager.h"
 #include "../ui/ControlSurfaceLogic.h"
+#include "../ui/SettingsPads.h"
+#include "../app/AppState.h"
+#include "../voice/VoiceSystem.h"
+#include "../voice/VoiceManager.h"
 #include "../ui/UIEventHandler.h"
 #include "../utils/Debug.h"
 #include "../voice/VoicePresets.h"
@@ -68,11 +73,30 @@ CRGB current_COLOR_MOD_GATE_MODE_INACTIVE;
 CRGB current_COLOR_RANDOMIZE_FLASH;
 CRGB current_COLOR_RANDOMIZE_IDLE;
 
-const LEDThemeColors ALL_THEMES[] = {
-    {// DEFAULT - blue-green progression
-     {CRGB(0, 148, 188), CRGB(0, 88, 66), CRGB(16, 180, 160),
-      CRGB(32, 188, 132)},
-     {CRGB(34, 2, 54), CRGB(40, 2, 58), CRGB(48, 3, 60), CRGB(56, 5, 62)},
+// Voice-gate palette design principles (applied to every theme below):
+// - Voices are CATEGORICAL data (4 groups): each voice gets a distinct hue,
+//   within-pair voices (V1/V2, V3/V4 — the only ones ever shown together on
+//   the two matrix bands) sit ~40+ degrees apart in hue, following the
+//   categorical-palette guideline of maximum hue distance at equal lightness.
+// - Hues are anchored in the empirically colorblind-safe Okabe-Ito / Paul Tol
+//   categorical sets (blue vs orange, green vs purple/magenta), graded toward
+//   each theme's character. No voice pair relies on red-vs-green alone.
+// - Gate state is SEQUENTIAL data: gateOff is the same hue at ~1/8 lightness
+//   (floored so chromaticity survives), so state reads as brightness and
+//   identity reads as hue — a redundant encoding that survives grayscale and
+//   all common color-vision deficiencies.
+// - Monochromatic themes (BLUE/GREEN) and warm-family themes (VOLCANIC/EMBER)
+//   instead use a monotonic lightness ramp as the redundant channel, per the
+//   sequential-palette rule (must order correctly in grayscale).
+// - On-states are lightness-balanced so no voice dominates, and lifted for
+//   legibility on the near-black LED background (dark-mode practice); reds
+//   are boosted slightly to compensate protan red-darkening.
+    const LEDThemeColors ALL_THEMES[] = {
+    {// DEFAULT - Okabe-Ito categorical quartet: sky / orange / bluish-green /
+     // reddish-purple. The reference-standard colorblind-safe voice set.
+     {CRGB(60, 170, 235), CRGB(235, 160, 20), CRGB(0, 190, 140),
+      CRGB(215, 130, 175)},
+     {CRGB(8, 22, 31), CRGB(31, 21, 3), CRGB(0, 25, 18), CRGB(28, 17, 23)},
      CRGB(0, 44, 54),
      CRGB(0, 0, 94),
      CRGB(0, 0, 12),
@@ -99,10 +123,12 @@ const LEDThemeColors ALL_THEMES[] = {
      CRGB(24, 0, 16),
      CRGB(64, 94, 94),
      CRGB(16, 24, 24)},
-    {// OCEANIC - deep blue through seafoam
-     {CRGB(0, 112, 188), CRGB(0, 138, 190), CRGB(0, 162, 184),
-      CRGB(0, 176, 148)},
-     {CRGB(16, 8, 54), CRGB(22, 8, 60), CRGB(28, 10, 64), CRGB(34, 12, 66)},
+    {// OCEANIC - deep-sea blue / sunlit sand / seafoam / pale ice. Warm sand
+     // accents give V1/V2 a CVD-safe cool-vs-warm split; V3/V4 separate by
+     // lightness (seafoam vs near-white ice) as redundant encoding.
+     {CRGB(30, 120, 235), CRGB(235, 170, 60), CRGB(20, 200, 150),
+      CRGB(150, 230, 240)},
+     {CRGB(4, 16, 31), CRGB(31, 22, 8), CRGB(3, 26, 20), CRGB(20, 30, 31)},
      CRGB(0, 38, 48),
      CRGB(0, 48, 144),
      CRGB(0, 5, 17),
@@ -130,10 +156,12 @@ const LEDThemeColors ALL_THEMES[] = {
      CRGB(0, 188, 166),
      CRGB(0, 22, 15)},
     {
-        // VOLCANIC theme - red/orange fire on near-black
-        {CRGB(220, 65, 20), CRGB(235, 88, 20), CRGB(245, 112, 25),
-         CRGB(255, 138, 35)},
-        {CRGB(55, 3, 8), CRGB(60, 5, 8), CRGB(66, 7, 10), CRGB(72, 10, 12)},
+        // VOLCANIC - crimson (protan-boosted) / gold / tangerine / magma-pink.
+        // Warm-family ramp with monotonic lightness as redundant channel plus
+        // a pink outlier anchor; reds lifted to offset protan red-darkening.
+        {CRGB(240, 70, 60), CRGB(250, 175, 45), CRGB(255, 150, 40),
+         CRGB(255, 80, 160)},
+        {CRGB(31, 9, 8), CRGB(33, 23, 6), CRGB(33, 20, 5), CRGB(33, 10, 21)},
         CRGB(62, 22, 4),     // playheadAccent - dark lava accent
         CRGB(50, 20, 8),     // idleBreathingBlue - warm ember glow
         CRGB(12, 6, 4),      // editModeDimBlueV1 - very dark warm slate
@@ -162,10 +190,12 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(24, 14, 10)     // randomizeIdle - dark subtle tone
     },
     {
-        // FOREST theme - greens and warm browns on dark moss
-        {CRGB(28, 150, 55), CRGB(48, 162, 62), CRGB(38, 172, 82),
-         CRGB(72, 182, 68)},
-        {CRGB(36, 14, 3), CRGB(42, 18, 3), CRGB(44, 22, 4), CRGB(48, 26, 5)},
+        // FOREST - leaf / bark-amber / glacial-lake blue / dry-grass gold.
+        // Okabe-style green-vs-orange and blue-vs-yellow splits; no
+        // green-vs-green pair is ever shown together.
+        {CRGB(60, 195, 80), CRGB(225, 150, 55), CRGB(50, 160, 210),
+         CRGB(200, 185, 70)},
+        {CRGB(8, 25, 10), CRGB(29, 20, 7), CRGB(7, 21, 27), CRGB(26, 24, 9)},
         CRGB(12, 55, 20),    // playheadAccent - deep forest accent
         CRGB(16, 36, 18),    // idleBreathingBlue - deep moss breathing
         CRGB(6, 12, 7),      // editModeDimBlueV1 - dark green slate
@@ -194,10 +224,11 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(14, 20, 12)     // randomizeIdle - dark subtle tone
     },
     {
-        // NEON theme - bright cyan/magenta on dark
-        {CRGB(0, 220, 235), CRGB(0, 232, 205), CRGB(0, 225, 165),
-         CRGB(34, 235, 125)},
-        {CRGB(45, 0, 65), CRGB(52, 0, 70), CRGB(56, 0, 75), CRGB(60, 4, 76)},
+        // NEON - Tol-bright-style primaries: cyan / magenta / lime / violet.
+        // All pairs 90+ degrees apart; lime moderated so it doesn't dominate.
+        {CRGB(0, 225, 255), CRGB(255, 60, 220), CRGB(170, 235, 45),
+         CRGB(165, 130, 255)},
+        {CRGB(0, 29, 33), CRGB(33, 8, 29), CRGB(22, 31, 6), CRGB(21, 17, 33)},
         CRGB(0, 55, 65),     // playheadAccent - deep cyan accent
         CRGB(0, 30, 60),     // idleBreathingBlue - neon blue breathing
         CRGB(0, 10, 16),     // editModeDimBlueV1 - dark cyan slate
@@ -225,11 +256,13 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(255, 255, 255), // randomizeFlash - white flash
         CRGB(14, 14, 20)     // randomizeIdle - dark subtle tone
     },
-    // DARK_NOCTIS theme - deep charcoal with cool blue/cyan accents
+    // DARK_NOCTIS - midnight blue / lantern amber / deep violet / moonlight.
+    // One warm accent (the lantern) gives V1/V2 a CVD-safe split; V3/V4 pair
+    // violet against bright moon-silver, distinct in hue AND lightness.
     {
-        {CRGB(12, 85, 140), CRGB(30, 55, 150), CRGB(35, 118, 55),
-         CRGB(33, 126, 170)},
-        {CRGB(12, 5, 22), CRGB(16, 6, 44), CRGB(33, 7, 44), CRGB(40, 9, 44)},
+        {CRGB(50, 120, 210), CRGB(220, 150, 50), CRGB(150, 110, 225),
+         CRGB(190, 215, 230)},
+        {CRGB(7, 16, 27), CRGB(29, 20, 7), CRGB(20, 14, 29), CRGB(25, 28, 30)},
         CRGB(18, 52, 85),    // playheadAccent - deep navy accent
         CRGB(18, 30, 50),    // idleBreathingBlue - muted navy
         CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
@@ -258,11 +291,13 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(12, 12, 14)     // randomizeIdle - dark subtle tone
     },
     {
-        // DARK_EMBER theme - deep charcoal with warm amber ember accents
-        {CRGB(200, 100, 40), CRGB(215, 120, 46), CRGB(230, 140, 56),
-         CRGB(245, 160, 70)},
-        {CRGB(55, 4, 8), CRGB(62, 5, 9), CRGB(68, 7, 11), CRGB(74, 10, 13)},
-        CRGB(18, 52, 85), // playheadAccent - deep navy accent
+        // DARK_EMBER - ember-red (protan-boosted) / gold / copper-rose /
+        // pale flame. Monotonic lightness ramp carries identity for CVD
+        // viewers; reds lifted to offset protan red-darkening.
+        {CRGB(225, 65, 50), CRGB(250, 185, 70), CRGB(225, 110, 110),
+         CRGB(255, 215, 150)},
+        {CRGB(29, 8, 7), CRGB(33, 24, 9), CRGB(29, 14, 14), CRGB(33, 28, 20)},
+        CRGB(66, 26, 8), // playheadAccent - warm ember accent (was navy copy-paste)
         CRGB(28, 22,
              20), // idleBreathingBlue - warm slate for breathing (amber-tinted)
         CRGB(10, 8, 8),      // editModeDimBlueV1 - very dark warm slate
@@ -292,11 +327,12 @@ const LEDThemeColors ALL_THEMES[] = {
     },
 
     {
-        // MODERN theme - muted, high-legibility palette with warm accent
-        {CRGB(48, 170, 120), CRGB(56, 178, 138), CRGB(68, 176, 112),
-         CRGB(84, 184, 132)},
-        {CRGB(20, 16, 42), CRGB(20, 18, 44), CRGB(20, 20, 45),
-         CRGB(20, 22, 46)},
+        // MODERN - dusty blue / clay / sage / rosewood. Muted chroma for the
+        // refined look, but pairs sit ~140+ degrees apart so muting never
+        // costs distinguishability; lightness equalized across voices.
+        {CRGB(110, 170, 215), CRGB(215, 150, 110), CRGB(95, 180, 125),
+         CRGB(225, 125, 180)},
+        {CRGB(14, 22, 28), CRGB(28, 20, 14), CRGB(12, 23, 16), CRGB(29, 16, 23)},
         CRGB(20, 55, 54),    // playheadAccent - muted teal accent
         CRGB(60, 84, 110),   // idleBreathingBlue - slate blue for breathing
         CRGB(12, 16, 20),    // editModeDimBlueV1 - dim slate
@@ -325,10 +361,12 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(40, 44, 46)     // randomizeIdle - subtle gray idle tone
     },
     {
-        // BLUE theme - high-contrast cool blues and cyan accents
-        {CRGB(30, 105, 185), CRGB(35, 124, 195), CRGB(45, 142, 205),
-         CRGB(64, 154, 212)},
-        {CRGB(12, 5, 22), CRGB(16, 6, 44), CRGB(33, 7, 44), CRGB(40, 9, 44)},
+        // BLUE theme - monochrome ramp done right: monotonic lightness
+        // (grayscale-correct ordering) with a deep-to-ice run plus an indigo
+        // endpoint for hue assist. Lightness, not hue, carries identity here.
+        {CRGB(25, 80, 210), CRGB(55, 160, 255), CRGB(95, 225, 255),
+         CRGB(105, 95, 255)},
+        {CRGB(3, 10, 27), CRGB(7, 21, 33), CRGB(12, 29, 33), CRGB(14, 12, 33)},
         CRGB(18, 60, 105),   // playheadAccent - strong blue accent
         CRGB(16, 36, 80),    // idleBreathingBlue - deep ocean blue
         CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
@@ -357,10 +395,12 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(12, 12, 14)     // randomizeIdle - dark subtle tone
     },
     {
-        // GREEN theme - lush greens with clean high-contrast accents
-        {CRGB(35, 145, 75), CRGB(40, 160, 90), CRGB(45, 174, 105),
-         CRGB(55, 184, 120)},
-        {CRGB(12, 5, 22), CRGB(16, 6, 44), CRGB(33, 7, 44), CRGB(40, 9, 44)},
+        // GREEN theme - monochrome ramp: deep / bright / mint / lime with
+        // monotonic lightness (grayscale-correct). Same sequential-encoding
+        // treatment as BLUE.
+        {CRGB(25, 155, 70), CRGB(55, 215, 105), CRGB(115, 250, 175),
+         CRGB(175, 240, 85)},
+        {CRGB(3, 20, 9), CRGB(7, 28, 14), CRGB(15, 33, 23), CRGB(23, 31, 11)},
         CRGB(12, 68, 38),    // playheadAccent - strong forest accent
         CRGB(18, 44, 28),    // idleBreathingBlue - deep forest for breathing
         CRGB(8, 12, 10),     // editModeDimBlueV1 - very dark green slate
@@ -509,7 +549,7 @@ void setupLEDMatrixFeedback() {
  * Displays menu options and preset selections using step LEDs:
  * - Preset selection: lights each pad that holds a preset (pad N = preset N)
  *   and pulses the selected voice's current preset
- * - Voice parameter sub-mode: shows the selected voice on pads 0-3
+ * - Voice parameter sub-mode: each pad displays its current parameter value
  * - Uses different colors to indicate current selection and available options
  */
 void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
@@ -520,7 +560,7 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
     ledMatrix.getLeds()[i] = CRGB::Black;
   }
 
-  if (uiState.inPresetSelection) {
+  if (uiState.isPresetSelection()) {
     // Preset selection mode - light every pad that holds a preset
     const uint8_t totalPresets = VoicePresets::getPresetCount();
 
@@ -561,90 +601,36 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
       ledMatrix.setLED(pad % LEDMatrix::WIDTH, pad / LEDMatrix::WIDTH, color);
     }
   } else {
-    // Voice parameter sub-mode - the first row shows which voice the
-    // toggles edit (chosen with the voice buttons)
-    for (int voiceIndex = 0; voiceIndex < 4; voiceIndex++) {
-      CRGB voiceColor = getVoiceGateColor(
-          *activeThemeColors, static_cast<uint8_t>(voiceIndex),
-          uiState.selectedVoiceIndex == voiceIndex);
-
-      // Add pulsing effect for selected option
-      if (uiState.selectedVoiceIndex == voiceIndex) {
-        uint32_t time = millis();
-        float pulse = 0.5f + 0.5f * sinf(time * 0.006f);
-        voiceColor.nscale8(static_cast<uint8_t>(128 + 127 * pulse));
-      } else {
-        voiceColor.nscale8(96);
-      }
-
-      // Set LED for voice option
-      ledMatrix.setLED(voiceIndex, 0, voiceColor);
-    }
+    updateVoiceParameterLEDs(ledMatrix, uiState);
   }
 }
 
 void updateVoiceParameterLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
-  if (!uiState.inVoiceParameterMode)
+  if (!uiState.hasVoiceParameterFeedback(millis()))
+    return;
+  const auto *theme = getActiveThemeColors();
+  if (!theme || !voiceManager || uiState.selectedVoiceIndex >= VoiceSystem::MAX_VOICES)
+    return;
+  const auto *config = voiceManager->getVoiceConfig(
+      voiceSystem.getVoiceId(uiState.selectedVoiceIndex));
+  if (!config)
     return;
 
-  // Get active theme colors
-  const LEDThemeColors *activeThemeColors = getActiveThemeColors();
-  if (!activeThemeColors)
-    return;
-
-  // Clear all LEDs first
-  for (int i = 0; i < LEDMatrix::WIDTH * LEDMatrix::HEIGHT; i++) {
-    ledMatrix.setLED(i % LEDMatrix::WIDTH, i / LEDMatrix::WIDTH, CRGB::Black);
+  for (uint8_t pad = 0; pad < SettingsPads::kPadCount; ++pad) {
+    CRGB color = CRGB::Black;
+    if (SettingsPads::available(pad, *config)) {
+      const auto id = SettingsPads::parameter(pad);
+      const bool toggle = VoiceEdit::parameter(id).unit == VoiceEdit::Unit::Toggle;
+      const float level = SettingsPads::level(pad, *config);
+      // Toggles: off is dark, on is solid. Other controls encode their value
+      // as brightness; a small floor distinguishes minimum from unavailable.
+      color = getVoiceGateColor(*theme, uiState.selectedVoiceIndex, true);
+      color.nscale8(toggle ? (level > 0.5f ? 255 : 0)
+                          : static_cast<uint8_t>(32 + 223 * level));
+    }
+    // Raw pad N is LED N, exactly as on the preset page (no -1 offset).
+    ledMatrix.setLED(pad % LEDMatrix::WIDTH, pad / LEDMatrix::WIDTH, color);
   }
-
-  // Map button index to LED position (buttons 9-24 map to steps 8-23)
-  uint8_t ledIndex = uiState.lastVoiceParameterButton - 1;
-  if (ledIndex >= LEDMatrix::WIDTH * LEDMatrix::HEIGHT)
-    return;
-
-  // Choose color based on voice and parameter type
-  CRGB paramColor;
-
-  switch (uiState.lastVoiceParameterButton) {
-  case 9: // Envelope
-    paramColor = uiState.isVoice2Mode ? activeThemeColors->modAttackActive
-                                      : activeThemeColors->modDecayActive;
-    break;
-  case 10: // Overdrive
-    paramColor = uiState.isVoice2Mode ? activeThemeColors->modFilterActive
-                                      : activeThemeColors->modVelocityActive;
-    break;
-  case 11: // (was Wavefolder; button removed with the wavefolder effect)
-    paramColor = uiState.isVoice2Mode ? activeThemeColors->modOctaveActive
-                                      : activeThemeColors->modNoteActive;
-    break;
-  case 12: // Filter Mode
-    paramColor =
-        getVoiceGateColor(*activeThemeColors, uiState.selectedVoiceIndex, true);
-    break;
-  case 13: // Filter Resonance
-    paramColor = uiState.isVoice2Mode ? activeThemeColors->modSlideActive
-                                      : activeThemeColors->modParamModeActive;
-    break;
-  default:
-    paramColor = uiState.isVoice2Mode ? activeThemeColors->defaultActive
-                                      : activeThemeColors->defaultInactive;
-    break;
-  }
-
-  // Create pulsing effect for 3 seconds
-  if (millis() - uiState.voiceParameterChangeTime < 3000) {
-    uint32_t time = millis();
-    float pulse =
-        0.5f + 0.5f * sinf(time * 0.01f); // Faster pulse for voice parameters
-    paramColor.nscale8(static_cast<uint8_t>(128 + 127 * pulse));
-  } else {
-    paramColor.nscale8(64); // Dim after timeout
-  }
-
-  // Set the LED for the voice parameter button
-  ledMatrix.setLED(ledIndex % LEDMatrix::WIDTH, ledIndex / LEDMatrix::WIDTH,
-                   paramColor);
 }
 
 /**
@@ -750,9 +736,8 @@ static void renderVoicePair(LEDMatrix &ledMatrix,
   }
 }
 
-void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
-                    const Sequencer &seq2, const Sequencer &seq3,
-                    const Sequencer &seq4, const UIState &uiState, int mm) {
+void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
+                    const UIState &uiState, int mm) {
   // If requested, immediately clear smoothed buffers to force a visual refresh
   if (uiState.resetStepsLightsFlag) {
     for (int i = 0; i < LEDConstants::MATRIX_TOTAL_LEDS; ++i) {
@@ -771,12 +756,12 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
   }
 
   // Handle voice parameter mode LED feedback
-  if (uiState.inVoiceParameterMode &&
-      (millis() - uiState.voiceParameterChangeTime < 3000)) {
+  if (uiState.hasVoiceParameterFeedback(millis())) {
     updateVoiceParameterLEDs(ledMatrix, uiState);
     return;
   }
 
+  const Sequencer &activeSeq = sequencers.clamped(uiState.selectedVoiceIndex);
   const ParamId heldParamIdForLength = getHeldParameterParamId(uiState);
   bool anyParamForLengthHeld = (heldParamIdForLength != ParamId::Count);
   ParamId activeParamIdForLength =
@@ -785,13 +770,6 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
   // Gate sequence length mode visualization: blink LEDs up to current gate
   // length for selected voice
   if (uiState.gateSeqLengthMode) {
-    // Select active sequencer by selectedVoiceIndex (0..3)
-    const Sequencer *seqPtr = (uiState.selectedVoiceIndex == 0)   ? &seq1
-                              : (uiState.selectedVoiceIndex == 1) ? &seq2
-                              : (uiState.selectedVoiceIndex == 2) ? &seq3
-                                                                  : &seq4;
-    const Sequencer &activeSeq = *seqPtr;
-
     const uint8_t selBand = ControlSurface::LedLayout::bandOfVoiceInPair(
         uiState.selectedVoiceIndex);
     const CRGB withinColorBase = getVoiceGateColor(
@@ -841,12 +819,6 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
   }
 
   if (uiState.slideMode) {
-    // Select sequencer based on selectedVoiceIndex (0..3)
-    const Sequencer *seqPtr = (uiState.selectedVoiceIndex == 0)   ? &seq1
-                              : (uiState.selectedVoiceIndex == 1) ? &seq2
-                              : (uiState.selectedVoiceIndex == 2) ? &seq3
-                                                                  : &seq4;
-    const Sequencer &activeSeq = *seqPtr;
     uint8_t slidePlayhead =
         activeSeq.getCurrentStepForParameter(ParamId::Slide);
     uint8_t slideLength = activeSeq.getParameterStepCount(ParamId::Slide);
@@ -885,17 +857,11 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
 
   bool paramValueEditActive = isAnyParameterButtonHeld(uiState);
 
-  // Helper to fetch by selected voice
-  auto &activeSeqRef = (uiState.selectedVoiceIndex == 0)   ? seq1
-                       : (uiState.selectedVoiceIndex == 1) ? seq2
-                       : (uiState.selectedVoiceIndex == 2) ? seq3
-                                                           : seq4;
-
   if (paramValueEditActive) {
     uint8_t currentLength =
-        activeSeqRef.getParameterStepCount(activeParamIdForLength);
+        activeSeq.getParameterStepCount(activeParamIdForLength);
     uint8_t paramPlayhead =
-        activeSeqRef.getCurrentStepForParameter(activeParamIdForLength);
+        activeSeq.getCurrentStepForParameter(activeParamIdForLength);
 
     // Dim the non-selected band (top or bottom) in the current page
     const uint8_t selBand = ControlSurface::LedLayout::bandOfVoiceInPair(
@@ -923,7 +889,7 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
     for (int step = 0; step < SEQ_STEPS; ++step) {
       CRGB targetColor;
       if (step < currentLength) {
-        if (step == paramPlayhead && activeSeqRef.isRunning()) {
+        if (step == paramPlayhead && activeSeq.isRunning()) {
           targetColor = getParameterColor(activeParamIdForLength, 180);
         } else {
           // Use V1 tint for top row, V2 tint for bottom row
@@ -945,9 +911,9 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
 
   if (anyParamForLengthHeld) {
     uint8_t currentLength =
-        activeSeqRef.getParameterStepCount(activeParamIdForLength);
+        activeSeq.getParameterStepCount(activeParamIdForLength);
     uint8_t paramPlayhead =
-        activeSeqRef.getCurrentStepForParameter(activeParamIdForLength);
+        activeSeq.getCurrentStepForParameter(activeParamIdForLength);
 
     // Paint only the selected band's within-length area
     const uint8_t selBand = ControlSurface::LedLayout::bandOfVoiceInPair(
@@ -955,7 +921,7 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
     bool isSecondInPair = selBand == 1;
     for (int step = 0; step < currentLength; ++step) {
       CRGB targetColor =
-          (step == paramPlayhead && activeSeqRef.isRunning())
+          (step == paramPlayhead && activeSeq.isRunning())
               ? getParameterColor(activeParamIdForLength, 180)
               : (isSecondInPair ? activeThemeColors->editModeDimBlueV2
                                 : activeThemeColors->editModeDimBlueV1);
@@ -977,7 +943,9 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
     }
   } else {
     // Determine which voice pair to display based on selectedVoiceIndex
-    bool showFirstPair = (uiState.selectedVoiceIndex < 2);
+    const uint8_t firstVoice = (uiState.selectedVoiceIndex < 2) ? 0 : 2;
+    const Sequencer &firstSeq = sequencers.clamped(firstVoice);
+    const Sequencer &secondSeq = sequencers.clamped(firstVoice + 1);
     const LEDThemeColors *theme = getActiveThemeColors();
 
     // Clear first to avoid ghosting when switching pages
@@ -988,20 +956,11 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
     }
 
     // Render either voices 1/2 (page 1) or 3/4 (page 2)
-    if (showFirstPair) {
-      renderVoicePair(ledMatrix, seq1, seq2, theme, 0, 0);
-    } else {
-      renderVoicePair(ledMatrix, seq3, seq4, theme, 2, 0);
-    }
+    renderVoicePair(ledMatrix, firstSeq, secondSeq, theme, firstVoice, 0);
 
     // Polyrhythmic overlays for the visible pair only
-    if (showFirstPair) {
-      addPolyrhythmicOverlay(ledMatrix, seq1, 0, 32);
-      addPolyrhythmicOverlay(ledMatrix, seq2, 1, 32);
-    } else {
-      addPolyrhythmicOverlay(ledMatrix, seq3, 0, 32);
-      addPolyrhythmicOverlay(ledMatrix, seq4, 1, 32);
-    }
+    addPolyrhythmicOverlay(ledMatrix, firstSeq, 0, 32);
+    addPolyrhythmicOverlay(ledMatrix, secondSeq, 1, 32);
 
     // Highlight selected step if editing
     if (uiState.selectedStepForEdit >= 0 &&
