@@ -81,7 +81,10 @@ struct UIState
 
     // --- Transient parameter feedback (independent of the settings page) ---
     bool voiceParameterFeedbackPending = false;
-    uint8_t lastVoiceParameterButton = 0;       // Track which voice parameter was last changed
+    uint8_t lastVoiceParameterButton = 255; // Raw pad index; 255 = no notice
+    uint8_t voiceParameterNoticeVoice = 0;  // Snapshot so a voice switch cannot relabel it
+    char voiceParameterNoticeName[24] = {};
+    char voiceParameterNoticeValue[32] = {};
     unsigned long voiceParameterChangeTime = 0; // Timestamp of last voice parameter change
 
     bool isPresetSelection() const noexcept

@@ -11,6 +11,7 @@
 #include "../pico2seq-core/scales/scales.h"
 #include "../ui/ButtonManager.h"
 #include "../ui/ControlSurfaceLogic.h"
+#include "../ui/SettingsPads.h"
 #include <algorithm>
 #include <cstring> // For strcmp, strlen
 #include <Arduino.h>
@@ -122,95 +123,29 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
     return;
   }
 
-  displayHardware.clearDisplay();
-  displayHardware.setTextSize(1);
-  displayHardware.setTextColor(SH110X_WHITE);
-
-  // Draw professional border
-  displayHardware.drawRect(0, 0, OLEDConstants::SCREEN_WIDTH, OLEDConstants::SCREEN_HEIGHT, SH110X_WHITE);
-
-  // Header with current voice indicator + sub-mode banner
-  displayHardware.setCursor(OLEDConstants::TEXT_MARGIN - 3, 2);
-  displayHardware.print("VOICE ");
-  displayHardware.print(uiState.selectedVoiceIndex + 1);
-  // Sub-mode indicator per new SettingsSubMode architecture
-  displayHardware.setCursor(OLEDConstants::SCREEN_WIDTH - 70, 2);
-  displayHardware.print("Param Mode");
-
-  // Draw separator line under header
-  displayHardware.drawFastHLine(OLEDConstants::TEXT_MARGIN - 3, OLEDConstants::LINE_SPACING,
-                                OLEDConstants::SCREEN_WIDTH - (2 * OLEDConstants::TEXT_MARGIN) + 6, SH110X_WHITE);
-
-  // Map selected voice index to actual voice ID
-  const uint8_t currentVoiceID = voiceSystem.getVoiceId(uiState.selectedVoiceIndex);
-  const VoiceConfig *voiceConfiguration = voiceManager->getVoiceConfig(currentVoiceID);
-
-  if (!voiceConfiguration)
-  {
-    displayHardware.setCursor(OLEDConstants::TEXT_MARGIN - 3, 25);
-    displayHardware.print("Voice config error");
-    commitFrame();
+  if (uiState.lastVoiceParameterButton < SettingsPads::kPadCount &&
+      uiState.voiceParameterNoticeVoice == uiState.selectedVoiceIndex &&
+      uiState.hasVoiceParameterFeedback(millis())) {
+    displayVoiceParameterInfo(uiState, voiceManager, 0, 0);
     return;
   }
 
-  // Voice parameter configuration data
-  struct VoiceParameterDisplayInfo
-  {
-    const char *parameterName;
-    int buttonNumber;
-  };
-
-  const VoiceParameterDisplayInfo parameterInfo[] = {
-      {"Envelope", 8},
-      {"Overdrive", 9},
-      {"Filter Mode", 11},
-      {"Filter Res", 12}};
-
-  constexpr int parameterCount = sizeof(parameterInfo) / sizeof(parameterInfo[0]);
-
-  // Display parameters in organized vertical layout
-  const int startYPosition = 14;
-  for (int paramIndex = 0; paramIndex < parameterCount; paramIndex++)
-  {
-    const int currentYPosition = startYPosition + (paramIndex * OLEDConstants::LINE_SPACING);
-
-    // Display parameter name with colon
-    displayHardware.setCursor(4, currentYPosition);
-    displayHardware.print(parameterInfo[paramIndex].parameterName);
-    displayHardware.print(":");
-
-    // Display parameter value/state
-    displayHardware.setCursor(70, currentYPosition);
-    switch (parameterInfo[paramIndex].buttonNumber)
-    {
-    case 8: // Envelope
-      displayHardware.print(voiceConfiguration->hasEnvelope ? "ON" : "OFF");
-      break;
-    case 9: // Overdrive
-      displayHardware.print(voiceConfiguration->hasOverdrive ? "ON" : "OFF");
-      break;
-    case 11: // Filter Mode
-    {
-      const int filterModeIndex = static_cast<int>(voiceConfiguration->filterMode);
-      if (filterModeIndex >= 0 && filterModeIndex < voiceui::kFilterModeCount)
-      {
-        displayHardware.print(voiceui::kFilterModeNames[filterModeIndex]);
-      }
-      else
-      {
-        displayHardware.print("UNK");
-      }
-    }
-    break;
-    case 12: // Filter Resonance
-      displayHardware.print(static_cast<int>(voiceConfiguration->filterRes * 100));
-      displayHardware.print("%");
-      break;
-    default:
-      break;
-    }
-  }
-
+  displayHardware.clearDisplay();
+  displayHardware.setTextSize(1);
+  displayHardware.setTextColor(SH110X_WHITE);
+  displayHardware.setCursor(4, 2);
+  displayHardware.print("VOICE ");
+  displayHardware.print(uiState.selectedVoiceIndex + 1);
+  displayHardware.print("  PARAMETERS");
+  displayHardware.drawFastHLine(4, 12, OLEDConstants::SCREEN_WIDTH - 8, SH110X_WHITE);
+  displayHardware.setCursor(4, 18);
+  displayHardware.print("Tap: toggle / +");
+  displayHardware.setCursor(4, 30);
+  displayHardware.print("Shift + tap: -");
+  displayHardware.setCursor(4, 42);
+  displayHardware.print("LED: current value");
+  displayHardware.setCursor(4, 54);
+  displayHardware.print("Enc btn: presets");
   commitFrame();
 }
 
@@ -670,85 +605,21 @@ void OLEDDisplay::displayVoiceParameterInfo(const UIState &uiState, VoiceManager
   displayHardware.setTextSize(1);
   displayHardware.setTextColor(SH110X_WHITE);
 
-  // Get current voice configuration
-  uint8_t selected = uiState.selectedVoiceIndex;
-  uint8_t currentVoiceId = (selected == 0) ? leadVoiceId : (selected == 1) ? bassVoiceId
-                                                                           : voiceSystem.getVoiceId(selected);
-  const VoiceConfig *config = voiceManager->getVoiceConfig(currentVoiceId);
-
-  if (!config)
-  {
-    displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 20);
-    displayHardware.print("Voice config error");
-    commitFrame();
-    return;
-  }
-
-  // Header
-  displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, OLEDConstants::TEXT_MARGIN);
-  displayHardware.setTextSize(1);
+  // Snapshot the event rather than re-reading a possibly changed voice.
+  displayHardware.setCursor(4, 2);
   displayHardware.print("VOICE ");
-  displayHardware.print(selected + 1);
-  displayHardware.print(" PARAMETERS");
-
-  // Draw separator line
-  displayHardware.drawFastHLine(OLEDConstants::TEXT_MARGIN, OLEDConstants::HEADER_HEIGHT,
-                                OLEDConstants::SCREEN_WIDTH - 10, SH110X_WHITE);
-
-  // Parameter information based on button pressed
-  const char *paramName = "";
-  String paramValue = "";
-
-  switch (uiState.lastVoiceParameterButton)
-  {
-  case 8:
-    paramName = "Envelope";
-    paramValue = config->hasEnvelope ? "ON" : "OFF";
-    break;
-  case 9:
-    paramName = "Overdrive";
-    paramValue = config->hasOverdrive ? "ON" : "OFF";
-    break;
-  case 11:
-  {
-    paramName = "Filter Mode";
-    int mode = static_cast<int>(config->filterMode);
-    if (mode >= 0 && mode < voiceui::kFilterModeCount)
-    {
-      paramValue = voiceui::kFilterModeNames[mode];
-    }
-    else
-    {
-      paramValue = "Unknown";
-    }
-  }
-  break;
-  case 12:
-    paramName = "Filter Res";
-    paramValue = String(config->filterRes, 2);
-    break;
-  default:
-    paramName = "Parameter";
-    paramValue = String(uiState.lastVoiceParameterButton);
-    break;
-  }
-
-  // Display parameter name
-  displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 20);
+  displayHardware.print(uiState.voiceParameterNoticeVoice + 1);
+  displayHardware.print("  PARAMETERS");
+  displayHardware.drawFastHLine(4, 12, OLEDConstants::SCREEN_WIDTH - 8, SH110X_WHITE);
+  displayHardware.setCursor(4, 20);
+  displayHardware.print(uiState.voiceParameterNoticeName);
+  displayHardware.setCursor(4, 34);
+  displayHardware.setTextSize(strlen(uiState.voiceParameterNoticeValue) <= 10 ? 2 : 1);
+  displayHardware.print(uiState.voiceParameterNoticeValue);
   displayHardware.setTextSize(1);
-  displayHardware.print(paramName);
-  displayHardware.print(":");
-
-  // Display parameter value
-  displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 35);
-  displayHardware.setTextSize(2);
-  displayHardware.print(paramValue);
-
-  // Show button number
-  displayHardware.setTextSize(1);
-  displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 55);
-  displayHardware.print("Button ");
-  displayHardware.print(uiState.lastVoiceParameterButton);
+  displayHardware.setCursor(4, 55);
+  displayHardware.print("Pad ");
+  displayHardware.print(uiState.lastVoiceParameterButton + 1);
 
   commitFrame();
 }
