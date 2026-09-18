@@ -83,8 +83,11 @@ struct UIState
 
     // --- Voice Parameter Editing State ---
     bool inVoiceParameterMode = false;
-    uint8_t lastVoiceParameterButton = 0;       // Track which voice parameter was last changed
-    unsigned long voiceParameterChangeTime = 0; // Timestamp of last voice parameter change
+    uint8_t lastVoiceParameterButton = 255; // Raw pad index; 255 = no notice
+    uint8_t voiceParameterNoticeVoice = 0; // Snapshot so a voice switch cannot relabel it
+    char voiceParameterNoticeName[24] = {};
+    char voiceParameterNoticeValue[32] = {};
+    unsigned long voiceParameterChangeTime = 0; // Non-blocking, three-second notice
 
     // --- Voice Switch State ---
     bool voiceSwitchTriggered = false; // Flag to trigger immediate OLED update for voice switching
