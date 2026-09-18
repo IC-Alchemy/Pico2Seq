@@ -453,31 +453,7 @@ void openSettingsMode(UIState &uiState)
 // reroute the next pad tap into parameter editing.
 void closeSettingsMode(UIState &uiState)
 {
-<<<<<<< Updated upstream
   UITransitions::closeSettings(uiState);
-=======
-  uiState.settingsMode = false;
-  uiState.inPresetSelection = false;
-  uiState.inVoiceParameterMode = false;
-  uiState.selectedStepForEdit = -1;
-}
-
-/**
- * Toggle Settings sub-mode between Preset Selection and Voice Parameter.
- * Also updates legacy flags for backward compatibility.
- * Why: a single toggle point (plus mirrored legacy flags) keeps old OLED/LED
- * renderers in sync without forcing every call site to update two fields.
- */
-static void toggleSettingsSubMode(UIState &uiState)
-{
-  using Sub = UIState::SettingsSubMode;
-  uiState.currentSubMode =
-      (uiState.currentSubMode == Sub::PRESET_SELECTION) ? Sub::VOICE_PARAMETER : Sub::PRESET_SELECTION;
-
-  // Legacy flags kept in sync for existing renderers/logic
-  uiState.inPresetSelection = (uiState.currentSubMode == Sub::PRESET_SELECTION);
-  uiState.inVoiceParameterMode = (uiState.currentSubMode == Sub::VOICE_PARAMETER);
->>>>>>> Stashed changes
 }
 
 /**
@@ -510,19 +486,7 @@ static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState
   }
 }
 
-<<<<<<< HEAD
-/**
- * Handle Voice Parameter sub-mode.
- * - Buttons 8..15 perform parameter toggles/adjustments for current voice.
- * - Buttons 16..24 reserved/ignored (with optional debug prints).
- * Only active when currentSubMode == VOICE_PARAMETER.
- * Why: edits go through a local VoiceConfig copy + setVoiceConfig (never mutate
- * the live config in place) so Core 1 never sees a half-written voice struct
- * mid-render; out-of-range pads are ignored to leave room for future params.
- */
-=======
 // The same pad catalogue drives edits, persistent LEDs and OLED labels.
->>>>>>> 74a2555663584f4eaccff98c1551114be0a6c881
 static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState, VoiceManager *voiceManager)
 {
   if (evt.type != MATRIX_BUTTON_PRESSED || !voiceManager ||
@@ -620,35 +584,15 @@ void pollUIHeldButtons(UIState &uiState, Sequencer *const *sequencers, size_t se
   }
 }
 
-<<<<<<< Updated upstream
-=======
-// Why: the 4-reference overload exists only for the Core-0 loop's seq1..seq4 call
-// sites — it forwards to the array version so there is exactly one polling
-// implementation to maintain.
-void pollUIHeldButtons(UIState &uiState, Sequencer &seq1, Sequencer &seq2,
-                       Sequencer &seq3, Sequencer &seq4)
-{
-  Sequencer *sequencers[UIEventConstants::MAX_VOICES] = {&seq1, &seq2, &seq3, &seq4};
-  pollUIHeldButtons(uiState, sequencers, UIEventConstants::MAX_VOICES);
-}
-
-// Why: slide mode is mutually exclusive with parameter-hold and gate-length
-// modes — entering it clears the others so a stuck modifier cannot make step
+// Slide mode is mutually exclusive with parameter-hold and gate-length
+// modes: entering it clears the others so a stuck modifier cannot make step
 // pads both toggle slides and rewrite track lengths at once.
->>>>>>> Stashed changes
 void handleSlideModePress(UIState &uiState)
 {
   UITransitions::toggleSlide(uiState);
 }
 
-<<<<<<< Updated upstream
 void selectVoice(UIState &uiState, uint8_t voiceIndex)
-=======
-// Why: switching voices ends open notes and clears step-edit state first, so a
-// held note or edit cursor from the old voice never leaks into the new voice's
-// sequencer/OLED view; the flag forces an immediate OLED refresh for feedback.
-void selectVoice(UIState &uiState, MidiNoteManager &midiNoteManager, uint8_t voiceIndex)
->>>>>>> Stashed changes
 {
   // Invalid indices are rejected by the shared transition (no state change).
   UITransitions::selectPerformanceVoice(uiState, voiceIndex);

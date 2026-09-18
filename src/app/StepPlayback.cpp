@@ -60,11 +60,7 @@ void updateParametersForStepNormalized(uint8_t stepToUpdate, float normalizedVal
         // actual change (after clamping and note rounding) is previewed, so a
         // steady hand does not retrigger the step each pass.
         parametersWereUpdated = activeSeq.getStepParameterValue(paramToEdit, stepToUpdate) != previousValue;
-<<<<<<< Updated upstream
-=======
 
-
->>>>>>> Stashed changes
     }
 
     // Provide immediate audio feedback when recording parameters to current step
