@@ -11,6 +11,8 @@ AGENTS.md
 .zcode/*
 .vscode/settings.json
 .agents/*
+# ...except the Delta checkout hook, which must be tracked to reach new checkouts.
+!.agents/prepare
 
 CLAUDE.md
 build_fw/*
