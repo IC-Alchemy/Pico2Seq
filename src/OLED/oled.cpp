@@ -37,7 +37,8 @@
 //   - Geometry is computed with simple integer math to keep CPU usage low.
 //   - Where possible we reuse UIState/Sequencer data to avoid recomputation.
 // =======================================================================
-OLEDDisplay::OLEDDisplay() : displayHardware(OLEDConstants::SCREEN_WIDTH, OLEDConstants::SCREEN_HEIGHT, &Wire1, OLEDConstants::RESET_PIN,
+// OLED lives on the main bus (Wire, I2C0); Wire1 stays a tiles-only 100 kHz bus.
+OLEDDisplay::OLEDDisplay() : displayHardware(OLEDConstants::SCREEN_WIDTH, OLEDConstants::SCREEN_HEIGHT, &Wire, OLEDConstants::RESET_PIN,
                                                   /*preclk=*/100000, /*postclk=*/100000),
                              isDisplayInitialized(false)
 {

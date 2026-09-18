@@ -7,8 +7,11 @@
 namespace
 {
 constexpr uint32_t kControlIntervalMs = 1;
-constexpr uint32_t kDisplayIntervalMs = 40; // ~25 frames/s for OLED and LEDs
-constexpr uint32_t kTileBusFrequencyHz = 100000; // Standard mode (100 kHz); OLED and Alchemy tiles on Wire1
+// 10 fps band-aid: each SH1106 full-frame push blocks Core 0 for ~23 ms at
+// 400 kHz, so a slower cadence keeps long bus windows away from the 1 ms
+// control scans until commitFrame() goes page-granular.
+constexpr uint32_t kDisplayIntervalMs = 100; // ~10 frames/s for OLED and LEDs
+constexpr uint32_t kTileBusFrequencyHz = 100000; // Standard mode (100 kHz); Alchemy tiles on Wire1
 constexpr uint32_t kMainBusFrequencyHz = 400000; // Fast mode (400 kHz); sensors on Wire
 constexpr uint8_t kStartupLedBrightness = 150;
 constexpr uint8_t kTouchSensorAddress = 0x5A;
@@ -65,7 +68,7 @@ void ControlIO::beginMainBusAndLeds()
     Wire.setClock(kMainBusFrequencyHz);
     Wire.setTimeout(25, true); // 25 ms timeout with auto-reset prevents indefinite bus stalls
 
-    // Initialize Wire1 before beginDisplay() so OLED can bring up hardware cleanly.
+    // Wire1 carries the Alchemy tiles only (OLED is back on Wire).
     Wire1.setSDA(PIN_ALCHEMY_WIRE1_SDA);
     Wire1.setSCL(PIN_ALCHEMY_WIRE1_SCL);
     Wire1.begin();
