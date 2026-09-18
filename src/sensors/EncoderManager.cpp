@@ -57,7 +57,8 @@ bool editSelectedStep(UIState &uiState, float delta)
   const ParamId targetParam = ControlSurface::stepEditParameter(
       getHeldParameterParamId(uiState), uiState.currentEditParameter, uiState.currentEncoderParameter);
   Sequencer *selectedSeq = AppState::sequencers[uiState.selectedVoiceIndex];
-  if (targetParam == ParamId::Count || !selectedSeq)
+  const auto *definition = parameterDefinition(targetParam);
+  if (!definition || !selectedSeq)
     return false;
 
   if (stepTurn.voice != uiState.selectedVoiceIndex || stepTurn.step != uiState.selectedStepForEdit ||
@@ -73,7 +74,7 @@ bool editSelectedStep(UIState &uiState, float delta)
   const float minVal = getParameterMinValueForParamId(targetParam);
   const float maxVal = getParameterMaxValueForParamId(targetParam);
   float newVal;
-  if (targetParam == ParamId::Note || targetParam == ParamId::Octave)
+  if (definition->editKind == ParameterEditKind::Stepped)
   {
     // Whole scale steps (or octaves) per detent: rounding each small
     // increment left the value unchanged unless the knob was spun hard.
@@ -118,25 +119,7 @@ void updateEncoderBaseValues(UIState &uiState)
 // Convert EncoderParameterMode to ParamId for step editing
 ParamId convertEncoderParameterToParamId(EncoderParameterMode encoderParam)
 {
-  switch (encoderParam)
-  {
-  case EncoderParameterMode::Note:
-    return ParamId::Note;
-  case EncoderParameterMode::Velocity:
-    return ParamId::Velocity;
-  case EncoderParameterMode::Filter:
-    return ParamId::Filter;
-  case EncoderParameterMode::Attack:
-    return ParamId::Attack;
-  case EncoderParameterMode::Decay:
-    return ParamId::Decay;
-  case EncoderParameterMode::Octave:
-    return ParamId::Octave;
-  case EncoderParameterMode::SlideTime:
-    return ParamId::Count; // SlideTime is not a step parameter
-  default:
-    return ParamId::Count; // Invalid for step editing
-  }
+  return parameterForEncoderMode(encoderParam);
 }
 
 float getParameterMinValueForParamId(ParamId paramId)

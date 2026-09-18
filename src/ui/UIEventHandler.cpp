@@ -1,9 +1,9 @@
 #include "UIEventHandler.h"
+#include "UITransitions.h"
 #include "../app/AppState.h"
 #include "../app/ClockService.h"
 #include "../app/VoiceSetup.h"
 #include "../app/VoiceEditor.h"
-#include "../midi/MidiManager.h"
 #include "../sensors/EncoderManager.h"
 #include "../pico2seq-core/scales/scales.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
@@ -67,7 +67,6 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
 static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount);
 
 // Settings sub-mode helpers (settings mode refactor)
-static void toggleSettingsSubMode(UIState &uiState);
 static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState);
 static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState, VoiceManager *voiceManager);
 
@@ -86,8 +85,7 @@ static void encoderControlShortPressAction(UIState &uiState)
   // Otherwise, keep the existing encoder parameter cycling behavior.
   if (uiState.settingsMode)
   {
-    toggleSettingsSubMode(uiState);
-    uiState.selectedStepForEdit = -1;
+    UITransitions::toggleSettingsPage(uiState);
   }
   else
   {
@@ -131,8 +129,7 @@ void endEncoderControlHold(UIState &uiState)
  * of assuming the single selected voice.
  */
 void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
-                        Sequencer *const *sequencers, size_t sequencerCount,
-                        MidiNoteManager &midiNoteManager)
+                        Sequencer *const *sequencers, size_t sequencerCount)
 {
 
   if(uiState.voiceEditor.active || uiState.controlsWaitRelease) return;
@@ -266,7 +263,7 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
     }
 
     // Route handling based on active sub-mode
-    if (uiState.currentSubMode == UIState::SettingsSubMode::PRESET_SELECTION)
+    if (uiState.isPresetSelection())
     {
       handlePresetSelection(evt, uiState);
     }
@@ -381,10 +378,7 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
     else
     {
       // Enter edit mode for this step on the pad's own voice
-      uiState.selectedVoiceIndex = pad.voice;
-      uiState.isVoice2Mode = (pad.voice == UIEventConstants::VOICE_2_INDEX); // legacy compat
-      uiState.voiceSwitchTriggered = true;                                   // immediate OLED update
-      uiState.selectedStepForEdit = pad.step;
+      UITransitions::focusPad(uiState, pad.voice, pad.step);
     }
   }
   else if (release == ControlSurface::PadRelease::Tap)
@@ -422,44 +416,12 @@ static void autoSelectEncoderParameter(ParamId paramId, UIState &uiState)
 
 void openSettingsMode(UIState &uiState)
 {
-  uiState.settingsMode = true;
-  uiState.lastVoiceParameterButton = 255;
-  uiState.slideMode = false;
-  uiState.gateSeqLengthMode = false;
-  for (auto &timestamp : uiState.padPressTimestamps)
-    timestamp = 0;
-  // Always open on presets. A sub-mode left on Voice Parameter would send
-  // preset-pad taps to the envelope/overdrive/filter toggles while the LEDs
-  // still show the preset grid.
-  uiState.currentSubMode = UIState::SettingsSubMode::PRESET_SELECTION;
-  uiState.inPresetSelection = true;
-  uiState.inVoiceParameterMode = false;
-  uiState.selectedStepForEdit = -1;
+  UITransitions::openSettings(uiState);
 }
 
 void closeSettingsMode(UIState &uiState)
 {
-  uiState.settingsMode = false;
-  uiState.lastVoiceParameterButton = 255;
-  uiState.inPresetSelection = false;
-  uiState.inVoiceParameterMode = false;
-  uiState.selectedStepForEdit = -1;
-}
-
-/**
- * Toggle Settings sub-mode between Preset Selection and Voice Parameter.
- * Also updates legacy flags for backward compatibility.
- */
-static void toggleSettingsSubMode(UIState &uiState)
-{
-  uiState.lastVoiceParameterButton = 255;
-  using Sub = UIState::SettingsSubMode;
-  uiState.currentSubMode =
-      (uiState.currentSubMode == Sub::PRESET_SELECTION) ? Sub::VOICE_PARAMETER : Sub::PRESET_SELECTION;
-
-  // Legacy flags kept in sync for existing renderers/logic
-  uiState.inPresetSelection = (uiState.currentSubMode == Sub::PRESET_SELECTION);
-  uiState.inVoiceParameterMode = (uiState.currentSubMode == Sub::VOICE_PARAMETER);
+  UITransitions::closeSettings(uiState);
 }
 
 /**
@@ -485,9 +447,7 @@ static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState
       applyVoicePreset(voiceIdx, static_cast<uint8_t>(presetIndex));
     }
 
-    // Stay in Preset Selection mode; do not auto-switch.
-    uiState.inPresetSelection = true;     // legacy flag mirror
-    uiState.inVoiceParameterMode = false; // legacy flag mirror
+    // Applying a preset does not change the settings page.
   }
 }
 
@@ -508,14 +468,15 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
 
   // Use the normal control-core publisher, including its glide-time handoff.
   VoiceEditor::publish(voiceIndex, next);
+  // Shared transition flag drives the LED/OLED feedback timeout; the name
+  // snapshot below lets the notice survive a voice switch.
+  UITransitions::showVoiceParameterFeedback(uiState, evt.buttonIndex, millis());
   const auto parameter = SettingsPads::parameter(evt.buttonIndex);
-  uiState.lastVoiceParameterButton = evt.buttonIndex;
   uiState.voiceParameterNoticeVoice = voiceIndex;
   snprintf(uiState.voiceParameterNoticeName, sizeof(uiState.voiceParameterNoticeName),
            "%s", VoiceEdit::name(parameter, next));
   VoiceEdit::format(parameter, next, uiState.voiceParameterNoticeValue,
                     sizeof(uiState.voiceParameterNoticeValue));
-  uiState.voiceParameterChangeTime = millis();
 }
 /**
  * @brief Poll for long press detection on randomize buttons
@@ -584,46 +545,15 @@ void pollUIHeldButtons(UIState &uiState, Sequencer *const *sequencers, size_t se
   }
 }
 
-// Convenience overload for ControlIO's seq1..seq4 call pattern; forwards to
-// the canonical array-based implementation.
-void pollUIHeldButtons(UIState &uiState, Sequencer &seq1, Sequencer &seq2,
-                       Sequencer &seq3, Sequencer &seq4)
-{
-  Sequencer *sequencers[UIEventConstants::MAX_VOICES] = {&seq1, &seq2, &seq3, &seq4};
-  pollUIHeldButtons(uiState, sequencers, UIEventConstants::MAX_VOICES);
-}
-
 void handleSlideModePress(UIState &uiState)
 {
-  // Toggle slide mode state
-  uiState.slideMode = !uiState.slideMode;
-
-  if (uiState.slideMode)
-  {
-    // Clear conflicting modes when entering slide mode
-    for (int paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
-    {
-      uiState.parameterButtonHeld[paramIndex] = false;
-    }
-    uiState.modGateParamSeqLengthsMode = false;
-    uiState.gateSeqLengthMode = false;
-    uiState.selectedStepForEdit = -1;
-  }
+  UITransitions::toggleSlide(uiState);
 }
 
-void selectVoice(UIState &uiState, MidiNoteManager &midiNoteManager, uint8_t voiceIndex)
+void selectVoice(UIState &uiState, uint8_t voiceIndex)
 {
-  if (voiceIndex >= UIEventConstants::MAX_VOICES)
-  {
-    return;
-  }
-
-  midiNoteManager.onModeSwitch();
-
-  uiState.selectedVoiceIndex = voiceIndex;
-  uiState.isVoice2Mode = (voiceIndex == UIEventConstants::VOICE_2_INDEX); // Legacy compatibility
-  uiState.selectedStepForEdit = -1;                                       // Clear step editing when switching voices
-  uiState.voiceSwitchTriggered = true;                                    // Set flag for immediate OLED update
+  // Invalid indices are rejected by the shared transition (no state change).
+  UITransitions::selectPerformanceVoice(uiState, voiceIndex);
 }
 
 static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount)

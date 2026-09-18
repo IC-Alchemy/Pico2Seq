@@ -2,10 +2,7 @@
 
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 #include <stdint.h>
-#include "VoiceManager.h"
 
-// Forward declaration to avoid including VoiceManager.h here
-class VoiceManager;
 
 /**
  * @brief Consolidated voice system management structure
@@ -21,14 +18,8 @@ struct VoiceSystem
     // Voice IDs from VoiceManager
     uint8_t voiceIds[MAX_VOICES] = {0, 0, 0, 0};
 
-    // Voice states for audio synthesis
+    // Core-0 control snapshots. Sequencer owns duration; VoiceState owns gate truth.
     VoiceState voiceStates[MAX_VOICES];
-
-    // Gate states for all voices
-    volatile bool gates[MAX_VOICES] = {false, false, false, false};
-
-    // Gate timers for all voices
-    GateTimer gateTimers[MAX_VOICES];
 
     /**
      * @brief Get voice ID by index
@@ -73,48 +64,6 @@ struct VoiceSystem
         return voiceStates[voiceIndex < MAX_VOICES ? voiceIndex : 0];
     }
 
-    /**
-     * @brief Get gate state by index
-     * @param voiceIndex Voice index (0-3)
-     * @return Gate state or false if invalid index
-     */
-    volatile bool &getGate(uint8_t voiceIndex)
-    {
-        static volatile bool dummy = false;
-        return (voiceIndex < MAX_VOICES) ? gates[voiceIndex] : dummy;
-    }
-
-    /**
-     * @brief Get gate timer by index
-     * @param voiceIndex Voice index (0-3)
-     * @return Reference to gate timer
-     */
-    GateTimer &getGateTimer(uint8_t voiceIndex)
-    {
-        static GateTimer dummy;
-        return (voiceIndex < MAX_VOICES) ? gateTimers[voiceIndex] : dummy;
-    }
-
-    void stopAllGates()
-    {
-        for (uint8_t i = 0; i < MAX_VOICES; i++)
-        {
-            gates[i] = false;
-            gateTimers[i].stop();
-        }
-    }
-
-    void tickAllGateTimers()
-    {
-        for (uint8_t i = 0; i < MAX_VOICES; i++)
-        {
-            gateTimers[i].tick();
-            if (gateTimers[i].isExpired() && gates[i])
-            {
-                gates[i] = false;
-            }
-        }
-    }
 };
 
 extern VoiceSystem voiceSystem;

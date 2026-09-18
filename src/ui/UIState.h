@@ -1,7 +1,7 @@
 #ifndef UI_STATE_H
 #define UI_STATE_H
 
-#include <Arduino.h>
+#include <cstdint>
 #include "VoiceEditControls.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
 
@@ -23,9 +23,8 @@ struct UIState
     // --- Mode States ---
     bool modGateParamSeqLengthsMode = false;
     bool slideMode = false;
-    // Selected voice index 0..3 (replaces isVoice2Mode)
+    // Selected voice index 0..3; all voice-dependent UI derives from this.
     uint8_t selectedVoiceIndex = 0;
-    bool isVoice2Mode = false; // Legacy flag (kept for compatibility in some code paths)
     int selectedStepForEdit = -1;
     ParamId currentEditParameter = ParamId::Count; // Parameter being edited in toggle mode (Count = none)
     int currentThemeIndex = 0;
@@ -69,7 +68,6 @@ struct UIState
     SettingsSubMode currentSubMode = SettingsSubMode::PRESET_SELECTION;
 
     uint8_t settingsSubMenuIndex = 0; // For preset selection
-    bool inPresetSelection = false;
     static constexpr int MAX_VOICES = 4;
     uint8_t voicePresetIndices[MAX_VOICES] = {4, 2, 1, 6}; // Default presets: Square, Bass, Digital, Percussion (indices into VoicePresets)
     unsigned long playStopPressTime = 0;
@@ -81,13 +79,26 @@ struct UIState
     bool encoderControlWasPressed = false;
     bool gateSeqLengthMode = false; // When true, step buttons set Gate track length (per selected voice)
 
-    // --- Voice Parameter Editing State ---
-    bool inVoiceParameterMode = false;
+    // --- Transient parameter feedback (independent of the settings page) ---
+    bool voiceParameterFeedbackPending = false;
     uint8_t lastVoiceParameterButton = 255; // Raw pad index; 255 = no notice
-    uint8_t voiceParameterNoticeVoice = 0; // Snapshot so a voice switch cannot relabel it
+    uint8_t voiceParameterNoticeVoice = 0;  // Snapshot so a voice switch cannot relabel it
     char voiceParameterNoticeName[24] = {};
     char voiceParameterNoticeValue[32] = {};
-    unsigned long voiceParameterChangeTime = 0; // Non-blocking, three-second notice
+    unsigned long voiceParameterChangeTime = 0; // Timestamp of last voice parameter change
+
+    bool isPresetSelection() const noexcept
+    {
+        return settingsMode && currentSubMode == SettingsSubMode::PRESET_SELECTION;
+    }
+    bool isVoiceParameterSettings() const noexcept
+    {
+        return settingsMode && currentSubMode == SettingsSubMode::VOICE_PARAMETER;
+    }
+    bool hasVoiceParameterFeedback(unsigned long now) const noexcept
+    {
+        return voiceParameterFeedbackPending && now - voiceParameterChangeTime < 3000;
+    }
 
     // --- Voice Switch State ---
     bool voiceSwitchTriggered = false; // Flag to trigger immediate OLED update for voice switching
@@ -96,7 +107,7 @@ struct UIState
     // Tile function set selected by the GP7 strap switch. The physical
     // ButtonModule8 carries the parameter set in Param mode and the
     // transport/utility set in Utility mode; AlchemyControlBridge owns the
-    // translation and is the only writer of these fields.
+    // translation. UI transitions may clear held/latch state.
     enum class AlchemyMode : uint8_t { Param = 0, Utility = 1 };
     AlchemyMode alchemyMode = AlchemyMode::Param;
     bool shiftHeld = false;       // Shift tile button level (works in both modes)

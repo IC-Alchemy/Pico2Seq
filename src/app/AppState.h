@@ -4,6 +4,7 @@
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../voice/VoiceManager.h"
 #include "../voice/VoiceSystem.h"
+#include "SequencerView.h"
 #include <atomic>
 #include <memory>
 #include <algorithm>
@@ -26,6 +27,7 @@ namespace AppState
 {
 // Non-owning, immutable routing table in musician-facing voice order (1-4).
 extern Sequencer *const sequencers[VoiceSystem::MAX_VOICES];
+extern const SequencerView sequencerView;
 struct PerformanceInput
 {
     int distanceAboveMinimumMm = 0;

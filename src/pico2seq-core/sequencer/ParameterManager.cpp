@@ -93,7 +93,7 @@ void ParameterManager::setValue(ParamId id, uint8_t stepIdx, float value) {
 
   float clampedValue = std::max(minVal, std::min(value, maxVal));
 
-  if (paramDef.isBinary) { // For boolean parameters, round to 0 or 1
+  if (paramDef.editKind == ParameterEditKind::Toggle) { // Round to 0 or 1
     clampedValue = (clampedValue > 0.5f) ? 1.0f : 0.0f;
   } else if (paramDef.minValue.index() ==
              0) { // If min value is int, assume integer parameter

@@ -98,6 +98,7 @@ void Session::applyAfterVoices(const persistence::ProjectSnapshotV1 &s)
     if (cappedTracks > 0)
         Serial.printf("[STORAGE] capped %u saved track lengths to %u steps\n",
                       static_cast<unsigned>(cappedTracks), static_cast<unsigned>(NUMBER_OF_STEP_BUTTONS));
+    // Restore validated focus only; this is not a live performance voice press.
     uiState.selectedVoiceIndex = s.settings.selectedVoice;
     uiState.slideMode = (s.settings.changedFlags & 0x10u) != 0;
     if (voiceManager)

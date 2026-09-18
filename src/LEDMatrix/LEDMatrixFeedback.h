@@ -7,6 +7,7 @@
 
 // Forward declarations to break circular dependencies
 class Sequencer;
+class SequencerView;
 struct UIState;
 
 /**
@@ -53,10 +54,10 @@ static constexpr uint8_t LED_THEME_VOICE_COUNT = 4;
  */
 struct LEDThemeColors
 {
-  // Voice gate state colors
-  // Every voice keeps its own nearby hue in a theme. Gate-off uses a darker
-  // secondary hue from that theme, making gate state distinct by both colour
-  // and brightness without introducing an unrelated palette.
+  // Voice gate colors: gateOn carries each voice's identity hue at full
+  // brightness; gateOff is the SAME hue dimmed to ~1/8 so an off step
+  // still reads as its voice, just clearly "off". Gate state is therefore
+  // brightness, voice identity is hue — the two never fight.
   CRGB gateOn[LED_THEME_VOICE_COUNT];
   CRGB gateOff[LED_THEME_VOICE_COUNT];
 
@@ -116,19 +117,13 @@ void setupLEDMatrixFeedback();
  * - Voice parameter configuration display
  *
  * @param ledMatrix Reference to LED matrix for output
- * @param seq1 Voice 1 sequencer reference
- * @param seq2 Voice 2 sequencer reference
- * @param seq3 Voice 3 sequencer reference
- * @param seq4 Voice 4 sequencer reference
+ * @param sequencers Fixed voice-order view of the sequencers
  * @param uiState Current UI state containing mode flags and selections
  * @param mm Unused parameter (legacy)
  */
 void updateStepLEDs(
     LEDMatrix &ledMatrix,
-    const Sequencer &seq1,
-    const Sequencer &seq2,
-    const Sequencer &seq3,
-    const Sequencer &seq4,
+    const SequencerView &sequencers,
     const UIState &uiState,
     int mm);
 

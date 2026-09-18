@@ -11,6 +11,7 @@
 #include "../LEDMatrix/LEDConstants.h"
 
 struct VoiceConfig;
+class SequencerView;
 
 /**
  * @brief Voice Parameter Observer Interface
@@ -68,25 +69,18 @@ public:
   /**
    * @brief Update display with current system state (basic version)
    * @param uiState Current UI state containing button states and modes
-   * @param seq1 Voice 1 sequencer reference for parameter values
-   * @param seq2 Voice 2 sequencer reference for parameter values
-   * @param seq3 Voice 3 sequencer reference for parameter values
-   * @param seq4 Voice 4 sequencer reference for parameter values
+   * @param sequencers Fixed voice-order view for parameter values
    */
-  void update(const UIState &uiState, const Sequencer &seq1, const Sequencer &seq2,
-              const Sequencer &seq3, const Sequencer &seq4);
+  void update(const UIState &uiState, const SequencerView &sequencers);
 
   /**
    * @brief Update display with voice manager access (extended version)
    * @param uiState Current UI state containing button states and modes
-   * @param seq1 Voice 1 sequencer reference for parameter values
-   * @param seq2 Voice 2 sequencer reference for parameter values
-   * @param seq3 Voice 3 sequencer reference for parameter values
-   * @param seq4 Voice 4 sequencer reference for parameter values
+   * @param sequencers Fixed voice-order view for parameter values
    * @param voiceManager Pointer to voice manager for accessing voice configurations
    */
-  void update(const UIState &uiState, const Sequencer &seq1, const Sequencer &seq2,
-              const Sequencer &seq3, const Sequencer &seq4, class VoiceManager *voiceManager);
+  void update(const UIState &uiState, const SequencerView &sequencers,
+              class VoiceManager *voiceManager);
 
   /**
    * @brief Clear display and turn off all pixels

@@ -125,7 +125,7 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
 
   if (uiState.lastVoiceParameterButton < SettingsPads::kPadCount &&
       uiState.voiceParameterNoticeVoice == uiState.selectedVoiceIndex &&
-      SettingsPads::noticeActive(millis(), uiState.voiceParameterChangeTime)) {
+      uiState.hasVoiceParameterFeedback(millis())) {
     displayVoiceParameterInfo(uiState, voiceManager, 0, 0);
     return;
   }
@@ -152,11 +152,10 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
 // update() (thin wrapper):
 // - For convenience, delegates to the extended overload by passing a null manager.
 //   Keeps call sites simple when voice config is not needed for that frame.
-void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Sequencer &seq2,
-                         const Sequencer &seq3, const Sequencer &seq4)
+void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers)
 {
   // Call extended version with null voice manager
-  update(uiState, seq1, seq2, seq3, seq4, nullptr);
+  update(uiState, sequencers, nullptr);
 }
 
 // update() (main):
@@ -171,8 +170,8 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
 // - Timing: uses millis()-based timeouts from UIState to show transient UIs without
 //   blocking the main loop.
 // - Efficiency: clears once, sets text props once, and renders one view per frame.
-void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Sequencer &seq2,
-                         const Sequencer &seq3, const Sequencer &seq4, VoiceManager *voiceManager)
+void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers,
+                         VoiceManager *voiceManager)
 {
   if (!isDisplayInitialized)
   {
@@ -244,9 +243,8 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     return;
   }
 
-  const Sequencer *sequences[] = {&seq1, &seq2, &seq3, &seq4};
-  const auto voice = std::min<uint8_t>(uiState.selectedVoiceIndex, 3);
-  const Sequencer &sequence = *sequences[voice];
+  const auto voice = std::min<uint8_t>(uiState.selectedVoiceIndex, sequencers.size() - 1);
+  const Sequencer &sequence = sequencers.clamped(voice);
   const auto *config = voiceManager ? voiceManager->getVoiceConfig(voiceSystem.getVoiceId(voice)) : nullptr;
   const ParamId held = getHeldParameterParamId(uiState);
   const bool selected = uiState.selectedStepForEdit >= 0;
@@ -305,12 +303,10 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
   // - PRESET_SELECTION: show preset selection/main settings UI
   // - VOICE_PARAMETER: show parameter toggles UI
   //
-  // Legacy flags (inPresetSelection, inVoiceParameterMode) are still honored for
-  // backward compatibility, but currentSubMode is the source of truth.
+  // The active settings page is derived only from UIState.
   if (uiState.settingsMode)
   {
-    const bool subPreset = (uiState.currentSubMode == UIState::SettingsSubMode::PRESET_SELECTION) || uiState.inPresetSelection;  // legacy compat
-    const bool subParam = (uiState.currentSubMode == UIState::SettingsSubMode::VOICE_PARAMETER); // legacy compat
+    const bool subParam = uiState.isVoiceParameterSettings();
 
     if (subParam && voiceManager)
     {
@@ -330,11 +326,7 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
   // MEDIUM-LOW PRIORITY: Gate Sequence Length Mode (active while encoder control is held)
   if (uiState.gateSeqLengthMode)
   {
-    // Determine current sequencer and its gate length
-    const Sequencer &currentSeq = (uiState.selectedVoiceIndex == 0) ? seq1 : (uiState.selectedVoiceIndex == 1) ? seq2
-                                                                         : (uiState.selectedVoiceIndex == 2)   ? seq3
-                                                                                                               : seq4;
-    const uint8_t gateLen = currentSeq.getParameterStepCount(ParamId::Gate);
+    const uint8_t gateLen = sequence.getParameterStepCount(ParamId::Gate);
 
     // Header
     drawVoiceHeader(uiState, false);
@@ -517,7 +509,7 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
   displayHardware.setCursor(OLEDConstants::SCREEN_WIDTH - 68, 2);
   displayHardware.print("Preset Mode");
 
-  if (uiState.inPresetSelection)
+  if (uiState.isPresetSelection())
   {
     // Enhanced preset selection with cycling interface
     int currentPresetIndex = (uiState.selectedVoiceIndex < UIState::MAX_VOICES) ? uiState.voicePresetIndices[uiState.selectedVoiceIndex] : 0;
@@ -652,8 +644,7 @@ void OLEDDisplay::forceUpdate(const UIState &uiState, VoiceManager *voiceManager
   // Force immediate update in settings mode with new sub-mode handling
   if (uiState.settingsMode)
   {
-    const bool subPreset = (uiState.currentSubMode == UIState::SettingsSubMode::PRESET_SELECTION) || uiState.inPresetSelection;
-    const bool subParam = (uiState.currentSubMode == UIState::SettingsSubMode::VOICE_PARAMETER);
+    const bool subParam = uiState.isVoiceParameterSettings();
 
     if (subParam && voiceManager)
     {
@@ -751,8 +742,7 @@ void OLEDDisplay::onVoiceSwitched(const UIState &uiState, VoiceManager *voiceMan
   // Force immediate update in settings mode with new sub-mode handling
   if (uiState.settingsMode)
   {
-    const bool subPreset = (uiState.currentSubMode == UIState::SettingsSubMode::PRESET_SELECTION) || uiState.inPresetSelection;
-    const bool subParam = (uiState.currentSubMode == UIState::SettingsSubMode::VOICE_PARAMETER);
+    const bool subParam = uiState.isVoiceParameterSettings();
 
     if (subParam && voiceManager)
     {

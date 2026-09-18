@@ -6,6 +6,7 @@
 #include "StepPlayback.h"
 #include "../ui/ControlSurfaceLogic.h"
 #include "../ui/UIConstants.h"
+#include "../ui/UITransitions.h"
 #include <cstdlib>
 #include <uClock.h>
 
@@ -29,8 +30,7 @@ void clearPerformanceControls() {
     held = false;
   for (auto &timestamp : uiState.padPressTimestamps)
     timestamp = 0;
-  uiState.settingsMode = uiState.inPresetSelection =
-      uiState.inVoiceParameterMode = false;
+  UITransitions::closeSettings(uiState);
   uiState.encoderControlWasPressed = uiState.gateSeqLengthMode = false;
   uiState.modGateParamSeqLengthsMode = uiState.slideMode = false;
   uiState.playStopWasPressed = uiState.voiceSwitchWasPressed = false;
@@ -81,7 +81,8 @@ void buttons(uint8_t buttons, uint8_t voices, uint32_t now) {
     clearEncoder();
   if (input.voice >= 0) {
     uiState.selectedVoiceIndex = static_cast<uint8_t>(input.voice);
-    uiState.isVoice2Mode = input.voice == 1;
+    // Editor focus keeps per-voice cursors and does not trigger performance
+    // note cleanup or the performance OLED voice-switch notification.
   }
   const uint8_t index = uiState.selectedVoiceIndex;
   if (!voiceManager || index >= 4)
@@ -162,23 +163,17 @@ void encoder(float delta) {
 }
 VoiceEdit::Id encoderTarget() {
   using Id = VoiceEdit::Id;
-  switch (uiState.currentEncoderParameter) {
-  case EncoderParameterMode::Note:
-    return Id::Note;
-  case EncoderParameterMode::Velocity:
-    return Id::Velocity;
-  case EncoderParameterMode::Filter:
-    return Id::Cutoff;
-  case EncoderParameterMode::Attack:
-    return Id::Attack;
-  case EncoderParameterMode::Decay:
-    return Id::Decay;
-  case EncoderParameterMode::Octave:
-    return Id::Octave;
-  case EncoderParameterMode::SlideTime:
-    return Id::SlideTime;
-  default:
-    return Id::Velocity;
-  }
+  if (uiState.currentEncoderParameter == EncoderParameterMode::SlideTime)
+    return Id::SlideTime; // Voice-only control, not the sequencer Slide toggle.
+  const ParamId lane = parameterForEncoderMode(uiState.currentEncoderParameter);
+  // VoiceEdit's leading IDs deliberately match ParamId, as in sequenceLane().
+  // Keep that bridge local to the application: core descriptors know no editor IDs.
+  static_assert(static_cast<uint8_t>(Id::Note) == static_cast<uint8_t>(ParamId::Note) &&
+                static_cast<uint8_t>(Id::Velocity) == static_cast<uint8_t>(ParamId::Velocity) &&
+                static_cast<uint8_t>(Id::Cutoff) == static_cast<uint8_t>(ParamId::Filter) &&
+                static_cast<uint8_t>(Id::Attack) == static_cast<uint8_t>(ParamId::Attack) &&
+                static_cast<uint8_t>(Id::Decay) == static_cast<uint8_t>(ParamId::Decay) &&
+                static_cast<uint8_t>(Id::Octave) == static_cast<uint8_t>(ParamId::Octave));
+  return lane == ParamId::Count ? Id::Velocity : static_cast<Id>(lane);
 }
 } // namespace VoiceEditor
