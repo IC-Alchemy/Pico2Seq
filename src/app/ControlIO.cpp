@@ -12,8 +12,8 @@ constexpr uint32_t kTileBusFrequencyHz = 100000; // Standard mode (100 kHz); OLE
 constexpr uint32_t kMainBusFrequencyHz = 400000; // Fast mode (400 kHz); sensors on Wire
 constexpr uint8_t kStartupLedBrightness = 150;
 constexpr uint8_t kTouchSensorAddress = 0x5A;
-constexpr uint8_t kTouchThreshold = 55;
-constexpr uint8_t kReleaseThreshold = 22;
+constexpr uint8_t kTouchThreshold = 45;
+constexpr uint8_t kReleaseThreshold = 14;
 
 // Program-long hardware objects: callbacks borrow them; Core 1 never sees them.
 struct ControlHardware
