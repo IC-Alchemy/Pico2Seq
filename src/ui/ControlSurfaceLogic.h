@@ -48,29 +48,12 @@ inline constexpr bool kModeParamLevel = false;
 constexpr bool encoderBaseModeForRecordParam(ParamId paramId,
                                              EncoderParameterMode &mode)
 {
-  switch (paramId)
-  {
-  case ParamId::Note:
-    mode = EncoderParameterMode::Note;
-    return true;
-  case ParamId::Velocity:
-    mode = EncoderParameterMode::Velocity;
-    return true;
-  case ParamId::Filter:
-    mode = EncoderParameterMode::Filter;
-    return true;
-  case ParamId::Attack:
-    mode = EncoderParameterMode::Attack;
-    return true;
-  case ParamId::Decay:
-    mode = EncoderParameterMode::Decay;
-    return true;
-  case ParamId::Octave:
-    mode = EncoderParameterMode::Octave;
-    return true;
-  default:
+  const auto *definition = parameterDefinition(paramId);
+  if (!definition || !definition->recordable ||
+      definition->encoderMode == EncoderParameterMode::COUNT)
     return false;
-  }
+  mode = definition->encoderMode;
+  return true;
 }
 
 /**
@@ -86,13 +69,7 @@ constexpr ParamId stepEditParameter(ParamId held, ParamId toggled,
     return held;
   if (toggled != ParamId::Count)
     return toggled;
-  for (uint8_t i = 0; i < PARAM_ID_COUNT; ++i)
-  {
-    EncoderParameterMode mode = EncoderParameterMode::COUNT;
-    if (encoderBaseModeForRecordParam(static_cast<ParamId>(i), mode) && mode == encoderMode)
-      return static_cast<ParamId>(i);
-  }
-  return ParamId::Count;
+  return parameterForEncoderMode(encoderMode);
 }
 
 /**

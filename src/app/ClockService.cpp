@@ -1,7 +1,7 @@
 #include "ClockService.h"
 #include "AppState.h"
 #include "StepPlayback.h"
-#include "../midi/MidiManager.h"
+#include "VoicePlayback.h"
 #include "../utils/SpscQueue.h"
 #include <Arduino.h>
 #include <uClock.h>
@@ -20,7 +20,6 @@ struct ClockEvents
     // retained; volatile does not fix its pre-existing lost-increment window.
     volatile uint32_t ppqnTicksPending = 0;
     volatile uint32_t droppedSteps = 0;
-    uint16_t gateTick = 0;
 };
 ClockEvents clockEvents;
 
@@ -44,35 +43,18 @@ void onClockStart()
     if (uiState.voiceEditor.active) return;
     if (voiceManager) voiceManager->setTransportMuted(false);
      Serial.println("[uClock] onClockStart()");
-    // Start all four sequencers so  LEDs and audio advance for 3/4 as well
-    seq1.start();
-    seq2.start();
-    seq3.start();
-    seq4.start();
+    for (auto *sequencer : AppState::sequencers)
+        sequencer->start();
     isClockRunning = true;
 }
 
 void onClockStop()
 {
-    // Stop all four sequencers
-    seq1.stop();
-    seq2.stop();
-    seq3.stop();
-    seq4.stop();
-
-    // Use MidiNoteManager for comprehensive cleanup
-    midiNoteManager.onSequencerStop();
-
-    // Legacy allNotesOff() call for sequencer state cleanup
     isClockRunning = false;
-    if (voiceManager) {
+    if (voiceManager)
         voiceManager->setTransportMuted(true);
-        for (uint8_t i=0;i<VoiceSystem::MAX_VOICES;++i) {
-            auto &state=voiceSystem.getVoiceState(i);
-            state.isGateHigh=false; state.shouldRetrigger=false; state.hasSlide=false;
-            voiceManager->updateVoiceState(voiceSystem.getVoiceId(i),state);
-        }
-    }
+    for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i)
+        stopSequencerVoice(i);
     Serial.println("[uClock] onClockStop()");
 }
 
@@ -107,29 +89,8 @@ void processPendingGateTicks()
     if (!isClockRunning || uiState.voiceEditor.active) return;
     while (pending-- > 0)
     {
-        clockEvents.gateTick++;
-
-        // Update MidiNoteManager timing - this handles all MIDI note-off timing
-        midiNoteManager.updateTiming(clockEvents.gateTick);
-
-        // Process sequencer note duration timing for every voice (2-3 are
-        // audio-only but still track gate length). When a gate length expires
-        // mid-step, the note-off must reach the audio voice at expiry, not at
-        // the next step boundary, or GateLength stays inaudible.
-        if (voiceManager)
-        {
-            for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i)
-            {
-                if (AppState::sequencers[i]->tickNoteDuration(&voiceSystem.getVoiceState(i)))
-                {
-                    voiceManager->updateVoiceState(voiceSystem.getVoiceId(i),
-                                                   voiceSystem.getVoiceState(i));
-                }
-            }
-        }
-
-        // Process gate timers - now synchronized with MidiNoteManager
-        voiceSystem.tickAllGateTimers();
+        // Publish note-off at its exact PPQN tick, not the next step boundary.
+        tickSequencerVoices();
     }
 }
 

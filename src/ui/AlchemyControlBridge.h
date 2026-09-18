@@ -9,7 +9,6 @@
 #include "UIState.h"
 
 class Sequencer;
-class MidiNoteManager;
 
 /**
  * @brief Glue between the Alchemy tile panel and the existing firmware UI.
@@ -55,8 +54,7 @@ public:
    * @param sequencers Array of the 4 voice sequencers (voice index order).
    */
   void update(uint32_t nowMs, UIState &uiState,
-              Sequencer *const *sequencers, size_t sequencerCount,
-              MidiNoteManager &midiNoteManager);
+              Sequencer *const *sequencers, size_t sequencerCount);
 
   /** Read-only driver access, for boot scan reports and diagnostics pages. */
   [[nodiscard]] const AlchemyTiles &tiles() const { return panel_.tiles(); }
@@ -99,8 +97,7 @@ private:
 
   void handleModeStrap(uint32_t nowMs, UIState &uiState);
   void onModeFlip(uint32_t nowMs, UIState &uiState);
-  void handleVoiceButtons(UIState &uiState, MidiNoteManager &midiNoteManager,
-                          Sequencer *const *sequencers, size_t sequencerCount);
+  void handleVoiceButtons(UIState &uiState);
   void handleParamButtons(UIState &uiState);
   void handleUtilityButtons(uint32_t nowMs, UIState &uiState,
                             Sequencer *const *sequencers, size_t sequencerCount);

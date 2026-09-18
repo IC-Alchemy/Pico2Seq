@@ -11,7 +11,6 @@
 #include "UIConstants.h"
 #include "UIEventHandler.h"
 #include "../AlchemyUI/src/ButtonMap.h"
-#include "../midi/MidiManager.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../pico2seq-core/sequencer/ShuffleTemplates.h"
 
@@ -77,8 +76,7 @@ void AlchemyControlBridge::begin(TwoWire &bankA, TwoWire *bankB, uint32_t nowMs)
 }
 
 void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
-                                  Sequencer *const *sequencers, size_t sequencerCount,
-                                  MidiNoteManager &midiNoteManager)
+                                  Sequencer *const *sequencers, size_t sequencerCount)
 {
   // Poll due tiles first: one transaction pair at most per pass.
   panel_.update(nowMs);
@@ -112,7 +110,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
 
   // SliderModule buttons: voice select, or transport chords with Shift —
   // identical in both modes.
-  handleVoiceButtons(uiState, midiNoteManager, sequencers, sequencerCount);
+  handleVoiceButtons(uiState);
   if(uiState.voiceEditor.active) return;
 
   if (uiState.alchemyMode == UIState::AlchemyMode::Param)
@@ -168,14 +166,8 @@ void AlchemyControlBridge::onModeFlip(uint32_t nowMs, UIState &uiState)
 
 // --- SliderModule buttons --------------------------------------------------------
 
-void AlchemyControlBridge::handleVoiceButtons(UIState &uiState,
-                                              MidiNoteManager &midiNoteManager,
-                                              Sequencer *const *sequencers,
-                                              size_t sequencerCount)
+void AlchemyControlBridge::handleVoiceButtons(UIState &uiState)
 {
-  (void)sequencers;
-  (void)sequencerCount;
-
   const bool shift = uiState.shiftHeld;
   for (uint8_t voice = 0; voice < 4; ++voice)
   {
@@ -188,7 +180,7 @@ void AlchemyControlBridge::handleVoiceButtons(UIState &uiState,
     if (!shift)
     {
       // Direct voice select (also switches the pad banks via PadBank).
-      selectVoice(uiState, midiNoteManager, voice);
+      selectVoice(uiState, voice);
       continue;
     }
 
@@ -224,6 +216,10 @@ void AlchemyControlBridge::handleVoiceButtons(UIState &uiState,
 
 void AlchemyControlBridge::handleParamButtons(UIState &uiState)
 {
+  // A slide transition from any entry point clears the logical latch. Consume
+  // physical edges while sliding, but never rebuild parameter holds behind it.
+  if (uiState.slideMode)
+    latch_.reset();
   for (uint8_t bit = 0; bit < 7; ++bit) // bits 0-6; bit 7 is Shift (read above)
   {
     ButtonEdges &edges = buttonEdges_[kButtonRole][bit];
@@ -234,8 +230,7 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
 
     if (bit == 6)
     {
-      // Slide button: exact legacy behavior, incl. clearing conflicting
-      // modes when slide engages.
+      // Shared slide transition; only physical latch history belongs here.
       if (edges.pressEdge)
       {
         const bool wasSlide = uiState.slideMode;
@@ -244,11 +239,13 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
         {
           // Slide entry cleared every hold; keep the latch coherent too.
           latch_.reset();
-          uiState.latchedParameter = -1;
         }
       }
       continue;
     }
+
+    if (uiState.slideMode)
+      continue;
 
     // Bits 0-5 map straight onto ParamId Note..Octave (ButtonMap.h order).
     const uint8_t paramId = bit;

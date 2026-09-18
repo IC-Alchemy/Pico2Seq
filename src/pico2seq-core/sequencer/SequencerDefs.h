@@ -176,6 +176,16 @@ using ParameterTrack = rpdsp::ParameterTrack<float, MAX_SIZE>;
 // Define the variant type for parameter values that can be int, float, or bool
 using ParameterValueType = std::variant<int, float, bool>;
 
+// Step editing behavior, independent of voice/recipe bindings. Stepped lanes
+// use encoder detents; their storage remains governed by the value/range types.
+// In particular Octave retains a normalized float lane for sensor recording.
+enum class ParameterEditKind : uint8_t
+{
+  Continuous,
+  Stepped,
+  Toggle
+};
+
 /**
  * @brief Parameter definition with metadata and constraints
  *
@@ -188,30 +198,54 @@ struct ParameterDefinition
   ParameterValueType defaultValue; // Default parameter value
   ParameterValueType minValue;     // Minimum allowed value
   ParameterValueType maxValue;     // Maximum allowed value
-  bool isBinary;                   // True for gate/slide-like parameters
+  ParameterEditKind editKind;      // Continuous, detented, or binary toggle
   uint8_t defaultSteps;            // Default number of steps for this parameter
+  bool recordable;                 // Has a parameter-button live-record control;
+                                   // not a restriction on explicit step/fader edits
+  EncoderParameterMode encoderMode; // COUNT when there is no encoder base target
 };
 
 /**
  * @brief Core parameter definitions array
  *
  * Defines metadata for all sequencer parameters. Array order MUST match ParamId enum.
- * Each entry specifies: name, defaultValue, minValue, maxValue, isBinary, defaultSteps
+ * Includes live-record eligibility and the encoder base target. SlideTime is
+ * a voice-only control, not the Slide toggle lane, so it has no entry here.
  * Uses SequencerConstants for consistent step count defaults.
  */
 constexpr ParameterDefinition CORE_PARAMETERS[] = {
-    // Parameter Name    Default    Min       Max       Binary  Steps
+    // Name, default, min, max, edit kind, steps, recordable, encoder base target
     {"Note", 0, SequencerConstants::NOTE_PARAMETER_MIN, SequencerConstants::NOTE_PARAMETER_MAX,
-     false, SequencerConstants::DEFAULT_STEPS_COUNT}, // Integral scale step index (0-36)
-    {"Velocity", 0.5f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},     // Voice amplitude (0.0-1.0)
-    {"Filter", 0.5f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},       // Filter cutoff (0.0-1.0)
-    {"Attack", 0.01f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},      // Attack time (0.0-1.0 seconds)
-    {"Decay", 0.3f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},        // Decay time (0.0-1.0 seconds)
-    {"Octave", 0.5f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},       // Neutral transpose at midpoint; patch mode spans -2..+2 octaves
-    {"GateLength", 0.5f, 0.001f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT}, // Gate duration (fraction of step)
-    {"Gate", false, false, true, true, SequencerConstants::DEFAULT_STEPS_COUNT},        // Gate on/off state
-    {"Slide", false, false, true, true, SequencerConstants::DEFAULT_STEPS_COUNT}        // Portamento enable
+     ParameterEditKind::Stepped, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Note},
+    {"Velocity", 0.5f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Velocity},
+    {"Filter", 0.5f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Filter},
+    {"Attack", 0.01f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Attack},
+    {"Decay", 0.3f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Decay},
+    {"Octave", 0.5f, 0.0f, 1.0f, ParameterEditKind::Stepped, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Octave},
+    {"GateLength", 0.5f, 0.001f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT},
+    {"Gate", false, false, true, ParameterEditKind::Toggle, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT},
+    {"Slide", false, false, true, ParameterEditKind::Toggle, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT}
 };
+
+static_assert(sizeof(CORE_PARAMETERS) / sizeof(CORE_PARAMETERS[0]) == PARAM_ID_COUNT,
+              "Every ParamId must have a descriptor");
+
+// Invalid IDs do not silently select a different parameter.
+constexpr const ParameterDefinition *parameterDefinition(ParamId id) noexcept
+{
+  const auto index = static_cast<uint8_t>(id);
+  return index < PARAM_ID_COUNT ? &CORE_PARAMETERS[index] : nullptr;
+}
+
+constexpr ParamId parameterForEncoderMode(EncoderParameterMode mode) noexcept
+{
+  if (mode == EncoderParameterMode::COUNT)
+    return ParamId::Count;
+  for (uint8_t i = 0; i < PARAM_ID_COUNT; ++i)
+    if (CORE_PARAMETERS[i].encoderMode == mode)
+      return static_cast<ParamId>(i);
+  return ParamId::Count;
+}
 
 /**
  * @brief Voice synthesis parameters for audio output
@@ -280,67 +314,6 @@ struct Step
   uint16_t gateLengthTicks = SequencerConstants::DEFAULT_GATE_LENGTH_TICKS; // Gate duration in clock ticks
   bool isGateActive = false;                                                // Step active/inactive state
   bool hasSlide = false;                                                    // Portamento enable for this step
-};
-
-/**
- * @brief Gate timing system for automatic gate turn-off
- *
- * Manages gate duration timing with tick-based countdown. Used to automatically
- * turn off voice gates after the specified duration to prevent stuck notes.
- * All members are volatile for safe access from interrupt contexts.
- * Variable names include unit indicators for clarity.
- */
-struct GateTimer
-{
-  volatile bool isActive = false;            // Timer active state
-  volatile uint16_t ticksRemaining = 0;      // Clock ticks remaining until gate off
-  volatile uint32_t totalTicksProcessed = 0; // Debug counter for diagnostics
-
-  /**
-   * @brief Start gate timer with specified duration
-   * @param durationTicks Gate duration in clock ticks
-   */
-  void start(uint16_t durationTicks) volatile
-  {
-    isActive = true;
-    ticksRemaining = durationTicks;
-    totalTicksProcessed = 0; // Reset debug counter
-  }
-
-  /**
-   * @brief Process one clock tick
-   * Decrements remaining ticks and deactivates timer when expired
-   */
-  void tick() volatile
-  {
-    totalTicksProcessed++; // Always increment for debugging
-    if (isActive && ticksRemaining > 0)
-    {
-      ticksRemaining--;
-      if (ticksRemaining == 0)
-      {
-        isActive = false;
-      }
-    }
-  }
-
-  /**
-   * @brief Stop timer immediately
-   */
-  void stop() volatile
-  {
-    isActive = false;
-    ticksRemaining = 0;
-  }
-
-  /**
-   * @brief Check if timer has expired
-   * @return true if timer is inactive and no ticks remain
-   */
-  bool isExpired() const volatile
-  {
-    return !isActive && ticksRemaining == 0;
-  }
 };
 
 // --- Utility Functions ---

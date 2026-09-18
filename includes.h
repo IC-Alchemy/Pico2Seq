@@ -32,7 +32,6 @@
 #include "src/sensors/EncoderManager.h"
 
 // MIDI and UI
-#include "src/midi/MidiManager.h"
 #include "src/ui/UIEventHandler.h"
 #include "src/ui/ButtonManager.h"
 #include "src/ui/UIState.h"

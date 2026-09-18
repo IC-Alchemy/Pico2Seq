@@ -9,6 +9,25 @@
 
 #include <algorithm>
 
+TEST_CASE("Descriptor edit kinds preserve track storage rules", "[sequencer][parameter_metadata]") {
+    ParameterManager parameters;
+    parameters.init();
+    for (ParamId id : {ParamId::Gate, ParamId::Slide}) {
+        parameters.setValue(id, 0, 0.5f);
+        CHECK(parameters.getValue(id, 0) == 0.0f);
+        parameters.setValue(id, 0, 0.5001f);
+        CHECK(parameters.getValue(id, 0) == 1.0f);
+    }
+    // Both are detented when edited by encoder, but only Note stores integers.
+    parameters.setValue(ParamId::Note, 0, 4.6f);
+    CHECK(parameters.getValue(ParamId::Note, 0) == 5.0f);
+    parameters.setValue(ParamId::Octave, 0, 0.37f);
+    CHECK(parameters.getValue(ParamId::Octave, 0) == Catch::Approx(0.37f));
+    // No record button does not prohibit explicit editing of the timing lane.
+    parameters.setValue(ParamId::GateLength, 0, 0.37f);
+    CHECK(parameters.getValue(ParamId::GateLength, 0) == Catch::Approx(0.37f));
+}
+
 // ─── ParameterTrack template ─────────────────────────────────────────────────
 
 TEST_CASE("ParameterTrack initialises all steps to default value", "[paramtrack]") {
@@ -680,56 +699,20 @@ TEST_CASE("ParameterManager::copyStep copies values across tracks and bounds-che
     pm.copyStep(0, 100);
 }
 
-TEST_CASE("VoiceSystem provides 4-voice independent gate and timer tracking", "[voice][voicesystem]") {
-    VoiceSystem vs;
-    REQUIRE(VoiceSystem::MAX_VOICES == 4);
-
-    // All gates default to false
+TEST_CASE("VoiceSystem retains independent control states for all four voices", "[voice][voicesystem]") {
+    VoiceSystem system;
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
-        REQUIRE(vs.getGate(i) == false);
-        REQUIRE(vs.getGateTimer(i).isActive == false);
+        REQUIRE_FALSE(system.getVoiceState(i).isGateHigh);
+        system.setVoiceId(i, i + 10);
+        system.getVoiceState(i).noteIndex = i + 4;
     }
-
-    // Set voice 2 and 3 gates and timers
-    vs.getGate(2) = true;
-    vs.getGateTimer(2).start(10);
-    vs.getGate(3) = true;
-    vs.getGateTimer(3).start(5);
-
-    REQUIRE(vs.getGate(2) == true);
-    REQUIRE(vs.getGate(3) == true);
-    REQUIRE(vs.getGate(0) == false);
-    REQUIRE(vs.getGate(1) == false);
-
-    // Tick timers 5 times
-    for (int t = 0; t < 5; ++t) {
-        vs.tickAllGateTimers();
-    }
-
-    // Voice 3 timer expired (duration was 5), voice 2 still has 5 ticks remaining
-    REQUIRE(vs.getGate(3) == false);
-    REQUIRE(vs.getGateTimer(3).isActive == false);
-    REQUIRE(vs.getGate(2) == true);
-    REQUIRE(vs.getGateTimer(2).isActive == true);
-    REQUIRE(vs.getGateTimer(2).ticksRemaining == 5);
-
-    // Tick remaining 5 times
-    for (int t = 0; t < 5; ++t) {
-        vs.tickAllGateTimers();
-    }
-    REQUIRE(vs.getGate(2) == false);
-    REQUIRE(vs.getGateTimer(2).isActive == false);
-
-    // stopAllGates
-    vs.getGate(0) = true;
-    vs.getGate(1) = true;
-    vs.getGate(2) = true;
-    vs.getGate(3) = true;
-    vs.stopAllGates();
+    system.getVoiceState(3).isGateHigh = true;
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
-        REQUIRE(vs.getGate(i) == false);
-        REQUIRE(vs.getGateTimer(i).isActive == false);
+        REQUIRE(system.getVoiceId(i) == i + 10);
+        REQUIRE(system.getVoiceState(i).noteIndex == i + 4);
+        REQUIRE(system.getVoiceState(i).isGateHigh == (i == 3));
     }
+    REQUIRE(&system.getVoiceState(255) == &system.getVoiceState(0));
 }
 
 TEST_CASE("CORE_PARAMETERS metadata defines valid bounds and types for all parameters", "[seqdefs]") {

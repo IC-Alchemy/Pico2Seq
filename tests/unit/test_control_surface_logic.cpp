@@ -34,6 +34,11 @@ TEST_CASE("Parameter record buttons select their matching encoder base", "[contr
         CAPTURE(static_cast<int>(mapping.param));
         REQUIRE(encoderBaseModeForRecordParam(mapping.param, mode));
         CHECK(mode == mapping.mode);
+        REQUIRE(parameterDefinition(mapping.param) != nullptr);
+        CHECK(parameterDefinition(mapping.param)->recordable);
+        CHECK(parameterDefinition(mapping.param)->encoderMode == mapping.mode);
+        CHECK(parameterForEncoderMode(mapping.mode) == mapping.param);
+        CHECK(stepEditParameter(ParamId::Count, ParamId::Count, mapping.mode) == mapping.param);
     }
 
     for (const ParamId nonRecordParam : {ParamId::GateLength, ParamId::Gate,
@@ -43,6 +48,53 @@ TEST_CASE("Parameter record buttons select their matching encoder base", "[contr
         CAPTURE(static_cast<int>(nonRecordParam));
         CHECK_FALSE(encoderBaseModeForRecordParam(nonRecordParam, mode));
         CHECK(mode == EncoderParameterMode::COUNT);
+    }
+}
+
+TEST_CASE("Parameter descriptors distinguish recording, detents and toggles", "[control_surface][parameter_metadata]")
+{
+    constexpr ParameterEditKind kinds[] = {
+        ParameterEditKind::Stepped, ParameterEditKind::Continuous,
+        ParameterEditKind::Continuous, ParameterEditKind::Continuous,
+        ParameterEditKind::Continuous, ParameterEditKind::Stepped,
+        ParameterEditKind::Continuous, ParameterEditKind::Toggle,
+        ParameterEditKind::Toggle
+    };
+    static_assert(sizeof(kinds) / sizeof(kinds[0]) == PARAM_ID_COUNT);
+    for (uint8_t i = 0; i < PARAM_ID_COUNT; ++i)
+    {
+        const auto id = static_cast<ParamId>(i);
+        const auto *definition = parameterDefinition(id);
+        CAPTURE(i);
+        REQUIRE(definition != nullptr);
+        CHECK(definition->editKind == kinds[i]);
+        CHECK(definition->recordable == (i <= static_cast<uint8_t>(ParamId::Octave)));
+        CHECK(definition->defaultSteps == SequencerConstants::DEFAULT_STEPS_COUNT);
+        if (!definition->recordable)
+            CHECK(definition->encoderMode == EncoderParameterMode::COUNT);
+    }
+    // Stepped encoder editing must not turn the normalized octave recording
+    // lane into an integer-valued track.
+    CHECK(std::holds_alternative<int>(parameterDefinition(ParamId::Note)->minValue));
+    CHECK(std::holds_alternative<float>(parameterDefinition(ParamId::Octave)->minValue));
+}
+
+TEST_CASE("Descriptor lookup rejects sentinels and unknown control values", "[control_surface][parameter_metadata]")
+{
+    for (unsigned value = PARAM_ID_COUNT; value <= UINT8_MAX; ++value)
+    {
+        const auto id = static_cast<ParamId>(value);
+        CHECK(parameterDefinition(id) == nullptr);
+        EncoderParameterMode mode = EncoderParameterMode::Attack;
+        CHECK_FALSE(encoderBaseModeForRecordParam(id, mode));
+        CHECK(mode == EncoderParameterMode::Attack); // Rejection preserves the caller's target.
+    }
+    for (unsigned value = static_cast<uint8_t>(EncoderParameterMode::SlideTime);
+         value <= UINT8_MAX; ++value)
+    {
+        const auto mode = static_cast<EncoderParameterMode>(value);
+        CHECK(parameterForEncoderMode(mode) == ParamId::Count);
+        CHECK(stepEditParameter(ParamId::Count, ParamId::Count, mode) == ParamId::Count);
     }
 }
 

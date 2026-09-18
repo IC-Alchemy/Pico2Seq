@@ -22,6 +22,9 @@ add_executable(pico2seq_tests
   unit/test_dsp_recipe_regressions.cpp
   unit/test_scales.cpp
   unit/test_sequencer.cpp
+  unit/test_sequencer_view.cpp
+  unit/test_voice_playback.cpp
+  ${SRC_DIR}/app/VoicePlayback.cpp
   unit/test_voice.cpp
   unit/test_voice_recipes.cpp
   unit/test_recipe_optimization.cpp
@@ -29,6 +32,7 @@ add_executable(pico2seq_tests
   unit/test_voice_block.cpp
   unit/test_voiceoscillator.cpp
   unit/test_control_surface_logic.cpp
+  unit/test_ui_transitions.cpp
   unit/test_alchemy_proto.cpp
   unit/test_app_runtime.cpp
   unit/test_voice_edit.cpp
@@ -79,6 +83,16 @@ target_compile_options(pico2seq_tests PRIVATE
 include(CTest)
 include(Catch)
 catch_discover_tests(pico2seq_tests)
+
+# UI policies can be checked without linking firmware glue or rendering audio.
+add_executable(pico2seq_ui_tests
+  unit/test_control_surface_logic.cpp
+  unit/test_ui_transitions.cpp
+  ${SRC_DIR}/ui/ControlSurfaceLogic.cpp)
+target_include_directories(pico2seq_ui_tests PRIVATE
+  ${STUB_DIR} ${PROJECT_SOURCE_DIR} ${SRC_DIR} ${CORE_DIR} ${RPDSP_DIR})
+target_link_libraries(pico2seq_ui_tests PRIVATE Catch2::Catch2WithMain)
+catch_discover_tests(pico2seq_ui_tests TEST_PREFIX "ui-focused: ")
 
 # Focused voice/ownership suite can run independently of the DSP recipe tests.
 add_executable(pico2seq_voice_tests
