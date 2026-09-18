@@ -11,6 +11,7 @@
 #include "../pico2seq-core/scales/scales.h"
 #include "../ui/ButtonManager.h"
 #include "../ui/ControlSurfaceLogic.h"
+#include "../ui/SettingsPads.h"
 #include <algorithm>
 #include <cstring> // For strcmp, strlen
 #include <Arduino.h>
@@ -31,13 +32,19 @@
 //   4) Portability: only rely on Arduino-compatible primitives and SH110X API.
 //   5) Maintainability: readable layout constants and small helper functions.
 // - Performance notes:
-//   - We clear the display once per update and render everything for that frame,
-//     then call display() exactly once to avoid partial refresh flicker.
+//   - Each view draws a whole frame into the 1024-byte buffer; commitFrame()
+//     then pushes only the 128-byte pages that differ from what the panel
+//     already shows, so a static screen sends nothing at all.
 //   - Geometry is computed with simple integer math to keep CPU usage low.
 //   - Where possible we reuse UIState/Sequencer data to avoid recomputation.
 // =======================================================================
-OLEDDisplay::OLEDDisplay() : displayHardware(OLEDConstants::SCREEN_WIDTH, OLEDConstants::SCREEN_HEIGHT, &Wire1, OLEDConstants::RESET_PIN,
-                                                  /*preclk=*/100000, /*postclk=*/100000),
+// OLED lives on the main bus (Wire, I2C0) at 400 kHz; Wire1 stays a tiles-only
+// 100 kHz bus. commitFrame() pushes pages over Wire, so the two must agree.
+// The driver's pre/post transfer rates match the bus as well: its display()
+// re-clocks the shared TwoWire object, and a 100 kHz value there would leave
+// every sensor on the bus slowed down after a push.
+OLEDDisplay::OLEDDisplay() : displayHardware(OLEDConstants::SCREEN_WIDTH, OLEDConstants::SCREEN_HEIGHT, &Wire, OLEDConstants::RESET_PIN,
+                                                  /*preclk=*/400000, /*postclk=*/400000),
                              isDisplayInitialized(false)
 {
   // The panel powers up with arbitrary RAM; 0xFF guarantees the first
@@ -87,11 +94,59 @@ void OLEDDisplay::clear()
   commitFrame();
 }
 
-// Pushes the redrawn framebuffer to the panel only when its content differs
-// from the last physical transfer. Every view redraws the whole buffer after
-// clearDisplay(), which resets the library's dirty window, so without this gate
-// each update() pays a full ~1 KB I2C frame push even when the screen is
-// static — the single largest consumer of the core-0 loop budget.
+namespace
+{
+// One SH1106 page covers 8 rows across the 128-column panel = 128 framebuffer
+// bytes.
+constexpr uint16_t kPageBytes = OLEDConstants::SCREEN_WIDTH;
+
+// The SH1106 GDDRAM is 132 columns wide, so panel column 0 sits at RAM column
+// 2 — the offset Adafruit_SH1106G.cpp bakes in as `_page_start_offset`.
+constexpr uint8_t kPageColumnOffset = 2;
+
+// Pushes one 128-byte framebuffer page into the panel's GDDRAM. The byte
+// sequence mirrors Adafruit_SH110X::display(): a command transaction carrying
+// `0xB0 | page` plus the two column-address nibbles, then a data transaction
+// carrying the page behind the 0x40 data control byte. Like the library, the
+// two transactions are separated by full STOPs; the SH1106 latches page and
+// column until they are rewritten.
+// Returns false when the bytes did not reach the panel, so the caller can keep
+// its shadow for this page stale and retry on the next commit.
+bool pushFramePage(uint8_t page, const uint8_t *pageData)
+{
+  Wire.beginTransmission(OLEDConstants::I2C_ADDRESS);
+  Wire.write(0x00); // control byte: command stream
+  Wire.write(0xB0 | page); // SH110X_SETPAGEADDR
+  // Panel column 0 sits at RAM column kPageColumnOffset; like the library, send
+  // the high column nibble first, then the low one.
+  Wire.write(0x10 | (kPageColumnOffset >> 4));
+  Wire.write(kPageColumnOffset & 0x0F);
+  if (Wire.endTransmission() != 0)
+  {
+    return false;
+  }
+
+  Wire.beginTransmission(OLEDConstants::I2C_ADDRESS);
+  Wire.write(0x40); // control byte: data stream
+  const size_t queued = Wire.write(pageData, kPageBytes);
+  const uint8_t status = Wire.endTransmission(); // always close the transaction
+  // A short `queued` means Wire's TX buffer could not hold the whole page, so
+  // report failure instead of letting the shadow claim a page we never sent.
+  return status == 0 && queued == kPageBytes;
+}
+} // namespace
+
+// Pushes the redrawn framebuffer to the panel page by page, skipping the pages
+// that still match what the panel shows. Every view redraws the whole buffer
+// after clearDisplay(), which also resets the library's dirty window, so
+// without this gate each update() pays a full ~1 KB I2C frame push — the single
+// largest consumer of the core-0 loop budget — while a static screen now pushes
+// nothing and an edit costs only the pages it touched.
+//
+// The panel shares the main Wire bus at 400 kHz (ControlIO::beginMainBusAndLeds()).
+// Pushes go through Wire directly because Adafruit keeps the BusIO device and its
+// dirty window behind protected members, so the library's own partial-update path
+// cannot be reached from here.
 void OLEDDisplay::commitFrame()
 {
   if (!isDisplayInitialized)
@@ -105,8 +160,24 @@ void OLEDDisplay::commitFrame()
     return; // Panel already shows this frame — skip the wire transfer.
   }
 
-  displayHardware.display();
-  memcpy(frameShadow_, frame, kFrameBytes);
+  // 1024 bytes of framebuffer = 8 pages of 128 bytes; compare and push per page.
+  constexpr uint8_t kPageCount = kFrameBytes / kPageBytes;
+  for (uint8_t page = 0; page < kPageCount; ++page)
+  {
+    const uint16_t offset = static_cast<uint16_t>(page) * kPageBytes;
+    if (memcmp(frame + offset, frameShadow_ + offset, kPageBytes) == 0)
+    {
+      continue; // Page unchanged since the last transfer — still on the panel.
+    }
+
+    if (!pushFramePage(page, frame + offset))
+    {
+      // Bus failure: leave this page's shadow stale so the next commit retries,
+      // and stop pushing rather than spend more I2C timeout budget this frame.
+      return;
+    }
+    memcpy(frameShadow_ + offset, frame + offset, kPageBytes);
+  }
 }
 
 void OLEDDisplay::setVoiceManager(VoiceManager *voiceManager)
@@ -122,95 +193,29 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
     return;
   }
 
-  displayHardware.clearDisplay();
-  displayHardware.setTextSize(1);
-  displayHardware.setTextColor(SH110X_WHITE);
-
-  // Draw professional border
-  displayHardware.drawRect(0, 0, OLEDConstants::SCREEN_WIDTH, OLEDConstants::SCREEN_HEIGHT, SH110X_WHITE);
-
-  // Header with current voice indicator + sub-mode banner
-  displayHardware.setCursor(OLEDConstants::TEXT_MARGIN - 3, 2);
-  displayHardware.print("VOICE ");
-  displayHardware.print(uiState.selectedVoiceIndex + 1);
-  // Sub-mode indicator per new SettingsSubMode architecture
-  displayHardware.setCursor(OLEDConstants::SCREEN_WIDTH - 70, 2);
-  displayHardware.print("Param Mode");
-
-  // Draw separator line under header
-  displayHardware.drawFastHLine(OLEDConstants::TEXT_MARGIN - 3, OLEDConstants::LINE_SPACING,
-                                OLEDConstants::SCREEN_WIDTH - (2 * OLEDConstants::TEXT_MARGIN) + 6, SH110X_WHITE);
-
-  // Map selected voice index to actual voice ID
-  const uint8_t currentVoiceID = voiceSystem.getVoiceId(uiState.selectedVoiceIndex);
-  const VoiceConfig *voiceConfiguration = voiceManager->getVoiceConfig(currentVoiceID);
-
-  if (!voiceConfiguration)
-  {
-    displayHardware.setCursor(OLEDConstants::TEXT_MARGIN - 3, 25);
-    displayHardware.print("Voice config error");
-    commitFrame();
+  if (uiState.lastVoiceParameterButton < SettingsPads::kPadCount &&
+      uiState.voiceParameterNoticeVoice == uiState.selectedVoiceIndex &&
+      uiState.hasVoiceParameterFeedback(millis())) {
+    displayVoiceParameterInfo(uiState, voiceManager, 0, 0);
     return;
   }
 
-  // Voice parameter configuration data
-  struct VoiceParameterDisplayInfo
-  {
-    const char *parameterName;
-    int buttonNumber;
-  };
-
-  const VoiceParameterDisplayInfo parameterInfo[] = {
-      {"Envelope", 8},
-      {"Overdrive", 9},
-      {"Filter Mode", 11},
-      {"Filter Res", 12}};
-
-  constexpr int parameterCount = sizeof(parameterInfo) / sizeof(parameterInfo[0]);
-
-  // Display parameters in organized vertical layout
-  const int startYPosition = 14;
-  for (int paramIndex = 0; paramIndex < parameterCount; paramIndex++)
-  {
-    const int currentYPosition = startYPosition + (paramIndex * OLEDConstants::LINE_SPACING);
-
-    // Display parameter name with colon
-    displayHardware.setCursor(4, currentYPosition);
-    displayHardware.print(parameterInfo[paramIndex].parameterName);
-    displayHardware.print(":");
-
-    // Display parameter value/state
-    displayHardware.setCursor(70, currentYPosition);
-    switch (parameterInfo[paramIndex].buttonNumber)
-    {
-    case 8: // Envelope
-      displayHardware.print(voiceConfiguration->hasEnvelope ? "ON" : "OFF");
-      break;
-    case 9: // Overdrive
-      displayHardware.print(voiceConfiguration->hasOverdrive ? "ON" : "OFF");
-      break;
-    case 11: // Filter Mode
-    {
-      const int filterModeIndex = static_cast<int>(voiceConfiguration->filterMode);
-      if (filterModeIndex >= 0 && filterModeIndex < voiceui::kFilterModeCount)
-      {
-        displayHardware.print(voiceui::kFilterModeNames[filterModeIndex]);
-      }
-      else
-      {
-        displayHardware.print("UNK");
-      }
-    }
-    break;
-    case 12: // Filter Resonance
-      displayHardware.print(static_cast<int>(voiceConfiguration->filterRes * 100));
-      displayHardware.print("%");
-      break;
-    default:
-      break;
-    }
-  }
-
+  displayHardware.clearDisplay();
+  displayHardware.setTextSize(1);
+  displayHardware.setTextColor(SH110X_WHITE);
+  displayHardware.setCursor(4, 2);
+  displayHardware.print("VOICE ");
+  displayHardware.print(uiState.selectedVoiceIndex + 1);
+  displayHardware.print("  PARAMETERS");
+  displayHardware.drawFastHLine(4, 12, OLEDConstants::SCREEN_WIDTH - 8, SH110X_WHITE);
+  displayHardware.setCursor(4, 18);
+  displayHardware.print("Tap: toggle / +");
+  displayHardware.setCursor(4, 30);
+  displayHardware.print("Shift + tap: -");
+  displayHardware.setCursor(4, 42);
+  displayHardware.print("LED: current value");
+  displayHardware.setCursor(4, 54);
+  displayHardware.print("Enc btn: presets");
   commitFrame();
 }
 
@@ -670,85 +675,21 @@ void OLEDDisplay::displayVoiceParameterInfo(const UIState &uiState, VoiceManager
   displayHardware.setTextSize(1);
   displayHardware.setTextColor(SH110X_WHITE);
 
-  // Get current voice configuration
-  uint8_t selected = uiState.selectedVoiceIndex;
-  uint8_t currentVoiceId = (selected == 0) ? leadVoiceId : (selected == 1) ? bassVoiceId
-                                                                           : voiceSystem.getVoiceId(selected);
-  const VoiceConfig *config = voiceManager->getVoiceConfig(currentVoiceId);
-
-  if (!config)
-  {
-    displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 20);
-    displayHardware.print("Voice config error");
-    commitFrame();
-    return;
-  }
-
-  // Header
-  displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, OLEDConstants::TEXT_MARGIN);
-  displayHardware.setTextSize(1);
+  // Snapshot the event rather than re-reading a possibly changed voice.
+  displayHardware.setCursor(4, 2);
   displayHardware.print("VOICE ");
-  displayHardware.print(selected + 1);
-  displayHardware.print(" PARAMETERS");
-
-  // Draw separator line
-  displayHardware.drawFastHLine(OLEDConstants::TEXT_MARGIN, OLEDConstants::HEADER_HEIGHT,
-                                OLEDConstants::SCREEN_WIDTH - 10, SH110X_WHITE);
-
-  // Parameter information based on button pressed
-  const char *paramName = "";
-  String paramValue = "";
-
-  switch (uiState.lastVoiceParameterButton)
-  {
-  case 8:
-    paramName = "Envelope";
-    paramValue = config->hasEnvelope ? "ON" : "OFF";
-    break;
-  case 9:
-    paramName = "Overdrive";
-    paramValue = config->hasOverdrive ? "ON" : "OFF";
-    break;
-  case 11:
-  {
-    paramName = "Filter Mode";
-    int mode = static_cast<int>(config->filterMode);
-    if (mode >= 0 && mode < voiceui::kFilterModeCount)
-    {
-      paramValue = voiceui::kFilterModeNames[mode];
-    }
-    else
-    {
-      paramValue = "Unknown";
-    }
-  }
-  break;
-  case 12:
-    paramName = "Filter Res";
-    paramValue = String(config->filterRes, 2);
-    break;
-  default:
-    paramName = "Parameter";
-    paramValue = String(uiState.lastVoiceParameterButton);
-    break;
-  }
-
-  // Display parameter name
-  displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 20);
+  displayHardware.print(uiState.voiceParameterNoticeVoice + 1);
+  displayHardware.print("  PARAMETERS");
+  displayHardware.drawFastHLine(4, 12, OLEDConstants::SCREEN_WIDTH - 8, SH110X_WHITE);
+  displayHardware.setCursor(4, 20);
+  displayHardware.print(uiState.voiceParameterNoticeName);
+  displayHardware.setCursor(4, 34);
+  displayHardware.setTextSize(strlen(uiState.voiceParameterNoticeValue) <= 10 ? 2 : 1);
+  displayHardware.print(uiState.voiceParameterNoticeValue);
   displayHardware.setTextSize(1);
-  displayHardware.print(paramName);
-  displayHardware.print(":");
-
-  // Display parameter value
-  displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 35);
-  displayHardware.setTextSize(2);
-  displayHardware.print(paramValue);
-
-  // Show button number
-  displayHardware.setTextSize(1);
-  displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 55);
-  displayHardware.print("Button ");
-  displayHardware.print(uiState.lastVoiceParameterButton);
+  displayHardware.setCursor(4, 55);
+  displayHardware.print("Pad ");
+  displayHardware.print(uiState.lastVoiceParameterButton + 1);
 
   commitFrame();
 }

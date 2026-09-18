@@ -7,13 +7,16 @@
 namespace
 {
 constexpr uint32_t kControlIntervalMs = 1;
+// 25 fps display cadence for the OLED and LED matrix; commitFrame() only puts
+// the pages that changed on the bus, so a frame costs a page or two of
+// transfer instead of the old full 1 KB push.
 constexpr uint32_t kDisplayIntervalMs = 40; // ~25 frames/s for OLED and LEDs
-constexpr uint32_t kTileBusFrequencyHz = 100000; // Standard mode (100 kHz); OLED and Alchemy tiles on Wire1
-constexpr uint32_t kMainBusFrequencyHz = 400000; // Fast mode (400 kHz); sensors on Wire
+constexpr uint32_t kTileBusFrequencyHz = 100000; // Standard mode (100 kHz); Alchemy tiles on Wire1
+constexpr uint32_t kMainBusFrequencyHz = 400000; // Fast mode (400 kHz); OLED and sensors on Wire
 constexpr uint8_t kStartupLedBrightness = 150;
 constexpr uint8_t kTouchSensorAddress = 0x5A;
-constexpr uint8_t kTouchThreshold = 55;
-constexpr uint8_t kReleaseThreshold = 22;
+constexpr uint8_t kTouchThreshold = 45;
+constexpr uint8_t kReleaseThreshold = 14;
 
 // Program-long hardware objects: callbacks borrow them; Core 1 never sees them.
 struct ControlHardware
@@ -65,7 +68,8 @@ void ControlIO::beginMainBusAndLeds()
     Wire.setClock(kMainBusFrequencyHz);
     Wire.setTimeout(25, true); // 25 ms timeout with auto-reset prevents indefinite bus stalls
 
-    // Initialize Wire1 before beginDisplay() so OLED can bring up hardware cleanly.
+    // Wire1 carries the Alchemy tiles only; the OLED runs on Wire (initialized
+    // above, before beginDisplay() brings the panel up).
     Wire1.setSDA(PIN_ALCHEMY_WIRE1_SDA);
     Wire1.setSCL(PIN_ALCHEMY_WIRE1_SCL);
     Wire1.begin();

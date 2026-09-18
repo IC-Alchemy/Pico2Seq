@@ -7,6 +7,10 @@
 #include "../app/SequencerView.h"
 #include "../ui/ButtonManager.h"
 #include "../ui/ControlSurfaceLogic.h"
+#include "../ui/SettingsPads.h"
+#include "../app/AppState.h"
+#include "../voice/VoiceSystem.h"
+#include "../voice/VoiceManager.h"
 #include "../ui/UIEventHandler.h"
 #include "../utils/Debug.h"
 #include "../voice/VoicePresets.h"
@@ -545,7 +549,7 @@ void setupLEDMatrixFeedback() {
  * Displays menu options and preset selections using step LEDs:
  * - Preset selection: lights each pad that holds a preset (pad N = preset N)
  *   and pulses the selected voice's current preset
- * - Voice parameter sub-mode: shows the selected voice on pads 0-3
+ * - Voice parameter sub-mode: each pad displays its current parameter value
  * - Uses different colors to indicate current selection and available options
  */
 void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
@@ -597,90 +601,36 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
       ledMatrix.setLED(pad % LEDMatrix::WIDTH, pad / LEDMatrix::WIDTH, color);
     }
   } else {
-    // Voice parameter sub-mode - the first row shows which voice the
-    // toggles edit (chosen with the voice buttons)
-    for (int voiceIndex = 0; voiceIndex < 4; voiceIndex++) {
-      CRGB voiceColor = getVoiceGateColor(
-          *activeThemeColors, static_cast<uint8_t>(voiceIndex),
-          uiState.selectedVoiceIndex == voiceIndex);
-
-      // Add pulsing effect for selected option
-      if (uiState.selectedVoiceIndex == voiceIndex) {
-        uint32_t time = millis();
-        float pulse = 0.5f + 0.5f * sinf(time * 0.006f);
-        voiceColor.nscale8(static_cast<uint8_t>(128 + 127 * pulse));
-      } else {
-        voiceColor.nscale8(96);
-      }
-
-      // Set LED for voice option
-      ledMatrix.setLED(voiceIndex, 0, voiceColor);
-    }
+    updateVoiceParameterLEDs(ledMatrix, uiState);
   }
 }
 
 void updateVoiceParameterLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
   if (!uiState.hasVoiceParameterFeedback(millis()))
     return;
-
-  // Get active theme colors
-  const LEDThemeColors *activeThemeColors = getActiveThemeColors();
-  if (!activeThemeColors)
+  const auto *theme = getActiveThemeColors();
+  if (!theme || !voiceManager || uiState.selectedVoiceIndex >= VoiceSystem::MAX_VOICES)
+    return;
+  const auto *config = voiceManager->getVoiceConfig(
+      voiceSystem.getVoiceId(uiState.selectedVoiceIndex));
+  if (!config)
     return;
 
-  // Clear all LEDs first
-  for (int i = 0; i < LEDMatrix::WIDTH * LEDMatrix::HEIGHT; i++) {
-    ledMatrix.setLED(i % LEDMatrix::WIDTH, i / LEDMatrix::WIDTH, CRGB::Black);
+  for (uint8_t pad = 0; pad < SettingsPads::kPadCount; ++pad) {
+    CRGB color = CRGB::Black;
+    if (SettingsPads::available(pad, *config)) {
+      const auto id = SettingsPads::parameter(pad);
+      const bool toggle = VoiceEdit::parameter(id).unit == VoiceEdit::Unit::Toggle;
+      const float level = SettingsPads::level(pad, *config);
+      // Toggles: off is dark, on is solid. Other controls encode their value
+      // as brightness; a small floor distinguishes minimum from unavailable.
+      color = getVoiceGateColor(*theme, uiState.selectedVoiceIndex, true);
+      color.nscale8(toggle ? (level > 0.5f ? 255 : 0)
+                          : static_cast<uint8_t>(32 + 223 * level));
+    }
+    // Raw pad N is LED N, exactly as on the preset page (no -1 offset).
+    ledMatrix.setLED(pad % LEDMatrix::WIDTH, pad / LEDMatrix::WIDTH, color);
   }
-
-  // Map button index to LED position (buttons 9-24 map to steps 8-23)
-  uint8_t ledIndex = uiState.lastVoiceParameterButton - 1;
-  if (ledIndex >= LEDMatrix::WIDTH * LEDMatrix::HEIGHT)
-    return;
-
-  // Choose color based on voice and parameter type
-  CRGB paramColor;
-
-  switch (uiState.lastVoiceParameterButton) {
-  case 9: // Envelope
-    paramColor = (uiState.selectedVoiceIndex == 1) ? activeThemeColors->modAttackActive
-                                      : activeThemeColors->modDecayActive;
-    break;
-  case 10: // Overdrive
-    paramColor = (uiState.selectedVoiceIndex == 1) ? activeThemeColors->modFilterActive
-                                      : activeThemeColors->modVelocityActive;
-    break;
-  case 11: // (was Wavefolder; button removed with the wavefolder effect)
-    paramColor = (uiState.selectedVoiceIndex == 1) ? activeThemeColors->modOctaveActive
-                                      : activeThemeColors->modNoteActive;
-    break;
-  case 12: // Filter Mode
-    paramColor =
-        getVoiceGateColor(*activeThemeColors, uiState.selectedVoiceIndex, true);
-    break;
-  case 13: // Filter Resonance
-    paramColor = (uiState.selectedVoiceIndex == 1) ? activeThemeColors->modSlideActive
-                                      : activeThemeColors->modParamModeActive;
-    break;
-  default:
-    paramColor = (uiState.selectedVoiceIndex == 1) ? activeThemeColors->defaultActive
-                                      : activeThemeColors->defaultInactive;
-    break;
-  }
-
-  // Create pulsing effect for 3 seconds
-  if (millis() - uiState.voiceParameterChangeTime < 3000) {
-    uint32_t time = millis();
-    float pulse =
-        0.5f + 0.5f * sinf(time * 0.01f); // Faster pulse for voice parameters
-    paramColor.nscale8(static_cast<uint8_t>(128 + 127 * pulse));
-  } else {
-    paramColor.nscale8(64); // Dim after timeout
-  }
-
-  // Set the LED for the voice parameter button
-  ledMatrix.setLED(ledIndex % LEDMatrix::WIDTH, ledIndex / LEDMatrix::WIDTH,
-                   paramColor);
 }
 
 /**

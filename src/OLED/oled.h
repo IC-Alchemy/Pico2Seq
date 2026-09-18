@@ -128,16 +128,18 @@ private:
       OLEDConstants::SCREEN_WIDTH * OLEDConstants::SCREEN_HEIGHT / 8;
 
   // Shadow of the framebuffer content the panel actually shows. Poisoned in
-  // the constructor so the first commitFrame() after begin() always pushes.
+  // the constructor so the first commitFrame() after begin() still pushes
+  // every page rather than trusting power-up RAM.
   uint8_t frameShadow_[kFrameBytes];
 
   /**
-   * @brief Push the framebuffer to the panel only when its content changed
+   * @brief Push the framebuffer to the panel page by page, skipping unchanged pages
    *
    * Every view redraws the whole buffer after clearDisplay(), which resets the
    * library's dirty window — Adafruit's partial-update transfer never engages
    * and each display() costs a full ~1 KB I2C frame push. Comparing against
-   * frameShadow_ skips that transfer whenever the screen is static.
+   * frameShadow_ per 128-byte page keeps a static screen off the bus entirely
+   * and limits an update to the pages it actually changed.
    */
   void commitFrame();
 

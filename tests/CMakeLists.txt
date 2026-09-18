@@ -36,6 +36,7 @@ add_executable(pico2seq_tests
   unit/test_alchemy_proto.cpp
   unit/test_app_runtime.cpp
   unit/test_voice_edit.cpp
+  unit/test_settings_pads.cpp
   unit/test_persistence.cpp
 
   # Scale data
