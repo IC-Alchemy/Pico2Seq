@@ -133,8 +133,10 @@ static constexpr float kEnergyEpsilon = 0.002f;
 // A trigger lands at part of its peak in the same frame, so a gate shorter than
 // one display frame still shows. The attack takes it the rest of the way.
 static constexpr float kTriggerSeedFraction = 0.55f;
-// Gate-off steps still show the playhead, but dimmer and with no hold.
-static constexpr float kMutedStepPeak = 0.35f;
+// Gate-off steps get no envelope at all. Giving them a dim peak lit every
+// gate-off pad as the playhead swept past, which read as the whole off-row
+// flickering. The playhead is carried by the gated steps.
+static constexpr float kMutedStepPeak = 0.0f;
 // Softest velocity that still reads as a hit.
 static constexpr float kVelocityPeakFloor = 0.45f;
 // White bloom at full energy on a gated step: a hot core, not a brighter tint.
@@ -235,6 +237,8 @@ static void advanceStepEnergy(const SequencerView &sequencers,
 
     if (step != envelope.lastStep)
     {
+      // The interval is measured step to step, gated or not, so the release
+      // stays tied to the clock rather than to how sparse the gates are.
       if (envelope.lastStep != 0xFF && envelope.lastTriggerMs != 0)
       {
         const float interval =
@@ -246,13 +250,16 @@ static void advanceStepEnergy(const SequencerView &sequencers,
       envelope.lastTriggerMs = nowMs;
       envelope.lastStep = step;
       envelope.peak = peakForStep(sequencer, voiceIndex, step);
-      stepEnergy[ledIndex] =
-          std::max(stepEnergy[ledIndex], envelope.peak * kTriggerSeedFraction);
+      // A gate-off step has no peak, so it lights nothing and the previous
+      // step's tail keeps fading undisturbed.
+      if (envelope.peak > 0.0f)
+        stepEnergy[ledIndex] =
+            std::max(stepEnergy[ledIndex], envelope.peak * kTriggerSeedFraction);
     }
 
     // Fast rise to the peak, then the release above takes over. Nothing holds
-    // the LED up, so every step reads as the same shape regardless of gate.
-    if (nowMs - envelope.lastTriggerMs <= kEnergyAttackWindowMs)
+    // the LED up, so every gated step reads as the same shape.
+    if (envelope.peak > 0.0f && nowMs - envelope.lastTriggerMs <= kEnergyAttackWindowMs)
     {
       stepEnergy[ledIndex] +=
           (envelope.peak - stepEnergy[ledIndex]) * attackAlpha;
