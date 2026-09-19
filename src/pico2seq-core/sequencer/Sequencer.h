@@ -217,7 +217,7 @@ public:
      * @param is_velocity_button_held Button 17 state for Velocity parameter recording
      * @param is_filter_button_held Button 18 state for Filter parameter recording
      * @param is_attack_button_held Button 19 state for Attack parameter recording
-     * @param is_decay_button_held Button 20 state for Decay parameter recording
+     * @param is_release_button_held Button 20 state for Release parameter recording
      * @param is_octave_button_held Button 21 state for Octave parameter recording
      * @param current_selected_step_for_edit Selected step for editing (-1 for real-time mode)
      * @param voiceState Output voice state structure for audio synthesis
@@ -225,7 +225,7 @@ public:
     void advanceStep(uint32_t current_uclock_step, int mm_distance,
                      bool is_note_button_held, bool is_velocity_button_held,
                      bool is_filter_button_held, bool is_attack_button_held,
-                     bool is_decay_button_held, bool is_octave_button_held,
+                     bool is_release_button_held, bool is_octave_button_held,
                      int current_selected_step_for_edit,
                      VoiceState *voiceState);
 

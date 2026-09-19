@@ -24,7 +24,7 @@ TEST_CASE("Parameter record buttons select their matching encoder base", "[contr
         {ParamId::Velocity, EncoderParameterMode::Velocity},
         {ParamId::Filter, EncoderParameterMode::Filter},
         {ParamId::Attack, EncoderParameterMode::Attack},
-        {ParamId::Decay, EncoderParameterMode::Decay},
+        {ParamId::Release, EncoderParameterMode::Release},
         {ParamId::Octave, EncoderParameterMode::Octave},
     };
 
@@ -677,9 +677,9 @@ TEST_CASE("EncoderMotion ignores zero, non-finite and non-positive sizes", "[con
 }
 TEST_CASE("Step edit targets the held, then toggled, then encoder parameter", "[control_surface]")
 {
-    CHECK(stepEditParameter(ParamId::Filter, ParamId::Velocity, EncoderParameterMode::Decay) == ParamId::Filter);
-    CHECK(stepEditParameter(ParamId::Count, ParamId::Velocity, EncoderParameterMode::Decay) == ParamId::Velocity);
-    CHECK(stepEditParameter(ParamId::Count, ParamId::Count, EncoderParameterMode::Decay) == ParamId::Decay);
+    CHECK(stepEditParameter(ParamId::Filter, ParamId::Velocity, EncoderParameterMode::Release) == ParamId::Filter);
+    CHECK(stepEditParameter(ParamId::Count, ParamId::Velocity, EncoderParameterMode::Release) == ParamId::Velocity);
+    CHECK(stepEditParameter(ParamId::Count, ParamId::Count, EncoderParameterMode::Release) == ParamId::Release);
     CHECK(stepEditParameter(ParamId::Count, ParamId::Count, EncoderParameterMode::Note) == ParamId::Note);
     CHECK(stepEditParameter(ParamId::Count, ParamId::Count, EncoderParameterMode::Octave) == ParamId::Octave);
     // Slide Time is a voice setting, not a step lane.
@@ -688,13 +688,15 @@ TEST_CASE("Step edit targets the held, then toggled, then encoder parameter", "[
 
 TEST_CASE("Between clock steps the lidar keeps writing only continuous lanes", "[control_surface][recording]")
 {
-    for (ParamId lane : {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Decay})
+    // Release, not Decay: the 5th record button drives the lane that reaches the
+    // envelope on every preset.
+    for (ParamId lane : {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Release})
         CHECK(recordsBetweenSteps(lane));
     // Pitch is one value per note, taken on the clock step.
     CHECK_FALSE(recordsBetweenSteps(ParamId::Note));
     CHECK_FALSE(recordsBetweenSteps(ParamId::Octave));
     // No record button, no live recording.
     for (ParamId lane : {ParamId::GateLength, ParamId::Gate, ParamId::Slide, ParamId::Sustain,
-                         ParamId::Release, ParamId::Count})
+                         ParamId::Decay, ParamId::Count})
         CHECK_FALSE(recordsBetweenSteps(lane));
 }

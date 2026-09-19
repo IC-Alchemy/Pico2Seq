@@ -282,8 +282,13 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
     if (uiState.slideMode)
       continue;
 
-    // Bits 0-5 map straight onto ParamId Note..Octave (ButtonMap.h order).
-    const uint8_t paramId = bit;
+    // Bits 0-5 follow ButtonMap.h order. The 5th button is silkscreened Decay
+    // but records Release: Decay is a timbre lane on most presets, while
+    // Release shapes the tail on all of them.
+    static constexpr ParamId kButtonLanes[6] = {
+        ParamId::Note, ParamId::Velocity, ParamId::Filter,
+        ParamId::Attack, ParamId::Release, ParamId::Octave};
+    const uint8_t paramId = static_cast<uint8_t>(kButtonLanes[bit]);
     latch_.onParamButton(paramId, edges.pressEdge, uiState.shiftHeld);
     latch_.applyTo(uiState.parameterButtonHeld, PARAM_ID_COUNT);
     uiState.latchedParameter = latch_.latched();

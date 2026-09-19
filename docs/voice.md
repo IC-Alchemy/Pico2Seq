@@ -460,7 +460,16 @@ so no per-span arrays use Core 1's 2 KiB stack.
    triggers when the ADSR is bypassed. The ADSR then generates each sample.
 2. Apply deferred structural configuration if the gate is low.
 3. `planFilterUpdates_()` advances cutoff smoothing per sample. The target is
-   `filterFrequency * (env * filterEnvelopeAmount + filterEnvelopeFloor)`.
+   `filterFrequency * 2^(filterEnvOctaves_ * (env - filterEnvelopeRest))` -
+   exponential in pitch, like an analog VCF's V/oct input, recomputed at the
+   setFreq rate and smoothed per sample in between. At `env == filterEnvelopeRest`
+   the cutoff is exactly what the Filter lane dialed, so the sequenced cutoff
+   stays audible instead of being replaced by the contour. `filterEnvOctaves_`
+   is `filterEnvelopeOctaves` scaled +/-30% by the Filter lane, so one sweep
+   both raises the cutoff and deepens the envelope.
+   (Before 2026-09-19 this was linear: `env * amount + floor`, which dropped a
+   released note to a tenth of its cutoff and made voices inaudible unless the
+   gate was long.)
    Coefficient updates retain their every-eight-samples throttle and change
    threshold; their exact sample indices are recorded in fixed storage.
 4. `renderSources_()` selects the engine once per span. With an envelope,

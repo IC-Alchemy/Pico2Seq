@@ -152,6 +152,8 @@ void Voice::init(float sr)
   pitchBendSemitones_ = controls_.bendSemitones;
   pitchModSemitones_ = controls_.modulationSemitones;
   filterFrequency = controls_.filterHz;
+  filterEnvTarget_ = filterFrequency;
+  refreshFilterEnvDepth_();
   sampleRate = sr;
   // Changing sample rate can affect tuning in downstream modules; ensure base frequency recompute
   baseFreqDirty_ = true;
@@ -333,7 +335,10 @@ void PICO2SEQ_AUDIO_FUNC(Voice::applyControlUpdate_)() noexcept
   if (changes & FrequencyChanged)
     applyFrequency_(update.frequency);
   if (changes & FilterChanged)
+  {
     filterFrequency = update.filterHz;
+    refreshFilterEnvDepth_();
+  }
 }
 
 void PICO2SEQ_AUDIO_FUNC(Voice::processBlock)(float *out, uint32_t n) noexcept
@@ -513,18 +518,38 @@ void Voice::handleGateEdges_() noexcept
   }
 }
 
+// Envelope depth follows the Filter lane, so a cutoff sequence modulates the
+// contour as well as the frequency. Cheap enough for the control path; the
+// audio path calls it only when a staged cutoff change lands.
+void Voice::refreshFilterEnvDepth_() noexcept
+{
+  const float lane = std::clamp(
+      VoiceParameters::binding(config, ParamId::Filter).target != nullptr
+          ? config.filterCutoffBase
+          : state.filterCutoff,
+      0.0f, 1.0f);
+  const float depthScale = kFilterEnvLaneDepthFloor + kFilterEnvLaneDepthSpan * lane;
+  filterEnvOctaves_ = std::max(0.0f, config.filterEnvelopeOctaves) * depthScale;
+  filterEnvRest_ = std::clamp(config.filterEnvelopeRest, 0.0f, 1.0f);
+}
+
 uint32_t PICO2SEQ_AUDIO_FUNC(Voice::planFilterUpdates_)(const float *env, uint32_t n) noexcept
 {
   float current = filterCutoffCurrent;
   float lastApplied = lastAppliedFilterCutoff;
   uint8_t counter = filterUpdateCounter;
   const float alpha = filterCutoffAlpha;
+  const float octaves = filterEnvOctaves_;
+  const float rest = filterEnvRest_;
+  float target = filterEnvTarget_;
   uint32_t events = 0;
   for (uint32_t k = 0; k < n; ++k)
   {
-    const float targetCutoff = filterFrequency *
-        (env[k] * config.filterEnvelopeAmount + config.filterEnvelopeFloor);
-    current += alpha * (targetCutoff - current);
+    // exp2f runs at the setFreq rate, not per sample; the smoother below fills
+    // the gap, which is also what keeps cutoff modulation free of zipper noise.
+    if (counter == 0)
+      target = filterFrequency * exp2f(octaves * (env[k] - rest));
+    current += alpha * (target - current);
     if (counter == 0 && ShouldApplyFilterFreq_(current, lastApplied))
     {
       spanFilterEvents_[events++] = {static_cast<uint8_t>(k), current};
@@ -535,6 +560,7 @@ uint32_t PICO2SEQ_AUDIO_FUNC(Voice::planFilterUpdates_)(const float *env, uint32
   filterCutoffCurrent = current;
   lastAppliedFilterCutoff = lastApplied;
   filterUpdateCounter = counter;
+  filterEnvTarget_ = target;
   return events;
 }
 
@@ -1231,6 +1257,7 @@ void Voice::applyParameters_(const VoiceState &newState) noexcept
   const bool repurposedFilter = VoiceParameters::binding(config, ParamId::Filter).target != nullptr;
   filterFrequency = VoiceParameters::mapCutoff(
       parameters, repurposedFilter ? config.filterCutoffBase : state.filterCutoff);
+  refreshFilterEnvDepth_();
   if (parameters.envelopeFromTracks || config.usePatchBases)
     applyEnvelopeParameters();
   applyEngineConfig_();
@@ -1300,6 +1327,7 @@ void Voice::applyConfig_(const VoiceConfig &newConfig) noexcept
 
     const auto &paramLayout = VoiceParameters::layout(config);
     filterFrequency = VoiceParameters::mapCutoff(paramLayout, config.filterCutoffBase);
+    refreshFilterEnvDepth_();
     // The cutoff smoother glides to the new target. Snapping to it (without
     // the envelope) stepped the filter on every live base edit. Both
     // topologies take the current cutoff so a switch starts from it.

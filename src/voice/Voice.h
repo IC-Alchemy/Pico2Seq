@@ -347,6 +347,20 @@ private:
   // Cache of last applied cutoff to avoid redundant filter.SetFreq calls in the hotpath.
   // Initialized to -1.0f in ctor/init to guarantee first SetFreq occurs.
   float lastAppliedFilterCutoff = -1.0f;
+  // Filter envelope, exponential in pitch like an analog VCF's V/oct input:
+  //   cutoff = filterFrequency * 2^(octaves * (env - rest))
+  // At env == rest the cutoff is exactly the value the Filter lane dialed, so
+  // the sequenced cutoff stays the thing you hear.
+  float filterEnvOctaves_ = 0.0f;
+  float filterEnvRest_ = 0.35f;
+  // Envelope-modulated cutoff target, recomputed once per kFilterUpdateInterval
+  // (the rate setFreq runs at) and smoothed per sample in between.
+  float filterEnvTarget_ = 1000.0f;
+  // The Filter lane also scales envelope depth by +/-30% across its travel, so
+  // one sweep opens the cutoff AND deepens the contour: a dark step is both
+  // lower and less modulated, a bright step both higher and more.
+  static constexpr float kFilterEnvLaneDepthFloor = 0.7f;
+  static constexpr float kFilterEnvLaneDepthSpan = 0.6f;
   // Throttle expensive filter.setFreq() updates: coefficients are recomputed
   // at most once every kFilterUpdateInterval samples. Power of two so the
   // rolling counter wraps with a mask instead of a per-sample UDIV.
@@ -527,6 +541,7 @@ private:
   void applyParameters_(const VoiceState &newState) noexcept;
   void applyConfig_(const VoiceConfig &newConfig) noexcept;
   void refreshPitch_();
+  void refreshFilterEnvDepth_() noexcept;
   void applyFrequency_(float frequency);
   void applyStructuralConfig_() noexcept;
 

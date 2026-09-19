@@ -679,7 +679,7 @@ TEST_CASE("SubFunk audio synthesis produces audible sub-bass and distinct filter
   const uint8_t subFunk = static_cast<uint8_t>(VoicePresets::findPreset("SubFunk"));
   const auto config = VoicePresets::getSubFunkVoice();
   REQUIRE(config.highPassFreq == 25.0f);
-  REQUIRE(config.filterEnvelopeFloor == 0.35f);
+  REQUIRE(config.filterEnvelopeRest == 0.35f);
   REQUIRE(config.oscWaveforms[1] == WAVE_BSP_SQUARE);
   REQUIRE(config.oscAmplitudes[1] == Approx(0.35f));
   REQUIRE(config.filterRes == Approx(0.6f));

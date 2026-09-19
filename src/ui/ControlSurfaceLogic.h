@@ -74,7 +74,7 @@ constexpr ParamId stepEditParameter(ParamId held, ParamId toggled,
 
 /**
  * Live lidar recording between clock steps. Continuous lanes (Velocity,
- * Filter, Attack, Decay) follow the hand through the playing step; pitch
+ * Filter, Attack, Release) follow the hand through the playing step; pitch
  * lanes (Note, Octave) take one value per note on the clock step, so hand
  * jitter at a scale-step boundary cannot warble a sounding note.
  */
