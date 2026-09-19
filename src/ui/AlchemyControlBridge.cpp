@@ -451,7 +451,7 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
 // --- Faders ----------------------------------------------------------------------
 
 // Why faders fan out by assignment instead of by channel: the same four
-// physical faders mean Tempo/Swing/-/Gate in both strap positions, but the
+// physical faders mean Tempo/Swing/Volume/Gate in both strap positions, but the
 // selected step's Attack/Decay/Sustain/Release in Step Edit (ENV mode). The
 // deadband gate (accept()) stops a newly selected voice or step from
 // snapping to a stale fader position, and the shuffle buffer is static
@@ -484,6 +484,15 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
         recordParameter(assignment.paramId, normalized);
       uiState.envFaderLane = assignment.paramId;
       uiState.envViewUntil = millis() + ENCODER_BASE_VIEW_MS;
+      break;
+
+    case ControlSurface::FaderTarget::MasterVolume:
+      // VoiceManager applies this lock-free gain on Core 1's final mix. The
+      // session captures it, so the fader position survives a save/load.
+      if (voiceManager)
+      {
+        voiceManager->setGlobalVolume(normalized);
+      }
       break;
 
     case ControlSurface::FaderTarget::Tempo:

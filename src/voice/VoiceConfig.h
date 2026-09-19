@@ -70,7 +70,10 @@ struct VoiceConfig
   float baseNote = 0.0f; // Additive transpose in scale steps
   float baseVelocity = 0.5f;
   float baseOctave = 0.0f; // semitones, quantized to octaves
-  float baseGateLength = 0.5f; // Half a sixteenth note; 60 PPQN ticks
+  // Three quarters of a sixteenth note; 90 PPQN ticks. The GateLength lane is
+  // an offset around 0.5, so this base is the one knob that sets the default
+  // gate: a lane at 0.5 plays exactly this length.
+  float baseGateLength = 0.75f;
   bool baseGate = true;
   bool baseSlide = false;
   float slideSeconds = 0.06f;

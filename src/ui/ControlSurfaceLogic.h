@@ -314,9 +314,10 @@ enum class FaderTarget : uint8_t
 {
   None,        // unassigned
   EnvLane,     // ENV mode: one envelope lane of the selected step
-  Tempo,       // uClock BPM
-  SwingAmount, // continuous shuffle depth
-  GateLength,  // gate length across the selected voice's steps
+  Tempo,        // uClock BPM
+  SwingAmount,  // continuous shuffle depth
+  MasterVolume, // VoiceManager's global gain on Core 1's final mix
+  GateLength,   // gate length across the selected voice's steps
 };
 
 struct FaderAssignment
@@ -338,7 +339,7 @@ public:
   /**
    * Target of one fader channel (0..3). With a step selected (ENV mode) the
    * faders are that step's Attack, Decay, Sustain and Release lanes;
-   * otherwise Tempo, Swing, (unassigned), Gate length.
+   * otherwise Tempo, Swing, Master volume, Gate length.
    */
   static FaderAssignment assignmentFor(bool stepSelected, uint8_t channel);
 

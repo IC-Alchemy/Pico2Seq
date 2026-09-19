@@ -116,11 +116,15 @@ static uint8_t frameBlend(uint8_t legacyAmount)
 //   STEP TRIGGER ENVELOPE
 // ===========================================================================
 // Each LED carries an energy value in 0..1. A step trigger drives it to a peak
-// scaled by that step's velocity, the voice's own gate holds it there, and it
-// fades out on a release scaled to that voice's step interval - so the tail
-// reads the same at 60 or 180 BPM, and each voice of a polymetric pair keeps
-// its own trail length.
+// scaled by that step's velocity, then it fades out on a release scaled to that
+// voice's step interval - so the tail reads the same at 60 or 180 BPM, and each
+// voice of a polymetric pair keeps its own trail length.
+//
+// The envelope deliberately does NOT follow the voice's gate. Holding the LED
+// for the Gate Length lane read as a glitch: a short gate cut the light before
+// the eye caught the step, and the hold was barely visible when it was long.
 static constexpr float kEnergyAttackTauMs = 6.0f;    // ~1 frame rise at 13 ms
+static constexpr uint32_t kEnergyAttackWindowMs = 20; // rise, then straight to release
 static constexpr float kEnergyReleaseFactor = 0.35f; // of the voice's step interval
 static constexpr float kEnergyReleaseMinMs = 18.0f;
 static constexpr float kEnergyReleaseMaxMs = 180.0f;
@@ -246,11 +250,9 @@ static void advanceStepEnergy(const SequencerView &sequencers,
           std::max(stepEnergy[ledIndex], envelope.peak * kTriggerSeedFraction);
     }
 
-    // Hold at the peak for as long as the voice's gate is open; the release
-    // above takes over the moment it closes, so the LED always fades off.
-    const bool gateHeld = sequencer.getStep(step).isGateActive &&
-                          voiceSystem.getVoiceState(voiceIndex).isGateHigh;
-    if (gateHeld)
+    // Fast rise to the peak, then the release above takes over. Nothing holds
+    // the LED up, so every step reads as the same shape regardless of gate.
+    if (nowMs - envelope.lastTriggerMs <= kEnergyAttackWindowMs)
     {
       stepEnergy[ledIndex] +=
           (envelope.peak - stepEnergy[ledIndex]) * attackAlpha;

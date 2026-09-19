@@ -358,7 +358,7 @@ TEST_CASE("Sequencer OLED formats final physical and preset-specific units", "[v
     enablePatch(c);
     step = MusicalValues::baseStep(c);
     INFO(VoicePresets::getPresetName(preset));
-    REQUIRE(step.gateLengthTicks == 60);
+    REQUIRE(step.gateLengthTicks == 90);
     REQUIRE(step.octaveOffset == 0);
     for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane) {
       const auto id = static_cast<ParamId>(lane);
@@ -397,7 +397,7 @@ TEST_CASE("Patch randomization stays within its depth around the preset bases", 
         REQUIRE(step.noteIndex <= 12);
         REQUIRE(step.noteIndex == std::round(step.noteIndex));
         REQUIRE(step.octaveOffset == 0);
-        REQUIRE(step.gateLengthTicks == 60);
+        REQUIRE(step.gateLengthTicks == 90);
         reach(ParamId::Velocity, step.velocityLevel, depth / 100.0f);
         reach(ParamId::Filter, step.filterCutoff, depth / 100.0f);
         reach(ParamId::Attack, step.attackTimeSeconds, depth / 100.0f);

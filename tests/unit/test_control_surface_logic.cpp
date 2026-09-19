@@ -464,12 +464,11 @@ TEST_CASE("ShiftLatch ignores out-of-range param ids", "[control_surface]")
 // FaderMap
 // ---------------------------------------------------------------------------
 
-TEST_CASE("FaderMap: without a selected step the faders are tempo/swing/-/gate length", "[control_surface][fader]")
+TEST_CASE("FaderMap: without a selected step the faders are tempo/swing/volume/gate length", "[control_surface][fader]")
 {
     CHECK(FaderMap::assignmentFor(false, 0).target == FaderTarget::Tempo);
     CHECK(FaderMap::assignmentFor(false, 1).target == FaderTarget::SwingAmount);
-    // The old Decay / Master Volume slot is unassigned.
-    CHECK(FaderMap::assignmentFor(false, 2).target == FaderTarget::None);
+    CHECK(FaderMap::assignmentFor(false, 2).target == FaderTarget::MasterVolume);
     CHECK(FaderMap::assignmentFor(false, 3).target == FaderTarget::GateLength);
     for (uint8_t channel = 0; channel < FaderMap::kChannelCount; ++channel)
         CHECK(FaderMap::assignmentFor(false, channel).paramId == ParamId::Count);

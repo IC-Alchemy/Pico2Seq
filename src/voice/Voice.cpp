@@ -122,7 +122,7 @@ Voice::Voice(uint8_t id, const VoiceConfig &cfg)
   state.attackTimeSeconds = 0.01f;
   state.decayTimeSeconds = 0.1f;
   state.octaveOffset = 0;
-  state.gateLengthTicks = 64; // Default gate length
+  state.gateLengthTicks = 90; // 3/4 step, matching VoiceConfig::baseGateLength
   state.isGateHigh = false;
   state.hasSlide = false;
   state.shouldRetrigger = false;

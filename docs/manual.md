@@ -113,7 +113,7 @@ the firmware only maps four faders.]** The mode switch does not change the fader
 |---|---|
 | 1 | Master tempo (uClock BPM, 45–200) |
 | 2 | Swing amount (continuous shuffle depth) |
-| 3 | Unassigned (was Decay / Master volume; volume now comes from the saved session) |
+| 3 | Master volume (VoiceManager's gain on Core 1's final mix; saved with the session) |
 | 4 | Gate length across the selected voice's active steps |
 
 **ENV mode** — long-press a pad to select a step (Step Edit). The faders then edit **only
