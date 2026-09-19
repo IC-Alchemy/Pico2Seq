@@ -27,5 +27,7 @@ build_desktop/*
 build_desktop
 build_fw_check/
 build_fw_check/*
+build_fw_diag/
+build_fw_diag/*
 desktop/*
 desktop/D
