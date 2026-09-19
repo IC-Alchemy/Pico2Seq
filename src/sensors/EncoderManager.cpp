@@ -74,19 +74,29 @@ bool editSelectedStep(UIState &uiState, float delta)
   const float minVal = getParameterMinValueForParamId(targetParam);
   const float maxVal = getParameterMaxValueForParamId(targetParam);
   float newVal;
+  bool meaningfulMotion = false;
   if (definition->editKind == ParameterEditKind::Stepped)
   {
     // Whole scale steps (or octaves) per detent: rounding each small
     // increment left the value unchanged unless the knob was spun hard.
     const int steps = stepMotion.takeSteps(SensorConstants::MagneticEncoder::STEPPED_VALUE_DETENT);
+    meaningfulMotion = (steps != 0);
     newVal = curVal + static_cast<float>(steps) * (targetParam == ParamId::Octave ? kOctaveLaneStep : 1.0f);
   }
   else
   {
     // Same sensitivity as base editing. The former extra 5% scale moved a
     // step well under 1% per slow revolution, too little to hear.
-    newVal = curVal + stepMotion.takeContinuous(
-        SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD) * (maxVal - minVal);
+    const float motion = stepMotion.takeContinuous(
+        SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD);
+    meaningfulMotion = (motion != 0.0f);
+    newVal = curVal + motion * (maxVal - minVal);
+  }
+  // Below-threshold jitter must neither write nor take ownership: the pending
+  // motion stays accumulated for the next pass, and lidar keeps its target.
+  if (!meaningfulMotion)
+  {
+    return true;
   }
   newVal = std::clamp(newVal, minVal, maxVal);
   // Explicit step editing (no recording gate rule): every attempt, including

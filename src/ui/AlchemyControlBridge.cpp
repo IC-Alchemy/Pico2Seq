@@ -503,11 +503,18 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
           Sequencer *selectedSeq = sequencers.get(uiState.selectedVoiceIndex);
           if (selectedSeq)
           {
-            uiState.stepEditOwner.take(uiState.selectedVoiceIndex,
-                                       static_cast<uint8_t>(assignment.paramId), step);
             const StepWriteResult written = selectedSeq->writeStepParameter(
                 assignment.paramId, step, normalized,
                 StepWriteDomain::Normalized01, true, NoteGateRule::AtStep);
+            // Only a valid lane takes ownership: a rejected write changed
+            // nothing, so lidar keeps its target. An accepted-but-unchanged
+            // write (e.g. fader pinned at a lane limit) still owns the target
+            // so a stationary hand cannot replace the held value.
+            if (written.status != StepWriteStatus::Rejected)
+            {
+              uiState.stepEditOwner.take(uiState.selectedVoiceIndex,
+                                         static_cast<uint8_t>(assignment.paramId), step);
+            }
             if (written.status == StepWriteStatus::Changed)
             {
               updateActiveVoiceState(step, *selectedSeq);
