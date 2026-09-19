@@ -142,6 +142,26 @@ public:
     float getRawStepValue(ParamId id, uint8_t stepIdx) const;
     void setRawStepValue(ParamId id, uint8_t stepIdx, float value);
 
+    /**
+     * @brief Record a live value into a lane's playing step
+     *
+     * Writes at the lane's own cursor (getCurrentStepForParameter()), the
+     * step the voice is sounding now. Note is written only while the playing
+     * Gate step is on, so silent steps keep their pitch. Shared by step-time
+     * recording in advanceStep() and live edits between steps.
+     * @return true when the stored value changed (after clamping/rounding)
+     */
+    bool recordLiveValue(ParamId id, float value);
+
+    /**
+     * @brief Write a step-edit value into one step
+     *
+     * Note is written only into a step whose own Gate is on; other lanes
+     * always take the value.
+     * @return true when the stored value changed (after clamping/rounding)
+     */
+    bool editStepValue(ParamId id, uint8_t stepIdx, float value);
+
     // Sequencer control
     void start() { running = true; }
     void stop() { running = false; }
@@ -273,6 +293,8 @@ private:
 
     // Internal methods
     void processStep(uint8_t stepIdx, VoiceState *voiceState);
+    bool gateIsOn(uint8_t stepIdx) const;
+    bool writeStepValue(ParamId id, uint8_t stepIdx, float value);
 };
 
 #endif // SEQUENCER_H

@@ -134,6 +134,46 @@ void Sequencer::setStepParameterValue(ParamId id, uint8_t stepIdx, float value)
     parameterManager.setValue(id, stepIdx, value);
 }
 
+bool Sequencer::gateIsOn(uint8_t stepIdx) const
+{
+    return getStepParameterValue(ParamId::Gate, stepIdx) > 0.5f;
+}
+
+bool Sequencer::writeStepValue(ParamId id, uint8_t stepIdx, float value)
+{
+    const float previous = getStepParameterValue(id, stepIdx);
+    setStepParameterValue(id, stepIdx, value);
+    return getStepParameterValue(id, stepIdx) != previous;
+}
+
+bool Sequencer::recordLiveValue(ParamId id, float value)
+{
+    if (id >= ParamId::Count)
+    {
+        return false;
+    }
+    // GATE-CONTROLLED NOTE PROGRAMMING: pitch lands only while the playing
+    // gate is on. Under polymeter that is the Gate lane's cursor, not Note's.
+    if (id == ParamId::Note && !gateIsOn(getCurrentStepForParameter(ParamId::Gate)))
+    {
+        return false;
+    }
+    return writeStepValue(id, getCurrentStepForParameter(id), value);
+}
+
+bool Sequencer::editStepValue(ParamId id, uint8_t stepIdx, float value)
+{
+    if (id >= ParamId::Count || stepIdx >= SequencerConstants::MAX_STEPS_COUNT)
+    {
+        return false;
+    }
+    if (id == ParamId::Note && !gateIsOn(stepIdx))
+    {
+        return false;
+    }
+    return writeStepValue(id, stepIdx, value);
+}
+
 void Sequencer::reset()
 {
     currentStep = 0;
@@ -275,23 +315,8 @@ void Sequencer::advanceStep(uint32_t current_uclock_step, int mm_distance,
         {
             if (pb.held)
             {
-                // GATE-CONTROLLED NOTE PROGRAMMING: Check gate restriction for Note parameter
-                if (pb.id == ParamId::Note)
-                {
-                    uint8_t gateStepIdx = currentStepPerParam[static_cast<size_t>(ParamId::Gate)];
-                    float gateValue = getStepParameterValue(ParamId::Gate, gateStepIdx);
-                    if (gateValue <= 0.5f) // Gate is LOW (0.0)
-                    {
-                        // Skip Note parameter recording on steps with LOW gates
-                        continue;
-                    }
-                }
-
-                // For all other parameters, scale the normalized value to the parameter's range
-                float value = mapNormalizedValueToParamRange(pb.id, normalizedDistance);
-                // Use the parameter's own current step index for recording
-                uint8_t paramStepIdx = currentStepPerParam[static_cast<size_t>(pb.id)];
-                setStepParameterValue(pb.id, paramStepIdx, value);
+                // Each lane records at its own cursor; Note skips LOW gates.
+                recordLiveValue(pb.id, mapNormalizedValueToParamRange(pb.id, normalizedDistance));
             }
         }
     }

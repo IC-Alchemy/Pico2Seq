@@ -564,6 +564,48 @@ float laneBase(ParamId id, const VoiceConfig &c) noexcept {
     return 0.5f;
   }
 }
+void setLaneBaseNormalized(ParamId id, VoiceConfig &c, float n) noexcept {
+  if (!std::isfinite(n))
+    return;
+  n = std::clamp(n, 0.0f, 1.0f);
+  const auto &b = VoiceParameters::binding(c, id);
+  if (b.target) {
+    c.*(b.target) = b.map(n);
+    return;
+  }
+  switch (id) {
+  case ParamId::Note:
+    c.baseNote = std::round(n * 36.0f);
+    break;
+  case ParamId::Velocity:
+    // Hard sync's Slave lane also stores its base normalized.
+    c.baseVelocity = n;
+    break;
+  case ParamId::Filter:
+    c.filterCutoffBase = n;
+    break;
+  case ParamId::Attack:
+    c.defaultAttack = kTimeMin * std::pow(kAttackMaxSeconds / kTimeMin, n);
+    break;
+  case ParamId::Decay:
+    c.defaultDecay = timeMap(n);
+    break;
+  case ParamId::Octave:
+    c.baseOctave = std::round((n * 48.0f - 24.0f) / 12.0f) * 12.0f;
+    break;
+  case ParamId::GateLength:
+    c.baseGateLength = 0.001f + n * 0.999f;
+    break;
+  case ParamId::Gate:
+    c.baseGate = n >= 0.5f;
+    break;
+  case ParamId::Slide:
+    c.baseSlide = n >= 0.5f;
+    break;
+  default:
+    break;
+  }
+}
 void setLaneBase(ParamId id, VoiceConfig &c, float v) {
   const auto &b = VoiceParameters::binding(c, id);
   if (b.target) {

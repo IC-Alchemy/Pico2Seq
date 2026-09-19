@@ -19,6 +19,7 @@
 //                    with Shift+tap latching.
 //   FaderMap       — mode + fader channel -> control target, with a send
 //                    deadband so steady faders stay quiet.
+//   paramFaderEdit — Param fader -> record into a step, or edit the voice base.
 //   encoderBaseModeForRecordParam — record button -> encoder base target.
 //   EncoderMotion  — encoder increments carried between sensor reads.
 
@@ -70,6 +71,19 @@ constexpr ParamId stepEditParameter(ParamId held, ParamId toggled,
   if (toggled != ParamId::Count)
     return toggled;
   return parameterForEncoderMode(encoderMode);
+}
+
+/**
+ * Live lidar recording between clock steps. Continuous lanes (Velocity,
+ * Filter, Attack, Decay) follow the hand through the playing step; pitch
+ * lanes (Note, Octave) take one value per note on the clock step, so hand
+ * jitter at a scale-step boundary cannot warble a sounding note.
+ */
+constexpr bool recordsBetweenSteps(ParamId paramId)
+{
+  const auto *definition = parameterDefinition(paramId);
+  return definition && definition->recordable &&
+         definition->editKind == ParameterEditKind::Continuous;
 }
 
 /**
@@ -299,7 +313,7 @@ private:
 /** What a fader channel controls in the current mode. */
 enum class FaderTarget : uint8_t
 {
-  StepParam,   // records a ParamId into steps (param mode)
+  StepParam,   // edits a ParamId lane of the selected voice (param mode; see paramFaderEdit)
   Tempo,       // uClock BPM (utility mode)
   SwingAmount, // continuous shuffle depth (utility mode)
   GateLength,  // gate length across the selected voice's steps (utility mode)
@@ -346,6 +360,31 @@ private:
   bool hasBaseline_[kChannelCount] = {false, false, false, false};
   bool engaged_[kChannelCount] = {false, false, false, false};
 };
+
+/** What a Param-mode fader move does to its lane. */
+enum class FaderEdit : uint8_t
+{
+  Ignore,   // Step Edit with a different parameter armed
+  Record,   // write the value like the lidar: selected step, else playing step
+  VoiceBase // set the selected voice's base for the lane
+};
+
+/**
+ * Param-mode fader policy (docs/manual.md §1.3). In Step Edit the fader
+ * writes the selected step when its lane is armed: its own button held, else
+ * (no button held) toggled or nothing chosen. Otherwise holding the fader's
+ * own parameter button records it live into the playing step, and a free
+ * fader edits the voice's base.
+ */
+constexpr FaderEdit paramFaderEdit(ParamId fader, bool stepSelected, bool ownHeld,
+                                   bool anyHeld, ParamId toggled)
+{
+  if (stepSelected)
+    return (ownHeld || (!anyHeld && (toggled == fader || toggled == ParamId::Count)))
+               ? FaderEdit::Record
+               : FaderEdit::Ignore;
+  return ownHeld ? FaderEdit::Record : FaderEdit::VoiceBase;
+}
 
 // ---------------------------------------------------------------------------
 // Encoder motion

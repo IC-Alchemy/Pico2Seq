@@ -331,9 +331,15 @@ void loop() {
         distanceSensor.update();
         AppState::performanceInput.observeDistance(distanceSensor.getRawDistanceMm());
 
-        // Step-edit recording into the selected step; skipped while no hand is in range
-        if (uiState.selectedStepForEdit != -1) {
-            updateParametersForStep(uiState.selectedStepForEdit);
+        // Live recording into every held parameter's playing step (or the
+        // selected step in Step Edit); skipped while no hand is in range.
+        // While playing, Note/Octave record only on the clock step.
+        if (AppState::performanceInput.handPresent) {
+            const bool everyPass = !isClockRunning || uiState.selectedStepForEdit >= 0;
+            for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane)
+                if (uiState.parameterButtonHeld[lane] && CORE_PARAMETERS[lane].recordable &&
+                    (everyPass || ControlSurface::recordsBetweenSteps(static_cast<ParamId>(lane))))
+                    recordParameter(static_cast<ParamId>(lane), AppState::performanceInput.recordingValue());
         }
     }
 }

@@ -88,9 +88,9 @@ bool editSelectedStep(UIState &uiState, float delta)
         SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD) * (maxVal - minVal);
   }
   newVal = std::clamp(newVal, minVal, maxVal);
-  if (newVal != curVal)
+  // Like the lidar and faders, pitch is never written into a gate-off step.
+  if (newVal != curVal && selectedSeq->editStepValue(targetParam, step, newVal))
   {
-    selectedSeq->setStepParameterValue(targetParam, step, newVal);
     updateActiveVoiceState(step, *selectedSeq);
   }
   return true;

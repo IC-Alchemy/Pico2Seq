@@ -2,6 +2,7 @@
 #include "AppState.h"
 #include "StepPlayback.h"
 #include "../../includes.h"
+#include "../ui/ControlSurfaceLogic.h"
 #include "../utils/FreezeWatchdog.h"
 
 namespace
@@ -231,17 +232,22 @@ void ControlIO::scanControls(uint32_t nowMs)
         // =======================
         //   REAL-TIME PARAMETER RECORDING
         // =======================
-        // Apply distance sensor values to step when parameter buttons are held
-        if (!uiState.voiceEditor.active && !uiState.controlsWaitRelease &&
-            getHeldParameterParamId(uiState) != ParamId::Count && AppState::performanceInput.handPresent)
+        // While parameter buttons are held, the hand writes each held lane's
+        // playing step every pass, or the selected step in Step Edit. While
+        // playing, pitch lanes are left to advanceStep() on each clock step.
+        // No hand in range: steps keep their values.
+        if (AppState::performanceInput.handPresent)
         {
             freezeWatchdogMark(FW_LOOP_RECORD);
-            const int targetStep = uiState.selectedStepForEdit != -1
-                ? uiState.selectedStepForEdit
-                : (!isClockRunning ? AppState::sequencerView.clamped(uiState.selectedVoiceIndex).getCurrentStepForParameter(getHeldParameterParamId(uiState)) : -1);
-            if (targetStep >= 0 && targetStep < SequencerConstants::MAX_STEPS_COUNT)
+            const float hand = AppState::performanceInput.recordingValue();
+            const bool everyPass = !isClockRunning || uiState.selectedStepForEdit >= 0;
+            for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane)
             {
-                updateParametersForStep(static_cast<uint8_t>(targetStep));
+                const auto id = static_cast<ParamId>(lane);
+                // Same lanes advanceStep() records: those with a record button.
+                if (uiState.parameterButtonHeld[lane] && CORE_PARAMETERS[lane].recordable &&
+                    (everyPass || ControlSurface::recordsBetweenSteps(id)))
+                    recordParameter(id, hand);
             }
         }
     }

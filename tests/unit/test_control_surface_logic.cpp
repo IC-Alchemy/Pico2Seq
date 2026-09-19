@@ -673,3 +673,40 @@ TEST_CASE("Step edit targets the held, then toggled, then encoder parameter", "[
     // Slide Time is a voice setting, not a step lane.
     CHECK(stepEditParameter(ParamId::Count, ParamId::Count, EncoderParameterMode::SlideTime) == ParamId::Count);
 }
+
+TEST_CASE("A free Param fader edits the voice base; its held button records it", "[control_surface][fader]")
+{
+    for (ParamId lane : {ParamId::Filter, ParamId::Attack, ParamId::Decay, ParamId::Velocity}) {
+        // Nothing held: the fader moves the selected voice's base, live.
+        CHECK(paramFaderEdit(lane, false, false, false, ParamId::Count) == FaderEdit::VoiceBase);
+        // Its own button held (or latched): live recording into the playing step,
+        // also alongside other held buttons.
+        CHECK(paramFaderEdit(lane, false, true, true, ParamId::Count) == FaderEdit::Record);
+        // Only another button held: that lane records from the lidar; this fader edits its base.
+        CHECK(paramFaderEdit(lane, false, false, true, ParamId::Count) == FaderEdit::VoiceBase);
+    }
+}
+
+TEST_CASE("In Step Edit a Param fader writes only its armed lane", "[control_surface][fader]")
+{
+    // Its own held button wins, then the toggled edit parameter, then any
+    // fader when nothing is armed.
+    CHECK(paramFaderEdit(ParamId::Filter, true, true, true, ParamId::Count) == FaderEdit::Record);
+    CHECK(paramFaderEdit(ParamId::Filter, true, true, true, ParamId::Attack) == FaderEdit::Record);
+    CHECK(paramFaderEdit(ParamId::Filter, true, false, true, ParamId::Filter) == FaderEdit::Ignore);
+    CHECK(paramFaderEdit(ParamId::Decay, true, false, false, ParamId::Decay) == FaderEdit::Record);
+    CHECK(paramFaderEdit(ParamId::Decay, true, false, false, ParamId::Attack) == FaderEdit::Ignore);
+    CHECK(paramFaderEdit(ParamId::Velocity, true, false, false, ParamId::Count) == FaderEdit::Record);
+}
+
+TEST_CASE("Between clock steps the lidar keeps writing only continuous lanes", "[control_surface][recording]")
+{
+    for (ParamId lane : {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Decay})
+        CHECK(recordsBetweenSteps(lane));
+    // Pitch is one value per note, taken on the clock step.
+    CHECK_FALSE(recordsBetweenSteps(ParamId::Note));
+    CHECK_FALSE(recordsBetweenSteps(ParamId::Octave));
+    // No record button, no live recording.
+    for (ParamId lane : {ParamId::GateLength, ParamId::Gate, ParamId::Slide, ParamId::Count})
+        CHECK_FALSE(recordsBetweenSteps(lane));
+}

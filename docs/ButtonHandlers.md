@@ -77,7 +77,10 @@ In Param mode, ButtonModule8 provides instant parameter arming for real-time rec
 - **Fader 1**: Attack Time for the currently selected voice.
 - **Fader 2**: Decay Time for the currently selected voice.
 - **Fader 3**: Velocity for the currently selected voice.
-- *Recording Behavior*: When a matching parameter button is held (armed) and a step is in edit (`selectedStepForEdit >= 0`), moving the corresponding fader writes the normalized value directly into the sequencer step track.
+- *Routing* (`ControlSurface::paramFaderEdit()`):
+  - **Free fader** (no Step Edit, its own button not held): `VoiceEditor::fader()` sets the lane's **base** for the selected voice (`VoiceEdit::setLaneBaseNormalized()`, the inverse of `laneBase()`), publishes the patch, refreshes the sounding note in place, selects the lane as the encoder target and opens the OLED base view for 1.5 s.
+  - **Its own button held or latched**: `recordParameter()` writes the value into the lane's playing step (`Sequencer::recordLiveValue()`), the same live-recording path as the distance sensor.
+  - **Step Edit** (`selectedStepForEdit >= 0`): `recordParameter()` writes the selected step (`Sequencer::editStepValue()`) when the fader's own button is held, or (no button held) its parameter is toggled or nothing is armed; otherwise the move is ignored.
 
 ---
 
