@@ -17,14 +17,14 @@ namespace VoicePresets {
     p.cutoffCenter = centerHz;
     return p;
   }
-  inline constexpr auto kAnalogLayout = cutoffLayout(150.0f, 1800.0f, 6000.0f);      // bright sync pluck
-  inline constexpr auto kDigitalLayout = cutoffLayout(200.0f, 1500.0f, 5000.0f);     // hollow square pair
+  inline constexpr auto kAnalogLayout = cutoffLayout(90.0f, 400.0f, 3000.0f);      // bright sync pluck
+  inline constexpr auto kDigitalLayout = cutoffLayout(90.0f, 400.0f, 4000.0f);     // hollow square pair
   inline constexpr auto kBassLayout = cutoffLayout(60.0f, 320.0f, 1500.0f);          // SVF growl; sub untouched
-  inline constexpr auto kLeadLayout = cutoffLayout(200.0f, 1600.0f, 8000.0f);        // driven ladder lead
-  inline constexpr auto kSquareLayout = cutoffLayout(250.0f, 900.0f, 4000.0f);       // BP24 band center
-  inline constexpr auto kPadLayout = cutoffLayout(250.0f, 2200.0f, 10000.0f);        // chord wash
-  inline constexpr auto kPercussionLayout = cutoffLayout(800.0f, 4500.0f, 12000.0f); // hat..splash brightness
-  inline constexpr auto kSubFunkLayout = cutoffLayout(60.0f, 420.0f, 1600.0f);       // sub funk
+  inline constexpr auto kLeadLayout = cutoffLayout(90.0f, 400.0f, 2000.0f);        // driven ladder lead
+  inline constexpr auto kSquareLayout = cutoffLayout(90.0f, 400.0f, 3000.0f);       // BP24 band center
+  inline constexpr auto kPadLayout = cutoffLayout(90.0f, 400.0f, 4000.0f);        // chord wash
+  inline constexpr auto kPercussionLayout = cutoffLayout(90.0f, 400.0f, 2000.0f); // hat..splash brightness
+  inline constexpr auto kSubFunkLayout = cutoffLayout(90.0f, 420.0f, 1600.0f);       // sub funk
   inline constexpr auto kRubberSubLayout = cutoffLayout(90.0f, 320.0f, 1200.0f);     // resonant honk
 
   constexpr VoiceConfig makeAnalog() noexcept
@@ -39,7 +39,7 @@ namespace VoicePresets {
     c.harmony[0] = 0;          // Root note
     c.paramSet = PARAMSET_HARDSYNC;
     c.parameters = &kAnalogLayout;
-    c.filterCutoffBase = 0.5f; // rests on the 1800 Hz lane center
+    c.filterCutoffBase = 0.5f;
 
     c.filterRes = 0.33f;
     c.filterDrive = 2.1f;
@@ -106,7 +106,7 @@ namespace VoicePresets {
     c.oscDetuning[1] = 0.0f;
     c.harmony[0] = 0; // Root note
     c.harmony[1] = 0; // Unison (bass typically monophonic)
-    c.highPassRes = 0.4f;
+    c.highPassRes = 0.2f;
     c.filterRes = 0.45f; // SVF resonance carries the growl (no ladder drive)
     c.filterType = FILTER_SVF; // TPT state-variable low-pass: tight, stable bass
     c.highPassFreq = 45.0f; // Lower for bass
@@ -115,7 +115,7 @@ namespace VoicePresets {
     c.filterCutoffBase = 0.5f; // rests on the 320 Hz lane center
     c.hasOverdrive = true;
     c.overdriveGain = 0.95f;
-    c.overdriveDrive = 0.16f; // Subtle overdrive
+    c.overdriveDrive = 0.46f; // Subtle overdrive
     c.defaultAttack = 0.01f;
     c.defaultDecay = 0.3f;
     c.defaultSustain = 0.85f;
@@ -133,9 +133,9 @@ namespace VoicePresets {
     c.oscAmplitudes[0] = .6f;
     c.oscAmplitudes[1] = .4f;
     c.oscDetuning[0] = 0.0f;
-    c.oscDetuning[1] = 0.00f;
+    c.oscDetuning[1] = 0.015f;
     c.harmony[0] = 0; // Root note
-    c.harmony[1] = 3; 
+    c.harmony[1] = 0;
 
     c.filterRes = 0.4f;
     c.filterDrive = 3.f;
@@ -144,9 +144,9 @@ namespace VoicePresets {
     // Ladder on purpose: this is one of only two presets still using it
     // (with Analog); the test suite pins that count.
     c.filterType = FILTER_LADDER; // Use ladder filter for lead
-    c.filterMode = VoiceFilterMode::LP12;
+    c.filterMode = VoiceFilterMode::LP24;
     c.parameters = &kLeadLayout;
-    c.filterCutoffBase = 0.5f; // rests on the 1600 Hz lane center
+    c.filterCutoffBase = 0.5f;
     c.hasOverdrive = false;
     c.overdriveGain = 0.7f;
     c.overdriveDrive = 0.45f;
@@ -166,9 +166,9 @@ namespace VoicePresets {
     c.oscWaveforms[0] = WAVE_BSP_SQUARE;
     c.oscAmplitudes[0] = 1.f;
     c.harmony[0] = 0; // Root note
-    c.oscPulseWidth[0] = 0.2f;
+    c.oscPulseWidth[0] = 0.45f;
 
-    c.filterRes = 0.6f; // 
+    c.filterRes = 0.6f; //
     c.filterType = FILTER_SVF;
     c.highPassFreq = 150.0f;
     c.filterMode = VoiceFilterMode::BP24; // SVF response: band-pass

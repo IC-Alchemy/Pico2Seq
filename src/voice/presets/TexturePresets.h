@@ -15,10 +15,10 @@ namespace VoicePresets {
     auto &mix = p.slots[static_cast<size_t>(ParamId::Decay)];
     detune = spanned(detune, {0.0f, 0.30f, 0.75f}, dspmap::Mapping::LINEAR);
     mix = spanned(mix, {0.15f, 0.50f, 0.95f}, dspmap::Mapping::LINEAR);
-    p.cutoffMinimum = 200.0f; // supersaw register
-    p.cutoffMaximum = 12000.0f;
+    p.cutoffMinimum = 80.0f; // supersaw register
+    p.cutoffMaximum = 4000.0f;
     p.cutoffCurve = dspmap::Mapping::OCTAVE;
-    p.cutoffCenter = 3200.0f;
+    p.cutoffCenter = 400.0f;
     return p;
   }
   // Swarm: regen's top ~25% (1.0..1.2) is the deliberate howl/bloom zone the

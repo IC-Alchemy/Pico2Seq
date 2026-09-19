@@ -10,7 +10,7 @@
 namespace MusicalValues {
 inline int midiNote(float note, int octave, int harmony, const int *row) noexcept {
   const int index = std::clamp(static_cast<int>(note) + harmony, 0, int(SCALE_STEPS) - 1);
-  return std::clamp(72 + (row ? row[index] : index) + octave, 0, 127);
+  return std::clamp(48 + (row ? row[index] : index) + octave, 0, 127);
 }
 inline float envelopeSeconds(float normalized) noexcept {
   return 0.001f * std::pow(10000.0f, std::clamp(normalized, 0.0f, 1.0f));

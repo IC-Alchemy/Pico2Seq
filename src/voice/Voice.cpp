@@ -95,7 +95,7 @@ Voice::Voice(uint8_t id, const VoiceConfig &cfg)
 {
   // Static base pitch cache starts dirty to force initial compute
   baseFreqDirty_ = true;
-  cachedBaseFreqHz_ = 440.0f;
+  cachedBaseFreqHz_ = 220.0f;
   lastSentBaseFreqHz_ = -1.0f;
   // Initialize frequency lookup table once in a thread-safe manner
   initFrequencyLookupTable();
@@ -122,7 +122,7 @@ Voice::Voice(uint8_t id, const VoiceConfig &cfg)
   state.attackTimeSeconds = 0.01f;
   state.decayTimeSeconds = 0.1f;
   state.octaveOffset = 0;
-  state.gateLengthTicks = 12; // Default gate length
+  state.gateLengthTicks = 64; // Default gate length
   state.isGateHigh = false;
   state.hasSlide = false;
   state.shouldRetrigger = false;
@@ -869,7 +869,7 @@ inline void Voice::applyEnvelopeParameters() noexcept
   }
   // Map normalized parameters to appropriate ranges
   float attack =
-      dspmap::fmap(state.attackTimeSeconds, 0.002f, 0.75f, dspmap::Mapping::LINEAR);
+      dspmap::fmap(state.attackTimeSeconds, 0.002f, 0.5f, dspmap::Mapping::LINEAR);
   float decay =
       dspmap::fmap(state.decayTimeSeconds, 0.01f, 0.5f, dspmap::Mapping::LOG);
   // float release = decay; // Use decay for release in this implementation
