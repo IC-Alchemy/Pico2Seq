@@ -54,12 +54,19 @@ static constexpr uint8_t LED_THEME_VOICE_COUNT = 4;
  */
 struct LEDThemeColors
 {
-  // Voice gate colors: gateOn carries each voice's identity hue at full
-  // brightness; gateOff is the SAME hue dimmed to ~1/8 so an off step
-  // still reads as its voice, just clearly "off". Gate state is therefore
-  // brightness, voice identity is hue — the two never fight.
+  // Which LEDTheme this entry defines. The theme cycler and the saved settings
+  // address palettes by index, so this field exists to be checked against the
+  // entry's position in ALL_THEMES at compile time (see the static_assert below
+  // the table): a table in a different order would show one theme's colors
+  // under another theme's name.
+  LEDTheme theme;
+
+  // Voice gate colors: gateOn is each voice's identity hue — the only gate
+  // color a theme stores. Gate state is applied as brightness of that hue
+  // (the GATE_ON_* / GATE_OFF_DIVISOR rule in LEDMatrixFeedback.cpp), so an
+  // off step still reads as its voice, just clearly "off". Gate state is
+  // therefore brightness, voice identity is hue, and the two never fight.
   CRGB gateOn[LED_THEME_VOICE_COUNT];
-  CRGB gateOff[LED_THEME_VOICE_COUNT];
 
   // Playhead and accent colors
   CRGB playheadAccent;    // Current step playhead highlight

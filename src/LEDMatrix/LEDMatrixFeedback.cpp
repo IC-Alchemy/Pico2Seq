@@ -1,4 +1,5 @@
 #include "LEDMatrixFeedback.h"
+#include <algorithm>
 #include <Arduino.h>
 #include <FastLED.h>
 #include <cmath>
@@ -81,22 +82,24 @@ CRGB current_COLOR_RANDOMIZE_IDLE;
 // - Hues are anchored in the empirically colorblind-safe Okabe-Ito / Paul Tol
 //   categorical sets (blue vs orange, green vs purple/magenta), graded toward
 //   each theme's character. No voice pair relies on red-vs-green alone.
-// - Gate state is SEQUENTIAL data: gateOff is the same hue at ~1/8 lightness
-//   (floored so chromaticity survives), so state reads as brightness and
-//   identity reads as hue — a redundant encoding that survives grayscale and
-//   all common color-vision deficiencies.
+// - Gate state is SEQUENTIAL data: a theme stores only each voice's hue, and
+//   gate on/off is that hue at two brightness levels (the GATE_ON_* /
+//   GATE_OFF_DIVISOR rule below), so state reads as brightness and identity
+//   reads as hue — a redundant encoding that survives grayscale and all
+//   common color-vision deficiencies.
 // - Monochromatic themes (BLUE/GREEN) and warm-family themes (VOLCANIC/EMBER)
 //   instead use a monotonic lightness ramp as the redundant channel, per the
 //   sequential-palette rule (must order correctly in grayscale).
-// - On-states are lightness-balanced so no voice dominates, and lifted for
-//   legibility on the near-black LED background (dark-mode practice); reds
-//   are boosted slightly to compensate protan red-darkening.
-    const LEDThemeColors ALL_THEMES[] = {
-    {// DEFAULT - Okabe-Ito categorical quartet: sky / orange / bluish-green /
+// - On-states are lightness-balanced so no voice dominates, and the gate-on
+//   gain (below) lifts them for legibility on the near-black LED background
+//   (dark-mode practice); reds are boosted slightly to compensate protan
+//   red-darkening.
+constexpr LEDThemeColors ALL_THEMES[] = {
+    {LEDTheme::DEFAULT,
+     // DEFAULT - Okabe-Ito categorical quartet: sky / orange / bluish-green /
      // reddish-purple. The reference-standard colorblind-safe voice set.
      {CRGB(60, 170, 235), CRGB(235, 160, 20), CRGB(0, 190, 140),
       CRGB(215, 130, 175)},
-     {CRGB(8, 22, 31), CRGB(31, 21, 3), CRGB(0, 25, 18), CRGB(28, 17, 23)},
      CRGB(0, 44, 54),
      CRGB(0, 0, 94),
      CRGB(0, 0, 12),
@@ -123,12 +126,12 @@ CRGB current_COLOR_RANDOMIZE_IDLE;
      CRGB(24, 0, 16),
      CRGB(64, 94, 94),
      CRGB(16, 24, 24)},
-    {// OCEANIC - deep-sea blue / sunlit sand / seafoam / pale ice. Warm sand
+    {LEDTheme::OCEANIC,
+     // OCEANIC - deep-sea blue / sunlit sand / seafoam / pale ice. Warm sand
      // accents give V1/V2 a CVD-safe cool-vs-warm split; V3/V4 separate by
      // lightness (seafoam vs near-white ice) as redundant encoding.
      {CRGB(30, 120, 235), CRGB(235, 170, 60), CRGB(20, 200, 150),
       CRGB(150, 230, 240)},
-     {CRGB(4, 16, 31), CRGB(31, 22, 8), CRGB(3, 26, 20), CRGB(20, 30, 31)},
      CRGB(0, 38, 48),
      CRGB(0, 48, 144),
      CRGB(0, 5, 17),
@@ -155,13 +158,12 @@ CRGB current_COLOR_RANDOMIZE_IDLE;
      CRGB(15, 0, 22),
      CRGB(0, 188, 166),
      CRGB(0, 22, 15)},
-    {
+    {LEDTheme::VOLCANIC,
         // VOLCANIC - crimson (protan-boosted) / gold / tangerine / magma-pink.
         // Warm-family ramp with monotonic lightness as redundant channel plus
         // a pink outlier anchor; reds lifted to offset protan red-darkening.
         {CRGB(240, 70, 60), CRGB(250, 175, 45), CRGB(255, 150, 40),
          CRGB(255, 80, 160)},
-        {CRGB(31, 9, 8), CRGB(33, 23, 6), CRGB(33, 20, 5), CRGB(33, 10, 21)},
         CRGB(62, 22, 4),     // playheadAccent - dark lava accent
         CRGB(50, 20, 8),     // idleBreathingBlue - warm ember glow
         CRGB(12, 6, 4),      // editModeDimBlueV1 - very dark warm slate
@@ -189,13 +191,12 @@ CRGB current_COLOR_RANDOMIZE_IDLE;
         CRGB(255, 220, 150), // randomizeFlash - bright warm flash
         CRGB(24, 14, 10)     // randomizeIdle - dark subtle tone
     },
-    {
+    {LEDTheme::FOREST,
         // FOREST - leaf / bark-amber / glacial-lake blue / dry-grass gold.
         // Okabe-style green-vs-orange and blue-vs-yellow splits; no
         // green-vs-green pair is ever shown together.
         {CRGB(60, 195, 80), CRGB(225, 150, 55), CRGB(50, 160, 210),
          CRGB(200, 185, 70)},
-        {CRGB(8, 25, 10), CRGB(29, 20, 7), CRGB(7, 21, 27), CRGB(26, 24, 9)},
         CRGB(12, 55, 20),    // playheadAccent - deep forest accent
         CRGB(16, 36, 18),    // idleBreathingBlue - deep moss breathing
         CRGB(6, 12, 7),      // editModeDimBlueV1 - dark green slate
@@ -223,12 +224,11 @@ CRGB current_COLOR_RANDOMIZE_IDLE;
         CRGB(230, 250, 180), // randomizeFlash - pale flash
         CRGB(14, 20, 12)     // randomizeIdle - dark subtle tone
     },
-    {
+    {LEDTheme::NEON,
         // NEON - Tol-bright-style primaries: cyan / magenta / lime / violet.
         // All pairs 90+ degrees apart; lime moderated so it doesn't dominate.
         {CRGB(0, 225, 255), CRGB(255, 60, 220), CRGB(170, 235, 45),
          CRGB(165, 130, 255)},
-        {CRGB(0, 29, 33), CRGB(33, 8, 29), CRGB(22, 31, 6), CRGB(21, 17, 33)},
         CRGB(0, 55, 65),     // playheadAccent - deep cyan accent
         CRGB(0, 30, 60),     // idleBreathingBlue - neon blue breathing
         CRGB(0, 10, 16),     // editModeDimBlueV1 - dark cyan slate
@@ -256,13 +256,45 @@ CRGB current_COLOR_RANDOMIZE_IDLE;
         CRGB(255, 255, 255), // randomizeFlash - white flash
         CRGB(14, 14, 20)     // randomizeIdle - dark subtle tone
     },
+    {LEDTheme::MODERN,
+        // MODERN - dusty blue / clay / sage / rosewood. Muted chroma for the
+        // refined look, but pairs sit ~140+ degrees apart so muting never
+        // costs distinguishability; lightness equalized across voices.
+        {CRGB(110, 170, 215), CRGB(215, 150, 110), CRGB(95, 180, 125),
+         CRGB(225, 125, 180)},
+        CRGB(20, 55, 54),    // playheadAccent - muted teal accent
+        CRGB(60, 84, 110),   // idleBreathingBlue - slate blue for breathing
+        CRGB(12, 16, 20),    // editModeDimBlueV1 - dim slate
+        CRGB(18, 22, 26),    // editModeDimBlueV2 - slightly lighter slate
+        CRGB(200, 180, 160), // modNoteActive - soft warm note color
+        CRGB(70, 60, 56),    // modNoteInactive - desaturated
+        CRGB(180, 200, 220), // modVelocityActive - pale cyan
+        CRGB(64, 72, 80),    // modVelocityInactive
+        CRGB(140, 120, 160), // modFilterActive - muted mauve
+        CRGB(48, 36, 48),    // modFilterInactive
+        CRGB(220, 200, 140), // modDecayActive - soft amber
+        CRGB(64, 54, 36),    // modDecayInactive
+        CRGB(140, 160, 120), // modAttackActive - sage
+        CRGB(48, 56, 40),    // modAttackInactive
+        CRGB(220, 140, 180), // modOctaveActive - soft pink accent
+        CRGB(56, 28, 36),    // modOctaveInactive
+        CRGB(160, 200, 200), // modSlideActive - muted cyan-tint slide accent
+        CRGB(48, 64, 64),    // modSlideInactive
+        CRGB(200, 200, 200), // defaultActive - light gray for active defaults
+        CRGB(36, 36, 40),    // defaultInactive - near-black for inactive
+        CRGB(180, 220, 200), // modParamModeActive - pale green
+        CRGB(40, 48, 44),    // modParamModeInactive
+        CRGB(240, 200, 160), // modGateModeActive - warm highlight
+        CRGB(56, 48, 40),    // modGateModeInactive
+        CRGB(255, 210, 170), // randomizeFlash - bright warm flash
+        CRGB(40, 44, 46)     // randomizeIdle - subtle gray idle tone
+    },
     // DARK_NOCTIS - midnight blue / lantern amber / deep violet / moonlight.
     // One warm accent (the lantern) gives V1/V2 a CVD-safe split; V3/V4 pair
     // violet against bright moon-silver, distinct in hue AND lightness.
-    {
+    {LEDTheme::DARK_NOCTIS,
         {CRGB(50, 120, 210), CRGB(220, 150, 50), CRGB(150, 110, 225),
          CRGB(190, 215, 230)},
-        {CRGB(7, 16, 27), CRGB(29, 20, 7), CRGB(20, 14, 29), CRGB(25, 28, 30)},
         CRGB(18, 52, 85),    // playheadAccent - deep navy accent
         CRGB(18, 30, 50),    // idleBreathingBlue - muted navy
         CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
@@ -290,13 +322,12 @@ CRGB current_COLOR_RANDOMIZE_IDLE;
         CRGB(220, 200, 180), // randomizeFlash - soft warm flash
         CRGB(12, 12, 14)     // randomizeIdle - dark subtle tone
     },
-    {
+    {LEDTheme::DARK_EMBER,
         // DARK_EMBER - ember-red (protan-boosted) / gold / copper-rose /
         // pale flame. Monotonic lightness ramp carries identity for CVD
         // viewers; reds lifted to offset protan red-darkening.
         {CRGB(225, 65, 50), CRGB(250, 185, 70), CRGB(225, 110, 110),
          CRGB(255, 215, 150)},
-        {CRGB(29, 8, 7), CRGB(33, 24, 9), CRGB(29, 14, 14), CRGB(33, 28, 20)},
         CRGB(66, 26, 8), // playheadAccent - warm ember accent (was navy copy-paste)
         CRGB(28, 22,
              20), // idleBreathingBlue - warm slate for breathing (amber-tinted)
@@ -326,47 +357,12 @@ CRGB current_COLOR_RANDOMIZE_IDLE;
         CRGB(10, 8, 8)       // randomizeIdle - very dark idle tone
     },
 
-    {
-        // MODERN - dusty blue / clay / sage / rosewood. Muted chroma for the
-        // refined look, but pairs sit ~140+ degrees apart so muting never
-        // costs distinguishability; lightness equalized across voices.
-        {CRGB(110, 170, 215), CRGB(215, 150, 110), CRGB(95, 180, 125),
-         CRGB(225, 125, 180)},
-        {CRGB(14, 22, 28), CRGB(28, 20, 14), CRGB(12, 23, 16), CRGB(29, 16, 23)},
-        CRGB(20, 55, 54),    // playheadAccent - muted teal accent
-        CRGB(60, 84, 110),   // idleBreathingBlue - slate blue for breathing
-        CRGB(12, 16, 20),    // editModeDimBlueV1 - dim slate
-        CRGB(18, 22, 26),    // editModeDimBlueV2 - slightly lighter slate
-        CRGB(200, 180, 160), // modNoteActive - soft warm note color
-        CRGB(70, 60, 56),    // modNoteInactive - desaturated
-        CRGB(180, 200, 220), // modVelocityActive - pale cyan
-        CRGB(64, 72, 80),    // modVelocityInactive
-        CRGB(140, 120, 160), // modFilterActive - muted mauve
-        CRGB(48, 36, 48),    // modFilterInactive
-        CRGB(220, 200, 140), // modDecayActive - soft amber
-        CRGB(64, 54, 36),    // modDecayInactive
-        CRGB(140, 160, 120), // modAttackActive - sage
-        CRGB(48, 56, 40),    // modAttackInactive
-        CRGB(220, 140, 180), // modOctaveActive - soft pink accent
-        CRGB(56, 28, 36),    // modOctaveInactive
-        CRGB(160, 200, 200), // modSlideActive - muted cyan-tint slide accent
-        CRGB(48, 64, 64),    // modSlideInactive
-        CRGB(200, 200, 200), // defaultActive - light gray for active defaults
-        CRGB(36, 36, 40),    // defaultInactive - near-black for inactive
-        CRGB(180, 220, 200), // modParamModeActive - pale green
-        CRGB(40, 48, 44),    // modParamModeInactive
-        CRGB(240, 200, 160), // modGateModeActive - warm highlight
-        CRGB(56, 48, 40),    // modGateModeInactive
-        CRGB(255, 210, 170), // randomizeFlash - bright warm flash
-        CRGB(40, 44, 46)     // randomizeIdle - subtle gray idle tone
-    },
-    {
+    {LEDTheme::BLUE,
         // BLUE theme - monochrome ramp done right: monotonic lightness
         // (grayscale-correct ordering) with a deep-to-ice run plus an indigo
         // endpoint for hue assist. Lightness, not hue, carries identity here.
         {CRGB(25, 80, 210), CRGB(55, 160, 255), CRGB(95, 225, 255),
          CRGB(105, 95, 255)},
-        {CRGB(3, 10, 27), CRGB(7, 21, 33), CRGB(12, 29, 33), CRGB(14, 12, 33)},
         CRGB(18, 60, 105),   // playheadAccent - strong blue accent
         CRGB(16, 36, 80),    // idleBreathingBlue - deep ocean blue
         CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
@@ -394,13 +390,12 @@ CRGB current_COLOR_RANDOMIZE_IDLE;
         CRGB(255, 240, 220), // randomizeFlash - bright neutral flash
         CRGB(12, 12, 14)     // randomizeIdle - dark subtle tone
     },
-    {
+    {LEDTheme::GREEN,
         // GREEN theme - monochrome ramp: deep / bright / mint / lime with
         // monotonic lightness (grayscale-correct). Same sequential-encoding
         // treatment as BLUE.
         {CRGB(25, 155, 70), CRGB(55, 215, 105), CRGB(115, 250, 175),
          CRGB(175, 240, 85)},
-        {CRGB(3, 20, 9), CRGB(7, 28, 14), CRGB(15, 33, 23), CRGB(23, 31, 11)},
         CRGB(12, 68, 38),    // playheadAccent - strong forest accent
         CRGB(18, 44, 28),    // idleBreathingBlue - deep forest for breathing
         CRGB(8, 12, 10),     // editModeDimBlueV1 - very dark green slate
@@ -433,15 +428,72 @@ static_assert(sizeof(ALL_THEMES) / sizeof(ALL_THEMES[0]) ==
                   static_cast<int>(LEDTheme::COUNT),
               "Every LED theme needs one palette entry");
 
+// The table must sit at its own enum indices: LEDTheme indices are what the
+// theme cycler, the saved settings and the docs all use, so an entry in the
+// wrong slot shows one theme's colors under another theme's name.
+static constexpr bool themeTableMatchesEnumOrder() {
+  for (int i = 0; i < static_cast<int>(LEDTheme::COUNT); ++i) {
+    if (ALL_THEMES[i].theme != static_cast<LEDTheme>(i)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static_assert(themeTableMatchesEnumOrder(),
+              "ALL_THEMES must list themes in LEDTheme order");
+
 static const LEDThemeColors *activeThemeColors =
     &ALL_THEMES[static_cast<int>(LEDTheme::DEFAULT)];
 
-static const CRGB &getVoiceGateColor(const LEDThemeColors &themeColors,
-                                     uint8_t voiceIndex, bool gateActive) {
+// Gate-state rendering rule. A theme stores one hue per voice (gateOn in
+// ALL_THEMES above); the two gate states are that hue at two brightnesses,
+// always scaling all three channels by one factor so the hue — and with it the
+// voice identity — survives exactly:
+//  - on: lifted by GATE_ON_GAIN, or as far as the hue can go without a channel
+//    clipping. A hue whose brightest channel already sits at full scale cannot
+//    get brighter without losing saturation, so it stays where it is.
+//  - off: the same hue at 1/GATE_OFF_DIVISOR, dark enough that the gate
+//    pattern reads at a glance while an off step still shows its voice.
+static constexpr uint8_t GATE_ON_GAIN_NUM = 6;   // 1.2x
+static constexpr uint8_t GATE_ON_GAIN_DEN = 5;
+static constexpr uint8_t GATE_OFF_DIVISOR = 16;  // 1/16 of the hue
+
+// One channel of a gate-state scale. Rounds to the nearest step so the dim
+// off-state levels keep the hue that truncation would distort.
+static uint8_t scaleGateChannel(uint8_t channel, uint32_t numerator,
+                                uint32_t denominator) {
+  return static_cast<uint8_t>((static_cast<uint32_t>(channel) * numerator +
+                               denominator / 2) /
+                              denominator);
+}
+
+// Scales all three channels by numerator/denominator. Callers pass a numerator
+// no larger than the hue's own peak, so no channel can clip.
+static CRGB scaleGateHue(const CRGB &hue, uint32_t numerator,
+                         uint32_t denominator) {
+  return CRGB(scaleGateChannel(hue.r, numerator, denominator),
+              scaleGateChannel(hue.g, numerator, denominator),
+              scaleGateChannel(hue.b, numerator, denominator));
+}
+
+static CRGB getVoiceGateColor(const LEDThemeColors &themeColors,
+                              uint8_t voiceIndex, bool gateActive) {
   const uint8_t clampedVoiceIndex =
       voiceIndex < LED_THEME_VOICE_COUNT ? voiceIndex : 0;
-  return gateActive ? themeColors.gateOn[clampedVoiceIndex]
-                    : themeColors.gateOff[clampedVoiceIndex];
+  const CRGB &hue = themeColors.gateOn[clampedVoiceIndex];
+  if (!gateActive) {
+    return scaleGateHue(hue, 1, GATE_OFF_DIVISOR);
+  }
+
+  const uint8_t peak =
+      std::max<uint8_t>(hue.r, std::max<uint8_t>(hue.g, hue.b));
+  if (peak == 0) {
+    return hue;
+  }
+  const uint32_t liftedPeak =
+      static_cast<uint32_t>(peak) * GATE_ON_GAIN_NUM / GATE_ON_GAIN_DEN;
+  return scaleGateHue(hue, std::min<uint32_t>(liftedPeak, 255), peak);
 }
 
 void setLEDTheme(LEDTheme theme) {
@@ -593,9 +645,9 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
         color = selectedColor;
         color.nscale8(static_cast<uint8_t>(128 + 127 * pulse));
       } else {
-        // Available preset - dim steady
+        // Available preset - the voice's gate-off color, i.e. the same dim
+        // steady level an off step shows in the step row.
         color = availableColor;
-        color.nscale8(64);
       }
 
       ledMatrix.setLED(pad % LEDMatrix::WIDTH, pad / LEDMatrix::WIDTH, color);
