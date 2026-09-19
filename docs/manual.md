@@ -198,9 +198,11 @@ sets that voice's Gate track length (2–16 steps). Release the button to exit.
 A laser time-of-flight sensor (usable range **55–700 mm**) above the panel. It is the
 **hands-free performance controller**: hold (or Shift+latch) a parameter button, then move
 your hand over the sensor, and the reading is recorded live into the armed parameter of the
-currently playing step on the **selected voice** — e.g. sweep Filter over a pattern without
-touching anything. Pitch recording only lands on steps whose gate is ON. In Step Edit mode
-the sensor records into the selected step instead.
+currently playing step on the **selected voice** — playing or stopped, continuously: the
+sounding step follows your hand in real time (you hear the sweep immediately, without
+retriggering), and each step keeps the reading it last had while its cursor was on it —
+e.g. sweep Filter over a pattern without touching anything. Pitch recording only lands on
+steps whose gate is ON. In Step Edit mode the sensor records into the selected step instead.
 
 Since the Voice Editing mode landed (2026-09-11) the sensor records a **relative modifier**
 rather than an absolute value: the reading is normalized to 0–1, the midpoint (≈50 %) is
@@ -213,9 +215,6 @@ button is held, the OLED parameter screen always shows the sensor's current read
 at the right: plain (`412mm`) inside the recording window, in parentheses (`(812mm)`)
 outside it, and `--mm` with no measurement. A held parameter's screen takes priority over
 the settings and sequence-length screens.
-button is held, the OLED parameter screen always shows the sensor's current reading in mm
-at the right: plain (`412mm`) inside the recording window, in parentheses (`(812mm)`)
-outside it, and `--mm` with no measurement.
 
 ### 1.8 OLED display
 

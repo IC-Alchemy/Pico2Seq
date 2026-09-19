@@ -332,9 +332,10 @@ void loop() {
         distanceSensor.update();
         AppState::performanceInput.observeDistance(distanceSensor.getRawDistanceMm());
 
-        // Step-edit recording into the selected step; skipped while no hand is in range
-        if (uiState.selectedStepForEdit != -1) {
-            updateParametersForStep(uiState.selectedStepForEdit);
+        // Real-time recording: into the selected step (Step Edit) or the held
+        // lane's currently-playing step; skipped while no hand is in range
+        if (uiState.selectedStepForEdit != -1 || heldParameterActive) {
+            updateParametersForStep(/* selected or playing step */);
         }
     }
 }

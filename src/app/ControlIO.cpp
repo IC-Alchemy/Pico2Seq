@@ -231,14 +231,20 @@ void ControlIO::scanControls(uint32_t nowMs)
         // =======================
         //   REAL-TIME PARAMETER RECORDING
         // =======================
-        // Apply distance sensor values to step when parameter buttons are held
+        // Apply distance sensor values when parameter buttons are held. A step
+        // selected for edit wins; otherwise the held lane's currently-playing
+        // step is shaped continuously, playing or stopped — each step in turn
+        // keeps the reading it had while its cursor was on it, and the change
+        // is heard immediately via refreshVoiceParameters (no retrigger).
+        // Sequencer::advanceStep snapshots the same value at each clock tick;
+        // both writers run in this Core-0 thread context.
         if (!uiState.voiceEditor.active && !uiState.controlsWaitRelease &&
             getHeldParameterParamId(uiState) != ParamId::Count && AppState::performanceInput.handPresent)
         {
             freezeWatchdogMark(FW_LOOP_RECORD);
             const int targetStep = uiState.selectedStepForEdit != -1
                 ? uiState.selectedStepForEdit
-                : (!isClockRunning ? AppState::sequencerView.clamped(uiState.selectedVoiceIndex).getCurrentStepForParameter(getHeldParameterParamId(uiState)) : -1);
+                : AppState::sequencerView.clamped(uiState.selectedVoiceIndex).getCurrentStepForParameter(getHeldParameterParamId(uiState));
             if (targetStep >= 0 && targetStep < SequencerConstants::MAX_STEPS_COUNT)
             {
                 updateParametersForStep(static_cast<uint8_t>(targetStep));
