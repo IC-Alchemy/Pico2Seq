@@ -190,28 +190,57 @@ struct ParameterDefinition
   ParameterValueType maxValue;     // Maximum allowed value
   bool isBinary;                   // True for gate/slide-like parameters
   uint8_t defaultSteps;            // Default number of steps for this parameter
+  // Magnetic-encoder lane that records this parameter. COUNT marks step/toggle
+  // controls without an encoder lane (GateLength, Gate, Slide). Single source
+  // for the record-button <-> encoder-mode mapping formerly duplicated in
+  // ControlSurfaceLogic::encoderBaseModeForRecordParam() and EncoderManager's
+  // inverse switch.
+  EncoderParameterMode encoderMode;
 };
 
 /**
  * @brief Core parameter definitions array
  *
  * Defines metadata for all sequencer parameters. Array order MUST match ParamId enum.
- * Each entry specifies: name, defaultValue, minValue, maxValue, isBinary, defaultSteps
+ * Each entry specifies: name, defaultValue, minValue, maxValue, isBinary,
+ * defaultSteps, encoderMode (EncoderParameterMode::COUNT = no encoder lane)
  * Uses SequencerConstants for consistent step count defaults.
  */
 constexpr ParameterDefinition CORE_PARAMETERS[] = {
-    // Parameter Name    Default    Min       Max       Binary  Steps
+    // Parameter Name    Default    Min       Max       Binary  Steps       Encoder lane
     {"Note", 0, SequencerConstants::NOTE_PARAMETER_MIN, SequencerConstants::NOTE_PARAMETER_MAX,
-     false, SequencerConstants::DEFAULT_STEPS_COUNT}, // Integral scale step index (0-36)
-    {"Velocity", 0.5f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},     // Voice amplitude (0.0-1.0)
-    {"Filter", 0.5f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},       // Filter cutoff (0.0-1.0)
-    {"Attack", 0.01f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},      // Attack time (0.0-1.0 seconds)
-    {"Decay", 0.3f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},        // Decay time (0.0-1.0 seconds)
-    {"Octave", 0.5f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT},       // Neutral transpose at midpoint; patch mode spans -2..+2 octaves
-    {"GateLength", 0.5f, 0.001f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT}, // Gate duration (fraction of step)
-    {"Gate", false, false, true, true, SequencerConstants::DEFAULT_STEPS_COUNT},        // Gate on/off state
-    {"Slide", false, false, true, true, SequencerConstants::DEFAULT_STEPS_COUNT}        // Portamento enable
+     false, SequencerConstants::DEFAULT_STEPS_COUNT, EncoderParameterMode::Note}, // Integral scale step index (0-36)
+    {"Velocity", 0.5f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT, EncoderParameterMode::Velocity},     // Voice amplitude (0.0-1.0)
+    {"Filter", 0.5f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT, EncoderParameterMode::Filter},       // Filter cutoff (0.0-1.0)
+    {"Attack", 0.01f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT, EncoderParameterMode::Attack},      // Attack time (0.0-1.0 seconds)
+    {"Decay", 0.3f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT, EncoderParameterMode::Decay},        // Decay time (0.0-1.0 seconds)
+    {"Octave", 0.5f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT, EncoderParameterMode::Octave},       // Neutral transpose at midpoint; patch mode spans -2..+2 octaves
+    {"GateLength", 0.5f, 0.001f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT, EncoderParameterMode::COUNT}, // Gate duration (fraction of step)
+    {"Gate", false, false, true, true, SequencerConstants::DEFAULT_STEPS_COUNT, EncoderParameterMode::COUNT},        // Gate on/off state
+    {"Slide", false, false, true, true, SequencerConstants::DEFAULT_STEPS_COUNT, EncoderParameterMode::COUNT}        // Portamento enable
 };
+
+/**
+ * Every encoder lane in CORE_PARAMETERS must be unique: two parameters claiming
+ * the same lane would make record buttons and step-edit targeting ambiguous.
+ * Lane-less rows (COUNT) are exempt.
+ */
+constexpr bool parameterEncoderModesAreUnique()
+{
+  bool seen[static_cast<uint8_t>(EncoderParameterMode::COUNT)] = {};
+  for (uint8_t i = 0; i < PARAM_ID_COUNT; ++i)
+  {
+    const uint8_t lane = static_cast<uint8_t>(CORE_PARAMETERS[i].encoderMode);
+    if (lane >= static_cast<uint8_t>(EncoderParameterMode::COUNT))
+      continue; // Lane-less parameter
+    if (seen[lane])
+      return false;
+    seen[lane] = true;
+  }
+  return true;
+}
+static_assert(parameterEncoderModesAreUnique(),
+              "CORE_PARAMETERS encoder lanes must be unique across parameters");
 
 /**
  * @brief Voice synthesis parameters for audio output
@@ -280,67 +309,6 @@ struct Step
   uint16_t gateLengthTicks = SequencerConstants::DEFAULT_GATE_LENGTH_TICKS; // Gate duration in clock ticks
   bool isGateActive = false;                                                // Step active/inactive state
   bool hasSlide = false;                                                    // Portamento enable for this step
-};
-
-/**
- * @brief Gate timing system for automatic gate turn-off
- *
- * Manages gate duration timing with tick-based countdown. Used to automatically
- * turn off voice gates after the specified duration to prevent stuck notes.
- * All members are volatile for safe access from interrupt contexts.
- * Variable names include unit indicators for clarity.
- */
-struct GateTimer
-{
-  volatile bool isActive = false;            // Timer active state
-  volatile uint16_t ticksRemaining = 0;      // Clock ticks remaining until gate off
-  volatile uint32_t totalTicksProcessed = 0; // Debug counter for diagnostics
-
-  /**
-   * @brief Start gate timer with specified duration
-   * @param durationTicks Gate duration in clock ticks
-   */
-  void start(uint16_t durationTicks) volatile
-  {
-    isActive = true;
-    ticksRemaining = durationTicks;
-    totalTicksProcessed = 0; // Reset debug counter
-  }
-
-  /**
-   * @brief Process one clock tick
-   * Decrements remaining ticks and deactivates timer when expired
-   */
-  void tick() volatile
-  {
-    totalTicksProcessed++; // Always increment for debugging
-    if (isActive && ticksRemaining > 0)
-    {
-      ticksRemaining--;
-      if (ticksRemaining == 0)
-      {
-        isActive = false;
-      }
-    }
-  }
-
-  /**
-   * @brief Stop timer immediately
-   */
-  void stop() volatile
-  {
-    isActive = false;
-    ticksRemaining = 0;
-  }
-
-  /**
-   * @brief Check if timer has expired
-   * @return true if timer is inactive and no ticks remain
-   */
-  bool isExpired() const volatile
-  {
-    return !isActive && ticksRemaining == 0;
-  }
 };
 
 // --- Utility Functions ---

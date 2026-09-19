@@ -212,13 +212,19 @@ public:
 ```
 
 ### Main Class Interface (`src/OLED/oled.h`)
+
+The display borrows `AppState::sequencers` in voice order with an explicit
+count, as does `updateStepLEDs()`. It does not own the sequencers or construct a
+second routing table. Settings views use `UIState`'s derived predicates rather
+than mirrored mode flags.
+
 ```cpp
 class OLEDDisplay : public VoiceParameterObserver {
 public:
   OLEDDisplay();
   bool begin();
-  void update(const UIState &uiState, const Sequencer &seq1, const Sequencer &seq2,
-              const Sequencer &seq3, const Sequencer &seq4, VoiceManager *voiceManager);
+  void update(const UIState &uiState, Sequencer *const *sequencers,
+              size_t sequencerCount, VoiceManager *voiceManager = nullptr);
   void clear();
   bool isInitialized() const;
   void setVoiceManager(VoiceManager *voiceManager);

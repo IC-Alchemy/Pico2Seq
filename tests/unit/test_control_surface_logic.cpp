@@ -1,8 +1,9 @@
 // Unit tests for the Alchemy tile control surface decision logic
 // (src/ui/ControlSurfaceLogic.h/.cpp): ModeStabilizer, PadBank, ShiftLatch,
-// FaderMap. These are pure C++ — no hardware, no Arduino stubs needed.
+// FaderMap, plus UIState's Settings predicates (using host Arduino stubs).
 
 #include "ui/ControlSurfaceLogic.h"
+#include "ui/UIState.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -12,6 +13,34 @@
 #include <limits>
 
 using namespace ControlSurface;
+
+TEST_CASE("Settings predicates follow the active canonical sub-mode", "[control_surface][ui_state]")
+{
+    UIState state;
+    const UIState &view = state;
+    static_assert(noexcept(view.isPresetSelection()));
+    static_assert(noexcept(view.isVoiceParameterSettings()));
+
+    CHECK_FALSE(view.isPresetSelection());
+    CHECK_FALSE(view.isVoiceParameterSettings());
+
+    for (const auto subMode : {UIState::SettingsSubMode::PRESET_SELECTION,
+                              UIState::SettingsSubMode::VOICE_PARAMETER})
+    {
+        CAPTURE(static_cast<int>(subMode));
+        state.currentSubMode = subMode;
+        state.settingsMode = true;
+        CHECK(view.isPresetSelection() ==
+              (subMode == UIState::SettingsSubMode::PRESET_SELECTION));
+        CHECK(view.isVoiceParameterSettings() ==
+              (subMode == UIState::SettingsSubMode::VOICE_PARAMETER));
+
+        // Closing Settings leaves a remembered sub-mode, not an active mode.
+        state.settingsMode = false;
+        CHECK_FALSE(view.isPresetSelection());
+        CHECK_FALSE(view.isVoiceParameterSettings());
+    }
+}
 
 TEST_CASE("Parameter record buttons select their matching encoder base", "[control_surface]")
 {
@@ -44,6 +73,28 @@ TEST_CASE("Parameter record buttons select their matching encoder base", "[contr
         CHECK_FALSE(encoderBaseModeForRecordParam(nonRecordParam, mode));
         CHECK(mode == EncoderParameterMode::COUNT);
     }
+}
+
+TEST_CASE("Encoder lanes live in CORE_PARAMETERS, not in duplicated switches", "[control_surface][seqdefs]")
+{
+    // The descriptor table is the single source: the helper above must agree
+    // with it for every parameter, and the step-edit fallback must resolve
+    // each lane back to its owning parameter.
+    for (uint8_t i = 0; i < PARAM_ID_COUNT; ++i)
+    {
+        const ParamId param = static_cast<ParamId>(i);
+        const EncoderParameterMode lane = CORE_PARAMETERS[i].encoderMode;
+        EncoderParameterMode mode = EncoderParameterMode::COUNT;
+        CAPTURE(static_cast<int>(param), static_cast<int>(lane));
+        CHECK(encoderBaseModeForRecordParam(param, mode) ==
+              (lane != EncoderParameterMode::COUNT));
+        CHECK(mode == lane);
+        if (lane != EncoderParameterMode::COUNT)
+            CHECK(stepEditParameter(ParamId::Count, ParamId::Count, lane) == param);
+    }
+    // SlideTime has no sequencer lane and resolves to no parameter.
+    CHECK(stepEditParameter(ParamId::Count, ParamId::Count,
+                            EncoderParameterMode::SlideTime) == ParamId::Count);
 }
 
 TEST_CASE("Octave base offsets preserve and add to sequencer octaves", "[control_surface]")

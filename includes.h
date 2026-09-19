@@ -31,8 +31,7 @@
 #include "src/VelocityEncoder/src/MagEncoder.h"
 #include "src/sensors/EncoderManager.h"
 
-// MIDI and UI
-#include "src/midi/MidiManager.h"
+// UI
 #include "src/ui/UIEventHandler.h"
 #include "src/ui/ButtonManager.h"
 #include "src/ui/UIState.h"

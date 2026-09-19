@@ -11,7 +11,6 @@
 #include "UIConstants.h"
 #include "UIEventHandler.h"
 #include "../AlchemyUI/src/ButtonMap.h"
-#include "../midi/MidiManager.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../pico2seq-core/sequencer/ShuffleTemplates.h"
 
@@ -77,8 +76,7 @@ void AlchemyControlBridge::begin(TwoWire &bankA, TwoWire *bankB, uint32_t nowMs)
 }
 
 void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
-                                  Sequencer *const *sequencers, size_t sequencerCount,
-                                  MidiNoteManager &midiNoteManager)
+                                  Sequencer *const *sequencers, size_t sequencerCount)
 {
   // Poll due tiles first: one transaction pair at most per pass.
   panel_.update(nowMs);
@@ -112,7 +110,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
 
   // SliderModule buttons: voice select, or transport chords with Shift —
   // identical in both modes.
-  handleVoiceButtons(uiState, midiNoteManager, sequencers, sequencerCount);
+  handleVoiceButtons(uiState, sequencers, sequencerCount);
   if(uiState.voiceEditor.active) return;
 
   if (uiState.alchemyMode == UIState::AlchemyMode::Param)
@@ -169,7 +167,6 @@ void AlchemyControlBridge::onModeFlip(uint32_t nowMs, UIState &uiState)
 // --- SliderModule buttons --------------------------------------------------------
 
 void AlchemyControlBridge::handleVoiceButtons(UIState &uiState,
-                                              MidiNoteManager &midiNoteManager,
                                               Sequencer *const *sequencers,
                                               size_t sequencerCount)
 {
@@ -188,7 +185,7 @@ void AlchemyControlBridge::handleVoiceButtons(UIState &uiState,
     if (!shift)
     {
       // Direct voice select (also switches the pad banks via PadBank).
-      selectVoice(uiState, midiNoteManager, voice);
+      selectVoice(uiState, voice);
       continue;
     }
 

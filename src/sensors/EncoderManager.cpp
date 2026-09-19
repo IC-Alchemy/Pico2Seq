@@ -115,29 +115,9 @@ void updateEncoderBaseValues(UIState &uiState)
 
 // --- Helper Functions for Step Parameter Editing ---
 
-// Convert EncoderParameterMode to ParamId for step editing
-ParamId convertEncoderParameterToParamId(EncoderParameterMode encoderParam)
-{
-  switch (encoderParam)
-  {
-  case EncoderParameterMode::Note:
-    return ParamId::Note;
-  case EncoderParameterMode::Velocity:
-    return ParamId::Velocity;
-  case EncoderParameterMode::Filter:
-    return ParamId::Filter;
-  case EncoderParameterMode::Attack:
-    return ParamId::Attack;
-  case EncoderParameterMode::Decay:
-    return ParamId::Decay;
-  case EncoderParameterMode::Octave:
-    return ParamId::Octave;
-  case EncoderParameterMode::SlideTime:
-    return ParamId::Count; // SlideTime is not a step parameter
-  default:
-    return ParamId::Count; // Invalid for step editing
-  }
-}
+// Note: the former encoder-to-parameter inverse switch was removed;
+// ControlSurface::stepEditParameter() resolves encoder lanes from
+// CORE_PARAMETERS instead, so there is a single mapping to maintain.
 
 float getParameterMinValueForParamId(ParamId paramId)
 {

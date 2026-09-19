@@ -1,6 +1,7 @@
 #include "LEDMatrixFeedback.h"
 #include <Arduino.h>
 #include <FastLED.h>
+#include <algorithm>
 #include <cmath>
 
 #include "../pico2seq-core/sequencer/Sequencer.h"
@@ -9,6 +10,7 @@
 #include "../ui/UIEventHandler.h"
 #include "../utils/Debug.h"
 #include "../voice/VoicePresets.h"
+#include "../voice/VoiceSystem.h"
 #include "LEDConstants.h"
 #include "ledMatrix.h"
 
@@ -520,7 +522,7 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
     ledMatrix.getLeds()[i] = CRGB::Black;
   }
 
-  if (uiState.inPresetSelection) {
+  if (uiState.isPresetSelection()) {
     // Preset selection mode - light every pad that holds a preset
     const uint8_t totalPresets = VoicePresets::getPresetCount();
 
@@ -584,7 +586,7 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
 }
 
 void updateVoiceParameterLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
-  if (!uiState.inVoiceParameterMode)
+  if (!uiState.isVoiceParameterSettings())
     return;
 
   // Get active theme colors
@@ -607,15 +609,15 @@ void updateVoiceParameterLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
 
   switch (uiState.lastVoiceParameterButton) {
   case 9: // Envelope
-    paramColor = uiState.isVoice2Mode ? activeThemeColors->modAttackActive
+    paramColor = (uiState.selectedVoiceIndex == 1) ? activeThemeColors->modAttackActive
                                       : activeThemeColors->modDecayActive;
     break;
   case 10: // Overdrive
-    paramColor = uiState.isVoice2Mode ? activeThemeColors->modFilterActive
+    paramColor = (uiState.selectedVoiceIndex == 1) ? activeThemeColors->modFilterActive
                                       : activeThemeColors->modVelocityActive;
     break;
   case 11: // (was Wavefolder; button removed with the wavefolder effect)
-    paramColor = uiState.isVoice2Mode ? activeThemeColors->modOctaveActive
+    paramColor = (uiState.selectedVoiceIndex == 1) ? activeThemeColors->modOctaveActive
                                       : activeThemeColors->modNoteActive;
     break;
   case 12: // Filter Mode
@@ -623,11 +625,11 @@ void updateVoiceParameterLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
         getVoiceGateColor(*activeThemeColors, uiState.selectedVoiceIndex, true);
     break;
   case 13: // Filter Resonance
-    paramColor = uiState.isVoice2Mode ? activeThemeColors->modSlideActive
+    paramColor = (uiState.selectedVoiceIndex == 1) ? activeThemeColors->modSlideActive
                                       : activeThemeColors->modParamModeActive;
     break;
   default:
-    paramColor = uiState.isVoice2Mode ? activeThemeColors->defaultActive
+    paramColor = (uiState.selectedVoiceIndex == 1) ? activeThemeColors->defaultActive
                                       : activeThemeColors->defaultInactive;
     break;
   }
@@ -750,9 +752,8 @@ static void renderVoicePair(LEDMatrix &ledMatrix,
   }
 }
 
-void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
-                    const Sequencer &seq2, const Sequencer &seq3,
-                    const Sequencer &seq4, const UIState &uiState, int mm) {
+void updateStepLEDs(LEDMatrix &ledMatrix, Sequencer *const *sequencers,
+                    size_t sequencerCount, const UIState &uiState, int mm) {
   // If requested, immediately clear smoothed buffers to force a visual refresh
   if (uiState.resetStepsLightsFlag) {
     for (int i = 0; i < LEDConstants::MATRIX_TOTAL_LEDS; ++i) {
@@ -771,11 +772,23 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
   }
 
   // Handle voice parameter mode LED feedback
-  if (uiState.inVoiceParameterMode &&
+  if (uiState.isVoiceParameterSettings() &&
       (millis() - uiState.voiceParameterChangeTime < 3000)) {
     updateVoiceParameterLEDs(ledMatrix, uiState);
     return;
   }
+
+  // Match OLED and the control path: invalid selections use the last voice.
+  const uint8_t selectedVoice = std::min<uint8_t>(
+      uiState.selectedVoiceIndex, VoiceSystem::MAX_VOICES - 1);
+  if (!sequencers || selectedVoice >= sequencerCount || !sequencers[selectedVoice]) {
+    for (int i = 0; i < LEDConstants::MATRIX_TOTAL_LEDS; ++i) {
+      smoothedTargetColorBuffer[i] = CRGB::Black;
+      ledMatrix.getLeds()[i] = CRGB::Black;
+    }
+    return;
+  }
+  const Sequencer &activeSeq = *sequencers[selectedVoice];
 
   const ParamId heldParamIdForLength = getHeldParameterParamId(uiState);
   bool anyParamForLengthHeld = (heldParamIdForLength != ParamId::Count);
@@ -785,17 +798,10 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
   // Gate sequence length mode visualization: blink LEDs up to current gate
   // length for selected voice
   if (uiState.gateSeqLengthMode) {
-    // Select active sequencer by selectedVoiceIndex (0..3)
-    const Sequencer *seqPtr = (uiState.selectedVoiceIndex == 0)   ? &seq1
-                              : (uiState.selectedVoiceIndex == 1) ? &seq2
-                              : (uiState.selectedVoiceIndex == 2) ? &seq3
-                                                                  : &seq4;
-    const Sequencer &activeSeq = *seqPtr;
-
     const uint8_t selBand = ControlSurface::LedLayout::bandOfVoiceInPair(
-        uiState.selectedVoiceIndex);
+        selectedVoice);
     const CRGB withinColorBase = getVoiceGateColor(
-        *getActiveThemeColors(), uiState.selectedVoiceIndex, true);
+        *getActiveThemeColors(), selectedVoice, true);
 
     // Simple blink state
     static bool blinkState = false;
@@ -841,12 +847,6 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
   }
 
   if (uiState.slideMode) {
-    // Select sequencer based on selectedVoiceIndex (0..3)
-    const Sequencer *seqPtr = (uiState.selectedVoiceIndex == 0)   ? &seq1
-                              : (uiState.selectedVoiceIndex == 1) ? &seq2
-                              : (uiState.selectedVoiceIndex == 2) ? &seq3
-                                                                  : &seq4;
-    const Sequencer &activeSeq = *seqPtr;
     uint8_t slidePlayhead =
         activeSeq.getCurrentStepForParameter(ParamId::Slide);
     uint8_t slideLength = activeSeq.getParameterStepCount(ParamId::Slide);
@@ -874,7 +874,7 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
       const int x = ControlSurface::LedLayout::x(step);
       const int y = ControlSurface::LedLayout::y(
           ControlSurface::LedLayout::bandOfVoiceInPair(
-              uiState.selectedVoiceIndex),
+              selectedVoice),
           step);
       if (x >= 0 && y >= 0) {
         ledMatrix.setLED(x, y, color);
@@ -885,21 +885,15 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
 
   bool paramValueEditActive = isAnyParameterButtonHeld(uiState);
 
-  // Helper to fetch by selected voice
-  auto &activeSeqRef = (uiState.selectedVoiceIndex == 0)   ? seq1
-                       : (uiState.selectedVoiceIndex == 1) ? seq2
-                       : (uiState.selectedVoiceIndex == 2) ? seq3
-                                                           : seq4;
-
   if (paramValueEditActive) {
     uint8_t currentLength =
-        activeSeqRef.getParameterStepCount(activeParamIdForLength);
+        activeSeq.getParameterStepCount(activeParamIdForLength);
     uint8_t paramPlayhead =
-        activeSeqRef.getCurrentStepForParameter(activeParamIdForLength);
+        activeSeq.getCurrentStepForParameter(activeParamIdForLength);
 
     // Dim the non-selected band (top or bottom) in the current page
     const uint8_t selBand = ControlSurface::LedLayout::bandOfVoiceInPair(
-        uiState.selectedVoiceIndex);
+        selectedVoice);
     bool isSecondInPair = selBand == 1;
     for (int step = 0; step < SEQ_STEPS; ++step) {
       int topIndex = ControlSurface::LedLayout::linearIndex(0, step);
@@ -923,7 +917,7 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
     for (int step = 0; step < SEQ_STEPS; ++step) {
       CRGB targetColor;
       if (step < currentLength) {
-        if (step == paramPlayhead && activeSeqRef.isRunning()) {
+        if (step == paramPlayhead && activeSeq.isRunning()) {
           targetColor = getParameterColor(activeParamIdForLength, 180);
         } else {
           // Use V1 tint for top row, V2 tint for bottom row
@@ -945,17 +939,17 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
 
   if (anyParamForLengthHeld) {
     uint8_t currentLength =
-        activeSeqRef.getParameterStepCount(activeParamIdForLength);
+        activeSeq.getParameterStepCount(activeParamIdForLength);
     uint8_t paramPlayhead =
-        activeSeqRef.getCurrentStepForParameter(activeParamIdForLength);
+        activeSeq.getCurrentStepForParameter(activeParamIdForLength);
 
     // Paint only the selected band's within-length area
     const uint8_t selBand = ControlSurface::LedLayout::bandOfVoiceInPair(
-        uiState.selectedVoiceIndex);
+        selectedVoice);
     bool isSecondInPair = selBand == 1;
     for (int step = 0; step < currentLength; ++step) {
       CRGB targetColor =
-          (step == paramPlayhead && activeSeqRef.isRunning())
+          (step == paramPlayhead && activeSeq.isRunning())
               ? getParameterColor(activeParamIdForLength, 180)
               : (isSecondInPair ? activeThemeColors->editModeDimBlueV2
                                 : activeThemeColors->editModeDimBlueV1);
@@ -976,8 +970,7 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
              smoothedTargetColorBuffer[otherIndex], 150);
     }
   } else {
-    // Determine which voice pair to display based on selectedVoiceIndex
-    bool showFirstPair = (uiState.selectedVoiceIndex < 2);
+    const auto pair = ControlSurface::PadBank::pairFor(selectedVoice);
     const LEDThemeColors *theme = getActiveThemeColors();
 
     // Clear first to avoid ghosting when switching pages
@@ -987,28 +980,24 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const Sequencer &seq1,
       nblend(ledMatrix.getLeds()[i], smoothedTargetColorBuffer[i], 64);
     }
 
-    // Render either voices 1/2 (page 1) or 3/4 (page 2)
-    if (showFirstPair) {
-      renderVoicePair(ledMatrix, seq1, seq2, theme, 0, 0);
-    } else {
-      renderVoicePair(ledMatrix, seq3, seq4, theme, 2, 0);
+    if (pair.lowVoice >= sequencerCount || pair.highVoice >= sequencerCount ||
+        !sequencers[pair.lowVoice] || !sequencers[pair.highVoice]) {
+      return;
     }
+    const Sequencer &lowSequence = *sequencers[pair.lowVoice];
+    const Sequencer &highSequence = *sequencers[pair.highVoice];
+    renderVoicePair(ledMatrix, lowSequence, highSequence, theme, pair.lowVoice, 0);
 
     // Polyrhythmic overlays for the visible pair only
-    if (showFirstPair) {
-      addPolyrhythmicOverlay(ledMatrix, seq1, 0, 32);
-      addPolyrhythmicOverlay(ledMatrix, seq2, 1, 32);
-    } else {
-      addPolyrhythmicOverlay(ledMatrix, seq3, 0, 32);
-      addPolyrhythmicOverlay(ledMatrix, seq4, 1, 32);
-    }
+    addPolyrhythmicOverlay(ledMatrix, lowSequence, 0, 32);
+    addPolyrhythmicOverlay(ledMatrix, highSequence, 1, 32);
 
     // Highlight selected step if editing
     if (uiState.selectedStepForEdit >= 0 &&
         uiState.selectedStepForEdit < SEQ_STEPS) {
       int ledIndex = ControlSurface::LedLayout::linearIndex(
           ControlSurface::LedLayout::bandOfVoiceInPair(
-              uiState.selectedVoiceIndex),
+              selectedVoice),
           static_cast<uint8_t>(uiState.selectedStepForEdit));
 
       static bool blinkState = false;

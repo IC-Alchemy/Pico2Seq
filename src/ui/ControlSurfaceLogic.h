@@ -42,35 +42,17 @@ inline constexpr bool kModeParamLevel = false;
 /**
  * Resolve a parameter-record button to the matching encoder base target.
  *
- * Only the six continuous parameters that have physical record buttons are
- * eligible. Gate, GateLength, and Slide remain step/toggle controls.
+ * Reads the parameter descriptor table (CORE_PARAMETERS): a parameter with an
+ * encoder lane is recordable, and its lane is the encoder base target. Gate,
+ * GateLength, and Slide carry no lane and remain step/toggle controls.
  */
 constexpr bool encoderBaseModeForRecordParam(ParamId paramId,
                                              EncoderParameterMode &mode)
 {
-  switch (paramId)
-  {
-  case ParamId::Note:
-    mode = EncoderParameterMode::Note;
-    return true;
-  case ParamId::Velocity:
-    mode = EncoderParameterMode::Velocity;
-    return true;
-  case ParamId::Filter:
-    mode = EncoderParameterMode::Filter;
-    return true;
-  case ParamId::Attack:
-    mode = EncoderParameterMode::Attack;
-    return true;
-  case ParamId::Decay:
-    mode = EncoderParameterMode::Decay;
-    return true;
-  case ParamId::Octave:
-    mode = EncoderParameterMode::Octave;
-    return true;
-  default:
+  if (static_cast<uint8_t>(paramId) >= PARAM_ID_COUNT)
     return false;
-  }
+  mode = CORE_PARAMETERS[static_cast<uint8_t>(paramId)].encoderMode;
+  return mode != EncoderParameterMode::COUNT;
 }
 
 /**
@@ -88,8 +70,7 @@ constexpr ParamId stepEditParameter(ParamId held, ParamId toggled,
     return toggled;
   for (uint8_t i = 0; i < PARAM_ID_COUNT; ++i)
   {
-    EncoderParameterMode mode = EncoderParameterMode::COUNT;
-    if (encoderBaseModeForRecordParam(static_cast<ParamId>(i), mode) && mode == encoderMode)
+    if (CORE_PARAMETERS[i].encoderMode == encoderMode)
       return static_cast<ParamId>(i);
   }
   return ParamId::Count;

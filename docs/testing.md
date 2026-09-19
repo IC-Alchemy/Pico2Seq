@@ -49,7 +49,7 @@ files; host CMake does not compile that startup/I2S/control glue.
 | **Tier 2: Light Stubs** | Musical Scales | `src/pico2seq-core/scales/scales.cpp` | Requires minimal `Arduino.h` type aliases (`uint8_t`, `String`). |
 | **Tier 2: Light Stubs** | Sequencer Logic | `src/pico2seq-core/sequencer/{Sequencer,ParameterManager}.cpp` | Requires `Arduino.h` and `pico/sync.h` spinlock stubs. |
 | **Tier 2: Light Stubs** | Voice & Presets | `src/voice/{Voice,VoicePresets}.cpp` | Requires staged parameter and scale table injection. |
-| **Tier 3: Hardware-Bound** | I2S, LED, OLED, MIDI, Sensors | `src/audio/`, `src/LEDMatrix/`, `src/OLED/`, `src/midi/`, `src/sensors/` | Hardware-dependent glue. Kept thin; validated on physical hardware. |
+| **Tier 3: Hardware-Bound** | I2S, LED, OLED, Sensors | `src/audio/`, `src/LEDMatrix/`, `src/OLED/`, `src/sensors/` | Hardware-dependent glue. Kept thin; validated on physical hardware. |
 
 ---
 

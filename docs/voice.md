@@ -4,7 +4,7 @@ For adding sounds, start with the [voice and preset extension guide](../src/voic
 
 ## 1. Overview
 
-The voice module provides a comprehensive synthesizer voice system with multi-oscillator synthesis, selectable ladder/state-variable filtering, effects processing, lock-free parameter staging, and preset management. It is designed specifically for the dual-core Raspberry Pi Pico 2 (RP2350) architecture and integrates with the sequencer, UI, and MIDI systems.
+The voice module provides a comprehensive synthesizer voice system with multi-oscillator synthesis, selectable ladder/state-variable filtering, effects processing, lock-free parameter staging, and preset management. It is designed specifically for the dual-core Raspberry Pi Pico 2 (RP2350) architecture and integrates with the sequencer and UI systems.
 
 ### 1.1 Architecture Components
 
@@ -12,14 +12,18 @@ The voice system consists of several key components:
 
 - **`Voice`**: Individual synthesizer voice encapsulating oscillators, a main filter (ladder or state-variable, per `filterType`), high-pass filter, ADSR envelope, overdrive waveshaper, and lock-free parameter/pitch staging.
 - **`VoiceManager`**: Manages multiple voices with allocation, deallocation, master volume scaling, per-voice mix levels, and unified block audio processing.
-- **`VoiceSystem`**: Centralized structure consolidating voice IDs, states, gates, and gate countdown timers into arrays for `MAX_VOICES = 4` voices.
+- **`VoiceSystem`**: Centralized structure consolidating voice IDs and control-core state snapshots into arrays for `MAX_VOICES = 4` voices.
 - **`VoicePresets`**: Registry of 29 presets, built from grouped preset headers and one `PresetBank.h` list. Fourteen recipe presets cover FM, phase distortion, DSF, formants, ring modulation, reversing sync and spectral/chaotic synthesis. See the [musical preset bank](../src/voice/README.md#musical-preset-bank) for the latest eight sounds and their controls.
 - **`VoiceOscillator`**: Variant-based dispatcher decoupling numeric waveform IDs from `rpdsp` oscillator classes.
 - **Supporting Classes**: `VoiceManagerBuilder` and `VoiceFactory` for builder-pattern and pre-configured voice setups.
 
 ### 1.2 VoiceSystem Centralization
 
-The `VoiceSystem` struct provides centralized voice tracking:
+The `VoiceSystem` struct provides centralized voice tracking. Each sequencer
+owns note duration; PPQN expiry publishes gate-off through `VoiceManager`.
+There are no separate gate timers or MIDI trackers in this structure. See
+[VoiceSystem ownership](VoiceSystem.md#3-ownership-and-routing).
+
 
 ```cpp
 struct VoiceSystem {
@@ -28,21 +32,12 @@ struct VoiceSystem {
     uint8_t voiceIds[MAX_VOICES] = {0, 0, 0, 0};
     VoiceState voiceStates[MAX_VOICES];
 
-    // Gate states and duration countdown timers across all 4 voices (0-3)
-    volatile bool gates[MAX_VOICES] = {false, false, false, false};
-    GateTimer gateTimers[MAX_VOICES];
-
     uint8_t getVoiceId(uint8_t voiceIndex) const;
     void setVoiceId(uint8_t voiceIndex, uint8_t voiceId);
 
     VoiceState& getVoiceState(uint8_t voiceIndex);
     const VoiceState& getVoiceState(uint8_t voiceIndex) const;
 
-    volatile bool& getGate(uint8_t voiceIndex);
-    GateTimer& getGateTimer(uint8_t voiceIndex);
-
-    void stopAllGates();
-    void tickAllGateTimers();
 };
 
 extern VoiceSystem voiceSystem;

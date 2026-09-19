@@ -38,28 +38,12 @@ void endRandomizePress(int voiceIndex, UIState &state)
 // Handle randomize button behavior for a single voice
 void handleRandomizeButton(int voiceIndex, UIState &state)
 {
-  if (voiceIndex < 0 || voiceIndex >= UIState::NUM_RANDOMIZE)
+  if (voiceIndex < 0 || voiceIndex >= UIState::NUM_RANDOMIZE ||
+      voiceIndex >= VoiceSystem::MAX_VOICES)
     return;
-
-  // Get the appropriate sequencer
-  Sequencer *seq = nullptr;
-  switch (voiceIndex)
-  {
-  case 0:
-    seq = &seq1;
-    break;
-  case 1:
-    seq = &seq2;
-    break;
-  case 2:
-    seq = &seq3;
-    break;
-  case 3:
-    seq = &seq4;
-    break;
-  default:
+  Sequencer *seq = AppState::sequencers[voiceIndex];
+  if (!seq)
     return;
-  }
 
   // Calculate press duration and branch accordingly
   unsigned long heldTime = millis() - state.randomizePressTime[voiceIndex];
@@ -110,8 +94,7 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)
   // Work on a local copy to avoid mutating live config from UI thread
   VoiceConfig config = *liveCfg;
 
-  // Set UI state for voice parameter mode feedback
-  state.inVoiceParameterMode = true;
+  // Record parameter feedback without changing Settings navigation.
   state.lastVoiceParameterButton = paramIndex;
   state.voiceParameterChangeTime = millis();
 

@@ -87,7 +87,7 @@ void initButtonManager(UIState &uiState)
   // Initialize UI mode states
   uiState.modGateParamSeqLengthsMode = false;
   uiState.slideMode = false;
-  uiState.isVoice2Mode = false;
+  uiState.selectedVoiceIndex = 0;
   uiState.selectedStepForEdit = -1;
 
   // Reset transient OLED notice state

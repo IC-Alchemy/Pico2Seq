@@ -23,9 +23,8 @@ struct UIState
     // --- Mode States ---
     bool modGateParamSeqLengthsMode = false;
     bool slideMode = false;
-    // Selected voice index 0..3 (replaces isVoice2Mode)
+    // Selected voice index 0..3.
     uint8_t selectedVoiceIndex = 0;
-    bool isVoice2Mode = false; // Legacy flag (kept for compatibility in some code paths)
     int selectedStepForEdit = -1;
     ParamId currentEditParameter = ParamId::Count; // Parameter being edited in toggle mode (Count = none)
     int currentThemeIndex = 0;
@@ -68,8 +67,17 @@ struct UIState
     enum class SettingsSubMode : uint8_t { PRESET_SELECTION = 0, VOICE_PARAMETER = 1 };
     SettingsSubMode currentSubMode = SettingsSubMode::PRESET_SELECTION;
 
+    bool isPresetSelection() const noexcept
+    {
+        return settingsMode && currentSubMode == SettingsSubMode::PRESET_SELECTION;
+    }
+
+    bool isVoiceParameterSettings() const noexcept
+    {
+        return settingsMode && currentSubMode == SettingsSubMode::VOICE_PARAMETER;
+    }
+
     uint8_t settingsSubMenuIndex = 0; // For preset selection
-    bool inPresetSelection = false;
     static constexpr int MAX_VOICES = 4;
     uint8_t voicePresetIndices[MAX_VOICES] = {4, 2, 1, 6}; // Default presets: Square, Bass, Digital, Percussion (indices into VoicePresets)
     unsigned long playStopPressTime = 0;
@@ -82,7 +90,6 @@ struct UIState
     bool gateSeqLengthMode = false; // When true, step buttons set Gate track length (per selected voice)
 
     // --- Voice Parameter Editing State ---
-    bool inVoiceParameterMode = false;
     uint8_t lastVoiceParameterButton = 0;       // Track which voice parameter was last changed
     unsigned long voiceParameterChangeTime = 0; // Timestamp of last voice parameter change
 

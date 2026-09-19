@@ -60,17 +60,6 @@ void updateEncoderBaseValues(UIState& uiState);
 // ======================
 
 /**
- * @brief Convert encoder parameter mode to sequencer ParamId
- *
- * Maps encoder parameter types to their corresponding sequencer parameter IDs
- * for step editing functionality.
- *
- * @param encoderParam The encoder parameter mode to convert
- * @return Corresponding ParamId, or ParamId::Count if not applicable
- */
-ParamId convertEncoderParameterToParamId(EncoderParameterMode encoderParam);
-
-/**
  * @brief Get minimum value for sequencer parameter ID
  *
  * @param paramId The sequencer parameter ID to query

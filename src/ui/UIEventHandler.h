@@ -13,7 +13,6 @@
 
 // Forward declarations to prevent circular dependencies
 class Sequencer;
-class MidiNoteManager; // Forward declare MidiNoteManager
 
 // =======================
 //   CONSTANTS
@@ -33,25 +32,17 @@ class MidiNoteManager; // Forward declare MidiNoteManager
  * @param sequencers      Array of non-owning Sequencer* pointers. Must have at least two
  *                        entries for full functionality; additional entries are allowed.
  * @param sequencerCount  Number of entries in the sequencers array.
- * @param midiNoteManager MIDI note lifecycle manager for note on/off and CC handling.
  */
 void matrixEventHandler(const MatrixButtonEvent &evt,
                         UIState &uiState,
                         Sequencer *const *sequencers,
-                        size_t sequencerCount,
-                        MidiNoteManager &midiNoteManager);
+                        size_t sequencerCount);
 
 /**
  * Poll UI-held buttons (long-press detection) using the supplied sequencer array.
- *
- * The canonical implementation accepts a sequencer pointer array and its length.
- * A convenience overload forwards to this signature.
+ * Accepts a non-owning routing table in voice order and its length.
  */
 void pollUIHeldButtons(UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount);
-
-// Convenience overload for the Core-0 loop's seq1..seq4 call pattern
-void pollUIHeldButtons(UIState &uiState, Sequencer &seq1, Sequencer &seq2,
-                       Sequencer &seq3, Sequencer &seq4);
 
 // =======================
 //   ALCHEMY TILE BRIDGE ENTRY POINTS
@@ -86,13 +77,12 @@ void endEncoderControlHold(UIState &uiState);
  * @brief Direct voice selection (SliderModule Voice1..4 buttons, both modes).
  * Mirrors the old cycling voice-switch behavior minus the cycling.
  */
-void selectVoice(UIState &uiState, MidiNoteManager &midiNoteManager, uint8_t voiceIndex);
+void selectVoice(UIState &uiState, uint8_t voiceIndex);
 
 /**
  * @brief Open or close Settings (the preset browser).
- * Every control that opens or closes Settings goes through these, so the
- * sub-mode and its legacy mirror flags always agree. Opening starts in preset
- * selection for the selected voice.
+ * Opening starts in preset selection for the selected voice. Closing disables
+ * Settings; sub-mode predicates are gated by settingsMode.
  */
 void openSettingsMode(UIState &uiState);
 void closeSettingsMode(UIState &uiState);

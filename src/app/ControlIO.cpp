@@ -190,13 +190,13 @@ void ControlIO::beginMatrixAndTiles()
         Serial.print(evt.buttonIndex);
         Serial.print(evt.type == MATRIX_BUTTON_PRESSED ? " pressed" : " released");
         Serial.println();
-        matrixEventHandler(evt, uiState, AppState::sequencers, VoiceSystem::MAX_VOICES, midiNoteManager); });
+        matrixEventHandler(evt, uiState, AppState::sequencers, VoiceSystem::MAX_VOICES); });
 }
 
 void ControlIO::pollHeldButtons()
 {
     freezeWatchdogFeed(FW_LOOP_HELD_BUTTONS);
-    pollUIHeldButtons(uiState, seq1, seq2, seq3, seq4);
+    pollUIHeldButtons(uiState, AppState::sequencers, VoiceSystem::MAX_VOICES);
 }
 
 void ControlIO::scanControls(uint32_t nowMs)
@@ -213,8 +213,7 @@ void ControlIO::scanControls(uint32_t nowMs)
         // Poll the Alchemy tiles (param/utility buttons, voice selects,
         // faders, GP7 mode strap) and translate edges into UI actions.
         freezeWatchdogMark(FW_LOOP_TILES);
-        controls.alchemyBridge.update(nowMs, uiState, AppState::sequencers, VoiceSystem::MAX_VOICES,
-                             midiNoteManager);
+        controls.alchemyBridge.update(nowMs, uiState, AppState::sequencers, VoiceSystem::MAX_VOICES);
 
         // Update magnetic encoder for base parameter control
         freezeWatchdogMark(FW_LOOP_ENCODER);
@@ -263,10 +262,12 @@ void ControlIO::refreshDisplays(uint32_t nowMs)
         }
 
         // Update step sequence LEDs
-        updateStepLEDs(controls.ledMatrix, seq1, seq2, seq3, seq4, uiState, AppState::performanceInput.distanceAboveMinimumMm);
+        updateStepLEDs(controls.ledMatrix, AppState::sequencers, VoiceSystem::MAX_VOICES,
+                       uiState, AppState::performanceInput.distanceAboveMinimumMm);
 
         // Update OLED display
-        controls.display.update(uiState, seq1, seq2, seq3, seq4, voiceManager.get());
+        controls.display.update(uiState, AppState::sequencers, VoiceSystem::MAX_VOICES,
+                                voiceManager.get());
 
         // Apply LED updates to hardware
         freezeWatchdogMark(FW_LOOP_LEDS);

@@ -29,8 +29,7 @@ void clearPerformanceControls() {
     held = false;
   for (auto &timestamp : uiState.padPressTimestamps)
     timestamp = 0;
-  uiState.settingsMode = uiState.inPresetSelection =
-      uiState.inVoiceParameterMode = false;
+  uiState.settingsMode = false;
   uiState.encoderControlWasPressed = uiState.gateSeqLengthMode = false;
   uiState.modGateParamSeqLengthsMode = uiState.slideMode = false;
   uiState.playStopWasPressed = uiState.voiceSwitchWasPressed = false;
@@ -81,7 +80,6 @@ void buttons(uint8_t buttons, uint8_t voices, uint32_t now) {
     clearEncoder();
   if (input.voice >= 0) {
     uiState.selectedVoiceIndex = static_cast<uint8_t>(input.voice);
-    uiState.isVoice2Mode = input.voice == 1;
   }
   const uint8_t index = uiState.selectedVoiceIndex;
   if (!voiceManager || index >= 4)

@@ -271,8 +271,8 @@ Ten color themes are available (cycle with Utility button 5) — see §6.
 
 There are **no hardware gate outputs** in the current firmware: the old GPIO gate/clock
 pins were reassigned to the I2S audio output. "Gate" now means the internal gate timing
-only — the `MidiNoteManager` state machine still runs gate/note bookkeeping for voices 1–2
- internally, but nothing is transmitted anywhere.
+only — each of the four sequencers owns its note duration and publishes gate-off
+to audio on expiry. Nothing is transmitted over MIDI.
 
 ---
 
@@ -640,10 +640,9 @@ from the firmware; display names are as documented in `docs/LEDMatrix.md`:
 
 Pico2Seq does **not** transmit or receive any MIDI. The USB port enumerates as a CDC serial
 device (Adafruit TinyUSB stack) and carries power plus the 115200-baud diagnostics console
-only. What remains of the old MIDI subsystem is the internal `MidiNoteManager` state
-machine: it still performs the gate/note lifecycle bookkeeping (note-on/off pairing, gate
-synchronization) that voices 1–2's software gates rely on, but every send function is a
-stub. There is no CC output, no MIDI clock, and no MIDI-in feature.
+only. The dormant MIDI trackers and stub send paths have also been removed;
+all four voices use their sequencer's note-duration lifecycle. There is no CC
+output, no MIDI clock, and no MIDI-in feature.
 
 ### Clock & timing internals (for the curious)
 
@@ -698,9 +697,9 @@ cmake --build build_test --parallel
 
 **Behavioral gotchas (by design, verified in code):**
 
-- **All four voices (0–3) carry software gate timers** in `VoiceSystem`;
-  voices 0 and 1 additionally maintain internal note lifecycle state in `MidiNoteManager`.
-  Nothing is transmitted anywhere — USB MIDI was removed 2026-09-06. Internal voice
+- **All four voices (0–3) use sequencer-owned note durations**; `VoiceSystem`
+  holds voice IDs and control snapshots, not a second gate timer.
+  Nothing is transmitted over MIDI. Internal voice
   indices are 0-based (0–3); the OLED shows `Voice: 0`–`Voice: 3` and `V0`–`V3` on edit
   screens, while the voice buttons and this manual say V1–V4.
 - **The encoder edits per-voice bases or the step in edit.** Each voice stores its own

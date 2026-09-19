@@ -6,6 +6,10 @@
 #include "voice/VoiceConfig.h"
 #include "voice/VoiceEditParameters.h"
 #include "voice/VoiceSystem.h"
+#include "app/VoicePublication.h"
+
+#include <array>
+#include <cmath>
 
 #include <algorithm>
 
@@ -588,56 +592,180 @@ TEST_CASE("ParameterManager::copyStep copies values across tracks and bounds-che
     pm.copyStep(0, 100);
 }
 
-TEST_CASE("VoiceSystem provides 4-voice independent gate and timer tracking", "[voice][voicesystem]") {
-    VoiceSystem vs;
-    REQUIRE(VoiceSystem::MAX_VOICES == 4);
+namespace {
+struct PublicationRig {
+    VoiceSystem voices;
+    VoiceManager manager{VoiceSystem::MAX_VOICES};
+    std::array<Sequencer, VoiceSystem::MAX_VOICES> sequencers{
+        Sequencer{0}, Sequencer{1}, Sequencer{2}, Sequencer{3}};
+    std::array<unsigned, VoiceSystem::MAX_VOICES> publications{};
+    std::array<VoiceState, VoiceSystem::MAX_VOICES> lastPublished{};
 
-    // All gates default to false
+    PublicationRig() {
+        VoiceConfig config;
+        config.oscillatorCount = 1;
+        config.oscWaveforms[0] = WAVE_SIN;
+        config.hasFilter = false;
+        for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
+            voices.setVoiceId(i, manager.addVoice(config));
+            sequencers[i].setStepParameterValue(ParamId::Gate, 0, 1.0f);
+            sequencers[i].setStepParameterValue(ParamId::GateLength, 0, (i + 1) * 0.25f);
+            sequencers[i].start();
+        }
+        manager.init(48000);
+        // Observe the actual manager handoff, including the transient event.
+        manager.setVoiceUpdateCallback([this](uint8_t id, const VoiceState &state) {
+            for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
+                if (voices.getVoiceId(i) == id) {
+                    ++publications[i];
+                    lastPublished[i] = state;
+                }
+            }
+        });
+    }
+
+    void advance(uint8_t i, uint32_t step) {
+        VoiceState state = voices.getVoiceState(i);
+        sequencers[i].advanceStep(step, -1, false, false, false, false, false, false, -1, &state);
+        REQUIRE(publishVoiceState(voices, manager, i, state));
+    }
+
+    void tick() {
+        for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i)
+            tickSequencerVoice(sequencers[i], voices, manager, i);
+        REQUIRE(std::isfinite(manager.processAllVoices()));
+    }
+};
+}
+
+TEST_CASE("Voice publication delivers four independent sequencer expiries", "[sequencer][voice][voicesystem][voice_publication]") {
+    PublicationRig rig;
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
-        REQUIRE(vs.getGate(i) == false);
-        REQUIRE(vs.getGateTimer(i).isActive == false);
+        rig.advance(i, 0);
+        REQUIRE(rig.lastPublished[i].isGateHigh);
+        REQUIRE(rig.lastPublished[i].shouldRetrigger);
+        REQUIRE_FALSE(rig.voices.getVoiceState(i).shouldRetrigger);
     }
 
-    // Set voice 2 and 3 gates and timers
-    vs.getGate(2) = true;
-    vs.getGateTimer(2).start(10);
-    vs.getGate(3) = true;
-    vs.getGateTimer(3).start(5);
-
-    REQUIRE(vs.getGate(2) == true);
-    REQUIRE(vs.getGate(3) == true);
-    REQUIRE(vs.getGate(0) == false);
-    REQUIRE(vs.getGate(1) == false);
-
-    // Tick timers 5 times
-    for (int t = 0; t < 5; ++t) {
-        vs.tickAllGateTimers();
+    // No step boundary here: note-offs must arrive at their own expiry ticks.
+    for (unsigned tick = 1; tick <= 121; ++tick) {
+        rig.tick();
+        for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
+            const bool sounding = tick < (i + 1u) * 30u;
+            CAPTURE(tick, i);
+            CHECK(rig.voices.getVoiceState(i).isGateHigh == sounding);
+            CHECK(rig.sequencers[i].isNotePlaying() == sounding);
+            CHECK(rig.lastPublished[i].isGateHigh == sounding);
+            CHECK(rig.publications[i] == (sounding ? 1u : 2u));
+            const VoiceState *requested = rig.manager.getVoiceState(rig.voices.getVoiceId(i));
+            REQUIRE(requested != nullptr);
+            CHECK(requested->isGateHigh == sounding);
+            if (!sounding) CHECK_FALSE(rig.lastPublished[i].shouldRetrigger);
+        }
     }
+}
 
-    // Voice 3 timer expired (duration was 5), voice 2 still has 5 ticks remaining
-    REQUIRE(vs.getGate(3) == false);
-    REQUIRE(vs.getGateTimer(3).isActive == false);
-    REQUIRE(vs.getGate(2) == true);
-    REQUIRE(vs.getGateTimer(2).isActive == true);
-    REQUIRE(vs.getGateTimer(2).ticksRemaining == 5);
+TEST_CASE("Voice publication consumes retrigger once across live refresh and gate off", "[sequencer][voice_publication]") {
+    PublicationRig rig;
+    constexpr uint8_t i = 3; // Not a former MIDI voice.
+    auto &seq = rig.sequencers[i];
+    auto &state = rig.voices.getVoiceState(i);
+    rig.advance(i, 0);
+    REQUIRE(rig.lastPublished[i].shouldRetrigger);
+    REQUIRE_FALSE(state.shouldRetrigger);
 
-    // Tick remaining 5 times
-    for (int t = 0; t < 5; ++t) {
-        vs.tickAllGateTimers();
-    }
-    REQUIRE(vs.getGate(2) == false);
-    REQUIRE(vs.getGateTimer(2).isActive == false);
+    // Aliasing the stored state must not replay the step event.
+    REQUIRE(publishVoiceState(rig.voices, rig.manager, i, state));
+    CHECK_FALSE(rig.lastPublished[i].shouldRetrigger);
+    seq.setStepParameterValue(ParamId::Note, 0, 9.0f);
+    seq.setStepParameterValue(ParamId::Filter, 0, 0.2f);
+    seq.refreshVoiceParameters(&state);
+    REQUIRE(publishVoiceState(rig.voices, rig.manager, i, state));
+    CHECK(rig.lastPublished[i].noteIndex == 9.0f);
+    CHECK(rig.lastPublished[i].filterCutoff == Catch::Approx(0.2f));
+    CHECK(rig.lastPublished[i].isGateHigh);
+    CHECK_FALSE(rig.lastPublished[i].shouldRetrigger);
+    CHECK(rig.publications[i] == 3);
 
-    // stopAllGates
-    vs.getGate(0) = true;
-    vs.getGate(1) = true;
-    vs.getGate(2) = true;
-    vs.getGate(3) = true;
-    vs.stopAllGates();
+    // A gate-off step publishes once, retains release pitch and cancels expiry.
+    seq.setStepParameterValue(ParamId::Gate, 1, 0.0f);
+    rig.advance(i, 1);
+    CHECK_FALSE(rig.lastPublished[i].isGateHigh);
+    CHECK_FALSE(rig.lastPublished[i].shouldRetrigger);
+    CHECK(rig.lastPublished[i].noteIndex == 9.0f);
+    CHECK_FALSE(seq.isNotePlaying());
+    for (unsigned tick = 0; tick < 121; ++tick) rig.tick();
+    CHECK(rig.publications[i] == 4);
+    seq.refreshVoiceParameters(&state);
+    REQUIRE(publishVoiceState(rig.voices, rig.manager, i, state));
+    CHECK_FALSE(rig.lastPublished[i].isGateHigh);
+    CHECK_FALSE(rig.lastPublished[i].shouldRetrigger);
+
+    // A fresh gate is a new one-shot event, even at the same pitch.
+    rig.advance(i, 0);
+    CHECK(rig.lastPublished[i].isGateHigh);
+    CHECK(rig.lastPublished[i].shouldRetrigger);
+    CHECK_FALSE(state.shouldRetrigger);
+}
+
+TEST_CASE("Voice publication preserves slide duration and non-retrigger semantics", "[sequencer][voice_publication]") {
+    PublicationRig rig;
+    constexpr uint8_t i = 2;
+    auto &seq = rig.sequencers[i];
+    seq.setStepParameterValue(ParamId::Gate, 1, 1.0f);
+    seq.setStepParameterValue(ParamId::Slide, 1, 1.0f);
+    seq.setStepParameterValue(ParamId::Note, 1, 12.0f);
+    seq.setStepParameterValue(ParamId::GateLength, 1, 0.25f);
+    rig.advance(i, 0);
+    for (unsigned tick = 0; tick < 10; ++tick) rig.tick();
+    rig.advance(i, 1);
+    CHECK(rig.lastPublished[i].isGateHigh);
+    CHECK(rig.lastPublished[i].hasSlide);
+    CHECK(rig.lastPublished[i].noteIndex == 12.0f);
+    CHECK_FALSE(rig.lastPublished[i].shouldRetrigger);
+    for (unsigned tick = 0; tick < 29; ++tick) rig.tick();
+    CHECK(rig.publications[i] == 2);
+    rig.tick();
+    CHECK(rig.publications[i] == 3);
+    CHECK_FALSE(rig.lastPublished[i].isGateHigh);
+    CHECK_FALSE(rig.lastPublished[i].shouldRetrigger);
+}
+
+TEST_CASE("Stopping all four sequencer voices releases notes and restart retriggers slides", "[sequencer][voice_publication]") {
+    PublicationRig rig;
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
-        REQUIRE(vs.getGate(i) == false);
-        REQUIRE(vs.getGateTimer(i).isActive == false);
+        rig.sequencers[i].setStepParameterValue(ParamId::Slide, 0, 1.0f);
+        rig.advance(i, 0);
+        stopSequencerVoice(rig.sequencers[i], rig.voices, rig.manager, i);
+        CHECK_FALSE(rig.sequencers[i].isNotePlaying());
+        CHECK_FALSE(rig.lastPublished[i].isGateHigh);
+        CHECK_FALSE(rig.lastPublished[i].shouldRetrigger);
+        CHECK_FALSE(rig.lastPublished[i].hasSlide);
+        CHECK(rig.publications[i] == 2);
     }
+    for (unsigned tick = 0; tick < 121; ++tick) rig.tick();
+    for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
+        CHECK(rig.publications[i] == 2); // No stale expiry after stop.
+        CHECK(rig.sequencers[i].getStepParameterValue(ParamId::Slide, 0) == 1.0f);
+        rig.sequencers[i].start();
+        rig.advance(i, 0);
+        CHECK(rig.lastPublished[i].isGateHigh);
+        CHECK(rig.lastPublished[i].hasSlide);
+        CHECK(rig.lastPublished[i].shouldRetrigger);
+        CHECK_FALSE(rig.voices.getVoiceState(i).shouldRetrigger);
+    }
+}
+
+TEST_CASE("Voice publication rejects invalid routing without changing requested state", "[voice_publication]") {
+    PublicationRig rig;
+    VoiceState event;
+    event.isGateHigh = true;
+    event.shouldRetrigger = true;
+    CHECK_FALSE(publishVoiceState(rig.voices, rig.manager, VoiceSystem::MAX_VOICES, event));
+    rig.voices.setVoiceId(0, UINT8_MAX);
+    CHECK_FALSE(publishVoiceState(rig.voices, rig.manager, 0, event));
+    CHECK_FALSE(rig.voices.getVoiceState(0).isGateHigh);
+    for (auto count : rig.publications) CHECK(count == 0);
 }
 
 TEST_CASE("CORE_PARAMETERS metadata defines valid bounds and types for all parameters", "[seqdefs]") {

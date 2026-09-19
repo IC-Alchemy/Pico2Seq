@@ -6,7 +6,6 @@
 // Forward declarations to avoid circular deps
 class UIState;
 class Sequencer;
-class MidiNoteManager;
 
 // Specialized button handler functions extracted from UIEventHandler
 // These functions encapsulate matrix button handling for clarity and reuse
