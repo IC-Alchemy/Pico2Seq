@@ -42,7 +42,7 @@ enum FreezePhase : uint32_t
     FW_LOOP_CLOCK_EVENTS,
     FW_LOOP_PPQN,
     FW_LOOP_CONTROL,
-    FW_LOOP_DISPLAY,
+    FW_LOOP_DISPLAY, // retired: the OLED and LEDs now feed FW_LOOP_OLED / FW_LOOP_LEDS
     // Append phases so scratch evidence from older firmware keeps its meaning.
     FW_SETUP_VOICES,
     FW_LOOP_MATRIX,
@@ -83,7 +83,7 @@ static const char *freezeWatchdogPhaseName(uint32_t phase)
     case FW_LOOP_DISTANCE:   return "loop: distance sensor";
     case FW_LOOP_RECORD:     return "loop: parameter recording";
     case FW_LOOP_OLED:       return "loop: OLED update";
-    case FW_LOOP_LEDS:       return "loop: LED transfer";
+    case FW_LOOP_LEDS:       return "loop: LED render/transfer";
     case FW_LOOP_DIAGNOSTICS:return "loop: serial diagnostics";
     case FW_SETUP_STORAGE:   return "setup: session storage";
     case FW_FAULT:           return "HARD FAULT";

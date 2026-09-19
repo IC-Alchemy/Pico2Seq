@@ -253,7 +253,7 @@ extern OLEDDisplay oledDisplay;
 
 ## Concurrency & Performance
 
-- **Core 0 Execution:** All OLED drawing, formatting, and I2C transmission occur on **Core 0** inside `loop()`, on the shared OLED/LED display slice (`kDisplayIntervalMs` in `src/app/ControlIO.cpp`, currently 40 ms ≈ 25 fps).
+- **Core 0 Execution:** All OLED drawing, formatting, and I2C transmission occur on **Core 0** inside `loop()`, on its own display slice (`kOledIntervalMs` in `src/app/ControlIO.cpp`, currently 40 ms ≈ 25 fps). The LED matrix runs on a separate, faster slice (`kLedIntervalMs`, 13 ms ≈ 77 fps).
 - **Dirty-Page Refresh:** Geometry and text operations write into Adafruit GFX's 1024-byte RAM buffer. `commitFrame()` then compares that buffer against `frameShadow_` one 128-byte page at a time and pushes only the changed pages to the SH1106 GDDRAM — each as a page/column command pair (`0xB0 | page`, column nibbles for the 2-column panel offset) followed by one 128-byte data write — so a static screen costs no I2C traffic at all.
 - **Zero Heap Allocations:** Frame rendering avoids dynamic strings in the hot path, utilizing static buffers and integer math.
 

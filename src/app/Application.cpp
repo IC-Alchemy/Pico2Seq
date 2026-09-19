@@ -304,7 +304,7 @@ void Application::update()
     }
 
     ControlIO::pollHeldButtons();
-    // Preserve this order: steps, diagnostics, gate ticks, controls, displays.
+    // Preserve this order: steps, diagnostics, gate ticks, controls, LEDs, OLED.
     freezeWatchdogFeed(FW_LOOP_CLOCK_EVENTS);
     processClockEvents();
     freezeWatchdogMark(FW_LOOP_DIAGNOSTICS);
@@ -312,5 +312,6 @@ void Application::update()
     freezeWatchdogFeed(FW_LOOP_PPQN);
     processPendingGateTicks();
     ControlIO::scanControls(nowMs);
-    ControlIO::refreshDisplays(nowMs);
+    ControlIO::refreshLeds(nowMs);
+    ControlIO::refreshOled(nowMs);
 }

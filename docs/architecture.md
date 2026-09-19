@@ -48,7 +48,7 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
 |---|---|---|
 | Startup | Buses, sensors, display; construct and publish four voices; start uClock | Stabilize; create I2S pool and enable output |
 | Each pass | Flush voice controls; held buttons; queued steps; diagnostics; PPQN gate ticks | Wait for a buffer; render silence until voices are ready; render mono mix to stereo; return buffer |
-| Timed work | 1 ms controls; 20 ms OLED/LED refresh | Queue a diagnostic heartbeat every two seconds |
+| Timed work | 1 ms controls; 13 ms LED refresh; 40 ms OLED refresh | Queue a diagnostic heartbeat every two seconds |
 
 The ISR stages clock events only. Sequencers, note-duration processing,
 sensor input and serial output run in Core 0 thread context. USB MIDI is

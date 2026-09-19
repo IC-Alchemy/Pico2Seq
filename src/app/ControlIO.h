@@ -12,5 +12,6 @@ void observeVoiceChanges();
 void beginMatrixAndTiles();
 void pollHeldButtons();
 void scanControls(uint32_t nowMs);
-void refreshDisplays(uint32_t nowMs);
+void refreshLeds(uint32_t nowMs);
+void refreshOled(uint32_t nowMs);
 }

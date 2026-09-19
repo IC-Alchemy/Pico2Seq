@@ -50,8 +50,9 @@ Core 0 (UI, Sensors, Matrix, MIDI):
     +-- updateEncoderBaseValues()-> Applies rotary increments to active params
     +-- distanceSensor.update()  -> 1 ms poll (10 ms data-ready check, 35 ms measurements)
     +-- pollUIHeldButtons()      -> Promotes long-press states (randomize reset, gate seq length)
-  loop() Display Slice (LED_UPDATE_INTERVAL = 20 ms / 50 Hz):
+  loop() LED Slice (kLedIntervalMs = 13 ms / ~77 Hz):
     +-- updateStepLEDs() / ledMatrix.show()
+  loop() OLED Slice (kOledIntervalMs = 40 ms / 25 Hz):
     +-- display.update() (SH1106 OLED @ 0x3C)
 ```
 
