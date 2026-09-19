@@ -57,8 +57,7 @@ bool editSelectedStep(UIState &uiState, float delta)
   const ParamId targetParam = ControlSurface::stepEditParameter(
       getHeldParameterParamId(uiState), uiState.currentEditParameter, uiState.currentEncoderParameter);
   Sequencer *selectedSeq = AppState::sequencers[uiState.selectedVoiceIndex];
-  const auto *definition = parameterDefinition(targetParam);
-  if (!definition || !selectedSeq)
+  if (targetParam == ParamId::Count || !selectedSeq)
     return false;
 
   if (stepTurn.voice != uiState.selectedVoiceIndex || stepTurn.step != uiState.selectedStepForEdit ||
@@ -74,7 +73,7 @@ bool editSelectedStep(UIState &uiState, float delta)
   const float minVal = getParameterMinValueForParamId(targetParam);
   const float maxVal = getParameterMaxValueForParamId(targetParam);
   float newVal;
-  if (definition->editKind == ParameterEditKind::Stepped)
+  if (targetParam == ParamId::Note || targetParam == ParamId::Octave)
   {
     // Whole scale steps (or octaves) per detent: rounding each small
     // increment left the value unchanged unless the knob was spun hard.
@@ -116,11 +115,9 @@ void updateEncoderBaseValues(UIState &uiState)
 
 // --- Helper Functions for Step Parameter Editing ---
 
-// Convert EncoderParameterMode to ParamId for step editing
-ParamId convertEncoderParameterToParamId(EncoderParameterMode encoderParam)
-{
-  return parameterForEncoderMode(encoderParam);
-}
+// Note: the former encoder-to-parameter inverse switch was removed;
+// ControlSurface::stepEditParameter() resolves encoder lanes from
+// CORE_PARAMETERS instead, so there is a single mapping to maintain.
 
 float getParameterMinValueForParamId(ParamId paramId)
 {

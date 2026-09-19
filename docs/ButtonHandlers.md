@@ -189,7 +189,6 @@ Fader target assignment, 12-bit ADC normalization (0–4095 to 0.0–1.0), and d
 
 class UIState;
 class Sequencer;
-class MidiNoteManager;
 
 // Core button handling functions
 void handleRandomizeButton(int voiceIndex, UIState &state);
@@ -289,7 +288,7 @@ struct UIState {
 
     // Settings Mode States
     bool settingsMode = false;
-    bool inPresetSelection = false;
+    // isPresetSelection() derives the active view from currentSubMode.
     uint8_t voicePresetIndices[4] = {4, 2, 1, 6};
 
     // Encoder Hold / Gate Seq Length

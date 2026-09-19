@@ -67,7 +67,7 @@ For a practical guide to changing the firmware, start with
 │   │   └── UIEventHandler.h/.cpp      # Sequencer step adapter logic
 │   ├── matrix/               # MPR121 4×8 touch matrix — 32 dedicated step pads
 │   ├── sensors/              # Sensor management (EncoderManager and VL53L1X DistanceSensor)
-│   ├── midi/                 # Internal gate/note lifecycle (MidiNoteManager); USB MIDI removed 2026-09-06
+│   ├── midi/                 # Removal notice only; USB remains CDC-only
 │   ├── LEDMatrix/            # 8×4 WS2812B RGB visual feedback (pad-mirror) and 10 color themes
 │   ├── OLED/                 # 128×64 SH1106G OLED display manager and priority screens
 │   ├── utils/                # Debug logging utilities (Debug.h/.cpp)

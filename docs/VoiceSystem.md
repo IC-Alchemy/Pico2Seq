@@ -2,197 +2,81 @@
 
 ## 1. Overview
 
-The `VoiceSystem` structure (`src/voice/VoiceSystem.h`) provides a centralized, array-based architecture for managing multi-voice state, voice identifiers, gate states, and gate countdown timers across the Pico2Seq firmware.
+`VoiceSystem` (`src/voice/VoiceSystem.h`) holds voice IDs and control-core
+`VoiceState` snapshots for four voices. It is not an audio-state mirror or a
+second note-duration engine. All firmware voice indices are 0-based (0–3).
 
-It replaces disparate global variables (`voice1Id`, `voice2Id`, `voiceState1`, `voiceState2`, `GATE1`, `GATE2`, etc.) with a single, bounds-checked data structure configured for `MAX_VOICES = 4` polyphonic voices.
-
----
+The redundant gate flags, gate timers and `GateTimer` type have been removed.
+Each `Sequencer` owns its note lifecycle and duration; all four voices use the
+same path, without the former two-voice MIDI bookkeeping.
 
 ## 2. Core Structure & Definition
 
-Defined in `src/voice/VoiceSystem.h`:
-
 ```cpp
-#pragma once
-
-#include "../pico2seq-core/sequencer/SequencerDefs.h"
-#include <stdint.h>
-#include "VoiceManager.h"
-
 struct VoiceSystem {
     static constexpr uint8_t MAX_VOICES = 4;
-
-    // Voice IDs assigned by VoiceManager
     uint8_t voiceIds[MAX_VOICES] = {0, 0, 0, 0};
-
-    // Voice states containing per-voice synthesis parameters
     VoiceState voiceStates[MAX_VOICES];
 
-    // Gate states for all voices (0-3)
-    volatile bool gates[MAX_VOICES] = {false, false, false, false};
-
-    // Gate timers for all voices (0-3)
-    GateTimer gateTimers[MAX_VOICES];
-
-    // Accessor methods with bounds checking
-    uint8_t getVoiceId(uint8_t voiceIndex) const {
-        return (voiceIndex < MAX_VOICES) ? voiceIds[voiceIndex] : 0;
-    }
-
-    void setVoiceId(uint8_t voiceIndex, uint8_t voiceId) {
-        if (voiceIndex < MAX_VOICES) {
-            voiceIds[voiceIndex] = voiceId;
-        }
-    }
-
-    VoiceState& getVoiceState(uint8_t voiceIndex) {
-        return voiceStates[voiceIndex < MAX_VOICES ? voiceIndex : 0];
-    }
-
-    const VoiceState& getVoiceState(uint8_t voiceIndex) const {
-        return voiceStates[voiceIndex < MAX_VOICES ? voiceIndex : 0];
-    }
-
-    volatile bool& getGate(uint8_t voiceIndex) {
-        static volatile bool dummy = false;
-        return (voiceIndex < MAX_VOICES) ? gates[voiceIndex] : dummy;
-    }
-
-    GateTimer& getGateTimer(uint8_t voiceIndex) {
-        static GateTimer dummy;
-        return (voiceIndex < MAX_VOICES) ? gateTimers[voiceIndex] : dummy;
-    }
-
-    void stopAllGates() {
-        for (uint8_t i = 0; i < MAX_VOICES; i++) {
-            gates[i] = false;
-            gateTimers[i].stop();
-        }
-    }
-
-    void tickAllGateTimers() {
-        for (uint8_t i = 0; i < MAX_VOICES; i++) {
-            gateTimers[i].tick();
-            if (gateTimers[i].isExpired() && gates[i]) {
-                gates[i] = false;
-            }
-        }
-    }
+    uint8_t getVoiceId(uint8_t voiceIndex) const;
+    void setVoiceId(uint8_t voiceIndex, uint8_t voiceId);
+    VoiceState& getVoiceState(uint8_t voiceIndex);
+    const VoiceState& getVoiceState(uint8_t voiceIndex) const;
 };
 
 extern VoiceSystem voiceSystem;
 ```
 
----
+Use the accessors rather than indexing the arrays directly. An invalid ID read
+returns `0`, an invalid ID write is ignored, and an invalid state index selects
+voice 0. These bounds checks do not change the valid voice range.
 
-## 3. Design Principles & Capabilities
+## 3. Ownership and Routing
 
-1. **Centralized Voice Management**: All voice runtime state is grouped into one struct instance (`extern VoiceSystem voiceSystem`), eliminating scattered extern declarations.
-2. **Array-Based Access**: Index-based operations allow clean iteration across voices without `switch/case` branching or redundant per-voice code paths.
-3. **Software Gate & Gate Timer Uniformity**:
-   - **All Voices (0–3)**: Fully equipped with software gate flags (`gates[MAX_VOICES]`) and `GateTimer` duration countdowns. All 4 sequencers tick note duration in `ClockService::processPendingGateTicks()`, pushing immediate note-offs on expiry to `VoiceManager`.
-   - **Voices 0 and 1**: Additionally retain internal monophonic note on/off lifecycle tracking via `MidiNoteManager` (USB MIDI transmission was removed 2026-09-06 — nothing is transmitted).
-4. **Safe Dummy Access**:
-   - Accessing `getGate(index)` or `getGateTimer(index)` for `index >= MAX_VOICES` returns a safe reference to an internal static dummy (`static volatile bool dummy = false` or `static GateTimer dummy`).
-   - Accessing `getVoiceState(index)` with an out-of-bounds index clamps to index `0`.
-5. **Reference-Based Gate Assignment**: `getGate(voiceIndex)` returns a reference to the `volatile bool`, allowing callers to write directly: `voiceSystem.getGate(voiceIndex) = true;`.
+- **Core 0** owns mutable control snapshots. Step playback, note-duration expiry
+  and UI edits update requested state here.
+- **Core 1** owns applied DSP state. `VoiceManager::updateVoiceState()` stages
+  controls through each voice's bounded SPSC queue; audio does not read mutable
+  `VoiceSystem` snapshots directly. See [cross-core ownership](architecture.md#3-cross-core-ownership-and-bounded-queues).
+- **`AppState::sequencers`** is the immutable, non-owning routing table in voice
+  order. The concrete `seq1`..`seq4` objects are still constructed in
+  `src/app/AppState.cpp`; the table does not allocate or own them.
+- **`UIState`** owns selected voice, preset indices and UI modes. Settings
+  predicates derive from `settingsMode` and `currentSubMode`; they are not
+  independent flags that callers must synchronize.
 
----
+## 4. Step and Duration Flow
 
-## 4. Subsystem Integration
+The uClock ISR only enqueues step numbers and stages PPQN ticks. Core 0's
+ordinary control loop drains them:
 
-### 4.1 Dual-Core Role Division
-- **Core 1 (Audio Thread)**: Synthesizes audio samples via `voiceManager->processBlock()`. It does not access `voiceSystem.gates` directly; parameter and pitch updates are staged lock-free from `VoiceState` into each `Voice` instance.
-- **Core 0 (Control Thread)**: Updates `voiceSystem.voiceStates` on sequencer steps, toggles `voiceSystem.gates`, updates `voiceSystem.gateTimers`, and routes MIDI events.
+1. `processSequencerStep()` advances the sequencers through the application
+   routing table, applies per-voice controls, stores the resulting snapshots
+   and publishes them through `VoiceManager`.
+2. `ClockService::processPendingGateTicks()` calls
+   `Sequencer::tickNoteDuration()` for each voice. This is the sole note-duration
+   authority. On expiry it updates the supplied `VoiceState` to gate-off; the
+   clock service immediately publishes that state to `VoiceManager`, so release
+   does not wait for the next sequencer step.
+3. Transport stop clears sequencer note activity and publishes gate-off states.
+   There is no separate `VoiceSystem` countdown or MIDI tracker to stop.
 
-### 4.2 UIState Integration
-`UIState` (`src/ui/UIState.h`) mirrors `VoiceSystem`'s array-based model:
-```cpp
-struct UIState {
-    static constexpr uint8_t MAX_VOICES = 4;
-    uint8_t voicePresetIndices[MAX_VOICES] = {4, 2, 1, 6}; // Default presets: Square, Bass, Digital, Percussion (indices into the VoicePresets bank)
-    uint8_t selectedVoiceIndex = 0;                        // Currently focused voice (0-3)
-    // ...
-};
-```
-
-### 4.3 Sequencer Step Integration
-When `uClock` fires `onStepCallback` on Core 0 (timer ISR) the step number is only
-enqueued into `stepQueue`; `loop()` drains it via `processClockEvents()` →
-`processSequencerStep()` (thread context), which does the per-step work:
-```cpp
-// Advance sequencers for all 4 voices
-Sequencer* sequencers[VoiceSystem::MAX_VOICES] = {&seq1, &seq2, &seq3, &seq4};
-
-for (uint8_t v = 0; v < VoiceSystem::MAX_VOICES; v++) {
-    sequencers[v]->advanceStep();
-    VoiceState& state = voiceSystem.getVoiceState(v);
-    
-    // Read active polymetric tracks
-    state.noteIndex = sequencers[v]->getParameterValue(ParamId::Note);
-    state.velocityLevel = sequencers[v]->getParameterValue(ParamId::Velocity);
-    state.filterCutoff = sequencers[v]->getParameterValue(ParamId::Filter);
-    state.isGateHigh = (sequencers[v]->getParameterValue(ParamId::Gate) > 0.5f);
-    
-    // Update Voice instance (lock-free staging to Core 1 audio)
-    uint8_t voiceId = voiceSystem.getVoiceId(v);
-    voiceManager->updateVoiceState(voiceId, state);
-    
-    // Software gates and duration timers active across all voices (0-3)
-    if (state.isGateHigh) {
-        voiceSystem.getGate(v) = true;
-        uint16_t durationTicks = static_cast<uint16_t>(sequencers[v]->getParameterValue(ParamId::GateLength));
-        voiceSystem.getGateTimer(v).start(durationTicks);
-    }
-}
-```
-
-### 4.4 Timing & PPQN Tick Processing
-Inside `ClockService::processPendingGateTicks()` on Core 0, pending clock ticks drain:
-```cpp
-while (pending-- > 0) {
-    clockEvents.gateTick++;
-    
-    // Update MidiNoteManager timing (voices 0 and 1)
-    midiNoteManager.updateTiming(clockEvents.gateTick);
-    
-    // Process sequencer note duration timing for every voice (0-3).
-    // Mid-step note-off pushes immediately to VoiceManager on expiry.
-    if (voiceManager) {
-        for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
-            if (AppState::sequencers[i]->tickNoteDuration(&voiceSystem.getVoiceState(i))) {
-                voiceManager->updateVoiceState(voiceSystem.getVoiceId(i), voiceSystem.getVoiceState(i));
-            }
-        }
-    }
-    
-    // Tick gate countdown timers and clear expired gates across all 4 voices
-    voiceSystem.tickAllGateTimers();
-}
-```
-
----
+Gate length and Gate track length are different: GateLength determines a note's
+PPQN duration; Gate Sequence Length Mode edits the number of steps in the Gate
+track. Both remain sequencer behavior, not `VoiceSystem` behavior.
 
 ## 5. API Reference Summary
 
-| Method | Parameters | Returns | Description |
-|---|---|---|---|
-| `getVoiceId(voiceIndex)` | `uint8_t voiceIndex` (0–3) | `uint8_t` | Returns `voiceIds[voiceIndex]`, or `0` if index $\ge 4$. |
-| `setVoiceId(voiceIndex, id)` | `uint8_t voiceIndex`, `uint8_t id` | `void` | Sets `voiceIds[voiceIndex]` if index $< 4$. |
-| `getVoiceState(voiceIndex)` | `uint8_t voiceIndex` (0–3) | `VoiceState&` | Returns reference to `voiceStates[voiceIndex]`. Clamps invalid index to 0. |
-| `getVoiceState(voiceIndex) const` | `uint8_t voiceIndex` (0–3) | `const VoiceState&` | Const reference version for read-only query. |
-| `getGate(voiceIndex)` | `uint8_t voiceIndex` (0–3) | `volatile bool&` | Returns reference to `gates[voiceIndex]` for 0–3; returns static dummy `false` for $\ge 4$. |
-| `getGateTimer(voiceIndex)` | `uint8_t voiceIndex` (0–3) | `GateTimer&` | Returns reference to `gateTimers[voiceIndex]` for 0–3; returns static dummy for $\ge 4$. |
-| `stopAllGates()` | none | `void` | Resets `gates[0..3] = false` and calls `gateTimers[0..3].stop()`. |
-| `tickAllGateTimers()` | none | `void` | Ticks `gateTimers[0..3]` and deasserts `gates[i]` when expired. |
+| Method | Returns | Invalid index behavior |
+|---|---|---|
+| `getVoiceId(voiceIndex)` | `uint8_t` | Returns `0` |
+| `setVoiceId(voiceIndex, id)` | `void` | Ignores write |
+| `getVoiceState(voiceIndex)` | `VoiceState&` | Returns voice 0 snapshot |
+| `getVoiceState(voiceIndex) const` | `const VoiceState&` | Returns voice 0 snapshot |
 
----
+## Related Documentation
 
-## 6. Gate Sequence Length Mode Integration
-
-Gate Sequence Length Mode allows per-voice adjustment of the Gate track length (2–16 steps):
-- **User Action**: Long-hold encoder button (Utility mode bit 5) and press step pads 1–16.
-- **Sequencer Call**: Calls `Sequencer::setParameterStepCount(ParamId::Gate, stepCount)` on the selected voice sequencer (`seq1..seq4`).
-- **Feedback**:
-  - `LEDMatrixFeedback` renders a blinking bar on the selected voice row up to the active Gate track length.
-  - `oled.cpp` displays the "Gate Len Mode" screen with active voice number and horizontal length bar.
+- [Firmware structure](firmware-structure.md) — application routing and lifecycle
+- [Sequencer](sequencer.md) — polymetric tracks, gate duration and slide
+- [Voice](voice.md) — synthesis and queued control updates
+- [MIDI status](midi.md) — removed firmware module and retained portable hooks

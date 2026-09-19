@@ -111,7 +111,6 @@ The magnetic encoder subsystem consists of two architectural layers:
 #### Parameter Processing & Step Editing
 ```cpp
 void updateEncoderBaseValues(UIState& uiState);
-ParamId convertEncoderParameterToParamId(EncoderParameterMode encoderParam);
 float getParameterMinValueForParamId(ParamId paramId);
 float getParameterMaxValueForParamId(ParamId paramId);
 ```

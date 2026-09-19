@@ -522,7 +522,7 @@ void pollUIHeldButtons(UIState &uiState, const SequencerView &sequencers)
   unsigned long currentTimeMs = millis();
 
   // Check for long press resets on every voice in the routing table.
-  for (uint8_t voiceIndex = 0; voiceIndex < sequencers.size(); voiceIndex++)
+  for (size_t voiceIndex = 0; voiceIndex < sequencers.size(); ++voiceIndex)
   {
     if (uiState.randomizeWasPressed[voiceIndex] &&
         !uiState.randomizeResetTriggered[voiceIndex])
