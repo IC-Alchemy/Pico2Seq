@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include "VoiceEditControls.h"
+#include "ControlSurfaceLogic.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
 
 /**
@@ -19,6 +20,9 @@ struct UIState
     // --- Parameter Button States ---
     // Indexed by ParamId for direct lookup.
     bool parameterButtonHeld[PARAM_ID_COUNT] = {false};
+    ControlSurface::ShiftLatch parameterFocus;
+    ControlSurface::EditGesture editGesture;
+    bool encoderInputChanged = true; // hardware glue clears driver ticks after a target change
 
     // --- Mode States ---
     bool modGateParamSeqLengthsMode = false;

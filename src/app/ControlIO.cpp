@@ -1,3 +1,4 @@
+#include "../ui/ParameterEditing.h"
 #include "ControlIO.h"
 #include "AppState.h"
 #include "StepPlayback.h"
@@ -221,6 +222,8 @@ void ControlIO::scanControls(uint32_t nowMs)
 
         // Update magnetic encoder for base parameter control
         freezeWatchdogMark(FW_LOOP_ENCODER);
+        // Faders ran first; encoder wins if both move in this pass.
+        ParameterEditing::syncGesture(uiState);
         magEncoder.update();
         updateEncoderBaseValues(uiState);
 
@@ -228,12 +231,14 @@ void ControlIO::scanControls(uint32_t nowMs)
         freezeWatchdogMark(FW_LOOP_DISTANCE);
         distanceSensor.update();
         AppState::performanceInput.observeDistance(distanceSensor.getRawDistanceMm());
+        uiState.editGesture.observeHand(AppState::performanceInput.handPresent);
         // =======================
         //   REAL-TIME PARAMETER RECORDING
         // =======================
         // Apply distance sensor values to step when parameter buttons are held
         if (!uiState.voiceEditor.active && !uiState.controlsWaitRelease &&
-            getHeldParameterParamId(uiState) != ParamId::Count && AppState::performanceInput.handPresent)
+            getHeldParameterParamId(uiState) != ParamId::Count && AppState::performanceInput.handPresent &&
+            uiState.selectedVoiceIndex < VoiceSystem::MAX_VOICES)
         {
             freezeWatchdogMark(FW_LOOP_RECORD);
             const int targetStep = uiState.selectedStepForEdit != -1

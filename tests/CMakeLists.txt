@@ -24,6 +24,9 @@ add_executable(pico2seq_tests
   unit/test_sequencer.cpp
   unit/test_sequencer_view.cpp
   unit/test_voice_playback.cpp
+  unit/test_parameter_editing.cpp
+  ${SRC_DIR}/ui/ParameterEditing.cpp
+  ${SRC_DIR}/app/StepPlayback.cpp
   ${SRC_DIR}/app/VoicePlayback.cpp
   unit/test_voice.cpp
   unit/test_voice_recipes.cpp
@@ -84,6 +87,31 @@ target_compile_options(pico2seq_tests PRIVATE
 include(CTest)
 include(Catch)
 catch_discover_tests(pico2seq_tests)
+
+# Firmware uses fast-math: compile the production editing/mapping path with
+# those optimizations as well as the normal Debug suite.
+add_executable(pico2seq_editing_optimized_tests
+  unit/test_helpers.cpp
+  unit/test_parameter_editing.cpp
+  unit/test_parameter_mapping.cpp
+  ${SRC_DIR}/app/StepPlayback.cpp
+  ${SRC_DIR}/app/VoicePlayback.cpp
+  ${SRC_DIR}/ui/ParameterEditing.cpp
+  ${SRC_DIR}/ui/ControlSurfaceLogic.cpp
+  ${CORE_DIR}/scales/scales.cpp
+  ${CORE_DIR}/sequencer/ParameterManager.cpp
+  ${CORE_DIR}/sequencer/Sequencer.cpp
+  ${SRC_DIR}/voice/Voice.cpp
+  ${SRC_DIR}/voice/VoicePresets.cpp
+  ${SRC_DIR}/voice/VoiceParameters.cpp
+  ${SRC_DIR}/voice/VoiceEditParameters.cpp
+  ${SRC_DIR}/voice/VoiceManager.cpp)
+target_include_directories(pico2seq_editing_optimized_tests PRIVATE
+  ${STUB_DIR} ${PROJECT_SOURCE_DIR} ${SRC_DIR} ${CORE_DIR} ${RPDSP_DIR})
+target_link_libraries(pico2seq_editing_optimized_tests PRIVATE Catch2::Catch2WithMain Threads::Threads)
+target_compile_definitions(pico2seq_editing_optimized_tests PRIVATE AUG_DEBUG_COMPILED=0)
+target_compile_options(pico2seq_editing_optimized_tests PRIVATE -O3 -ffast-math)
+catch_discover_tests(pico2seq_editing_optimized_tests TEST_PREFIX "editing-optimized: ")
 
 # UI policies can be checked without linking firmware glue or rendering audio.
 add_executable(pico2seq_ui_tests

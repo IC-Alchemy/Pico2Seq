@@ -1,4 +1,6 @@
 #include "ButtonManager.h"
+#include "ParameterEditing.h"
+#include "UITransitions.h"
 
 #include <cstring> // For strcmp in paramIdFromName
 
@@ -51,11 +53,7 @@ ParamId paramIdFromName(const char *name)
  */
 void initButtonManager(UIState &uiState)
 {
-  // Reset all parameter button hold states
-  for (int paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
-  {
-    uiState.parameterButtonHeld[paramIndex] = false;
-  }
+  UITransitions::clearParameterHolds(uiState);
 
   // Reset all step button press timestamps for long press detection
   for (int stepIndex = 0; stepIndex < SequencerConstants::MAX_STEPS_COUNT; ++stepIndex)
@@ -129,7 +127,7 @@ bool isAnyParameterButtonHeld(const UIState &uiState)
 /**
  * @brief Get the ParamId of the currently held parameter button
  *
- * Scans the held states in ParamId order and returns the first held
+ * Uses the shared physical-press focus policy and falls back to the latched
  * parameter. This allows the UI to determine which parameter is being
  * controlled when step buttons are pressed for parameter editing.
  *
@@ -138,20 +136,5 @@ bool isAnyParameterButtonHeld(const UIState &uiState)
  */
 ParamId getHeldParameterParamId(const UIState &uiState)
 {
-  for (uint8_t paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
-  {
-    const ParamId currentParamId = static_cast<ParamId>(paramIndex);
-
-    // Skip Slide parameter button if currently in slide mode to avoid conflicts
-    if (currentParamId == ParamId::Slide && uiState.slideMode)
-    {
-      continue;
-    }
-
-    if (uiState.parameterButtonHeld[paramIndex])
-    {
-      return currentParamId;
-    }
-  }
-  return ParamId::Count;
+  return ParameterEditing::focus(uiState);
 }

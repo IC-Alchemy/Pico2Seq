@@ -56,37 +56,6 @@ extern const FlashSpeedConfig FLASH_SPEED_ZONES[];
 void updateEncoderBaseValues(UIState& uiState);
 
 // ======================
-// Step Parameter Editing Helper Functions
-// ======================
-
-/**
- * @brief Convert encoder parameter mode to sequencer ParamId
- *
- * Maps encoder parameter types to their corresponding sequencer parameter IDs
- * for step editing functionality.
- *
- * @param encoderParam The encoder parameter mode to convert
- * @return Corresponding ParamId, or ParamId::Count if not applicable
- */
-ParamId convertEncoderParameterToParamId(EncoderParameterMode encoderParam);
-
-/**
- * @brief Get minimum value for sequencer parameter ID
- *
- * @param paramId The sequencer parameter ID to query
- * @return Minimum valid value for the parameter
- */
-float getParameterMinValueForParamId(ParamId paramId);
-
-/**
- * @brief Get maximum value for sequencer parameter ID
- *
- * @param paramId The sequencer parameter ID to query
- * @return Maximum valid value for the parameter
- */
-float getParameterMaxValueForParamId(ParamId paramId);
-
-// ======================
 // System Management and Utility Functions
 // ======================
 

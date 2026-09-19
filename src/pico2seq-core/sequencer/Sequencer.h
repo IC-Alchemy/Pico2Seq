@@ -124,7 +124,23 @@ public:
      * alone, so live edits can be heard without restarting the envelope.
      * @param voiceState Voice state to update in place
      */
-    void refreshVoiceParameters(VoiceState *voiceState) const;
+    void refreshVoiceParameters(VoiceState *voiceState, uint8_t step = UINT8_MAX,
+                                bool includeRestPitch = false) const;
+
+    enum class ValueDomain : uint8_t { Normalized, Stored };
+    enum class EditIntent : uint8_t { Recording, Explicit };
+    enum class WriteStatus : uint8_t { Rejected, Unchanged, Changed };
+    struct WriteResult {
+        WriteStatus status = WriteStatus::Rejected;
+        float storedValue = 0.0f;
+        bool accepted() const { return status != WriteStatus::Rejected; }
+        bool changed() const { return status == WriteStatus::Changed; }
+    };
+    // Concrete indices are checked before track modulo. Recording Note uses
+    // the supplied Gate position; explicit edits can change a rest's pitch.
+    WriteResult writeParameter(ParamId id, int step, float value,
+                               ValueDomain domain, EditIntent intent,
+                               int gateStep = -1);
 
     /**
      * @brief Toggle gate parameter for a specific step

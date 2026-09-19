@@ -5,14 +5,25 @@
 // Pure Core-0 UI transitions. Hardware effects (encoder reset,
 // tile edge histories) remain with the caller, not in these state policies.
 namespace UITransitions {
+inline void clearParameterHolds(UIState &state) noexcept
+{
+    state.parameterFocus.reset();
+    state.parameterFocus.applyTo(state.parameterButtonHeld, PARAM_ID_COUNT);
+    state.latchedParameter = -1;
+    state.editGesture.reset();
+    state.encoderBaseViewUntil = 0;
+}
+
 inline void clearStepEdit(UIState &state) noexcept
 {
     state.selectedStepForEdit = -1;
     state.currentEditParameter = ParamId::Count;
+    state.editGesture.reset();
 }
 
 inline void openSettings(UIState &state) noexcept
 {
+    clearParameterHolds(state);
     state.settingsMode = true;
     state.currentSubMode = UIState::SettingsSubMode::PRESET_SELECTION;
     state.voiceParameterFeedbackPending = false;
@@ -21,6 +32,7 @@ inline void openSettings(UIState &state) noexcept
 
 inline void closeSettings(UIState &state) noexcept
 {
+    clearParameterHolds(state);
     state.settingsMode = false;
     state.voiceParameterFeedbackPending = false;
     clearStepEdit(state);
@@ -51,9 +63,7 @@ inline void toggleSlide(UIState &state) noexcept
     clearStepEdit(state);
     if (!state.slideMode)
         return;
-    for (auto &held : state.parameterButtonHeld)
-        held = false;
-    state.latchedParameter = -1;
+    clearParameterHolds(state);
     state.modGateParamSeqLengthsMode = false;
     state.gateSeqLengthMode = false;
     // A pre-slide hold/release must not re-enter length mode or select a step.
@@ -68,6 +78,7 @@ inline bool selectPerformanceVoice(UIState &state, uint8_t voice) noexcept
 {
     if (voice >= UIState::MAX_VOICES)
         return false;
+    clearParameterHolds(state);
     state.selectedVoiceIndex = voice;
     clearStepEdit(state);
     state.voiceSwitchTriggered = true;
@@ -77,8 +88,12 @@ inline bool selectPerformanceVoice(UIState &state, uint8_t voice) noexcept
 // Pad focus preserves the parameter target and must not stop sounding notes.
 inline void focusPad(UIState &state, uint8_t voice, uint8_t step) noexcept
 {
-    if (voice >= UIState::MAX_VOICES)
+    if (voice >= UIState::MAX_VOICES || step >= SequencerConstants::MAX_STEPS_COUNT)
         return;
+    if (state.selectedVoiceIndex != voice)
+        clearParameterHolds(state);
+    if (state.selectedVoiceIndex != voice || state.selectedStepForEdit != step)
+        state.editGesture.reset();
     state.selectedVoiceIndex = voice;
     state.selectedStepForEdit = step;
     state.voiceSwitchTriggered = true;

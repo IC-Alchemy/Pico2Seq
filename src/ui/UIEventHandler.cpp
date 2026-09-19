@@ -1,5 +1,6 @@
 #include "UIEventHandler.h"
 #include "UITransitions.h"
+#include "ParameterEditing.h"
 #include "../app/AppState.h"
 #include "../app/ClockService.h"
 #include "../app/VoiceSetup.h"
@@ -196,41 +197,10 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
  */
 void handleParameterButtonById(uint8_t paramId, bool pressed, UIState &uiState)
 {
-  // Block parameter button handling when in slide mode to avoid conflicts
-  if (uiState.slideMode)
-  {
-    return;
-  }
-
-  if (paramId >= PARAM_ID_COUNT)
-  {
-    return;
-  }
-  const ParamId currentParamId = static_cast<ParamId>(paramId);
-
-  // A record-button press also selects that parameter's base control. This
-  // applies before step-edit handling so a normal hold and a step-edit press
-  // behave identically.
-  if (pressed)
-  {
-    autoSelectEncoderParameter(currentParamId, uiState);
-  }
-
-  // Handle parameter editing in step edit mode
-  if (pressed && uiState.selectedStepForEdit >= 0)
-  {
-    if (uiState.currentEditParameter == currentParamId)
-    {
-      // Toggle off - stop editing this parameter
-      uiState.currentEditParameter = ParamId::Count;
-    }
-    else
-    {
-      // Toggle on - start editing this parameter
-      uiState.currentEditParameter = currentParamId;
-      autoSelectEncoderParameter(currentParamId, uiState);
-    }
-  }
+  const auto previous = ParameterEditing::encoderTarget(uiState);
+  ParameterEditing::parameterButton(uiState, paramId, pressed);
+  if (previous != ParameterEditing::encoderTarget(uiState))
+    VoiceEditor::clearEncoder();
 }
 
 /**
@@ -554,10 +524,7 @@ void pollUIHeldButtons(UIState &uiState, const SequencerView &sequencers)
       uiState.gateSeqLengthMode = true;
       // Clear conflicting modes when entering this mode
       uiState.slideMode = false;
-      for (int paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
-      {
-        uiState.parameterButtonHeld[paramIndex] = false;
-      }
+      UITransitions::clearParameterHolds(uiState);
       uiState.selectedStepForEdit = -1;
     }
   }
@@ -674,19 +641,3 @@ void clearAllSequencerVoices(UIState &uiState, const SequencerView &sequencers)
   uiState.currentEditParameter = ParamId::Count;
 }
 
-// Why: pico2seq-core stays UI-agnostic (no UIState include) for reuse in other
-// projects, so this thin adapter unpacks the held-parameter/edit-step fields
-// here — keeping the StepPlayback call site to one line and the core portable.
-void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_distance,
-                          const UIState &uiState, VoiceState *voiceState)
-{
-  seq.advanceStep(current_uclock_step, mm_distance,
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Note)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Velocity)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Filter)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Attack)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Decay)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Octave)],
-                  uiState.selectedStepForEdit,
-                  voiceState);
-}

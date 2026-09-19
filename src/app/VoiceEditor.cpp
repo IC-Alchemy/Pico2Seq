@@ -7,23 +7,13 @@
 #include "../ui/ControlSurfaceLogic.h"
 #include "../ui/UIConstants.h"
 #include "../ui/UITransitions.h"
+#include "../ui/ParameterEditing.h"
 #include <cstdlib>
 #include <uClock.h>
 
 namespace {
-ControlSurface::EncoderMotion encoderMotion;
-// The value pending encoder motion was turned for. Motion never carries over
-// to a different voice, parameter, or between the editor and performance.
-struct EncoderTurn {
-  bool editor = false;
-  uint8_t voice = 0;
-  VoiceEdit::Id id = VoiceEdit::Id::Count;
-};
-EncoderTurn encoderTurn;
-
 void clearPerformanceControls() {
-  for (auto &held : uiState.parameterButtonHeld)
-    held = false;
+  UITransitions::clearParameterHolds(uiState);
   for (auto &held : uiState.randomizeWasPressed)
     held = false;
   for (auto &held : uiState.randomizeResetTriggered)
@@ -115,65 +105,25 @@ void buttons(uint8_t buttons, uint8_t voices, uint32_t now) {
 }
 void clearEncoder() {
   magEncoder.clearPendingTicks();
-  encoderMotion.reset();
+  uiState.editGesture.reset();
 }
 void encoder(float delta) {
-  const auto &editor = uiState.voiceEditor;
   const auto index = uiState.selectedVoiceIndex;
-  if (!voiceManager || index >= VoiceSystem::MAX_VOICES ||
-      (editor.active && editor.waitRelease))
-    return;
-  const auto id = editor.active ? editor.cursor[index] : encoderTarget();
-  if (editor.active != encoderTurn.editor || index != encoderTurn.voice ||
-      id != encoderTurn.id) {
-    encoderMotion.reset();
-    encoderTurn = {editor.active, index, id};
-  }
-  encoderMotion.add(editor.active && editor.fine ? delta * 0.1f : delta);
-  const auto *requested =
-      voiceManager->getVoiceConfig(voiceSystem.getVoiceId(index));
-  if (!requested || !VoiceEdit::available(id, *requested)) {
-    encoderMotion.reset(); // no hidden motion lands when it reappears
-    return;
-  }
+  if (!voiceManager || index >= VoiceSystem::MAX_VOICES) return;
+  const auto *requested = voiceManager->getVoiceConfig(voiceSystem.getVoiceId(index));
+  if (!requested) return;
   VoiceConfig next = *requested;
-  const float before = VoiceEdit::value(id, next);
-  if (VoiceEdit::stepped(id)) {
-    const int steps = encoderMotion.takeSteps(
-        SensorConstants::MagneticEncoder::STEPPED_VALUE_DETENT);
-    for (int i = 0; i < std::abs(steps); ++i)
-      VoiceEdit::adjust(id, next, steps > 0 ? 1.0f : -1.0f);
-  } else {
-    VoiceEdit::adjust(id, next,
-                      encoderMotion.takeContinuous(
-                          SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD));
-  }
-  // A knob already pinned at the parameter's limit must not republish.
-  if (VoiceEdit::value(id, next) == before)
-    return;
+  const auto result = ParameterEditing::encoder(uiState, *AppState::sequencers[index], next, delta);
+  if (result.write.changed())
+    updateActiveVoiceState(static_cast<uint8_t>(uiState.selectedStepForEdit), *AppState::sequencers[index]);
+  if (!result.patchChanged) return;
   publish(index, next);
-  // While playing, the sounding note takes the new base at once (without a
-  // retrigger), so the value on the OLED is also what is heard.
-  if (!editor.active)
-    updateActiveVoiceState(0, *AppState::sequencers[index]);
-  // Outside the editor the OLED normally shows sequenced step values, where a
-  // step's modifier can mask a base change. Show the base while it is turned.
-  if (!editor.active)
+  if (!uiState.voiceEditor.active) {
+    updateActiveVoiceState(UINT8_MAX, *AppState::sequencers[index]);
     uiState.encoderBaseViewUntil = millis() + ENCODER_BASE_VIEW_MS;
+  }
 }
 VoiceEdit::Id encoderTarget() {
-  using Id = VoiceEdit::Id;
-  if (uiState.currentEncoderParameter == EncoderParameterMode::SlideTime)
-    return Id::SlideTime; // Voice-only control, not the sequencer Slide toggle.
-  const ParamId lane = parameterForEncoderMode(uiState.currentEncoderParameter);
-  // VoiceEdit's leading IDs deliberately match ParamId, as in sequenceLane().
-  // Keep that bridge local to the application: core descriptors know no editor IDs.
-  static_assert(static_cast<uint8_t>(Id::Note) == static_cast<uint8_t>(ParamId::Note) &&
-                static_cast<uint8_t>(Id::Velocity) == static_cast<uint8_t>(ParamId::Velocity) &&
-                static_cast<uint8_t>(Id::Cutoff) == static_cast<uint8_t>(ParamId::Filter) &&
-                static_cast<uint8_t>(Id::Attack) == static_cast<uint8_t>(ParamId::Attack) &&
-                static_cast<uint8_t>(Id::Decay) == static_cast<uint8_t>(ParamId::Decay) &&
-                static_cast<uint8_t>(Id::Octave) == static_cast<uint8_t>(ParamId::Octave));
-  return lane == ParamId::Count ? Id::Velocity : static_cast<Id>(lane);
+  return ParameterEditing::encoderTarget(uiState);
 }
 } // namespace VoiceEditor

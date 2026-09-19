@@ -106,7 +106,6 @@ private:
 
   AlchemyPanel panel_;
   ControlSurface::ModeStabilizer mode_;
-  ControlSurface::ShiftLatch latch_;
   ControlSurface::FaderMap faders_;
 
   // Slot/bit geometry of the 2-tile rig (see AlchemyUI ButtonMap.h). The

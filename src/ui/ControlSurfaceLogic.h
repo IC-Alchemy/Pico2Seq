@@ -282,6 +282,7 @@ public:
   void applyTo(bool *heldOut, uint8_t count) const;
 
   int8_t latched() const { return latched_; }
+  ParamId focused() const;
   bool isMomentary(uint8_t paramId) const
   {
     return paramId < kParamCount && momentary_[paramId];
@@ -289,6 +290,8 @@ public:
 
 private:
   bool momentary_[kParamCount] = {false};
+  uint8_t pressOrder_[kParamCount] = {};
+  uint8_t heldCount_ = 0;
   int8_t latched_ = kNoLatch;
 };
 
@@ -385,6 +388,31 @@ public:
 
 private:
   float pending_ = 0.0f;
+};
+
+// One editing gesture on Core 0. Clock cursors deliberately are not part of
+// this identity: advancing playback cannot release an explicit step edit.
+struct EditContext {
+  uint8_t voice = UINT8_MAX;
+  int step = -1;
+  ParamId focus = ParamId::Count;
+  ParamId lane = ParamId::Count;
+  uint8_t encoderId = UINT8_MAX;
+  uint16_t modes = 0;
+  bool operator==(const EditContext &other) const;
+};
+
+class EditGesture {
+public:
+  void reset();
+  bool sync(const EditContext &context);
+  void observeHand(bool present) { if (!present) manualLanes_ = 0; }
+  void takeManual(ParamId lane);
+  bool permitsLidar(ParamId lane) const;
+  EncoderMotion motion;
+private:
+  EditContext context_;
+  uint16_t manualLanes_ = 0;
 };
 
 } // namespace ControlSurface

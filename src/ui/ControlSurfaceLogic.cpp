@@ -102,6 +102,7 @@ void ShiftLatch::reset()
     momentary_[i] = false;
   }
   latched_ = kNoLatch;
+  heldCount_ = 0;
 }
 
 void ShiftLatch::onParamButton(uint8_t paramId, bool pressed, bool shiftHeld)
@@ -113,6 +114,14 @@ void ShiftLatch::onParamButton(uint8_t paramId, bool pressed, bool shiftHeld)
 
   if (pressed)
   {
+    // Move a repeated press to the end without overflowing a timestamp.
+    for (uint8_t i = 0; i < heldCount_; ++i) {
+      if (pressOrder_[i] != paramId) continue;
+      for (uint8_t j = i + 1; j < heldCount_; ++j) pressOrder_[j - 1] = pressOrder_[j];
+      --heldCount_;
+      break;
+    }
+    pressOrder_[heldCount_++] = paramId;
     momentary_[paramId] = true;
     if (shiftHeld)
     {
@@ -123,7 +132,48 @@ void ShiftLatch::onParamButton(uint8_t paramId, bool pressed, bool shiftHeld)
   else
   {
     momentary_[paramId] = false;
+    for (uint8_t i = 0; i < heldCount_; ++i) {
+      if (pressOrder_[i] != paramId) continue;
+      for (uint8_t j = i + 1; j < heldCount_; ++j) pressOrder_[j - 1] = pressOrder_[j];
+      --heldCount_;
+      break;
+    }
   }
+}
+
+ParamId ShiftLatch::focused() const
+{
+  return heldCount_ ? static_cast<ParamId>(pressOrder_[heldCount_ - 1]) :
+      latched_ >= 0 ? static_cast<ParamId>(latched_) : ParamId::Count;
+}
+
+bool EditContext::operator==(const EditContext &other) const
+{
+  return voice == other.voice && step == other.step && focus == other.focus &&
+      lane == other.lane && encoderId == other.encoderId && modes == other.modes;
+}
+void EditGesture::reset()
+{
+  context_ = {};
+  manualLanes_ = 0;
+  motion.reset();
+}
+bool EditGesture::sync(const EditContext &context)
+{
+  if (!(context_ == context)) {
+    reset();
+    context_ = context;
+    return true;
+  }
+  return false;
+}
+void EditGesture::takeManual(ParamId lane)
+{
+  if (parameterDefinition(lane)) manualLanes_ |= uint16_t(1u << static_cast<uint8_t>(lane));
+}
+bool EditGesture::permitsLidar(ParamId lane) const
+{
+  return parameterDefinition(lane) && !(manualLanes_ & (1u << static_cast<uint8_t>(lane)));
 }
 
 void ShiftLatch::applyTo(bool *heldOut, uint8_t count) const

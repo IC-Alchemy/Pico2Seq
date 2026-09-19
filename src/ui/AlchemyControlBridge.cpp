@@ -10,6 +10,8 @@
 #include "ButtonManager.h"
 #include "UIConstants.h"
 #include "UIEventHandler.h"
+#include "UITransitions.h"
+#include "ParameterEditing.h"
 #include "../AlchemyUI/src/ButtonMap.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../pico2seq-core/sequencer/ShuffleTemplates.h"
@@ -120,7 +122,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
     }
     for(uint8_t channel=0;channel<4;++channel)
       faders_.accept(channel,panel_.tiles().faderRaw(channel));
-    latch_.reset(); playSettingsOpenedThisPress_=false;
+    UITransitions::clearParameterHolds(uiState); playSettingsOpenedThisPress_=false;
     if(uiState.voiceEditor.active) VoiceEditor::buttons(buttons,voices,nowMs);
     else if(buttons==0 && voices==0) uiState.controlsWaitRelease=false;
     return;
@@ -188,8 +190,7 @@ void AlchemyControlBridge::onModeFlip(uint32_t nowMs, UIState &uiState)
   // Nothing sticks across a mode change: drop the latch and every derived
   // hold, snap the fader deadband so the new mode's controls engage, and
   // raise the OLED banner flag.
-  latch_.reset();
-  latch_.applyTo(uiState.parameterButtonHeld, PARAM_ID_COUNT);
+  UITransitions::clearParameterHolds(uiState);
   uiState.latchedParameter = -1;
   uiState.shiftHeld = false;
   faders_.resetDeadband();
@@ -260,7 +261,7 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
   // A slide transition from any entry point clears the logical latch. Consume
   // physical edges while sliding, but never rebuild parameter holds behind it.
   if (uiState.slideMode)
-    latch_.reset();
+    UITransitions::clearParameterHolds(uiState);
   for (uint8_t bit = 0; bit < 7; ++bit) // bits 0-6; bit 7 is Shift (read above)
   {
     ButtonEdges &edges = buttonEdges_[kButtonRole][bit];
@@ -279,7 +280,7 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
         if (!wasSlide && uiState.slideMode)
         {
           // Slide entry cleared every hold; keep the latch coherent too.
-          latch_.reset();
+          UITransitions::clearParameterHolds(uiState);
         }
       }
       continue;
@@ -288,13 +289,8 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
     if (uiState.slideMode)
       continue;
 
-    // Bits 0-5 map straight onto ParamId Note..Octave (ButtonMap.h order).
-    const uint8_t paramId = bit;
-    latch_.onParamButton(paramId, edges.pressEdge, uiState.shiftHeld);
-    latch_.applyTo(uiState.parameterButtonHeld, PARAM_ID_COUNT);
-    uiState.latchedParameter = latch_.latched();
-
-    handleParameterButtonById(paramId, edges.pressEdge, uiState);
+    // The portable handler owns latch, focus and encoder target selection.
+    handleParameterButtonById(bit, edges.pressEdge, uiState);
   }
 }
 
@@ -479,27 +475,11 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
     switch (assignment.target)
     {
     case ControlSurface::FaderTarget::StepParam:
-      // Same recording path as the lidar: records into the step in edit when
-      // this fader's parameter is the armed/held one or matches current edit parameter.
-      if (uiState.selectedStepForEdit >= 0)
+      if (Sequencer *selectedSeq = sequencers.get(uiState.selectedVoiceIndex))
       {
-        const ParamId held = getHeldParameterParamId(uiState);
-        if (held == assignment.paramId ||
-            (held == ParamId::Count && (uiState.currentEditParameter == assignment.paramId || uiState.currentEditParameter == ParamId::Count)))
-        {
-          const uint8_t step = static_cast<uint8_t>(uiState.selectedStepForEdit);
-          Sequencer *selectedSeq = sequencers.get(uiState.selectedVoiceIndex);
-          if (selectedSeq)
-          {
-            if (assignment.paramId != ParamId::Note ||
-                selectedSeq->getStepParameterValue(ParamId::Gate, step) > 0.5f)
-            {
-              float val = mapNormalizedValueToParamRange(assignment.paramId, normalized);
-              selectedSeq->setStepParameterValue(assignment.paramId, step, val);
-              updateActiveVoiceState(step, *selectedSeq);
-            }
-          }
-        }
+        const auto result = ParameterEditing::fader(uiState, *selectedSeq, assignment.paramId, normalized);
+        if (result.changed())
+          updateActiveVoiceState(static_cast<uint8_t>(uiState.selectedStepForEdit), *selectedSeq);
       }
       break;
 

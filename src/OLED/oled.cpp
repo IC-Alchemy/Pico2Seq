@@ -1,3 +1,4 @@
+#include "../ui/ParameterEditing.h"
 #include "oled.h"
 #include "../voice/Voice.h"
 #include "../voice/VoicePresets.h"
@@ -255,13 +256,19 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
   displayHardware.setTextSize(1);
   displayHardware.setTextColor(SH110X_WHITE);
 
-  if(uiState.voiceEditor.active) {
+  const auto voice = std::min<uint8_t>(uiState.selectedVoiceIndex, sequencers.size() - 1);
+  const Sequencer &sequence = sequencers.clamped(voice);
+  const auto *config = voiceManager ? voiceManager->getVoiceConfig(voiceSystem.getVoiceId(voice)) : nullptr;
+  const auto view = ParameterEditing::view(uiState, sequence, config, millis());
+  using Page = ParameterEditing::Page;
+  using Source = ParameterEditing::ValueSource;
+  if(view.page == Page::Editor) {
     displayVoiceEditor(uiState,voiceManager);
     return;
   }
   // HIGHEST PRIORITY: transient PARAM / UTIL banner shown for a short window
   // after the GP7 mode strap flips the Alchemy control surface function set.
-  if (uiState.alchemyModeBannerUntil != 0 && millis() < uiState.alchemyModeBannerUntil)
+  if (view.page == Page::Banner)
   {
     const bool paramMode = (uiState.alchemyMode == UIState::AlchemyMode::Param);
     const char *banner = paramMode ? "PARAM" : "UTIL";
@@ -279,8 +286,7 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
   // Transient confirmation notice (replaces the old control-cluster LED
   // flashes). Shown just below the PARAM/UTIL banner, above everything else,
   // then the previous view resumes.
-  if (uiState.oledNoticeUntil != 0 && millis() < uiState.oledNoticeUntil &&
-      uiState.oledNoticeKind != UIState::OledNoticeKind::None)
+  if (view.page == Page::Notice)
   {
     const char *line1 = "RANDOMIZED";
     switch (uiState.oledNoticeKind)
@@ -313,56 +319,10 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     return;
   }
 
-  const auto voice = std::min<uint8_t>(uiState.selectedVoiceIndex, sequencers.size() - 1);
-  const Sequencer &sequence = sequencers.clamped(voice);
-  const auto *config = voiceManager ? voiceManager->getVoiceConfig(voiceSystem.getVoiceId(voice)) : nullptr;
-  const ParamId held = getHeldParameterParamId(uiState);
-  const bool selected = uiState.selectedStepForEdit >= 0;
-
-  // A held (or Shift-latched) parameter button outranks the settings and
-  // sequence-length screens. It shows the composed value at that lane's
-  // playing cursor (or the selected step if in step edit), which is exactly
-  // what live recording writes and the voice plays, plus the lidar distance.
-  if (held != ParamId::Count)
+  if (view.page == Page::Parameter)
   {
-    const uint8_t targetStep = selected ? static_cast<uint8_t>(uiState.selectedStepForEdit)
-                                        : sequence.getCurrentStepForParameter(held);
-    Step liveStep = sequence.getPlaybackStep(selected ? targetStep : UINT8_MAX);
-    if (AppState::performanceInput.handPresent)
-    {
-      const float norm = AppState::performanceInput.recordingValue();
-      const float stored = mapNormalizedValueToParamRange(held, norm);
-      const float composed = config ? VoiceEdit::composeLane(held, stored, config) : stored;
-      switch (held)
-      {
-        case ParamId::Velocity:
-          liveStep.velocityLevel = composed;
-          break;
-        case ParamId::Filter:
-          liveStep.filterCutoff = composed;
-          break;
-        case ParamId::Attack:
-          liveStep.attackTimeSeconds = composed;
-          break;
-        case ParamId::Decay:
-          liveStep.decayTimeSeconds = composed;
-          break;
-        case ParamId::Note:
-          liveStep.noteIndex = composed;
-          break;
-        case ParamId::Octave:
-          liveStep.octaveOffset = VoiceEdit::mapOctave(composed);
-          break;
-        case ParamId::GateLength:
-          liveStep.gateLengthTicks = static_cast<uint16_t>(std::max(1.0f,
-              composed * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS));
-          break;
-        default:
-          break;
-      }
-    }
-    displayParameterInfo(held, liveStep, uiState,
-                         targetStep, config, selected, true, false);
+    displayParameterInfo(view.lane, view.values, uiState, view.step, config,
+        view.source == Source::SelectedStep, view.showDistance, view.source == Source::Base);
     commitFrame();
     return;
   }
@@ -374,7 +334,7 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
   // - VOICE_PARAMETER: show parameter toggles UI
   //
   // The active settings page is derived only from UIState.
-  if (uiState.settingsMode)
+  if (view.page == Page::Settings)
   {
     const bool subParam = uiState.isVoiceParameterSettings();
 
@@ -394,7 +354,7 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
   }
 
   // MEDIUM-LOW PRIORITY: Gate Sequence Length Mode (active while encoder control is held)
-  if (uiState.gateSeqLengthMode)
+  if (view.page == Page::GateLength)
   {
     const uint8_t gateLen = sequence.getParameterStepCount(ParamId::Gate);
 
@@ -433,37 +393,18 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     return;
   }
 
-  const auto editing = held != ParamId::Count ? held : uiState.currentEditParameter;
-  const auto encoderId = VoiceEditor::encoderTarget();
-  const ParamId encoderLane = config ? VoiceEdit::sequenceLane(encoderId, *config) : ParamId::Count;
-  const bool showBase = config && uiState.encoderBaseViewUntil != 0 &&
-                        millis() < uiState.encoderBaseViewUntil;
-  if (editing != ParamId::Count && (held != ParamId::Count || selected)) {
-    const uint8_t step = selected ? static_cast<uint8_t>(uiState.selectedStepForEdit) :
-                                   sequence.getCurrentStepForParameter(editing);
-    const bool base = showBase && encoderLane == editing;
-    displayParameterInfo(editing,
-                         base ? MusicalValues::baseStep(*config) :
-                                sequence.getPlaybackStep(selected ? step : UINT8_MAX),
-                         uiState, step, config, selected, held != ParamId::Count, base);
-  } else if (selected) {
-    drawVoiceHeader(uiState, false);
-    displayHardware.setCursor(2, 18);
-    displayHardware.setTextSize(2);
-    displayHardware.print("Step "); displayHardware.print(uiState.selectedStepForEdit + 1);
-    displayHardware.setTextSize(1);
-    displayHardware.setCursor(2, 43); displayHardware.print("Hold parameter");
-    displayHardware.setCursor(2, 54); displayHardware.print("to edit this step");
-  } else {
+  const auto encoderId = view.baseId;
+  const auto encoderLane = view.lane;
+  const bool showBase = view.source == Source::Base;
+  {
     // No parameter held: show the base the encoder edits for its target.
     // Step modifiers are left out, so a turn always shows its effect.
     drawVoiceHeader(uiState, true);
     displayHardware.setCursor(104, 0);
     displayHardware.print("S"); displayHardware.print(sequence.getCurrentStep() + 1);
-    const auto id = encoderId;
     const auto lane = encoderLane;
     const Step playing = sequence.getPlaybackStep();
-    const Step values = showBase ? MusicalValues::baseStep(*config) : playing;
+    const Step &values = view.values;
     char value[48] = "--";
     if (config) {
       if (lane != ParamId::Count)
@@ -479,7 +420,7 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
       "Min Pent", "Phryg Dom", "Lyd Dom", "Harm Min", "Whole", "Chromatic"};
     static_assert(sizeof(shortScales) / sizeof(shortScales[0]) == SCALES_COUNT);
     displayHardware.setCursor(68, 31);
-    displayHardware.print(showBase ? "Base" : shortScales[std::min<size_t>(currentScale, SCALES_COUNT - 1)]);
+    displayHardware.print(showBase ? "BASE" : shortScales[std::min<size_t>(currentScale, SCALES_COUNT - 1)]);
     if (!playing.isGateActive) {
       displayHardware.setCursor(92, 0); displayHardware.print("R");
     }
@@ -547,7 +488,7 @@ void OLEDDisplay::displayParameterInfo(ParamId id, const Step &values,
   displayHardware.setCursor(2, 46);
   if (base) displayHardware.print("BASE");
   else {
-    displayHardware.print(selected ? "STEP " : "LIVE ");
+    displayHardware.print(selected ? "STEP " : isClockRunning ? "TRACK " : "STOP ");
     displayHardware.print(values.isGateActive ? "NOTE" : "REST");
   }
   if (showDistance)

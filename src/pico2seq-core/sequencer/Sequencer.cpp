@@ -1,6 +1,7 @@
 #include <cstdint>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include "SequencerDefs.h"
 #include "Sequencer.h"
 
@@ -47,15 +48,22 @@ float parameterValueAsFloat(const ParameterValueType &value)
 // Helper function to map a normalized value (0.0-1.0) to a parameter's defined min/max range.
 float mapNormalizedValueToParamRange(ParamId id, float normalizedValue)
 {
+    if (!parameterDefinition(id))
+        return 0.0f;
+    normalizedValue = std::clamp(normalizedValue, 0.0f, 1.0f);
     if (id == ParamId::Octave)
     {
-        if (normalizedValue <= SequencerConstants::OCTAVE_NORM_MINUS_2_MAX)
+        // Fast-math may normalize an exact millimetre boundary using a
+        // reciprocal multiply, a few float ULPs above the constant quotient.
+        // Absorb that rounding only (<0.0002 mm across the sensor span).
+        constexpr float rounding = 2.0f * std::numeric_limits<float>::epsilon();
+        if (normalizedValue <= SequencerConstants::OCTAVE_NORM_MINUS_2_MAX + rounding)
             return SequencerConstants::OCTAVE_TRACK_MINUS_2;
-        if (normalizedValue <= SequencerConstants::OCTAVE_NORM_MINUS_1_MAX)
+        if (normalizedValue <= SequencerConstants::OCTAVE_NORM_MINUS_1_MAX + rounding)
             return SequencerConstants::OCTAVE_TRACK_MINUS_1;
-        if (normalizedValue <= SequencerConstants::OCTAVE_NORM_ZERO_MAX)
+        if (normalizedValue <= SequencerConstants::OCTAVE_NORM_ZERO_MAX + rounding)
             return SequencerConstants::OCTAVE_TRACK_ZERO;
-        if (normalizedValue <= SequencerConstants::OCTAVE_NORM_PLUS_1_MAX)
+        if (normalizedValue <= SequencerConstants::OCTAVE_NORM_PLUS_1_MAX + rounding)
             return SequencerConstants::OCTAVE_TRACK_PLUS_1;
         return SequencerConstants::OCTAVE_TRACK_PLUS_2;
     }
@@ -131,7 +139,30 @@ void Sequencer::setRawStepValue(ParamId id, uint8_t stepIdx, float value)
 
 void Sequencer::setStepParameterValue(ParamId id, uint8_t stepIdx, float value)
 {
-    parameterManager.setValue(id, stepIdx, value);
+    writeParameter(id, stepIdx, value, ValueDomain::Stored, EditIntent::Explicit);
+}
+
+Sequencer::WriteResult Sequencer::writeParameter(ParamId id, int step, float value,
+                                                ValueDomain domain, EditIntent intent,
+                                                int gateStep)
+{
+    const auto *definition = parameterDefinition(id);
+    if (!definition || step < 0 || step >= SequencerConstants::MAX_STEPS_COUNT)
+        return {};
+    const float before = parameterManager.getValue(id, static_cast<uint8_t>(step));
+    if (intent == EditIntent::Recording) {
+        if (!definition->recordable)
+            return {WriteStatus::Rejected, before};
+        if (id == ParamId::Note && (gateStep < 0 ||
+            gateStep >= SequencerConstants::MAX_STEPS_COUNT ||
+            parameterManager.getValue(ParamId::Gate, static_cast<uint8_t>(gateStep)) <= 0.5f))
+            return {WriteStatus::Rejected, before};
+    }
+    if (domain == ValueDomain::Normalized)
+        value = mapNormalizedValueToParamRange(id, value);
+    parameterManager.setValue(id, static_cast<uint8_t>(step), value);
+    const float after = parameterManager.getValue(id, static_cast<uint8_t>(step));
+    return {after == before ? WriteStatus::Unchanged : WriteStatus::Changed, after};
 }
 
 void Sequencer::reset()
@@ -149,7 +180,7 @@ void Sequencer::reset()
 
 uint8_t Sequencer::getCurrentStepForParameter(ParamId paramId) const
 {
-    return currentStepPerParam[static_cast<size_t>(paramId)];
+    return parameterDefinition(paramId) ? currentStepPerParam[static_cast<size_t>(paramId)] : 0;
 }
 
 void Sequencer::resetAllSteps()
@@ -275,23 +306,9 @@ void Sequencer::advanceStep(uint32_t current_uclock_step, int mm_distance,
         {
             if (pb.held)
             {
-                // GATE-CONTROLLED NOTE PROGRAMMING: Check gate restriction for Note parameter
-                if (pb.id == ParamId::Note)
-                {
-                    uint8_t gateStepIdx = currentStepPerParam[static_cast<size_t>(ParamId::Gate)];
-                    float gateValue = getStepParameterValue(ParamId::Gate, gateStepIdx);
-                    if (gateValue <= 0.5f) // Gate is LOW (0.0)
-                    {
-                        // Skip Note parameter recording on steps with LOW gates
-                        continue;
-                    }
-                }
-
-                // For all other parameters, scale the normalized value to the parameter's range
-                float value = mapNormalizedValueToParamRange(pb.id, normalizedDistance);
-                // Use the parameter's own current step index for recording
-                uint8_t paramStepIdx = currentStepPerParam[static_cast<size_t>(pb.id)];
-                setStepParameterValue(pb.id, paramStepIdx, value);
+                writeParameter(pb.id, getCurrentStepForParameter(pb.id), normalizedDistance,
+                               ValueDomain::Normalized, EditIntent::Recording,
+                               getCurrentStepForParameter(ParamId::Gate));
             }
         }
     }
@@ -453,20 +470,21 @@ void Sequencer::previewActiveStep(VoiceState *voiceState)
     processStep(UINT8_MAX, voiceState);
 }
 
-void Sequencer::refreshVoiceParameters(VoiceState *voiceState) const
+void Sequencer::refreshVoiceParameters(VoiceState *voiceState, uint8_t step,
+                                      bool includeRestPitch) const
 {
     if (!voiceState)
     {
         return;
     }
-    const Step values = getPlaybackStep();
+    const Step values = getPlaybackStep(step);
     voiceState->velocityLevel = values.velocityLevel;
     voiceState->filterCutoff = values.filterCutoff;
     voiceState->attackTimeSeconds = values.attackTimeSeconds;
     voiceState->decayTimeSeconds = values.decayTimeSeconds;
     // Pitch follows only a sounding note, matching processStep(): a released
     // note keeps its pitch through the tail.
-    if (voiceState->isGateHigh)
+    if (voiceState->isGateHigh || includeRestPitch)
     {
         voiceState->noteIndex = values.noteIndex;
         voiceState->octaveOffset = values.octaveOffset;

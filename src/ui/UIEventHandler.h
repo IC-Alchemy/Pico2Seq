@@ -106,15 +106,4 @@ void clearSequencerVoice(UIState &uiState, Sequencer &sequencer, uint8_t voiceIn
  */
 void clearAllSequencerVoices(UIState &uiState, const SequencerView &sequencers);
 
-/**
- * @brief Firmware-side bridge that unpacks UIState button/edit-step fields and
- *        forwards them to Sequencer::advanceStep's primitive-argument overload.
- *
- * Sequencer (src/pico2seq-core) no longer depends on UIState so it stays
- * reusable outside this firmware; this adapter keeps the StepPlayback.cpp
- * call site simple.
- */
-void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_distance,
-                          const UIState &uiState, VoiceState *voiceState);
-
 #endif // UI_EVENT_HANDLER_H
