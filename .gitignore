@@ -22,3 +22,5 @@ build_fw/
 build_review/
 build_test_ninja/
 build_clang/
+build_desktop/*
+build*
