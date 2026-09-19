@@ -22,6 +22,9 @@ public:
     float getValue(ParamId id, uint8_t stepIdx) const;
     void setValue(ParamId id, uint8_t stepIdx, float value);
     void copyStep(uint8_t srcStep, uint8_t dstStep);
+    // Every slot (all 64) takes value, which also becomes what a growing
+    // track fills its new steps with. Keeps the active length.
+    void fillTrack(ParamId id, float value);
 
     // Direct (non-wrapping) access for persistence. getRawValue reads storage
     // beyond the active length; setRawValue writes without the UI clamp/round.
@@ -32,10 +35,11 @@ public:
 
     static constexpr uint8_t kDefaultRandomizeDepth = 35;
 
-    // Velocity/Filter/Attack/Decay steps get triangular offsets around the
-    // neutral modifier 0.5, spanning 0.5 +/- depth/2 scaled by each lane's
-    // amount. Played through patch bases, depth is how far (in percent) a
-    // step may stray from the base toward either end of its lane, most draws
+    // Velocity/Filter/Attack/Decay/Sustain/Release steps get triangular
+    // offsets around 0.5, spanning 0.5 +/- depth/2 scaled by each lane's
+    // amount; Sequencer turns them into absolute values around the patch
+    // value (offsetAroundBase). Depth is how far (in percent) a step may
+    // stray from the patch toward either end of its lane, most draws
     // staying close. Note draws scale steps 0-12, Octave and GateLength return
     // to neutral, and Gate/Slide are never touched. A lane amount of 0 leaves
     // that lane as it is. seed 0 seeds from the clock; any other seed repeats.

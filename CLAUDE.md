@@ -183,11 +183,12 @@ Matrix/TMAG5273/VL53L1X input  (Core 0)
     has been transmitted since USB MIDI was removed 2026-09-06) → VoiceManager
   → Voice spans (sources → envelope gain → effects → velocity → main filter → HPF)
   → fill_audio_buffer()  (Core 1)  → I2S @ 48kHz (final mix includes the master
-    volume from `VoiceManager::setGlobalVolume()`, utility fader 3)
+    volume from `VoiceManager::setGlobalVolume()`, restored from the session; no
+    fader drives it since 2026-09-19)
 ```
 
 `Sequencer::ParameterTrack<N>` (in `SequencerDefs.h`) is the polymetric building block: each
-`ParamId` (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide) gets its own
+`ParamId` (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide, Sustain, Release) gets its own
 fixed-size array with an independent `currentStepCount` and modulo-wrapping `getValue()`. This
 is what makes "Note track at 16 steps, Filter track at 8 steps" possible on the same voice.
 

@@ -11,11 +11,11 @@ namespace SessionStorage
 bool begin();
 
 enum class LoadResult { Ok, NoFile, IoError, BadFrame };
-LoadResult load(persistence::ProjectSnapshotV1 &out);
+LoadResult load(persistence::ProjectSnapshot &out);
 
 // Atomic save: write /session.tmp, then rename over /session.p2s — a power
 // cut mid-write leaves either the old file or the new one, never a torn file.
-bool save(const persistence::ProjectSnapshotV1 &snap);
+bool save(const persistence::ProjectSnapshot &snap);
 } // namespace SessionStorage
 
 #endif

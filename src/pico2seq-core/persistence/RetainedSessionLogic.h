@@ -9,7 +9,7 @@ namespace persistence
 {
 
 constexpr uint32_t RETAINED_MAGIC = 0x52455431u; // 'RET1'
-constexpr uint16_t RETAINED_VERSION = 1;
+constexpr uint16_t RETAINED_VERSION = 2; // 2: snapshot format 2
 constexpr uint8_t MAX_RESUME_ATTEMPTS = 3;
 constexpr uint16_t RETAINED_FLAG_BOOT_COMPLETED = 1u << 0;
 
@@ -26,7 +26,7 @@ struct RetainedHeader
 struct RetainedStore
 {
     RetainedHeader header;
-    ProjectSnapshotV1 snapshot;
+    ProjectSnapshot snapshot;
     uint32_t crc32; // over snapshot only
 };
 
@@ -50,7 +50,7 @@ inline ResumeDecision decideResume(bool watchdogReset, bool retainedValidFlag,
     return ResumeDecision::HaltRecovery;
 }
 
-inline void retainedRefresh(RetainedStore &store, const ProjectSnapshotV1 &snap) noexcept
+inline void retainedRefresh(RetainedStore &store, const ProjectSnapshot &snap) noexcept
 {
     store.header.magic = RETAINED_MAGIC;
     store.header.version = RETAINED_VERSION;

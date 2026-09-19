@@ -51,6 +51,11 @@ namespace SequencerConstants
   static constexpr float OCTAVE_TRACK_ZERO    = 0.5f;
   static constexpr float OCTAVE_TRACK_PLUS_1  = 0.75f;
   static constexpr float OCTAVE_TRACK_PLUS_2  = 1.0f;
+
+  // Stored in a patch-default lane (ParameterDefinition::patchDefault) when
+  // the step has no value of its own: playback uses the voice's patch value.
+  // Only an exact write of this constant stores it; other values clamp.
+  static constexpr float LANE_FOLLOWS_PATCH = -1.0f;
 }
 
 // Legacy constants for backward compatibility - will be phased out
@@ -78,6 +83,8 @@ enum class ParamId : uint8_t
   GateLength, // 6 - Gate duration (0.001-1.0 as fraction of step)
   Gate,       // 7 - Gate on/off state (boolean)
   Slide,      // 8 - Portamento enable (boolean)
+  Sustain,    // 9 - Envelope sustain level (0.0-1.0)
+  Release,    // 10 - Envelope release time (0.0-1.0 normalized)
   Count       // Total parameter count for array sizing
 };
 
@@ -203,6 +210,10 @@ struct ParameterDefinition
   bool recordable;                 // Has a parameter-button live-record control;
                                    // not a restriction on explicit step/fader edits
   EncoderParameterMode encoderMode; // COUNT when there is no encoder base target
+  // Absolute lane: a step holds its own normalized value, or
+  // LANE_FOLLOWS_PATCH to play the voice's patch value. Other lanes are
+  // offsets (Note, Octave, GateLength) or toggles.
+  bool patchDefault;
 };
 
 /**
@@ -214,17 +225,20 @@ struct ParameterDefinition
  * Uses SequencerConstants for consistent step count defaults.
  */
 constexpr ParameterDefinition CORE_PARAMETERS[] = {
-    // Name, default, min, max, edit kind, steps, recordable, encoder base target
+    // Name, default, min, max, edit kind, steps, recordable, encoder base target, patch default
     {"Note", 0, SequencerConstants::NOTE_PARAMETER_MIN, SequencerConstants::NOTE_PARAMETER_MAX,
-     ParameterEditKind::Stepped, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Note},
-    {"Velocity", 0.5f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Velocity},
-    {"Filter", 0.5f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Filter},
-    {"Attack", 0.01f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Attack},
-    {"Decay", 0.3f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Decay},
-    {"Octave", 0.5f, 0.0f, 1.0f, ParameterEditKind::Stepped, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Octave},
-    {"GateLength", 0.5f, 0.001f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT},
-    {"Gate", false, false, true, ParameterEditKind::Toggle, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT},
-    {"Slide", false, false, true, ParameterEditKind::Toggle, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT}
+     ParameterEditKind::Stepped, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Note, false},
+    {"Velocity", 0.5f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Velocity, true},
+    {"Filter", 0.5f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Filter, true},
+    {"Attack", 0.01f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Attack, true},
+    {"Decay", 0.3f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Decay, true},
+    {"Octave", 0.5f, 0.0f, 1.0f, ParameterEditKind::Stepped, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Octave, false},
+    {"GateLength", 0.5f, 0.001f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, false},
+    {"Gate", false, false, true, ParameterEditKind::Toggle, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, false},
+    {"Slide", false, false, true, ParameterEditKind::Toggle, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, false},
+    // Edited per step by the ENV-mode faders only: no record button, no encoder base.
+    {"Sustain", 0.5f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, true},
+    {"Release", 0.3f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, true}
 };
 
 static_assert(sizeof(CORE_PARAMETERS) / sizeof(CORE_PARAMETERS[0]) == PARAM_ID_COUNT,
@@ -235,6 +249,31 @@ constexpr const ParameterDefinition *parameterDefinition(ParamId id) noexcept
 {
   const auto index = static_cast<uint8_t>(id);
   return index < PARAM_ID_COUNT ? &CORE_PARAMETERS[index] : nullptr;
+}
+
+constexpr bool isPatchDefaultLane(ParamId id) noexcept
+{
+  const auto *definition = parameterDefinition(id);
+  return definition && definition->patchDefault;
+}
+
+constexpr bool followsPatch(float stored) noexcept
+{
+  return stored < 0.0f;
+}
+
+/**
+ * Offset-to-absolute mapping of the former modifier lanes: 0.5 plays the
+ * base, 0 and 1 reach the ends of the lane. Used to convert old sessions and
+ * to spread Randomize around a patch value.
+ */
+constexpr float offsetAroundBase(float base, float offset) noexcept
+{
+  const float n = offset < 0.0f ? 0.0f : (offset > 1.0f ? 1.0f : offset);
+  const float b = base < 0.0f ? 0.0f : (base > 1.0f ? 1.0f : base);
+  const float value = n >= 0.5f ? b + (n - 0.5f) * 2.0f * (1.0f - b)
+                                : b + (n - 0.5f) * 2.0f * b;
+  return value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
 }
 
 constexpr ParamId parameterForEncoderMode(EncoderParameterMode mode) noexcept
@@ -276,6 +315,8 @@ struct VoiceState
   float filterCutoff = 0.37f;                                               // Filter cutoff frequency (0.0-1.0)
   float attackTimeSeconds = 0.01f;                                          // Envelope attack time (0.0-1.0 seconds)
   float decayTimeSeconds = 0.1f;                                           // Envelope decay time (0.0-1.0 seconds)
+  float sustainLevel = 0.5f;                                                // Envelope sustain level (0.0-1.0)
+  float releaseTimeSeconds = 0.3f;                                          // Envelope release time (0.0-1.0 normalized)
   int8_t octaveOffset = 0;                                                  // Signed semitone transpose from the octave track
   uint16_t gateLengthTicks = SequencerConstants::DEFAULT_GATE_LENGTH_TICKS; // Gate duration in clock ticks
 
@@ -310,6 +351,8 @@ struct Step
   float filterCutoff = 0.5f;                                                 // Filter cutoff frequency (0.0-1.0)
   float attackTimeSeconds = 0.01f;                                          // Envelope attack time (0.0-1.0 seconds)
   float decayTimeSeconds = 0.2f;                                            // Envelope decay time (0.0-1.0 seconds)
+  float sustainLevel = 0.5f;                                                // Envelope sustain level (0.0-1.0)
+  float releaseTimeSeconds = 0.3f;                                          // Envelope release time (0.0-1.0 normalized)
   int8_t octaveOffset = 0;                                                  // Signed semitone transpose from the octave track
   uint16_t gateLengthTicks = SequencerConstants::DEFAULT_GATE_LENGTH_TICKS; // Gate duration in clock ticks
   bool isGateActive = false;                                                // Step active/inactive state

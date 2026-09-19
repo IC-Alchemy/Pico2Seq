@@ -17,9 +17,8 @@
 //   classifyPadRelease — pad press time + release time -> ignore/tap/hold.
 //   ShiftLatch     — shift level + param edges -> parameterButtonHeld state
 //                    with Shift+tap latching.
-//   FaderMap       — mode + fader channel -> control target, with a send
+//   FaderMap       — Step Edit + fader channel -> control target, with a send
 //                    deadband so steady faders stay quiet.
-//   paramFaderEdit — Param fader -> record into a step, or edit the voice base.
 //   encoderBaseModeForRecordParam — record button -> encoder base target.
 //   EncoderMotion  — encoder increments carried between sensor reads.
 
@@ -310,20 +309,20 @@ private:
 // Fader map
 // ---------------------------------------------------------------------------
 
-/** What a fader channel controls in the current mode. */
+/** What a fader channel controls. The mode strap does not change it. */
 enum class FaderTarget : uint8_t
 {
-  StepParam,   // edits a ParamId lane of the selected voice (param mode; see paramFaderEdit)
-  Tempo,       // uClock BPM (utility mode)
-  SwingAmount, // continuous shuffle depth (utility mode)
-  GateLength,  // gate length across the selected voice's steps (utility mode)
-  MasterVolume // final mix gain (utility mode)
+  None,        // unassigned
+  EnvLane,     // ENV mode: one envelope lane of the selected step
+  Tempo,       // uClock BPM
+  SwingAmount, // continuous shuffle depth
+  GateLength,  // gate length across the selected voice's steps
 };
 
 struct FaderAssignment
 {
-  FaderTarget target = FaderTarget::StepParam;
-  ParamId paramId = ParamId::Count; // valid when target == StepParam
+  FaderTarget target = FaderTarget::None;
+  ParamId paramId = ParamId::Count; // valid when target == EnvLane
 };
 
 class FaderMap
@@ -336,8 +335,12 @@ public:
   // An obvious move (in 12-bit counts) required to engage a fader after reset / mode flip.
   static constexpr uint16_t kMoveThresholdCounts = 64;
 
-  /** Target of one fader channel (0..3) in the given mode. */
-  static FaderAssignment assignmentFor(Mode mode, uint8_t channel);
+  /**
+   * Target of one fader channel (0..3). With a step selected (ENV mode) the
+   * faders are that step's Attack, Decay, Sustain and Release lanes;
+   * otherwise Tempo, Swing, (unassigned), Gate length.
+   */
+  static FaderAssignment assignmentFor(bool stepSelected, uint8_t channel);
 
   /** 12-bit raw fader counts -> normalized 0..1. */
   static float normalize(uint16_t rawCounts);
@@ -360,31 +363,6 @@ private:
   bool hasBaseline_[kChannelCount] = {false, false, false, false};
   bool engaged_[kChannelCount] = {false, false, false, false};
 };
-
-/** What a Param-mode fader move does to its lane. */
-enum class FaderEdit : uint8_t
-{
-  Ignore,   // Step Edit with a different parameter armed
-  Record,   // write the value like the lidar: selected step, else playing step
-  VoiceBase // set the selected voice's base for the lane
-};
-
-/**
- * Param-mode fader policy (docs/manual.md §1.3). In Step Edit the fader
- * writes the selected step when its lane is armed: its own button held, else
- * (no button held) toggled or nothing chosen. Otherwise holding the fader's
- * own parameter button records it live into the playing step, and a free
- * fader edits the voice's base.
- */
-constexpr FaderEdit paramFaderEdit(ParamId fader, bool stepSelected, bool ownHeld,
-                                   bool anyHeld, ParamId toggled)
-{
-  if (stepSelected)
-    return (ownHeld || (!anyHeld && (toggled == fader || toggled == ParamId::Count)))
-               ? FaderEdit::Record
-               : FaderEdit::Ignore;
-  return ownHeld ? FaderEdit::Record : FaderEdit::VoiceBase;
-}
 
 // ---------------------------------------------------------------------------
 // Encoder motion

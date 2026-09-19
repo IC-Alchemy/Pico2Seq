@@ -27,15 +27,6 @@ constexpr unsigned long kModeBannerDurationMs = 600;
 constexpr float kTempoMinBpm = 45.0f;
 constexpr float kTempoMaxBpm = 200.0f;
 constexpr int8_t kSwingMaxTicks = 45; // half of a 120-tick 16th at PPQN 480
-
-// Why a free function: the fader map speaks ControlSurface::Mode while the
-// rest of the firmware speaks UIState::AlchemyMode, so one canonical
-// translation keeps Param/Utility from drifting apart at each call site.
-ControlSurface::Mode bridgeMode(UIState::AlchemyMode mode)
-{
-  return (mode == UIState::AlchemyMode::Param) ? ControlSurface::Mode::Param
-                                               : ControlSurface::Mode::Utility;
-}
 } // namespace
 
 // Why re-resolve instead of caching once: tile slots are scan order, so a tile
@@ -145,11 +136,14 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
     handleUtilityButtons(nowMs, uiState, sequencers);
   }
 
-  // If selected voice changed (via voice buttons or pad bank selection),
-  // disarm faders so newly focused voice does not snap on minor movement.
-  if (uiState.selectedVoiceIndex != lastVoiceIndex_)
+  // Disarm the faders whenever what they edit changes: the selected voice,
+  // or entering, leaving or moving Step Edit (ENV mode). A newly focused
+  // step or voice must not snap to wherever the faders happen to rest.
+  if (uiState.selectedVoiceIndex != lastVoiceIndex_ ||
+      uiState.selectedStepForEdit != lastStepForEdit_)
   {
     lastVoiceIndex_ = uiState.selectedVoiceIndex;
+    lastStepForEdit_ = uiState.selectedStepForEdit;
     faders_.resetDeadband();
   }
 
@@ -457,10 +451,11 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
 // --- Faders ----------------------------------------------------------------------
 
 // Why faders fan out by assignment instead of by channel: the same four
-// physical faders mean voice lanes in Param mode but global Tempo/Swing/
-// Volume/Gate in Utility mode. The deadband gate (accept()) stops a newly
-// selected voice or mode from snapping to a stale fader position, and the
-// shuffle buffer is static because uClock retains the pointer for ISR ticks.
+// physical faders mean Tempo/Swing/-/Gate in both strap positions, but the
+// selected step's Attack/Decay/Sustain/Release in Step Edit (ENV mode). The
+// deadband gate (accept()) stops a newly selected voice or step from
+// snapping to a stale fader position, and the shuffle buffer is static
+// because uClock retains the pointer for ISR ticks.
 void AlchemyControlBridge::handleFaders(UIState &uiState,
                                         const SequencerView &sequencers)
 {
@@ -473,35 +468,22 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
     }
     const float normalized = ControlSurface::FaderMap::normalize(rawCounts);
     const ControlSurface::FaderAssignment assignment =
-        ControlSurface::FaderMap::assignmentFor(bridgeMode(uiState.alchemyMode), channel);
+        ControlSurface::FaderMap::assignmentFor(uiState.selectedStepForEdit >= 0, channel);
 
     switch (assignment.target)
     {
-    case ControlSurface::FaderTarget::StepParam:
-      switch (ControlSurface::paramFaderEdit(
-          assignment.paramId, uiState.selectedStepForEdit >= 0,
-          uiState.parameterButtonHeld[static_cast<uint8_t>(assignment.paramId)],
-          isAnyParameterButtonHeld(uiState), uiState.currentEditParameter))
-      {
-      case ControlSurface::FaderEdit::Record:
-        // Same recording path as the lidar: the selected step in Step Edit,
-        // else the lane's playing step while its button is held.
-        recordParameter(assignment.paramId, normalized);
-        break;
-      case ControlSurface::FaderEdit::VoiceBase:
-        VoiceEditor::fader(assignment.paramId, normalized);
-        break;
-      case ControlSurface::FaderEdit::Ignore:
-        break;
-      }
+    case ControlSurface::FaderTarget::None:
       break;
 
-    case ControlSurface::FaderTarget::MasterVolume:
-      // VoiceManager applies this lock-free gain on Core 1's final mix.
-      if (voiceManager)
-      {
-        voiceManager->setGlobalVolume(normalized);
-      }
+    case ControlSurface::FaderTarget::EnvLane:
+      // The fader's position is the step's absolute value; Shift + move
+      // hands the lane back to the patch value instead.
+      if (uiState.shiftHeld)
+        resetStepToPatch(assignment.paramId);
+      else
+        recordParameter(assignment.paramId, normalized);
+      uiState.envFaderLane = assignment.paramId;
+      uiState.envViewUntil = millis() + ENCODER_BASE_VIEW_MS;
       break;
 
     case ControlSurface::FaderTarget::Tempo:

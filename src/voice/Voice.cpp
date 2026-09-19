@@ -385,8 +385,8 @@ void PICO2SEQ_AUDIO_FUNC(Voice::renderSpan_)(float *out, uint32_t n) noexcept
     rpdsp::ADSR adsr = envelope;
     for (uint32_t k = 0; k < n; ++k) spanEnv_[k] = adsr.process();
     envelope = adsr;
-    // Held attack/decay edits land once their stage has ended.
-    if (pendingAttackSeconds_ >= 0.0f || pendingDecaySeconds_ >= 0.0f)
+    // Held envelope edits land once their stage has ended.
+    if (envelopeChangePending_())
       applyPendingEnvelopeTimes_(false);
   }
   else
@@ -870,10 +870,16 @@ void Voice::updateOscillatorFrequencies()
 inline void Voice::applyEnvelopeParameters() noexcept
 {
   if(config.usePatchBases) {
-    setEnvelopeTimes_(MusicalValues::attackSeconds(state.attackTimeSeconds),
-                      MusicalValues::envelopeSeconds(state.decayTimeSeconds));
-    envelope.setSustain(config.defaultSustain);
-    envelope.setRelease(config.defaultRelease);
+    // Each lane drives its envelope stage unless the layout re-purposes it
+    // (then the patch value shapes that stage, set in applyConfig_()).
+    if (VoiceParameters::layout(config).envelopeFromTracks)
+      setEnvelopeTimes_(MusicalValues::attackSeconds(state.attackTimeSeconds),
+                        MusicalValues::envelopeSeconds(state.decayTimeSeconds));
+    const bool sustainLane = !VoiceParameters::binding(config, ParamId::Sustain).target;
+    const bool releaseLane = !VoiceParameters::binding(config, ParamId::Release).target;
+    setEnvelopeShape_(sustainLane ? state.sustainLevel : config.defaultSustain,
+                      releaseLane ? MusicalValues::envelopeSeconds(state.releaseTimeSeconds)
+                                  : config.defaultRelease);
     return;
   }
   // Map normalized parameters to appropriate ranges
@@ -890,14 +896,20 @@ inline void Voice::applyEnvelopeParameters() noexcept
 inline void Voice::applyEnvelopeDefaults_() noexcept
 {
   setEnvelopeTimes_(config.defaultAttack, config.defaultDecay);
-  envelope.setSustain(config.defaultSustain);
-  envelope.setRelease(config.defaultRelease);
+  setEnvelopeShape_(config.defaultSustain, config.defaultRelease);
 }
 
 void Voice::setEnvelopeTimes_(float attackSeconds, float decaySeconds) noexcept
 {
   pendingAttackSeconds_ = attackSeconds;
   pendingDecaySeconds_ = decaySeconds;
+  applyPendingEnvelopeTimes_(false);
+}
+
+void Voice::setEnvelopeShape_(float sustainLevel, float releaseSeconds) noexcept
+{
+  pendingSustain_ = std::clamp(sustainLevel, 0.0f, 1.0f);
+  pendingReleaseSeconds_ = releaseSeconds;
   applyPendingEnvelopeTimes_(false);
 }
 
@@ -915,6 +927,19 @@ void PICO2SEQ_AUDIO_FUNC(Voice::applyPendingEnvelopeTimes_)(bool noteOn) noexcep
   {
     envelope.setDecay(pendingDecaySeconds_);
     pendingDecaySeconds_ = -1.0f;
+  }
+  // Decay ramps toward the sustain level and sustain holds it, so a new
+  // level in either stage steps the output.
+  if (pendingSustain_ >= 0.0f &&
+      (noteOn || (stage != rpdsp::ADSR::Stage::kDecay && stage != rpdsp::ADSR::Stage::kSustain)))
+  {
+    envelope.setSustain(pendingSustain_);
+    pendingSustain_ = -1.0f;
+  }
+  if (pendingReleaseSeconds_ >= 0.0f && (noteOn || stage != rpdsp::ADSR::Stage::kRelease))
+  {
+    envelope.setRelease(pendingReleaseSeconds_);
+    pendingReleaseSeconds_ = -1.0f;
   }
 }
 
@@ -1206,7 +1231,7 @@ void Voice::applyParameters_(const VoiceState &newState) noexcept
   const bool repurposedFilter = VoiceParameters::binding(config, ParamId::Filter).target != nullptr;
   filterFrequency = VoiceParameters::mapCutoff(
       parameters, repurposedFilter ? config.filterCutoffBase : state.filterCutoff);
-  if (parameters.envelopeFromTracks)
+  if (parameters.envelopeFromTracks || config.usePatchBases)
     applyEnvelopeParameters();
   applyEngineConfig_();
 

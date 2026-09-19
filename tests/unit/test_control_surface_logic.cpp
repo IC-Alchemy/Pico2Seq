@@ -58,7 +58,8 @@ TEST_CASE("Parameter descriptors distinguish recording, detents and toggles", "[
         ParameterEditKind::Continuous, ParameterEditKind::Continuous,
         ParameterEditKind::Continuous, ParameterEditKind::Stepped,
         ParameterEditKind::Continuous, ParameterEditKind::Toggle,
-        ParameterEditKind::Toggle
+        ParameterEditKind::Toggle, ParameterEditKind::Continuous,
+        ParameterEditKind::Continuous
     };
     static_assert(sizeof(kinds) / sizeof(kinds[0]) == PARAM_ID_COUNT);
     for (uint8_t i = 0; i < PARAM_ID_COUNT; ++i)
@@ -72,6 +73,15 @@ TEST_CASE("Parameter descriptors distinguish recording, detents and toggles", "[
         CHECK(definition->defaultSteps == SequencerConstants::DEFAULT_STEPS_COUNT);
         if (!definition->recordable)
             CHECK(definition->encoderMode == EncoderParameterMode::COUNT);
+    }
+    // Absolute lanes can follow the patch; offsets and toggles cannot.
+    for (uint8_t i = 0; i < PARAM_ID_COUNT; ++i)
+    {
+        const auto id = static_cast<ParamId>(i);
+        CAPTURE(i);
+        CHECK(isPatchDefaultLane(id) ==
+              (id == ParamId::Velocity || id == ParamId::Filter || id == ParamId::Attack ||
+               id == ParamId::Decay || id == ParamId::Sustain || id == ParamId::Release));
     }
     // Stepped encoder editing must not turn the normalized octave recording
     // lane into an integer-valued track.
@@ -454,34 +464,37 @@ TEST_CASE("ShiftLatch ignores out-of-range param ids", "[control_surface]")
 // FaderMap
 // ---------------------------------------------------------------------------
 
-TEST_CASE("FaderMap assigns param-mode faders to Filter/Attack/Decay/Velocity", "[control_surface]")
+TEST_CASE("FaderMap: without a selected step the faders are tempo/swing/-/gate length", "[control_surface][fader]")
 {
-    const FaderAssignment ch0 = FaderMap::assignmentFor(Mode::Param, 0);
-    CHECK(ch0.target == FaderTarget::StepParam);
-    CHECK(ch0.paramId == ParamId::Filter);
-
-    const FaderAssignment ch1 = FaderMap::assignmentFor(Mode::Param, 1);
-    CHECK(ch1.paramId == ParamId::Attack);
-
-    const FaderAssignment ch2 = FaderMap::assignmentFor(Mode::Param, 2);
-    CHECK(ch2.paramId == ParamId::Decay);
-
-    const FaderAssignment ch3 = FaderMap::assignmentFor(Mode::Param, 3);
-    CHECK(ch3.paramId == ParamId::Velocity);
+    CHECK(FaderMap::assignmentFor(false, 0).target == FaderTarget::Tempo);
+    CHECK(FaderMap::assignmentFor(false, 1).target == FaderTarget::SwingAmount);
+    // The old Decay / Master Volume slot is unassigned.
+    CHECK(FaderMap::assignmentFor(false, 2).target == FaderTarget::None);
+    CHECK(FaderMap::assignmentFor(false, 3).target == FaderTarget::GateLength);
+    for (uint8_t channel = 0; channel < FaderMap::kChannelCount; ++channel)
+        CHECK(FaderMap::assignmentFor(false, channel).paramId == ParamId::Count);
 }
 
-TEST_CASE("FaderMap assigns utility-mode faders to tempo/swing/master-volume/gate-length", "[control_surface]")
+TEST_CASE("FaderMap: a selected step turns the faders into its envelope lanes", "[control_surface][fader]")
 {
-    CHECK(FaderMap::assignmentFor(Mode::Utility, 0).target == FaderTarget::Tempo);
-    CHECK(FaderMap::assignmentFor(Mode::Utility, 1).target == FaderTarget::SwingAmount);
-    CHECK(FaderMap::assignmentFor(Mode::Utility, 2).target == FaderTarget::MasterVolume);
-    CHECK(FaderMap::assignmentFor(Mode::Utility, 3).target == FaderTarget::GateLength);
+    constexpr ParamId kLanes[] = {ParamId::Attack, ParamId::Decay, ParamId::Sustain, ParamId::Release};
+    for (uint8_t channel = 0; channel < FaderMap::kChannelCount; ++channel)
+    {
+        CAPTURE(channel);
+        const FaderAssignment env = FaderMap::assignmentFor(true, channel);
+        CHECK(env.target == FaderTarget::EnvLane);
+        CHECK(env.paramId == kLanes[channel]);
+    }
 }
 
 TEST_CASE("FaderMap rejects out-of-range channels", "[control_surface]")
 {
-    const FaderAssignment bad = FaderMap::assignmentFor(Mode::Param, 4);
-    CHECK(bad.paramId == ParamId::Count);
+    for (const bool stepSelected : {false, true})
+    {
+        const FaderAssignment bad = FaderMap::assignmentFor(stepSelected, 4);
+        CHECK(bad.target == FaderTarget::None);
+        CHECK(bad.paramId == ParamId::Count);
+    }
     CHECK_FALSE(FaderMap().accept(4, 100));
 }
 
@@ -674,31 +687,6 @@ TEST_CASE("Step edit targets the held, then toggled, then encoder parameter", "[
     CHECK(stepEditParameter(ParamId::Count, ParamId::Count, EncoderParameterMode::SlideTime) == ParamId::Count);
 }
 
-TEST_CASE("A free Param fader edits the voice base; its held button records it", "[control_surface][fader]")
-{
-    for (ParamId lane : {ParamId::Filter, ParamId::Attack, ParamId::Decay, ParamId::Velocity}) {
-        // Nothing held: the fader moves the selected voice's base, live.
-        CHECK(paramFaderEdit(lane, false, false, false, ParamId::Count) == FaderEdit::VoiceBase);
-        // Its own button held (or latched): live recording into the playing step,
-        // also alongside other held buttons.
-        CHECK(paramFaderEdit(lane, false, true, true, ParamId::Count) == FaderEdit::Record);
-        // Only another button held: that lane records from the lidar; this fader edits its base.
-        CHECK(paramFaderEdit(lane, false, false, true, ParamId::Count) == FaderEdit::VoiceBase);
-    }
-}
-
-TEST_CASE("In Step Edit a Param fader writes only its armed lane", "[control_surface][fader]")
-{
-    // Its own held button wins, then the toggled edit parameter, then any
-    // fader when nothing is armed.
-    CHECK(paramFaderEdit(ParamId::Filter, true, true, true, ParamId::Count) == FaderEdit::Record);
-    CHECK(paramFaderEdit(ParamId::Filter, true, true, true, ParamId::Attack) == FaderEdit::Record);
-    CHECK(paramFaderEdit(ParamId::Filter, true, false, true, ParamId::Filter) == FaderEdit::Ignore);
-    CHECK(paramFaderEdit(ParamId::Decay, true, false, false, ParamId::Decay) == FaderEdit::Record);
-    CHECK(paramFaderEdit(ParamId::Decay, true, false, false, ParamId::Attack) == FaderEdit::Ignore);
-    CHECK(paramFaderEdit(ParamId::Velocity, true, false, false, ParamId::Count) == FaderEdit::Record);
-}
-
 TEST_CASE("Between clock steps the lidar keeps writing only continuous lanes", "[control_surface][recording]")
 {
     for (ParamId lane : {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Decay})
@@ -707,6 +695,7 @@ TEST_CASE("Between clock steps the lidar keeps writing only continuous lanes", "
     CHECK_FALSE(recordsBetweenSteps(ParamId::Note));
     CHECK_FALSE(recordsBetweenSteps(ParamId::Octave));
     // No record button, no live recording.
-    for (ParamId lane : {ParamId::GateLength, ParamId::Gate, ParamId::Slide, ParamId::Count})
+    for (ParamId lane : {ParamId::GateLength, ParamId::Gate, ParamId::Slide, ParamId::Sustain,
+                         ParamId::Release, ParamId::Count})
         CHECK_FALSE(recordsBetweenSteps(lane));
 }

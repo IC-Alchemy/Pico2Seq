@@ -22,69 +22,76 @@ TEST_CASE("crc32 matches the ISO-HDLC check vector", "[persistence]")
 TEST_CASE("project snapshot size is locked", "[persistence]")
 {
     STATIC_REQUIRE(sizeof(ProjectSnapshotV1) == 10312u);
-    STATIC_REQUIRE(std::is_trivially_copyable_v<ProjectSnapshotV1>);
+    STATIC_REQUIRE(sizeof(ProjectSnapshot) == 12400u);
+    STATIC_REQUIRE(std::is_trivially_copyable_v<ProjectSnapshot>);
+    STATIC_REQUIRE(SNAPSHOT_FORMAT_VERSION == 2);
 }
 
 namespace
 {
 // Zero-initialized stepCounts are INVALID (validate requires 1..64); every
 // test that wants a range-valid snapshot seeds lengths first.
-void seedValidStepCounts(ProjectSnapshotV1 &s)
+void seedValidStepCounts(ProjectSnapshot &s)
 {
     for (int v = 0; v < 4; ++v)
-        for (int t = 0; t < PARAM_ID_COUNT; ++t)
-            s.patterns[v].tracks[t].stepCount = 16;
+    {
+        for (auto &track : s.patterns[v].tracks)
+            track.stepCount = 16;
+        for (auto &track : s.envelopes[v].tracks)
+            track.stepCount = 16;
+    }
+    s.laneModel = LANE_MODEL_ABSOLUTE;
 }
 } // namespace
 
 TEST_CASE("frame header round-trips and rejects damage", "[persistence]")
 {
-    ProjectSnapshotV1 snap{};
+    ProjectSnapshot snap{};
     seedValidStepCounts(snap);
     snap.settings.tempoBpm = 120.0f;
     snap.settings.currentScale = 5;
     REQUIRE(validateProjectSnapshot(snap));
 
-    uint8_t frame[12 + sizeof(ProjectSnapshotV1)];
+    uint8_t frame[12 + sizeof(ProjectSnapshot)];
     writeFrameHeader(frame, sizeof(snap),
                      crc32(reinterpret_cast<const uint8_t *>(&snap), sizeof(snap)));
     std::memcpy(frame + 12, &snap, sizeof(snap));
 
     const uint8_t *payload = frame + 12;
     const size_t payloadCapacity = sizeof(frame) - 12;
-    REQUIRE(readFrameHeader(frame, payload, payloadCapacity, sizeof(ProjectSnapshotV1)) ==
+    REQUIRE(readFrameHeader(frame, payload, payloadCapacity, sizeof(ProjectSnapshot)) ==
             FrameStatus::Ok);
 
     SECTION("too short")
     {
         REQUIRE(readFrameHeader(frame, payload, payloadCapacity - 1,
-                                sizeof(ProjectSnapshotV1)) == FrameStatus::TooShort);
+                                sizeof(ProjectSnapshot)) == FrameStatus::TooShort);
     }
     SECTION("bad magic")
     {
         frame[0] ^= 0xFF;
-        REQUIRE(readFrameHeader(frame, payload, payloadCapacity, sizeof(ProjectSnapshotV1)) == FrameStatus::BadMagic);
+        REQUIRE(readFrameHeader(frame, payload, payloadCapacity, sizeof(ProjectSnapshot)) == FrameStatus::BadMagic);
     }
     SECTION("bad version")
     {
         frame[4] = 0x63; frame[5] = 0x00; // version 99
-        REQUIRE(readFrameHeader(frame, payload, payloadCapacity, sizeof(ProjectSnapshotV1)) == FrameStatus::BadVersion);
+        REQUIRE(readFrameHeader(frame, payload, payloadCapacity, sizeof(ProjectSnapshot)) == FrameStatus::BadVersion);
     }
     SECTION("bad size")
     {
         frame[6] = 0x00; frame[7] = 0x00; // payloadSize 0
-        REQUIRE(readFrameHeader(frame, payload, payloadCapacity, sizeof(ProjectSnapshotV1)) == FrameStatus::BadSize);
+        REQUIRE(readFrameHeader(frame, payload, payloadCapacity, sizeof(ProjectSnapshot)) == FrameStatus::BadSize);
     }
     SECTION("bad crc")
     {
         frame[12] ^= 0xA5; // corrupt payload
-        REQUIRE(readFrameHeader(frame, payload, payloadCapacity, sizeof(ProjectSnapshotV1)) == FrameStatus::BadCrc);
+        REQUIRE(readFrameHeader(frame, payload, payloadCapacity, sizeof(ProjectSnapshot)) == FrameStatus::BadCrc);
     }
 }
 
 TEST_CASE("project snapshot validation rejects out-of-range settings", "[persistence]")
 {
-    ProjectSnapshotV1 s{};
+    ProjectSnapshot s{};
     seedValidStepCounts(s);
     s.settings.tempoBpm = 120.0f; // zeroed tempo (0 BPM) is itself out of range
     REQUIRE(validateProjectSnapshot(s)); // seeded defaults in range
@@ -101,6 +108,49 @@ TEST_CASE("project snapshot validation rejects out-of-range settings", "[persist
     REQUIRE_FALSE(validateProjectSnapshot(s));
     s.settings.themeIndex = 10;
     REQUIRE_FALSE(validateProjectSnapshot(s));
+    s.settings.themeIndex = 0;
+    s.envelopes[2].tracks[1].stepCount = 0;
+    REQUIRE_FALSE(validateProjectSnapshot(s));
+    s.envelopes[2].tracks[1].stepCount = 16;
+    s.laneModel = 7;
+    REQUIRE_FALSE(validateProjectSnapshot(s));
+}
+
+TEST_CASE("a format-1 file loads as the prefix of format 2", "[persistence]")
+{
+    // Build a format-1 payload exactly as old firmware saved it.
+    ProjectSnapshot old{};
+    seedValidStepCounts(old);
+    old.settings.tempoBpm = 101.0f;
+    old.patterns[1].tracks[static_cast<uint8_t>(ParamId::Decay)].values[3] = 0.8f;
+    uint8_t frame[12 + sizeof(ProjectSnapshotV1)];
+    std::memcpy(frame + 12, &old, sizeof(ProjectSnapshotV1));
+    writeFrameHeader(frame, sizeof(ProjectSnapshotV1), crc32(frame + 12, sizeof(ProjectSnapshotV1)));
+    frame[4] = static_cast<uint8_t>(SNAPSHOT_FORMAT_VERSION_V1);
+    frame[5] = 0;
+
+    // The loader reads the version first, then the matching payload size.
+    REQUIRE(frameVersion(frame) == SNAPSHOT_FORMAT_VERSION_V1);
+    ProjectSnapshot loaded{};
+    std::memset(&loaded, 0x5A, sizeof(loaded)); // garbage past the prefix
+    std::memcpy(&loaded, frame + 12, sizeof(ProjectSnapshotV1));
+    REQUIRE(readFrameHeader(frame, reinterpret_cast<const uint8_t *>(&loaded), sizeof(loaded),
+                            sizeof(ProjectSnapshotV1), SNAPSHOT_FORMAT_VERSION_V1) == FrameStatus::Ok);
+    // A format-1 frame is not a format-2 frame.
+    REQUIRE(readFrameHeader(frame, reinterpret_cast<const uint8_t *>(&loaded), sizeof(loaded),
+                            sizeof(ProjectSnapshotV1)) == FrameStatus::BadVersion);
+    upgradeFromV1(loaded);
+    REQUIRE(validateProjectSnapshot(loaded));
+    CHECK(loaded.laneModel == LANE_MODEL_OFFSETS);
+    CHECK(loaded.settings.tempoBpm == 101.0f);
+    CHECK(loaded.patterns[1].tracks[static_cast<uint8_t>(ParamId::Decay)].values[3] == 0.8f);
+    for (const auto &voice : loaded.envelopes)
+        for (const auto &track : voice.tracks)
+        {
+            CHECK(track.stepCount == SequencerConstants::DEFAULT_STEPS_COUNT);
+            CHECK(followsPatch(track.values[0]));
+            CHECK(followsPatch(track.values[63]));
+        }
 }
 
 TEST_CASE("pattern codec round-trips values, lengths, and shrink-grown tails", "[persistence]")
@@ -122,11 +172,12 @@ TEST_CASE("pattern codec round-trips values, lengths, and shrink-grown tails", "
     seq.setParameterStepCount(ParamId::Gate, 16);
 
     persistence::PatternSnapshot snap;
-    persistence::capturePattern(seq, snap);
+    persistence::EnvelopeTracksSnapshot envelopes;
+    persistence::capturePattern(seq, snap, envelopes);
 
     Sequencer restored(1);
     restored.initializeParameters();
-    persistence::applyPattern(snap, restored);
+    persistence::applyPattern(snap, envelopes, restored);
 
     REQUIRE(restored.getStepParameterValue(ParamId::Note, 0) == 12.0f);
     REQUIRE(restored.getStepParameterValue(ParamId::Note, 1) == 19.0f);
@@ -146,11 +197,12 @@ TEST_CASE("pattern codec preserves every track of a random pattern", "[persisten
     seq.initializeParameters();
     seq.randomizeParameters();
     persistence::PatternSnapshot snap;
-    persistence::capturePattern(seq, snap);
+    persistence::EnvelopeTracksSnapshot envelopes;
+    persistence::capturePattern(seq, snap, envelopes);
 
     Sequencer restored(2);
     restored.initializeParameters();
-    persistence::applyPattern(snap, restored);
+    persistence::applyPattern(snap, envelopes, restored);
     for (uint8_t t = 0; t < PARAM_ID_COUNT; ++t)
     {
         const ParamId id = static_cast<ParamId>(t);
@@ -169,12 +221,13 @@ TEST_CASE("pattern codec caps restored lengths without losing stored steps", "[p
     seq.setParameterStepCount(ParamId::Note, 12);
 
     persistence::PatternSnapshot snap;
-    persistence::capturePattern(seq, snap);
+    persistence::EnvelopeTracksSnapshot envelopes;
+    persistence::capturePattern(seq, snap, envelopes);
     REQUIRE(snap.tracks[static_cast<uint8_t>(ParamId::Gate)].stepCount == 32);
 
     Sequencer restored(1);
     restored.initializeParameters();
-    persistence::applyPattern(snap, restored, 16);
+    persistence::applyPattern(snap, envelopes, restored, 16);
 
     REQUIRE(restored.getParameterStepCount(ParamId::Gate) == 16);
     REQUIRE(restored.getParameterStepCount(ParamId::Note) == 12); // shorter lanes keep their length
@@ -276,7 +329,7 @@ TEST_CASE("out-of-range preset index is rejected", "[persistence]")
 TEST_CASE("golden full-project round-trip through frame bytes", "[persistence]")
 {
     Sequencer seq0(1), seq1(2), seq2(3), seq3(4);
-    ProjectSnapshotV1 snap{};
+    ProjectSnapshot snap{};
     Sequencer *seqs[4] = {&seq0, &seq1, &seq2, &seq3};
     for (int v = 0; v < 4; ++v)
     {
@@ -286,7 +339,8 @@ TEST_CASE("golden full-project round-trip through frame bytes", "[persistence]")
         seq.setStepParameterValue(ParamId::Gate, static_cast<uint8_t>(v), 1.0f);
         seq.setStepParameterValue(ParamId::Note, static_cast<uint8_t>(v), 3.0f * v + 1.0f);
         seq.setParameterStepCount(ParamId::Gate, static_cast<uint8_t>(12 + v));
-        capturePattern(seq, snap.patterns[v]);
+        seq.setStepParameterValue(ParamId::Release, static_cast<uint8_t>(v), 0.1f * v);
+        capturePattern(seq, snap.patterns[v], snap.envelopes[v]);
         snap.settings.presetIndices[v] = static_cast<uint8_t>(v);
     }
     snap.settings.tempoBpm = 137.0f;
@@ -297,23 +351,25 @@ TEST_CASE("golden full-project round-trip through frame bytes", "[persistence]")
     snap.settings.selectedVoice = 2;
     snap.settings.editorCursor[0] = 11; // VoiceEdit::Id::T60
     snap.settings.changedFlags = 0x05;
+    snap.laneModel = LANE_MODEL_ABSOLUTE;
     REQUIRE(validateProjectSnapshot(snap));
 
     // Frame to bytes and back, like the flash file does.
-    uint8_t frame[12 + sizeof(ProjectSnapshotV1)];
+    uint8_t frame[12 + sizeof(ProjectSnapshot)];
     writeFrameHeader(frame, sizeof(snap), crc32(reinterpret_cast<const uint8_t *>(&snap), sizeof(snap)));
     std::memcpy(frame + 12, &snap, sizeof(snap));
-    REQUIRE(readFrameHeader(frame, frame + 12, sizeof(snap), sizeof(ProjectSnapshotV1)) ==
+    REQUIRE(readFrameHeader(frame, frame + 12, sizeof(snap), sizeof(ProjectSnapshot)) ==
             FrameStatus::Ok);
 
-    ProjectSnapshotV1 loaded{};
+    ProjectSnapshot loaded{};
     std::memcpy(&loaded, frame + 12, sizeof(loaded));
     Sequencer rest0(1), rest1(2), rest2(3), rest3(4);
     Sequencer *restored[4] = {&rest0, &rest1, &rest2, &rest3};
     for (int v = 0; v < 4; ++v)
     {
         restored[v]->initializeParameters();
-        applyPattern(loaded.patterns[v], *restored[v]);
+        applyPattern(loaded.patterns[v], loaded.envelopes[v], *restored[v]);
+        REQUIRE(restored[v]->getStepParameterValue(ParamId::Release, static_cast<uint8_t>(v)) == 0.1f * v);
         REQUIRE(restored[v]->getStepParameterValue(ParamId::Note, static_cast<uint8_t>(v)) == 3.0f * v + 1.0f);
         REQUIRE(restored[v]->getParameterStepCount(ParamId::Gate) == 12u + v);
     }
@@ -336,7 +392,7 @@ TEST_CASE("retained validity and refresh", "[persistence]")
 {
     persistence::RetainedStore store{};
     REQUIRE_FALSE(persistence::retainedValid(store)); // zeroed = no magic
-    persistence::ProjectSnapshotV1 snap{};
+    persistence::ProjectSnapshot snap{};
     seedValidStepCounts(snap);
     snap.settings.tempoBpm = 111.0f;
     persistence::retainedRefresh(store, snap);

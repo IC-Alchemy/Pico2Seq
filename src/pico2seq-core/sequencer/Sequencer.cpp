@@ -342,6 +342,8 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
     const float filterVal = values.filterCutoff;
     const float attackVal = values.attackTimeSeconds;
     const float decayVal = values.decayTimeSeconds;
+    const float sustainVal = values.sustainLevel;
+    const float releaseVal = values.releaseTimeSeconds;
     const float noteVal = values.noteIndex;
     const float velocityVal = values.velocityLevel;
     const bool slideVal = values.hasSlide;
@@ -393,6 +395,8 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
         voiceState->filterCutoff = filterVal;
         voiceState->attackTimeSeconds = attackVal;
         voiceState->decayTimeSeconds = decayVal;
+        voiceState->sustainLevel = sustainVal;
+        voiceState->releaseTimeSeconds = releaseVal;
         voiceState->velocityLevel = velocityVal;
         voiceState->isGateHigh = gateOn;
         voiceState->hasSlide = slideVal;
@@ -489,6 +493,8 @@ void Sequencer::refreshVoiceParameters(VoiceState *voiceState) const
     voiceState->filterCutoff = values.filterCutoff;
     voiceState->attackTimeSeconds = values.attackTimeSeconds;
     voiceState->decayTimeSeconds = values.decayTimeSeconds;
+    voiceState->sustainLevel = values.sustainLevel;
+    voiceState->releaseTimeSeconds = values.releaseTimeSeconds;
     // Pitch follows only a sounding note, matching processStep(): a released
     // note keeps its pitch through the tail.
     if (voiceState->isGateHigh)
@@ -520,6 +526,8 @@ Step decodeStep(const ValueAccessor &value, Sequencer::OctaveMapper octaveMapper
     s.filterCutoff = value(ParamId::Filter);
     s.attackTimeSeconds = value(ParamId::Attack);
     s.decayTimeSeconds = value(ParamId::Decay);
+    s.sustainLevel = value(ParamId::Sustain);
+    s.releaseTimeSeconds = value(ParamId::Release);
     s.isGateActive = value(ParamId::Gate) > 0.5f;
     s.hasSlide = value(ParamId::Slide) > 0.5f;
     const float octave = value(ParamId::Octave);
@@ -549,6 +557,8 @@ void Sequencer::setStep(uint8_t stepIdx, const Step &step)
     setStepParameterValue(ParamId::Filter, stepIdx, step.filterCutoff);
     setStepParameterValue(ParamId::Attack, stepIdx, step.attackTimeSeconds);
     setStepParameterValue(ParamId::Decay, stepIdx, step.decayTimeSeconds);
+    setStepParameterValue(ParamId::Sustain, stepIdx, step.sustainLevel);
+    setStepParameterValue(ParamId::Release, stepIdx, step.releaseTimeSeconds);
     setStepParameterValue(ParamId::Gate, stepIdx, step.isGateActive ? 1.0f : 0.0f);
     setStepParameterValue(ParamId::Slide, stepIdx, step.hasSlide ? 1.0f : 0.0f);
 
@@ -580,11 +590,52 @@ Step Sequencer::getPlaybackStep(uint8_t stepIdx) const
 void Sequencer::randomizeParameters(uint8_t depthPercent, uint64_t seed)
 {
     parameterManager.randomizeParameters(depthPercent, seed);
+    if (usesPlaybackTransform())
+    {
+        // The draws are offsets around 0.5; absolute lanes store the value
+        // they play, spread around the patch value like the old modifiers.
+        for (uint8_t i = 0; i < PARAM_ID_COUNT; ++i)
+        {
+            const auto id = static_cast<ParamId>(i);
+            if (!isPatchDefaultLane(id) || parameterManager.getLaneAmount(id) == 0)
+                continue;
+            const float base = patchValue(id);
+            // A long attack never finishes inside a short gate, so a sustain-0
+            // voice would fall silent: Randomize stays at or below the
+            // patch's attack or the lane center (~45 ms), whichever is longer.
+            const float ceiling = id == ParamId::Attack ? std::max(base, 0.5f) : 1.0f;
+            for (uint8_t step = 0; step < getParameterStepCount(id); ++step)
+            {
+                const float offset = getStepParameterValue(id, step);
+                setStepParameterValue(id, step, std::min(offsetAroundBase(base, offset), ceiling));
+            }
+        }
+    }
     if (parameterManager.getLaneAmount(ParamId::Octave) == 0)
         return;
     // Neutral octave across the entire track capacity (64 steps).
     for (uint8_t i = 0; i < SequencerConstants::MAX_STEPS_COUNT; ++i)
         setStepParameterValue(ParamId::Octave, i, 0.5f);
+}
+
+float Sequencer::patchValue(ParamId id) const
+{
+    if (playbackTransform_)
+        return playbackTransform_(id, SequencerConstants::LANE_FOLLOWS_PATCH, playbackContext_);
+    const auto *definition = parameterDefinition(id);
+    return definition ? parameterValueAsFloat(definition->defaultValue) : 0.0f;
+}
+
+float Sequencer::getPlaybackValue(ParamId id, uint8_t stepIdx) const
+{
+    return playbackValue(id, stepIdx);
+}
+
+bool Sequencer::followPatch(ParamId id, uint8_t stepIdx)
+{
+    if (!isPatchDefaultLane(id) || stepIdx >= SequencerConstants::MAX_STEPS_COUNT)
+        return false;
+    return writeStepValue(id, stepIdx, SequencerConstants::LANE_FOLLOWS_PATCH);
 }
 
 void Sequencer::triggerEnvelope()

@@ -22,6 +22,8 @@ VoiceState seededState(const VoiceConfig &config)
     s.filterCutoff = seq.getStepParameterValue(ParamId::Filter, 0);
     s.attackTimeSeconds = seq.getStepParameterValue(ParamId::Attack, 0);
     s.decayTimeSeconds = seq.getStepParameterValue(ParamId::Decay, 0);
+    s.sustainLevel = seq.getStepParameterValue(ParamId::Sustain, 0);
+    s.releaseTimeSeconds = seq.getStepParameterValue(ParamId::Release, 0);
     s.isGateHigh = true;
     return s;
 }

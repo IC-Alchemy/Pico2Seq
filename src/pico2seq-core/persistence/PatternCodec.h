@@ -7,10 +7,13 @@ class Sequencer;
 
 namespace persistence
 {
-void capturePattern(const Sequencer &sequencer, PatternSnapshot &out) noexcept;
+// Lanes Note..Slide go to `out`, Sustain and Release to `envelopes`.
+void capturePattern(const Sequencer &sequencer, PatternSnapshot &out,
+                    EnvelopeTracksSnapshot &envelopes) noexcept;
 // maxStepCount caps each restored lane's active length. Values stored past the
 // cap are kept, as on any shortened lane.
-void applyPattern(const PatternSnapshot &in, Sequencer &sequencer,
+void applyPattern(const PatternSnapshot &in, const EnvelopeTracksSnapshot &envelopes,
+                  Sequencer &sequencer,
                   uint8_t maxStepCount = SequencerConstants::MAX_STEPS_COUNT) noexcept;
 } // namespace persistence
 

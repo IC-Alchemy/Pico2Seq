@@ -38,7 +38,7 @@ bool RetainedSession::resumeAllowed()
     return true;
 }
 
-void RetainedSession::refresh(const persistence::ProjectSnapshotV1 &snap)
+void RetainedSession::refresh(const persistence::ProjectSnapshot &snap)
 {
     const uint8_t attempts = s_store.header.resumeAttempts;
     persistence::retainedRefresh(s_store, snap);
@@ -54,7 +54,7 @@ void RetainedSession::markBootCompleted()
     s_store.header.resumeAttempts = 0;
 }
 
-bool RetainedSession::takeResumeSnapshot(persistence::ProjectSnapshotV1 &out)
+bool RetainedSession::takeResumeSnapshot(persistence::ProjectSnapshot &out)
 {
     if (!persistence::retainedValid(s_store))
         return false;

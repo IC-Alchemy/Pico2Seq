@@ -26,10 +26,10 @@ constexpr uint32_t kDiagnosticIntervalMs = 2000;
 constexpr uint32_t kHealthyLoopIntervalMs = 15000;
 bool recoveryMode = false;
 // The one snapshot buffer for every load, capture and save in this file.
-// Static, not stack: a snapshot is ~10.3 KB, and Core 0's loop stack runs into
+// Static, not stack: a snapshot is ~12.4 KB, and Core 0's loop stack runs into
 // Core 1's stack after ~4 KB and the heap after ~8 KB (a stack copy here hard-
 // faulted the board within seconds). Uses are sequential on Core 0, never nested.
-persistence::ProjectSnapshotV1 g_sessionSnapshot;
+persistence::ProjectSnapshot g_sessionSnapshot;
 bool g_bootSnapshotPending = false;
 
 // Serial and watchdog diagnostics stay on Core 0.

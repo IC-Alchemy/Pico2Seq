@@ -34,6 +34,19 @@ bool recordParameter(ParamId id, float normalizedValue)
     return changed;
 }
 
+bool resetStepToPatch(ParamId id)
+{
+    const int selected = uiState.selectedStepForEdit;
+    if (uiState.voiceEditor.active || uiState.controlsWaitRelease || selected < 0 ||
+        selected >= SequencerConstants::MAX_STEPS_COUNT)
+        return false;
+    Sequencer &activeSeq = AppState::sequencerView.clamped(uiState.selectedVoiceIndex);
+    const bool changed = activeSeq.followPatch(id, static_cast<uint8_t>(selected));
+    if (changed)
+        updateActiveVoiceState(static_cast<uint8_t>(selected), activeSeq);
+    return changed;
+}
+
 void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
 {
     uint8_t voiceIndex = VoiceSystem::MAX_VOICES;
@@ -67,6 +80,8 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
         activeVoiceState.filterCutoff = values.filterCutoff;
         activeVoiceState.attackTimeSeconds = values.attackTimeSeconds;
         activeVoiceState.decayTimeSeconds = values.decayTimeSeconds;
+        activeVoiceState.sustainLevel = values.sustainLevel;
+        activeVoiceState.releaseTimeSeconds = values.releaseTimeSeconds;
         activeVoiceState.noteIndex = values.noteIndex;
         activeVoiceState.octaveOffset = values.octaveOffset;
         activeVoiceState.shouldRetrigger = false;

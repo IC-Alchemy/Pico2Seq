@@ -134,14 +134,24 @@ ParamId sequenceLane(Id id, const VoiceConfig &config) noexcept;
 // decay lanes keep the full 1 ms..10 s envelope range.
 inline constexpr float kAttackMaxSeconds = 2.0f;
 
+// A lane's patch value, normalized the way the lane stores it.
 float laneBase(ParamId id, const VoiceConfig &config) noexcept;
-// Inverse of laneBase(): sets a lane's base from its normalized 0-1 position
-// (a fader), in the same units and curve the lane composes with.
-void setLaneBaseNormalized(ParamId id, VoiceConfig &config, float normalized) noexcept;
 float timeNormalize(float seconds) noexcept;
 float attackNormalize(float seconds) noexcept;
+// Playback transform. Absolute lanes (isPatchDefaultLane) play their stored
+// value, or laneBase() for LANE_FOLLOWS_PATCH; Note and Octave transpose the
+// patch; GateLength offsets it around 0.5; Gate/Slide combine with the patch.
 float composeLane(ParamId id, float stored, const void *config) noexcept;
 int8_t mapOctave(float normalized) noexcept;
+// Neutral pattern: absolute lanes follow the patch, offsets rest at zero.
 void seedModifiers(Sequencer &sequencer);
+// Sessions saved before absolute lanes stored Velocity/Filter/Attack/Decay as
+// offsets around the patch (0.5 = patch). Converts one saved lane in place:
+// neutral steps follow the patch, every other step becomes the absolute
+// value it played under config. Works on saved data, not a live Sequencer,
+// whose raw writes wrap at the active length.
+void convertOffsetValues(ParamId lane, float *values, size_t count, const VoiceConfig &config);
+// Display name of a sequencer lane under this voice's layout.
+const char *laneName(ParamId lane, const VoiceConfig &config) noexcept;
 void enablePatch(VoiceConfig &config) noexcept;
 } // namespace VoiceEdit

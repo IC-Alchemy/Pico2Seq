@@ -41,6 +41,8 @@ float stateValue(const VoiceState &s, ParamId id) noexcept
   case ParamId::Filter: return s.filterCutoff;
   case ParamId::Attack: return s.attackTimeSeconds;
   case ParamId::Decay: return s.decayTimeSeconds;
+  case ParamId::Sustain: return s.sustainLevel;
+  case ParamId::Release: return s.releaseTimeSeconds;
   default: return 0.0f;
   }
 }
@@ -79,9 +81,10 @@ float mapCutoff(const VoiceParameterLayout &p, float normalized) noexcept
 
 void apply(VoiceConfig &config, const VoiceState &state) noexcept
 {
-  // Pitch, octave and timing retain their shared musical units. These four
+  // Pitch, octave and timing retain their shared musical units. These six
   // normalized lanes can address any float setting in a recipe/config.
-  for (ParamId id : {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Decay})
+  for (ParamId id : {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Decay,
+                     ParamId::Sustain, ParamId::Release})
   {
     const auto &b = binding(config, id);
     if (b.target)

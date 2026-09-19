@@ -8,10 +8,10 @@ namespace
 constexpr const char *kSavePath = "/session.p2s";
 constexpr const char *kTempPath = "/session.tmp";
 
-// Static, not stack: ~10.1 KB each and this runs on the Core 0 Arduino loop
+// Static, not stack: ~12.4 KB each and this runs on the Core 0 Arduino loop
 // stack during saves/loads.
-persistence::ProjectSnapshotV1 g_saveBuffer;
-persistence::ProjectSnapshotV1 g_loadBuffer;
+persistence::ProjectSnapshot g_saveBuffer;
+persistence::ProjectSnapshot g_loadBuffer;
 } // namespace
 
 bool SessionStorage::begin()
@@ -30,7 +30,7 @@ bool SessionStorage::begin()
     return LittleFS.begin();
 }
 
-SessionStorage::LoadResult SessionStorage::load(persistence::ProjectSnapshotV1 &out)
+SessionStorage::LoadResult SessionStorage::load(persistence::ProjectSnapshot &out)
 {
     if (!LittleFS.exists(kSavePath))
         return LoadResult::NoFile;
@@ -38,9 +38,18 @@ SessionStorage::LoadResult SessionStorage::load(persistence::ProjectSnapshotV1 &
     if (!f)
         return LoadResult::IoError;
     uint8_t header[12];
-    if (f.read(header, 12) != 12 ||
-        f.read(reinterpret_cast<uint8_t *>(&g_loadBuffer), sizeof(g_loadBuffer)) !=
-            static_cast<int>(sizeof(g_loadBuffer)))
+    if (f.read(header, 12) != 12)
+    {
+        f.close();
+        return LoadResult::BadFrame;
+    }
+    // A format-1 payload is the prefix of format 2 and is completed below.
+    const uint16_t version = persistence::frameVersion(header);
+    const bool formatV1 = version == persistence::SNAPSHOT_FORMAT_VERSION_V1;
+    const size_t payloadSize = formatV1 ? sizeof(persistence::ProjectSnapshotV1)
+                                        : sizeof(persistence::ProjectSnapshot);
+    if (f.read(reinterpret_cast<uint8_t *>(&g_loadBuffer), payloadSize) !=
+        static_cast<int>(payloadSize))
     {
         f.close();
         return LoadResult::BadFrame; // truncated file
@@ -50,16 +59,19 @@ SessionStorage::LoadResult SessionStorage::load(persistence::ProjectSnapshotV1 &
     // payload buffer directly (never bytes past the 12-byte header).
     const persistence::FrameStatus status = persistence::readFrameHeader(
         header, reinterpret_cast<const uint8_t *>(&g_loadBuffer), sizeof(g_loadBuffer),
-        sizeof(persistence::ProjectSnapshotV1));
+        static_cast<uint16_t>(payloadSize),
+        formatV1 ? persistence::SNAPSHOT_FORMAT_VERSION_V1 : persistence::SNAPSHOT_FORMAT_VERSION);
     if (status != persistence::FrameStatus::Ok)
         return LoadResult::BadFrame;
+    if (formatV1)
+        persistence::upgradeFromV1(g_loadBuffer);
     if (!persistence::validateProjectSnapshot(g_loadBuffer))
         return LoadResult::BadFrame;
     out = g_loadBuffer;
     return LoadResult::Ok;
 }
 
-bool SessionStorage::save(const persistence::ProjectSnapshotV1 &snap)
+bool SessionStorage::save(const persistence::ProjectSnapshot &snap)
 {
     g_saveBuffer = snap;
     const uint32_t crc = persistence::crc32(

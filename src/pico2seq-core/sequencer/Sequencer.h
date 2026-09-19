@@ -69,7 +69,8 @@ private:
  * @brief Polyrhythmic step sequencer with independent parameter tracks
  *
  * The Sequencer class implements the core sequencing logic for Pico2Seq.
- * Each parameter (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide)
+ * Each parameter (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide,
+ * Sustain, Release)
  * operates as an independent track with configurable step counts, enabling complex
  * polyrhythmic patterns that evolve over hundreds of steps.
  *
@@ -118,7 +119,7 @@ public:
     /**
      * @brief Refresh a sounding voice from the current track cursors
      *
-     * Copies velocity, filter, attack and decay (plus note and octave while
+     * Copies velocity, filter and the four envelope lanes (plus note and octave while
      * the gate is high) from getPlaybackStep(). Unlike previewActiveStep()
      * it never retriggers and leaves the gate, slide and note lifecycle
      * alone, so live edits can be heard without restarting the envelope.
@@ -161,6 +162,21 @@ public:
      * @return true when the stored value changed (after clamping/rounding)
      */
     bool editStepValue(ParamId id, uint8_t stepIdx, float value);
+
+    /**
+     * @brief Return one step of an absolute lane to the patch value
+     *
+     * Only lanes with ParameterDefinition::patchDefault (Velocity, Filter,
+     * Attack, Decay, Sustain, Release) can follow the patch.
+     * @return true when the step had its own value before
+     */
+    bool followPatch(ParamId id, uint8_t stepIdx);
+
+    // Composed value one step plays (the transform's output when one is set).
+    float getPlaybackValue(ParamId id, uint8_t stepIdx) const;
+    // What a step that follows the patch plays: the transform's value for
+    // LANE_FOLLOWS_PATCH, else the lane's CORE_PARAMETERS default.
+    float patchValue(ParamId id) const;
 
     // Sequencer control
     void start() { running = true; }
@@ -244,17 +260,19 @@ public:
     // Calibrated normalized recording input, consumed by the next advance.
     void setRecordingInput(float normalized) noexcept { recordingInput_ = normalized; }
     // Initialization/reset only: unlike note recording this also initializes
-    // silent steps, so enabling a gate later reveals a neutral modifier.
-    void fillModulationTrack(ParamId id, float value) {
-        for(uint8_t step=0;step<SequencerConstants::MAX_STEPS_COUNT;++step)
-            parameterManager.setValue(id,step,value);
-    }
+    // silent steps, so enabling a gate later reveals the neutral value. The
+    // value also fills steps a growing track adds.
+    void fillModulationTrack(ParamId id, float value) { parameterManager.fillTrack(id, value); }
     bool usesPlaybackTransform() const noexcept { return playbackTransform_ != nullptr; }
+    // Neutral step in patch mode: absolute lanes follow the patch, Note and
+    // the offset lanes rest at no offset, Gate and Slide are off.
     void resetModifierStep(uint8_t step) {
         if(step>=SequencerConstants::MAX_STEPS_COUNT) return;
         for(uint8_t i=0;i<PARAM_ID_COUNT;++i) {
             const auto id=static_cast<ParamId>(i);
-            parameterManager.setValue(id,step,(id==ParamId::Gate || id==ParamId::Slide || id==ParamId::Note)?0.0f:
+            parameterManager.setValue(id,step,
+                isPatchDefaultLane(id) ? SequencerConstants::LANE_FOLLOWS_PATCH :
+                (id==ParamId::Gate || id==ParamId::Slide || id==ParamId::Note) ? 0.0f :
                 mapNormalizedValueToParamRange(id,0.5f));
         }
     }

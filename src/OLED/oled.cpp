@@ -438,7 +438,13 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
   const ParamId encoderLane = config ? VoiceEdit::sequenceLane(encoderId, *config) : ParamId::Count;
   const bool showBase = config && uiState.encoderBaseViewUntil != 0 &&
                         millis() < uiState.encoderBaseViewUntil;
-  if (editing != ParamId::Count && (held != ParamId::Count || selected)) {
+  // Step Edit is ENV mode: the envelope page, unless a toggled parameter is
+  // being edited and no ENV fader moved in the last moment.
+  const bool envelopePage = selected && (editing == ParamId::Count ||
+                            (uiState.envViewUntil != 0 && millis() < uiState.envViewUntil));
+  if (envelopePage) {
+    displayEnvelopePage(uiState, sequence, config);
+  } else if (editing != ParamId::Count && (held != ParamId::Count || selected)) {
     const uint8_t step = selected ? static_cast<uint8_t>(uiState.selectedStepForEdit) :
                                    sequence.getCurrentStepForParameter(editing);
     const bool base = showBase && encoderLane == editing;
@@ -446,18 +452,10 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
                          base ? MusicalValues::baseStep(*config) :
                                 sequence.getPlaybackStep(selected ? step : UINT8_MAX),
                          uiState, step, config, selected, held != ParamId::Count, base);
-  } else if (selected) {
-    drawVoiceHeader(uiState, false);
-    displayHardware.setCursor(2, 18);
-    displayHardware.setTextSize(2);
-    displayHardware.print("Step "); displayHardware.print(uiState.selectedStepForEdit + 1);
-    displayHardware.setTextSize(1);
-    displayHardware.setCursor(2, 43); displayHardware.print("Hold parameter");
-    displayHardware.setCursor(2, 54); displayHardware.print("to edit this step");
   } else {
     // No parameter held: the encoder target's playing value, or for 1.5 s
-    // after an encoder turn or fader move the base it changed (a step's
-    // modifier or a clamp could otherwise hide the edit).
+    // after an encoder turn the base it changed (a step's own value could
+    // otherwise hide the edit).
     drawVoiceHeader(uiState, true);
     displayHardware.setCursor(104, 0);
     displayHardware.print("S"); displayHardware.print(sequence.getCurrentStep() + 1);
@@ -490,6 +488,45 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
   }
 
   commitFrame();
+}
+
+void OLEDDisplay::displayEnvelopePage(const UIState &state, const Sequencer &sequence,
+                                      const VoiceConfig *config)
+{
+  const uint8_t step = static_cast<uint8_t>(std::max(0, state.selectedStepForEdit));
+  drawVoiceHeader(state, false);
+  displayHardware.setCursor(98, 0);
+  displayHardware.print("S"); displayHardware.print(step + 1);
+  displayHardware.drawFastHLine(2, 10, 124, SH110X_WHITE);
+  const Step values = sequence.getPlaybackStep(step);
+  const int *row = scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)];
+  constexpr ParamId kLanes[] = {ParamId::Attack, ParamId::Decay, ParamId::Sustain, ParamId::Release};
+  int y = 13;
+  for (const ParamId lane : kLanes) {
+    displayHardware.setCursor(2, y);
+    displayHardware.print(lane == state.envFaderLane ? ">" : " ");
+    displayHardware.print(config ? VoiceEdit::laneName(lane, *config) : paramName(lane));
+    char value[24] = "--";
+    if (config)
+      MusicalValues::format(lane, values, *config, row, uClock.getTempo(), value, sizeof(value));
+    char shown[28];
+    if (followsPatch(sequence.getStepParameterValue(lane, step)))
+      snprintf(shown, sizeof(shown), "(%s)", value);
+    else
+      snprintf(shown, sizeof(shown), "%s", value);
+    displayHardware.setCursor(OLEDConstants::SCREEN_WIDTH - 2 - 6 * static_cast<int>(strlen(shown)), y);
+    displayHardware.print(shown);
+    y += 10;
+  }
+  // The encoder edits this step too: name the lane it turns.
+  const ParamId encoderLane = ControlSurface::stepEditParameter(
+      ParamId::Count, state.currentEditParameter, state.currentEncoderParameter);
+  displayHardware.setCursor(2, 55);
+  displayHardware.print("()=patch");
+  if (encoderLane != ParamId::Count) {
+    displayHardware.print(" Enc:");
+    displayHardware.print(config ? VoiceEdit::laneName(encoderLane, *config) : paramName(encoderLane));
+  }
 }
 
 void OLEDDisplay::drawMusicalValue(const char *text, int y)
@@ -536,7 +573,7 @@ void OLEDDisplay::displayParameterInfo(ParamId id, const Step &values,
   drawVoiceHeader(state, false);
   displayHardware.drawFastHLine(2, 10, 124, SH110X_WHITE);
   displayHardware.setCursor(2, 14);
-  displayHardware.print(config ? VoiceEdit::name(static_cast<VoiceEdit::Id>(id), *config) : paramName(id));
+  displayHardware.print(config ? VoiceEdit::laneName(id, *config) : paramName(id));
   displayHardware.setCursor(104, 14);
   displayHardware.print("S"); displayHardware.print(step + 1);
   char value[48] = "--";

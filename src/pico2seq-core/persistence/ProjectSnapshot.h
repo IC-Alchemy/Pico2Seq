@@ -2,6 +2,7 @@
 #define PICO2SEQ_PROJECT_SNAPSHOT_H
 
 #include "../sequencer/SequencerDefs.h"
+#include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
@@ -18,9 +19,28 @@ struct TrackSnapshot
     uint8_t reserved[3]; // deterministic size/alignment, must stay zero
 };
 
+// Format 1 stored the nine lanes Note..Slide per voice; lanes added later
+// travel in their own block so a format-1 payload stays a valid prefix.
+constexpr uint8_t kPatternTrackCount = static_cast<uint8_t>(ParamId::Slide) + 1;
+constexpr uint8_t kEnvelopeTrackCount = PARAM_ID_COUNT - kPatternTrackCount;
+static_assert(kEnvelopeTrackCount == 2, "Sustain and Release follow Slide");
+
 struct PatternSnapshot
 {
-    TrackSnapshot tracks[PARAM_ID_COUNT]; // 9 tracks = 2,340 B
+    TrackSnapshot tracks[kPatternTrackCount]; // 9 tracks = 2,340 B
+};
+
+// Format 2: ParamId::Sustain and ParamId::Release, in ParamId order.
+struct EnvelopeTracksSnapshot
+{
+    TrackSnapshot tracks[kEnvelopeTrackCount]; // 520 B
+};
+
+// How Velocity/Filter/Attack/Decay steps are stored.
+enum : uint32_t
+{
+    LANE_MODEL_OFFSETS = 0,  // format 1: offsets around the patch, 0.5 = patch
+    LANE_MODEL_ABSOLUTE = 1, // format 2: absolute or LANE_FOLLOWS_PATCH
 };
 
 // Mirrors the per-voice patch bases inside VoiceConfig; the former separate
@@ -71,22 +91,43 @@ struct SettingsSnapshot
     uint8_t changedFlags;    // bit N = voiceEditor.changed[N]; bit4 = slideMode
 };
 
+// Format 1 payload. Kept only to size and load old files.
 struct ProjectSnapshotV1
 {
     PatternSnapshot patterns[4]; // 9,360 B
     PatchSnapshot patches[4];    // 928 B
     SettingsSnapshot settings;   // 24 B
 };
+
+// Format 2: format 1 unchanged, then the envelope lanes and the lane model.
+struct ProjectSnapshot
+{
+    PatternSnapshot patterns[4];         // 9,360 B
+    PatchSnapshot patches[4];            // 928 B
+    SettingsSnapshot settings;           // 24 B
+    EnvelopeTracksSnapshot envelopes[4]; // 2,080 B
+    uint32_t laneModel;                  // LANE_MODEL_*
+    uint32_t reserved;                   // must stay zero
+};
 static_assert(sizeof(TrackSnapshot) == 260, "locked layout");
 static_assert(sizeof(PatternSnapshot) == 2340, "locked layout");
 static_assert(sizeof(PatchSnapshot) == 232, "locked layout"); // 220 B words + 10 u8 + 2 tail
 static_assert(sizeof(SettingsSnapshot) == 24, "locked layout");
 static_assert(sizeof(ProjectSnapshotV1) == 10312, "locked layout");
+static_assert(sizeof(EnvelopeTracksSnapshot) == 520, "locked layout");
+static_assert(sizeof(ProjectSnapshot) == 12400, "locked layout");
+static_assert(offsetof(ProjectSnapshot, envelopes) == sizeof(ProjectSnapshotV1),
+              "a format-1 payload must load as the prefix of format 2");
+
+// Complete a snapshot whose first sizeof(ProjectSnapshotV1) bytes hold a
+// format-1 payload: envelope lanes follow the patch on 16 steps and the lane
+// model says offsets (Session converts them once the voices exist).
+void upgradeFromV1(ProjectSnapshot &s) noexcept;
 
 // Range checks only — structural validity, not musical sense. Bounds mirror
 // the UI: tempo 45..200 BPM (UIEventHandler clamps at 45, fader tops at 200),
 // 13 scales, NUM_SHUFFLE_TEMPLATES=16, 10 LED themes.
-bool validateProjectSnapshot(const ProjectSnapshotV1 &s) noexcept;
+bool validateProjectSnapshot(const ProjectSnapshot &s) noexcept;
 
 } // namespace persistence
 
