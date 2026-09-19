@@ -74,21 +74,23 @@ namespace VoicePresets {
     c.oscDetuning[1] = 0.01f;  // Fixed duplicate assignment
 
     c.harmony[0] = 0; // Root note
-    c.filterRes = 0.4f;
-    c.filterType = FILTER_SVF; // clean resonant low-pass replaces the ladder
-    c.highPassFreq = 111.0f;
+
+    c.filterRes = 0.8f;
+    c.filterDrive = 3.5f;
+    c.filterPassbandGain = 0.23f;
+    c.highPassFreq = 160.0f;
     c.highPassRes = 0.15f;
-    c.filterMode = VoiceFilterMode::LP12; // SVF response: low-pass
+    c.filterMode = VoiceFilterMode::LP24;
     c.parameters = &kDigitalLayout;
     c.filterCutoffBase = 0.5f; // rests on the 1500 Hz lane center
 
-    c.hasOverdrive = false;
+    c.hasOverdrive = true;
     c.overdriveGain = 0.7f;
     c.overdriveDrive = 0.51f;
     c.defaultAttack = 0.015f;
     c.defaultDecay = 0.1f;
-    c.defaultSustain = 0.5f;
-    c.defaultRelease = 0.15f;
+    c.defaultSustain = 0.2f;
+    c.defaultRelease = 0.45f;
     c.outputLevel = 0.5f;
     return c;
   }
@@ -115,11 +117,11 @@ namespace VoicePresets {
     c.filterCutoffBase = 0.5f; // rests on the 320 Hz lane center
     c.hasOverdrive = true;
     c.overdriveGain = 0.95f;
-    c.overdriveDrive = 0.46f; // Subtle overdrive
+    c.overdriveDrive = 0.76f; // Subtle overdrive
     c.defaultAttack = 0.01f;
     c.defaultDecay = 0.3f;
     c.defaultSustain = 0.85f;
-    c.defaultRelease = 0.2f;
+    c.defaultRelease = 0.5f;
     c.outputLevel = .85f;
     return c;
   }
@@ -131,14 +133,14 @@ namespace VoicePresets {
     c.oscWaveforms[0] = WAVE_BSP_SAW;
     c.oscWaveforms[1] = WAVE_BSP_SAW;
     c.oscAmplitudes[0] = .6f;
-    c.oscAmplitudes[1] = .4f;
+    c.oscAmplitudes[1] = .55f;
     c.oscDetuning[0] = 0.0f;
     c.oscDetuning[1] = 0.015f;
     c.harmony[0] = 0; // Root note
     c.harmony[1] = 0;
 
-    c.filterRes = 0.4f;
-    c.filterDrive = 3.f;
+    c.filterRes = 0.7f;
+    c.filterDrive = 3.5f;
     c.filterPassbandGain = 0.23f;
     c.highPassFreq = 160.0f;
     // Ladder on purpose: this is one of only two presets still using it
@@ -151,10 +153,10 @@ namespace VoicePresets {
     c.overdriveGain = 0.7f;
     c.overdriveDrive = 0.45f;
 
-    c.defaultAttack = 0.02f;
+    c.defaultAttack = 0.01f;
     c.defaultDecay = 0.2f;
-    c.defaultSustain = 0.5f;
-    c.defaultRelease = 0.15f;
+    c.defaultSustain = 0.3f;
+    c.defaultRelease = 0.35f;
     c.outputLevel = 0.5f;
     return c;
   }

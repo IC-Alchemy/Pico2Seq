@@ -156,7 +156,7 @@ struct VoiceConfig
   float defaultAttack = 0.04f; // Default attack time in seconds (0.001-10.0)
   float defaultDecay = 0.14f;  // Default decay time in seconds (0.001-10.0)
   float defaultSustain = 0.5f; // Default sustain level (0.0-1.0)
-  float defaultRelease = 0.2f; // Default release time in seconds (0.001-10.0)
+  float defaultRelease = 0.4f; // Default release time in seconds (0.001-10.0)
 
   // Voice mixing
   float outputLevel = 0.6f; // Voice output level (0.0-1.0)
