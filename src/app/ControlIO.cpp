@@ -30,6 +30,47 @@ struct ControlHardware
 };
 ControlHardware controls;
 
+// Optional Core-0 edit-path diagnostics: build with -DPICO2SEQ_EDIT_DIAG=1 to
+// print the armed-lane bitmap, focus and edit target when they change. Off by
+// default, Core 0 only, bounded to state changes (never per control pass).
+#ifndef PICO2SEQ_EDIT_DIAG
+#define PICO2SEQ_EDIT_DIAG 0
+#endif
+#if PICO2SEQ_EDIT_DIAG
+struct EditDiag
+{
+    uint8_t armedBitmap = 0xFF;
+    int8_t focus = -2;
+    int step = -2;
+    void sample(const UIState &ui)
+    {
+        uint8_t bitmap = 0;
+        for (uint8_t i = 0; i < PARAM_ID_COUNT; ++i)
+            if (ui.parameterButtonHeld[i])
+                bitmap |= 1u << i;
+        if (bitmap != armedBitmap)
+        {
+            armedBitmap = bitmap;
+            Serial.print("[EDITDIAG] armed=0x");
+            Serial.print(bitmap, HEX);
+            Serial.print(" focus=");
+            Serial.println(ui.focusedParameter);
+        }
+        if (ui.focusedParameter != focus || ui.selectedStepForEdit != step)
+        {
+            focus = ui.focusedParameter;
+            step = ui.selectedStepForEdit;
+            Serial.print("[EDITDIAG] focus=");
+            Serial.print(focus);
+            Serial.print(" step=");
+            Serial.print(step);
+            Serial.print(" hand=");
+            Serial.println(AppState::performanceInput.handPresent);
+        }
+    }
+} editDiag;
+#endif
+
 static void printAlchemyTileScanReport()
 {
     const AlchemyTiles &tiles = controls.alchemyBridge.tiles();
@@ -228,17 +269,31 @@ void ControlIO::scanControls(uint32_t nowMs)
         freezeWatchdogMark(FW_LOOP_DISTANCE);
         distanceSensor.update();
         AppState::performanceInput.observeDistance(distanceSensor.getRawDistanceMm());
+
+        // A hand leaving the window rearms lidar for a manually owned step
+        // target, so the stationary hand that follows cannot keep replacing
+        // an encoder/fader edit, but leaving and returning can record again.
+        static bool handWasPresent = false;
+        if (handWasPresent && !AppState::performanceInput.handPresent)
+            uiState.stepEditOwner.rearmLidar();
+        handWasPresent = AppState::performanceInput.handPresent;
+
+#if PICO2SEQ_EDIT_DIAG
+        editDiag.sample(uiState);
+#endif
+
         // =======================
         //   REAL-TIME PARAMETER RECORDING
         // =======================
         // Apply distance sensor values to step when parameter buttons are held
         if (!uiState.voiceEditor.active && !uiState.controlsWaitRelease &&
-            getHeldParameterParamId(uiState) != ParamId::Count && AppState::performanceInput.handPresent)
+            focusedParameterId(uiState) != ParamId::Count && AppState::performanceInput.handPresent)
         {
             freezeWatchdogMark(FW_LOOP_RECORD);
+            const ParamId focusedParam = focusedParameterId(uiState);
             const int targetStep = uiState.selectedStepForEdit != -1
                 ? uiState.selectedStepForEdit
-                : (!isClockRunning ? AppState::sequencerView.clamped(uiState.selectedVoiceIndex).getCurrentStepForParameter(getHeldParameterParamId(uiState)) : -1);
+                : (!isClockRunning ? AppState::sequencerView.clamped(uiState.selectedVoiceIndex).getCurrentStepForParameter(focusedParam) : -1);
             if (targetStep >= 0 && targetStep < SequencerConstants::MAX_STEPS_COUNT)
             {
                 updateParametersForStep(static_cast<uint8_t>(targetStep));

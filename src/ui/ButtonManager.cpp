@@ -125,33 +125,3 @@ bool isAnyParameterButtonHeld(const UIState &uiState)
   }
   return false;
 }
-
-/**
- * @brief Get the ParamId of the currently held parameter button
- *
- * Scans the held states in ParamId order and returns the first held
- * parameter. This allows the UI to determine which parameter is being
- * controlled when step buttons are pressed for parameter editing.
- *
- * @param uiState Const reference to the central UI state object
- * @return The held parameter's ParamId, or ParamId::Count if none held
- */
-ParamId getHeldParameterParamId(const UIState &uiState)
-{
-  for (uint8_t paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
-  {
-    const ParamId currentParamId = static_cast<ParamId>(paramIndex);
-
-    // Skip Slide parameter button if currently in slide mode to avoid conflicts
-    if (currentParamId == ParamId::Slide && uiState.slideMode)
-    {
-      continue;
-    }
-
-    if (uiState.parameterButtonHeld[paramIndex])
-    {
-      return currentParamId;
-    }
-  }
-  return ParamId::Count;
-}

@@ -255,6 +255,11 @@ public:
  *   - a latched param reads as held with no finger on the button, while
  *     physically pressed params stay momentary holds alongside it.
  *
+ * focus() resolves the ONE parameter the OLED and the selected-step editor
+ * target, while applyTo() keeps the full armed set for multi-lane live
+ * recording. Focus order: the most recently pressed physical hold, then any
+ * earlier still-held one, then the latch.
+ *
  * Pure policy: the bridge feeds edges and copies the derived array into
  * UIState::parameterButtonHeld. reset() is used on mode flips so nothing
  * sticks across a mode change.
@@ -287,9 +292,81 @@ public:
     return paramId < kParamCount && momentary_[paramId];
   }
 
+  /** The focused parameter (ParamId as int8_t), or kNoLatch when nothing
+   *  is held or latched. Physical holds outrank the latch; the newest
+   *  physical hold outranks earlier ones. */
+  int8_t focus() const
+  {
+    return recencyCount_ > 0 ? static_cast<int8_t>(recency_[recencyCount_ - 1])
+                             : latched_;
+  }
+
 private:
   bool momentary_[kParamCount] = {false};
   int8_t latched_ = kNoLatch;
+  // Physically held params, oldest press first: recencyCount_-1 is the most
+  // recently pressed. Tracks momentary_ exactly, so reset()/release keep it
+  // coherent with the armed set.
+  uint8_t recency_[kParamCount] = {0};
+  uint8_t recencyCount_ = 0;
+};
+
+// ---------------------------------------------------------------------------
+// Manual step-edit ownership
+// ---------------------------------------------------------------------------
+
+/**
+ * @brief Ownership policy between manual edits and lidar on one stored step.
+ *
+ * A meaningful manual edit (encoder turn or accepted fader move) takes
+ * ownership of one voice+parameter+step. While that ownership is active, an
+ * automatic lidar write to the same target is suppressed, so a stationary
+ * valid hand reading cannot replace the manual value on the next control
+ * pass. The suppression rearms (while keeping the target) when the hand
+ * leaves the sensor window and returns, or when a new manual edit lands.
+ * reset() drops the target entirely; callers do that when the voice,
+ * selected step, focused parameter, mode, or modal editor state changes.
+ */
+class StepEditOwnership
+{
+public:
+  static constexpr uint8_t kNoVoice = 0xFF;
+
+  void reset()
+  {
+    voice_ = kNoVoice;
+    lidarSuppressed_ = false;
+  }
+
+  /** Record a manual edit of one voice/parameter/step and suppress lidar
+   *  writes to that same target until the hand leaves or the target moves. */
+  void take(uint8_t voice, uint8_t param, uint8_t step)
+  {
+    voice_ = voice;
+    param_ = param;
+    step_ = step;
+    lidarSuppressed_ = true;
+  }
+
+  bool suppressesLidar(uint8_t voice, uint8_t param, uint8_t step) const
+  {
+    return lidarSuppressed_ && voice_ == voice && param_ == param &&
+           step_ == step;
+  }
+
+  /** Rearm lidar (hand left the sensor window); the owned target is kept. */
+  void rearmLidar() { lidarSuppressed_ = false; }
+
+  bool active() const { return voice_ != kNoVoice; }
+  uint8_t voice() const { return voice_; }
+  uint8_t param() const { return param_; }
+  uint8_t step() const { return step_; }
+
+private:
+  uint8_t voice_ = kNoVoice;
+  uint8_t param_ = 0;
+  uint8_t step_ = 0;
+  bool lidarSuppressed_ = false;
 };
 
 // ---------------------------------------------------------------------------

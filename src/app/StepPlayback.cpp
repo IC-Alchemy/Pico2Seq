@@ -9,7 +9,6 @@
 
 namespace
 {
-constexpr float kGateHighThreshold = 0.5f;
 constexpr int kDistanceDisabled = -1;
 }
 
@@ -35,36 +34,28 @@ void updateParametersForStepNormalized(uint8_t stepToUpdate, float normalizedVal
                                       ? uiState.selectedVoiceIndex : VoiceSystem::MAX_VOICES - 1;
     Sequencer &activeSeq = *AppState::sequencers[sequenceIndex];
 
-    bool parametersWereUpdated = false;
-    const ParamId heldParamId = getHeldParameterParamId(uiState);
-    const ParamId paramToEdit = (heldParamId != ParamId::Count) ? heldParamId : uiState.currentEditParameter;
-    if (paramToEdit != ParamId::Count)
-    {
-        // Silent steps keep their pitch while other parameters remain editable.
-        if (paramToEdit == ParamId::Note)
-        {
-            float gateValue = activeSeq.getStepParameterValue(ParamId::Gate, stepToUpdate);
-            if (gateValue <= kGateHighThreshold)
-            {
-                // Skip Note parameter editing on steps with LOW gates
-                // This protects steps from note frequency changes during programming/editing
-                return;
-            }
-        }
+    // The focused parameter (newest physical hold, then the latch) decides
+    // the lane; with nothing held or latched, the step's toggled edit
+    // parameter takes over.
+    const ParamId paramToEdit = ControlSurface::stepEditParameter(
+        focusedParameterId(uiState), uiState.currentEditParameter,
+        EncoderParameterMode::COUNT);
+    if (paramToEdit == ParamId::Count)
+        return;
 
-        // Use the helper function to do the scaling correctly for any parameter.
-        float valueToSet = mapNormalizedValueToParamRange(paramToEdit, normalizedValue);
-        const float previousValue = activeSeq.getStepParameterValue(paramToEdit, stepToUpdate);
-        activeSeq.setStepParameterValue(paramToEdit, stepToUpdate, valueToSet);
-        // This runs every control pass (1 ms) while a step is in edit. Only an
-        // actual change (after clamping and note rounding) is previewed, so a
-        // steady hand does not retrigger the step each pass.
-        parametersWereUpdated = activeSeq.getStepParameterValue(paramToEdit, stepToUpdate) != previousValue;
+    // A manual encoder/fader edit owns this target until the hand leaves the
+    // sensor window; a stationary valid reading must not replace it.
+    if (uiState.stepEditOwner.suppressesLidar(sequenceIndex,
+                                              static_cast<uint8_t>(paramToEdit),
+                                              stepToUpdate))
+        return;
 
-    }
-
-    // Provide immediate audio feedback when recording parameters to current step
-    if (parametersWereUpdated)
+    // One shared write: gate rule for Note recording sits with the clamping
+    // and change detection, and only an actual change is previewed.
+    const StepWriteResult written = activeSeq.writeStepParameter(
+        paramToEdit, stepToUpdate, normalizedValue,
+        StepWriteDomain::Normalized01, true, NoteGateRule::AtStep);
+    if (written.status == StepWriteStatus::Changed)
     {
         updateActiveVoiceState(stepToUpdate, activeSeq);
     }
@@ -98,14 +89,9 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
     }
     else
     {
-        const Step values = activeSeq.getPlaybackStep(stepIndex < SequencerConstants::MAX_STEPS_COUNT ? stepIndex : UINT8_MAX);
-        activeVoiceState.velocityLevel = values.velocityLevel;
-        activeVoiceState.filterCutoff = values.filterCutoff;
-        activeVoiceState.attackTimeSeconds = values.attackTimeSeconds;
-        activeVoiceState.decayTimeSeconds = values.decayTimeSeconds;
-        activeVoiceState.noteIndex = values.noteIndex;
-        activeVoiceState.octaveOffset = values.octaveOffset;
-        activeVoiceState.shouldRetrigger = false;
+        activeSeq.refreshVoiceParametersAt(
+            stepIndex < SequencerConstants::MAX_STEPS_COUNT ? stepIndex : UINT8_MAX,
+            &activeVoiceState);
     }
     publishVoiceState(voiceIndex, activeVoiceState);
 }

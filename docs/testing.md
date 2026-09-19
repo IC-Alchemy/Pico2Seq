@@ -44,7 +44,8 @@ files; host CMake does not compile that startup/I2S/control glue.
 |---|---|---|---|
 | **Tier 1: Zero Deps** | DSP & Sound Synthesis | `src/rpdsp/`, `src/voice/VoiceOscillator.h` | Pure math, `<cmath>`, `<variant>`, `<array>`. Tested natively. |
 | **Tier 1: Zero Deps** | Sequencer Core Templates | `src/pico2seq-core/sequencer/SequencerDefs.h` | Template data structures (`ParameterTrack<N>`). Tested natively. |
-| **Tier 1: Zero Deps** | UI Control Surface Logic | `src/ui/ControlSurfaceLogic.h/.cpp` | Pure state machines (`ModeStabilizer`, `PadBank`, `ShiftLatch`, `FaderMap`). Tested natively. |
+| **Tier 1: Zero Deps** | UI Control Surface Logic | `src/ui/ControlSurfaceLogic.h/.cpp` | Pure state machines (`ModeStabilizer`, `PadBank`, `ShiftLatch`, `FaderMap`, `StepEditOwnership`, `EncoderMotion`). Tested natively. |
+| **Tier 1: Zero Deps** | OLED Page Routing | `src/ui/OledView.h/.cpp` | Pure page/value routing decisions; `oled.cpp` only renders a `Route`. Tested natively. |
 | **Tier 1: Zero Deps** | Alchemy Tile Wire Format | `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` | Pure C++ register/frame decoding — no Arduino, no Wire. Tested natively. |
 | **Tier 2: Light Stubs** | Musical Scales | `src/pico2seq-core/scales/scales.cpp` | Requires minimal `Arduino.h` type aliases (`uint8_t`, `String`). |
 | **Tier 2: Light Stubs** | Sequencer Logic | `src/pico2seq-core/sequencer/{Sequencer,ParameterManager}.cpp` | Requires `Arduino.h` and `pico/sync.h` spinlock stubs. |
@@ -61,7 +62,9 @@ pure state transitions; hardware handlers own MIDI cleanup and tile edge history
 `tests/unit/test_ui_transitions.cpp` covers page reopening, feedback expiration
 (including timer wrap), slide cleanup, and tile-selection versus pad-focus rules.
 
-The focused target includes these tests and the existing ControlSurfaceLogic suite:
+The focused target includes these tests, the existing ControlSurfaceLogic
+suite, and the new focus/ownership policy suites (`test_parameter_focus.cpp`,
+`test_input_ownership.cpp`):
 
 ```bash
 cmake --build build_test --target pico2seq_ui_tests --parallel
@@ -87,9 +90,11 @@ Bench regression checklist (host tests cannot verify the physical tile/LED/OLED 
 - Editor voice selection keeps per-voice cursors; session restore retains the saved voice
   without invoking live tile-selection note cleanup.
 
-## 17 Host Unit Test Suites
+## 29 Host Unit Test Sources
 
-The host test executable (`pico2seq_tests`) links all unit suites under `tests/unit/`:
+The main host test executable (`pico2seq_tests`) links 27 of the 29 unit suites
+under `tests/unit/` — the watchdog and I2S suites compile against their own
+dedicated stub sets as separate targets (see below):
 
 | # | Test Suite File | Tested Components | Key Test Areas |
 |---|---|---|---|
@@ -110,6 +115,18 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 15 | `tests/unit/test_voice_edit.cpp` | Voice Editing mode | Base vs lidar-modifier independence, neutral-modifier preset round-trip, parameter catalogue reachability/clamping per engine, editor release semantics, muted-editor queue draining (`[voice_edit][recording]`) |
 | 16 | `tests/unit/test_persistence.cpp` | Session persistence (`src/pico2seq-core/persistence/`, `src/voice/PatchCodec.*`) | CRC32 vector, frame magic/version/size/CRC rejection, locked 10,312-byte snapshot layout, snapshot validation bounds, pattern round-trip incl. raw tails, patch codec pointer re-derivation, golden full-project round-trip, watchdog resume decision table, retained-store validity (`[persistence]`) |
 | 17 | `tests/unit/test_recipe_optimization.cpp` | `rpdsp` Recipe CPU Optimizations | Prepared oscillator phase/spectra, cached coefficient survival across edits/triggers, feedback operator history (`[optimization][recipes][voice]`) |
+| 18 | `tests/unit/test_sequencer_view.cpp` | Read-only sequencer routing view | 4-voice routing table, invalid-edit rejection, last-voice display fallback (`[app][sequencer_view]`) |
+| 19 | `tests/unit/test_settings_pads.cpp` | Settings pad catalogue | 32-pad parameter map, settings availability/toggles/choices, numeric edits delegate to voice adjustments (`[settings_pads]`) |
+| 20 | `tests/unit/test_ui_transitions.cpp` | Pure UI transitions | Settings page derivation, transient feedback, slide entry clears conflicting controls, tile selection vs pad focus (`[control_surface][ui_transitions]`) |
+| 21 | `tests/unit/test_voice_playback.cpp` | Playback lifecycle | Retriggers as events, per-voice gate expiry, stop clears lifecycles, voice focus never ends sounding notes (`[voice_playback]`) |
+| 22 | `tests/unit/test_parameter_randomize.cpp` | Randomizer | Depth/seed determinism, lane amounts, gates/slides untouched (`[randomize][sequencer]`) |
+| 23 | `tests/unit/test_voice_block.cpp` | Block processing parity | `processBlock` == per-sample `process()`, queued gate edges reach samples in one block, VoiceManager parity (`[voice_block][voice_transfer]`) |
+| 24 | `tests/unit/test_parameter_focus.cpp` | Parameter focus policy (`ShiftLatch::focus()`) | All six record buttons resolve to their ParamId + encoder base target; focus follows the most recent physical hold over the latch; armed lanes stay available to live recording; transition clears cannot resurrect stale holds; step-edit fallback chain (`[parameter_focus]`) |
+| 25 | `tests/unit/test_input_ownership.cpp` | Manual-edit ownership (`StepEditOwnership`) + encoder accumulation | Manual edit suppresses lidar only for its exact voice/lane/step; hand-leave/rearm semantics; reset on target change; `EncoderMotion` accumulation, detents, direction reset (`[input_ownership]`) |
+| 26 | `tests/unit/test_step_write.cpp` | Shared step write (`Sequencer::writeStepParameter`) | Per-lane min/mid/max acceptance, clamping + non-finite rejection, Note quantization/Octave zones, change detection after rounding, invalid lane/step rejection, `NoteGateRule::AtStep`/`AtGateCursor`, rest-step rules, live `advanceStep` cursor recording (`[step_write]`) |
+| 27 | `tests/unit/test_edit_publication.cpp` | Publication + audio response | Neutral modifiers reproduce bases, endpoint composition, no-retrigger in-place refresh, `refreshVoiceParametersAt` preview, measurable Filter/Velocity/Attack/Decay response on oscillator presets, hard-sync slave pitch-vs-amplitude (`[edit_publication]`) |
+| 28 | `tests/unit/test_oled_view.cpp` | OLED routing (`OledView::route`) | Page selection per focused lane, BASE feedback outranks holds, selected-step composed values, gate-rejected Note retention, encoder-target fallback, priority ladder, route purity (no mutation) (`[oled_view]`) |
+| 29 | `tests/unit/test_parameter_mapping.cpp` | Lane value mapping (`DspMapping`) | `fmap`/`fmapCentered` exponential and centered curves, `normalizeCentered` inversion, centered lane bindings (`[mapping]`) |
 
 ---
 
@@ -155,16 +172,17 @@ cmake -B build_test -DCMAKE_BUILD_TYPE=Debug
 # Compile the test runner executables
 cmake --build build_test --parallel
 
-# Execute the main test runner directly (240 tests)
+# Execute the main test runner directly (358 tests)
 ./build_test/tests/pico2seq_tests
 
 # Or run individual specialized test executables:
-./build_test/tests/pico2seq_voice_tests      # Focused voice ownership & queue suite (70 tests)
+./build_test/tests/pico2seq_voice_tests      # Focused voice/step-write/publication suite (97 tests)
+./build_test/tests/pico2seq_ui_tests         # Focus/ownership UI policy suite (61 tests)
 ./build_test/tests/pico2seq_watchdog_tests   # FreezeWatchdog forensics suite (4 tests)
 ./build_test/tests/pico2seq_audio_tests      # I2S DMA/pool driver suite (1 test)
 ```
 
-*(On Windows PowerShell, append `.exe` to executable names; `ctest --test-dir build_test` executes all 315 tests across all 4 targets)*
+*(On Windows PowerShell, append `.exe` to executable names; `ctest --test-dir build_test` executes all 521 tests across all 5 targets)*
 
 ### 2. Run with CTest
 
@@ -250,7 +268,6 @@ separate CMake targets in `tests/CMakeLists.txt`.
 - [`docs/architecture.md`](architecture.md) — System architecture and dual-core division
 - [`docs/voice.md`](voice.md) — Voice synthesis and DSP chain documentation
 - [`docs/sequencer.md`](sequencer.md) — Sequencer engine and polymetric parameter tracks
-- [`docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`](superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md) — ControlSurfaceLogic design specification
 
 ### Voice ownership regression suite
 

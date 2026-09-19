@@ -3,6 +3,42 @@
 #include "SequencerDefs.h"
 #include "ParameterManager.h"
 
+// --- Shared step-parameter write operation -------------------------------
+//
+// Every lane writer (live clock recording, selected/stopped lidar recording,
+// selected-step encoder edits, fader step edits) goes through
+// Sequencer::writeStepParameter() so validation, input normalization, gate
+// protection for Note recording, and change detection exist exactly once.
+
+enum class StepWriteStatus : uint8_t
+{
+    Rejected,          // invalid target/lane, non-finite value, or gate refusal
+    AcceptedUnchanged, // stored value identical after clamp/round/quantize
+    Changed            // stored value actually moved
+};
+
+struct StepWriteResult
+{
+    StepWriteStatus status = StepWriteStatus::Rejected;
+    float previousStored = 0.0f;
+    float stored = 0.0f; // valid for AcceptedUnchanged and Changed
+};
+
+/** Input domain of the value handed to writeStepParameter(). */
+enum class StepWriteDomain : uint8_t
+{
+    Normalized01, // sensor/fader position in 0..1; scaled by the lane's range
+    LaneValue     // already in the lane's stored units (encoder step edits)
+};
+
+/** Where a recording Note write must find its gate decision. */
+enum class NoteGateRule : uint8_t
+{
+    None,          // explicit editing: rest steps stay writable
+    AtGateCursor,  // live recording: the Gate lane's own cursor value
+    AtStep         // selected-step recording: the stored Gate at that step
+};
+
 /**
  * @brief Simple envelope controller for ADSR triggering
  *
@@ -127,6 +163,16 @@ public:
     void refreshVoiceParameters(VoiceState *voiceState) const;
 
     /**
+     * @brief Refresh a voice from one concrete composed step (stopped preview)
+     *
+     * Same value set as refreshVoiceParameters(), but composed at the given
+     * step index instead of the per-lane playback cursors, and pitch follows
+     * the step unconditionally (there is no sounding-note lifecycle to
+     * protect while stopped). Never retriggers.
+     */
+    void refreshVoiceParametersAt(uint8_t stepIdx, VoiceState *voiceState) const;
+
+    /**
      * @brief Toggle gate parameter for a specific step
      * @param stepIdx Step index to toggle (0-63)
      */
@@ -135,6 +181,26 @@ public:
     // Parameter access methods
     float getStepParameterValue(ParamId id, uint8_t stepIdx) const;
     void setStepParameterValue(ParamId id, uint8_t stepIdx, float value);
+
+    /**
+     * @brief The one shared stored-lane write.
+     *
+     * Validates the lane (recordable lanes only — Gate, Slide and GateLength
+     * keep their dedicated interaction rules) and the step index, applies the
+     * Note gate rule for recording writes, converts Normalized01 input
+     * through mapNormalizedValueToParamRange (LaneValue passes through), then
+     * stores via the ParameterManager (clamp/round/toggle live there).
+     * Change is decided by read-back comparison AFTER storage-domain
+     * rounding, so callers never republish quantization no-ops.
+     *
+     * @param recording true for sensor/fader recording semantics, false for
+     *                  explicit (encoder) editing; only recording Note
+     *                  writes consult noteGate.
+     */
+    StepWriteResult writeStepParameter(ParamId id, uint8_t stepIdx, float value,
+                                       StepWriteDomain domain, bool recording,
+                                       NoteGateRule noteGate = NoteGateRule::None);
+
     uint8_t getParameterStepCount(ParamId id) const;
     void setParameterStepCount(ParamId id, uint8_t steps);
     // Persistence access: no gate-control rule, no modulo wrap on read, no

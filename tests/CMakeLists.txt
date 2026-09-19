@@ -33,6 +33,11 @@ add_executable(pico2seq_tests
   unit/test_voiceoscillator.cpp
   unit/test_control_surface_logic.cpp
   unit/test_ui_transitions.cpp
+  unit/test_parameter_focus.cpp
+  unit/test_input_ownership.cpp
+  unit/test_step_write.cpp
+  unit/test_edit_publication.cpp
+  unit/test_oled_view.cpp
   unit/test_alchemy_proto.cpp
   unit/test_app_runtime.cpp
   unit/test_voice_edit.cpp
@@ -61,6 +66,9 @@ add_executable(pico2seq_tests
 
   # Alchemy tile control surface decision logic (pure C++)
   ${SRC_DIR}/ui/ControlSurfaceLogic.cpp
+
+  # OLED page/target/value routing (pure C++)
+  ${SRC_DIR}/ui/OledView.cpp
 )
 
 # Stub headers must come first so they shadow Arduino.h / Wire.h / pico/sync.h
@@ -89,6 +97,8 @@ catch_discover_tests(pico2seq_tests)
 add_executable(pico2seq_ui_tests
   unit/test_control_surface_logic.cpp
   unit/test_ui_transitions.cpp
+  unit/test_parameter_focus.cpp
+  unit/test_input_ownership.cpp
   ${SRC_DIR}/ui/ControlSurfaceLogic.cpp)
 target_include_directories(pico2seq_ui_tests PRIVATE
   ${STUB_DIR} ${PROJECT_SOURCE_DIR} ${SRC_DIR} ${CORE_DIR} ${RPDSP_DIR})
@@ -104,6 +114,8 @@ add_executable(pico2seq_voice_tests
   unit/test_voiceoscillator.cpp
   unit/test_voice_transfer.cpp
   unit/test_voice_block.cpp
+  unit/test_step_write.cpp
+  unit/test_edit_publication.cpp
   ${CORE_DIR}/scales/scales.cpp
   ${CORE_DIR}/sequencer/ParameterManager.cpp
   ${CORE_DIR}/sequencer/Sequencer.cpp

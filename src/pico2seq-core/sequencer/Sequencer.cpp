@@ -1,11 +1,31 @@
 #include <cstdint>
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include "SequencerDefs.h"
 #include "Sequencer.h"
 
 // --- Constants for real-time parameter editing ---
 constexpr float MAX_SENSOR_DISTANCE_MM = 1100.0f;
+
+// Finite check by bit pattern: the firmware builds with -ffast-math, under
+// which float classifications (std::isfinite and even an unguarded
+// bitcast+exponent idiom) fold to "finite" — LLVM assumes NaNs cannot exist.
+// The register barrier between the load and the exponent test breaks that
+// pattern match, so a runtime NaN is genuinely rejected on the device.
+// static_assert below pins IEEE-754 binary32.
+static bool laneValueIsFinite(float v) noexcept
+{
+    static_assert(sizeof(float) == sizeof(uint32_t), "IEEE-754 binary32 required");
+    uint32_t bits = 0;
+    std::memcpy(&bits, &v, sizeof(bits));
+#if defined(_MSC_VER) && !defined(__clang__)
+    return std::isfinite(v);
+#else
+    asm volatile("" : "+r"(bits)); // optimizer barrier, see comment above
+    return ((bits >> 23) & 0xFFu) != 0xFFu; // excludes infinities and NaNs
+#endif
+}
 
 constexpr float OCTAVE_LOW_THRESHOLD = 1.0f / 3.0f;  // Threshold for mapping float to -1 octave
 constexpr float OCTAVE_HIGH_THRESHOLD = 2.0f / 3.0f;  // Threshold for mapping float to +1 octave
@@ -117,6 +137,44 @@ uint8_t Sequencer::getParameterStepCount(ParamId id) const
 float Sequencer::getStepParameterValue(ParamId id, uint8_t stepIdx) const
 {
     return parameterManager.getValue(id, stepIdx);
+}
+
+StepWriteResult Sequencer::writeStepParameter(ParamId id, uint8_t stepIdx,
+                                              float value, StepWriteDomain domain,
+                                              bool recording, NoteGateRule noteGate)
+{
+    StepWriteResult result;
+    const auto *definition = parameterDefinition(id);
+    if (!definition || !definition->recordable ||
+        stepIdx >= SequencerConstants::MAX_STEPS_COUNT || !laneValueIsFinite(value))
+    {
+        return result;
+    }
+
+    // Gate-protected Note recording: live takes the Gate lane's own cursor,
+    // selected-step takes the stored Gate at the edited step.
+    if (recording && id == ParamId::Note && noteGate != NoteGateRule::None)
+    {
+        const uint8_t gateStep = noteGate == NoteGateRule::AtGateCursor
+                                     ? currentStepPerParam[static_cast<size_t>(ParamId::Gate)]
+                                     : stepIdx;
+        if (getStepParameterValue(ParamId::Gate, gateStep) <= 0.5f)
+        {
+            return result;
+        }
+    }
+
+    const float laneValue = domain == StepWriteDomain::Normalized01
+                                ? mapNormalizedValueToParamRange(id,
+                                      std::clamp(value, 0.0f, 1.0f))
+                                : value;
+    result.previousStored = getStepParameterValue(id, stepIdx);
+    parameterManager.setValue(id, stepIdx, laneValue);
+    result.stored = getStepParameterValue(id, stepIdx);
+    result.status = result.stored != result.previousStored
+                        ? StepWriteStatus::Changed
+                        : StepWriteStatus::AcceptedUnchanged;
+    return result;
 }
 
 float Sequencer::getRawStepValue(ParamId id, uint8_t stepIdx) const
@@ -275,23 +333,13 @@ void Sequencer::advanceStep(uint32_t current_uclock_step, int mm_distance,
         {
             if (pb.held)
             {
-                // GATE-CONTROLLED NOTE PROGRAMMING: Check gate restriction for Note parameter
-                if (pb.id == ParamId::Note)
-                {
-                    uint8_t gateStepIdx = currentStepPerParam[static_cast<size_t>(ParamId::Gate)];
-                    float gateValue = getStepParameterValue(ParamId::Gate, gateStepIdx);
-                    if (gateValue <= 0.5f) // Gate is LOW (0.0)
-                    {
-                        // Skip Note parameter recording on steps with LOW gates
-                        continue;
-                    }
-                }
-
-                // For all other parameters, scale the normalized value to the parameter's range
-                float value = mapNormalizedValueToParamRange(pb.id, normalizedDistance);
-                // Use the parameter's own current step index for recording
-                uint8_t paramStepIdx = currentStepPerParam[static_cast<size_t>(pb.id)];
-                setStepParameterValue(pb.id, paramStepIdx, value);
+                // Live recording: each armed lane records at its own cursor
+                // through the shared write. Note keeps its gate protection
+                // against the Gate lane's own cursor.
+                writeStepParameter(pb.id,
+                                   currentStepPerParam[static_cast<size_t>(pb.id)],
+                                   normalizedDistance, StepWriteDomain::Normalized01,
+                                   true, NoteGateRule::AtGateCursor);
             }
         }
     }
@@ -471,6 +519,29 @@ void Sequencer::refreshVoiceParameters(VoiceState *voiceState) const
         voiceState->noteIndex = values.noteIndex;
         voiceState->octaveOffset = values.octaveOffset;
     }
+    voiceState->shouldRetrigger = false;
+}
+
+void Sequencer::refreshVoiceParametersAt(uint8_t stepIdx, VoiceState *voiceState) const
+{
+    if (!voiceState)
+    {
+        return;
+    }
+    if (stepIdx >= SequencerConstants::MAX_STEPS_COUNT)
+    {
+        refreshVoiceParameters(voiceState);
+        return;
+    }
+    const Step values = getPlaybackStep(stepIdx);
+    voiceState->velocityLevel = values.velocityLevel;
+    voiceState->filterCutoff = values.filterCutoff;
+    voiceState->attackTimeSeconds = values.attackTimeSeconds;
+    voiceState->decayTimeSeconds = values.decayTimeSeconds;
+    // No sounding-note lifecycle to protect while stopped: the preview shows
+    // the selected step's own pitch.
+    voiceState->noteIndex = values.noteIndex;
+    voiceState->octaveOffset = values.octaveOffset;
     voiceState->shouldRetrigger = false;
 }
 

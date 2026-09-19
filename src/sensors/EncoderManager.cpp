@@ -47,7 +47,7 @@ StepTurn stepTurn;
 // lane in quarters, and the legacy thresholds sit at thirds.
 constexpr float kOctaveLaneStep = 0.25f;
 
-// A selected step takes the encoder: the held, toggled or encoder-target
+// A selected step takes the encoder: the focused, toggled or encoder-target
 // parameter (the same one the OLED shows). Returns false when no step
 // parameter is targeted, leaving the turn to base editing.
 bool editSelectedStep(UIState &uiState, float delta)
@@ -55,7 +55,7 @@ bool editSelectedStep(UIState &uiState, float delta)
   if (uiState.selectedStepForEdit < 0 || uiState.selectedVoiceIndex >= VoiceSystem::MAX_VOICES)
     return false;
   const ParamId targetParam = ControlSurface::stepEditParameter(
-      getHeldParameterParamId(uiState), uiState.currentEditParameter, uiState.currentEncoderParameter);
+      focusedParameterId(uiState), uiState.currentEditParameter, uiState.currentEncoderParameter);
   Sequencer *selectedSeq = AppState::sequencers[uiState.selectedVoiceIndex];
   const auto *definition = parameterDefinition(targetParam);
   if (!definition || !selectedSeq)
@@ -89,9 +89,16 @@ bool editSelectedStep(UIState &uiState, float delta)
         SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD) * (maxVal - minVal);
   }
   newVal = std::clamp(newVal, minVal, maxVal);
-  if (newVal != curVal)
+  // Explicit step editing (no recording gate rule): every attempt, including
+  // a turn against a lane limit, takes manual ownership so lidar cannot
+  // immediately replace the value being held. Only an actual storage change
+  // refreshes the voice.
+  uiState.stepEditOwner.take(uiState.selectedVoiceIndex,
+                             static_cast<uint8_t>(targetParam), step);
+  const StepWriteResult written = selectedSeq->writeStepParameter(
+      targetParam, step, newVal, StepWriteDomain::LaneValue, false);
+  if (written.status == StepWriteStatus::Changed)
   {
-    selectedSeq->setStepParameterValue(targetParam, step, newVal);
     updateActiveVoiceState(step, *selectedSeq);
   }
   return true;
@@ -138,28 +145,6 @@ float getParameterMaxValueForParamId(ParamId paramId)
     return parameterValueAsFloat(CORE_PARAMETERS[static_cast<size_t>(paramId)].maxValue);
   }
   return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
-}
-
-// Helper function for the "Shift and Scale" mapping.
-// This function takes a sequencer value (0.0-1.0) and an encoder offset
-// (a bipolar value, e.g., -0.6 to 0.6) and combines them intelligently.
-float shiftAndScale(float seqValue, float encoderOffset)
-{
-  float finalValue;
-  if (encoderOffset >= 0.0f)
-  {
-    // When the encoder offset is positive, it sets the minimum value,
-    // and the sequencer value is scaled to fit the remaining range up to 1.0.
-    finalValue = encoderOffset + (seqValue * (1.0f - encoderOffset));
-  }
-  else
-  {
-    // When the encoder offset is negative, it reduces the maximum value,
-    // and the sequencer value is scaled to fit the range from 0.0 up to that new maximum.
-    finalValue = seqValue * (1.0f + encoderOffset);
-  }
-  // Clamp the result to ensure it remains within the valid [0.0, 1.0] range.
-  return std::max(0.0f, std::min(finalValue, 1.0f));
 }
 
 // =======================

@@ -103,34 +103,6 @@ enum class EncoderParameterMode : uint8_t
 };
 
 /**
- * @brief Magnetic encoder base parameter values for bidirectional control
- *
- * Stores base values for each parameter that can be controlled by the
- * magnetic encoder. Supports bidirectional control by maintaining center points.
- */
-struct EncoderBaseValues
-{
-  // These bases are normalized bipolar offsets. They are combined with the
-  // sequencer value by shiftAndScale() when a step is played.
-  float note = 0.0f;          // Base note/pitch offset (normalized 0.0-1.0 domain)
-  float velocity = 0.0f;      // Base velocity (0.0-1.0)
-  float filter = 0.0f;        // Base filter cutoff (0.0-1.0)
-  float attack = 0.0f;        // Base attack time (0.0-1.0 seconds)
-  float decay = 0.0f;         // Base decay time (0.0-1.0 seconds)
-  float octave = 0.0f;        // Base octave offset (normalized 0.0-1.0 domain)
-  float slideTime = 0.0f;     // Slide time in seconds for voice glide
-};
-
-/**
- * @brief Voice-specific encoder base values
- *
- * Inherits from EncoderBaseValues with no additional members.
- */
-struct EncoderBaseValuesVoice1 : public EncoderBaseValues
-{
-  // No additional members
-};
-/**
  * @brief Step parameter edit button state tracking
  *
  * Tracks which parameter edit buttons are currently pressed for step editing.

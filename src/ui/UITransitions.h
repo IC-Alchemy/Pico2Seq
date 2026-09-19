@@ -5,10 +5,24 @@
 // Pure Core-0 UI transitions. Hardware effects (encoder reset,
 // tile edge histories) remain with the caller, not in these state policies.
 namespace UITransitions {
+// Clear the armed set, the latch, and the derived focus together. Every
+// transition that ends parameter-hold semantics must go through here so the
+// bridge's latch history can never resurrect holds after the transition.
+inline void clearParameterFocus(UIState &state) noexcept
+{
+    state.parameterLatch.reset();
+    for (auto &held : state.parameterButtonHeld)
+        held = false;
+    state.latchedParameter = -1;
+    state.focusedParameter = -1;
+}
+
 inline void clearStepEdit(UIState &state) noexcept
 {
     state.selectedStepForEdit = -1;
     state.currentEditParameter = ParamId::Count;
+    // The manual-edit target is gone; ownership must not survive it.
+    state.stepEditOwner.reset();
 }
 
 inline void openSettings(UIState &state) noexcept
@@ -51,9 +65,7 @@ inline void toggleSlide(UIState &state) noexcept
     clearStepEdit(state);
     if (!state.slideMode)
         return;
-    for (auto &held : state.parameterButtonHeld)
-        held = false;
-    state.latchedParameter = -1;
+    clearParameterFocus(state);
     state.modGateParamSeqLengthsMode = false;
     state.gateSeqLengthMode = false;
     // A pre-slide hold/release must not re-enter length mode or select a step.

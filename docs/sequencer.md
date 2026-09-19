@@ -116,25 +116,28 @@ Metadata and defaults for all parameters are defined in `CORE_PARAMETERS` (`Sequ
 ```cpp
 struct ParameterDefinition
 {
-  const char *name;                // Display name
+  const char *name;                // Display name for UI
   ParameterValueType defaultValue; // std::variant<int, float, bool>
   ParameterValueType minValue;     // Minimum valid value
   ParameterValueType maxValue;     // Maximum valid value
-  bool isBinary;                   // True for gate/slide
+  ParameterEditKind editKind;      // Continuous, Stepped, or Toggle
   uint8_t defaultSteps;            // Default step count (16)
+  bool recordable;                 // Has a parameter-button live-record control;
+                                   // not a restriction on explicit step/fader edits
+  EncoderParameterMode encoderMode; // COUNT when there is no encoder base target
 };
 
 constexpr ParameterDefinition CORE_PARAMETERS[] = {
-  // Name          Default  Min    Max    Binary  Default Steps
-  {"Note",         0,       0,     36,    false,  16},
-  {"Velocity",     0.5f,    0.0f,  1.0f,  false,  16},
-  {"Filter",       0.5f,    0.0f,  1.0f,  false,  16},
-  {"Attack",       0.01f,   0.0f,  1.0f,  false,  16},
-  {"Decay",        0.3f,    0.0f,  1.0f,  false,  16},
-  {"Octave",       0.5f,    0.0f,  1.0f,  false,  16},
-  {"GateLength",   0.5f,    0.001f,1.0f,  false,  16},
-  {"Gate",         false,   false, true,  true,   16},
-  {"Slide",        false,   false, true,  true,   16}
+  // Name, default, min, max, edit kind, steps, recordable, encoder base target
+  {"Note",       0,     0,     36,   Stepped,    16, true,  EncoderParameterMode::Note},
+  {"Velocity",   0.5f,  0.0f,  1.0f, Continuous, 16, true,  EncoderParameterMode::Velocity},
+  {"Filter",     0.5f,  0.0f,  1.0f, Continuous, 16, true,  EncoderParameterMode::Filter},
+  {"Attack",     0.01f, 0.0f,  1.0f, Continuous, 16, true,  EncoderParameterMode::Attack},
+  {"Decay",      0.3f,  0.0f,  1.0f, Continuous, 16, true,  EncoderParameterMode::Decay},
+  {"Octave",     0.5f,  0.0f,  1.0f, Stepped,    16, true,  EncoderParameterMode::Octave},
+  {"GateLength", 0.5f,  0.001f,1.0f, Continuous, 16, false, EncoderParameterMode::COUNT},
+  {"Gate",       false, false, true, Toggle,     16, false, EncoderParameterMode::COUNT},
+  {"Slide",      false, false, true, Toggle,     16, false, EncoderParameterMode::COUNT}
 };
 ```
 
@@ -151,23 +154,29 @@ public:
     uint8_t getStepCount(ParamId id) const;
     float getValue(ParamId id, uint8_t stepIdx) const;
     void setValue(ParamId id, uint8_t stepIdx, float value);
-    void setParameterValue(ParamId id, uint8_t stepIdx, float value);
     void copyStep(uint8_t srcStep, uint8_t dstStep);
-    void randomizeParameters(bool usePatchBases = false);
+    // Direct (non-wrapping) access for persistence.
+    float getRawValue(ParamId id, uint8_t stepIdx) const;
+    void setRawValue(ParamId id, uint8_t stepIdx, float value);
+
+    static constexpr uint8_t kDefaultRandomizeDepth = 35;
+    void randomizeParameters(uint8_t depthPercent = kDefaultRandomizeDepth, uint64_t seed = 0);
+    void setLaneAmount(ParamId id, uint8_t percent); // clamps to 0-100
+    uint8_t getLaneAmount(ParamId id) const;
 
 private:
     ParameterTrack<SequencerConstants::MAX_STEPS_COUNT> _tracks[static_cast<size_t>(ParamId::Count)];
+    LaneAmounts _laneAmounts; // 0-100 percent per lane
 };
 ```
 
 - **Clamping and Rounding in `setValue`**:
-  `setValue()` clamps the incoming value between `CORE_PARAMETERS[id].minValue` and `maxValue`. If `isBinary` is true, it thresholds at `> 0.5f` to produce `0.0f` or `1.0f`. If `minValue` is an integer variant, it rounds using `roundf()`.
+  `setValue()` clamps the incoming value between `CORE_PARAMETERS[id].minValue` and `maxValue`. If the lane's `editKind` is `Toggle`, it thresholds at `> 0.5f` to produce `0.0f` or `1.0f`. If `minValue` is an integer variant, it rounds using `roundf()`. `setValue` remains the storage-domain validator — all writes (including `Sequencer::writeStepParameter`, below) land through it.
 - **Randomization Algorithm (`randomizeParameters`)**:
-  Uses an internal Linear Congruential Generator (LCG) seeded from system time. Applies musical heuristics per parameter:
-  - `Gate`: Even steps have a 50% probability of being active (1/2 chance of 0); odd steps have a ~25% probability (1/4 chance of 1).
-  - `Slide`: 1/16 chance (~6.25%) per step; track is always resized to 64 steps for safety.
-  - `Attack` / `Decay`: Weighted towards short attacks and medium decays with occasional long swells.
-  - `Filter`: Uniform random in range `[0.2, 0.8]`.
+  Uses an internal Linear Congruential Generator; `seed == 0` seeds from the clock, any other seed repeats deterministically. The rhythm stays the player's: `Gate` and `Slide` are never rewritten. Per lane:
+  - `Note`: draws scale steps `0-12` (playback quantizes them to the scale and adds the base transpose).
+  - `Octave` / `GateLength`: return to their neutral midpoint.
+  - `Velocity` / `Filter` / `Attack` / `Decay`: triangular offsets around the neutral modifier `0.5` (the sum of two uniform draws), scaled by each lane's amount — most steps stay near the preset base, a few reach the depth's edge. A lane amount of `0` (see `setLaneAmount`) leaves that lane untouched.
 
 ---
 
@@ -191,6 +200,9 @@ public:
     // Step Parameter Access
     float getStepParameterValue(ParamId id, uint8_t stepIdx) const;
     void setStepParameterValue(ParamId id, uint8_t stepIdx, float value);
+    StepWriteResult writeStepParameter(ParamId id, uint8_t stepIdx, float value,
+                                       StepWriteDomain domain, bool recording,
+                                       NoteGateRule noteGate = NoteGateRule::None);
     uint8_t getParameterStepCount(ParamId id) const;
     void setParameterStepCount(ParamId id, uint8_t steps);
     uint8_t getCurrentStep() const;
@@ -204,13 +216,16 @@ public:
     // Step Execution & Preview
     void playStepNow(uint8_t stepIdx, VoiceState *voiceState);
     void previewActiveStep(VoiceState *voiceState);
+    void refreshVoiceParameters(VoiceState *voiceState) const;
+    void refreshVoiceParametersAt(uint8_t stepIdx, VoiceState *voiceState) const;
     void toggleStep(uint8_t stepIdx);
 
     // Transport Control
     void start() { running = true; }
     void stop() { running = false; }
     bool isRunning() const { return running; }
-    void randomizeParameters();
+    void randomizeParameters(uint8_t depthPercent = ParameterManager::kDefaultRandomizeDepth,
+                             uint64_t seed = 0);
 
     // Note & Envelope Timing
     void startNote(uint8_t note, uint8_t velocity, uint16_t duration);
@@ -237,7 +252,40 @@ public:
 > without ever rewriting stored steps — see `Sequencer.h` and
 > [`docs/voice-edit.md`](voice-edit.md).
 
-### 3.2 `Sequencer::advanceStep` Implementation Flow
+### 3.2 Shared Step Write Operation (`writeStepParameter`)
+
+Every lane writer routes through one shared stored-lane write (`Sequencer.h`/`Sequencer.cpp`), so validation, input normalization, Note gate protection, and change detection exist exactly once:
+
+```cpp
+StepWriteResult writeStepParameter(ParamId id, uint8_t stepIdx, float value,
+                                   StepWriteDomain domain, bool recording,
+                                   NoteGateRule noteGate = NoteGateRule::None);
+
+struct StepWriteResult
+{
+    StepWriteStatus status; // Rejected | AcceptedUnchanged | Changed
+    float previousStored;
+    float stored;           // valid for AcceptedUnchanged and Changed
+};
+```
+
+- **`StepWriteDomain`**: `Normalized01` (sensor/fader position in 0..1, scaled through `mapNormalizedValueToParamRange`) or `LaneValue` (already in the lane's stored units — encoder step edits).
+- **`NoteGateRule`** (consulted only for recording writes to `ParamId::Note`): `None` (explicit editing — rest steps stay writable), `AtGateCursor` (live recording — the Gate lane's own cursor value), `AtStep` (selected-step recording — the stored Gate at that step).
+- **Validation**: rejects non-recordable lanes (`Gate`, `Slide`, `GateLength` keep their dedicated interaction rules), out-of-range steps, and non-finite values.
+- **Change detection**: the read-back comparison happens **after** storage-domain rounding, so callers never republish quantization no-ops — `AcceptedUnchanged` writes do not refresh or retransmit the voice.
+- **The four lane writers** (all host-tested in `tests/unit/test_step_write.cpp` / `test_edit_publication.cpp`):
+  1. **Live clock recording** — `advanceStep()` (below); each armed lane records at its own cursor, Note against `AtGateCursor`.
+  2. **Selected/stopped lidar recording** — `updateParametersForStepNormalized()` in `src/app/StepPlayback.cpp`; Note against the stored `AtStep` gate, and only a `Changed` result refreshes the sounding voice via `updateActiveVoiceState()`.
+  3. **Selected-step encoder edits** — `editSelectedStep()` in `src/sensors/EncoderManager.cpp`; explicit (`recording = false`, `NoteGateRule::None`), so rest steps are writable.
+  4. **Fader step edits** — `AlchemyControlBridge::handleFaders()` in `src/ui/AlchemyControlBridge.cpp`; recording semantics plus change detection suppress redundant publishes.
+
+`ParameterManager::setValue` remains the storage-domain validator and `VoiceEdit::composeLane` remains the playback composition — neither is duplicated by the write op.
+
+**Publication**: accepted-but-unchanged writes no longer republish. When a stopped-time edit changes a step, `updateActiveVoiceState()` (`src/app/StepPlayback.cpp`) refreshes the voice through `Sequencer::refreshVoiceParametersAt(step, state)` — the stopped-preview consolidation of the previous per-site `Step` → `VoiceState` assignments (no retrigger, pitch unconditional). While the clock runs, `refreshVoiceParameters()` (cursor mode, pitch only while gated) is used instead.
+
+**Editing contract, base vs. step**: the encoder edits the voice's **patch base** (`VoiceConfig`, via `VoiceEditor::encoder()`) except when a step is selected for editing, in which case the turn goes to that step's stored lane value via `editSelectedStep()`. A manual edit (encoder turn or accepted fader move — including one pinned at a lane limit) takes **ownership** of its voice+lane+step target (`ControlSurface::StepEditOwnership` in `src/ui/ControlSurfaceLogic.h`, held in `UIState::stepEditOwner`): lidar writes to that exact target are suppressed until the hand leaves the sensor window and returns, and ownership resets when the voice, selected step, focused parameter, mode, or modal editor changes. Encoder-vs-fader in one pass is deterministic: the later (encoder) write wins.
+
+### 3.3 `Sequencer::advanceStep` Implementation Flow
 
 When `advanceStep()` is called on each 16th note clock tick:
 
@@ -252,8 +300,8 @@ When `advanceStep()` is called on each 16th note clock tick:
 5. **Real-time Parameter Recording**:
    If `mm_distance >= 0` and not in step-edit mode (`current_selected_step_for_edit == -1`):
    - Normalizes distance: `normalized = clamp(mm_distance / 1100.0f, 0.0f, 1.0f)`.
-   - Checks held parameter buttons. For `ParamId::Note`, checks gate restriction (recording is allowed only if the step's Gate is HIGH).
-   - Maps normalized distance to the target parameter's range and calls `setStepParameterValue(paramId, currentStepPerParam[paramId], value)`.
+   - Checks the held parameter buttons (the full armed set, so several lanes can record at once). Each held lane records at **its own** track cursor via the shared write: `writeStepParameter(paramId, currentStepPerParam[paramId], normalized, StepWriteDomain::Normalized01, true, NoteGateRule::AtGateCursor)`.
+   - For `ParamId::Note`, the `AtGateCursor` rule refuses the write when the Gate lane's own cursor value is LOW, so muted steps never take pitch data.
 6. **Step Processing (`processStep`)**:
    Calls `processStep(UINT8_MAX, voiceState)` to populate the output `VoiceState`:
    - Extracts all parameter values at their respective `currentStepPerParam[id]` indices.
@@ -291,65 +339,46 @@ void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_d
 }
 ```
 
-### 4.2 Main Step Callback (`onStepCallback` / `processSequencerStep` in `Pico2Seq.ino`)
+### 4.2 Main Step Callback (`onStepCallback` / `processSequencerStep` in `src/app/`)
 
-`uClock` invokes `onStepCallback()` on Core 0 (timer ISR context) on every 16th note, but it only enqueues the step number into the 16-deep `stepQueue` SPSC ring. `loop()` drains the queue via `processClockEvents()` → `processSequencerStep()` in thread context, which does the full step work:
+`uClock` invokes `onStepCallback()` on Core 0 (timer ISR context) on every 16th note, but it only enqueues the step number into the 16-deep SPSC ring (`src/app/ClockService.cpp`). The `loop()` in `src/app/Application.cpp` drains the queue via `processClockEvents()` → `processSequencerStep()` (in `src/app/StepPlayback.cpp`) in thread context, which does the full step work:
 
 ```cpp
-// ISR context — stage only
+// ISR context — stage only (src/app/ClockService.cpp)
 void onStepCallback(uint32_t uClockCurrentStep)
 {
-    if (!stepQueue.tryPush(uClockCurrentStep))
+    if (!clockEvents.steps.tryPush(uClockCurrentStep))
     {
-        droppedStepCount++; // loop() stalled longer than the queue
+        clockEvents.droppedSteps++; // loop() stalled longer than the queue
     }
 }
 
-// Thread context — drained by processClockEvents() in loop()
+// Thread context — StepPlayback.cpp, called from processClockEvents()
 void processSequencerStep(uint32_t uClockCurrentStep)
 {
-    currentSequencerStep = static_cast<uint8_t>(uClockCurrentStep);
+    if(!isClockRunning || uiState.voiceEditor.active) return;
 
-    VoiceState tempState1, tempState2, tempState3, tempState4;
-
-    // Route distance sensor to the currently selected voice (0..3); others disabled (-1)
-    int v1Distance = (uiState.selectedVoiceIndex == 0) ? mm : -1;
-    int v2Distance = (uiState.selectedVoiceIndex == 1) ? mm : -1;
-    int v3Distance = (uiState.selectedVoiceIndex == 2) ? mm : -1;
-    int v4Distance = (uiState.selectedVoiceIndex == 3) ? mm : -1;
-
-    // 1. Advance all 4 sequencers
-    advanceSequencerStep(seq1, uClockCurrentStep, v1Distance, uiState, &tempState1);
-    advanceSequencerStep(seq2, uClockCurrentStep, v2Distance, uiState, &tempState2);
-    advanceSequencerStep(seq3, uClockCurrentStep, v3Distance, uiState, &tempState3);
-    advanceSequencerStep(seq4, uClockCurrentStep, v4Distance, uiState, &tempState4);
-
-    VoiceState tempStates[] = {tempState1, tempState2, tempState3, tempState4};
-
-    // 2. Apply encoder base values per voice (all 4 voices)
-    for (uint8_t voiceIndex = 0; voiceIndex < VoiceSystem::MAX_VOICES; voiceIndex++)
+    VoiceState tempStates[VoiceSystem::MAX_VOICES];
+    const uint8_t selectedVoice = uiState.selectedVoiceIndex;
+    // With no hand in range, live recording pauses and steps keep their values.
+    const int handDistance = AppState::performanceInput.handPresent
+                                 ? AppState::performanceInput.distanceAboveMinimumMm : kDistanceDisabled;
+    // First advance all four voices. Only the selected voice hears the sensor.
+    for (uint8_t voice = 0; voice < VoiceSystem::MAX_VOICES; ++voice)
     {
-        applyEncoderBaseValues(&tempStates[voiceIndex], voiceIndex);
+        const int distance = voice == selectedVoice ? handDistance : kDistanceDisabled;
+        AppState::sequencers[voice]->setRecordingInput(AppState::performanceInput.recordingValue());
+        advanceSequencerStep(*AppState::sequencers[voice], uClockCurrentStep,
+                             distance, uiState, &tempStates[voice]);
     }
 
-    // 3. Update VoiceSystem and MIDI hardware
-    for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; i++)
-    {
-        if (i < 2) // Voices 0 and 1: gate timers & MIDI note lifecycle
-        {
-            updateVoiceMIDI(tempStates[i], i, true,
-                            &voiceSystem.getGate(i),
-                            &voiceSystem.getGateTimer(i));
-        }
-        else // Voices 2 and 3: audio synthesis only
-        {
-            updateVoiceMIDI(tempStates[i], i, false);
-        }
-
-        voiceSystem.getVoiceState(i) = tempStates[i];
-    }
+    // Bases have already been composed by each sequencer's playback transform.
+    for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i)
+        publishVoiceState(i, tempStates[i]);
 }
 ```
+
+**The encoder is not part of the step callback.** Patch-base editing is handled in the 1 ms control pass (`ControlIO::scanControls()` in `src/app/ControlIO.cpp`) via `updateEncoderBaseValues()` (`src/sensors/EncoderManager.cpp`), which forwards each read's increment either to `editSelectedStep()` (a step is selected: the turn writes that step's stored lane through the shared write op, §3.2) or to `VoiceEditor::encoder()` (base editing of the encoder target's `VoiceConfig` lane, composed during playback by each sequencer's playback transform). There is no per-step `applyEncoderBaseValues()` pass anymore; the old `EncoderBaseValues` offset structs were removed when patch bases moved into `VoiceConfig`.
 
 ---
 
@@ -447,20 +476,13 @@ parameter track, `VoiceState::isGateHigh`, and the VoiceSystem gate timers.
 
 ### 7.1 Gate-Controlled Note Editing
 
-To prevent accidental modification of pitch parameters on inactive steps during live performance or parameter recording:
+To prevent accidental modification of pitch parameters on inactive steps during live performance or parameter recording, gate protection lives in the shared write op (`Sequencer::writeStepParameter`, §3.2) and applies to **recording** writes only:
 
-1. **Step Parameter Assignment (`setStepParameterValue`)**:
-   ```cpp
-   if (id == ParamId::Note)
-   {
-       float gateValue = getStepParameterValue(ParamId::Gate, stepIdx);
-       if (gateValue <= 0.5f) {
-           return; // Silently ignore note edits on inactive steps
-       }
-   }
-   ```
-2. **Real-time Sensor Recording**:
-   During live distance-sensor parameter recording, if `ParamId::Note` is selected, `Sequencer::advanceStep` skips updating steps whose Gate is currently `0.0f`.
+- **Live recording** (`NoteGateRule::AtGateCursor`): `Sequencer::advanceStep` refuses a Note write when the Gate lane's own cursor value is `<= 0.5f`.
+- **Selected/stopped recording** (`NoteGateRule::AtStep`): `updateParametersForStepNormalized()` (`src/app/StepPlayback.cpp`) and the fader step path (`src/ui/AlchemyControlBridge.cpp`) refuse a Note write when the **stored Gate at the edited step** is `<= 0.5f`.
+- **Explicit editing** (`recording = false`, e.g. `editSelectedStep()`): no gate rule — rest steps are writable, so a step can be given a pitch before its gate is armed.
+
+A gate-rejected write returns `StepWriteStatus::Rejected` with the stored value retained, and the OLED keeps showing that retained value (values come from storage, never from a sensor prediction — see `src/ui/OledView.h`).
 
 ### 7.2 Slide / Portamento Logic
 

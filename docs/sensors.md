@@ -70,8 +70,10 @@ The magnetic encoder subsystem consists of two architectural layers:
   - Adaptive low-pass speed filtering.
 - **`EncoderManager` (`src/sensors/EncoderManager.h/.cpp`)**: High-level parameter management subsystem bridging encoder delta increments to the synthesizer data model. Handles:
   - Forwarding every read's increment to `VoiceEditor::encoder()`, which edits the selected voice's base (or the editor cursor) in its `VoiceConfig`.
-  - Outside Step Edit the encoder edits **per-voice base values**. With a step selected, `editSelectedStep()` edits that step's stored value for the toggled edit parameter (or the encoder target's lane): continuous lanes move 5% of their range per unit of encoder motion, Note moves one scale step per detent.
+  - Outside Step Edit the encoder edits **per-voice base values**. With a step selected, `editSelectedStep()` edits that step's stored value for the focused parameter (newest held record button), the toggled edit parameter, or the encoder target's lane — the same target the OLED shows. Continuous lanes move with the same sensitivity as base editing, Note moves one scale step per detent. Step writes go through the shared `Sequencer::writeStepParameter()` operation, so clamping, storage validation and change detection behave identically to lidar and fader writes.
   - Slow turns are accumulated (`ControlSurface::EncoderMotion`) rather than compared against a per-read noise floor, which used to discard them. Continuous values apply the motion once it passes `MINIMUM_INCREMENT_THRESHOLD`; notes, octaves and choices step once per `STEPPED_VALUE_DETENT` of motion. A change of direction discards pending motion, so sensor jitter never adds up.
+  - Every accepted turn — including turns pinned at a lane limit, and turns of unavailable lanes (which the display honestly reads `Bypass`/`Off`) — refreshes the OLED's base-feedback window, so the knob never looks dead.
+  - Manual ownership: a meaningful encoder step edit takes ownership of its voice+lane+step target (`ControlSurface::StepEditOwnership` in `UIState`), so a stationary valid lidar reading cannot overwrite the manual value on the next control pass. Lidar rearms when the hand leaves the sensor window and returns, or when the target (voice, step, focused parameter) changes. In a pass where both a fader and the encoder moved, the encoder's later write wins.
   - Dynamic boundary proximity flash zones (`FlashSpeedZone` — currently defined but with no consumer; dormant).
 
 ### 2. VL53L1X Distance Sensor
@@ -126,9 +128,12 @@ extern MagEncoder magEncoder;
 
 #### Helper Functions (`src/sensors/EncoderManager.cpp`)
 ```cpp
-float shiftAndScale(float seqValue, float encoderOffset);
 float getEncoderParameterValue();
 ```
+
+*(The former `shiftAndScale` helper and the `EncoderBaseValues` offset structs
+were removed when patch bases moved into `VoiceConfig` and step edits started
+routing through `Sequencer::writeStepParameter()`.)*
 
 ---
 
@@ -221,6 +226,8 @@ static constexpr uint8_t INVALID_READINGS_BEFORE_DROPOUT = 3;
 static constexpr float PARAMETER_MIN_VALUE = 0.0f;
 static constexpr float PARAMETER_MAX_VALUE = 1.0f;
 static constexpr float MINIMUM_INCREMENT_THRESHOLD = 0.0005f;
+static constexpr float STEPPED_VALUE_DETENT = 0.03f;  // normalized motion per stepped change
+static constexpr float SLOW_TURN_SCALE = 0.2f;        // driver slow-turn increment multiplier
 static constexpr float PARAMETER_RANGE_SCALE_FACTOR = 0.75f;
 
 // Flash speed zone thresholds and multipliers (NORMAL/WARNING/CRITICAL,
@@ -261,24 +268,6 @@ Tuning parameters configured in `MagEncoder::Config`:
 - `maxScale` = 3.2f
 - `curveExponent` = 1.8f
 - `velocitySmoothing` = 0.08f
-
----
-
-## "Shift and Scale" Parameter Mapping
-
-To combine encoder base offsets with dynamic sequencer step tracks without clipping or introducing dead zones, `applyEncoderBaseValues` implements bidirectional "Shift and Scale":
-
-```cpp
-float shiftAndScale(float seqValue, float encoderOffset) {
-    if (encoderOffset >= 0.0f) {
-        // Positive offset elevates minimum floor; scales remaining upper span
-        return encoderOffset + (seqValue * (1.0f - encoderOffset));
-    } else {
-        // Negative offset compresses upper ceiling; preserves minimum floor
-        return seqValue * (1.0f + encoderOffset);
-    }
-}
-```
 
 ---
 
@@ -332,9 +321,27 @@ void loop() {
         distanceSensor.update();
         AppState::performanceInput.observeDistance(distanceSensor.getRawDistanceMm());
 
-        // Step-edit recording into the selected step; skipped while no hand is in range
-        if (uiState.selectedStepForEdit != -1) {
-            updateParametersForStep(uiState.selectedStepForEdit);
+        // A hand leaving the window rearms lidar for a manually owned step
+        // target (encoder/fader edits suppress lidar writes until leave+return)
+        if (handWasPresent && !AppState::performanceInput.handPresent) {
+            uiState.stepEditOwner.rearmLidar();
+        }
+        handWasPresent = AppState::performanceInput.handPresent;
+
+        // Stopped/step-edit recording into the focused parameter: the
+        // selected step, or (while stopped) the focused lane's own cursor.
+        // Requires a hand in range and a focused parameter; the shared write
+        // op in Sequencer::writeStepParameter() rejects gate-refused and
+        // unchanged writes.
+        if (!uiState.voiceEditor.active && focusedParameterId(uiState) != ParamId::Count
+            && AppState::performanceInput.handPresent) {
+            const ParamId param = focusedParameterId(uiState);
+            const int targetStep = uiState.selectedStepForEdit != -1
+                ? uiState.selectedStepForEdit
+                : (!isClockRunning ? AppState::sequencerView.clamped(uiState.selectedVoiceIndex).getCurrentStepForParameter(param) : -1);
+            if (targetStep >= 0) {
+                updateParametersForStep(static_cast<uint8_t>(targetStep));
+            }
         }
     }
 }
@@ -365,4 +372,3 @@ void loop() {
 - `docs/ButtonHandlers.md`: Alchemy tile control surface and MPR121 dual-surface architecture.
 - `docs/matrix.md`: MPR121 32-pad touch grid layout and bank resolution.
 - `docs/architecture.md`: Dual-core audio/UI separation architecture.
-- `docs/alchemyui-tmag5273-migration.md`: Historical migration log for TMAG5273 and AlchemyUI.

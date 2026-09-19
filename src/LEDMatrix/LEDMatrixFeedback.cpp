@@ -762,7 +762,7 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
   }
 
   const Sequencer &activeSeq = sequencers.clamped(uiState.selectedVoiceIndex);
-  const ParamId heldParamIdForLength = getHeldParameterParamId(uiState);
+  const ParamId heldParamIdForLength = focusedParameterId(uiState);
   bool anyParamForLengthHeld = (heldParamIdForLength != ParamId::Count);
   ParamId activeParamIdForLength =
       anyParamForLengthHeld ? heldParamIdForLength : ParamId::Count;

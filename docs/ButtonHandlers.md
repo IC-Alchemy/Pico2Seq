@@ -61,6 +61,8 @@ The firmware partitions the control surface implementation into two distinct lay
 
 In Param mode, ButtonModule8 provides instant parameter arming for real-time recording via distance sensor, magnetic encoder, or continuous faders.
 
+Every press also retargets **focus**: `UIState::focusedParameter` (derived from `ControlSurface::ShiftLatch::focus()` — the most recently pressed physical hold wins, then any earlier still-held hold, then the Shift latch) is the ONE parameter the OLED page, selected-step encoder/fader edits, and stopped-time lidar recording target. The full armed set (`UIState::parameterButtonHeld[]`) still records every armed lane simultaneously during live clock playback, and a press auto-selects the magnetic encoder's base target (`autoSelectEncoderParameter()` in `src/ui/UIEventHandler.cpp`).
+
 | Bit / Button | Parameter / Function | Behavior |
 |---|---|---|
 | **0** | `Note` | Hold-to-arm parameter recording; step presses program note pitch |
@@ -77,7 +79,7 @@ In Param mode, ButtonModule8 provides instant parameter arming for real-time rec
 - **Fader 1**: Attack Time for the currently selected voice.
 - **Fader 2**: Decay Time for the currently selected voice.
 - **Fader 3**: Velocity for the currently selected voice.
-- *Recording Behavior*: When a matching parameter button is held (armed) and a step is in edit (`selectedStepForEdit >= 0`), moving the corresponding fader writes the normalized value directly into the sequencer step track.
+- *Recording Behavior*: With a step in edit (`selectedStepForEdit >= 0`), moving a fader whose parameter is the focused one (or matches the toggled edit parameter when nothing is focused) writes the normalized value into that step through the shared write op `Sequencer::writeStepParameter(...)` (recording semantics, `NoteGateRule::AtStep`; `src/ui/AlchemyControlBridge.cpp`). An accepted fader move — including one pinned at a lane limit — takes manual ownership of the voice+lane+step target (`UIState::stepEditOwner`), suppressing lidar writes to it until the hand leaves the sensor window and returns, and change detection suppresses redundant publishes for unchanged values.
 
 ---
 
@@ -167,8 +169,10 @@ Resolves physical pad indices (0–31) to specific sequencer voices (0–3) and 
 ### 3. `ShiftLatch`
 Maintains momentary button holds and single-parameter Shift latching.
 - `onParamButton(uint8_t paramId, bool pressed, bool shiftHeld)`: Manages momentary and latched hold states.
-- `applyTo(bool *heldOut, uint8_t count)`: Exports derived boolean states to `UIState::parameterButtonHeld`.
-- `reset()`: Flushes all momentary holds and latches (called automatically on mode flip).
+- `applyTo(bool *heldOut, uint8_t count)`: Exports derived boolean states to `UIState::parameterButtonHeld` (the full armed set used by live multi-lane recording).
+- `focus()`: Resolves the ONE parameter the OLED page, selected-step encoder/fader edits, and stopped-time lidar recording target, returned as a ParamId value (or -1 when nothing is held or latched). Physical holds outrank the latch, and the **most recently pressed** hold wins over earlier still-held ones (a recency list, so an older hold can never shadow a newer press); `focus()` feeds `UIState::focusedParameter` via the control bridge (`src/ui/AlchemyControlBridge.cpp`).
+- `reset()`: Flushes all momentary holds, latches, and recency (called automatically on mode flip).
+- Coherent clears: mode flips, slide entry (`UITransitions::toggleSlide`), Voice Edit sessions, and gate-sequence-length promotion all go through `UITransitions::clearParameterFocus()` (`src/ui/UITransitions.h`), which resets the latch, the armed set, and the derived focus together — a stale latch can no longer resurrect holds after a transition.
 
 ### 4. `FaderMap`
 Fader target assignment, 12-bit ADC normalization (0–4095 to 0.0–1.0), and deadband filtering.
@@ -277,44 +281,63 @@ All button and control surface state is consolidated in `UIState` (`src/ui/UISta
 
 ```cpp
 struct UIState {
-    // Parameter Arming States (indexed by ParamId)
-    bool parameterButtonHeld[PARAM_ID_COUNT] = {false};
+    VoiceEdit::Controls voiceEditor;
+    bool controlsWaitRelease = false; // entry chord buttons pending release
 
-    // Mode & Transport States
+    // --- Parameter Button States ---
+    // The full ARMED set (momentary holds + Shift latch); live clock
+    // recording records every armed lane.
+    bool parameterButtonHeld[PARAM_ID_COUNT] = {false};
+    // The latch owner; every clear site resets holds through it.
+    ControlSurface::ShiftLatch parameterLatch;
+    // The ONE parameter the OLED page, selected-step encoder/fader edits,
+    // and stopped-time lidar recording target (-1 = none). Derived by the
+    // control bridge from parameterLatch.focus().
+    int8_t focusedParameter = -1;
+    // Manual step-edit ownership: while a meaningful encoder/fader edit owns
+    // a voice+lane+step, lidar writes to that same target are suppressed.
+    ControlSurface::StepEditOwnership stepEditOwner;
+
+    // --- Mode States ---
+    bool modGateParamSeqLengthsMode = false;
     bool slideMode = false;
     uint8_t selectedVoiceIndex = 0; // 0..3
     int selectedStepForEdit = -1;
     ParamId currentEditParameter = ParamId::Count;
     EncoderParameterMode currentEncoderParameter = EncoderParameterMode::Velocity;
 
-    // Settings Mode States
-    bool settingsMode = false;
-    bool inPresetSelection = false;
-    uint8_t voicePresetIndices[4] = {4, 2, 1, 6};
+    // --- Encoder Base Feedback ---
+    // Until this time the OLED shows the base the encoder just changed
+    // instead of the playing step's composed value (0 = not showing).
+    unsigned long encoderBaseViewUntil = 0;
 
-    // Encoder Hold / Gate Seq Length
+    // --- Transient OLED notice ---
+    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6 };
+    volatile unsigned long oledNoticeUntil = 0;
+    volatile OledNoticeKind oledNoticeKind = OledNoticeKind::None;
+    volatile uint8_t oledNoticeVoice = 0;
+
+    // --- Settings Mode State ---
+    bool settingsMode = false;
+    enum class SettingsSubMode : uint8_t { PRESET_SELECTION = 0, VOICE_PARAMETER = 1 };
+    SettingsSubMode currentSubMode = SettingsSubMode::PRESET_SELECTION;
+    uint8_t voicePresetIndices[MAX_VOICES] = {4, 2, 1, 6};
+
+    // --- Encoder Control Hold / Gate Seq Length Mode ---
     unsigned long encoderControlPressTime = 0;
     bool encoderControlWasPressed = false;
     bool gateSeqLengthMode = false;
 
-    // Alchemy Tile State (GP7 Mode Strap & Shift Latch)
+    // --- Alchemy Tile Control Surface State ---
     enum class AlchemyMode : uint8_t { Param = 0, Utility = 1 };
     AlchemyMode alchemyMode = AlchemyMode::Param;
     bool shiftHeld = false;
-    int8_t latchedParameter = -1;
+    int8_t latchedParameter = -1; // Shift-latched param (ParamId) or -1 = none
     volatile unsigned long alchemyModeBannerUntil = 0;
-
-    // Voice Editing mode state (interaction policy lives in
-    // src/ui/VoiceEditControls.h; src/app/VoiceEditor.* routes the encoder)
-    VoiceEdit::Controls voiceEditor;
-    bool controlsWaitRelease = false; // entry chord buttons pending release
-
-    // Transient OLED notice (randomize confirmations)
-    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1 };
-    volatile unsigned long oledNoticeUntil = 0;
-    volatile OledNoticeKind oledNoticeKind = OledNoticeKind::None;
-    volatile uint8_t oledNoticeVoice = 0;
 };
+
+// The focused parameter as a ParamId (Count when nothing is held or latched).
+inline ParamId focusedParameterId(const UIState &state) noexcept;
 ```
 
 ---
@@ -323,10 +346,10 @@ struct UIState {
 
 ```
 src/ui/
-├── ControlSurfaceLogic.h/.cpp # Pure C++ decision logic (ModeStabilizer, PadBank, ShiftLatch, FaderMap)
+├── ControlSurfaceLogic.h/.cpp # Pure C++ decision logic (ModeStabilizer, PadBank, ShiftLatch, FaderMap, StepEditOwnership, EncoderMotion)
 ├── AlchemyControlBridge.h/.cpp# Wire1 tile hardware glue (polls AlchemyPanel, debounces GP7)
 ├── ButtonHandlers.h/.cpp      # Specialized button handling logic & control dispatch
-├── ButtonManager.h/.cpp       # ParamId-keyed helpers, hold tracking, and name lookups
+├── ButtonManager.h/.cpp       # ParamId-keyed name lookups, hold queries, and UI timing constants
 ├── UIEventHandler.h/.cpp      # Matrix step pad event dispatch & shared bridge entry points
 ├── UIConstants.h              # Button ID definitions, timing constants, and matrix sizes
 ├── UIState.h                  # Centralized UI state structure
@@ -342,5 +365,3 @@ src/app/
 - `docs/sensors.md`: Magnetic encoder, ToF distance sensor, and MPR121 hardware specifications.
 - `docs/matrix.md`: 32-pad capacitive touch matrix scanning and debounce mechanics.
 - `docs/voice-edit.md`: Voice Editing mode controls and parameter catalogue.
-- `docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`: Full specification for the Dual-Surface Alchemy Tile control system.
-- `docs/alchemyui-tmag5273-migration.md`: Migration history and architectural decisions.

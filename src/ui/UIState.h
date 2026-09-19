@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include "VoiceEditControls.h"
+#include "ControlSurfaceLogic.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
 
 /**
@@ -17,8 +18,20 @@ struct UIState
     VoiceEdit::Controls voiceEditor;
     bool controlsWaitRelease = false;
     // --- Parameter Button States ---
-    // Indexed by ParamId for direct lookup.
+    // Indexed by ParamId for direct lookup. The full ARMED set (momentary
+    // holds + Shift latch); live clock recording records every armed lane.
     bool parameterButtonHeld[PARAM_ID_COUNT] = {false};
+    // The latch itself lives here so every clear site (mode flip, slide,
+    // editor, gate-length promotion) resets it through the same owner and
+    // no stale latch can resurrect holds after a transition.
+    ControlSurface::ShiftLatch parameterLatch;
+    // The ONE parameter the OLED and the selected-step editor target
+    // (ParamId as int8_t, -1 = none). Derived by the control bridge from
+    // parameterLatch.focus(); transitions that clear focus set it to -1.
+    int8_t focusedParameter = -1;
+    // Manual step-edit ownership: while a meaningful encoder/fader edit owns
+    // a voice+lane+step, lidar writes to that same target are suppressed.
+    ControlSurface::StepEditOwnership stepEditOwner;
 
     // --- Mode States ---
     bool modGateParamSeqLengthsMode = false;
@@ -115,5 +128,17 @@ struct UIState
     // While set, the OLED shows the PARAM/UTIL banner after a mode flip.
     volatile unsigned long alchemyModeBannerUntil = 0;
 };
+
+// The focused parameter as a ParamId (Count when nothing is held or latched).
+// This is the single targeting source for the OLED page, selected-step
+// encoder/fader edits, and stopped-time lidar recording. Live clock recording
+// keeps using the full parameterButtonHeld armed set instead.
+inline ParamId focusedParameterId(const UIState &state) noexcept
+{
+    return state.focusedParameter >= 0 &&
+                   state.focusedParameter < static_cast<int8_t>(PARAM_ID_COUNT)
+               ? static_cast<ParamId>(state.focusedParameter)
+               : ParamId::Count;
+}
 
 #endif // UI_STATE_H

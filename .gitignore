@@ -19,6 +19,13 @@ build_fw/*
 build_fw_on/*
 build/
 build_fw/
-build_review/
+build_review/*
+build_test_ninja/*
 build_test_ninja/
 build_clang/
+build_desktop/*
+build_desktop
+build_fw_check/
+build_fw_check/*
+desktop/*
+desktop/D

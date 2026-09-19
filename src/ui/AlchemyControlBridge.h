@@ -106,8 +106,11 @@ private:
 
   AlchemyPanel panel_;
   ControlSurface::ModeStabilizer mode_;
-  ControlSurface::ShiftLatch latch_;
   ControlSurface::FaderMap faders_;
+  // The parameter latch lives in UIState (uiState.parameterLatch) so every
+  // transition that clears holds clears it through the same owner; this
+  // bridge only feeds it edges and rewrites the derived armed set.
+  int8_t lastFocusedParameter_ = -1;
 
   // Slot/bit geometry of the 2-tile rig (see AlchemyUI ButtonMap.h). The
   // constants are the nominal layout of a fully-populated rig; the live slot

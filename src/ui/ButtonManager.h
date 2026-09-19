@@ -67,11 +67,8 @@ bool isLongPress(unsigned long pressDurationMs);
  */
 bool isAnyParameterButtonHeld(const UIState &uiState);
 
-/**
- * @brief Get the ParamId of the currently held parameter button.
- * @param uiState Const reference to the central UI state object.
- * @return The held parameter's ParamId, or ParamId::Count if none held.
- */
-ParamId getHeldParameterParamId(const UIState &uiState);
+// The ONE targeted parameter is UIState::focusedParameter (see
+// focusedParameterId() in UIState.h), derived from the ShiftLatch focus
+// policy; the armed-set query above stays for multi-lane recording.
 
 #endif // BUTTON_MANAGER_H

@@ -102,6 +102,7 @@ void ShiftLatch::reset()
     momentary_[i] = false;
   }
   latched_ = kNoLatch;
+  recencyCount_ = 0;
 }
 
 void ShiftLatch::onParamButton(uint8_t paramId, bool pressed, bool shiftHeld)
@@ -114,6 +115,17 @@ void ShiftLatch::onParamButton(uint8_t paramId, bool pressed, bool shiftHeld)
   if (pressed)
   {
     momentary_[paramId] = true;
+    // Move the pressed param to the top of the recency stack.
+    uint8_t write = 0;
+    for (uint8_t read = 0; read < recencyCount_; ++read)
+    {
+      if (recency_[read] != paramId)
+      {
+        recency_[write++] = recency_[read];
+      }
+    }
+    recency_[write] = paramId;
+    recencyCount_ = static_cast<uint8_t>(write + 1);
     if (shiftHeld)
     {
       latched_ = (latched_ == static_cast<int8_t>(paramId)) ? kNoLatch
@@ -123,6 +135,15 @@ void ShiftLatch::onParamButton(uint8_t paramId, bool pressed, bool shiftHeld)
   else
   {
     momentary_[paramId] = false;
+    uint8_t write = 0;
+    for (uint8_t read = 0; read < recencyCount_; ++read)
+    {
+      if (recency_[read] != paramId)
+      {
+        recency_[write++] = recency_[read];
+      }
+    }
+    recencyCount_ = write;
   }
 }
 

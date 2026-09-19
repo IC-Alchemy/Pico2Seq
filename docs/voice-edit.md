@@ -36,14 +36,21 @@ controls resume. Button 7 is Help in these stages; audition is not implemented.
 ## Base plus modifier
 
 Every numeric sound setting has a per-voice base in `VoiceConfig`. The encoder
-edits these requested values, including outside the editor when a sequenced
-parameter is selected. With a step selected for editing, it edits that step's stored
-value instead (see `editSelectedStep()` in `src/sensors/EncoderManager.cpp`).
+edits these requested values, including outside the editor: pressing a
+parameter record button auto-selects the encoder target
+(`autoSelectEncoderParameter()` in `src/ui/UIEventHandler.cpp`), and the resting
+turn edits that lane's base through `VoiceEditor::encoder()`
+(`src/app/VoiceEditor.cpp`). With a step selected for editing, the turn edits
+that step's stored value instead (see `editSelectedStep()` in
+`src/sensors/EncoderManager.cpp`).
 
-For timbre, envelope, velocity, octave and gate length, the lidar records a modifier.
+For timbre, envelope, velocity and octave, the lidar records a modifier.
 Note records melody scale steps directly. Both step editing and live recording normalize
 the calibrated 55–700 mm sensor range to 0–1 (a 645 mm active span). With no hand in range (an invalid reading or
 one more than 40 mm outside the window) nothing is recorded and steps keep their values.
+GateLength keeps its dedicated controls (gate-length mode, Utility fader 3):
+`Sequencer::writeStepParameter()` rejects lidar/fader recording writes to the
+non-recordable lanes `Gate`, `Slide` and `GateLength`.
 In the normalized parameter domain:
 
 ```
@@ -78,16 +85,30 @@ Gate remains a trigger pattern: its base enables/disables the pattern. Slide's
 base can enable slide throughout the pattern, otherwise the recorded Slide bits
 control it. Neither binary track is treated as a continuous lidar modifier.
 
-With a parameter button held, and in Step Edit, the OLED shows composed playback
-values, after preset bases, clamping, quantization and engine-specific mapping: the
-value the voice plays. With no parameter held, the home screen shows the encoder
-target's base, since a step's modifier or a clamp at a limit could otherwise hide an
-encoder turn. Live edits (lidar, faders, encoder) refresh the sounding note in place
-through `Sequencer::refreshVoiceParameters()`; they never retrigger it. Note displays
-The step OLED and normal encoder screen show composed playback values, after
-preset bases, clamping, quantization and engine-specific mapping. For 1.5 s after an
-encoder turn they show the edited base instead (`Base` / `BASE`), since a step's
-modifier or a clamp at a limit can otherwise hide the change. Note displays
+With a parameter focused (the one targeted by the newest held or Shift-latched
+record button, see `ShiftLatch::focus()` in `src/ui/ControlSurfaceLogic.h`), the
+OLED parameter page shows composed playback values, after preset bases,
+clamping, quantization and engine-specific mapping: the value the voice plays,
+read from the stored step (the selected step in Step Edit, otherwise the lane's
+own playing cursor). The display never shows a sensor's prediction of a write —
+a lidar Note rejected by the gate rule keeps showing the retained stored value.
+The remaining armed buttons still record simultaneously during live playback:
+focus targets the screen, step edits and stopped-time lidar, while the full
+armed set drives multi-lane live clock recording.
+
+For 1.5 s after an encoder turn the display instead shows the edited patch base,
+labeled `Base`/`BASE`: a step's modifier or a clamp at a lane limit could
+otherwise hide the change. Every turn opens this feedback window, including
+turns that hit a limit without changing the value and turns of unavailable
+lanes (which honestly read `Bypass`/`Off`), so the knob never looks dead.
+Live edits (lidar, faders, encoder) refresh the sounding note in place through
+`Sequencer::refreshVoiceParameters()` while playing, or
+`refreshVoiceParametersAt()` when stopped; they never retrigger it. A manual
+encoder or fader edit takes ownership of its voice+lane+step target
+(`ControlSurface::StepEditOwnership`), so a stationary hand over the lidar
+cannot overwrite it; the lidar rearms once the hand leaves the sensor window
+and returns.
+Note displays
 note names and octaves, including oscillator harmonies/detuning (Bass starts at
 `C2/C3`); unpitched percussion reads `Noise`. Envelope and gate durations use
 ms/s, cutoff uses Hz, octave uses signed octaves, and FM/spacing use ratios.

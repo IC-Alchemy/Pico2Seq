@@ -344,7 +344,7 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
   // Handle parameter length adjustment when holding parameter buttons
   if (isAnyParameterButtonHeld(uiState) && evt.type == MATRIX_BUTTON_PRESSED)
   {
-    const ParamId heldParameterId = getHeldParameterParamId(uiState);
+    const ParamId heldParameterId = focusedParameterId(uiState);
     if (heldParameterId != ParamId::Count && padSequencerPtr)
     {
       uint8_t newParameterStepCount = static_cast<uint8_t>(pad.step + 1); // Convert 0-based index to 1-based count
@@ -552,12 +552,11 @@ void pollUIHeldButtons(UIState &uiState, const SequencerView &sequencers)
     if (isLongPress(pressDurationMs))
     {
       uiState.gateSeqLengthMode = true;
-      // Clear conflicting modes when entering this mode
+      // Clear conflicting modes when entering this mode. The shared focus
+      // clear also drops the bridge-side latch so no stale latch can
+      // resurrect parameter holds after the gate-length session.
       uiState.slideMode = false;
-      for (int paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
-      {
-        uiState.parameterButtonHeld[paramIndex] = false;
-      }
+      UITransitions::clearParameterFocus(uiState);
       uiState.selectedStepForEdit = -1;
     }
   }

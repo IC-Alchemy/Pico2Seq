@@ -22,21 +22,18 @@ struct EncoderTurn {
 EncoderTurn encoderTurn;
 
 void clearPerformanceControls() {
-  for (auto &held : uiState.parameterButtonHeld)
-    held = false;
   for (auto &held : uiState.randomizeWasPressed)
     held = false;
   for (auto &held : uiState.randomizeResetTriggered)
     held = false;
   for (auto &timestamp : uiState.padPressTimestamps)
     timestamp = 0;
+  UITransitions::clearParameterFocus(uiState);
+  UITransitions::clearStepEdit(uiState);
   UITransitions::closeSettings(uiState);
   uiState.encoderControlWasPressed = uiState.gateSeqLengthMode = false;
   uiState.modGateParamSeqLengthsMode = uiState.slideMode = false;
   uiState.playStopWasPressed = uiState.voiceSwitchWasPressed = false;
-  uiState.selectedStepForEdit = -1;
-  uiState.currentEditParameter = ParamId::Count;
-  uiState.latchedParameter = -1;
   uiState.shiftHeld = false;
   uiState.alchemyModeBannerUntil = uiState.oledNoticeUntil = 0;
   uiState.encoderBaseViewUntil = 0;
@@ -134,6 +131,10 @@ void encoder(float delta) {
       voiceManager->getVoiceConfig(voiceSystem.getVoiceId(index));
   if (!requested || !VoiceEdit::available(id, *requested)) {
     encoderMotion.reset(); // no hidden motion lands when it reappears
+    // The turn still confirms its target on screen (the page may honestly
+    // read Bypass/Off for unavailable lanes) instead of looking dead.
+    if (!editor.active)
+      uiState.encoderBaseViewUntil = millis() + ENCODER_BASE_VIEW_MS;
     return;
   }
   VoiceConfig next = *requested;
@@ -148,6 +149,11 @@ void encoder(float delta) {
                       encoderMotion.takeContinuous(
                           SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD));
   }
+  // Outside the editor the OLED normally shows sequenced step values, where a
+  // step's modifier can mask a base change. Show the base while it is turned,
+  // including turns that hit a parameter limit without changing it.
+  if (!editor.active)
+    uiState.encoderBaseViewUntil = millis() + ENCODER_BASE_VIEW_MS;
   // A knob already pinned at the parameter's limit must not republish.
   if (VoiceEdit::value(id, next) == before)
     return;
@@ -156,10 +162,6 @@ void encoder(float delta) {
   // retrigger), so the value on the OLED is also what is heard.
   if (!editor.active)
     updateActiveVoiceState(0, *AppState::sequencers[index]);
-  // Outside the editor the OLED normally shows sequenced step values, where a
-  // step's modifier can mask a base change. Show the base while it is turned.
-  if (!editor.active)
-    uiState.encoderBaseViewUntil = millis() + ENCODER_BASE_VIEW_MS;
 }
 VoiceEdit::Id encoderTarget() {
   using Id = VoiceEdit::Id;
