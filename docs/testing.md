@@ -53,6 +53,40 @@ files; host CMake does not compile that startup/I2S/control glue.
 
 ---
 
+## Focused UI transition checks
+
+`UIState` derives settings-page queries from `settingsMode/currentSubMode` and
+stores parameter-change feedback separately. `src/ui/UITransitions.h` contains
+pure state transitions; hardware handlers own MIDI cleanup and tile edge history.
+`tests/unit/test_ui_transitions.cpp` covers page reopening, feedback expiration
+(including timer wrap), slide cleanup, and tile-selection versus pad-focus rules.
+
+The focused target includes these tests and the existing ControlSurfaceLogic suite:
+
+```bash
+cmake --build build_test --target pico2seq_ui_tests --parallel
+./build_test/tests/pico2seq_ui_tests
+```
+
+Use a separate build directory when changing generators or compilers. On Windows,
+with x64 Clang and the Visual Studio SDK installed (not the ARM `g++` toolchain):
+
+```bash
+cmake -S . -B build_clang -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug
+cmake --build build_clang --target pico2seq_ui_tests --parallel
+./build_clang/tests/pico2seq_ui_tests.exe
+```
+
+Bench regression checklist (host tests cannot verify the physical tile/LED/OLED glue):
+- Open settings after leaving its parameter page: presets appear and pad taps apply presets.
+- Select each voice through tiles and pad holds: tiles exit step editing; pad holds keep
+  the parameter target and focus the held step without ending sounding notes.
+- Enter slide with a Shift-latched parameter, pending pad hold, or encoder length hold:
+  old holds/latches cannot reappear on release. Both slide toggles leave step editing clear.
+- Press/release parameter tiles while sliding, then leave slide: no stale latch returns.
+- Editor voice selection keeps per-voice cursors; session restore retains the saved voice
+  without invoking live tile-selection note cleanup.
+
 ## 17 Host Unit Test Suites
 
 The host test executable (`pico2seq_tests`) links all unit suites under `tests/unit/`:

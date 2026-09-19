@@ -4,7 +4,8 @@
 #include "../sensors/SensorConstants.h"
 #include "../sensors/EncoderManager.h"
 #include "../ui/UIEventHandler.h"
-#include "VoicePublication.h"
+#include "VoicePlayback.h"
+#include <algorithm>
 
 namespace
 {
@@ -59,6 +60,7 @@ void updateParametersForStepNormalized(uint8_t stepToUpdate, float normalizedVal
         // actual change (after clamping and note rounding) is previewed, so a
         // steady hand does not retrigger the step each pass.
         parametersWereUpdated = activeSeq.getStepParameterValue(paramToEdit, stepToUpdate) != previousValue;
+
     }
 
     // Provide immediate audio feedback when recording parameters to current step
@@ -105,7 +107,7 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
         activeVoiceState.octaveOffset = values.octaveOffset;
         activeVoiceState.shouldRetrigger = false;
     }
-    publishVoiceState(voiceSystem, *voiceManager, voiceIndex, activeVoiceState);
+    publishVoiceState(voiceIndex, activeVoiceState);
 }
 
 void processSequencerStep(uint32_t uClockCurrentStep)
@@ -131,7 +133,5 @@ void processSequencerStep(uint32_t uClockCurrentStep)
     // Bases have already been composed by each sequencer's playback transform.
 
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i)
-    {
-        publishVoiceState(voiceSystem, *voiceManager, i, tempStates[i]);
-    }
+        publishVoiceState(i, tempStates[i]);
 }

@@ -1,7 +1,6 @@
 #ifndef OLED_H
 #define OLED_H
 
-#include <stddef.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
@@ -12,6 +11,7 @@
 #include "../LEDMatrix/LEDConstants.h"
 
 struct VoiceConfig;
+class SequencerView;
 
 /**
  * @brief Voice Parameter Observer Interface
@@ -67,14 +67,20 @@ public:
   bool begin();
 
   /**
-   * @brief Update display with current system state
+   * @brief Update display with current system state (basic version)
    * @param uiState Current UI state containing button states and modes
-   * @param sequencers Non-owning routing table in voice order
-   * @param sequencerCount Number of entries in the routing table
-   * @param voiceManager Optional manager for accessing voice configurations
+   * @param sequencers Fixed voice-order view for parameter values
    */
-  void update(const UIState &uiState, Sequencer *const *sequencers,
-              size_t sequencerCount, class VoiceManager *voiceManager = nullptr);
+  void update(const UIState &uiState, const SequencerView &sequencers);
+
+  /**
+   * @brief Update display with voice manager access (extended version)
+   * @param uiState Current UI state containing button states and modes
+   * @param sequencers Fixed voice-order view for parameter values
+   * @param voiceManager Pointer to voice manager for accessing voice configurations
+   */
+  void update(const UIState &uiState, const SequencerView &sequencers,
+              class VoiceManager *voiceManager);
 
   /**
    * @brief Clear display and turn off all pixels
@@ -122,16 +128,18 @@ private:
       OLEDConstants::SCREEN_WIDTH * OLEDConstants::SCREEN_HEIGHT / 8;
 
   // Shadow of the framebuffer content the panel actually shows. Poisoned in
-  // the constructor so the first commitFrame() after begin() always pushes.
+  // the constructor so the first commitFrame() after begin() still pushes
+  // every page rather than trusting power-up RAM.
   uint8_t frameShadow_[kFrameBytes];
 
   /**
-   * @brief Push the framebuffer to the panel only when its content changed
+   * @brief Push the framebuffer to the panel page by page, skipping unchanged pages
    *
    * Every view redraws the whole buffer after clearDisplay(), which resets the
    * library's dirty window — Adafruit's partial-update transfer never engages
    * and each display() costs a full ~1 KB I2C frame push. Comparing against
-   * frameShadow_ skips that transfer whenever the screen is static.
+   * frameShadow_ per 128-byte page keeps a static screen off the bus entirely
+   * and limits an update to the pages it actually changed.
    */
   void commitFrame();
 

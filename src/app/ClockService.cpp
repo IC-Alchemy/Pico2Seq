@@ -1,7 +1,7 @@
 #include "ClockService.h"
 #include "AppState.h"
 #include "StepPlayback.h"
-#include "VoicePublication.h"
+#include "VoicePlayback.h"
 #include "../utils/SpscQueue.h"
 #include <Arduino.h>
 #include <uClock.h>
@@ -43,26 +43,18 @@ void onClockStart()
     if (uiState.voiceEditor.active) return;
     if (voiceManager) voiceManager->setTransportMuted(false);
      Serial.println("[uClock] onClockStart()");
-    for (Sequencer *sequencer : AppState::sequencers)
-    {
-        if (sequencer) sequencer->start();
-    }
+    for (auto *sequencer : AppState::sequencers)
+        sequencer->start();
     isClockRunning = true;
 }
 
 void onClockStop()
 {
     isClockRunning = false;
-    if (voiceManager) voiceManager->setTransportMuted(true);
+    if (voiceManager)
+        voiceManager->setTransportMuted(true);
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i)
-    {
-        Sequencer *sequencer = AppState::sequencers[i];
-        if (!sequencer) continue;
-        if (voiceManager)
-            stopSequencerVoice(*sequencer, voiceSystem, *voiceManager, i);
-        else
-            sequencer->stop();
-    }
+        stopSequencerVoice(i);
     Serial.println("[uClock] onClockStop()");
 }
 
@@ -97,13 +89,8 @@ void processPendingGateTicks()
     if (!isClockRunning || uiState.voiceEditor.active) return;
     while (pending-- > 0)
     {
-        if (voiceManager)
-        {
-            for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i)
-            {
-                tickSequencerVoice(*AppState::sequencers[i], voiceSystem, *voiceManager, i);
-            }
-        }
+        // Publish note-off at its exact PPQN tick, not the next step boundary.
+        tickSequencerVoices();
     }
 }
 

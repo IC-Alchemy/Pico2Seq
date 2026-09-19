@@ -13,6 +13,7 @@
 
 // Forward declarations to prevent circular dependencies
 class Sequencer;
+class SequencerView;
 
 // =======================
 //   CONSTANTS
@@ -25,24 +26,20 @@ class Sequencer;
 
 /**
  * @brief Main matrix event handler (Arduino-friendly consolidated signature).
- *        Accepts an array of Sequencer* plus count to support any number of voices.
+ *        Accepts the fixed voice routing table view shared by all UI consumers.
  *
  * @param evt             Matrix button event (button index and press/release type).
  * @param uiState         Central UI state object (mutable).
- * @param sequencers      Array of non-owning Sequencer* pointers. Must have at least two
- *                        entries for full functionality; additional entries are allowed.
- * @param sequencerCount  Number of entries in the sequencers array.
+ * @param sequencers      Fixed voice-order view of the four voice sequencers.
  */
 void matrixEventHandler(const MatrixButtonEvent &evt,
                         UIState &uiState,
-                        Sequencer *const *sequencers,
-                        size_t sequencerCount);
+                        const SequencerView &sequencers);
 
 /**
- * Poll UI-held buttons (long-press detection) using the supplied sequencer array.
- * Accepts a non-owning routing table in voice order and its length.
+ * Poll UI-held buttons (long-press detection) using the fixed voice routing table.
  */
-void pollUIHeldButtons(UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount);
+void pollUIHeldButtons(UIState &uiState, const SequencerView &sequencers);
 
 // =======================
 //   ALCHEMY TILE BRIDGE ENTRY POINTS
@@ -81,8 +78,9 @@ void selectVoice(UIState &uiState, uint8_t voiceIndex);
 
 /**
  * @brief Open or close Settings (the preset browser).
- * Opening starts in preset selection for the selected voice. Closing disables
- * Settings; sub-mode predicates are gated by settingsMode.
+ * Every control that opens or closes Settings goes through these, so the
+ * sub-mode and its legacy mirror flags always agree. Opening starts in preset
+ * selection for the selected voice.
  */
 void openSettingsMode(UIState &uiState);
 void closeSettingsMode(UIState &uiState);
@@ -106,8 +104,7 @@ void clearSequencerVoice(UIState &uiState, Sequencer &sequencer, uint8_t voiceIn
  *        (Shift + Randomize long-press chord): all voices, no values, no
  *        gates — the whole project starts fresh.
  */
-void clearAllSequencerVoices(UIState &uiState, Sequencer *const *sequencers,
-                             size_t sequencerCount);
+void clearAllSequencerVoices(UIState &uiState, const SequencerView &sequencers);
 
 /**
  * @brief Firmware-side bridge that unpacks UIState button/edit-step fields and

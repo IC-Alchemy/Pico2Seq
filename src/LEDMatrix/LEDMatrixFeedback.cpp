@@ -1,16 +1,20 @@
 #include "LEDMatrixFeedback.h"
+#include <algorithm>
 #include <Arduino.h>
 #include <FastLED.h>
-#include <algorithm>
 #include <cmath>
 
 #include "../pico2seq-core/sequencer/Sequencer.h"
+#include "../app/SequencerView.h"
 #include "../ui/ButtonManager.h"
 #include "../ui/ControlSurfaceLogic.h"
+#include "../ui/SettingsPads.h"
+#include "../app/AppState.h"
+#include "../voice/VoiceSystem.h"
+#include "../voice/VoiceManager.h"
 #include "../ui/UIEventHandler.h"
 #include "../utils/Debug.h"
 #include "../voice/VoicePresets.h"
-#include "../voice/VoiceSystem.h"
 #include "LEDConstants.h"
 #include "ledMatrix.h"
 
@@ -70,11 +74,32 @@ CRGB current_COLOR_MOD_GATE_MODE_INACTIVE;
 CRGB current_COLOR_RANDOMIZE_FLASH;
 CRGB current_COLOR_RANDOMIZE_IDLE;
 
-const LEDThemeColors ALL_THEMES[] = {
-    {// DEFAULT - blue-green progression
-     {CRGB(0, 148, 188), CRGB(0, 88, 66), CRGB(16, 180, 160),
-      CRGB(32, 188, 132)},
-     {CRGB(34, 2, 54), CRGB(40, 2, 58), CRGB(48, 3, 60), CRGB(56, 5, 62)},
+// Voice-gate palette design principles (applied to every theme below):
+// - Voices are CATEGORICAL data (4 groups): each voice gets a distinct hue,
+//   within-pair voices (V1/V2, V3/V4 — the only ones ever shown together on
+//   the two matrix bands) sit ~40+ degrees apart in hue, following the
+//   categorical-palette guideline of maximum hue distance at equal lightness.
+// - Hues are anchored in the empirically colorblind-safe Okabe-Ito / Paul Tol
+//   categorical sets (blue vs orange, green vs purple/magenta), graded toward
+//   each theme's character. No voice pair relies on red-vs-green alone.
+// - Gate state is SEQUENTIAL data: a theme stores only each voice's hue, and
+//   gate on/off is that hue at two brightness levels (the GATE_ON_* /
+//   GATE_OFF_DIVISOR rule below), so state reads as brightness and identity
+//   reads as hue — a redundant encoding that survives grayscale and all
+//   common color-vision deficiencies.
+// - Monochromatic themes (BLUE/GREEN) and warm-family themes (VOLCANIC/EMBER)
+//   instead use a monotonic lightness ramp as the redundant channel, per the
+//   sequential-palette rule (must order correctly in grayscale).
+// - On-states are lightness-balanced so no voice dominates, and the gate-on
+//   gain (below) lifts them for legibility on the near-black LED background
+//   (dark-mode practice); reds are boosted slightly to compensate protan
+//   red-darkening.
+constexpr LEDThemeColors ALL_THEMES[] = {
+    {LEDTheme::DEFAULT,
+     // DEFAULT - Okabe-Ito categorical quartet: sky / orange / bluish-green /
+     // reddish-purple. The reference-standard colorblind-safe voice set.
+     {CRGB(60, 170, 235), CRGB(235, 160, 20), CRGB(0, 190, 140),
+      CRGB(215, 130, 175)},
      CRGB(0, 44, 54),
      CRGB(0, 0, 94),
      CRGB(0, 0, 12),
@@ -101,10 +126,12 @@ const LEDThemeColors ALL_THEMES[] = {
      CRGB(24, 0, 16),
      CRGB(64, 94, 94),
      CRGB(16, 24, 24)},
-    {// OCEANIC - deep blue through seafoam
-     {CRGB(0, 112, 188), CRGB(0, 138, 190), CRGB(0, 162, 184),
-      CRGB(0, 176, 148)},
-     {CRGB(16, 8, 54), CRGB(22, 8, 60), CRGB(28, 10, 64), CRGB(34, 12, 66)},
+    {LEDTheme::OCEANIC,
+     // OCEANIC - deep-sea blue / sunlit sand / seafoam / pale ice. Warm sand
+     // accents give V1/V2 a CVD-safe cool-vs-warm split; V3/V4 separate by
+     // lightness (seafoam vs near-white ice) as redundant encoding.
+     {CRGB(30, 120, 235), CRGB(235, 170, 60), CRGB(20, 200, 150),
+      CRGB(150, 230, 240)},
      CRGB(0, 38, 48),
      CRGB(0, 48, 144),
      CRGB(0, 5, 17),
@@ -131,11 +158,12 @@ const LEDThemeColors ALL_THEMES[] = {
      CRGB(15, 0, 22),
      CRGB(0, 188, 166),
      CRGB(0, 22, 15)},
-    {
-        // VOLCANIC theme - red/orange fire on near-black
-        {CRGB(220, 65, 20), CRGB(235, 88, 20), CRGB(245, 112, 25),
-         CRGB(255, 138, 35)},
-        {CRGB(55, 3, 8), CRGB(60, 5, 8), CRGB(66, 7, 10), CRGB(72, 10, 12)},
+    {LEDTheme::VOLCANIC,
+        // VOLCANIC - crimson (protan-boosted) / gold / tangerine / magma-pink.
+        // Warm-family ramp with monotonic lightness as redundant channel plus
+        // a pink outlier anchor; reds lifted to offset protan red-darkening.
+        {CRGB(240, 70, 60), CRGB(250, 175, 45), CRGB(255, 150, 40),
+         CRGB(255, 80, 160)},
         CRGB(62, 22, 4),     // playheadAccent - dark lava accent
         CRGB(50, 20, 8),     // idleBreathingBlue - warm ember glow
         CRGB(12, 6, 4),      // editModeDimBlueV1 - very dark warm slate
@@ -163,11 +191,12 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(255, 220, 150), // randomizeFlash - bright warm flash
         CRGB(24, 14, 10)     // randomizeIdle - dark subtle tone
     },
-    {
-        // FOREST theme - greens and warm browns on dark moss
-        {CRGB(28, 150, 55), CRGB(48, 162, 62), CRGB(38, 172, 82),
-         CRGB(72, 182, 68)},
-        {CRGB(36, 14, 3), CRGB(42, 18, 3), CRGB(44, 22, 4), CRGB(48, 26, 5)},
+    {LEDTheme::FOREST,
+        // FOREST - leaf / bark-amber / glacial-lake blue / dry-grass gold.
+        // Okabe-style green-vs-orange and blue-vs-yellow splits; no
+        // green-vs-green pair is ever shown together.
+        {CRGB(60, 195, 80), CRGB(225, 150, 55), CRGB(50, 160, 210),
+         CRGB(200, 185, 70)},
         CRGB(12, 55, 20),    // playheadAccent - deep forest accent
         CRGB(16, 36, 18),    // idleBreathingBlue - deep moss breathing
         CRGB(6, 12, 7),      // editModeDimBlueV1 - dark green slate
@@ -195,11 +224,11 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(230, 250, 180), // randomizeFlash - pale flash
         CRGB(14, 20, 12)     // randomizeIdle - dark subtle tone
     },
-    {
-        // NEON theme - bright cyan/magenta on dark
-        {CRGB(0, 220, 235), CRGB(0, 232, 205), CRGB(0, 225, 165),
-         CRGB(34, 235, 125)},
-        {CRGB(45, 0, 65), CRGB(52, 0, 70), CRGB(56, 0, 75), CRGB(60, 4, 76)},
+    {LEDTheme::NEON,
+        // NEON - Tol-bright-style primaries: cyan / magenta / lime / violet.
+        // All pairs 90+ degrees apart; lime moderated so it doesn't dominate.
+        {CRGB(0, 225, 255), CRGB(255, 60, 220), CRGB(170, 235, 45),
+         CRGB(165, 130, 255)},
         CRGB(0, 55, 65),     // playheadAccent - deep cyan accent
         CRGB(0, 30, 60),     // idleBreathingBlue - neon blue breathing
         CRGB(0, 10, 16),     // editModeDimBlueV1 - dark cyan slate
@@ -227,11 +256,45 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(255, 255, 255), // randomizeFlash - white flash
         CRGB(14, 14, 20)     // randomizeIdle - dark subtle tone
     },
-    // DARK_NOCTIS theme - deep charcoal with cool blue/cyan accents
-    {
-        {CRGB(12, 85, 140), CRGB(30, 55, 150), CRGB(35, 118, 55),
-         CRGB(33, 126, 170)},
-        {CRGB(12, 5, 22), CRGB(16, 6, 44), CRGB(33, 7, 44), CRGB(40, 9, 44)},
+    {LEDTheme::MODERN,
+        // MODERN - dusty blue / clay / sage / rosewood. Muted chroma for the
+        // refined look, but pairs sit ~140+ degrees apart so muting never
+        // costs distinguishability; lightness equalized across voices.
+        {CRGB(110, 170, 215), CRGB(215, 150, 110), CRGB(95, 180, 125),
+         CRGB(225, 125, 180)},
+        CRGB(20, 55, 54),    // playheadAccent - muted teal accent
+        CRGB(60, 84, 110),   // idleBreathingBlue - slate blue for breathing
+        CRGB(12, 16, 20),    // editModeDimBlueV1 - dim slate
+        CRGB(18, 22, 26),    // editModeDimBlueV2 - slightly lighter slate
+        CRGB(200, 180, 160), // modNoteActive - soft warm note color
+        CRGB(70, 60, 56),    // modNoteInactive - desaturated
+        CRGB(180, 200, 220), // modVelocityActive - pale cyan
+        CRGB(64, 72, 80),    // modVelocityInactive
+        CRGB(140, 120, 160), // modFilterActive - muted mauve
+        CRGB(48, 36, 48),    // modFilterInactive
+        CRGB(220, 200, 140), // modDecayActive - soft amber
+        CRGB(64, 54, 36),    // modDecayInactive
+        CRGB(140, 160, 120), // modAttackActive - sage
+        CRGB(48, 56, 40),    // modAttackInactive
+        CRGB(220, 140, 180), // modOctaveActive - soft pink accent
+        CRGB(56, 28, 36),    // modOctaveInactive
+        CRGB(160, 200, 200), // modSlideActive - muted cyan-tint slide accent
+        CRGB(48, 64, 64),    // modSlideInactive
+        CRGB(200, 200, 200), // defaultActive - light gray for active defaults
+        CRGB(36, 36, 40),    // defaultInactive - near-black for inactive
+        CRGB(180, 220, 200), // modParamModeActive - pale green
+        CRGB(40, 48, 44),    // modParamModeInactive
+        CRGB(240, 200, 160), // modGateModeActive - warm highlight
+        CRGB(56, 48, 40),    // modGateModeInactive
+        CRGB(255, 210, 170), // randomizeFlash - bright warm flash
+        CRGB(40, 44, 46)     // randomizeIdle - subtle gray idle tone
+    },
+    // DARK_NOCTIS - midnight blue / lantern amber / deep violet / moonlight.
+    // One warm accent (the lantern) gives V1/V2 a CVD-safe split; V3/V4 pair
+    // violet against bright moon-silver, distinct in hue AND lightness.
+    {LEDTheme::DARK_NOCTIS,
+        {CRGB(50, 120, 210), CRGB(220, 150, 50), CRGB(150, 110, 225),
+         CRGB(190, 215, 230)},
         CRGB(18, 52, 85),    // playheadAccent - deep navy accent
         CRGB(18, 30, 50),    // idleBreathingBlue - muted navy
         CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
@@ -259,12 +322,13 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(220, 200, 180), // randomizeFlash - soft warm flash
         CRGB(12, 12, 14)     // randomizeIdle - dark subtle tone
     },
-    {
-        // DARK_EMBER theme - deep charcoal with warm amber ember accents
-        {CRGB(200, 100, 40), CRGB(215, 120, 46), CRGB(230, 140, 56),
-         CRGB(245, 160, 70)},
-        {CRGB(55, 4, 8), CRGB(62, 5, 9), CRGB(68, 7, 11), CRGB(74, 10, 13)},
-        CRGB(18, 52, 85), // playheadAccent - deep navy accent
+    {LEDTheme::DARK_EMBER,
+        // DARK_EMBER - ember-red (protan-boosted) / gold / copper-rose /
+        // pale flame. Monotonic lightness ramp carries identity for CVD
+        // viewers; reds lifted to offset protan red-darkening.
+        {CRGB(225, 65, 50), CRGB(250, 185, 70), CRGB(225, 110, 110),
+         CRGB(255, 215, 150)},
+        CRGB(66, 26, 8), // playheadAccent - warm ember accent (was navy copy-paste)
         CRGB(28, 22,
              20), // idleBreathingBlue - warm slate for breathing (amber-tinted)
         CRGB(10, 8, 8),      // editModeDimBlueV1 - very dark warm slate
@@ -293,44 +357,12 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(10, 8, 8)       // randomizeIdle - very dark idle tone
     },
 
-    {
-        // MODERN theme - muted, high-legibility palette with warm accent
-        {CRGB(48, 170, 120), CRGB(56, 178, 138), CRGB(68, 176, 112),
-         CRGB(84, 184, 132)},
-        {CRGB(20, 16, 42), CRGB(20, 18, 44), CRGB(20, 20, 45),
-         CRGB(20, 22, 46)},
-        CRGB(20, 55, 54),    // playheadAccent - muted teal accent
-        CRGB(60, 84, 110),   // idleBreathingBlue - slate blue for breathing
-        CRGB(12, 16, 20),    // editModeDimBlueV1 - dim slate
-        CRGB(18, 22, 26),    // editModeDimBlueV2 - slightly lighter slate
-        CRGB(200, 180, 160), // modNoteActive - soft warm note color
-        CRGB(70, 60, 56),    // modNoteInactive - desaturated
-        CRGB(180, 200, 220), // modVelocityActive - pale cyan
-        CRGB(64, 72, 80),    // modVelocityInactive
-        CRGB(140, 120, 160), // modFilterActive - muted mauve
-        CRGB(48, 36, 48),    // modFilterInactive
-        CRGB(220, 200, 140), // modDecayActive - soft amber
-        CRGB(64, 54, 36),    // modDecayInactive
-        CRGB(140, 160, 120), // modAttackActive - sage
-        CRGB(48, 56, 40),    // modAttackInactive
-        CRGB(220, 140, 180), // modOctaveActive - soft pink accent
-        CRGB(56, 28, 36),    // modOctaveInactive
-        CRGB(160, 200, 200), // modSlideActive - muted cyan-tint slide accent
-        CRGB(48, 64, 64),    // modSlideInactive
-        CRGB(200, 200, 200), // defaultActive - light gray for active defaults
-        CRGB(36, 36, 40),    // defaultInactive - near-black for inactive
-        CRGB(180, 220, 200), // modParamModeActive - pale green
-        CRGB(40, 48, 44),    // modParamModeInactive
-        CRGB(240, 200, 160), // modGateModeActive - warm highlight
-        CRGB(56, 48, 40),    // modGateModeInactive
-        CRGB(255, 210, 170), // randomizeFlash - bright warm flash
-        CRGB(40, 44, 46)     // randomizeIdle - subtle gray idle tone
-    },
-    {
-        // BLUE theme - high-contrast cool blues and cyan accents
-        {CRGB(30, 105, 185), CRGB(35, 124, 195), CRGB(45, 142, 205),
-         CRGB(64, 154, 212)},
-        {CRGB(12, 5, 22), CRGB(16, 6, 44), CRGB(33, 7, 44), CRGB(40, 9, 44)},
+    {LEDTheme::BLUE,
+        // BLUE theme - monochrome ramp done right: monotonic lightness
+        // (grayscale-correct ordering) with a deep-to-ice run plus an indigo
+        // endpoint for hue assist. Lightness, not hue, carries identity here.
+        {CRGB(25, 80, 210), CRGB(55, 160, 255), CRGB(95, 225, 255),
+         CRGB(105, 95, 255)},
         CRGB(18, 60, 105),   // playheadAccent - strong blue accent
         CRGB(16, 36, 80),    // idleBreathingBlue - deep ocean blue
         CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
@@ -358,11 +390,12 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(255, 240, 220), // randomizeFlash - bright neutral flash
         CRGB(12, 12, 14)     // randomizeIdle - dark subtle tone
     },
-    {
-        // GREEN theme - lush greens with clean high-contrast accents
-        {CRGB(35, 145, 75), CRGB(40, 160, 90), CRGB(45, 174, 105),
-         CRGB(55, 184, 120)},
-        {CRGB(12, 5, 22), CRGB(16, 6, 44), CRGB(33, 7, 44), CRGB(40, 9, 44)},
+    {LEDTheme::GREEN,
+        // GREEN theme - monochrome ramp: deep / bright / mint / lime with
+        // monotonic lightness (grayscale-correct). Same sequential-encoding
+        // treatment as BLUE.
+        {CRGB(25, 155, 70), CRGB(55, 215, 105), CRGB(115, 250, 175),
+         CRGB(175, 240, 85)},
         CRGB(12, 68, 38),    // playheadAccent - strong forest accent
         CRGB(18, 44, 28),    // idleBreathingBlue - deep forest for breathing
         CRGB(8, 12, 10),     // editModeDimBlueV1 - very dark green slate
@@ -395,15 +428,72 @@ static_assert(sizeof(ALL_THEMES) / sizeof(ALL_THEMES[0]) ==
                   static_cast<int>(LEDTheme::COUNT),
               "Every LED theme needs one palette entry");
 
+// The table must sit at its own enum indices: LEDTheme indices are what the
+// theme cycler, the saved settings and the docs all use, so an entry in the
+// wrong slot shows one theme's colors under another theme's name.
+static constexpr bool themeTableMatchesEnumOrder() {
+  for (int i = 0; i < static_cast<int>(LEDTheme::COUNT); ++i) {
+    if (ALL_THEMES[i].theme != static_cast<LEDTheme>(i)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static_assert(themeTableMatchesEnumOrder(),
+              "ALL_THEMES must list themes in LEDTheme order");
+
 static const LEDThemeColors *activeThemeColors =
     &ALL_THEMES[static_cast<int>(LEDTheme::DEFAULT)];
 
-static const CRGB &getVoiceGateColor(const LEDThemeColors &themeColors,
-                                     uint8_t voiceIndex, bool gateActive) {
+// Gate-state rendering rule. A theme stores one hue per voice (gateOn in
+// ALL_THEMES above); the two gate states are that hue at two brightnesses,
+// always scaling all three channels by one factor so the hue — and with it the
+// voice identity — survives exactly:
+//  - on: lifted by GATE_ON_GAIN, or as far as the hue can go without a channel
+//    clipping. A hue whose brightest channel already sits at full scale cannot
+//    get brighter without losing saturation, so it stays where it is.
+//  - off: the same hue at 1/GATE_OFF_DIVISOR, dark enough that the gate
+//    pattern reads at a glance while an off step still shows its voice.
+static constexpr uint8_t GATE_ON_GAIN_NUM = 6;   // 1.2x
+static constexpr uint8_t GATE_ON_GAIN_DEN = 5;
+static constexpr uint8_t GATE_OFF_DIVISOR = 16;  // 1/16 of the hue
+
+// One channel of a gate-state scale. Rounds to the nearest step so the dim
+// off-state levels keep the hue that truncation would distort.
+static uint8_t scaleGateChannel(uint8_t channel, uint32_t numerator,
+                                uint32_t denominator) {
+  return static_cast<uint8_t>((static_cast<uint32_t>(channel) * numerator +
+                               denominator / 2) /
+                              denominator);
+}
+
+// Scales all three channels by numerator/denominator. Callers pass a numerator
+// no larger than the hue's own peak, so no channel can clip.
+static CRGB scaleGateHue(const CRGB &hue, uint32_t numerator,
+                         uint32_t denominator) {
+  return CRGB(scaleGateChannel(hue.r, numerator, denominator),
+              scaleGateChannel(hue.g, numerator, denominator),
+              scaleGateChannel(hue.b, numerator, denominator));
+}
+
+static CRGB getVoiceGateColor(const LEDThemeColors &themeColors,
+                              uint8_t voiceIndex, bool gateActive) {
   const uint8_t clampedVoiceIndex =
       voiceIndex < LED_THEME_VOICE_COUNT ? voiceIndex : 0;
-  return gateActive ? themeColors.gateOn[clampedVoiceIndex]
-                    : themeColors.gateOff[clampedVoiceIndex];
+  const CRGB &hue = themeColors.gateOn[clampedVoiceIndex];
+  if (!gateActive) {
+    return scaleGateHue(hue, 1, GATE_OFF_DIVISOR);
+  }
+
+  const uint8_t peak =
+      std::max<uint8_t>(hue.r, std::max<uint8_t>(hue.g, hue.b));
+  if (peak == 0) {
+    return hue;
+  }
+  const uint32_t liftedPeak =
+      static_cast<uint32_t>(peak) * GATE_ON_GAIN_NUM / GATE_ON_GAIN_DEN;
+  return scaleGateHue(hue, std::min<uint32_t>(liftedPeak, 255), peak);
 }
 
 void setLEDTheme(LEDTheme theme) {
@@ -511,7 +601,7 @@ void setupLEDMatrixFeedback() {
  * Displays menu options and preset selections using step LEDs:
  * - Preset selection: lights each pad that holds a preset (pad N = preset N)
  *   and pulses the selected voice's current preset
- * - Voice parameter sub-mode: shows the selected voice on pads 0-3
+ * - Voice parameter sub-mode: each pad displays its current parameter value
  * - Uses different colors to indicate current selection and available options
  */
 void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
@@ -555,98 +645,44 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
         color = selectedColor;
         color.nscale8(static_cast<uint8_t>(128 + 127 * pulse));
       } else {
-        // Available preset - dim steady
+        // Available preset - the voice's gate-off color, i.e. the same dim
+        // steady level an off step shows in the step row.
         color = availableColor;
-        color.nscale8(64);
       }
 
       ledMatrix.setLED(pad % LEDMatrix::WIDTH, pad / LEDMatrix::WIDTH, color);
     }
   } else {
-    // Voice parameter sub-mode - the first row shows which voice the
-    // toggles edit (chosen with the voice buttons)
-    for (int voiceIndex = 0; voiceIndex < 4; voiceIndex++) {
-      CRGB voiceColor = getVoiceGateColor(
-          *activeThemeColors, static_cast<uint8_t>(voiceIndex),
-          uiState.selectedVoiceIndex == voiceIndex);
-
-      // Add pulsing effect for selected option
-      if (uiState.selectedVoiceIndex == voiceIndex) {
-        uint32_t time = millis();
-        float pulse = 0.5f + 0.5f * sinf(time * 0.006f);
-        voiceColor.nscale8(static_cast<uint8_t>(128 + 127 * pulse));
-      } else {
-        voiceColor.nscale8(96);
-      }
-
-      // Set LED for voice option
-      ledMatrix.setLED(voiceIndex, 0, voiceColor);
-    }
+    updateVoiceParameterLEDs(ledMatrix, uiState);
   }
 }
 
 void updateVoiceParameterLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
-  if (!uiState.isVoiceParameterSettings())
+  if (!uiState.hasVoiceParameterFeedback(millis()))
+    return;
+  const auto *theme = getActiveThemeColors();
+  if (!theme || !voiceManager || uiState.selectedVoiceIndex >= VoiceSystem::MAX_VOICES)
+    return;
+  const auto *config = voiceManager->getVoiceConfig(
+      voiceSystem.getVoiceId(uiState.selectedVoiceIndex));
+  if (!config)
     return;
 
-  // Get active theme colors
-  const LEDThemeColors *activeThemeColors = getActiveThemeColors();
-  if (!activeThemeColors)
-    return;
-
-  // Clear all LEDs first
-  for (int i = 0; i < LEDMatrix::WIDTH * LEDMatrix::HEIGHT; i++) {
-    ledMatrix.setLED(i % LEDMatrix::WIDTH, i / LEDMatrix::WIDTH, CRGB::Black);
+  for (uint8_t pad = 0; pad < SettingsPads::kPadCount; ++pad) {
+    CRGB color = CRGB::Black;
+    if (SettingsPads::available(pad, *config)) {
+      const auto id = SettingsPads::parameter(pad);
+      const bool toggle = VoiceEdit::parameter(id).unit == VoiceEdit::Unit::Toggle;
+      const float level = SettingsPads::level(pad, *config);
+      // Toggles: off is dark, on is solid. Other controls encode their value
+      // as brightness; a small floor distinguishes minimum from unavailable.
+      color = getVoiceGateColor(*theme, uiState.selectedVoiceIndex, true);
+      color.nscale8(toggle ? (level > 0.5f ? 255 : 0)
+                          : static_cast<uint8_t>(32 + 223 * level));
+    }
+    // Raw pad N is LED N, exactly as on the preset page (no -1 offset).
+    ledMatrix.setLED(pad % LEDMatrix::WIDTH, pad / LEDMatrix::WIDTH, color);
   }
-
-  // Map button index to LED position (buttons 9-24 map to steps 8-23)
-  uint8_t ledIndex = uiState.lastVoiceParameterButton - 1;
-  if (ledIndex >= LEDMatrix::WIDTH * LEDMatrix::HEIGHT)
-    return;
-
-  // Choose color based on voice and parameter type
-  CRGB paramColor;
-
-  switch (uiState.lastVoiceParameterButton) {
-  case 9: // Envelope
-    paramColor = (uiState.selectedVoiceIndex == 1) ? activeThemeColors->modAttackActive
-                                      : activeThemeColors->modDecayActive;
-    break;
-  case 10: // Overdrive
-    paramColor = (uiState.selectedVoiceIndex == 1) ? activeThemeColors->modFilterActive
-                                      : activeThemeColors->modVelocityActive;
-    break;
-  case 11: // (was Wavefolder; button removed with the wavefolder effect)
-    paramColor = (uiState.selectedVoiceIndex == 1) ? activeThemeColors->modOctaveActive
-                                      : activeThemeColors->modNoteActive;
-    break;
-  case 12: // Filter Mode
-    paramColor =
-        getVoiceGateColor(*activeThemeColors, uiState.selectedVoiceIndex, true);
-    break;
-  case 13: // Filter Resonance
-    paramColor = (uiState.selectedVoiceIndex == 1) ? activeThemeColors->modSlideActive
-                                      : activeThemeColors->modParamModeActive;
-    break;
-  default:
-    paramColor = (uiState.selectedVoiceIndex == 1) ? activeThemeColors->defaultActive
-                                      : activeThemeColors->defaultInactive;
-    break;
-  }
-
-  // Create pulsing effect for 3 seconds
-  if (millis() - uiState.voiceParameterChangeTime < 3000) {
-    uint32_t time = millis();
-    float pulse =
-        0.5f + 0.5f * sinf(time * 0.01f); // Faster pulse for voice parameters
-    paramColor.nscale8(static_cast<uint8_t>(128 + 127 * pulse));
-  } else {
-    paramColor.nscale8(64); // Dim after timeout
-  }
-
-  // Set the LED for the voice parameter button
-  ledMatrix.setLED(ledIndex % LEDMatrix::WIDTH, ledIndex / LEDMatrix::WIDTH,
-                   paramColor);
 }
 
 /**
@@ -752,8 +788,8 @@ static void renderVoicePair(LEDMatrix &ledMatrix,
   }
 }
 
-void updateStepLEDs(LEDMatrix &ledMatrix, Sequencer *const *sequencers,
-                    size_t sequencerCount, const UIState &uiState, int mm) {
+void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
+                    const UIState &uiState, int mm) {
   // If requested, immediately clear smoothed buffers to force a visual refresh
   if (uiState.resetStepsLightsFlag) {
     for (int i = 0; i < LEDConstants::MATRIX_TOTAL_LEDS; ++i) {
@@ -772,24 +808,12 @@ void updateStepLEDs(LEDMatrix &ledMatrix, Sequencer *const *sequencers,
   }
 
   // Handle voice parameter mode LED feedback
-  if (uiState.isVoiceParameterSettings() &&
-      (millis() - uiState.voiceParameterChangeTime < 3000)) {
+  if (uiState.hasVoiceParameterFeedback(millis())) {
     updateVoiceParameterLEDs(ledMatrix, uiState);
     return;
   }
 
-  // Match OLED and the control path: invalid selections use the last voice.
-  const uint8_t selectedVoice = std::min<uint8_t>(
-      uiState.selectedVoiceIndex, VoiceSystem::MAX_VOICES - 1);
-  if (!sequencers || selectedVoice >= sequencerCount || !sequencers[selectedVoice]) {
-    for (int i = 0; i < LEDConstants::MATRIX_TOTAL_LEDS; ++i) {
-      smoothedTargetColorBuffer[i] = CRGB::Black;
-      ledMatrix.getLeds()[i] = CRGB::Black;
-    }
-    return;
-  }
-  const Sequencer &activeSeq = *sequencers[selectedVoice];
-
+  const Sequencer &activeSeq = sequencers.clamped(uiState.selectedVoiceIndex);
   const ParamId heldParamIdForLength = getHeldParameterParamId(uiState);
   bool anyParamForLengthHeld = (heldParamIdForLength != ParamId::Count);
   ParamId activeParamIdForLength =
@@ -799,9 +823,9 @@ void updateStepLEDs(LEDMatrix &ledMatrix, Sequencer *const *sequencers,
   // length for selected voice
   if (uiState.gateSeqLengthMode) {
     const uint8_t selBand = ControlSurface::LedLayout::bandOfVoiceInPair(
-        selectedVoice);
+        uiState.selectedVoiceIndex);
     const CRGB withinColorBase = getVoiceGateColor(
-        *getActiveThemeColors(), selectedVoice, true);
+        *getActiveThemeColors(), uiState.selectedVoiceIndex, true);
 
     // Simple blink state
     static bool blinkState = false;
@@ -874,7 +898,7 @@ void updateStepLEDs(LEDMatrix &ledMatrix, Sequencer *const *sequencers,
       const int x = ControlSurface::LedLayout::x(step);
       const int y = ControlSurface::LedLayout::y(
           ControlSurface::LedLayout::bandOfVoiceInPair(
-              selectedVoice),
+              uiState.selectedVoiceIndex),
           step);
       if (x >= 0 && y >= 0) {
         ledMatrix.setLED(x, y, color);
@@ -893,7 +917,7 @@ void updateStepLEDs(LEDMatrix &ledMatrix, Sequencer *const *sequencers,
 
     // Dim the non-selected band (top or bottom) in the current page
     const uint8_t selBand = ControlSurface::LedLayout::bandOfVoiceInPair(
-        selectedVoice);
+        uiState.selectedVoiceIndex);
     bool isSecondInPair = selBand == 1;
     for (int step = 0; step < SEQ_STEPS; ++step) {
       int topIndex = ControlSurface::LedLayout::linearIndex(0, step);
@@ -945,7 +969,7 @@ void updateStepLEDs(LEDMatrix &ledMatrix, Sequencer *const *sequencers,
 
     // Paint only the selected band's within-length area
     const uint8_t selBand = ControlSurface::LedLayout::bandOfVoiceInPair(
-        selectedVoice);
+        uiState.selectedVoiceIndex);
     bool isSecondInPair = selBand == 1;
     for (int step = 0; step < currentLength; ++step) {
       CRGB targetColor =
@@ -970,7 +994,10 @@ void updateStepLEDs(LEDMatrix &ledMatrix, Sequencer *const *sequencers,
              smoothedTargetColorBuffer[otherIndex], 150);
     }
   } else {
-    const auto pair = ControlSurface::PadBank::pairFor(selectedVoice);
+    // Determine which voice pair to display based on selectedVoiceIndex
+    const uint8_t firstVoice = (uiState.selectedVoiceIndex < 2) ? 0 : 2;
+    const Sequencer &firstSeq = sequencers.clamped(firstVoice);
+    const Sequencer &secondSeq = sequencers.clamped(firstVoice + 1);
     const LEDThemeColors *theme = getActiveThemeColors();
 
     // Clear first to avoid ghosting when switching pages
@@ -980,24 +1007,19 @@ void updateStepLEDs(LEDMatrix &ledMatrix, Sequencer *const *sequencers,
       nblend(ledMatrix.getLeds()[i], smoothedTargetColorBuffer[i], 64);
     }
 
-    if (pair.lowVoice >= sequencerCount || pair.highVoice >= sequencerCount ||
-        !sequencers[pair.lowVoice] || !sequencers[pair.highVoice]) {
-      return;
-    }
-    const Sequencer &lowSequence = *sequencers[pair.lowVoice];
-    const Sequencer &highSequence = *sequencers[pair.highVoice];
-    renderVoicePair(ledMatrix, lowSequence, highSequence, theme, pair.lowVoice, 0);
+    // Render either voices 1/2 (page 1) or 3/4 (page 2)
+    renderVoicePair(ledMatrix, firstSeq, secondSeq, theme, firstVoice, 0);
 
     // Polyrhythmic overlays for the visible pair only
-    addPolyrhythmicOverlay(ledMatrix, lowSequence, 0, 32);
-    addPolyrhythmicOverlay(ledMatrix, highSequence, 1, 32);
+    addPolyrhythmicOverlay(ledMatrix, firstSeq, 0, 32);
+    addPolyrhythmicOverlay(ledMatrix, secondSeq, 1, 32);
 
     // Highlight selected step if editing
     if (uiState.selectedStepForEdit >= 0 &&
         uiState.selectedStepForEdit < SEQ_STEPS) {
       int ledIndex = ControlSurface::LedLayout::linearIndex(
           ControlSurface::LedLayout::bandOfVoiceInPair(
-              selectedVoice),
+              uiState.selectedVoiceIndex),
           static_cast<uint8_t>(uiState.selectedStepForEdit));
 
       static bool blinkState = false;

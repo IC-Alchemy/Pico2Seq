@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `src/OLED/` subsystem manages the 128×64 monochrome OLED display for Pico2Seq using an **Adafruit SH1106G** driver over I2C (`Wire1` @ `0x3C`).
+The `src/OLED/` subsystem manages the 128×64 monochrome OLED display for Pico2Seq using an **Adafruit SH1106G** driver over I2C (`Wire`, I2C0 @ 400 kHz, address `0x3C`).
 
 The OLED provides real-time visualization of parameter values, sequence lengths, settings sub-menus, voice presets, and system status through a deterministic **7-tier priority rendering hierarchy**.
 
@@ -12,9 +12,9 @@ The OLED provides real-time visualization of parameter values, sequence lengths,
 
 - **Display Controller:** SH1106G 128×64 Monochrome I2C OLED
 - **Driver Library:** `Adafruit_SH1106G` (via `Adafruit_SH110X` / `Adafruit_GFX`)
-- **Bus:** `Wire1` (I2C1, shared with Alchemy tiles @ 100 kHz)
-  - `SDA`: GP14
-  - `SCL`: GP15
+- **Bus:** `Wire` (I2C0 @ 400 kHz, shared with the touch pads, encoder and distance sensor)
+  - `SDA`: GP4
+  - `SCL`: GP5
 - **I2C Address:** `0x3C` (`OLEDConstants::I2C_ADDRESS`)
 - **Reset Pin:** `-1` (unconnected / software reset)
 - **Display Dimensions:** 128 pixels wide × 64 pixels high
@@ -244,8 +244,8 @@ extern OLEDDisplay oledDisplay;
 
 ## Concurrency & Performance
 
-- **Core 0 Execution:** All OLED drawing, formatting, and I2C transmission occur on **Core 0** inside `loop()` at a dedicated 50 Hz frame rate (~20 ms interval).
-- **Single-Frame Buffer:** Geometry and text operations write into Adafruit GFX's 1024-byte RAM buffer, followed by a single non-blocking `display()` burst over I2C.
+- **Core 0 Execution:** All OLED drawing, formatting, and I2C transmission occur on **Core 0** inside `loop()`, on the shared OLED/LED display slice (`kDisplayIntervalMs` in `src/app/ControlIO.cpp`, currently 40 ms ≈ 25 fps).
+- **Dirty-Page Refresh:** Geometry and text operations write into Adafruit GFX's 1024-byte RAM buffer. `commitFrame()` then compares that buffer against `frameShadow_` one 128-byte page at a time and pushes only the changed pages to the SH1106 GDDRAM — each as a page/column command pair (`0xB0 | page`, column nibbles for the 2-column panel offset) followed by one 128-byte data write — so a static screen costs no I2C traffic at all.
 - **Zero Heap Allocations:** Frame rendering avoids dynamic strings in the hot path, utilizing static buffers and integer math.
 
 ---

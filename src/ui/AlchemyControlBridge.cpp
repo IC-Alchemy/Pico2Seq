@@ -18,14 +18,19 @@
 
 namespace
 {
+// Why a banner: a physical strap flip has no on-screen affordance, so the
+// OLED needs a short-lived announcement or the new button meanings look dead.
 // OLED banner window after a mode flip.
-constexpr unsigned long kModeBannerDurationMs = 800;
+constexpr unsigned long kModeBannerDurationMs = 600;
 
 // Utility-fader ranges.
 constexpr float kTempoMinBpm = 45.0f;
 constexpr float kTempoMaxBpm = 200.0f;
-constexpr int8_t kSwingMaxTicks = 60; // half of a 120-tick 16th at PPQN 480
+constexpr int8_t kSwingMaxTicks = 45; // half of a 120-tick 16th at PPQN 480
 
+// Why a free function: the fader map speaks ControlSurface::Mode while the
+// rest of the firmware speaks UIState::AlchemyMode, so one canonical
+// translation keeps Param/Utility from drifting apart at each call site.
 ControlSurface::Mode bridgeMode(UIState::AlchemyMode mode)
 {
   return (mode == UIState::AlchemyMode::Param) ? ControlSurface::Mode::Param
@@ -33,12 +38,20 @@ ControlSurface::Mode bridgeMode(UIState::AlchemyMode mode)
 }
 } // namespace
 
+// Why re-resolve instead of caching once: tile slots are scan order, so a tile
+// that misses a probe (or is unplugged) shifts every slot after it. Looking up
+// by TYPE_ID each pass keeps voice buttons vs. utility buttons routed to the
+// right physical tile even on a half-populated rig.
 void AlchemyControlBridge::resolveSlots()
 {
   sliderSlot_ = panel_.tiles().sliderSlot();
   buttonSlot_ = panel_.tiles().firstSlotOfType(alchemy::kTypeButton4);
 }
 
+// Why a stand-in instead of a null/guard at every call site: edge tracking and
+// hold timing run unconditionally, so a missing tile must still answer with a
+// well-behaved "never held" level rather than forcing null checks (or OOB
+// indexing) through all button handlers.
 const TileButton &AlchemyControlBridge::buttonAt(int slot, uint8_t bit)
 {
   // Stand-in for a tile that did not answer: never held, no edges, zero hold.
@@ -50,6 +63,10 @@ const TileButton &AlchemyControlBridge::buttonAt(int slot, uint8_t bit)
   return panel_.tiles().button(slot, bit);
 }
 
+// Why begin() seeds state from hardware instead of default-constructing it:
+// a boot in Utility mode (or with a button held through reset) must not look
+// like a fresh mode flip / fresh press on the first update(), or the rig would
+// banner, latch, or trigger actions before the player touches anything.
 void AlchemyControlBridge::begin(TwoWire &bankA, TwoWire *bankB, uint32_t nowMs)
 {
   panel_.begin(bankA, bankB, nowMs);
@@ -75,8 +92,14 @@ void AlchemyControlBridge::begin(TwoWire &bankA, TwoWire *bankB, uint32_t nowMs)
   }
 }
 
+// Why update() is ordered poll -> remap -> suppress-or-dispatch: only one tile
+// transaction fits per 1 ms slice, so fresh levels must land before any edge
+// work; slot mapping must follow because a reprobe can flip present/absent;
+// and the voice-editor / wait-release gate must swallow performance actions
+// (while still advancing edge + fader history) so button releases inside the
+// editor can never leak out as sequencer/mode actions afterwards.
 void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
-                                  Sequencer *const *sequencers, size_t sequencerCount)
+                                  const SequencerView &sequencers)
 {
   // Poll due tiles first: one transaction pair at most per pass.
   panel_.update(nowMs);
@@ -110,7 +133,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
 
   // SliderModule buttons: voice select, or transport chords with Shift —
   // identical in both modes.
-  handleVoiceButtons(uiState, sequencers, sequencerCount);
+  handleVoiceButtons(uiState);
   if(uiState.voiceEditor.active) return;
 
   if (uiState.alchemyMode == UIState::AlchemyMode::Param)
@@ -119,7 +142,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
   }
   else
   {
-    handleUtilityButtons(nowMs, uiState, sequencers, sequencerCount);
+    handleUtilityButtons(nowMs, uiState, sequencers);
   }
 
   // If selected voice changed (via voice buttons or pad bank selection),
@@ -130,11 +153,15 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
     faders_.resetDeadband();
   }
 
-  handleFaders(uiState, sequencers, sequencerCount);
+  handleFaders(uiState, sequencers);
 }
 
 // --- Mode strap ----------------------------------------------------------------
 
+// Why debounce in software: the Param/Utility strap is a bare physical switch,
+// so contact bounce would otherwise strobe the whole control surface between
+// two button meanings. The stabilizer turns that into one settled flip that
+// UIState can trust.
 void AlchemyControlBridge::handleModeStrap(uint32_t nowMs, UIState &uiState)
 {
   const bool rawHigh = digitalRead(modeSwitchPin_) == HIGH;
@@ -151,6 +178,11 @@ void AlchemyControlBridge::handleModeStrap(uint32_t nowMs, UIState &uiState)
   }
 }
 
+// Why a flip clears everything: holds, the shift latch, and fader engagement
+// all mean different things per mode, so carrying them across would fire the
+// new mode's actions from the old mode's fingers (and snap parameters when
+// fader deadbands no longer match). The banner flag is raised here because
+// this is the only point that knows a settled change just happened.
 void AlchemyControlBridge::onModeFlip(uint32_t nowMs, UIState &uiState)
 {
   // Nothing sticks across a mode change: drop the latch and every derived
@@ -166,13 +198,12 @@ void AlchemyControlBridge::onModeFlip(uint32_t nowMs, UIState &uiState)
 
 // --- SliderModule buttons --------------------------------------------------------
 
-void AlchemyControlBridge::handleVoiceButtons(UIState &uiState,
-                                              Sequencer *const *sequencers,
-                                              size_t sequencerCount)
+// Why voice buttons bypass the mode split: voice selection (and its Shift
+// transport chords) must stay under muscle memory in both Param and Utility.
+// Chords reuse the same ButtonHandlers entry points as the legacy matrix so
+// there is only one transport/randomize/scale implementation to maintain.
+void AlchemyControlBridge::handleVoiceButtons(UIState &uiState)
 {
-  (void)sequencers;
-  (void)sequencerCount;
-
   const bool shift = uiState.shiftHeld;
   for (uint8_t voice = 0; voice < 4; ++voice)
   {
@@ -219,8 +250,17 @@ void AlchemyControlBridge::handleVoiceButtons(UIState &uiState,
 
 // --- ButtonModule8, Param mode ---------------------------------------------------
 
+// Why Param buttons go through the shift latch: taps select a step parameter
+// for the faders while Shift+taps audition/lock it, exactly like the legacy
+// matrix — reusing the latch keeps tile and matrix editing semantics identical.
+// Slide (bit 6) is exempt because it is a modal toggle with legacy side
+// effects (clearing conflicting modes), not a latchable parameter.
 void AlchemyControlBridge::handleParamButtons(UIState &uiState)
 {
+  // A slide transition from any entry point clears the logical latch. Consume
+  // physical edges while sliding, but never rebuild parameter holds behind it.
+  if (uiState.slideMode)
+    latch_.reset();
   for (uint8_t bit = 0; bit < 7; ++bit) // bits 0-6; bit 7 is Shift (read above)
   {
     ButtonEdges &edges = buttonEdges_[kButtonRole][bit];
@@ -231,8 +271,7 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
 
     if (bit == 6)
     {
-      // Slide button: exact legacy behavior, incl. clearing conflicting
-      // modes when slide engages.
+      // Shared slide transition; only physical latch history belongs here.
       if (edges.pressEdge)
       {
         const bool wasSlide = uiState.slideMode;
@@ -241,11 +280,13 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
         {
           // Slide entry cleared every hold; keep the latch coherent too.
           latch_.reset();
-          uiState.latchedParameter = -1;
         }
       }
       continue;
     }
+
+    if (uiState.slideMode)
+      continue;
 
     // Bits 0-5 map straight onto ParamId Note..Octave (ButtonMap.h order).
     const uint8_t paramId = bit;
@@ -259,9 +300,13 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
 
 // --- ButtonModule8, Utility mode -------------------------------------------------
 
+// Why Utility handling is edge-plus-hold instead of edge-only: Play, Session,
+// and Randomize overload tap vs. long-press (settings toggle, load-vs-save,
+// clear-one-vs-clear-all). Acting mid-hold on the held level is what makes the
+// long-press reachable; per-press latch flags exist so the hold consuming the
+// action still suppresses the matching release edge.
 void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState,
-                                                Sequencer *const *sequencers,
-                                                size_t sequencerCount)
+                                                const SequencerView &sequencers)
 {
   for (uint8_t bit = 0; bit < 7; ++bit) // bits 0-6; bit 7 is Shift (read above)
   {
@@ -386,14 +431,13 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
             tileButton.heldMilliseconds(nowMs) >= UITimingConstants::LONG_PRESS_THRESHOLD_MS)
         {
           clearAllLatch_ = true; // consume the hold; release must not also clear
-          clearAllSequencerVoices(uiState, sequencers, sequencerCount);
+          clearAllSequencerVoices(uiState, sequencers);
         }
         else if (edges.releaseEdge && !clearAllLatch_)
         {
-          if (sequencers && uiState.selectedVoiceIndex < sequencerCount &&
-              sequencers[uiState.selectedVoiceIndex])
+          if (Sequencer *selected = sequencers.get(uiState.selectedVoiceIndex))
           {
-            clearSequencerVoice(uiState, *sequencers[uiState.selectedVoiceIndex],
+            clearSequencerVoice(uiState, *selected,
                                 uiState.selectedVoiceIndex);
           }
         }
@@ -412,9 +456,14 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
 
 // --- Faders ----------------------------------------------------------------------
 
+// Why faders fan out by assignment instead of by channel: the same four
+// physical faders mean step params in Param mode but global Tempo/Swing/
+// Volume/Gate in Utility mode. The deadband gate (accept()) stops a newly
+// selected voice or mode from snapping to a stale fader position, the Gate
+// check stops Note edits on muted steps from writing inaudible data, and the
+// shuffle buffer is static because uClock retains the pointer for ISR ticks.
 void AlchemyControlBridge::handleFaders(UIState &uiState,
-                                        Sequencer *const *sequencers,
-                                        size_t sequencerCount)
+                                        const SequencerView &sequencers)
 {
   for (uint8_t channel = 0; channel < ControlSurface::FaderMap::kChannelCount; ++channel)
   {
@@ -439,9 +488,7 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
             (held == ParamId::Count && (uiState.currentEditParameter == assignment.paramId || uiState.currentEditParameter == ParamId::Count)))
         {
           const uint8_t step = static_cast<uint8_t>(uiState.selectedStepForEdit);
-          Sequencer *selectedSeq = (sequencers && uiState.selectedVoiceIndex < sequencerCount)
-                                       ? sequencers[uiState.selectedVoiceIndex]
-                                       : nullptr;
+          Sequencer *selectedSeq = sequencers.get(uiState.selectedVoiceIndex);
           if (selectedSeq)
           {
             if (assignment.paramId != ParamId::Note ||
@@ -486,11 +533,7 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
 
     case ControlSurface::FaderTarget::GateLength:
     {
-      Sequencer *selectedSequencer = nullptr;
-      if (sequencers && uiState.selectedVoiceIndex < sequencerCount)
-      {
-        selectedSequencer = sequencers[uiState.selectedVoiceIndex];
-      }
+      Sequencer *selectedSequencer = sequencers.get(uiState.selectedVoiceIndex);
       if (selectedSequencer)
       {
         const float gateLengthValue =

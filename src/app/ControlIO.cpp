@@ -7,13 +7,16 @@
 namespace
 {
 constexpr uint32_t kControlIntervalMs = 1;
+// 25 fps display cadence for the OLED and LED matrix; commitFrame() only puts
+// the pages that changed on the bus, so a frame costs a page or two of
+// transfer instead of the old full 1 KB push.
 constexpr uint32_t kDisplayIntervalMs = 40; // ~25 frames/s for OLED and LEDs
-constexpr uint32_t kTileBusFrequencyHz = 100000; // Standard mode (100 kHz); OLED and Alchemy tiles on Wire1
-constexpr uint32_t kMainBusFrequencyHz = 400000; // Fast mode (400 kHz); sensors on Wire
+constexpr uint32_t kTileBusFrequencyHz = 100000; // Standard mode (100 kHz); Alchemy tiles on Wire1
+constexpr uint32_t kMainBusFrequencyHz = 400000; // Fast mode (400 kHz); OLED and sensors on Wire
 constexpr uint8_t kStartupLedBrightness = 150;
 constexpr uint8_t kTouchSensorAddress = 0x5A;
-constexpr uint8_t kTouchThreshold = 55;
-constexpr uint8_t kReleaseThreshold = 22;
+constexpr uint8_t kTouchThreshold = 45;
+constexpr uint8_t kReleaseThreshold = 14;
 
 // Program-long hardware objects: callbacks borrow them; Core 1 never sees them.
 struct ControlHardware
@@ -65,7 +68,8 @@ void ControlIO::beginMainBusAndLeds()
     Wire.setClock(kMainBusFrequencyHz);
     Wire.setTimeout(25, true); // 25 ms timeout with auto-reset prevents indefinite bus stalls
 
-    // Initialize Wire1 before beginDisplay() so OLED can bring up hardware cleanly.
+    // Wire1 carries the Alchemy tiles only; the OLED runs on Wire (initialized
+    // above, before beginDisplay() brings the panel up).
     Wire1.setSDA(PIN_ALCHEMY_WIRE1_SDA);
     Wire1.setSCL(PIN_ALCHEMY_WIRE1_SCL);
     Wire1.begin();
@@ -190,13 +194,13 @@ void ControlIO::beginMatrixAndTiles()
         Serial.print(evt.buttonIndex);
         Serial.print(evt.type == MATRIX_BUTTON_PRESSED ? " pressed" : " released");
         Serial.println();
-        matrixEventHandler(evt, uiState, AppState::sequencers, VoiceSystem::MAX_VOICES); });
+        matrixEventHandler(evt, uiState, AppState::sequencerView); });
 }
 
 void ControlIO::pollHeldButtons()
 {
     freezeWatchdogFeed(FW_LOOP_HELD_BUTTONS);
-    pollUIHeldButtons(uiState, AppState::sequencers, VoiceSystem::MAX_VOICES);
+    pollUIHeldButtons(uiState, AppState::sequencerView);
 }
 
 void ControlIO::scanControls(uint32_t nowMs)
@@ -213,7 +217,7 @@ void ControlIO::scanControls(uint32_t nowMs)
         // Poll the Alchemy tiles (param/utility buttons, voice selects,
         // faders, GP7 mode strap) and translate edges into UI actions.
         freezeWatchdogMark(FW_LOOP_TILES);
-        controls.alchemyBridge.update(nowMs, uiState, AppState::sequencers, VoiceSystem::MAX_VOICES);
+        controls.alchemyBridge.update(nowMs, uiState, AppState::sequencerView);
 
         // Update magnetic encoder for base parameter control
         freezeWatchdogMark(FW_LOOP_ENCODER);
@@ -234,7 +238,7 @@ void ControlIO::scanControls(uint32_t nowMs)
             freezeWatchdogMark(FW_LOOP_RECORD);
             const int targetStep = uiState.selectedStepForEdit != -1
                 ? uiState.selectedStepForEdit
-                : (!isClockRunning ? AppState::sequencers[std::min<uint8_t>(uiState.selectedVoiceIndex, VoiceSystem::MAX_VOICES - 1)]->getCurrentStepForParameter(getHeldParameterParamId(uiState)) : -1);
+                : (!isClockRunning ? AppState::sequencerView.clamped(uiState.selectedVoiceIndex).getCurrentStepForParameter(getHeldParameterParamId(uiState)) : -1);
             if (targetStep >= 0 && targetStep < SequencerConstants::MAX_STEPS_COUNT)
             {
                 updateParametersForStep(static_cast<uint8_t>(targetStep));
@@ -262,12 +266,10 @@ void ControlIO::refreshDisplays(uint32_t nowMs)
         }
 
         // Update step sequence LEDs
-        updateStepLEDs(controls.ledMatrix, AppState::sequencers, VoiceSystem::MAX_VOICES,
-                       uiState, AppState::performanceInput.distanceAboveMinimumMm);
+        updateStepLEDs(controls.ledMatrix, AppState::sequencerView, uiState, AppState::performanceInput.distanceAboveMinimumMm);
 
         // Update OLED display
-        controls.display.update(uiState, AppState::sequencers, VoiceSystem::MAX_VOICES,
-                                voiceManager.get());
+        controls.display.update(uiState, AppState::sequencerView, voiceManager.get());
 
         // Apply LED updates to hardware
         freezeWatchdogMark(FW_LOOP_LEDS);

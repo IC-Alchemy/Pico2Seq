@@ -13,6 +13,7 @@
 #include "UIConstants.h"
 #include "UIEventHandler.h"
 #include "UIState.h"
+#include "UITransitions.h"
 #include "../sensors/EncoderManager.h"
 
 #include <uClock.h>
@@ -38,10 +39,10 @@ void endRandomizePress(int voiceIndex, UIState &state)
 // Handle randomize button behavior for a single voice
 void handleRandomizeButton(int voiceIndex, UIState &state)
 {
-  if (voiceIndex < 0 || voiceIndex >= UIState::NUM_RANDOMIZE ||
-      voiceIndex >= VoiceSystem::MAX_VOICES)
+  if (voiceIndex < 0 || voiceIndex >= UIState::NUM_RANDOMIZE)
     return;
-  Sequencer *seq = AppState::sequencers[voiceIndex];
+
+  Sequencer *seq = AppState::sequencerView.get(voiceIndex);
   if (!seq)
     return;
 
@@ -94,9 +95,8 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)
   // Work on a local copy to avoid mutating live config from UI thread
   VoiceConfig config = *liveCfg;
 
-  // Record parameter feedback without changing Settings navigation.
-  state.lastVoiceParameterButton = paramIndex;
-  state.voiceParameterChangeTime = millis();
+  // Set UI state for voice parameter mode feedback
+  UITransitions::showVoiceParameterFeedback(state, static_cast<uint8_t>(paramIndex), millis());
 
   uint8_t displayVoiceNumber = static_cast<uint8_t>(voiceIndex); // 0-based
 
@@ -184,9 +184,7 @@ void handleControlButton(int buttonId, UIState &state)
   switch (buttonId)
   {
   case BUTTON_SLIDE_MODE:
-    state.slideMode = !state.slideMode;
-    state.selectedStepForEdit = -1;
-    state.currentEditParameter = ParamId::Count; // Clear edit parameter
+    handleSlideModePress(state);
     Serial.print("Slide mode ");
     Serial.println(state.slideMode ? "ON" : "OFF");
     break;

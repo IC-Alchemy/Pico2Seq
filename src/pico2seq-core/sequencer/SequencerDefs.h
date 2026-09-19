@@ -176,6 +176,16 @@ using ParameterTrack = rpdsp::ParameterTrack<float, MAX_SIZE>;
 // Define the variant type for parameter values that can be int, float, or bool
 using ParameterValueType = std::variant<int, float, bool>;
 
+// Step editing behavior, independent of voice/recipe bindings. Stepped lanes
+// use encoder detents; their storage remains governed by the value/range types.
+// In particular Octave retains a normalized float lane for sensor recording.
+enum class ParameterEditKind : uint8_t
+{
+  Continuous,
+  Stepped,
+  Toggle
+};
+
 /**
  * @brief Parameter definition with metadata and constraints
  *
@@ -188,59 +198,54 @@ struct ParameterDefinition
   ParameterValueType defaultValue; // Default parameter value
   ParameterValueType minValue;     // Minimum allowed value
   ParameterValueType maxValue;     // Maximum allowed value
-  bool isBinary;                   // True for gate/slide-like parameters
+  ParameterEditKind editKind;      // Continuous, detented, or binary toggle
   uint8_t defaultSteps;            // Default number of steps for this parameter
-  // Magnetic-encoder lane that records this parameter. COUNT marks step/toggle
-  // controls without an encoder lane (GateLength, Gate, Slide). Single source
-  // for the record-button <-> encoder-mode mapping formerly duplicated in
-  // ControlSurfaceLogic::encoderBaseModeForRecordParam() and EncoderManager's
-  // inverse switch.
-  EncoderParameterMode encoderMode;
+  bool recordable;                 // Has a parameter-button live-record control;
+                                   // not a restriction on explicit step/fader edits
+  EncoderParameterMode encoderMode; // COUNT when there is no encoder base target
 };
 
 /**
  * @brief Core parameter definitions array
  *
  * Defines metadata for all sequencer parameters. Array order MUST match ParamId enum.
- * Each entry specifies: name, defaultValue, minValue, maxValue, isBinary,
- * defaultSteps, encoderMode (EncoderParameterMode::COUNT = no encoder lane)
+ * Includes live-record eligibility and the encoder base target. SlideTime is
+ * a voice-only control, not the Slide toggle lane, so it has no entry here.
  * Uses SequencerConstants for consistent step count defaults.
  */
 constexpr ParameterDefinition CORE_PARAMETERS[] = {
-    // Parameter Name    Default    Min       Max       Binary  Steps       Encoder lane
+    // Name, default, min, max, edit kind, steps, recordable, encoder base target
     {"Note", 0, SequencerConstants::NOTE_PARAMETER_MIN, SequencerConstants::NOTE_PARAMETER_MAX,
-     false, SequencerConstants::DEFAULT_STEPS_COUNT, EncoderParameterMode::Note}, // Integral scale step index (0-36)
-    {"Velocity", 0.5f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT, EncoderParameterMode::Velocity},     // Voice amplitude (0.0-1.0)
-    {"Filter", 0.5f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT, EncoderParameterMode::Filter},       // Filter cutoff (0.0-1.0)
-    {"Attack", 0.01f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT, EncoderParameterMode::Attack},      // Attack time (0.0-1.0 seconds)
-    {"Decay", 0.3f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT, EncoderParameterMode::Decay},        // Decay time (0.0-1.0 seconds)
-    {"Octave", 0.5f, 0.0f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT, EncoderParameterMode::Octave},       // Neutral transpose at midpoint; patch mode spans -2..+2 octaves
-    {"GateLength", 0.5f, 0.001f, 1.0f, false, SequencerConstants::DEFAULT_STEPS_COUNT, EncoderParameterMode::COUNT}, // Gate duration (fraction of step)
-    {"Gate", false, false, true, true, SequencerConstants::DEFAULT_STEPS_COUNT, EncoderParameterMode::COUNT},        // Gate on/off state
-    {"Slide", false, false, true, true, SequencerConstants::DEFAULT_STEPS_COUNT, EncoderParameterMode::COUNT}        // Portamento enable
+     ParameterEditKind::Stepped, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Note},
+    {"Velocity", 0.5f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Velocity},
+    {"Filter", 0.5f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Filter},
+    {"Attack", 0.01f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Attack},
+    {"Decay", 0.3f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Decay},
+    {"Octave", 0.5f, 0.0f, 1.0f, ParameterEditKind::Stepped, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Octave},
+    {"GateLength", 0.5f, 0.001f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT},
+    {"Gate", false, false, true, ParameterEditKind::Toggle, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT},
+    {"Slide", false, false, true, ParameterEditKind::Toggle, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT}
 };
 
-/**
- * Every encoder lane in CORE_PARAMETERS must be unique: two parameters claiming
- * the same lane would make record buttons and step-edit targeting ambiguous.
- * Lane-less rows (COUNT) are exempt.
- */
-constexpr bool parameterEncoderModesAreUnique()
+static_assert(sizeof(CORE_PARAMETERS) / sizeof(CORE_PARAMETERS[0]) == PARAM_ID_COUNT,
+              "Every ParamId must have a descriptor");
+
+// Invalid IDs do not silently select a different parameter.
+constexpr const ParameterDefinition *parameterDefinition(ParamId id) noexcept
 {
-  bool seen[static_cast<uint8_t>(EncoderParameterMode::COUNT)] = {};
-  for (uint8_t i = 0; i < PARAM_ID_COUNT; ++i)
-  {
-    const uint8_t lane = static_cast<uint8_t>(CORE_PARAMETERS[i].encoderMode);
-    if (lane >= static_cast<uint8_t>(EncoderParameterMode::COUNT))
-      continue; // Lane-less parameter
-    if (seen[lane])
-      return false;
-    seen[lane] = true;
-  }
-  return true;
+  const auto index = static_cast<uint8_t>(id);
+  return index < PARAM_ID_COUNT ? &CORE_PARAMETERS[index] : nullptr;
 }
-static_assert(parameterEncoderModesAreUnique(),
-              "CORE_PARAMETERS encoder lanes must be unique across parameters");
+
+constexpr ParamId parameterForEncoderMode(EncoderParameterMode mode) noexcept
+{
+  if (mode == EncoderParameterMode::COUNT)
+    return ParamId::Count;
+  for (uint8_t i = 0; i < PARAM_ID_COUNT; ++i)
+    if (CORE_PARAMETERS[i].encoderMode == mode)
+      return static_cast<ParamId>(i);
+  return ParamId::Count;
+}
 
 /**
  * @brief Voice synthesis parameters for audio output

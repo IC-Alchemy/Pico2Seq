@@ -15,29 +15,8 @@
  */
 const char *paramName(ParamId paramId)
 {
-  switch (paramId)
-  {
-  case ParamId::Note:
-    return "Note";
-  case ParamId::Velocity:
-    return "Velocity";
-  case ParamId::Filter:
-    return "Filter";
-  case ParamId::Attack:
-    return "Attack";
-  case ParamId::Decay:
-    return "Decay";
-  case ParamId::Octave:
-    return "Octave";
-  case ParamId::GateLength:
-    return "GateLength";
-  case ParamId::Gate:
-    return "Gate";
-  case ParamId::Slide:
-    return "Slide";
-  default:
-    return "Unknown";
-  }
+  const auto *definition = parameterDefinition(paramId);
+  return definition ? definition->name : "Unknown";
 }
 
 ParamId paramIdFromName(const char *name)

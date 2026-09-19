@@ -6,12 +6,27 @@
 #include "voice/VoiceConfig.h"
 #include "voice/VoiceEditParameters.h"
 #include "voice/VoiceSystem.h"
-#include "app/VoicePublication.h"
-
-#include <array>
-#include <cmath>
 
 #include <algorithm>
+
+TEST_CASE("Descriptor edit kinds preserve track storage rules", "[sequencer][parameter_metadata]") {
+    ParameterManager parameters;
+    parameters.init();
+    for (ParamId id : {ParamId::Gate, ParamId::Slide}) {
+        parameters.setValue(id, 0, 0.5f);
+        CHECK(parameters.getValue(id, 0) == 0.0f);
+        parameters.setValue(id, 0, 0.5001f);
+        CHECK(parameters.getValue(id, 0) == 1.0f);
+    }
+    // Both are detented when edited by encoder, but only Note stores integers.
+    parameters.setValue(ParamId::Note, 0, 4.6f);
+    CHECK(parameters.getValue(ParamId::Note, 0) == 5.0f);
+    parameters.setValue(ParamId::Octave, 0, 0.37f);
+    CHECK(parameters.getValue(ParamId::Octave, 0) == Catch::Approx(0.37f));
+    // No record button does not prohibit explicit editing of the timing lane.
+    parameters.setValue(ParamId::GateLength, 0, 0.37f);
+    CHECK(parameters.getValue(ParamId::GateLength, 0) == Catch::Approx(0.37f));
+}
 
 // ─── ParameterTrack template ─────────────────────────────────────────────────
 
@@ -505,6 +520,98 @@ TEST_CASE("Sequencer::getStep reflects configured octaveMapper", "[sequencer]") 
     REQUIRE(s.octaveOffset == -24);
 }
 
+TEST_CASE("Step readers share lane conversions without sharing playback transforms", "[sequencer]") {
+    Sequencer seq(0);
+    // Raw writes retain fractional binary values to exercise the decoder threshold.
+    seq.setRawStepValue(ParamId::Note, 0, 7.25f);
+    seq.setRawStepValue(ParamId::Velocity, 0, 0.2f);
+    seq.setRawStepValue(ParamId::Filter, 0, 0.3f);
+    seq.setRawStepValue(ParamId::Attack, 0, 0.4f);
+    seq.setRawStepValue(ParamId::Decay, 0, 0.6f);
+
+    const float offset = 0.1f;
+    for (bool transformed : {false, true}) {
+        seq.setPlaybackTransform(transformed ? +[](ParamId, float stored, const void *context) {
+            return stored + *static_cast<const float *>(context);
+        } : nullptr, &offset);
+        for (float binary : {0.49f, 0.5f, 0.51f}) {
+            seq.setRawStepValue(ParamId::Gate, 0, binary);
+            seq.setRawStepValue(ParamId::Slide, 0, binary);
+            for (float octave : {0.0f, 1.0f / 3.0f, 0.5f, 2.0f / 3.0f, 1.0f}) {
+                seq.setRawStepValue(ParamId::Octave, 0, octave);
+                for (float length : {0.0f, 0.001f, 0.123f, 1.0f}) {
+                    seq.setRawStepValue(ParamId::GateLength, 0, length);
+                    for (bool playback : {false, true}) {
+                        CAPTURE(transformed, binary, octave, length, playback);
+                        const float delta = transformed && playback ? offset : 0.0f;
+                        const Step s = playback ? seq.getPlaybackStep(0) : seq.getStep(0);
+                        REQUIRE(s.noteIndex == Catch::Approx(7.25f + delta));
+                        REQUIRE(s.velocityLevel == Catch::Approx(0.2f + delta));
+                        REQUIRE(s.filterCutoff == Catch::Approx(0.3f + delta));
+                        REQUIRE(s.attackTimeSeconds == Catch::Approx(0.4f + delta));
+                        REQUIRE(s.decayTimeSeconds == Catch::Approx(0.6f + delta));
+                        REQUIRE(s.isGateActive == (binary + delta > 0.5f));
+                        REQUIRE(s.hasSlide == (binary + delta > 0.5f));
+                        const float mapped = octave + delta;
+                        REQUIRE(s.octaveOffset == (mapped < 1.0f / 3.0f ? -12 :
+                                                  mapped > 2.0f / 3.0f ? 12 : 0));
+                        REQUIRE(s.gateLengthTicks == static_cast<uint16_t>(std::max(
+                            1.0f, (length + delta) * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS)));
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("Playback decoding selects each lane cursor before transforming", "[sequencer]") {
+    Sequencer seq(0);
+    Sequencer expected(0);
+    const auto transform = [](ParamId, float stored, const void *) { return stored * 0.5f; };
+    const auto octaveMapper = [](float value) -> int8_t { return value < 0.25f ? -24 : 24; };
+    seq.setPlaybackTransform(transform, nullptr, octaveMapper);
+    expected.setPlaybackTransform(transform, nullptr, octaveMapper);
+    for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane) {
+        const auto id = static_cast<ParamId>(lane);
+        const uint8_t count = lane + 2;
+        seq.setParameterStepCount(id, count);
+        for (uint8_t step = 0; step < count; ++step)
+            seq.setRawStepValue(id, step, static_cast<float>(step + 1) / count);
+    }
+    seq.start();
+    VoiceState state{};
+    constexpr uint32_t clockStep = 263; // Must not truncate before each lane's modulo.
+    seq.advanceStep(clockStep, -1, false, false, false, false, false, false, -1, &state);
+    const auto currentStep = seq.getCurrentStep();
+    const auto currentNote = seq.getCurrentNote();
+    const bool notePlaying = seq.isNotePlaying();
+    for (uint8_t selected : {uint8_t{UINT8_MAX}, uint8_t{1}}) {
+        for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane) {
+            const auto id = static_cast<ParamId>(lane);
+            const uint8_t cursor = clockStep % (lane + 2);
+            REQUIRE(seq.getCurrentStepForParameter(id) == cursor);
+            expected.setRawStepValue(id, 0, seq.getStepParameterValue(
+                id, selected == UINT8_MAX ? cursor : selected));
+        }
+        const Step actual = seq.getPlaybackStep(selected);
+        const Step reference = expected.getPlaybackStep(0);
+        REQUIRE(actual.noteIndex == reference.noteIndex);
+        REQUIRE(actual.velocityLevel == reference.velocityLevel);
+        REQUIRE(actual.filterCutoff == reference.filterCutoff);
+        REQUIRE(actual.attackTimeSeconds == reference.attackTimeSeconds);
+        REQUIRE(actual.decayTimeSeconds == reference.decayTimeSeconds);
+        REQUIRE(actual.isGateActive == reference.isGateActive);
+        REQUIRE(actual.hasSlide == reference.hasSlide);
+        REQUIRE(actual.octaveOffset == reference.octaveOffset);
+        REQUIRE(actual.gateLengthTicks == reference.gateLengthTicks);
+    }
+    REQUIRE(seq.getCurrentStep() == currentStep);
+    REQUIRE(seq.getCurrentNote() == currentNote);
+    REQUIRE(seq.isNotePlaying() == notePlaying);
+    for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane)
+        REQUIRE(seq.getCurrentStepForParameter(static_cast<ParamId>(lane)) == clockStep % (lane + 2));
+}
+
 TEST_CASE("previewActiveStep preserves independent polyrhythmic parameter cursors", "[sequencer]") {
     Sequencer seq(0);
     seq.start();
@@ -592,180 +699,20 @@ TEST_CASE("ParameterManager::copyStep copies values across tracks and bounds-che
     pm.copyStep(0, 100);
 }
 
-namespace {
-struct PublicationRig {
-    VoiceSystem voices;
-    VoiceManager manager{VoiceSystem::MAX_VOICES};
-    std::array<Sequencer, VoiceSystem::MAX_VOICES> sequencers{
-        Sequencer{0}, Sequencer{1}, Sequencer{2}, Sequencer{3}};
-    std::array<unsigned, VoiceSystem::MAX_VOICES> publications{};
-    std::array<VoiceState, VoiceSystem::MAX_VOICES> lastPublished{};
-
-    PublicationRig() {
-        VoiceConfig config;
-        config.oscillatorCount = 1;
-        config.oscWaveforms[0] = WAVE_SIN;
-        config.hasFilter = false;
-        for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
-            voices.setVoiceId(i, manager.addVoice(config));
-            sequencers[i].setStepParameterValue(ParamId::Gate, 0, 1.0f);
-            sequencers[i].setStepParameterValue(ParamId::GateLength, 0, (i + 1) * 0.25f);
-            sequencers[i].start();
-        }
-        manager.init(48000);
-        // Observe the actual manager handoff, including the transient event.
-        manager.setVoiceUpdateCallback([this](uint8_t id, const VoiceState &state) {
-            for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
-                if (voices.getVoiceId(i) == id) {
-                    ++publications[i];
-                    lastPublished[i] = state;
-                }
-            }
-        });
-    }
-
-    void advance(uint8_t i, uint32_t step) {
-        VoiceState state = voices.getVoiceState(i);
-        sequencers[i].advanceStep(step, -1, false, false, false, false, false, false, -1, &state);
-        REQUIRE(publishVoiceState(voices, manager, i, state));
-    }
-
-    void tick() {
-        for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i)
-            tickSequencerVoice(sequencers[i], voices, manager, i);
-        REQUIRE(std::isfinite(manager.processAllVoices()));
-    }
-};
-}
-
-TEST_CASE("Voice publication delivers four independent sequencer expiries", "[sequencer][voice][voicesystem][voice_publication]") {
-    PublicationRig rig;
+TEST_CASE("VoiceSystem retains independent control states for all four voices", "[voice][voicesystem]") {
+    VoiceSystem system;
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
-        rig.advance(i, 0);
-        REQUIRE(rig.lastPublished[i].isGateHigh);
-        REQUIRE(rig.lastPublished[i].shouldRetrigger);
-        REQUIRE_FALSE(rig.voices.getVoiceState(i).shouldRetrigger);
+        REQUIRE_FALSE(system.getVoiceState(i).isGateHigh);
+        system.setVoiceId(i, i + 10);
+        system.getVoiceState(i).noteIndex = i + 4;
     }
-
-    // No step boundary here: note-offs must arrive at their own expiry ticks.
-    for (unsigned tick = 1; tick <= 121; ++tick) {
-        rig.tick();
-        for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
-            const bool sounding = tick < (i + 1u) * 30u;
-            CAPTURE(tick, i);
-            CHECK(rig.voices.getVoiceState(i).isGateHigh == sounding);
-            CHECK(rig.sequencers[i].isNotePlaying() == sounding);
-            CHECK(rig.lastPublished[i].isGateHigh == sounding);
-            CHECK(rig.publications[i] == (sounding ? 1u : 2u));
-            const VoiceState *requested = rig.manager.getVoiceState(rig.voices.getVoiceId(i));
-            REQUIRE(requested != nullptr);
-            CHECK(requested->isGateHigh == sounding);
-            if (!sounding) CHECK_FALSE(rig.lastPublished[i].shouldRetrigger);
-        }
-    }
-}
-
-TEST_CASE("Voice publication consumes retrigger once across live refresh and gate off", "[sequencer][voice_publication]") {
-    PublicationRig rig;
-    constexpr uint8_t i = 3; // Not a former MIDI voice.
-    auto &seq = rig.sequencers[i];
-    auto &state = rig.voices.getVoiceState(i);
-    rig.advance(i, 0);
-    REQUIRE(rig.lastPublished[i].shouldRetrigger);
-    REQUIRE_FALSE(state.shouldRetrigger);
-
-    // Aliasing the stored state must not replay the step event.
-    REQUIRE(publishVoiceState(rig.voices, rig.manager, i, state));
-    CHECK_FALSE(rig.lastPublished[i].shouldRetrigger);
-    seq.setStepParameterValue(ParamId::Note, 0, 9.0f);
-    seq.setStepParameterValue(ParamId::Filter, 0, 0.2f);
-    seq.refreshVoiceParameters(&state);
-    REQUIRE(publishVoiceState(rig.voices, rig.manager, i, state));
-    CHECK(rig.lastPublished[i].noteIndex == 9.0f);
-    CHECK(rig.lastPublished[i].filterCutoff == Catch::Approx(0.2f));
-    CHECK(rig.lastPublished[i].isGateHigh);
-    CHECK_FALSE(rig.lastPublished[i].shouldRetrigger);
-    CHECK(rig.publications[i] == 3);
-
-    // A gate-off step publishes once, retains release pitch and cancels expiry.
-    seq.setStepParameterValue(ParamId::Gate, 1, 0.0f);
-    rig.advance(i, 1);
-    CHECK_FALSE(rig.lastPublished[i].isGateHigh);
-    CHECK_FALSE(rig.lastPublished[i].shouldRetrigger);
-    CHECK(rig.lastPublished[i].noteIndex == 9.0f);
-    CHECK_FALSE(seq.isNotePlaying());
-    for (unsigned tick = 0; tick < 121; ++tick) rig.tick();
-    CHECK(rig.publications[i] == 4);
-    seq.refreshVoiceParameters(&state);
-    REQUIRE(publishVoiceState(rig.voices, rig.manager, i, state));
-    CHECK_FALSE(rig.lastPublished[i].isGateHigh);
-    CHECK_FALSE(rig.lastPublished[i].shouldRetrigger);
-
-    // A fresh gate is a new one-shot event, even at the same pitch.
-    rig.advance(i, 0);
-    CHECK(rig.lastPublished[i].isGateHigh);
-    CHECK(rig.lastPublished[i].shouldRetrigger);
-    CHECK_FALSE(state.shouldRetrigger);
-}
-
-TEST_CASE("Voice publication preserves slide duration and non-retrigger semantics", "[sequencer][voice_publication]") {
-    PublicationRig rig;
-    constexpr uint8_t i = 2;
-    auto &seq = rig.sequencers[i];
-    seq.setStepParameterValue(ParamId::Gate, 1, 1.0f);
-    seq.setStepParameterValue(ParamId::Slide, 1, 1.0f);
-    seq.setStepParameterValue(ParamId::Note, 1, 12.0f);
-    seq.setStepParameterValue(ParamId::GateLength, 1, 0.25f);
-    rig.advance(i, 0);
-    for (unsigned tick = 0; tick < 10; ++tick) rig.tick();
-    rig.advance(i, 1);
-    CHECK(rig.lastPublished[i].isGateHigh);
-    CHECK(rig.lastPublished[i].hasSlide);
-    CHECK(rig.lastPublished[i].noteIndex == 12.0f);
-    CHECK_FALSE(rig.lastPublished[i].shouldRetrigger);
-    for (unsigned tick = 0; tick < 29; ++tick) rig.tick();
-    CHECK(rig.publications[i] == 2);
-    rig.tick();
-    CHECK(rig.publications[i] == 3);
-    CHECK_FALSE(rig.lastPublished[i].isGateHigh);
-    CHECK_FALSE(rig.lastPublished[i].shouldRetrigger);
-}
-
-TEST_CASE("Stopping all four sequencer voices releases notes and restart retriggers slides", "[sequencer][voice_publication]") {
-    PublicationRig rig;
+    system.getVoiceState(3).isGateHigh = true;
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
-        rig.sequencers[i].setStepParameterValue(ParamId::Slide, 0, 1.0f);
-        rig.advance(i, 0);
-        stopSequencerVoice(rig.sequencers[i], rig.voices, rig.manager, i);
-        CHECK_FALSE(rig.sequencers[i].isNotePlaying());
-        CHECK_FALSE(rig.lastPublished[i].isGateHigh);
-        CHECK_FALSE(rig.lastPublished[i].shouldRetrigger);
-        CHECK_FALSE(rig.lastPublished[i].hasSlide);
-        CHECK(rig.publications[i] == 2);
+        REQUIRE(system.getVoiceId(i) == i + 10);
+        REQUIRE(system.getVoiceState(i).noteIndex == i + 4);
+        REQUIRE(system.getVoiceState(i).isGateHigh == (i == 3));
     }
-    for (unsigned tick = 0; tick < 121; ++tick) rig.tick();
-    for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
-        CHECK(rig.publications[i] == 2); // No stale expiry after stop.
-        CHECK(rig.sequencers[i].getStepParameterValue(ParamId::Slide, 0) == 1.0f);
-        rig.sequencers[i].start();
-        rig.advance(i, 0);
-        CHECK(rig.lastPublished[i].isGateHigh);
-        CHECK(rig.lastPublished[i].hasSlide);
-        CHECK(rig.lastPublished[i].shouldRetrigger);
-        CHECK_FALSE(rig.voices.getVoiceState(i).shouldRetrigger);
-    }
-}
-
-TEST_CASE("Voice publication rejects invalid routing without changing requested state", "[voice_publication]") {
-    PublicationRig rig;
-    VoiceState event;
-    event.isGateHigh = true;
-    event.shouldRetrigger = true;
-    CHECK_FALSE(publishVoiceState(rig.voices, rig.manager, VoiceSystem::MAX_VOICES, event));
-    rig.voices.setVoiceId(0, UINT8_MAX);
-    CHECK_FALSE(publishVoiceState(rig.voices, rig.manager, 0, event));
-    CHECK_FALSE(rig.voices.getVoiceState(0).isGateHigh);
-    for (auto count : rig.publications) CHECK(count == 0);
+    REQUIRE(&system.getVoiceState(255) == &system.getVoiceState(0));
 }
 
 TEST_CASE("CORE_PARAMETERS metadata defines valid bounds and types for all parameters", "[seqdefs]") {

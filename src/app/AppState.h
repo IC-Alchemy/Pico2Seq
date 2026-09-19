@@ -4,6 +4,7 @@
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../voice/VoiceManager.h"
 #include "../voice/VoiceSystem.h"
+#include "SequencerView.h"
 #include <atomic>
 #include <memory>
 #include <algorithm>
@@ -12,7 +13,6 @@
 // Existing UI/sensor APIs refer to these objects by name. Keep their types and
 // program-long lifetimes; their mutable control state belongs to Core 0.
 extern UIState uiState;
-extern Sequencer seq1, seq2, seq3, seq4;
 extern std::unique_ptr<VoiceManager> voiceManager;
 extern VoiceSystem voiceSystem;
 extern uint8_t currentScale;
@@ -26,6 +26,7 @@ namespace AppState
 {
 // Non-owning, immutable routing table in musician-facing voice order (1-4).
 extern Sequencer *const sequencers[VoiceSystem::MAX_VOICES];
+extern const SequencerView sequencerView;
 struct PerformanceInput
 {
     int distanceAboveMinimumMm = 0;

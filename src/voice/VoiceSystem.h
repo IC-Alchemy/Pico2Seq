@@ -3,6 +3,7 @@
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 #include <stdint.h>
 
+
 /**
  * @brief Consolidated voice system management structure
  *
@@ -17,7 +18,7 @@ struct VoiceSystem
     // Voice IDs from VoiceManager
     uint8_t voiceIds[MAX_VOICES] = {0, 0, 0, 0};
 
-    // Requested audio states; publication consumes transient retrigger events.
+    // Core-0 control snapshots. Sequencer owns duration; VoiceState owns gate truth.
     VoiceState voiceStates[MAX_VOICES];
 
     /**
@@ -62,6 +63,7 @@ struct VoiceSystem
     {
         return voiceStates[voiceIndex < MAX_VOICES ? voiceIndex : 0];
     }
+
 };
 
 extern VoiceSystem voiceSystem;

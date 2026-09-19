@@ -155,25 +155,43 @@ Pico2Seq includes 10 fully realized color palettes selectable in settings or via
 
 | Theme Enum | Name | Visual Character |
 |---|---|---|
-| `DEFAULT` (0) | Standard | Classic Blue/Green palette |
-| `OCEANIC` (1) | Oceanic | Deep ocean blues, cyan, and teal accents |
-| `VOLCANIC` (2) | Volcanic | Intense reds, fiery oranges, and warm ambers |
-| `FOREST` (3) | Forest | Earthy greens, moss, and warm brown highlights |
-| `NEON` (4) | Neon | High-energy vibrant magenta, purple, and electric cyan |
-| `MODERN` (5) | Modern | Refined muted tones optimized for high legibility |
-| `DARK_NOCTIS` (6) | Dark Noctis | Low-light stealth theme with cool midnight blue accents |
-| `DARK_EMBER` (7) | Dark Ember | Low-light theme with warm glowing ember highlights |
-| `BLUE` (8) | Blue Contrast | High-contrast monochromatic blue palette |
-| `GREEN` (9) | Green Contrast | High-contrast monochromatic green palette |
+| `DEFAULT` (0) | Standard | Okabe-Ito quartet: sky / orange / green / purple |
+| `OCEANIC` (1) | Oceanic | Deep blue / sunlit sand / seafoam / pale ice |
+| `VOLCANIC` (2) | Volcanic | Crimson / gold / tangerine / magma-pink ramp |
+| `FOREST` (3) | Forest | Leaf / bark-amber / lake-blue / dry-gold |
+| `NEON` (4) | Neon | Cyan / magenta / lime / violet primaries |
+| `MODERN` (5) | Modern | Dusty blue / clay / sage / rosewood, equal lightness |
+| `DARK_NOCTIS` (6) | Dark Noctis | Midnight blue / lantern amber / violet / moonlight |
+| `DARK_EMBER` (7) | Dark Ember | Ember-red / gold / copper-rose / pale-flame ramp |
+| `BLUE` (8) | Blue Contrast | Deep → ice mono-blue ramp + indigo endpoint |
+| `GREEN` (9) | Green Contrast | Deep → mint mono-green ramp + lime endpoint |
+
+#### Palette design principles
+
+Voice colors follow categorical-palette best practice (Okabe–Ito / Paul Tol
+anchors): within-pair voices (V1/V2, V3/V4 — the only pairs ever shown
+together on the two matrix bands) are ~40°+ apart in hue, never separated by
+red-vs-green alone. Gate state is encoded redundantly as brightness: a theme
+stores only each voice's hue (`gateOn[4]`), and `getVoiceGateColor()` renders
+the two states as that hue at two levels — lifted by 1.2× for gate on (capped
+so no channel clips: a hue already at full scale cannot brighten without
+desaturating), and at 1/16 for gate off — so it survives grayscale and all
+common color-vision deficiencies. Mono-blue/mono-green and the warm-family
+themes use a monotonic lightness ramp as the redundant channel instead.
 
 #### `LEDThemeColors` Structure
 Each theme defines colors for:
-- `gateOnV1`, `gateOffV1`, `gateOnV2`, `gateOffV2` (Gate states for voice pair)
+- `gateOn[4]` (per-voice identity hue — gate on and gate off are that hue at two brightnesses, so gate state reads as brightness and voice identity reads as hue)
 - `playheadAccent`, `idleBreathingBlue` (Transport indicators)
 - `editModeDimBlueV1`, `editModeDimBlueV2` (Step edit indicators)
 - `modNoteActive`/`Inactive`, `modVelocityActive`/`Inactive`, `modFilterActive`/`Inactive`, `modDecayActive`/`Inactive`, `modAttackActive`/`Inactive`, `modOctaveActive`/`Inactive`, `modSlideActive`/`Inactive` (Parameter buttons)
 - `defaultActive`, `defaultInactive`, `modParamModeActive`/`Inactive`, `modGateModeActive`/`Inactive` (System modes)
 - `randomizeFlash`, `randomizeIdle` (Randomize button states)
+
+The table lists entries in `LEDTheme` order and each entry carries its own
+`LEDTheme` id; `ALL_THEMES` asserts that pairing at compile time, because the
+theme cycler and the saved settings address palettes by index — a misordered
+entry would show one theme's colors under another theme's name.
 
 ---
 

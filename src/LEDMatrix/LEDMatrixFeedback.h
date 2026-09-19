@@ -1,13 +1,13 @@
 #ifndef LEDMATRIX_FEEDBACK_H
 #define LEDMATRIX_FEEDBACK_H
 
-#include <stddef.h>
 #include "ledMatrix.h"
 #include "LEDConstants.h"
 #include "../voice/VoiceManager.h"
 
 // Forward declarations to break circular dependencies
 class Sequencer;
+class SequencerView;
 struct UIState;
 
 /**
@@ -54,12 +54,19 @@ static constexpr uint8_t LED_THEME_VOICE_COUNT = 4;
  */
 struct LEDThemeColors
 {
-  // Voice gate state colors
-  // Every voice keeps its own nearby hue in a theme. Gate-off uses a darker
-  // secondary hue from that theme, making gate state distinct by both colour
-  // and brightness without introducing an unrelated palette.
+  // Which LEDTheme this entry defines. The theme cycler and the saved settings
+  // address palettes by index, so this field exists to be checked against the
+  // entry's position in ALL_THEMES at compile time (see the static_assert below
+  // the table): a table in a different order would show one theme's colors
+  // under another theme's name.
+  LEDTheme theme;
+
+  // Voice gate colors: gateOn is each voice's identity hue — the only gate
+  // color a theme stores. Gate state is applied as brightness of that hue
+  // (the GATE_ON_* / GATE_OFF_DIVISOR rule in LEDMatrixFeedback.cpp), so an
+  // off step still reads as its voice, just clearly "off". Gate state is
+  // therefore brightness, voice identity is hue, and the two never fight.
   CRGB gateOn[LED_THEME_VOICE_COUNT];
-  CRGB gateOff[LED_THEME_VOICE_COUNT];
 
   // Playhead and accent colors
   CRGB playheadAccent;    // Current step playhead highlight
@@ -117,15 +124,13 @@ void setupLEDMatrixFeedback();
  * - Voice parameter configuration display
  *
  * @param ledMatrix Reference to LED matrix for output
- * @param sequencers Non-owning routing table in voice order
- * @param sequencerCount Number of entries in the routing table
+ * @param sequencers Fixed voice-order view of the sequencers
  * @param uiState Current UI state containing mode flags and selections
  * @param mm Unused parameter (legacy)
  */
 void updateStepLEDs(
     LEDMatrix &ledMatrix,
-    Sequencer *const *sequencers,
-    size_t sequencerCount,
+    const SequencerView &sequencers,
     const UIState &uiState,
     int mm);
 
