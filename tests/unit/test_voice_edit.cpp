@@ -14,7 +14,7 @@ using Catch::Approx;
 using namespace VoiceEdit;
 
 TEST_CASE(
-    "Live lidar recording stores only modifiers before composing playback",
+    "Live lidar recording stores the absolute value the step plays",
     "[voice_edit][recording]") {
   auto config = VoicePresets::getDigitalVoice();
   enablePatch(config);
@@ -29,16 +29,21 @@ TEST_CASE(
   seq.advanceStep(0, 100, false, true, false, false, false, false, -1, &state);
   const auto step = seq.getCurrentStepForParameter(ParamId::Velocity);
   REQUIRE(seq.getStepParameterValue(ParamId::Velocity, step) == 0.75f);
-  REQUIRE(state.velocityLevel == Approx(0.80f));
+  REQUIRE(state.velocityLevel == Approx(0.75f));
   REQUIRE(config.baseVelocity == Approx(0.6f));
+  // A recorded step keeps its value when the patch moves.
   config.baseVelocity = 0.4f;
   seq.playStepNow(step, &state);
-  REQUIRE(state.velocityLevel == Approx(0.70f));
+  REQUIRE(state.velocityLevel == Approx(0.75f));
   REQUIRE(seq.getStepParameterValue(ParamId::Velocity, step) == 0.75f);
+  // A cleared step follows the patch again.
   seq.resetModifierStep(step);
-  REQUIRE(seq.getStepParameterValue(ParamId::Velocity, step) == 0.5f);
+  REQUIRE(followsPatch(seq.getStepParameterValue(ParamId::Velocity, step)));
   REQUIRE(seq.getStepParameterValue(ParamId::Note, step) == 0);
   REQUIRE(seq.getStepParameterValue(ParamId::Gate, step) == 0);
+  seq.setStepParameterValue(ParamId::Gate, step, 1);
+  seq.playStepNow(step, &state);
+  REQUIRE(state.velocityLevel == Approx(0.4f));
   REQUIRE(config.baseVelocity == Approx(0.4f));
 }
 
@@ -50,7 +55,8 @@ TEST_CASE(
   setValue(Id::Velocity, sync, 12);
   REQUIRE(sync.baseVelocity == Approx(0.75f));
   REQUIRE(value(Id::Velocity, sync) == Approx(12));
-  REQUIRE(composeLane(ParamId::Velocity, 0.25f, &sync) == Approx(0.375f));
+  REQUIRE(composeLane(ParamId::Velocity, SequencerConstants::LANE_FOLLOWS_PATCH, &sync) == Approx(0.75f));
+  REQUIRE(composeLane(ParamId::Velocity, 0.25f, &sync) == Approx(0.25f));
   setValue(Id::Engine, sync, ENGINE_HYPERSAW);
   setValue(Id::Engine, sync, ENGINE_OSC);
   REQUIRE(sync.paramSet == PARAMSET_HARDSYNC);
@@ -64,7 +70,7 @@ TEST_CASE(
   REQUIRE(value(Id::Decay, wg) == Approx(2));
 }
 
-TEST_CASE("Patch bases and stored lidar modifiers are independent",
+TEST_CASE("Patch bases and recorded step values are independent",
           "[voice_edit]") {
   VoiceConfig config = VoicePresets::getDigitalVoice();
   enablePatch(config);
@@ -86,10 +92,10 @@ TEST_CASE("Patch bases and stored lidar modifiers are independent",
   REQUIRE(state.noteIndex == 12);
   REQUIRE(state.velocityLevel == Approx(0.7f));
   REQUIRE(seq.getStepParameterValue(ParamId::Note, 0) == 0);
-  REQUIRE(seq.getStepParameterValue(ParamId::Velocity, 0) == 0.5f);
+  REQUIRE(followsPatch(seq.getStepParameterValue(ParamId::Velocity, 0)));
   seq.setStepParameterValue(ParamId::Velocity, 0, 0.25f);
   seq.playStepNow(0, &state);
-  REQUIRE(state.velocityLevel == Approx(0.35f));
+  REQUIRE(state.velocityLevel == Approx(0.25f));
   REQUIRE(config.baseVelocity == Approx(0.7f));
   setValue(Id::GateLength, config, 0.8f);
   seq.playStepNow(0, &state);
@@ -100,16 +106,16 @@ TEST_CASE("Patch bases and stored lidar modifiers are independent",
   REQUIRE(seq.getStepParameterValue(ParamId::Gate, 0) == 1);
 }
 
-TEST_CASE("Every preset maps neutral modifiers back to its sound bases",
+TEST_CASE("Every preset plays its sound bases on steps that follow the patch",
           "[voice_edit]") {
   for (uint8_t preset = 0; preset < VoicePresets::getPresetCount(); ++preset) {
     auto c = VoicePresets::getPresetConfig(preset);
     enablePatch(c);
     INFO(VoicePresets::getPresetName(preset));
     for (ParamId lane : {ParamId::Velocity, ParamId::Filter, ParamId::Attack,
-                         ParamId::Decay}) {
+                         ParamId::Decay, ParamId::Sustain, ParamId::Release}) {
       const auto &b = VoiceParameters::binding(c, lane);
-      const float composed = composeLane(lane, 0.5f, &c);
+      const float composed = composeLane(lane, SequencerConstants::LANE_FOLLOWS_PATCH, &c);
       if (b.target)
         REQUIRE(b.map(composed) == Approx(c.*(b.target)).margin(0.00001));
       REQUIRE(composeLane(lane, 0, &c) >= 0);
@@ -406,7 +412,7 @@ TEST_CASE("Patch randomization stays within its depth around the preset bases", 
   }
 }
 
-TEST_CASE("Neutral envelope modifiers play each preset's own attack and decay",
+TEST_CASE("Steps that follow the patch play each preset's own envelope",
           "[voice_edit][envelope]") {
   for (uint8_t preset = 0; preset < VoicePresets::getPresetCount(); ++preset) {
     auto c = VoicePresets::getPresetConfig(preset);
@@ -415,10 +421,14 @@ TEST_CASE("Neutral envelope modifiers play each preset's own attack and decay",
         VoiceParameters::binding(c, ParamId::Attack).target)
       continue;
     INFO(VoicePresets::getPresetName(preset));
-    REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, 0.5f, &c)) ==
+    constexpr float kPatch = SequencerConstants::LANE_FOLLOWS_PATCH;
+    REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, kPatch, &c)) ==
             Approx(c.defaultAttack).epsilon(1e-3));
-    REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, 0.5f, &c)) ==
+    REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, kPatch, &c)) ==
             Approx(c.defaultDecay).epsilon(1e-3));
+    REQUIRE(composeLane(ParamId::Sustain, kPatch, &c) == Approx(c.defaultSustain));
+    REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Release, kPatch, &c)) ==
+            Approx(c.defaultRelease).epsilon(1e-3));
     REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, 1.0f, &c)) == Approx(2.0f));
     REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, 1.0f, &c)) == Approx(10.0f));
   }
@@ -553,12 +563,13 @@ TEST_CASE("RubberSub sequences full range without dead zones on Attack, Cutoff, 
   REQUIRE(composeLane(ParamId::Attack, 0.0f, &rubberSub) == 0.0f);
   REQUIRE(composeLane(ParamId::Attack, 0.1f, &rubberSub) > 0.0f); // Zero dead zone!
   REQUIRE(composeLane(ParamId::Attack, 0.25f, &rubberSub) > 0.0f);
-  REQUIRE(composeLane(ParamId::Attack, 0.5f, &rubberSub) == Approx(attackBase));
+  constexpr float kPatch = SequencerConstants::LANE_FOLLOWS_PATCH;
+  REQUIRE(composeLane(ParamId::Attack, kPatch, &rubberSub) == Approx(attackBase));
   REQUIRE(composeLane(ParamId::Attack, 0.75f, &rubberSub) > attackBase);
   REQUIRE(composeLane(ParamId::Attack, 1.0f, &rubberSub) == 1.0f);
 
   REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, 0.0f, &rubberSub)) == Approx(0.001f));
-  REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, 0.5f, &rubberSub)) == Approx(0.002f));
+  REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, kPatch, &rubberSub)) == Approx(0.002f));
   REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, 1.0f, &rubberSub)) == Approx(2.0f));
 
   // Cutoff: 0.5 base (the 320 Hz center) spans 90 Hz to 1200 Hz across hand range
@@ -570,17 +581,17 @@ TEST_CASE("RubberSub sequences full range without dead zones on Attack, Cutoff, 
   REQUIRE(VoiceParameters::mapCutoff(cutoff, composeLane(ParamId::Filter, 1.0f, &rubberSub)) == Approx(1200.0f));
   REQUIRE(composeLane(ParamId::Filter, 0.0f, &rubberSub) == 0.0f);
   REQUIRE(composeLane(ParamId::Filter, 0.1f, &rubberSub) > 0.0f); // Zero dead zone!
-  REQUIRE(composeLane(ParamId::Filter, 0.5f, &rubberSub) == Approx(filterBase));
+  REQUIRE(composeLane(ParamId::Filter, kPatch, &rubberSub) == Approx(filterBase));
   REQUIRE(composeLane(ParamId::Filter, 1.0f, &rubberSub) == 1.0f);
 
   // Decay: 160 ms base spans 1 ms to 10 s across hand range
   const float decayBase = laneBase(ParamId::Decay, rubberSub);
   REQUIRE(decayBase == Approx(timeNormalize(0.16f)));
   REQUIRE(composeLane(ParamId::Decay, 0.0f, &rubberSub) == 0.0f);
-  REQUIRE(composeLane(ParamId::Decay, 0.5f, &rubberSub) == Approx(decayBase));
+  REQUIRE(composeLane(ParamId::Decay, kPatch, &rubberSub) == Approx(decayBase));
   REQUIRE(composeLane(ParamId::Decay, 1.0f, &rubberSub) == 1.0f);
   REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, 0.0f, &rubberSub)) == Approx(0.001f));
-  REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, 0.5f, &rubberSub)) == Approx(0.16f));
+  REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, kPatch, &rubberSub)) == Approx(0.16f));
   REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, 1.0f, &rubberSub)) == Approx(10.0f));
 }
 
@@ -591,22 +602,19 @@ TEST_CASE("All factory presets sequence full continuous range without dead zones
     enablePatch(c);
     INFO("Testing preset: " << VoicePresets::getPresetName(p));
 
-    for (ParamId lane : {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Decay, ParamId::Octave}) {
-      const float base = laneBase(lane, c);
-      REQUIRE(composeLane(lane, 0.0f, &c) == 0.0f);
-      REQUIRE(composeLane(lane, 0.5f, &c) == Approx(base));
-      REQUIRE(composeLane(lane, 1.0f, &c) == 1.0f);
-
-      // Verify no dead zones: strictly monotonic progression
-      if (base > 0.0f) {
-        REQUIRE(composeLane(lane, 0.25f, &c) > 0.0f);
-        REQUIRE(composeLane(lane, 0.25f, &c) < base);
-      }
-      if (base < 1.0f) {
-        REQUIRE(composeLane(lane, 0.75f, &c) > base);
-        REQUIRE(composeLane(lane, 0.75f, &c) < 1.0f);
-      }
+    // Absolute lanes span their whole range whatever the patch value.
+    for (ParamId lane : {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Decay,
+                         ParamId::Sustain, ParamId::Release}) {
+      for (float value : {0.0f, 0.25f, 0.5f, 0.75f, 1.0f})
+        REQUIRE(composeLane(lane, value, &c) == Approx(value));
+      REQUIRE(composeLane(lane, SequencerConstants::LANE_FOLLOWS_PATCH, &c) == Approx(laneBase(lane, c)));
     }
+    // Octave stays an offset around the patch octave.
+    const ParamId lane = ParamId::Octave;
+    const float base = laneBase(lane, c);
+    REQUIRE(composeLane(lane, 0.0f, &c) == 0.0f);
+    REQUIRE(composeLane(lane, 0.5f, &c) == Approx(base));
+    REQUIRE(composeLane(lane, 1.0f, &c) == 1.0f);
   }
 }
 
@@ -733,7 +741,7 @@ TEST_CASE("Live parameter modulation with distance sensor produces distinct valu
   MusicalValues::format(ParamId::Attack, composeLive(ParamId::Attack, 0.5f), config, nullptr, 120.0f, midBuf, sizeof(midBuf));
   MusicalValues::format(ParamId::Attack, composeLive(ParamId::Attack, 1.0f), config, nullptr, 120.0f, highBuf, sizeof(highBuf));
   CHECK(std::string(lowBuf) == "1.0ms");
-  CHECK(std::string(midBuf) == "4.0ms");
+  CHECK(std::string(midBuf) == "44.7ms"); // absolute lane center, 1 ms..2 s log
   CHECK(std::string(highBuf) == "2.00s");
 
   // Decay: min, mid, max format distinct times
@@ -741,7 +749,7 @@ TEST_CASE("Live parameter modulation with distance sensor produces distinct valu
   MusicalValues::format(ParamId::Decay, composeLive(ParamId::Decay, 0.5f), config, nullptr, 120.0f, midBuf, sizeof(midBuf));
   MusicalValues::format(ParamId::Decay, composeLive(ParamId::Decay, 1.0f), config, nullptr, 120.0f, highBuf, sizeof(highBuf));
   CHECK(std::string(lowBuf) == "1.0ms");
-  CHECK(std::string(midBuf) == "220.0ms");
+  CHECK(std::string(midBuf) == "100.0ms"); // absolute lane center, 1 ms..10 s log
   CHECK(std::string(highBuf) == "10.00s");
 
   // Velocity: min, mid, max format distinct multipliers
@@ -763,31 +771,81 @@ TEST_CASE("Live parameter modulation with distance sensor produces distinct valu
 
 
 
-TEST_CASE("Fader positions set the base each lane composes around", "[voice_edit][fader]") {
+TEST_CASE("Absolute lanes play their own value or the patch value", "[voice_edit][absolute]") {
+  constexpr ParamId kAbsolute[] = {ParamId::Velocity, ParamId::Filter, ParamId::Attack,
+                                   ParamId::Decay, ParamId::Sustain, ParamId::Release};
   for (uint8_t p = 0; p < VoicePresets::getPresetCount(); ++p) {
     VoiceConfig c = VoicePresets::getPresetConfig(p);
     enablePatch(c);
     INFO(VoicePresets::getPresetName(p));
-    for (ParamId lane : {ParamId::Velocity, ParamId::Filter, ParamId::Attack,
-                         ParamId::Decay, ParamId::GateLength}) {
+    for (ParamId lane : kAbsolute) {
       INFO(static_cast<int>(lane));
-      const auto &b = VoiceParameters::binding(c, lane);
-      for (float position : {0.0f, 0.2f, 0.5f, 0.85f, 1.0f}) {
-        setLaneBaseNormalized(lane, c, position);
-        // Engine lanes store their own units; a half with no travel (a
-        // center at a range end, e.g. WgBell's Pick) pins to that end.
-        const float expected = b.target ? b.normalize(b.map(position)) : position;
-        CHECK(laneBase(lane, c) == Approx(expected).margin(1e-4));
-        // A neutral recording plays the base the fader set.
-        CHECK(composeLane(lane, mapNormalizedValueToParamRange(lane, 0.5f), &c) ==
-              Approx(lane == ParamId::GateLength ? 0.001f + expected * 0.999f : expected).margin(1e-4));
-      }
+      CHECK(composeLane(lane, SequencerConstants::LANE_FOLLOWS_PATCH, &c) ==
+            Approx(laneBase(lane, c)));
+      for (float value : {0.0f, 0.2f, 0.5f, 0.85f, 1.0f})
+        CHECK(composeLane(lane, value, &c) == Approx(value));
     }
-    setLaneBaseNormalized(ParamId::Note, c, 0.5f);
-    CHECK(c.baseNote == 18);
-    setLaneBaseNormalized(ParamId::Octave, c, 0.8f);
-    CHECK(c.baseOctave == 12);
   }
+}
+
+TEST_CASE("A patch value at the end of its range no longer swallows step edits",
+          "[voice_edit][absolute]") {
+  // Offsets used to scale by the base below the lane center: with a base of
+  // 0 every lower-half hand height or encoder turn composed to exactly 0.
+  VoiceConfig c = VoicePresets::getSquareVoice();
+  enablePatch(c);
+  c.filterCutoffBase = 0.0f;
+  c.defaultDecay = 0.001f;
+  c.baseVelocity = 1.0f;
+  for (ParamId lane : {ParamId::Filter, ParamId::Decay, ParamId::Velocity}) {
+    INFO(static_cast<int>(lane));
+    CHECK(composeLane(lane, 0.2f, &c) == Approx(0.2f));
+    CHECK(composeLane(lane, 0.4f, &c) == Approx(0.4f));
+  }
+}
+
+TEST_CASE("Sustain and Release bases follow the patch envelope", "[voice_edit][absolute]") {
+  VoiceConfig c = VoicePresets::getSquareVoice();
+  enablePatch(c);
+  CHECK(laneBase(ParamId::Sustain, c) == Approx(c.defaultSustain));
+  CHECK(MusicalValues::envelopeSeconds(laneBase(ParamId::Release, c)) ==
+        Approx(c.defaultRelease).epsilon(1e-3));
+  // Strings have no envelope: their Sustain/Release lanes shape the pluck.
+  VoiceConfig wg = VoicePresets::getPresetConfig(static_cast<uint8_t>(VoicePresets::findPreset("WgPluck")));
+  enablePatch(wg);
+  CHECK(VoiceParameters::binding(wg, ParamId::Sustain).target == &VoiceConfig::wgPickPosition);
+  CHECK(VoiceParameters::binding(wg, ParamId::Release).target == &VoiceConfig::wgStiffness);
+  CHECK(std::string(laneName(ParamId::Sustain, wg)) == "Position");
+  CHECK(std::string(laneName(ParamId::Release, wg)) == "Stiffness");
+  CHECK(std::string(laneName(ParamId::Sustain, c)) == "Sustain");
+  CHECK(sequenceLane(Id::PickPosition, wg) == ParamId::Sustain);
+  CHECK(sequenceLane(Id::Sustain, c) == ParamId::Sustain);
+  CHECK(sequenceLane(Id::Sustain, wg) == ParamId::Count);
+}
+
+TEST_CASE("Old offset lanes convert to what they played", "[voice_edit][absolute]") {
+  VoiceConfig c = VoicePresets::getSquareVoice();
+  enablePatch(c);
+  // A format-1 lane: offsets around the patch, 0.5 = the patch value.
+  float decay[SequencerConstants::MAX_STEPS_COUNT];
+  for (float &value : decay)
+    value = 0.5f;
+  decay[2] = 0.25f;
+  decay[40] = 1.0f;
+  const float base = laneBase(ParamId::Decay, c);
+  convertOffsetValues(ParamId::Decay, decay, SequencerConstants::MAX_STEPS_COUNT, c);
+  CHECK(followsPatch(decay[0]));
+  CHECK(followsPatch(decay[63]));
+  CHECK(decay[2] == Approx(base * 0.5f));
+  CHECK(decay[40] == Approx(1.0f));
+  // Played values are unchanged by the conversion.
+  CHECK(composeLane(ParamId::Decay, decay[0], &c) == Approx(base));
+  CHECK(composeLane(ParamId::Decay, decay[2], &c) == Approx(base * 0.5f));
+  // Offset lanes (Note, Octave, GateLength) are not converted.
+  float note[4] = {0.5f, 3.0f, 0.0f, 12.0f};
+  convertOffsetValues(ParamId::Note, note, 4, c);
+  CHECK(note[0] == 0.5f);
+  CHECK(note[1] == 3.0f);
 }
 
 namespace {
@@ -833,13 +891,17 @@ struct LiveVoice {
       publish(state);
     }
   }
-  // VoiceEditor::fader(): a new base, then the same in-place refresh.
-  void faderBase(ParamId lane, float position) {
+  // VoiceEditor::encoder(): a new base, then the same in-place refresh.
+  void editBase(Id base, float value) {
     VoiceConfig next = config();
-    setLaneBaseNormalized(lane, next, position);
+    setValue(base, next, value);
     manager.setVoiceConfig(id, next);
     seq.refreshVoiceParameters(&state);
     publish(state);
+  }
+  // ENV mode: a fader writes the selected step's absolute value.
+  void editStep(ParamId lane, uint8_t stepIndex, float position) {
+    seq.editStepValue(lane, stepIndex, mapNormalizedValueToParamRange(lane, position));
   }
   std::string oled(const Step &values, ParamId lane) {
     char text[48];
@@ -935,7 +997,8 @@ TEST_CASE("Recorded attack and decay are heard on every oscillator voice",
   }
 }
 
-TEST_CASE("A free fader moves an oscillator voice's base while it plays", "[voice_edit][fader][live]") {
+TEST_CASE("An encoder base edit moves an oscillator voice's patch value while it plays",
+          "[voice_edit][base][live]") {
   for (uint8_t preset : oscillatorPresets()) {
     INFO(VoicePresets::getPresetName(preset));
     LiveVoice dark(preset), bright(preset);
@@ -943,10 +1006,10 @@ TEST_CASE("A free fader moves an oscillator voice's base while it plays", "[voic
     bright.step(0);
     dark.render(dark.attackSamples());
     bright.render(bright.attackSamples());
-    dark.faderBase(ParamId::Filter, 0.0f);
-    bright.faderBase(ParamId::Filter, 1.0f);
-    // Stored modifiers stay neutral: only the base moved.
-    CHECK(dark.seq.getStepParameterValue(ParamId::Filter, 0) == 0.5f);
+    dark.editBase(Id::Cutoff, 0.0f);
+    bright.editBase(Id::Cutoff, 1.0f);
+    // The step still follows the patch: only the patch value moved.
+    CHECK(followsPatch(dark.seq.getStepParameterValue(ParamId::Filter, 0)));
     CHECK(dark.config().filterCutoffBase == 0.0f);
     const auto &layout = VoiceParameters::layout(dark.config());
     char low[24], high[24];
@@ -962,8 +1025,8 @@ TEST_CASE("A free fader moves an oscillator voice's base while it plays", "[voic
       CHECK(rms(open) > 1.5 * rms(closed));
 
     LiveVoice fast(preset), slow(preset);
-    fast.faderBase(ParamId::Attack, 0.0f);
-    slow.faderBase(ParamId::Attack, 1.0f);
+    fast.editBase(Id::Attack, 0.001f);
+    slow.editBase(Id::Attack, kAttackMaxSeconds);
     CHECK(slow.config().defaultAttack == Approx(kAttackMaxSeconds));
     fast.step(0);
     slow.step(0);
@@ -1003,4 +1066,97 @@ TEST_CASE("Live envelope edits and patch re-sends never step a sounding note",
     // Bass sustains at 0.85, so its decay is the subtlest; unedited renders differ by ~1e-6.
     CHECK(difference(untouched.render(9600), edited.render(9600)) > 0.003);
   }
+}
+
+namespace {
+float peak(const std::vector<float> &x) {
+  float p = 0.0f;
+  for (float y : x)
+    p = std::max(p, std::fabs(y));
+  return p;
+}
+int decaySamples(LiveVoice &v) { return static_cast<int>(v.config().defaultDecay * 48000.0f); }
+} // namespace
+
+TEST_CASE("Every preset is audible on a step that follows its patch", "[voice_edit][presets][live]") {
+  // Square went silent when its decay lane played ~1 ms: with sustain 0 the
+  // note ends at the attack peak. Untouched steps now play the preset's own
+  // envelope, whatever a session stored before.
+  for (uint8_t preset = 0; preset < VoicePresets::getPresetCount(); ++preset) {
+    INFO(VoicePresets::getPresetName(preset));
+    LiveVoice voice(preset);
+    voice.step(0);
+    CHECK(peak(voice.render(48000)) > 0.02f);
+  }
+}
+
+TEST_CASE("A step's own sustain holds its note", "[voice_edit][envelope][live]") {
+  for (uint8_t preset : oscillatorPresets()) {
+    LiveVoice plain(preset), held(preset);
+    INFO(VoicePresets::getPresetName(preset));
+    held.editStep(ParamId::Sustain, 0, 1.0f);
+    plain.step(0);
+    held.step(0);
+    const int settle = plain.attackSamples() + decaySamples(plain) + 960;
+    plain.render(settle);
+    held.render(settle);
+    const auto a = plain.render(4800), b = held.render(4800);
+    CHECK(rms(b) > rms(a));
+    CHECK(difference(a, b) > 0.001);
+  }
+}
+
+TEST_CASE("A step's own release shapes its tail", "[voice_edit][envelope][live]") {
+  const uint8_t digital = static_cast<uint8_t>(VoicePresets::findPreset("Digital"));
+  LiveVoice brief(digital), ringing(digital);
+  brief.editStep(ParamId::Release, 0, 0.0f);    // 1 ms
+  ringing.editStep(ParamId::Release, 0, 1.0f);  // 10 s
+  brief.step(0);
+  ringing.step(0);
+  const int settle = brief.attackSamples() + decaySamples(brief) + 960;
+  brief.render(settle);
+  ringing.render(settle);
+  for (LiveVoice *voice : {&brief, &ringing}) {
+    VoiceState off = voice->state;
+    off.isGateHigh = false;
+    voice->publish(off);
+  }
+  const auto shortTail = brief.render(4800), longTail = ringing.render(4800);
+  CHECK(rms(longTail) > 5.0 * rms(shortTail));
+}
+
+TEST_CASE("Sustain and release edits wait for the next note instead of stepping it",
+          "[voice_edit][envelope][live]") {
+  const uint8_t digital = static_cast<uint8_t>(VoicePresets::findPreset("Digital"));
+  LiveVoice untouched(digital), edited(digital);
+  untouched.step(0);
+  edited.step(0);
+  const int settle = untouched.attackSamples() + decaySamples(untouched) + 960;
+  untouched.render(settle);
+  edited.render(settle); // now sustaining
+  // ENV mode edits the playing step and refreshes the note in place.
+  edited.editStep(ParamId::Sustain, 0, 1.0f);
+  edited.editStep(ParamId::Release, 0, 1.0f);
+  edited.seq.refreshVoiceParameters(&edited.state);
+  edited.publish(edited.state);
+  CHECK(difference(untouched.render(4800), edited.render(4800)) < 1e-4);
+  // The next note plays the new sustain.
+  untouched.step(16);
+  edited.step(16);
+  untouched.render(settle);
+  edited.render(settle);
+  CHECK(rms(edited.render(4800)) > 1.2 * rms(untouched.render(4800)));
+}
+
+TEST_CASE("A string's ENV lanes 3 and 4 move its pick position and stiffness",
+          "[voice_edit][waveguide][live]") {
+  const uint8_t pluck = static_cast<uint8_t>(VoicePresets::findPreset("WgPluck"));
+  LiveVoice plain(pluck), shaped(pluck);
+  shaped.editStep(ParamId::Sustain, 0, 1.0f); // Position: string middle
+  shaped.editStep(ParamId::Release, 0, 1.0f); // Stiffness: bell-like
+  CHECK(shaped.oled(shaped.seq.getPlaybackStep(0), ParamId::Sustain) == "50%");
+  CHECK(shaped.oled(shaped.seq.getPlaybackStep(0), ParamId::Release) == "100%");
+  plain.step(0);
+  shaped.step(0);
+  CHECK(difference(plain.render(9600), shaped.render(9600)) > 0.05);
 }

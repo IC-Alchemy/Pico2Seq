@@ -139,8 +139,16 @@ Activated when `uiState.gateSeqLengthMode` is active (holding the encoder while 
 Displayed when a parameter button is held (`heldParamId`) or a step is selected for editing (`selectedStepForEdit`).
 A held parameter shows the composed value at that lane's playing cursor (`getPlaybackStep()`), which is
 the value live recording writes and the voice plays; it outranks the settings and sequence-length screens.
-In Step Edit the screen shows the selected step for `ControlSurface::stepEditParameter()` (held, else toggled,
-else the encoder target's lane) — the same parameter the encoder edits.
+In Step Edit a held parameter shows the selected step's value; with a toggled parameter (and no ENV
+fader moved in the last 1.5 s) the screen shows that parameter — the same one the encoder edits.
+
+**ENV page (Step Edit with nothing held or toggled, and for 1.5 s after an ENV fader move,
+`OLEDDisplay::displayEnvelopePage()`):** the selected step's four envelope lanes — the ENV faders —
+one per row: Attack, Decay, Sustain, Release (or the engine's names for them, e.g. Pick / T60 /
+Position / Stiffness on strings). A value in parentheses follows the patch; a bare value is the
+step's own. `>` marks the lane a fader last moved (`uiState.envFaderLane`). The footer reads
+`()=patch` and names the lane the encoder edits (`Enc:Velocity`). It replaced the old
+"Step N / Hold parameter to edit this step" screen, which hid fader and encoder edits.
 - **Distance:** while a parameter button is held, the current VL53L1X reading in mm at the right of the
   `LIVE`/`STEP` line: `412mm` inside the recording window, `(812mm)` outside it (nothing recorded), `--mm`
   with no measurement.
@@ -159,9 +167,9 @@ else the encoder target's lane) — the same parameter the encoder edits.
 
 #### 7. Default Status Screen (Priority 7 — Lowest)
 Displayed when no transient, settings, or edit modes are active. Its value line shows the encoder
-target's composed value at the playing step; for 1.5 s after an encoder turn or a free Param-fader move
+target's composed value at the playing step; for 1.5 s after an encoder turn
 (`uiState.encoderBaseViewUntil`) it shows that target's **base** instead (`MusicalValues::baseStep()`,
-labelled `Base`), so the edit is visible even where a step's modifier or a clamp would hide it:
+labelled `Base`), so the edit is visible even where a step's own value would hide it:
 - **Scale:** Name of active musical scale (e.g., `Chromatic`, `Major`, `Minor`, `Dorian`, `Pentatonic Major`, etc.).
 - **Shuffle:** Active shuffle template name (e.g., `No Shuffle`, `Classic 16th`, `Light Swing`).
 - **Voice Index:** Active voice displayed in 0-based format (`Voice: 0` through `Voice: 3`) in large size-3 typography.

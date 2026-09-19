@@ -324,6 +324,10 @@ private:
   // time waits here until its stage ends or the next note-on. Negative: none.
   float pendingAttackSeconds_ = -1.0f;
   float pendingDecaySeconds_ = -1.0f;
+  // Same for the level stages: sustain waits out decay and sustain (the
+  // decay ramps toward it), release waits out a running release.
+  float pendingSustain_ = -1.0f;
+  float pendingReleaseSeconds_ = -1.0f;
   // Set on gate rise/retrigger so the waveguide engine plucks with the pitch
   // already committed for this frame; consumed by renderSources_().
   bool wgPluckPending_ = false;
@@ -621,10 +625,16 @@ private:
    */
   void applyEnvelopeDefaults_() noexcept;
 
-  // Audio thread: attack/decay changes that would cut into the running stage
-  // are held in pending*Seconds_; applyPendingEnvelopeTimes_() lands them.
+  // Audio thread: envelope changes that would cut into the running stage are
+  // held in pending*_; applyPendingEnvelopeTimes_() lands them.
   void setEnvelopeTimes_(float attackSeconds, float decaySeconds) noexcept;
+  void setEnvelopeShape_(float sustainLevel, float releaseSeconds) noexcept;
   void applyPendingEnvelopeTimes_(bool noteOn) noexcept;
+  bool envelopeChangePending_() const noexcept
+  {
+    return pendingAttackSeconds_ >= 0.0f || pendingDecaySeconds_ >= 0.0f ||
+           pendingSustain_ >= 0.0f || pendingReleaseSeconds_ >= 0.0f;
+  }
 
   /**
    * @brief Calculate frequency for a given note with octave offset

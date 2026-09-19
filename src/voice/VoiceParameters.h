@@ -90,6 +90,11 @@ constexpr VoiceParameterLayout waveguideLayout()
   p.slots[static_cast<size_t>(ParamId::Attack)] = control("Pick", &VoiceConfig::wgPickHardness);
   p.slots[static_cast<size_t>(ParamId::Decay)] = {"T60", &VoiceConfig::wgT60, kWaveguideT60Min,
       kWaveguideT60Max, dspmap::Mapping::EXP, VoiceParameterUnit::Seconds, true};
+  // A string has no envelope, so its Sustain/Release lanes (ENV faders 3-4)
+  // shape the next pluck instead.
+  p.slots[static_cast<size_t>(ParamId::Sustain)] = {"Position", &VoiceConfig::wgPickPosition, 0.02f,
+      0.5f, dspmap::Mapping::LINEAR, VoiceParameterUnit::Percent, true};
+  p.slots[static_cast<size_t>(ParamId::Release)] = control("Stiffness", &VoiceConfig::wgStiffness);
   return p;
 }
 constexpr VoiceParameterLayout hypersawLayout()

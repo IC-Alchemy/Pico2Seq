@@ -69,7 +69,10 @@ bool editSelectedStep(UIState &uiState, float delta)
   stepMotion.add(delta);
 
   const uint8_t step = static_cast<uint8_t>(uiState.selectedStepForEdit);
-  const float curVal = selectedSeq->getStepParameterValue(targetParam, step);
+  // An absolute lane that follows the patch starts from the value it plays.
+  const float curVal = isPatchDefaultLane(targetParam)
+                           ? selectedSeq->getPlaybackValue(targetParam, step)
+                           : selectedSeq->getStepParameterValue(targetParam, step);
   const float minVal = getParameterMinValueForParamId(targetParam);
   const float maxVal = getParameterMaxValueForParamId(targetParam);
   float newVal;
@@ -192,10 +195,14 @@ void resetEncoderBaseValues(UIState &uiState, bool currentVoiceOnly)
     VoiceConfig defaults=VoicePresets::getPresetConfig(uiState.voicePresetIndices[index]);
     if(defaults.engine!=next.engine) VoiceEdit::setValue(VoiceEdit::Id::Engine,defaults,next.engine);
     if(next.engine==ENGINE_RECIPE) VoiceEdit::setValue(VoiceEdit::Id::Recipe,defaults,VoiceEdit::value(VoiceEdit::Id::Recipe,next));
-    for(uint8_t lane=0;lane<PARAM_ID_COUNT;++lane) {
+    // Editor IDs Note..Slide match the lanes; Sustain/Release bases are
+    // the envelope page's own IDs.
+    for(uint8_t lane=0;lane<=static_cast<uint8_t>(ParamId::Slide);++lane) {
       const auto id=static_cast<VoiceEdit::Id>(lane);
       VoiceEdit::setValue(id,next,VoiceEdit::value(id,defaults));
     }
+    for(const auto id:{VoiceEdit::Id::Sustain,VoiceEdit::Id::Release})
+      VoiceEdit::setValue(id,next,VoiceEdit::value(id,defaults));
     next.slideSeconds=defaults.slideSeconds;
     VoiceEditor::publish(index,next);
   }

@@ -58,6 +58,14 @@ void ParameterManager::init() {
   }
 }
 
+void ParameterManager::fillTrack(ParamId id, float value) {
+  if (static_cast<size_t>(id) >= kParamCount) {
+    return;
+  }
+  auto &track = _tracks[static_cast<size_t>(id)];
+  track.init(value, track.stepCount());
+}
+
 void ParameterManager::setStepCount(ParamId id, uint8_t steps) {
   if (static_cast<size_t>(id) >= kParamCount) {
     return;
@@ -88,6 +96,10 @@ void ParameterManager::setValue(ParamId id, uint8_t stepIdx, float value) {
 
   // Apply clamping and rounding based on parameter definition
   const auto &paramDef = CORE_PARAMETERS[static_cast<size_t>(id)];
+  if (paramDef.patchDefault && value == SequencerConstants::LANE_FOLLOWS_PATCH) {
+    _tracks[static_cast<size_t>(id)].setValue(stepIdx, value);
+    return;
+  }
   float minVal = parameterValueAsFloat(paramDef.minValue);
   float maxVal = parameterValueAsFloat(paramDef.maxValue);
 

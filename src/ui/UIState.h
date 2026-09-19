@@ -41,6 +41,10 @@ struct UIState
     // Until this time the OLED shows the base the encoder just changed instead
     // of the playing step's composed value (0 = not showing).
     unsigned long encoderBaseViewUntil = 0;
+    // ENV mode: the envelope lane a fader last moved, highlighted on the ENV
+    // page, which also outranks a toggled parameter page until envViewUntil.
+    ParamId envFaderLane = ParamId::Count;
+    unsigned long envViewUntil = 0;
     unsigned long voiceSwitchPressTime = 0;
     bool voiceSwitchWasPressed = false;
 

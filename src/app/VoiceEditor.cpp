@@ -161,34 +161,6 @@ void encoder(float delta) {
   if (!editor.active)
     uiState.encoderBaseViewUntil = millis() + ENCODER_BASE_VIEW_MS;
 }
-void fader(ParamId lane, float position) {
-  const auto index = uiState.selectedVoiceIndex;
-  if (!voiceManager || index >= VoiceSystem::MAX_VOICES || uiState.voiceEditor.active)
-    return;
-  // The encoder and the OLED follow the lane the fader moved, as they do for
-  // a parameter button press.
-  EncoderParameterMode mode;
-  if (ControlSurface::encoderBaseModeForRecordParam(lane, mode) &&
-      mode != uiState.currentEncoderParameter) {
-    uiState.currentEncoderParameter = mode;
-    clearEncoder();
-  }
-  const auto *requested =
-      voiceManager->getVoiceConfig(voiceSystem.getVoiceId(index));
-  const auto id = static_cast<VoiceEdit::Id>(lane); // leading IDs match ParamId
-  if (!requested || !VoiceEdit::available(id, *requested))
-    return;
-  VoiceConfig next = *requested;
-  const float before = VoiceEdit::laneBase(lane, next);
-  VoiceEdit::setLaneBaseNormalized(lane, next, position);
-  if (VoiceEdit::laneBase(lane, next) == before)
-    return;
-  publish(index, next);
-  // Same as an encoder turn: the sounding note takes the new base at once,
-  // and the OLED shows the base while it moves.
-  updateActiveVoiceState(UINT8_MAX, *AppState::sequencers[index]);
-  uiState.encoderBaseViewUntil = millis() + ENCODER_BASE_VIEW_MS;
-}
 VoiceEdit::Id encoderTarget() {
   using Id = VoiceEdit::Id;
   if (uiState.currentEncoderParameter == EncoderParameterMode::SlideTime)

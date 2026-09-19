@@ -22,7 +22,7 @@ One **project** = everything needed to resume exactly where you left off:
 
 | Area | Contents |
 |---|---|
-| 4 patterns | All 9 parameter lanes (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide) per voice, **including** each lane's independent step length (polymeter survives save/load) and the full 64-step tail behind a shortened lane |
+| 4 patterns | All 11 parameter lanes (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide, Sustain, Release) per voice, **including** each lane's independent step length (polymeter survives save/load) and the full 64-step tail behind a shortened lane |
 | 4 patches | Each voice's preset + every Voice Edit tweak (oscillators, filter, envelope, overdrive, waveguide/hypersaw/noise params, flags). The preset's *sound descriptors* are re-derived from flash at load, not stored |
 | Settings | Tempo (45–200 BPM), master volume, scale (0–12), shuffle template (0–15), LED theme (0–9), selected voice (0–3), per-voice preset indices, per-voice editor cursor + edited flags, slide mode |
 
@@ -97,11 +97,27 @@ All in `persistence::` (`ProjectSnapshot.h`). Sizes are part of the format:
 | Struct | Size | Layout |
 |---|---|---|
 | `TrackSnapshot` | 260 B | 64 floats `values[64]` (256 B) + `stepCount` u8 + 3 `reserved` bytes |
-| `PatternSnapshot` | 2,340 B | 9 tracks (`PARAM_ID_COUNT`), one per `ParamId` |
+| `PatternSnapshot` | 2,340 B | 9 tracks (`kPatternTrackCount`), `ParamId::Note`..`Slide` |
+| `EnvelopeTracksSnapshot` | 520 B | 2 tracks: `ParamId::Sustain`, `ParamId::Release` (format 2) |
 | `PatchSnapshot` | 232 B | 55 × 4-byte value words (220 B) + 10 u8 (counts, engine/paramSet/filter/preset/waveforms/flags) + 2 `reserved` tail bytes, packed so there is **no** compiler-dependent padding |
 | `SettingsSnapshot` | 24 B | tempo, master volume, theme, scale, shuffle, selected voice, 4 preset indices, 4 editor cursors, `changedFlags` |
-| **`ProjectSnapshotV1`** | **10,312 B** | 4 patterns (9,360 B) + 4 patches (928 B) + settings (24 B) |
-| Flash file | 10,324 B | 12-byte frame header + 10,312-byte payload |
+| `ProjectSnapshotV1` | 10,312 B | Format 1: 4 patterns (9,360 B) + 4 patches (928 B) + settings (24 B). Only used to size old files |
+| **`ProjectSnapshot`** | **12,400 B** | Format 2: the format-1 layout unchanged, then 4 × `EnvelopeTracksSnapshot` (2,080 B), `laneModel` (u32) and `reserved` (u32) |
+| Flash file | 12,412 B | 12-byte frame header + 12,400-byte payload (format-1 files: 10,324 B) |
+
+**Format 2 (2026-09-19).** A format-1 payload is byte-for-byte the prefix of
+format 2 (`static_assert(offsetof(ProjectSnapshot, envelopes) == sizeof(ProjectSnapshotV1))`).
+`SessionStorage::load` reads the header's version first (`frameVersion()`), reads
+10,312 or 12,400 payload bytes, checks the frame against that version, and for a
+format-1 file calls `upgradeFromV1()`: Sustain/Release tracks follow the patch on
+16 steps and `laneModel = LANE_MODEL_OFFSETS`. `Session::applyAfterVoices()` then
+converts the Velocity/Filter/Attack/Decay values in the snapshot, voice by voice,
+from offsets around the loaded patch to the absolute values they played
+(`VoiceEdit::convertOffsetValues()`; neutral 0.5 becomes `LANE_FOLLOWS_PATCH`), before
+`applyPattern()`, and marks the snapshot `LANE_MODEL_ABSOLUTE`. The conversion works on
+snapshot data because `Sequencer::setRawStepValue()` wraps at a lane's active length.
+The next save writes format 2. The retained-RAM store moved to `RETAINED_VERSION = 2`,
+so a watchdog resume across the firmware update falls back to the flash file.
 
 Field notes:
 
@@ -254,8 +270,8 @@ is computed over the payload buffer directly, never over bytes past the header.
 ```
 offset  size  field
 0       4     magic   0x50325331 ('P2S1', LE)
-4       2     version SNAPSHOT_FORMAT_VERSION = 1
-6       2     payloadSize (u16; sizeof(ProjectSnapshotV1) = 10312)
+4       2     version SNAPSHOT_FORMAT_VERSION = 2 (1 still loads, see §3)
+6       2     payloadSize (u16; sizeof(ProjectSnapshot) = 12400, format 1: 10312)
 8       4     crc32   CRC-32/ISO-HDLC over payload (poly 0xEDB88320, init/xor 0xFFFFFFFF;
               check vector: "123456789" -> 0xCBF43926)
 ```
@@ -265,8 +281,10 @@ API:
 ```cpp
 uint32_t persistence::crc32(const uint8_t* data, size_t length) noexcept;  // nullptr/0 -> 0
 void persistence::writeFrameHeader(uint8_t out[12], uint32_t payloadSize, uint32_t payloadCrc) noexcept;
+uint16_t persistence::frameVersion(const uint8_t header[12]) noexcept;
 FrameStatus persistence::readFrameHeader(const uint8_t header[12], const uint8_t* payload,
-                                         size_t payloadCapacity, uint16_t expectedPayloadSize) noexcept;
+                                         size_t payloadCapacity, uint16_t expectedPayloadSize,
+                                         uint16_t expectedVersion = SNAPSHOT_FORMAT_VERSION) noexcept;
 // FrameStatus: Ok | TooShort | BadMagic | BadVersion | BadSize | BadCrc
 ```
 

@@ -133,6 +133,7 @@ private:
   bool clearAllLatch_ = false;
   uint8_t modeSwitchPin_ = 7; // GP7 default; setup1 sets PIN_ALCHEMY_MODE_SWITCH
   uint8_t lastVoiceIndex_ = 0;
+  int lastStepForEdit_ = -1;
 };
 
 #endif // ALCHEMY_CONTROL_BRIDGE_H

@@ -8,7 +8,9 @@ namespace persistence
 {
 
 constexpr uint32_t SNAPSHOT_MAGIC = 0x50325331u; // 'P2S1'
-constexpr uint16_t SNAPSHOT_FORMAT_VERSION = 1;
+constexpr uint16_t SNAPSHOT_FORMAT_VERSION = 2;
+// Format 1 files still load: their payload is the prefix of format 2.
+constexpr uint16_t SNAPSHOT_FORMAT_VERSION_V1 = 1;
 
 // CRC-32/ISO-HDLC (the zlib/IEEE variant): poly 0xEDB88320, init/final 0xFFFFFFFF.
 uint32_t crc32(const uint8_t *data, size_t length) noexcept;
@@ -29,7 +31,11 @@ enum class FrameStatus { Ok, TooShort, BadMagic, BadVersion, BadSize, BadCrc };
 // separately) — the CRC is computed over `payload` directly, never over
 // bytes following the header. `payloadCapacity` must be >= the declared size.
 FrameStatus readFrameHeader(const uint8_t header[12], const uint8_t *payload,
-                            size_t payloadCapacity, uint16_t expectedPayloadSize) noexcept;
+                            size_t payloadCapacity, uint16_t expectedPayloadSize,
+                            uint16_t expectedVersion = SNAPSHOT_FORMAT_VERSION) noexcept;
+
+// Version field of a frame header, read before choosing the payload size.
+uint16_t frameVersion(const uint8_t header[12]) noexcept;
 
 } // namespace persistence
 

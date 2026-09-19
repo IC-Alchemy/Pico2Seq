@@ -61,7 +61,8 @@ inline void voiceNotes(const Step &step, const VoiceConfig &config, const int *r
 }
 inline Step baseStep(const VoiceConfig &config) noexcept {
   const auto lane = [&](ParamId id) {
-    return VoiceEdit::composeLane(id, id == ParamId::Note ? 0.0f :
+    return VoiceEdit::composeLane(id, isPatchDefaultLane(id) ? SequencerConstants::LANE_FOLLOWS_PATCH :
+        id == ParamId::Note ? 0.0f :
         id == ParamId::Gate ? 1.0f : id == ParamId::Slide ? 0.0f :
         mapNormalizedValueToParamRange(id, 0.5f), &config);
   };
@@ -71,6 +72,8 @@ inline Step baseStep(const VoiceConfig &config) noexcept {
   s.filterCutoff = lane(ParamId::Filter);
   s.attackTimeSeconds = lane(ParamId::Attack);
   s.decayTimeSeconds = lane(ParamId::Decay);
+  s.sustainLevel = lane(ParamId::Sustain);
+  s.releaseTimeSeconds = lane(ParamId::Release);
   s.octaveOffset = VoiceEdit::mapOctave(lane(ParamId::Octave));
   s.isGateActive = lane(ParamId::Gate) > 0.5f;
   s.hasSlide = lane(ParamId::Slide) > 0.5f;
@@ -98,11 +101,19 @@ inline void format(ParamId id, const Step &step, const VoiceConfig &config,
   case ParamId::Filter: normalized = step.filterCutoff; break;
   case ParamId::Attack: normalized = step.attackTimeSeconds; break;
   case ParamId::Decay: normalized = step.decayTimeSeconds; break;
+  case ParamId::Sustain: normalized = step.sustainLevel; break;
+  case ParamId::Release: normalized = step.releaseTimeSeconds; break;
   default: std::snprintf(out, size, "--"); return;
   }
   const auto &binding = VoiceParameters::binding(config, id);
   if (id == ParamId::Filter && !binding.target && !config.hasFilter) {
     std::snprintf(out, size, "Bypass"); return;
+  }
+  if ((id == ParamId::Sustain || id == ParamId::Release) && !binding.target) {
+    if (!config.hasEnvelope) { std::snprintf(out, size, "Off"); return; }
+    if (id == ParamId::Sustain) std::snprintf(out, size, "%.0f%%", normalized * 100.0f);
+    else time(envelopeSeconds(normalized), out, size);
+    return;
   }
   if ((id == ParamId::Attack || id == ParamId::Decay) && !binding.target) {
     if (!config.hasEnvelope) { std::snprintf(out, size, "Off"); return; }

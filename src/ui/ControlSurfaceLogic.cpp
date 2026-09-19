@@ -141,30 +141,28 @@ void ShiftLatch::applyTo(bool *heldOut, uint8_t count) const
 
 // --- FaderMap -----------------------------------------------------------------
 
-FaderAssignment FaderMap::assignmentFor(Mode mode, uint8_t channel)
+FaderAssignment FaderMap::assignmentFor(bool stepSelected, uint8_t channel)
 {
   FaderAssignment out;
   if (channel >= kChannelCount)
   {
-    out.target = FaderTarget::StepParam;
-    out.paramId = ParamId::Count;
     return out;
   }
 
-  if (mode == Mode::Param)
+  if (stepSelected)
   {
-    // Design table: Filter, Attack, Decay, Velocity for the selected voice.
-    static constexpr ParamId kParamModeParams[kChannelCount] = {
-        ParamId::Filter, ParamId::Attack, ParamId::Decay, ParamId::Velocity};
-    out.target = FaderTarget::StepParam;
-    out.paramId = kParamModeParams[channel];
+    static constexpr ParamId kEnvLanes[kChannelCount] = {
+        ParamId::Attack, ParamId::Decay, ParamId::Sustain, ParamId::Release};
+    out.target = FaderTarget::EnvLane;
+    out.paramId = kEnvLanes[channel];
     return out;
   }
 
-  static constexpr FaderTarget kUtilityModeTargets[kChannelCount] = {
-      FaderTarget::Tempo, FaderTarget::SwingAmount, FaderTarget::MasterVolume,
+  // Fader 3 (the old Decay / Master Volume slot) is left unassigned for now.
+  static constexpr FaderTarget kTargets[kChannelCount] = {
+      FaderTarget::Tempo, FaderTarget::SwingAmount, FaderTarget::None,
       FaderTarget::GateLength};
-  out.target = kUtilityModeTargets[channel];
+  out.target = kTargets[channel];
   return out;
 }
 

@@ -560,50 +560,12 @@ float laneBase(ParamId id, const VoiceConfig &c) noexcept {
     return (c.baseOctave + 24.0f) / 48.0f;
   case ParamId::GateLength:
     return (c.baseGateLength - 0.001f) / 0.999f;
+  case ParamId::Sustain:
+    return std::clamp(c.defaultSustain, 0.0f, 1.0f);
+  case ParamId::Release:
+    return timeNormalize(c.defaultRelease);
   default:
     return 0.5f;
-  }
-}
-void setLaneBaseNormalized(ParamId id, VoiceConfig &c, float n) noexcept {
-  if (!std::isfinite(n))
-    return;
-  n = std::clamp(n, 0.0f, 1.0f);
-  const auto &b = VoiceParameters::binding(c, id);
-  if (b.target) {
-    c.*(b.target) = b.map(n);
-    return;
-  }
-  switch (id) {
-  case ParamId::Note:
-    c.baseNote = std::round(n * 36.0f);
-    break;
-  case ParamId::Velocity:
-    // Hard sync's Slave lane also stores its base normalized.
-    c.baseVelocity = n;
-    break;
-  case ParamId::Filter:
-    c.filterCutoffBase = n;
-    break;
-  case ParamId::Attack:
-    c.defaultAttack = kTimeMin * std::pow(kAttackMaxSeconds / kTimeMin, n);
-    break;
-  case ParamId::Decay:
-    c.defaultDecay = timeMap(n);
-    break;
-  case ParamId::Octave:
-    c.baseOctave = std::round((n * 48.0f - 24.0f) / 12.0f) * 12.0f;
-    break;
-  case ParamId::GateLength:
-    c.baseGateLength = 0.001f + n * 0.999f;
-    break;
-  case ParamId::Gate:
-    c.baseGate = n >= 0.5f;
-    break;
-  case ParamId::Slide:
-    c.baseSlide = n >= 0.5f;
-    break;
-  default:
-    break;
   }
 }
 void setLaneBase(ParamId id, VoiceConfig &c, float v) {
@@ -707,6 +669,18 @@ ParamId sequenceLane(Id id, const VoiceConfig &c) noexcept {
   case Id::EnvDecay:
     return VoiceParameters::layout(c).envelopeFromTracks ? ParamId::Decay
                                                          : ParamId::Count;
+  case Id::Sustain:
+    return VoiceParameters::binding(c, ParamId::Sustain).target ? ParamId::Count
+                                                                : ParamId::Sustain;
+  case Id::Release:
+    return VoiceParameters::binding(c, ParamId::Release).target ? ParamId::Count
+                                                                : ParamId::Release;
+  case Id::PickPosition:
+    target = &VoiceConfig::wgPickPosition;
+    break;
+  case Id::Stiffness:
+    target = &VoiceConfig::wgStiffness;
+    break;
   case Id::StaticCutoff:
     return VoiceParameters::binding(c, ParamId::Filter).target
                ? ParamId::Count
@@ -715,11 +689,20 @@ ParamId sequenceLane(Id id, const VoiceConfig &c) noexcept {
     break;
   }
   if (target)
-    for (ParamId lane :
-         {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Decay})
+    for (ParamId lane : {ParamId::Velocity, ParamId::Filter, ParamId::Attack,
+                         ParamId::Decay, ParamId::Sustain, ParamId::Release})
       if (VoiceParameters::binding(c, lane).target == target)
         return lane;
   return ParamId::Count;
+}
+const char *laneName(ParamId lane, const VoiceConfig &c) noexcept {
+  if (lane <= ParamId::Slide)
+    return name(static_cast<Id>(lane), c);
+  const auto &b = VoiceParameters::binding(c, lane);
+  if (b.name)
+    return b.name;
+  const auto *definition = parameterDefinition(lane);
+  return definition ? definition->name : "--";
 }
 const char *name(Id id, const VoiceConfig &c) noexcept {
   if (id <= Id::Slide) {
@@ -1027,6 +1010,14 @@ float composeLane(ParamId id, float stored, const void *context) noexcept {
   if (!context)
     return stored;
   const auto &c = *static_cast<const VoiceConfig *>(context);
+  if (isPatchDefaultLane(id)) {
+    // Absolute lane: a step's own value plays as stored; a step that follows
+    // the patch plays the patch value (or the lane default without bases).
+    if (!followsPatch(stored))
+      return std::clamp(stored, 0.0f, 1.0f);
+    return c.usePatchBases ? laneBase(id, c)
+                           : parameterValueAsFloat(CORE_PARAMETERS[static_cast<size_t>(id)].defaultValue);
+  }
   if (!c.usePatchBases)
     return stored;
   if (id == ParamId::Gate)
@@ -1065,8 +1056,20 @@ void seedModifiers(Sequencer &seq) {
     const auto id = static_cast<ParamId>(i);
     if (id == ParamId::Gate || id == ParamId::Slide)
       continue;
-    seq.fillModulationTrack(id, id == ParamId::Note ? 0.0f : mapNormalizedValueToParamRange(id, 0.5f));
+    seq.fillModulationTrack(id, isPatchDefaultLane(id) ? SequencerConstants::LANE_FOLLOWS_PATCH
+                                : id == ParamId::Note ? 0.0f
+                                : mapNormalizedValueToParamRange(id, 0.5f));
   }
+}
+void convertOffsetValues(ParamId id, float *values, size_t count, const VoiceConfig &c) {
+  if (!values || !isPatchDefaultLane(id))
+    return;
+  constexpr float kNeutral = 0.5f;
+  const float base = laneBase(id, c);
+  for (size_t step = 0; step < count; ++step)
+    values[step] = std::fabs(values[step] - kNeutral) < 1e-4f
+                       ? SequencerConstants::LANE_FOLLOWS_PATCH
+                       : offsetAroundBase(base, values[step]);
 }
 void enablePatch(VoiceConfig &c) noexcept { c.usePatchBases = true; }
 } // namespace VoiceEdit
