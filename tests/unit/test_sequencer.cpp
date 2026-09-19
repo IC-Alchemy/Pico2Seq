@@ -764,3 +764,56 @@ TEST_CASE("refreshVoiceParameters updates a sounding voice without retriggering"
 
     seq.refreshVoiceParameters(nullptr); // tolerated
 }
+
+// ─── Live recording and step edits (lidar, faders, encoder) ──────────────────
+
+TEST_CASE("Live values land on each lane's own playing step", "[sequencer][recording]") {
+    Sequencer seq(0);
+    seq.setParameterStepCount(ParamId::Filter, 5);
+    seq.setStepParameterValue(ParamId::Gate, 7, 1.0f);
+    seq.start();
+    VoiceState state;
+    seq.advanceStep(7, -1, false, false, false, false, false, false, -1, &state);
+    REQUIRE(seq.getCurrentStepForParameter(ParamId::Filter) == 2);
+
+    // Between clock steps the playing step takes the value, not step 7.
+    REQUIRE(seq.recordLiveValue(ParamId::Filter, 0.9f));
+    CHECK(seq.getStepParameterValue(ParamId::Filter, 2) == Catch::Approx(0.9f));
+    CHECK(seq.getPlaybackStep().filterCutoff == Catch::Approx(0.9f));
+    // An unchanged value reports no change, so callers skip the voice refresh.
+    CHECK_FALSE(seq.recordLiveValue(ParamId::Filter, 0.9f));
+    // Out-of-range lanes are rejected.
+    CHECK_FALSE(seq.recordLiveValue(ParamId::Count, 0.5f));
+}
+
+TEST_CASE("Live pitch follows the playing gate, not the Note lane's own step", "[sequencer][recording]") {
+    Sequencer seq(0);
+    seq.setParameterStepCount(ParamId::Note, 4);
+    seq.setStepParameterValue(ParamId::Gate, 1, 1.0f); // Note cursor 1 at step 5; gate step 5 is off
+    seq.start();
+    VoiceState state;
+    seq.advanceStep(5, -1, false, false, false, false, false, false, -1, &state);
+    REQUIRE(seq.getCurrentStepForParameter(ParamId::Note) == 1);
+    CHECK_FALSE(seq.recordLiveValue(ParamId::Note, 9.0f));
+    CHECK(seq.getStepParameterValue(ParamId::Note, 1) == 0.0f);
+    // Other lanes still record on a silent step.
+    CHECK(seq.recordLiveValue(ParamId::Decay, 0.7f));
+
+    seq.setStepParameterValue(ParamId::Gate, 5, 1.0f);
+    CHECK(seq.recordLiveValue(ParamId::Note, 9.0f));
+    CHECK(seq.getStepParameterValue(ParamId::Note, 1) == 9.0f);
+}
+
+TEST_CASE("Step edits never write pitch into a gate-off step", "[sequencer][recording]") {
+    Sequencer seq(0);
+    CHECK_FALSE(seq.editStepValue(ParamId::Note, 3, 12.0f));
+    CHECK(seq.getStepParameterValue(ParamId::Note, 3) == 0.0f);
+    CHECK(seq.editStepValue(ParamId::Attack, 3, 0.4f));
+    CHECK(seq.getStepParameterValue(ParamId::Attack, 3) == Catch::Approx(0.4f));
+
+    seq.toggleStep(3);
+    CHECK(seq.editStepValue(ParamId::Note, 3, 12.0f));
+    CHECK(seq.getStepParameterValue(ParamId::Note, 3) == 12.0f);
+    CHECK_FALSE(seq.editStepValue(ParamId::Note, 3, 12.2f)); // rounds to the stored step
+    CHECK_FALSE(seq.editStepValue(ParamId::Filter, SequencerConstants::MAX_STEPS_COUNT, 0.5f));
+}

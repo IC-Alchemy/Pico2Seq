@@ -78,16 +78,21 @@ Gate remains a trigger pattern: its base enables/disables the pattern. Slide's
 base can enable slide throughout the pattern, otherwise the recorded Slide bits
 control it. Neither binary track is treated as a continuous lidar modifier.
 
-With a parameter button held, and in Step Edit, the OLED shows composed playback
-values, after preset bases, clamping, quantization and engine-specific mapping: the
-value the voice plays. With no parameter held, the home screen shows the encoder
-target's base, since a step's modifier or a clamp at a limit could otherwise hide an
-encoder turn. Live edits (lidar, faders, encoder) refresh the sounding note in place
-through `Sequencer::refreshVoiceParameters()`; they never retrigger it. Note displays
+Outside the editor a Param-mode fader moved with no parameter button held sets its
+lane's base the same way (`VoiceEditor::fader()`, via `VoiceEdit::setLaneBaseNormalized()`,
+the inverse of `laneBase()`); with its parameter button held it records a modifier into
+the playing step instead, like the lidar.
+
 The step OLED and normal encoder screen show composed playback values, after
-preset bases, clamping, quantization and engine-specific mapping. For 1.5 s after an
-encoder turn they show the edited base instead (`Base` / `BASE`), since a step's
-modifier or a clamp at a limit can otherwise hide the change. Note displays
+preset bases, clamping, quantization and engine-specific mapping: the value the voice
+plays. For 1.5 s after an encoder turn or free-fader move they show the edited base
+instead (`Base` / `BASE`), since a step's modifier or a clamp at a limit can otherwise
+hide the change. Live edits (lidar, faders, encoder) refresh the sounding note in place
+through `Sequencer::refreshVoiceParameters()`; they never retrigger it. The ADSR times
+its stages in samples, so `Voice` holds a new attack (decay) length while the attack
+(decay) stage is running and applies it when that stage ends or at the next note-on;
+cutoff, velocity and pitch apply at once. A patch publish glides the cutoff smoother
+to its new target instead of snapping it. Note displays
 note names and octaves, including oscillator harmonies/detuning (Bass starts at
 `C2/C3`); unpitched percussion reads `Noise`. Envelope and gate durations use
 ms/s, cutoff uses Hz, octave uses signed octaves, and FM/spacing use ratios.

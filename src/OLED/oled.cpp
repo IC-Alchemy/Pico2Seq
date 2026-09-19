@@ -455,8 +455,9 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     displayHardware.setCursor(2, 43); displayHardware.print("Hold parameter");
     displayHardware.setCursor(2, 54); displayHardware.print("to edit this step");
   } else {
-    // No parameter held: show the base the encoder edits for its target.
-    // Step modifiers are left out, so a turn always shows its effect.
+    // No parameter held: the encoder target's playing value, or for 1.5 s
+    // after an encoder turn or fader move the base it changed (a step's
+    // modifier or a clamp could otherwise hide the edit).
     drawVoiceHeader(uiState, true);
     displayHardware.setCursor(104, 0);
     displayHardware.print("S"); displayHardware.print(sequence.getCurrentStep() + 1);

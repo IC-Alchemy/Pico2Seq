@@ -385,6 +385,9 @@ void PICO2SEQ_AUDIO_FUNC(Voice::renderSpan_)(float *out, uint32_t n) noexcept
     rpdsp::ADSR adsr = envelope;
     for (uint32_t k = 0; k < n; ++k) spanEnv_[k] = adsr.process();
     envelope = adsr;
+    // Held attack/decay edits land once their stage has ended.
+    if (pendingAttackSeconds_ >= 0.0f || pendingDecaySeconds_ >= 0.0f)
+      applyPendingEnvelopeTimes_(false);
   }
   else
   {
@@ -483,7 +486,10 @@ void Voice::handleGateEdges_() noexcept
     if (gateHigh)
     {
       if (config.hasEnvelope)
+      {
+        applyPendingEnvelopeTimes_(true);
         envelope.noteOn();
+      }
       wgPluckPending_ = true; // waveguide engine re-plucks on retriggers
       hypersawTriggerPending_ = true;
       recipeTriggerPending_ = true;
@@ -492,7 +498,10 @@ void Voice::handleGateEdges_() noexcept
   else if (rising)
   {
     if (config.hasEnvelope)
+    {
+      applyPendingEnvelopeTimes_(true);
       envelope.noteOn();
+    }
     wgPluckPending_ = true;
     hypersawTriggerPending_ = true;
     recipeTriggerPending_ = true;
@@ -861,8 +870,8 @@ void Voice::updateOscillatorFrequencies()
 inline void Voice::applyEnvelopeParameters() noexcept
 {
   if(config.usePatchBases) {
-    envelope.setAttack(MusicalValues::attackSeconds(state.attackTimeSeconds));
-    envelope.setDecay(MusicalValues::envelopeSeconds(state.decayTimeSeconds));
+    setEnvelopeTimes_(MusicalValues::attackSeconds(state.attackTimeSeconds),
+                      MusicalValues::envelopeSeconds(state.decayTimeSeconds));
     envelope.setSustain(config.defaultSustain);
     envelope.setRelease(config.defaultRelease);
     return;
@@ -874,17 +883,39 @@ inline void Voice::applyEnvelopeParameters() noexcept
       dspmap::fmap(state.decayTimeSeconds, 0.01f, 0.5f, dspmap::Mapping::LOG);
   // float release = decay; // Use decay for release in this implementation
 
-  envelope.setAttack(attack);
-  envelope.setDecay(0.075f + (decay * 0.32f));
+  setEnvelopeTimes_(attack, 0.075f + (decay * 0.32f));
   envelope.setRelease(decay);
 }
 
 inline void Voice::applyEnvelopeDefaults_() noexcept
 {
-  envelope.setAttack(config.defaultAttack);
-  envelope.setDecay(config.defaultDecay);
+  setEnvelopeTimes_(config.defaultAttack, config.defaultDecay);
   envelope.setSustain(config.defaultSustain);
   envelope.setRelease(config.defaultRelease);
+}
+
+void Voice::setEnvelopeTimes_(float attackSeconds, float decaySeconds) noexcept
+{
+  pendingAttackSeconds_ = attackSeconds;
+  pendingDecaySeconds_ = decaySeconds;
+  applyPendingEnvelopeTimes_(false);
+}
+
+void PICO2SEQ_AUDIO_FUNC(Voice::applyPendingEnvelopeTimes_)(bool noteOn) noexcept
+{
+  // A stage not running (or restarting at a note-on) can take a new length
+  // without a level step; the running one keeps its length until it ends.
+  const auto stage = envelope.stage();
+  if (pendingAttackSeconds_ >= 0.0f && (noteOn || stage != rpdsp::ADSR::Stage::kAttack))
+  {
+    envelope.setAttack(pendingAttackSeconds_);
+    pendingAttackSeconds_ = -1.0f;
+  }
+  if (pendingDecaySeconds_ >= 0.0f && (noteOn || stage != rpdsp::ADSR::Stage::kDecay))
+  {
+    envelope.setDecay(pendingDecaySeconds_);
+    pendingDecaySeconds_ = -1.0f;
+  }
 }
 
 size_t Voice::effectiveScaleIndex_() const noexcept
@@ -1244,9 +1275,12 @@ void Voice::applyConfig_(const VoiceConfig &newConfig) noexcept
 
     const auto &paramLayout = VoiceParameters::layout(config);
     filterFrequency = VoiceParameters::mapCutoff(paramLayout, config.filterCutoffBase);
-    filter.setFreq(filterFrequency);
-    filterSvf_.setCutoff(filterFrequency);
-    filterCutoffCurrent = filterFrequency;
+    // The cutoff smoother glides to the new target. Snapping to it (without
+    // the envelope) stepped the filter on every live base edit. Both
+    // topologies take the current cutoff so a switch starts from it.
+    filter.setFreq(filterCutoffCurrent);
+    filterSvf_.setCutoff(filterCutoffCurrent);
+    lastAppliedFilterCutoff = filterCutoffCurrent;
   }
 
   highPassFilter.setCutoff(config.highPassFreq);

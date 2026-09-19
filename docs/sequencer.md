@@ -201,6 +201,10 @@ public:
     void copyStep(uint8_t srcStep, uint8_t dstStep);
     Step getPlaybackStep(uint8_t stepIdx = UINT8_MAX) const;
 
+    // Performance edits (gate-protected Note; return true on a stored change)
+    bool recordLiveValue(ParamId id, float value);            // lane's playing step
+    bool editStepValue(ParamId id, uint8_t stepIdx, float value); // Step Edit
+
     // Step Execution & Preview
     void playStepNow(uint8_t stepIdx, VoiceState *voiceState);
     void previewActiveStep(VoiceState *voiceState);
@@ -251,9 +255,9 @@ When `advanceStep()` is called on each 16th note clock tick:
    ```
 5. **Real-time Parameter Recording**:
    If `mm_distance >= 0` and not in step-edit mode (`current_selected_step_for_edit == -1`):
-   - Normalizes distance: `normalized = clamp(mm_distance / 1100.0f, 0.0f, 1.0f)`.
-   - Checks held parameter buttons. For `ParamId::Note`, checks gate restriction (recording is allowed only if the step's Gate is HIGH).
-   - Maps normalized distance to the target parameter's range and calls `setStepParameterValue(paramId, currentStepPerParam[paramId], value)`.
+   - Normalizes the hand: the calibrated value from `setRecordingInput()` (55–700 mm window), else `clamp(mm_distance / 1100.0f, 0.0f, 1.0f)`.
+   - For each held parameter button, maps the value to the parameter's range and calls `recordLiveValue(paramId, value)`, which writes the lane's own playing step (`currentStepPerParam[paramId]`). For `ParamId::Note` it writes only while the playing Gate step is HIGH.
+   - This is the step-boundary half of live recording: the new step starts from the hand's current height. Between steps the firmware keeps recording the continuous lanes (Velocity, Filter, Attack, Decay; `ControlSurface::recordsBetweenSteps()`) through the same `recordLiveValue()` every control pass (`recordParameter()` in `src/app/StepPlayback.cpp`) and refreshes the sounding note with `refreshVoiceParameters()`, so the voice follows the hand without waiting for the next step. Note and Octave stay one value per note.
 6. **Step Processing (`processStep`)**:
    Calls `processStep(UINT8_MAX, voiceState)` to populate the output `VoiceState`:
    - Extracts all parameter values at their respective `currentStepPerParam[id]` indices.
@@ -407,20 +411,12 @@ parameter track, `VoiceState::isGateHigh`, and sequencer-owned note durations.
 
 ### 7.1 Gate-Controlled Note Editing
 
-To prevent accidental modification of pitch parameters on inactive steps during live performance or parameter recording:
+To prevent accidental modification of pitch parameters on inactive steps during live performance or parameter recording, every performance write goes through one of two gate-aware methods (both return `true` only when the stored value actually changed, so callers refresh the voice only then):
 
-1. **Step Parameter Assignment (`setStepParameterValue`)**:
-   ```cpp
-   if (id == ParamId::Note)
-   {
-       float gateValue = getStepParameterValue(ParamId::Gate, stepIdx);
-       if (gateValue <= 0.5f) {
-           return; // Silently ignore note edits on inactive steps
-       }
-   }
-   ```
-2. **Real-time Sensor Recording**:
-   During live distance-sensor parameter recording, if `ParamId::Note` is selected, `Sequencer::advanceStep` skips updating steps whose Gate is currently `0.0f`.
+1. **Live recording (`recordLiveValue(id, value)`)** — used by `advanceStep()` on each step and by the firmware between steps (distance sensor, a fader with its own parameter button held). It writes the lane's playing step and skips `ParamId::Note` while the **playing Gate step** (the Gate lane's cursor, which under polymeter can differ from the Note lane's) is `0.0f`.
+2. **Step edit (`editStepValue(id, step, value)`)** — used by the sensor, faders and encoder while a step is selected. It skips `ParamId::Note` when that **step's own Gate** is `0.0f`.
+
+Other lanes always take the value. `setStepParameterValue()` itself stays a plain clamped write for programmatic use (randomize, presets, tests, `setStep()`); persistence uses `setRawStepValue()`.
 
 ### 7.2 Slide / Portamento Logic
 

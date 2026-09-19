@@ -74,7 +74,7 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
                                     v
 +-------------------------------------------------------------------------+
 | Priority 7: Default System Status Screen                                |
-| (Preset, BPM, encoder target's base value, scale, step indicators)      |
+| (Preset, BPM, encoder target's value or base, scale, step indicators)   |
 +-------------------------------------------------------------------------+
 ```
 
@@ -158,9 +158,10 @@ else the encoder target's lane) — the same parameter the encoder edits.
 - **Progress Bar:** 10px tall bordered progress bar for continuous parameters (Velocity, Filter, Attack, Decay, GateLength).
 
 #### 7. Default Status Screen (Priority 7 — Lowest)
-Displayed when no transient, settings, or edit modes are active. Its value line always shows the
-**base** of the encoder target (`MusicalValues::baseStep()`), not the playing step, so an encoder turn is
-always visible:
+Displayed when no transient, settings, or edit modes are active. Its value line shows the encoder
+target's composed value at the playing step; for 1.5 s after an encoder turn or a free Param-fader move
+(`uiState.encoderBaseViewUntil`) it shows that target's **base** instead (`MusicalValues::baseStep()`,
+labelled `Base`), so the edit is visible even where a step's modifier or a clamp would hide it:
 - **Scale:** Name of active musical scale (e.g., `Chromatic`, `Major`, `Minor`, `Dorian`, `Pentatonic Major`, etc.).
 - **Shuffle:** Active shuffle template name (e.g., `No Shuffle`, `Classic 16th`, `Light Swing`).
 - **Voice Index:** Active voice displayed in 0-based format (`Voice: 0` through `Voice: 3`) in large size-3 typography.

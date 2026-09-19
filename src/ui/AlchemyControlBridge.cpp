@@ -457,10 +457,9 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
 // --- Faders ----------------------------------------------------------------------
 
 // Why faders fan out by assignment instead of by channel: the same four
-// physical faders mean step params in Param mode but global Tempo/Swing/
+// physical faders mean voice lanes in Param mode but global Tempo/Swing/
 // Volume/Gate in Utility mode. The deadband gate (accept()) stops a newly
-// selected voice or mode from snapping to a stale fader position, the Gate
-// check stops Note edits on muted steps from writing inaudible data, and the
+// selected voice or mode from snapping to a stale fader position, and the
 // shuffle buffer is static because uClock retains the pointer for ISR ticks.
 void AlchemyControlBridge::handleFaders(UIState &uiState,
                                         const SequencerView &sequencers)
@@ -479,27 +478,21 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
     switch (assignment.target)
     {
     case ControlSurface::FaderTarget::StepParam:
-      // Same recording path as the lidar: records into the step in edit when
-      // this fader's parameter is the armed/held one or matches current edit parameter.
-      if (uiState.selectedStepForEdit >= 0)
+      switch (ControlSurface::paramFaderEdit(
+          assignment.paramId, uiState.selectedStepForEdit >= 0,
+          uiState.parameterButtonHeld[static_cast<uint8_t>(assignment.paramId)],
+          isAnyParameterButtonHeld(uiState), uiState.currentEditParameter))
       {
-        const ParamId held = getHeldParameterParamId(uiState);
-        if (held == assignment.paramId ||
-            (held == ParamId::Count && (uiState.currentEditParameter == assignment.paramId || uiState.currentEditParameter == ParamId::Count)))
-        {
-          const uint8_t step = static_cast<uint8_t>(uiState.selectedStepForEdit);
-          Sequencer *selectedSeq = sequencers.get(uiState.selectedVoiceIndex);
-          if (selectedSeq)
-          {
-            if (assignment.paramId != ParamId::Note ||
-                selectedSeq->getStepParameterValue(ParamId::Gate, step) > 0.5f)
-            {
-              float val = mapNormalizedValueToParamRange(assignment.paramId, normalized);
-              selectedSeq->setStepParameterValue(assignment.paramId, step, val);
-              updateActiveVoiceState(step, *selectedSeq);
-            }
-          }
-        }
+      case ControlSurface::FaderEdit::Record:
+        // Same recording path as the lidar: the selected step in Step Edit,
+        // else the lane's playing step while its button is held.
+        recordParameter(assignment.paramId, normalized);
+        break;
+      case ControlSurface::FaderEdit::VoiceBase:
+        VoiceEditor::fader(assignment.paramId, normalized);
+        break;
+      case ControlSurface::FaderEdit::Ignore:
+        break;
       }
       break;
 

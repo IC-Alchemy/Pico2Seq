@@ -319,6 +319,11 @@ private:
 
   // Gate edge tracking for the event-style ADSR (noteOn on rise, noteOff on fall)
   bool gateHighPrev_ = false;
+  // The ADSR times each stage in samples, so a new attack/decay length in the
+  // middle of that stage steps the level (a click on every live edit). Such a
+  // time waits here until its stage ends or the next note-on. Negative: none.
+  float pendingAttackSeconds_ = -1.0f;
+  float pendingDecaySeconds_ = -1.0f;
   // Set on gate rise/retrigger so the waveguide engine plucks with the pitch
   // already committed for this frame; consumed by renderSources_().
   bool wgPluckPending_ = false;
@@ -615,6 +620,11 @@ private:
    * longer carry envelope times; the preset defaults then define the shape.
    */
   void applyEnvelopeDefaults_() noexcept;
+
+  // Audio thread: attack/decay changes that would cut into the running stage
+  // are held in pending*Seconds_; applyPendingEnvelopeTimes_() lands them.
+  void setEnvelopeTimes_(float attackSeconds, float decaySeconds) noexcept;
+  void applyPendingEnvelopeTimes_(bool noteOn) noexcept;
 
   /**
    * @brief Calculate frequency for a given note with octave offset

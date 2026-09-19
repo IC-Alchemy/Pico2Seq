@@ -135,6 +135,9 @@ ParamId sequenceLane(Id id, const VoiceConfig &config) noexcept;
 inline constexpr float kAttackMaxSeconds = 2.0f;
 
 float laneBase(ParamId id, const VoiceConfig &config) noexcept;
+// Inverse of laneBase(): sets a lane's base from its normalized 0-1 position
+// (a fader), in the same units and curve the lane composes with.
+void setLaneBaseNormalized(ParamId id, VoiceConfig &config, float normalized) noexcept;
 float timeNormalize(float seconds) noexcept;
 float attackNormalize(float seconds) noexcept;
 float composeLane(ParamId id, float stored, const void *config) noexcept;

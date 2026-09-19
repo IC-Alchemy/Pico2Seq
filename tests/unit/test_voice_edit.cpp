@@ -8,6 +8,8 @@
 #include <cmath>
 #include <cstring>
 #include <set>
+#include <string>
+#include <vector>
 using Catch::Approx;
 using namespace VoiceEdit;
 
@@ -761,3 +763,244 @@ TEST_CASE("Live parameter modulation with distance sensor produces distinct valu
 
 
 
+TEST_CASE("Fader positions set the base each lane composes around", "[voice_edit][fader]") {
+  for (uint8_t p = 0; p < VoicePresets::getPresetCount(); ++p) {
+    VoiceConfig c = VoicePresets::getPresetConfig(p);
+    enablePatch(c);
+    INFO(VoicePresets::getPresetName(p));
+    for (ParamId lane : {ParamId::Velocity, ParamId::Filter, ParamId::Attack,
+                         ParamId::Decay, ParamId::GateLength}) {
+      INFO(static_cast<int>(lane));
+      const auto &b = VoiceParameters::binding(c, lane);
+      for (float position : {0.0f, 0.2f, 0.5f, 0.85f, 1.0f}) {
+        setLaneBaseNormalized(lane, c, position);
+        // Engine lanes store their own units; a half with no travel (a
+        // center at a range end, e.g. WgBell's Pick) pins to that end.
+        const float expected = b.target ? b.normalize(b.map(position)) : position;
+        CHECK(laneBase(lane, c) == Approx(expected).margin(1e-4));
+        // A neutral recording plays the base the fader set.
+        CHECK(composeLane(lane, mapNormalizedValueToParamRange(lane, 0.5f), &c) ==
+              Approx(lane == ParamId::GateLength ? 0.001f + expected * 0.999f : expected).margin(1e-4));
+      }
+    }
+    setLaneBaseNormalized(ParamId::Note, c, 0.5f);
+    CHECK(c.baseNote == 18);
+    setLaneBaseNormalized(ParamId::Octave, c, 0.8f);
+    CHECK(c.baseOctave == 12);
+  }
+}
+
+namespace {
+// One voice driven the way the firmware drives it: the sequencer composes
+// lanes against the voice's requested config, and every publish goes
+// through VoiceManager like publishVoiceState() on Core 0.
+struct LiveVoice {
+  VoiceManager manager{1};
+  Sequencer seq;
+  VoiceState state; // the retained VoiceSystem copy
+  uint8_t id = 0;
+  explicit LiveVoice(uint8_t preset) {
+    manager.init(48000.0f);
+    VoiceConfig config = VoicePresets::getPresetConfig(preset);
+    enablePatch(config);
+    id = manager.addVoice(config);
+    seq.setPlaybackTransform(composeLane, manager.getVoiceConfig(id), mapOctave);
+    seedModifiers(seq);
+    for (uint8_t s = 0; s < 16; ++s) {
+      seq.setStepParameterValue(ParamId::Gate, s, 1);
+      seq.setStepParameterValue(ParamId::GateLength, s, 1);
+    }
+    seq.start();
+    manager.setTransportMuted(false);
+    render(480); // the staged patch applies while the gate is low
+  }
+  const VoiceConfig &config() { return *manager.getVoiceConfig(id); }
+  void publish(const VoiceState &s) {
+    manager.updateVoiceState(id, s);
+    state = s;
+    state.shouldRetrigger = false;
+  }
+  void step(uint32_t clockStep) {
+    VoiceState next = state;
+    seq.advanceStep(clockStep, -1, false, false, false, false, false, false, -1, &next);
+    publish(next);
+  }
+  // recordParameter() while playing: the lane's playing step, then an
+  // in-place refresh of the sounding note.
+  void recordLive(ParamId lane, float position) {
+    if (seq.recordLiveValue(lane, mapNormalizedValueToParamRange(lane, position))) {
+      seq.refreshVoiceParameters(&state);
+      publish(state);
+    }
+  }
+  // VoiceEditor::fader(): a new base, then the same in-place refresh.
+  void faderBase(ParamId lane, float position) {
+    VoiceConfig next = config();
+    setLaneBaseNormalized(lane, next, position);
+    manager.setVoiceConfig(id, next);
+    seq.refreshVoiceParameters(&state);
+    publish(state);
+  }
+  std::string oled(const Step &values, ParamId lane) {
+    char text[48];
+    MusicalValues::format(lane, values, config(), nullptr, 90.0f, text, sizeof(text));
+    return text;
+  }
+  std::vector<float> render(int samples) {
+    std::vector<float> out(samples);
+    for (float &y : out)
+      y = manager.processAllVoices();
+    return out;
+  }
+  // Just past the preset's attack, while the note is loud.
+  int attackSamples() { return static_cast<int>(config().defaultAttack * 48000.0f) + 480; }
+};
+
+double rms(const std::vector<float> &x) {
+  double energy = 0;
+  for (float y : x)
+    energy += double(y) * y;
+  return std::sqrt(energy / x.size());
+}
+// 0 for identical renders, about 1 for unrelated ones.
+double difference(const std::vector<float> &a, const std::vector<float> &b) {
+  double d = 0, energy = 0;
+  for (size_t i = 0; i < a.size(); ++i) {
+    d += double(a[i] - b[i]) * (a[i] - b[i]);
+    energy += double(a[i]) * a[i] + double(b[i]) * b[i];
+  }
+  return energy > 0 ? d / energy : 0;
+}
+std::vector<uint8_t> oscillatorPresets() {
+  std::vector<uint8_t> presets;
+  for (uint8_t p = 0; p < VoicePresets::getPresetCount(); ++p)
+    if (VoicePresets::getPresetConfig(p).engine == ENGINE_OSC)
+      presets.push_back(p);
+  return presets;
+}
+bool lowPass(const VoiceConfig &c) {
+  return c.filterMode == VoiceFilterMode::LP24 || c.filterMode == VoiceFilterMode::LP12;
+}
+} // namespace
+
+TEST_CASE("Held-button recording between steps moves an oscillator voice's cutoff",
+          "[voice_edit][recording][live]") {
+  REQUIRE(oscillatorPresets().size() == 9);
+  for (uint8_t preset : oscillatorPresets()) {
+    INFO(VoicePresets::getPresetName(preset));
+    LiveVoice dark(preset), bright(preset);
+    dark.step(0);
+    bright.step(0);
+    dark.render(dark.attackSamples());
+    bright.render(bright.attackSamples());
+    // Mid-step, as the lidar moves: the same note keeps sounding, re-filtered.
+    dark.recordLive(ParamId::Filter, 0.0f);
+    bright.recordLive(ParamId::Filter, 1.0f);
+    CHECK(dark.seq.getStepParameterValue(ParamId::Filter, 0) == 0.0f);
+    CHECK(bright.seq.getStepParameterValue(ParamId::Filter, 0) == 1.0f);
+    CHECK(dark.oled(dark.seq.getPlaybackStep(), ParamId::Filter) !=
+          bright.oled(bright.seq.getPlaybackStep(), ParamId::Filter));
+    const auto low = dark.render(4800), high = bright.render(4800);
+    CHECK(difference(low, high) > 0.1);
+    if (lowPass(dark.config()))
+      CHECK(rms(high) > 1.5 * rms(low));
+  }
+}
+
+TEST_CASE("Recorded attack and decay are heard on every oscillator voice",
+          "[voice_edit][recording][live]") {
+  for (uint8_t preset : oscillatorPresets()) {
+    INFO(VoicePresets::getPresetName(preset));
+    LiveVoice fast(preset), slow(preset);
+    fast.seq.setStepParameterValue(ParamId::Attack, 0, 0.0f);
+    slow.seq.setStepParameterValue(ParamId::Attack, 0, 1.0f);
+    fast.step(0);
+    slow.step(0);
+    CHECK(fast.oled(fast.seq.getPlaybackStep(), ParamId::Attack) == "1.0ms");
+    CHECK(slow.oled(slow.seq.getPlaybackStep(), ParamId::Attack) == "2.00s");
+    CHECK(rms(slow.render(960)) < 0.1 * rms(fast.render(960)));
+
+    LiveVoice shortDecay(preset), longDecay(preset);
+    shortDecay.seq.setStepParameterValue(ParamId::Decay, 0, 0.0f);
+    longDecay.seq.setStepParameterValue(ParamId::Decay, 0, 1.0f);
+    shortDecay.step(0);
+    longDecay.step(0);
+    CHECK(shortDecay.oled(shortDecay.seq.getPlaybackStep(), ParamId::Decay) == "1.0ms");
+    CHECK(longDecay.oled(longDecay.seq.getPlaybackStep(), ParamId::Decay) == "10.00s");
+    shortDecay.render(shortDecay.attackSamples() + 2400);
+    longDecay.render(longDecay.attackSamples() + 2400);
+    const auto shortTail = shortDecay.render(9600), longTail = longDecay.render(9600);
+    CHECK(rms(longTail) > 1.1 * rms(shortTail));
+    CHECK(difference(shortTail, longTail) > 0.02);
+  }
+}
+
+TEST_CASE("A free fader moves an oscillator voice's base while it plays", "[voice_edit][fader][live]") {
+  for (uint8_t preset : oscillatorPresets()) {
+    INFO(VoicePresets::getPresetName(preset));
+    LiveVoice dark(preset), bright(preset);
+    dark.step(0);
+    bright.step(0);
+    dark.render(dark.attackSamples());
+    bright.render(bright.attackSamples());
+    dark.faderBase(ParamId::Filter, 0.0f);
+    bright.faderBase(ParamId::Filter, 1.0f);
+    // Stored modifiers stay neutral: only the base moved.
+    CHECK(dark.seq.getStepParameterValue(ParamId::Filter, 0) == 0.5f);
+    CHECK(dark.config().filterCutoffBase == 0.0f);
+    const auto &layout = VoiceParameters::layout(dark.config());
+    char low[24], high[24];
+    std::snprintf(low, sizeof(low), "%.0fHz", layout.cutoffMinimum);
+    std::snprintf(high, sizeof(high), "%.0fHz", layout.cutoffMaximum);
+    // The OLED base view and the playing step both show the new cutoff.
+    CHECK(dark.oled(MusicalValues::baseStep(dark.config()), ParamId::Filter) == low);
+    CHECK(bright.oled(MusicalValues::baseStep(bright.config()), ParamId::Filter) == high);
+    CHECK(dark.oled(dark.seq.getPlaybackStep(), ParamId::Filter) == low);
+    const auto closed = dark.render(4800), open = bright.render(4800);
+    CHECK(difference(closed, open) > 0.1);
+    if (lowPass(dark.config()))
+      CHECK(rms(open) > 1.5 * rms(closed));
+
+    LiveVoice fast(preset), slow(preset);
+    fast.faderBase(ParamId::Attack, 0.0f);
+    slow.faderBase(ParamId::Attack, 1.0f);
+    CHECK(slow.config().defaultAttack == Approx(kAttackMaxSeconds));
+    fast.step(0);
+    slow.step(0);
+    CHECK(rms(slow.render(960)) < 0.1 * rms(fast.render(960)));
+  }
+}
+
+TEST_CASE("Live envelope edits and patch re-sends never step a sounding note",
+          "[voice_edit][live]") {
+  // The ADSR counts each stage in samples: a new decay length mid-decay used
+  // to jump the level (a click per lidar reading), and every patch publish
+  // snapped the cutoff smoother to the unmodulated cutoff.
+  for (uint8_t preset : oscillatorPresets()) {
+    INFO(VoicePresets::getPresetName(preset));
+    LiveVoice untouched(preset), edited(preset);
+    untouched.step(0);
+    edited.step(0);
+    untouched.render(untouched.attackSamples());
+    edited.render(edited.attackSamples()); // now in the decay stage
+    std::vector<float> a, b;
+    for (int k = 0; k < 20; ++k) {
+      edited.recordLive(ParamId::Decay, k % 2 ? 0.52f : 0.48f); // a steady hand's jitter
+      edited.manager.setVoiceConfig(edited.id, edited.config()); // an unchanged encoder publish
+      const auto x = untouched.render(480), y = edited.render(480);
+      a.insert(a.end(), x.begin(), x.end());
+      b.insert(b.end(), y.begin(), y.end());
+    }
+    CHECK(difference(a, b) < 1e-4); // only the filter coefficient resync
+
+    // The recorded decay still plays: the next time this step sounds. (The
+    // cutoff tracks the envelope, so a band-pass can get quieter, not louder.)
+    edited.recordLive(ParamId::Decay, 1.0f);
+    untouched.step(16);
+    edited.step(16);
+    untouched.render(untouched.attackSamples() + 2400);
+    edited.render(edited.attackSamples() + 2400);
+    // Bass sustains at 0.85, so its decay is the subtlest; unedited renders differ by ~1e-6.
+    CHECK(difference(untouched.render(9600), edited.render(9600)) > 0.003);
+  }
+}
