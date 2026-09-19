@@ -6,7 +6,7 @@ build_fw_on/*
 .clang-format
 
 build_test/
-
+TODO.md
 AGENTS.md
 .zcode/*
 .vscode/settings.json

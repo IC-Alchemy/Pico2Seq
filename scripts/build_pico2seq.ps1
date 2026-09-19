@@ -31,6 +31,11 @@ if ([string]::IsNullOrWhiteSpace($BuildDirectory)) {
     $buildPath = [IO.Path]::GetFullPath($BuildDirectory)
 }
 
+$subStatus = git -C $repoRoot submodule status --recursive
+if ($subStatus -match '^[\+\-U ]') { throw "Submodules out of date. Run: git submodule update --init --recursive`n$subStatus" }
+if (-not (Test-Path (Join-Path $repoRoot 'src/rpdsp/src/rpdsp/DSPFunctions.h'))) {
+    throw 'src/rpdsp is empty. Clone with --recurse-submodules or run: git submodule update --init --recursive' }
+
 function Copy-StageTree {
     param(
         [Parameter(Mandatory)] [string]$Source,
