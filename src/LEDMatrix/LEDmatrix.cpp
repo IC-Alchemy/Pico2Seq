@@ -18,11 +18,10 @@ void LEDMatrix::begin(uint8_t brightness) {
   // Initialize FastLED library with hardware configuration
   FastLED.addLeds<WS2812B, DATA_PIN, GRB>(ledArray, TOTAL_LEDS);
   FastLED.setBrightness(brightness);
-  // Temporal dithering trades steadiness for low-end resolution: below a global
-  // brightness of 255 it toggles dim pixels between successive frames, which is
-  // visible as a shimmer on the gate-off pads (they sit at 1/16 of their hue).
-  // Switch back to BINARY_DITHER if the dim levels ever look too quantized.
-  FastLED.setDither(DISABLE_DITHER);
+  // Dithering stays at FastLED's BINARY_DITHER default. It is what keeps the
+  // dim UI colours (gate-off pads at 1/16 of their hue, the edit-mode blues)
+  // visible at all below a global brightness of 255; disabling it rounded them
+  // to black and turned every blend step into a hard on/off flash.
   
   // Clear display and show initial state
   clear();

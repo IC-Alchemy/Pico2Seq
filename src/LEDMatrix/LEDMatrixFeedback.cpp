@@ -112,6 +112,36 @@ static uint8_t frameBlend(uint8_t legacyAmount)
   return scaled;
 }
 
+// Per-frame fade toward a target that always arrives.
+//
+// nblend() computes (target - value) * amount / 256 and truncates, so a step
+// smaller than one unit is a step of zero. The blend amounts here were tuned
+// for a 40 ms frame; at the 13 ms LED cadence frameBlend() scales them to about
+// a third, and the product underflows for exactly the colours that matter most:
+// a gate-off pad sits at 1/16 of its hue and the edit-mode blues are darker
+// still, so those pixels never moved off black at all. They lit only when the
+// playhead swept past and fell straight back - the flicker on the off pads, and
+// the dark screen while a parameter button was held.
+//
+// Moving at least one unit whenever the target differs fixes both, and landing
+// exactly on the target stops a settled pixel from hunting when the frame time
+// jitters (13 ms, or 18 when the 40 ms OLED tick ran first).
+static void blendTo(CRGB &destination, const CRGB &target, uint8_t amount)
+{
+  const auto step = [amount](uint8_t &value, uint8_t goal) {
+    if (value == goal)
+      return;
+    const int delta = static_cast<int>(goal) - static_cast<int>(value);
+    int move = (delta * static_cast<int>(amount)) / 256;
+    if (move == 0)
+      move = delta > 0 ? 1 : -1;
+    value = static_cast<uint8_t>(static_cast<int>(value) + move);
+  };
+  step(destination.r, target.r);
+  step(destination.g, target.g);
+  step(destination.b, target.b);
+}
+
 // ===========================================================================
 //   STEP TRIGGER ENVELOPE
 // ===========================================================================
@@ -1004,9 +1034,9 @@ static void renderVoicePair(LEDMatrix &ledMatrix,
                   firstVoiceStep.isGateActive);
 
     // Apply smoothed color blending for the first voice's band
-    nblend(smoothedTargetColorBuffer[topRowLEDIndex], firstVoiceColor,
+    blendTo(smoothedTargetColorBuffer[topRowLEDIndex], firstVoiceColor,
            frameBlend(TARGET_SMOOTHING_BLEND_AMOUNT));
-    nblend(ledMatrix.getLeds()[topRowLEDIndex],
+    blendTo(ledMatrix.getLeds()[topRowLEDIndex],
            smoothedTargetColorBuffer[topRowLEDIndex],
            frameBlend(LEDConstants::STANDARD_BLEND_AMOUNT));
 
@@ -1034,9 +1064,9 @@ static void renderVoicePair(LEDMatrix &ledMatrix,
                   stepEnergy[bottomRowLEDIndex], secondVoiceStep.isGateActive);
 
     // Apply smoothed color blending for the second voice's band
-    nblend(smoothedTargetColorBuffer[bottomRowLEDIndex], secondVoiceColor,
+    blendTo(smoothedTargetColorBuffer[bottomRowLEDIndex], secondVoiceColor,
            frameBlend(TARGET_SMOOTHING_BLEND_AMOUNT));
-    nblend(ledMatrix.getLeds()[bottomRowLEDIndex],
+    blendTo(ledMatrix.getLeds()[bottomRowLEDIndex],
            smoothedTargetColorBuffer[bottomRowLEDIndex],
            frameBlend(LEDConstants::STANDARD_BLEND_AMOUNT));
   }
@@ -1103,9 +1133,9 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
     for (int step = 0; step < LEDConstants::MAX_STEP_BUTTONS; ++step) {
       const int otherIndex = ControlSurface::LedLayout::linearIndex(
           static_cast<uint8_t>(1 - selBand), step);
-      nblend(smoothedTargetColorBuffer[otherIndex], CRGB::Black,
+      blendTo(smoothedTargetColorBuffer[otherIndex], CRGB::Black,
              frameBlend(LEDConstants::TARGET_SMOOTHING_BLEND_AMOUNT));
-      nblend(ledMatrix.getLeds()[otherIndex],
+      blendTo(ledMatrix.getLeds()[otherIndex],
              smoothedTargetColorBuffer[otherIndex],
              frameBlend(LEDConstants::DIM_BLEND_AMOUNT));
     }
@@ -1122,9 +1152,9 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
       }
       const int ledIndex =
           ControlSurface::LedLayout::linearIndex(selBand, step);
-      nblend(smoothedTargetColorBuffer[ledIndex], target,
+      blendTo(smoothedTargetColorBuffer[ledIndex], target,
              frameBlend(LEDConstants::TARGET_SMOOTHING_BLEND_AMOUNT));
-      nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex],
+      blendTo(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex],
              frameBlend(LEDConstants::STANDARD_BLEND_AMOUNT));
     }
 
@@ -1185,15 +1215,15 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
       int bottomIndex = ControlSurface::LedLayout::linearIndex(1, step);
       if (!isSecondInPair) {
         // Selected voice is top row; dim bottom
-        nblend(smoothedTargetColorBuffer[bottomIndex], CRGB::Black,
+        blendTo(smoothedTargetColorBuffer[bottomIndex], CRGB::Black,
                frameBlend(TARGET_SMOOTHING_BLEND_AMOUNT));
-        nblend(ledMatrix.getLeds()[bottomIndex],
+        blendTo(ledMatrix.getLeds()[bottomIndex],
                smoothedTargetColorBuffer[bottomIndex], frameBlend(32));
       } else {
         // Selected voice is bottom row; dim top
-        nblend(smoothedTargetColorBuffer[topIndex], CRGB::Black,
+        blendTo(smoothedTargetColorBuffer[topIndex], CRGB::Black,
                frameBlend(TARGET_SMOOTHING_BLEND_AMOUNT));
-        nblend(ledMatrix.getLeds()[topIndex],
+        blendTo(ledMatrix.getLeds()[topIndex],
                smoothedTargetColorBuffer[topIndex], frameBlend(32));
       }
     }
@@ -1213,9 +1243,9 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
         targetColor = CRGB::Black;
       }
       int ledIndex = ControlSurface::LedLayout::linearIndex(selBand, step);
-      nblend(smoothedTargetColorBuffer[ledIndex], targetColor,
+      blendTo(smoothedTargetColorBuffer[ledIndex], targetColor,
              frameBlend(TARGET_SMOOTHING_BLEND_AMOUNT));
-      nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex],
+      blendTo(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex],
              frameBlend(isSecondInPair ? 122 : 64));
     }
 
@@ -1239,9 +1269,9 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
               : (isSecondInPair ? activeThemeColors->editModeDimBlueV2
                                 : activeThemeColors->editModeDimBlueV1);
       int ledIndex = ControlSurface::LedLayout::linearIndex(selBand, step);
-      nblend(smoothedTargetColorBuffer[ledIndex], targetColor,
+      blendTo(smoothedTargetColorBuffer[ledIndex], targetColor,
              frameBlend(TARGET_SMOOTHING_BLEND_AMOUNT));
-      nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex],
+      blendTo(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex],
              frameBlend(isSecondInPair ? 200 : 60));
     }
 
@@ -1249,9 +1279,9 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
     for (int step = 0; step < currentLength; ++step) {
       int otherIndex = ControlSurface::LedLayout::linearIndex(
           static_cast<uint8_t>(1 - selBand), step);
-      nblend(smoothedTargetColorBuffer[otherIndex], CRGB::Black,
+      blendTo(smoothedTargetColorBuffer[otherIndex], CRGB::Black,
              frameBlend(TARGET_SMOOTHING_BLEND_AMOUNT));
-      nblend(ledMatrix.getLeds()[otherIndex],
+      blendTo(ledMatrix.getLeds()[otherIndex],
              smoothedTargetColorBuffer[otherIndex], frameBlend(150));
     }
   } else {
@@ -1261,13 +1291,12 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
     const Sequencer &secondSeq = sequencers.clamped(firstVoice + 1);
     const LEDThemeColors *theme = getActiveThemeColors();
 
-    // Clear first to avoid ghosting when switching pages
-    for (int i = 0; i < LEDMatrix::WIDTH * LEDMatrix::HEIGHT; ++i) {
-      nblend(smoothedTargetColorBuffer[i], CRGB::Black,
-             frameBlend(TARGET_SMOOTHING_BLEND_AMOUNT));
-      nblend(ledMatrix.getLeds()[i], smoothedTargetColorBuffer[i],
-             frameBlend(64));
-    }
+    // No pre-clear pass here. renderVoicePair() writes every one of the 32 LEDs
+    // from the visible pair's own state, so clearing first only meant each LED
+    // was pulled toward black and then toward its target in the same frame.
+    // That two-stage pull settles at a fraction of the target which depends on
+    // the alpha, so it moved with every wobble in frame time - the flicker.
+    // A page switch is covered by the new targets and by the energy reset.
 
     // Render either voices 1/2 (page 1) or 3/4 (page 2)
     renderVoicePair(ledMatrix, firstSeq, secondSeq, theme, firstVoice, 0);
@@ -1293,9 +1322,9 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
       }
 
       CRGB highlightColor = blinkState ? CRGB::White : CRGB::Black;
-      nblend(smoothedTargetColorBuffer[ledIndex], highlightColor,
+      blendTo(smoothedTargetColorBuffer[ledIndex], highlightColor,
              frameBlend(TARGET_SMOOTHING_BLEND_AMOUNT));
-      nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex],
+      blendTo(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex],
              frameBlend(100));
     }
   }
