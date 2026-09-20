@@ -685,7 +685,7 @@ void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_d
                   uiState.parameterButtonHeld[static_cast<int>(ParamId::Velocity)],
                   uiState.parameterButtonHeld[static_cast<int>(ParamId::Filter)],
                   uiState.parameterButtonHeld[static_cast<int>(ParamId::Attack)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Decay)],
+                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Release)],
                   uiState.parameterButtonHeld[static_cast<int>(ParamId::Octave)],
                   uiState.selectedStepForEdit,
                   voiceState);

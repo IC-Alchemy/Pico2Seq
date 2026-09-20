@@ -74,7 +74,7 @@ constexpr ParamId stepEditParameter(ParamId held, ParamId toggled,
 
 /**
  * Live lidar recording between clock steps. Continuous lanes (Velocity,
- * Filter, Attack, Decay) follow the hand through the playing step; pitch
+ * Filter, Attack, Release) follow the hand through the playing step; pitch
  * lanes (Note, Octave) take one value per note on the clock step, so hand
  * jitter at a scale-step boundary cannot warble a sounding note.
  */
@@ -314,9 +314,10 @@ enum class FaderTarget : uint8_t
 {
   None,        // unassigned
   EnvLane,     // ENV mode: one envelope lane of the selected step
-  Tempo,       // uClock BPM
-  SwingAmount, // continuous shuffle depth
-  GateLength,  // gate length across the selected voice's steps
+  Tempo,        // uClock BPM
+  SwingAmount,  // continuous shuffle depth
+  MasterVolume, // VoiceManager's global gain on Core 1's final mix
+  GateLength,   // gate length across the selected voice's steps
 };
 
 struct FaderAssignment
@@ -330,15 +331,17 @@ class FaderMap
 public:
   static constexpr uint8_t kChannelCount = 4;
   static constexpr uint16_t kFaderMaxCounts = 4095;
-  // Movement smaller than this (in 12-bit counts) is not sent.
-  static constexpr uint16_t kDeadbandCounts = 8;
-  // An obvious move (in 12-bit counts) required to engage a fader after reset / mode flip.
-  static constexpr uint16_t kMoveThresholdCounts = 64;
+  // Movement smaller than this (in 12-bit counts) is not sent. 24 of 4095 is
+  // about 0.6% of travel, enough that a resting finger does not nudge a lane.
+  static constexpr uint16_t kDeadbandCounts = 24;
+  // An obvious move (in 12-bit counts) required to engage a fader after reset /
+  // mode flip. 192 is about 5% of travel: a deliberate push, not a brush.
+  static constexpr uint16_t kMoveThresholdCounts = 192;
 
   /**
    * Target of one fader channel (0..3). With a step selected (ENV mode) the
    * faders are that step's Attack, Decay, Sustain and Release lanes;
-   * otherwise Tempo, Swing, (unassigned), Gate length.
+   * otherwise Tempo, Swing, Master volume, Gate length.
    */
   static FaderAssignment assignmentFor(bool stepSelected, uint8_t channel);
 

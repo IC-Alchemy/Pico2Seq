@@ -358,7 +358,7 @@ TEST_CASE("Sequencer OLED formats final physical and preset-specific units", "[v
     enablePatch(c);
     step = MusicalValues::baseStep(c);
     INFO(VoicePresets::getPresetName(preset));
-    REQUIRE(step.gateLengthTicks == 60);
+    REQUIRE(step.gateLengthTicks == 90);
     REQUIRE(step.octaveOffset == 0);
     for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane) {
       const auto id = static_cast<ParamId>(lane);
@@ -397,7 +397,7 @@ TEST_CASE("Patch randomization stays within its depth around the preset bases", 
         REQUIRE(step.noteIndex <= 12);
         REQUIRE(step.noteIndex == std::round(step.noteIndex));
         REQUIRE(step.octaveOffset == 0);
-        REQUIRE(step.gateLengthTicks == 60);
+        REQUIRE(step.gateLengthTicks == 90);
         reach(ParamId::Velocity, step.velocityLevel, depth / 100.0f);
         reach(ParamId::Filter, step.filterCutoff, depth / 100.0f);
         reach(ParamId::Attack, step.attackTimeSeconds, depth / 100.0f);
@@ -679,7 +679,7 @@ TEST_CASE("SubFunk audio synthesis produces audible sub-bass and distinct filter
   const uint8_t subFunk = static_cast<uint8_t>(VoicePresets::findPreset("SubFunk"));
   const auto config = VoicePresets::getSubFunkVoice();
   REQUIRE(config.highPassFreq == 25.0f);
-  REQUIRE(config.filterEnvelopeFloor == 0.35f);
+  REQUIRE(config.filterEnvelopeRest == 0.0f); // envelope opens upward from the cutoff
   REQUIRE(config.oscWaveforms[1] == WAVE_BSP_SQUARE);
   REQUIRE(config.oscAmplitudes[1] == Approx(0.35f));
   REQUIRE(config.filterRes == Approx(0.6f));
@@ -727,14 +727,20 @@ TEST_CASE("Live parameter modulation with distance sensor produces distinct valu
     return s;
   };
 
-  // Filter cutoff: min, mid, max format distinct frequencies
+  // Filter lane: envelope amount, and the cutoff the contour reaches with it.
+  // The frequency itself is the patch base (shown in Hz by the base view).
   char lowBuf[32], midBuf[32], highBuf[32];
   MusicalValues::format(ParamId::Filter, composeLive(ParamId::Filter, 0.0f), config, nullptr, 120.0f, lowBuf, sizeof(lowBuf));
   MusicalValues::format(ParamId::Filter, composeLive(ParamId::Filter, 0.5f), config, nullptr, 120.0f, midBuf, sizeof(midBuf));
   MusicalValues::format(ParamId::Filter, composeLive(ParamId::Filter, 1.0f), config, nullptr, 120.0f, highBuf, sizeof(highBuf));
-  CHECK(std::string(lowBuf) == "60Hz");
-  CHECK(std::string(midBuf) == "420Hz");
-  CHECK(std::string(highBuf) == "1600Hz");
+  CHECK(std::string(lowBuf) == "0% 420Hz");    // no contour: rests on the base
+  CHECK(std::string(midBuf) == "50% 1680Hz");  // half the preset's octaves
+  CHECK(std::string(highBuf) == "100% 6720Hz");
+  // The same normalized value read as a patch base is the cutoff in Hz.
+  char baseBuf[32];
+  MusicalValues::format(ParamId::Filter, MusicalValues::baseStep(config), config, nullptr, 120.0f,
+                        baseBuf, sizeof(baseBuf), /*baseView=*/true);
+  CHECK(std::string(baseBuf) == "420Hz");
 
   // Attack: min, mid, max format distinct times
   MusicalValues::format(ParamId::Attack, composeLive(ParamId::Attack, 0.0f), config, nullptr, 120.0f, lowBuf, sizeof(lowBuf));
@@ -903,9 +909,9 @@ struct LiveVoice {
   void editStep(ParamId lane, uint8_t stepIndex, float position) {
     seq.editStepValue(lane, stepIndex, mapNormalizedValueToParamRange(lane, position));
   }
-  std::string oled(const Step &values, ParamId lane) {
+  std::string oled(const Step &values, ParamId lane, bool baseView = false) {
     char text[48];
-    MusicalValues::format(lane, values, config(), nullptr, 90.0f, text, sizeof(text));
+    MusicalValues::format(lane, values, config(), nullptr, 90.0f, text, sizeof(text), baseView);
     return text;
   }
   std::vector<float> render(int samples) {
@@ -923,6 +929,19 @@ double rms(const std::vector<float> &x) {
   for (float y : x)
     energy += double(y) * y;
   return std::sqrt(energy / x.size());
+}
+// Energy above the fundamental: a first-difference high-pass, then rms. Total
+// rms is not a brightness measure here - closing a resonant low-pass onto a
+// sub-bass fundamental raises it.
+double highFrequencyEnergy(const std::vector<float> &x) {
+  if (x.size() < 2)
+    return 0.0;
+  double energy = 0;
+  for (size_t i = 1; i < x.size(); ++i) {
+    const double d = double(x[i]) - double(x[i - 1]);
+    energy += d * d;
+  }
+  return std::sqrt(energy / double(x.size() - 1));
 }
 // 0 for identical renders, about 1 for unrelated ones.
 double difference(const std::vector<float> &a, const std::vector<float> &b) {
@@ -962,10 +981,16 @@ TEST_CASE("Held-button recording between steps moves an oscillator voice's cutof
     CHECK(bright.seq.getStepParameterValue(ParamId::Filter, 0) == 1.0f);
     CHECK(dark.oled(dark.seq.getPlaybackStep(), ParamId::Filter) !=
           bright.oled(bright.seq.getPlaybackStep(), ParamId::Filter));
+    // The lane is the filter envelope's amount, not its frequency: 0 parks the
+    // cutoff on the patch base, 1 lets the contour open it by the preset's full
+    // filterEnvelopeOctaves. Both render the same note; the swept one is
+    // brighter, and brightest during the attack where the contour peaks.
     const auto low = dark.render(4800), high = bright.render(4800);
-    CHECK(difference(low, high) > 0.1);
+    CHECK(difference(low, high) > 0.05);
     if (lowPass(dark.config()))
-      CHECK(rms(high) > 1.5 * rms(low));
+      // Direction, not magnitude: a sub-heavy preset like Bass carries little
+      // energy up where the contour opens to, so it gains only ~13%.
+      CHECK(highFrequencyEnergy(high) > 1.05 * highFrequencyEnergy(low));
   }
 }
 
@@ -997,6 +1022,44 @@ TEST_CASE("Recorded attack and decay are heard on every oscillator voice",
   }
 }
 
+TEST_CASE("A full Release lane rings one note through sixteen steps",
+          "[voice_edit][envelope][live]") {
+  // The bench ask: one note on the downbeat, still sounding at the end of the
+  // bar. 16 sixteenths at 120 BPM is 2 s, so the lane has to reach seconds -
+  // under the old four-decade curve lane 0.5 was 100 ms and only the very top
+  // rang for a bar.
+  constexpr int kSampleRate = 48000;
+  constexpr int kBarSamples = 2 * kSampleRate; // 16 steps at 120 BPM
+  CHECK(MusicalValues::releaseSeconds(1.0f) >= 8.0f);
+  CHECK(MusicalValues::releaseSeconds(0.75f) > 1.0f);
+  CHECK(MusicalValues::releaseSeconds(0.5f) > 0.2f);
+
+  for (uint8_t preset : oscillatorPresets()) {
+    const auto config = VoicePresets::getPresetConfig(preset);
+    if (config.defaultSustain <= 0.0f)
+      continue; // a percussive patch has nothing left to release
+    INFO(VoicePresets::getPresetName(preset));
+    LiveVoice voice(preset);
+    voice.seq.setStepParameterValue(ParamId::Release, 0, 1.0f); // full lane
+    voice.step(0);
+    voice.render(voice.attackSamples()); // Pad's attack alone is 400 ms
+
+    // Gate off after the first step, then let the tail run for the bar.
+    VoiceState released = voice.state;
+    released.isGateHigh = false;
+    voice.publish(released);
+    const auto early = voice.render(4800);
+    voice.render(kBarSamples - 9600);
+    const auto late = voice.render(4800);
+
+    CHECK(rms(early) > 0.01);
+    CHECK(rms(late) > 0.002); // still audible a bar after the gate closed
+    // And it is a release, not a hold: past the 8 s the lane asks for, silence.
+    voice.render(7 * kSampleRate);
+    CHECK(rms(voice.render(4800)) < 0.001);
+  }
+}
+
 TEST_CASE("An encoder base edit moves an oscillator voice's patch value while it plays",
           "[voice_edit][base][live]") {
   for (uint8_t preset : oscillatorPresets()) {
@@ -1016,13 +1079,15 @@ TEST_CASE("An encoder base edit moves an oscillator voice's patch value while it
     std::snprintf(low, sizeof(low), "%.0fHz", layout.cutoffMinimum);
     std::snprintf(high, sizeof(high), "%.0fHz", layout.cutoffMaximum);
     // The OLED base view and the playing step both show the new cutoff.
-    CHECK(dark.oled(MusicalValues::baseStep(dark.config()), ParamId::Filter) == low);
-    CHECK(bright.oled(MusicalValues::baseStep(bright.config()), ParamId::Filter) == high);
-    CHECK(dark.oled(dark.seq.getPlaybackStep(), ParamId::Filter) == low);
+    // The base view reads the patch cutoff in Hz; the step's own lane reads as
+    // the envelope amount that rests on it.
+    CHECK(dark.oled(MusicalValues::baseStep(dark.config()), ParamId::Filter, /*baseView=*/true) == low);
+    CHECK(bright.oled(MusicalValues::baseStep(bright.config()), ParamId::Filter, /*baseView=*/true) == high);
+    CHECK(dark.oled(dark.seq.getPlaybackStep(), ParamId::Filter, /*baseView=*/true) == low);
     const auto closed = dark.render(4800), open = bright.render(4800);
     CHECK(difference(closed, open) > 0.1);
     if (lowPass(dark.config()))
-      CHECK(rms(open) > 1.5 * rms(closed));
+      CHECK(rms(open) > 1.5 * rms(closed)); // the base IS the cutoff, so this stays a real sweep
 
     LiveVoice fast(preset), slow(preset);
     fast.editBase(Id::Attack, 0.001f);

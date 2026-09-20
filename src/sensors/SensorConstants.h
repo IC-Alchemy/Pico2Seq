@@ -28,8 +28,11 @@ namespace SensorConstants
     // within 10 ms of the sensor finishing it.
     static constexpr unsigned long READ_INTERVAL_MS = 10;
     // ST's VL53L1X API manual lists 20 ms for Short mode only and 33 ms as the
-    // minimum for every mode. This driver runs Long mode, where the former
-    // 20 ms budget left hand readings stopping near 500 mm.
+    // minimum for every mode. The driver runs Short mode now, so 20 ms is
+    // available if hand tracking ever needs to be faster; 33 ms is kept for the
+    // better precision at the top of the 700 mm window. (A 20 ms budget under
+    // the old Long mode used to stop hand readings near 500 mm - that was the
+    // budget fighting the mode's range, not a limit of the shorter budget.)
     static constexpr unsigned long TIMING_BUDGET_MICROSECONDS = 33000; // 33ms timing budget
     static constexpr unsigned long INTER_MEASUREMENT_PERIOD_MS = 35;   // must not be shorter than the budget
 

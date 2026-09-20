@@ -70,7 +70,10 @@ struct VoiceConfig
   float baseNote = 0.0f; // Additive transpose in scale steps
   float baseVelocity = 0.5f;
   float baseOctave = 0.0f; // semitones, quantized to octaves
-  float baseGateLength = 0.5f; // Half a sixteenth note; 60 PPQN ticks
+  // Three quarters of a sixteenth note; 90 PPQN ticks. The GateLength lane is
+  // an offset around 0.5, so this base is the one knob that sets the default
+  // gate: a lane at 0.5 plays exactly this length.
+  float baseGateLength = 0.75f;
   bool baseGate = true;
   bool baseSlide = false;
   float slideSeconds = 0.06f;
@@ -107,8 +110,18 @@ struct VoiceConfig
   bool recipeRetrigger = true;
   float noiseSourceLevel = 1.0f;
   float noiseChaosRate = 1.0f;
-  float filterEnvelopeAmount = 1.0f;
-  float filterEnvelopeFloor = 0.1f;
+  // Filter envelope depth in OCTAVES of cutoff sweep at a full Filter lane,
+  // measured from the rest point below. The lane scales this, so 4 octaves at
+  // the top leaves a sequenced sweep something to actually open; a lane resting
+  // at 0.5 still gives the 2 octaves a classic subtractive patch would use.
+  float filterEnvelopeOctaves = 4.0f;
+  // Envelope level that sits exactly on the dialed cutoff. 0 makes the patch
+  // cutoff the floor and lets the envelope only open upward from it, the way an
+  // analog VCF's contour amount works: a released note rests at the cutoff you
+  // dialed instead of below it, and the sustained part of a note still differs
+  // audibly between no envelope amount and full. A non-zero value lets the
+  // filter close under the base for the first part of the sweep.
+  float filterEnvelopeRest = 0.0f;
 
   // Waveguide engine parameters (ENGINE_WAVEGUIDE only)
   float wgT60 = 2.5f;          // String tail T60 in seconds (0.05-10.0)

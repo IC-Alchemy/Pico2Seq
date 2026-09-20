@@ -110,7 +110,7 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, and system contr
   voice or the selected step changes, including entering and leaving Step Edit, so a
   fader only writes after an obvious move.
 - Faders no longer edit voice bases or live-record: the encoder edits bases, the
-  distance sensor records. Master volume comes from the saved session (default 0.75).
+  distance sensor records. Master volume is fader 3 in Utility mode, and is saved with the session (default 0.75).
 
 ---
 

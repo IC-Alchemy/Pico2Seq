@@ -113,7 +113,7 @@ the firmware only maps four faders.]** The mode switch does not change the fader
 |---|---|
 | 1 | Master tempo (uClock BPM, 45–200) |
 | 2 | Swing amount (continuous shuffle depth) |
-| 3 | Unassigned (was Decay / Master volume; volume now comes from the saved session) |
+| 3 | Master volume (VoiceManager's gain on Core 1's final mix; saved with the session) |
 | 4 | Gate length across the selected voice's active steps |
 
 **ENV mode** — long-press a pad to select a step (Step Edit). The faders then edit **only
@@ -167,7 +167,7 @@ Eight buttons (ButtonModule8) change meaning with the **mode switch** on GPIO 7:
 | 2 | Velocity | Save / Load (tap: save session, hold: reload) |
 | 3 | Filter | Scale cycle |
 | 4 | Attack | Swing pattern cycle |
-| 5 | Decay | LED theme cycle |
+| 5 | Release | LED theme cycle |
 | 6 | Octave | Encoder target cycle |
 | 7 | Slide | Randomize |
 | 8 | Shift | Shift |
@@ -182,9 +182,9 @@ turn it slowly for ultra-fine single-step adjustments, quickly to sweep a whole 
 range. It edits whatever the **encoder target** is — cycle targets with the Utility-mode
 "Encoder target" button. The target order is:
 
-**Velocity → Filter → Attack → Decay → Note → Octave → Slide Time → (back to Velocity)**
+**Velocity → Filter → Attack → Release → Note → Octave → Slide Time → (back to Velocity)**
 
-- Voice targets (Velocity/Filter/Attack/Decay/Note) set that parameter's **base value for
+- Voice targets (Velocity/Filter/Attack/Release/Note) set that parameter's **base value for
   the selected voice** (its patch value). Steps that follow the patch play it; steps with
   their own recorded value keep theirs — see §9 and
   [`docs/voice-edit.md`](voice-edit.md).
@@ -214,10 +214,14 @@ your hand over the sensor, and the reading is recorded live into that parameter'
 at its currently playing step on the **selected voice** — e.g. sweep Filter over a pattern
 without touching anything. Hold several parameter buttons to record them all at once. Each
 parameter records at its own position, so a 5-step Filter track is written 5 steps round. Each new step starts from the hand's current height.
-Velocity, Filter, Attack and Decay keep recording while their step plays: the step follows
+Velocity, Filter, Attack and Release keep recording while their step plays: the step follows
 your hand, and the sounding note changes without retriggering — cutoff and velocity at
-once, attack and decay from the next note (a running attack or decay keeps its length, so
-live edits never click). Hand height **is** the value: near the sensor is the bottom of the
+once, attack and release from the next note (a running attack or release keeps its length, so
+live edits never click). The 5th button records **Release**, not Decay: on 20 of the 29
+presets the Decay lane is an engine control rather than an envelope stage, while Release
+reaches the envelope on every preset and is what sets how long a step rings (up to 10 s,
+enough for one downbeat note to cover 16 steps). Decay itself is still editable per step
+with the ENV-mode faders. Hand height **is** the value: near the sensor is the bottom of the
 parameter's range, 700 mm the top, whatever the voice's patch value. Note and Octave take one value per note, on the step, so hand
 jitter cannot warble a sounding pitch. With the transport stopped the hand writes the step
 each parameter is paused on. Pitch recording only

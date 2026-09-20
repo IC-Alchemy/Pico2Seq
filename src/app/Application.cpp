@@ -58,6 +58,39 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
         }
     }
 
+    // Bench aid for live recording: every gate the lidar path passes through,
+    // in one line. held is a bitmask over ParamId (bit 2 Filter, bit 10
+    // Release), hand is PerformanceInput::handPresent, rec is the normalized
+    // hand height the recorder writes, and each lane shows its own cursor and
+    // the value stored there. A held button with hand=1 and a rec that moves
+    // but a lane value that does not means the write is being rejected.
+    static uint32_t lastRecordDiag = 0;
+    if (currentMillis - lastRecordDiag >= kDiagnosticIntervalMs)
+    {
+        lastRecordDiag = currentMillis;
+        if (Serial)
+        {
+            uint16_t held = 0;
+            for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane)
+                if (uiState.parameterButtonHeld[lane])
+                    held |= static_cast<uint16_t>(1u << lane);
+            const Sequencer &seq = AppState::sequencerView.clamped(uiState.selectedVoiceIndex);
+            const uint8_t filterStep = seq.getCurrentStepForParameter(ParamId::Filter);
+            const uint8_t releaseStep = seq.getCurrentStepForParameter(ParamId::Release);
+            Serial.printf("[DIAG REC] held=0x%03X hand=%d rec=%.2f selStep=%d voice=%u "
+                          "filt[%u]=%.3f rel[%u]=%.3f\n",
+                          static_cast<unsigned>(held),
+                          AppState::performanceInput.handPresent ? 1 : 0,
+                          AppState::performanceInput.recordingValue(),
+                          uiState.selectedStepForEdit,
+                          static_cast<unsigned>(uiState.selectedVoiceIndex),
+                          static_cast<unsigned>(filterStep),
+                          seq.getStepParameterValue(ParamId::Filter, filterStep),
+                          static_cast<unsigned>(releaseStep),
+                          seq.getStepParameterValue(ParamId::Release, releaseStep));
+        }
+    }
+
     AudioEngine::Heartbeat heartbeat{};
     while (AudioEngine::takeHeartbeat(heartbeat))
     {
@@ -304,7 +337,7 @@ void Application::update()
     }
 
     ControlIO::pollHeldButtons();
-    // Preserve this order: steps, diagnostics, gate ticks, controls, displays.
+    // Preserve this order: steps, diagnostics, gate ticks, controls, LEDs, OLED.
     freezeWatchdogFeed(FW_LOOP_CLOCK_EVENTS);
     processClockEvents();
     freezeWatchdogMark(FW_LOOP_DIAGNOSTICS);
@@ -312,5 +345,6 @@ void Application::update()
     freezeWatchdogFeed(FW_LOOP_PPQN);
     processPendingGateTicks();
     ControlIO::scanControls(nowMs);
-    ControlIO::refreshDisplays(nowMs);
+    ControlIO::refreshLeds(nowMs);
+    ControlIO::refreshOled(nowMs);
 }

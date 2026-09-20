@@ -246,7 +246,7 @@ void Sequencer::clearPattern()
 void Sequencer::advanceStep(uint32_t current_uclock_step, int mm_distance,
                             bool is_note_button_held, bool is_velocity_button_held,
                             bool is_filter_button_held, bool is_attack_button_held,
-                            bool is_decay_button_held, bool is_octave_button_held,
+                            bool is_release_button_held, bool is_octave_button_held,
                             int current_selected_step_for_edit,
                             VoiceState *voiceState)
 {
@@ -304,7 +304,7 @@ void Sequencer::advanceStep(uint32_t current_uclock_step, int mm_distance,
             {ParamId::Velocity, is_velocity_button_held},
             {ParamId::Filter, is_filter_button_held},
             {ParamId::Attack, is_attack_button_held},
-            {ParamId::Decay, is_decay_button_held},
+            {ParamId::Release, is_release_button_held},
             {ParamId::Octave, is_octave_button_held}
             // Removed: {ParamId::Slide, slideMode}
             // This was causing slide values to be overwritten during playback in slide mode.

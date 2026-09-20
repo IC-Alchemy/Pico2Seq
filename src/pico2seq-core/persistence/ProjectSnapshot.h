@@ -59,7 +59,7 @@ struct PatchSnapshot
     int32_t harmony[3];
     float macro1, macro2, macro3;
     float fmModFeedback, phaseTriangleFold, spectralSubRatio, spectralSubShape, prismDriftChaos;
-    float noiseSourceLevel, noiseChaosRate, filterEnvelopeAmount, filterEnvelopeFloor;
+    float noiseSourceLevel, noiseChaosRate, filterEnvelopeOctaves, filterEnvelopeRest;
     float wgT60, wgBrightness, wgPickPosition, wgPickHardness, wgStiffness, wgDetune;
     float hypersawDetune, hypersawMix;
     float noiseDiffuseSize, noiseDiffuseMix, noiseSwarmColor, noiseSwarmRegen, noiseChaosLevel;
