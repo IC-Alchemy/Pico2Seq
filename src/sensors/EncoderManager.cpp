@@ -98,6 +98,56 @@ bool editSelectedStep(UIState &uiState, float delta)
   }
   return true;
 }
+
+// A held parameter button takes the encoder away from base editing: every
+// step of the held lane turns together (record-to-all-steps). Returns false
+// when no recordable parameter is held, leaving the turn to base editing.
+// The same motion accumulator as step editing keeps detent feel identical,
+// and switching between the two paths resets the pending motion.
+bool paintHeldLane(UIState &uiState, float delta)
+{
+  // A selected step keeps its own encoder path; Settings keeps base editing.
+  if (uiState.selectedStepForEdit >= 0 || uiState.settingsMode)
+    return false;
+  const ParamId heldParam = getHeldParameterParamId(uiState);
+  if (heldParam == ParamId::Count || !parameterDefinition(heldParam)->recordable)
+    return false;
+  Sequencer *selectedSeq = AppState::sequencers[uiState.selectedVoiceIndex];
+  if (!selectedSeq)
+    return false;
+
+  if (stepTurn.voice != uiState.selectedVoiceIndex || stepTurn.step != -1 ||
+      stepTurn.param != heldParam)
+  {
+    stepMotion.reset();
+    stepTurn = {uiState.selectedVoiceIndex, -1, heldParam};
+  }
+  stepMotion.add(delta);
+
+  float deltaLane = 0.0f;
+  if (heldParam == ParamId::Note || heldParam == ParamId::Octave)
+  {
+    // Whole scale steps (or octave lane quarters) per detent, matching the
+    // selected-step encoder.
+    const int steps = stepMotion.takeSteps(SensorConstants::MagneticEncoder::STEPPED_VALUE_DETENT);
+    deltaLane = static_cast<float>(steps) *
+                (heldParam == ParamId::Octave ? kOctaveLaneStep : 1.0f);
+  }
+  else
+  {
+    // Same sensitivity as base editing, applied across the lane's span.
+    const float span = getParameterMaxValueForParamId(heldParam) -
+                       getParameterMinValueForParamId(heldParam);
+    deltaLane = stepMotion.takeContinuous(
+                    SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD) *
+                span;
+  }
+  if (deltaLane != 0.0f && selectedSeq->nudgeLane(heldParam, deltaLane))
+  {
+    updateActiveVoiceState(UINT8_MAX, *selectedSeq);
+  }
+  return true;
+}
 } // namespace
 
 // The magnetic encoder driver for the TMAG5273A Velocity Encoder board.
@@ -112,7 +162,11 @@ void updateEncoderBaseValues(UIState &uiState)
   // already drained those ticks, and the step and base paths accumulate them.
   const float delta=magEncoder.takeParameterIncrement(-1.0f,1.0f,3);
   if(delta==0.0f) return;
-  if(!uiState.voiceEditor.active && editSelectedStep(uiState, delta)) return;
+  if(!uiState.voiceEditor.active)
+  {
+    if(editSelectedStep(uiState, delta)) return; // selected step: one step
+    if(paintHeldLane(uiState, delta)) return;    // held button: whole lane
+  }
   VoiceEditor::encoder(delta);
 }
 

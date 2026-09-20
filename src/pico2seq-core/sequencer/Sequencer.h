@@ -155,13 +155,36 @@ public:
     bool recordLiveValue(ParamId id, float value);
 
     /**
-     * @brief Write a step-edit value into one step
+     * @brief Write one step-edit value into one step
      *
      * Note is written only into a step whose own Gate is on; other lanes
      * always take the value.
      * @return true when the stored value changed (after clamping/rounding)
      */
     bool editStepValue(ParamId id, uint8_t stepIdx, float value);
+
+    /**
+     * @brief Record one value into every step of a lane
+     *
+     * The lane's whole storage (all 64 slots, not just the active length)
+     * takes the clamped/rounded value, so a growing track fills new steps
+     * with it too. Unlike the performance writes this is deliberate lane
+     * programming: Note also lands on gate-off steps. Passing
+     * LANE_FOLLOWS_PATCH hands an absolute lane back to the patch.
+     * @return true when the stored value changed (after clamping/rounding)
+     */
+    bool paintLane(ParamId id, float value);
+
+    /**
+     * @brief Move a whole lane by a lane-unit delta from its current value
+     *
+     * Starts from the lane's value at its own cursor (for absolute lanes,
+     * the patch-composed value it is playing), clamps to the lane range and
+     * paints every step. Delta is in stored lane units: whole steps for
+     * Note, quarter lanes for Octave, lane span fractions otherwise.
+     * @return true when the stored value changed (after clamping/rounding)
+     */
+    bool nudgeLane(ParamId id, float delta);
 
     /**
      * @brief Return one step of an absolute lane to the patch value

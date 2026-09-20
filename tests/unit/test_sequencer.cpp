@@ -874,3 +874,79 @@ TEST_CASE("Step edits never write pitch into a gate-off step", "[sequencer][reco
     CHECK_FALSE(seq.editStepValue(ParamId::Note, 3, 12.2f)); // rounds to the stored step
     CHECK_FALSE(seq.editStepValue(ParamId::Filter, SequencerConstants::MAX_STEPS_COUNT, 0.5f));
 }
+
+// ─── Lane painting (record-to-all-steps) ──────────────────────────────────────
+
+TEST_CASE("paintLane writes every step of the lane and keeps its length", "[sequencer][paint]") {
+    Sequencer seq(0);
+    seq.setParameterStepCount(ParamId::Filter, 8);
+    seq.setStepParameterValue(ParamId::Filter, 0, 0.1f);
+    seq.setStepParameterValue(ParamId::Filter, 4, 0.9f);
+
+    REQUIRE(seq.paintLane(ParamId::Filter, 0.6f));
+
+    CHECK(seq.getParameterStepCount(ParamId::Filter) == 8);
+    for (uint8_t step = 0; step < 8; ++step)
+        CHECK(seq.getStepParameterValue(ParamId::Filter, step) == Catch::Approx(0.6f));
+    // Dormant slots beyond the active length take the value too: growing the
+    // lane later reveals the painted value instead of a raw default.
+    seq.setParameterStepCount(ParamId::Filter, 32);
+    CHECK(seq.getStepParameterValue(ParamId::Filter, 20) == Catch::Approx(0.6f));
+    // Repainting the same canonical value reports no change.
+    CHECK_FALSE(seq.paintLane(ParamId::Filter, 0.6f));
+}
+
+TEST_CASE("paintLane canonicalizes values like a single step write", "[sequencer][paint]") {
+    Sequencer seq(0);
+    // Note rounds to whole scale steps; out-of-range clamps to the lane.
+    REQUIRE(seq.paintLane(ParamId::Note, 12.6f));
+    CHECK(seq.getStepParameterValue(ParamId::Note, 7) == 13.0f);
+    REQUIRE(seq.paintLane(ParamId::Velocity, 1.7f));
+    CHECK(seq.getStepParameterValue(ParamId::Velocity, 7) == Catch::Approx(1.0f));
+    CHECK_FALSE(seq.paintLane(ParamId::Count, 0.5f));
+}
+
+TEST_CASE("paintLane programs pitch onto gate-off steps", "[sequencer][paint]") {
+    Sequencer seq(0);
+    // All gates off: performance writes protect pitch, deliberate lane
+    // programming does not.
+    CHECK(seq.getStepParameterValue(ParamId::Gate, 3) == 0.0f);
+    REQUIRE(seq.paintLane(ParamId::Note, 24.0f));
+    CHECK(seq.getStepParameterValue(ParamId::Note, 3) == 24.0f);
+}
+
+TEST_CASE("paintLane can hand an absolute lane back to the patch", "[sequencer][paint]") {
+    Sequencer seq;
+    REQUIRE(seq.paintLane(ParamId::Decay, 0.8f));
+    REQUIRE(seq.paintLane(ParamId::Decay, SequencerConstants::LANE_FOLLOWS_PATCH));
+    for (uint8_t step = 0; step < seq.getParameterStepCount(ParamId::Decay); ++step)
+        CHECK(followsPatch(seq.getStepParameterValue(ParamId::Decay, step)));
+}
+
+TEST_CASE("nudgeLane moves the whole lane and clamps at the ends", "[sequencer][paint]") {
+    Sequencer seq(0);
+    // Velocity defaults to 0.5, so paint a different base first.
+    REQUIRE(seq.paintLane(ParamId::Velocity, 0.6f));
+
+    REQUIRE(seq.nudgeLane(ParamId::Velocity, -0.1f));
+    CHECK(seq.getStepParameterValue(ParamId::Velocity, 12) == Catch::Approx(0.5f));
+    // Clamped at the lane maximum, and a clamped no-move reports no change.
+    REQUIRE(seq.nudgeLane(ParamId::Velocity, 5.0f));
+    CHECK(seq.getStepParameterValue(ParamId::Velocity, 12) == Catch::Approx(1.0f));
+    CHECK_FALSE(seq.nudgeLane(ParamId::Velocity, 1.0f));
+    CHECK_FALSE(seq.nudgeLane(ParamId::Count, 0.1f));
+}
+
+TEST_CASE("nudgeLane starts an absolute lane from the value it plays", "[sequencer][paint]") {
+    Sequencer seq;
+    seq.setPlaybackTransform(VoiceEdit::composeLane, &standardPatch(), VoiceEdit::mapOctave);
+    VoiceEdit::seedModifiers(seq);
+    // Every Decay step follows the patch: the nudge starts from the patch
+    // value and paints an absolute lane from there.
+    const float patchDecay = seq.patchValue(ParamId::Decay);
+    REQUIRE(seq.nudgeLane(ParamId::Decay, -0.1f));
+    CHECK(seq.getPlaybackValue(ParamId::Decay, 4) == Catch::Approx(patchDecay - 0.1f));
+    // A second nudge is relative to the painted value, not the patch.
+    REQUIRE(seq.nudgeLane(ParamId::Decay, 0.1f));
+    CHECK(seq.getPlaybackValue(ParamId::Decay, 4) == Catch::Approx(patchDecay));
+}

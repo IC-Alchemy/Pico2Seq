@@ -72,6 +72,11 @@ In Param mode, ButtonModule8 provides instant parameter arming for real-time rec
 | **6** | `Slide` | Toggles slide/portamento mode (clears conflicting edit modes) |
 | **7** | `Shift` | Modifier for parameter latching and secondary chords |
 
+While a parameter button is held, recording reaches **all steps of the lane**: the hand
+sensor paints the whole lane with the transport stopped and records each playing step
+while it runs, and the encoder paints the whole lane (relatively) in either transport
+state. See [`docs/sequencer.md`](sequencer.md) §7.1 for the three write methods.
+
 The faders do not follow the mode strap; see **Fader channels** below.
 
 ---
@@ -109,8 +114,9 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, and system contr
 - The bridge re-arms every fader (`FaderMap::resetDeadband()`) whenever the selected
   voice or the selected step changes, including entering and leaving Step Edit, so a
   fader only writes after an obvious move.
-- Faders no longer edit voice bases or live-record: the encoder edits bases, the
-  distance sensor records. Master volume comes from the saved session (default 0.75).
+- Faders no longer edit voice bases or live-record: the encoder edits bases (and, while
+  a parameter button is held, paints that lane's steps instead), the distance sensor
+  records. Master volume comes from the saved session (default 0.75).
 
 ---
 

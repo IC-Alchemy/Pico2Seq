@@ -699,3 +699,14 @@ TEST_CASE("Between clock steps the lidar keeps writing only continuous lanes", "
                          ParamId::Release, ParamId::Count})
         CHECK_FALSE(recordsBetweenSteps(lane));
 }
+
+TEST_CASE("paintsWholeLane picks the record target from transport and step edit", "[control_surface][paint]") {
+    // Stopped and no step selected: the held-parameter gesture programs the
+    // whole lane instead of one playing step.
+    CHECK(ControlSurface::paintsWholeLane(false, false));
+    // Running stays per-step performance capture; a selected step keeps its
+    // own edit path in both transport states.
+    CHECK_FALSE(ControlSurface::paintsWholeLane(true, false));
+    CHECK_FALSE(ControlSurface::paintsWholeLane(false, true));
+    CHECK_FALSE(ControlSurface::paintsWholeLane(true, true));
+}

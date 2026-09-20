@@ -86,6 +86,19 @@ constexpr bool recordsBetweenSteps(ParamId paramId)
 }
 
 /**
+ * Whether a held-parameter record input writes the whole lane instead of the
+ * playing step. Recording while the transport runs stays a per-step
+ * performance capture (each passing step takes the hand's value); while the
+ * transport is stopped there is no performance to capture, so the same
+ * gesture programs the lane — every step at once. A selected step keeps its
+ * own per-step edit path in both transport states.
+ */
+constexpr bool paintsWholeLane(bool transportRunning, bool stepSelected)
+{
+  return !transportRunning && !stepSelected;
+}
+
+/**
  * Combine the octave track's signed semitone transpose with the encoder's
  * normalized bipolar transpose. The result is bounded to two octaves.
  */

@@ -215,6 +215,9 @@ public:
     // Performance edits (gate-protected Note; return true on a stored change)
     bool recordLiveValue(ParamId id, float value);            // lane's playing step
     bool editStepValue(ParamId id, uint8_t stepIdx, float value); // Step Edit
+    // Whole-lane programming (record-to-all-steps; not gate-protected)
+    bool paintLane(ParamId id, float value);                  // every step, absolute
+    bool nudgeLane(ParamId id, float delta);                  // every step, relative
 
     // Step Execution & Preview
     void playStepNow(uint8_t stepIdx, VoiceState *voiceState);
@@ -269,6 +272,7 @@ When `advanceStep()` is called on each 16th note clock tick:
    - Normalizes the hand: the calibrated value from `setRecordingInput()` (55–700 mm window), else `clamp(mm_distance / 1100.0f, 0.0f, 1.0f)`.
    - For each held parameter button, maps the value to the parameter's range and calls `recordLiveValue(paramId, value)`, which writes the lane's own playing step (`currentStepPerParam[paramId]`). For `ParamId::Note` it writes only while the playing Gate step is HIGH.
    - This is the step-boundary half of live recording: the new step starts from the hand's current height. Between steps the firmware keeps recording the continuous lanes (Velocity, Filter, Attack, Decay; `ControlSurface::recordsBetweenSteps()`) through the same `recordLiveValue()` every control pass (`recordParameter()` in `src/app/StepPlayback.cpp`) and refreshes the sounding note with `refreshVoiceParameters()`, so the voice follows the hand without waiting for the next step. Note and Octave stay one value per note.
+   - With the transport **stopped** (Settings closed), the same held-button gesture routes to `paintLane()` instead: every step of the held lane takes the hand's value at once, so one gesture programs the whole lane. `ControlSurface::paintsWholeLane()` owns that routing decision, and `paintHeldLane()` in `src/sensors/EncoderManager.cpp` gives the magnetic encoder the same whole-lane turn while a record button is held (via `nudgeLane()`). Whole-lane paints are deliberate programming: pitch is not gate-protected.
 6. **Step Processing (`processStep`)**:
    Calls `processStep(UINT8_MAX, voiceState)` to populate the output `VoiceState`:
    - Extracts all parameter values at their respective `currentStepPerParam[id]` indices.
@@ -426,6 +430,7 @@ To prevent accidental modification of pitch parameters on inactive steps during 
 
 1. **Live recording (`recordLiveValue(id, value)`)** — used by `advanceStep()` on each step and by the firmware between steps (distance sensor with a parameter button held). It writes the lane's playing step and skips `ParamId::Note` while the **playing Gate step** (the Gate lane's cursor, which under polymeter can differ from the Note lane's) is `0.0f`.
 2. **Step edit (`editStepValue(id, step, value)`)** — used by the sensor, the ENV-mode faders and the encoder while a step is selected. It skips `ParamId::Note` when that **step's own Gate** is `0.0f`.
+3. **Whole-lane paint (`paintLane(id, value)` / `nudgeLane(id, delta)`)** — used by the held-parameter gesture while the transport is stopped (hand) and by the encoder while a record button is held. Every step of the lane (all 64 storage slots, so a growing track keeps the value) takes the clamped/rounded value. Deliberate lane programming is not gate-protected: pitch may be programmed onto silent steps ahead of toggling their gates. `paintLane(id, LANE_FOLLOWS_PATCH)` also hands an absolute lane back to the patch.
 
 Other lanes always take the value. `setStepParameterValue()` itself stays a plain clamped write for programmatic use (randomize, presets, tests, `setStep()`); persistence uses `setRawStepValue()`.
 

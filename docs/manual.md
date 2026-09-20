@@ -194,6 +194,11 @@ range. It edits whatever the **encoder target** is — cycle targets with the Ut
   parameter, else the toggled edit parameter, else the encoder target's lane (named at the
   bottom of the OLED's ENV page). A step that follows the patch starts from the patch
   value. Note and Octave move one step per detent.
+- While a parameter button is held (and no step is selected), the encoder **paints the
+  whole lane** of that parameter instead of editing the base: every step of the track
+  turns together, clamped at the lane's range. Note and Octave move one step per detent.
+  Release the button to return to base editing — the encoder keeps targeting the same
+  parameter.
 - While the transport runs, a base change reaches the sounding note at once without
   retriggering it.
 - The OLED normally shows the playing step's composed value of the encoder target (or, while
@@ -219,10 +224,13 @@ your hand, and the sounding note changes without retriggering — cutoff and vel
 once, attack and decay from the next note (a running attack or decay keeps its length, so
 live edits never click). Hand height **is** the value: near the sensor is the bottom of the
 parameter's range, 700 mm the top, whatever the voice's patch value. Note and Octave take one value per note, on the step, so hand
-jitter cannot warble a sounding pitch. With the transport stopped the hand writes the step
-each parameter is paused on. Pitch recording only
-lands while the playing gate is ON. In Step Edit mode the sensor records into the selected
-step instead.
+jitter cannot warble a sounding pitch. With the transport **stopped** (Settings closed) the
+hand paints the **whole lane**: every step of the held parameter's track follows the hand,
+so one gesture programs the entire lane — then press play and keep holding the button to
+perform per-step variation on top. Pitch recording only
+lands while the playing gate is ON while the transport runs (a stopped lane paint programs
+pitch onto every step, silent ones included). In Step Edit mode the sensor records into the
+selected step instead.
 
 Since the Voice Editing mode landed (2026-09-11) the sensor records a **relative modifier**
 rather than an absolute value: the reading is normalized to 0–1, the midpoint (≈50 %) is

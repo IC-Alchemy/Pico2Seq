@@ -3,6 +3,7 @@
 #include "ClockService.h"
 #include "../sensors/SensorConstants.h"
 #include "../sensors/EncoderManager.h"
+#include "../ui/ControlSurfaceLogic.h"
 #include "../ui/UIEventHandler.h"
 #include "VoicePlayback.h"
 #include <algorithm>
@@ -22,11 +23,19 @@ bool recordParameter(ParamId id, float normalizedValue)
     const float value = mapNormalizedValueToParamRange(id, normalizedValue);
     const int selected = uiState.selectedStepForEdit;
     const bool stepEdit = selected >= 0 && selected < SequencerConstants::MAX_STEPS_COUNT;
-    // Step Edit writes the selected step. Otherwise this is live recording:
-    // the lane's playing step, between clock steps as well as on them, so the
-    // sounding note follows the hand or fader. Both keep Note gate-protected.
-    const bool changed = stepEdit ? activeSeq.editStepValue(id, static_cast<uint8_t>(selected), value)
-                                  : activeSeq.recordLiveValue(id, value);
+    // Step Edit writes the selected step. While the transport runs this is
+    // live recording: the lane's playing step, between clock steps as well as
+    // on them, so the sounding note follows the hand (Note stays
+    // gate-protected on both paths). Stopped with no step selected, the same
+    // held-button gesture programs the whole lane at once; Settings keeps the
+    // legacy single-step path so preset browsing never repaints a lane.
+    bool changed;
+    if (stepEdit)
+        changed = activeSeq.editStepValue(id, static_cast<uint8_t>(selected), value);
+    else if (ControlSurface::paintsWholeLane(isClockRunning, false) && !uiState.settingsMode)
+        changed = activeSeq.paintLane(id, value);
+    else
+        changed = activeSeq.recordLiveValue(id, value);
     // This runs every control pass (1 ms). Only an actual change (after
     // clamping and note rounding) refreshes the voice.
     if (changed)

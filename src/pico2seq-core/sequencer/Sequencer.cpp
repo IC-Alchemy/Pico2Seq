@@ -174,6 +174,35 @@ bool Sequencer::editStepValue(ParamId id, uint8_t stepIdx, float value)
     return writeStepValue(id, stepIdx, value);
 }
 
+bool Sequencer::paintLane(ParamId id, float value)
+{
+    if (id >= ParamId::Count)
+    {
+        return false;
+    }
+    const float before = getStepParameterValue(id, 0);
+    // One clamped/rounded write makes the value canonical (integer notes,
+    // toggles, the patch sentinel); fillTrack then stamps every slot with it.
+    setStepParameterValue(id, 0, value);
+    parameterManager.fillTrack(id, getStepParameterValue(id, 0));
+    return getStepParameterValue(id, 0) != before;
+}
+
+bool Sequencer::nudgeLane(ParamId id, float delta)
+{
+    if (id >= ParamId::Count)
+    {
+        return false;
+    }
+    const uint8_t cursor = getCurrentStepForParameter(id);
+    // Absolute lanes start from what they are playing (patch value while
+    // following the patch), the same starting point step editing uses.
+    const float current = isPatchDefaultLane(id)
+                              ? getPlaybackValue(id, cursor)
+                              : getStepParameterValue(id, cursor);
+    return paintLane(id, current + delta);
+}
+
 void Sequencer::reset()
 {
     currentStep = 0;

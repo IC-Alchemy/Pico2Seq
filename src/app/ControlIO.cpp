@@ -232,10 +232,12 @@ void ControlIO::scanControls(uint32_t nowMs)
         // =======================
         //   REAL-TIME PARAMETER RECORDING
         // =======================
-        // While parameter buttons are held, the hand writes each held lane's
-        // playing step every pass, or the selected step in Step Edit. While
-        // playing, pitch lanes are left to advanceStep() on each clock step.
-        // No hand in range: steps keep their values.
+        // While parameter buttons are held, the hand writes each held lane:
+        // the selected step in Step Edit, the playing steps while the
+        // transport runs, or every step at once while stopped
+        // (recordParameter routes via ControlSurface::paintsWholeLane).
+        // While playing, pitch lanes are left to advanceStep() on each clock
+        // step. No hand in range: steps keep their values.
         if (AppState::performanceInput.handPresent)
         {
             freezeWatchdogMark(FW_LOOP_RECORD);
