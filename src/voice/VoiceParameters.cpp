@@ -113,7 +113,15 @@ bool formatValue(const VoiceConfig &config, ParamId id, float normalized,
     return false;
   const auto &b = binding(config, id);
   if (id == ParamId::Filter && !b.target) {
-    std::snprintf(output, capacity, "%.0fHz", mapCutoff(layout(config), normalized));
+    // Envelope amount, and the cutoff it opens to at the envelope's peak. The
+    // lane no longer sets the frequency, so a bare Hz readout would lie.
+    const auto &p = layout(config);
+    const float octaves = std::max(0.0f, config.filterEnvelopeOctaves) *
+                          std::clamp(normalized, 0.0f, 1.0f);
+    const float base = mapCutoff(p, config.filterCutoffBase);
+    const float peak = base * std::exp2(octaves * (1.0f - std::clamp(config.filterEnvelopeRest, 0.0f, 1.0f)));
+    std::snprintf(output, capacity, "%.0f%% %.0fHz", normalized * 100.0f, peak);
+    // "<amount>% <peak>": how far the contour opens, and the cutoff it reaches.
     return true;
   }
   const float value = b.map(normalized);

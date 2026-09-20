@@ -8,10 +8,15 @@
 namespace
 {
 constexpr uint32_t kControlIntervalMs = 1;
-// 25 fps display cadence for the OLED and LED matrix; commitFrame() only puts
-// the pages that changed on the bus, so a frame costs a page or two of
-// transfer instead of the old full 1 KB push.
-constexpr uint32_t kDisplayIntervalMs = 40; // ~25 frames/s for OLED and LEDs
+// The OLED and LED matrix run on independent cadences. OLED: commitFrame()
+// only puts the pages that changed on the bus, so a frame costs a page or two
+// of I2C transfer instead of the old full 1 KB push.
+constexpr uint32_t kOledIntervalMs = 40; // ~25 frames/s
+// LEDs: 3x the OLED rate. show() hands the 32-pixel frame to FastLED's PIO+DMA
+// driver (~1 ms on the wire, no interrupt blackout), so a fast cadence costs
+// Core 0 little. Blends in updateStepLEDs() are per frame, so fades settle
+// in a third of the time they did at the shared 40 ms cadence.
+constexpr uint32_t kLedIntervalMs = 13; // ~77 frames/s
 constexpr uint32_t kTileBusFrequencyHz = 100000; // Standard mode (100 kHz); Alchemy tiles on Wire1
 constexpr uint32_t kMainBusFrequencyHz = 400000; // Fast mode (400 kHz); OLED and sensors on Wire
 constexpr uint8_t kStartupLedBrightness = 150;
@@ -27,7 +32,8 @@ struct ControlHardware
     Adafruit_MPR121 touchSensor;
     OLEDDisplay display;
     uint32_t lastControlUpdate = 0;
-    uint32_t lastDisplayUpdate = 0;
+    uint32_t lastOledUpdate = 0;
+    uint32_t lastLedUpdate = 0;
 };
 ControlHardware controls;
 
@@ -253,32 +259,33 @@ void ControlIO::scanControls(uint32_t nowMs)
     }
 }
 
-void ControlIO::refreshDisplays(uint32_t nowMs)
+void ControlIO::refreshLeds(uint32_t nowMs)
 {
-    if (nowMs - controls.lastDisplayUpdate >= kDisplayIntervalMs)
+    if (nowMs - controls.lastLedUpdate >= kLedIntervalMs)
     {
-        controls.lastDisplayUpdate = nowMs;
-        freezeWatchdogFeed(FW_LOOP_DISPLAY);
+        controls.lastLedUpdate = nowMs;
+        freezeWatchdogFeed(FW_LOOP_LEDS);
 
-        // =======================
-        //   DISPLAY AND LED PROCESSING
-        // =======================
+        // Render the step sequence frame, then hand it to the matrix.
+        updateStepLEDs(controls.ledMatrix, AppState::sequencerView, uiState, AppState::performanceInput.distanceAboveMinimumMm);
+        controls.ledMatrix.show();
+    }
+}
+
+void ControlIO::refreshOled(uint32_t nowMs)
+{
+    if (nowMs - controls.lastOledUpdate >= kOledIntervalMs)
+    {
+        controls.lastOledUpdate = nowMs;
+        freezeWatchdogFeed(FW_LOOP_OLED);
+
         // Handle voice switch display updates
-        freezeWatchdogMark(FW_LOOP_OLED);
         if (uiState.voiceSwitchTriggered)
         {
             uiState.voiceSwitchTriggered = false; // Clear the trigger flag
             controls.display.onVoiceSwitched(uiState, voiceManager.get());
         }
 
-        // Update step sequence LEDs
-        updateStepLEDs(controls.ledMatrix, AppState::sequencerView, uiState, AppState::performanceInput.distanceAboveMinimumMm);
-
-        // Update OLED display
         controls.display.update(uiState, AppState::sequencerView, voiceManager.get());
-
-        // Apply LED updates to hardware
-        freezeWatchdogMark(FW_LOOP_LEDS);
-        controls.ledMatrix.show();
     }
 }

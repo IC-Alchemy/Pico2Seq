@@ -24,7 +24,7 @@ TEST_CASE("Parameter record buttons select their matching encoder base", "[contr
         {ParamId::Velocity, EncoderParameterMode::Velocity},
         {ParamId::Filter, EncoderParameterMode::Filter},
         {ParamId::Attack, EncoderParameterMode::Attack},
-        {ParamId::Decay, EncoderParameterMode::Decay},
+        {ParamId::Release, EncoderParameterMode::Release},
         {ParamId::Octave, EncoderParameterMode::Octave},
     };
 
@@ -69,7 +69,13 @@ TEST_CASE("Parameter descriptors distinguish recording, detents and toggles", "[
         CAPTURE(i);
         REQUIRE(definition != nullptr);
         CHECK(definition->editKind == kinds[i]);
-        CHECK(definition->recordable == (i <= static_cast<uint8_t>(ParamId::Octave)));
+        // The six record buttons: Note, Velocity, Filter, Attack, Octave and
+        // Release. Decay lost its button to Release - it is an engine control
+        // rather than an envelope stage on most presets.
+        const bool hasRecordButton = id == ParamId::Note || id == ParamId::Velocity ||
+                                     id == ParamId::Filter || id == ParamId::Attack ||
+                                     id == ParamId::Octave || id == ParamId::Release;
+        CHECK(definition->recordable == hasRecordButton);
         CHECK(definition->defaultSteps == SequencerConstants::DEFAULT_STEPS_COUNT);
         if (!definition->recordable)
             CHECK(definition->encoderMode == EncoderParameterMode::COUNT);
@@ -464,12 +470,11 @@ TEST_CASE("ShiftLatch ignores out-of-range param ids", "[control_surface]")
 // FaderMap
 // ---------------------------------------------------------------------------
 
-TEST_CASE("FaderMap: without a selected step the faders are tempo/swing/-/gate length", "[control_surface][fader]")
+TEST_CASE("FaderMap: without a selected step the faders are tempo/swing/volume/gate length", "[control_surface][fader]")
 {
     CHECK(FaderMap::assignmentFor(false, 0).target == FaderTarget::Tempo);
     CHECK(FaderMap::assignmentFor(false, 1).target == FaderTarget::SwingAmount);
-    // The old Decay / Master Volume slot is unassigned.
-    CHECK(FaderMap::assignmentFor(false, 2).target == FaderTarget::None);
+    CHECK(FaderMap::assignmentFor(false, 2).target == FaderTarget::MasterVolume);
     CHECK(FaderMap::assignmentFor(false, 3).target == FaderTarget::GateLength);
     for (uint8_t channel = 0; channel < FaderMap::kChannelCount; ++channel)
         CHECK(FaderMap::assignmentFor(false, channel).paramId == ParamId::Count);
@@ -500,77 +505,84 @@ TEST_CASE("FaderMap rejects out-of-range channels", "[control_surface]")
 
 TEST_CASE("FaderMap deadband requires an obvious move to engage then tracks real movement", "[control_surface]")
 {
+    constexpr uint16_t kEngage = FaderMap::kMoveThresholdCounts;
+    constexpr uint16_t kDeadband = FaderMap::kDeadbandCounts;
     FaderMap map;
 
     // First sample establishes baseline, does NOT send
     CHECK_FALSE(map.accept(0, 2048));
     CHECK_FALSE(map.isEngaged(0));
 
-    // Jitter and small movements below move threshold (64 counts) are rejected
-    CHECK_FALSE(map.accept(0, 2050));        // +2 counts from baseline
-    CHECK_FALSE(map.accept(0, 2100));        // +52 counts: still < 64
+    // Jitter and small movements below the engage threshold are rejected
+    CHECK_FALSE(map.accept(0, 2048 + 2));
+    CHECK_FALSE(map.accept(0, 2048 + kEngage - 1));
     CHECK_FALSE(map.isEngaged(0));
 
-    // Moving >= 64 counts from baseline engages the fader and sends the current value
-    CHECK(map.accept(0, 2112));              // +64 counts: engaged and sent!
+    // Reaching the threshold engages the fader and sends the current value
+    CHECK(map.accept(0, 2048 + kEngage));
     CHECK(map.isEngaged(0));
 
-    // Once engaged, standard 8-count deadband applies:
-    CHECK_FALSE(map.accept(0, 2115));        // +3 counts from last sent (2112): rejected
-    CHECK_FALSE(map.accept(0, 2119));        // +7 counts from 2112: rejected
-    CHECK(map.accept(0, 2120));              // +8 counts from 2112: sent!
+    // Once engaged, the deadband applies to movement since the last send
+    const uint16_t sent = 2048 + kEngage;
+    CHECK_FALSE(map.accept(0, sent + 1));
+    CHECK_FALSE(map.accept(0, sent + kDeadband - 1));
+    CHECK(map.accept(0, sent + kDeadband));
 }
 
 TEST_CASE("FaderMap channels engage independently", "[control_surface]")
 {
+    constexpr uint16_t kEngage = FaderMap::kMoveThresholdCounts;
     FaderMap map;
     CHECK_FALSE(map.accept(0, 1000));
     CHECK_FALSE(map.accept(1, 2000));
 
     // Move channel 0 beyond threshold
-    CHECK(map.accept(0, 1064));
+    CHECK(map.accept(0, 1000 + kEngage));
     CHECK(map.isEngaged(0));
     CHECK_FALSE(map.isEngaged(1));
 
     // Channel 1 still unengaged and small change rejected
-    CHECK_FALSE(map.accept(1, 2020));
+    CHECK_FALSE(map.accept(1, 2000 + kEngage - 1));
     CHECK_FALSE(map.isEngaged(1));
 
     // Move channel 1 downward beyond threshold
-    CHECK(map.accept(1, 1936)); // -64 counts from 2000
+    CHECK(map.accept(1, 2000 - kEngage));
     CHECK(map.isEngaged(1));
 }
 
 TEST_CASE("FaderMap resetDeadband disarms channels until moved again", "[control_surface]")
 {
+    constexpr uint16_t kEngage = FaderMap::kMoveThresholdCounts;
     FaderMap map;
     CHECK_FALSE(map.accept(2, 3000)); // seed baseline
-    CHECK(map.accept(2, 3070));       // +70: engaged!
+    CHECK(map.accept(2, 3000 + kEngage));
     CHECK(map.isEngaged(2));
 
     map.resetDeadband();              // mode flip disarms all channels
     CHECK_FALSE(map.isEngaged(2));
 
     // First sample in new mode establishes new baseline without sending
-    CHECK_FALSE(map.accept(2, 3070));
+    const uint16_t rest = 3000 + kEngage;
+    CHECK_FALSE(map.accept(2, rest));
     CHECK_FALSE(map.isEngaged(2));
 
-    // Small changes around 3070 do not send
-    CHECK_FALSE(map.accept(2, 3080)); // +10 counts < 64
+    // Small changes around the new baseline do not send
+    CHECK_FALSE(map.accept(2, rest + 10));
     CHECK_FALSE(map.isEngaged(2));
 
     // Obvious move in new mode engages channel 2
-    CHECK(map.accept(2, 3134));       // +64 counts from 3070
+    CHECK(map.accept(2, rest + kEngage));
     CHECK(map.isEngaged(2));
 }
 
 TEST_CASE("FaderMap disarms across voice switches", "[control_surface]")
 {
+    constexpr uint16_t kEngage = FaderMap::kMoveThresholdCounts;
     FaderMap map;
 
     // Voice 0: Move fader 3 (Gate Length in utility mode) and engage it
     CHECK_FALSE(map.accept(3, 1000));
-    CHECK(map.accept(3, 1100)); // +100 counts >= 64: engaged
+    CHECK(map.accept(3, 1000 + kEngage));
     CHECK(map.isEngaged(3));
 
     // Voice switch occurs: bridge calls resetDeadband()
@@ -578,15 +590,16 @@ TEST_CASE("FaderMap disarms across voice switches", "[control_surface]")
     CHECK_FALSE(map.isEngaged(3));
 
     // Voice 1: First sample after switch seeds baseline without sending
-    CHECK_FALSE(map.accept(3, 1100));
+    const uint16_t rest = 1000 + kEngage;
+    CHECK_FALSE(map.accept(3, rest));
     CHECK_FALSE(map.isEngaged(3));
 
     // Small jitter / touch on Voice 1 is ignored
-    CHECK_FALSE(map.accept(3, 1110)); // +10 counts < 64
+    CHECK_FALSE(map.accept(3, rest + 10));
     CHECK_FALSE(map.isEngaged(3));
 
     // Intentional move on Voice 1 engages fader
-    CHECK(map.accept(3, 1200)); // +100 counts >= 64
+    CHECK(map.accept(3, rest + kEngage));
     CHECK(map.isEngaged(3));
 }
 
@@ -678,9 +691,9 @@ TEST_CASE("EncoderMotion ignores zero, non-finite and non-positive sizes", "[con
 }
 TEST_CASE("Step edit targets the held, then toggled, then encoder parameter", "[control_surface]")
 {
-    CHECK(stepEditParameter(ParamId::Filter, ParamId::Velocity, EncoderParameterMode::Decay) == ParamId::Filter);
-    CHECK(stepEditParameter(ParamId::Count, ParamId::Velocity, EncoderParameterMode::Decay) == ParamId::Velocity);
-    CHECK(stepEditParameter(ParamId::Count, ParamId::Count, EncoderParameterMode::Decay) == ParamId::Decay);
+    CHECK(stepEditParameter(ParamId::Filter, ParamId::Velocity, EncoderParameterMode::Release) == ParamId::Filter);
+    CHECK(stepEditParameter(ParamId::Count, ParamId::Velocity, EncoderParameterMode::Release) == ParamId::Velocity);
+    CHECK(stepEditParameter(ParamId::Count, ParamId::Count, EncoderParameterMode::Release) == ParamId::Release);
     CHECK(stepEditParameter(ParamId::Count, ParamId::Count, EncoderParameterMode::Note) == ParamId::Note);
     CHECK(stepEditParameter(ParamId::Count, ParamId::Count, EncoderParameterMode::Octave) == ParamId::Octave);
     // Slide Time is a voice setting, not a step lane.
@@ -689,13 +702,15 @@ TEST_CASE("Step edit targets the held, then toggled, then encoder parameter", "[
 
 TEST_CASE("Between clock steps the lidar keeps writing only continuous lanes", "[control_surface][recording]")
 {
-    for (ParamId lane : {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Decay})
+    // Release, not Decay: the 5th record button drives the lane that reaches the
+    // envelope on every preset.
+    for (ParamId lane : {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Release})
         CHECK(recordsBetweenSteps(lane));
     // Pitch is one value per note, taken on the clock step.
     CHECK_FALSE(recordsBetweenSteps(ParamId::Note));
     CHECK_FALSE(recordsBetweenSteps(ParamId::Octave));
     // No record button, no live recording.
     for (ParamId lane : {ParamId::GateLength, ParamId::Gate, ParamId::Slide, ParamId::Sustain,
-                         ParamId::Release, ParamId::Count})
+                         ParamId::Decay, ParamId::Count})
         CHECK_FALSE(recordsBetweenSteps(lane));
 }

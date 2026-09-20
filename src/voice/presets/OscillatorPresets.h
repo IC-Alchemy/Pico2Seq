@@ -269,7 +269,7 @@ namespace VoicePresets {
     c.filterMode = VoiceFilterMode::LP12; // SVF response: low-pass
     c.highPassFreq = 25.0f; // Lower HPF cutoff from 55 Hz so sub-octave fundamental passes
     c.highPassRes = 0.0f;
-    c.filterEnvelopeFloor = 0.35f; // Keep low-pass floor open during sustain/decay to prevent silence
+    c.filterEnvelopeRest = 0.0f; // Envelope opens upward from the dialed cutoff
     c.parameters = &kSubFunkLayout;
     c.filterCutoffBase = 0.5f; // rests on the 420 Hz lane center
 
@@ -307,7 +307,7 @@ namespace VoicePresets {
     c.filterMode = VoiceFilterMode::BP24; // SVF response: band-pass
     c.highPassFreq = 25.0f; // Lower HPF cutoff from 70 Hz so sub-octave fundamental passes
     c.highPassRes = 0.0f;
-    c.filterEnvelopeFloor = 0.35f; // Keep band-pass floor open during sustain/decay to prevent silence
+    c.filterEnvelopeRest = 0.0f; // Envelope opens upward from the dialed cutoff
     c.parameters = &kRubberSubLayout;
     c.filterCutoffBase = 0.5f; // rests on the 320 Hz lane center
 

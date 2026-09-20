@@ -50,8 +50,9 @@ Core 0 (UI, Sensors, Matrix, MIDI):
     +-- updateEncoderBaseValues()-> Applies rotary increments to active params
     +-- distanceSensor.update()  -> 1 ms poll (10 ms data-ready check, 35 ms measurements)
     +-- pollUIHeldButtons()      -> Promotes long-press states (randomize reset, gate seq length)
-  loop() Display Slice (LED_UPDATE_INTERVAL = 20 ms / 50 Hz):
+  loop() LED Slice (kLedIntervalMs = 13 ms / ~77 Hz):
     +-- updateStepLEDs() / ledMatrix.show()
+  loop() OLED Slice (kOledIntervalMs = 40 ms / 25 Hz):
     +-- display.update() (SH1106 OLED @ 0x3C)
 ```
 
@@ -77,8 +78,8 @@ The magnetic encoder subsystem consists of two architectural layers:
 ### 2. VL53L1X Distance Sensor
 
 - **`DistanceSensor` (`src/sensors/DistanceSensor.h/.cpp`)**: Non-blocking driver wrapping `Adafruit_VL53L1X` on Wire at address `0x29`.
-  - Continuous measurement in Long distance mode.
-  - 33 ms timing budget (`TIMING_BUDGET_MICROSECONDS = 33000`), ST's minimum for every distance mode (20 ms is listed for Short mode only). With the former 20 ms budget in Long mode, hand readings stopped near 500 mm.
+  - Continuous measurement in **Short** distance mode (changed from Long on 2026-09-19). The playing surface only spans 55-700 mm, while Long mode reaches ~4 m and ranged the ceiling: bench logs showed a steady 1200-1550 mm return whenever a hand was not directly over the sensor, so `handPresent` stayed false and live recording wrote nothing, with range status 7 (wrap target fail) appearing when both targets were in view. Short mode tops out near 1.3 m and is the most ambient-light-immune preset.
+  - 33 ms timing budget (`TIMING_BUDGET_MICROSECONDS = 33000`). Short mode also supports ST's 20 ms minimum if hand tracking needs to be faster; 33 ms is kept for precision at the top of the window.
   - 35 ms inter-measurement period (`INTER_MEASUREMENT_PERIOD_MS = 35`).
   - 10 ms data-ready polling interval (`READ_INTERVAL_MS = 10`).
   - Range status is read directly: status 0 (valid) and 1 (sigma fail, a real target with a noisier estimate) are used; signal fail and worse are rejected. `Adafruit_VL53L1X::distance()` is not used because it rejects everything except status 0.

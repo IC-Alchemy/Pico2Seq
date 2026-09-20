@@ -467,7 +467,7 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     if (config) {
       if (lane != ParamId::Count)
         MusicalValues::format(lane, values, *config, scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)],
-                              uClock.getTempo(), value, sizeof(value));
+                              uClock.getTempo(), value, sizeof(value), showBase);
       else VoiceEdit::format(encoderId, *config, value, sizeof(value));
     }
     displayHardware.setTextSize(1);
@@ -579,7 +579,7 @@ void OLEDDisplay::displayParameterInfo(ParamId id, const Step &values,
   char value[48] = "--";
   if (config)
     MusicalValues::format(id, values, *config, scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)],
-                          uClock.getTempo(), value, sizeof(value));
+                          uClock.getTempo(), value, sizeof(value), base);
   drawMusicalValue(value, 27);
   displayHardware.setTextSize(1);
   displayHardware.setCursor(2, 46);
@@ -1000,7 +1000,8 @@ void OLEDDisplay::displayVoiceEditor(const UIState &state, VoiceManager *manager
       const auto lane = VoiceEdit::sequenceLane(id, *config);
       if (lane != ParamId::Count) {
         MusicalValues::format(lane, MusicalValues::baseStep(*config), *config,
-            scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)], uClock.getTempo(), value, sizeof(value));
+            scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)], uClock.getTempo(), value, sizeof(value),
+            /*baseView=*/true);
       } else VoiceEdit::format(id,*config,value,sizeof(value));
       displayHardware.setCursor(0,13);displayHardware.print(VoiceEdit::groupName(VoiceEdit::parameter(id).group));
       displayHardware.setCursor(0,25);displayHardware.print(VoiceEdit::name(id,*config));

@@ -102,7 +102,9 @@ enum class EncoderParameterMode : uint8_t
   Velocity = 0,      // Voice amplitude control
   Filter = 1,        // Filter cutoff control
   Attack = 2,        // Envelope attack time control
-  Decay = 3,         // Envelope decay time control
+  Release = 3,       // Envelope release time control (was Decay until the
+                     // 5th record button was remapped; slot kept so a saved
+                     // session's encoder target still resolves)
   Note = 4,          // Note/pitch control
   Octave = 5,        // Octave offset control
   SlideTime = 6,     // Portamento/slide time control
@@ -231,14 +233,20 @@ constexpr ParameterDefinition CORE_PARAMETERS[] = {
     {"Velocity", 0.5f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Velocity, true},
     {"Filter", 0.5f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Filter, true},
     {"Attack", 0.01f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Attack, true},
-    {"Decay", 0.3f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Decay, true},
+    // Decay has no record button: on 20 of the 29 presets the Decay lane is a
+    // timbre control, not an envelope stage (VoiceParameterLayout::envelopeFromTracks),
+    // so the button did nothing there. Reach it per step with the ENV-mode faders.
+    {"Decay", 0.3f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, true},
     {"Octave", 0.5f, 0.0f, 1.0f, ParameterEditKind::Stepped, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Octave, false},
     {"GateLength", 0.5f, 0.001f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, false},
     {"Gate", false, false, true, ParameterEditKind::Toggle, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, false},
     {"Slide", false, false, true, ParameterEditKind::Toggle, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, false},
-    // Edited per step by the ENV-mode faders only: no record button, no encoder base.
+    // Sustain is edited per step by the ENV-mode faders only.
     {"Sustain", 0.5f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, true},
-    {"Release", 0.3f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, true}
+    // Release owns the 5th record button and the encoder base that Decay had.
+    // It reaches the envelope on every preset, so it is what shapes how long a
+    // step rings - up to 10 s, enough for one downbeat note to cover 16 steps.
+    {"Release", 0.3f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Release, true}
 };
 
 static_assert(sizeof(CORE_PARAMETERS) / sizeof(CORE_PARAMETERS[0]) == PARAM_ID_COUNT,

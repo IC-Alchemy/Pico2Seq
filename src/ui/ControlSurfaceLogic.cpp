@@ -158,9 +158,8 @@ FaderAssignment FaderMap::assignmentFor(bool stepSelected, uint8_t channel)
     return out;
   }
 
-  // Fader 3 (the old Decay / Master Volume slot) is left unassigned for now.
   static constexpr FaderTarget kTargets[kChannelCount] = {
-      FaderTarget::Tempo, FaderTarget::SwingAmount, FaderTarget::None,
+      FaderTarget::Tempo, FaderTarget::SwingAmount, FaderTarget::MasterVolume,
       FaderTarget::GateLength};
   out.target = kTargets[channel];
   return out;

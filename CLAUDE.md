@@ -183,8 +183,8 @@ Matrix/TMAG5273/VL53L1X input  (Core 0)
     has been transmitted since USB MIDI was removed 2026-09-06) → VoiceManager
   → Voice spans (sources → envelope gain → effects → velocity → main filter → HPF)
   → fill_audio_buffer()  (Core 1)  → I2S @ 48kHz (final mix includes the master
-    volume from `VoiceManager::setGlobalVolume()`, restored from the session; no
-    fader drives it since 2026-09-19)
+    volume from `VoiceManager::setGlobalVolume()`, restored from the session and
+    driven by Utility-mode fader 3)
 ```
 
 `Sequencer::ParameterTrack<N>` (in `SequencerDefs.h`) is the polymetric building block: each
