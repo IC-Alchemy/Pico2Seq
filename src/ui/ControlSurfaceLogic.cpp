@@ -165,6 +165,24 @@ FaderAssignment FaderMap::assignmentFor(bool stepSelected, uint8_t channel)
   return out;
 }
 
+// Why Arpeggiator mode gets its own table instead of tagging lanes: the four
+// faders there are the whole continuous control surface of the arp, and none of
+// them means anything in step terms (tempo, swing and gate length all drive the
+// step sequencer). Values are interpreted by the engine, which clamps them.
+FaderAssignment FaderMap::arpAssignmentFor(uint8_t channel)
+{
+  FaderAssignment out;
+  if (channel >= kChannelCount)
+  {
+    return out;
+  }
+  static constexpr FaderTarget kTargets[kChannelCount] = {
+      FaderTarget::ArpOctaves, FaderTarget::ArpGate, FaderTarget::ArpSwing,
+      FaderTarget::ArpFilter};
+  out.target = kTargets[channel];
+  return out;
+}
+
 float FaderMap::normalize(uint16_t rawCounts)
 {
   float v = static_cast<float>(rawCounts) / static_cast<float>(kFaderMaxCounts);

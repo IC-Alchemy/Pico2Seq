@@ -149,9 +149,51 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
                         const SequencerView &sequencers)
 {
 
-  if(uiState.voiceEditor.active || uiState.controlsWaitRelease) return;
+  if(uiState.voiceEditor.active || uiState.controlsWaitRelease)
+  {
+    // A modal state swallows pad releases (the early return below), so the arp
+    // must not keep believing a finger is still down: latched notes stay,
+    // physically held ones are dropped.
+    uiState.arp.releaseAllHeldPads();
+    return;
+  }
   // Edge-only input: holds are promoted by polling so the loop never blocks.
   pollUIHeldButtons(uiState, sequencers);
+
+  // =======================
+  //   ARPEGGIATOR MODE: CHORD ENTRY
+  // =======================
+
+  /**
+   * Handle touch pads as the arp's scale-degree keyboard.
+   *
+   * In Arpeggiator mode the 32 pads are a 32-degree ladder (see
+   * src/pico2seq-core/arpeggiator/Arpeggiator.h): a touch joins the chord, a
+   * release drops it unless Latch is on. Nothing here reads the pad banks,
+   * selects a step or toggles a gate, so no sequencer pad path may run.
+   *
+   * Why releases are always delivered: Settings can open while a finger is
+   * down (Play long-press), and a swallowed release would leave that note in
+   * the chord forever. Presses still belong to whichever page has the pads.
+   */
+  if (uiState.arp.active() && evt.buttonIndex < NUMBER_OF_STEP_PADS)
+  {
+    if (evt.type == MATRIX_BUTTON_PRESSED)
+    {
+      // Settings (the preset browser) keeps the pads while it is open: it maps
+      // raw pad indices to presets, so a press there is not chord entry.
+      if (!uiState.settingsMode)
+        uiState.arp.pressPad(evt.buttonIndex);
+    }
+    else
+    {
+      // A release always reaches the chord, even if Settings opened while the
+      // finger was down -- otherwise that note would stay in the chord forever.
+      uiState.arp.releasePad(evt.buttonIndex);
+    }
+    if (!uiState.settingsMode)
+      return;
+  }
 
   // =======================
   //   SLIDE MODE STEP HANDLING
