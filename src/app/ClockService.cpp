@@ -1,5 +1,6 @@
 #include "ClockService.h"
 #include "AppState.h"
+#include "ArpPlayback.h"
 #include "StepPlayback.h"
 #include "VoicePlayback.h"
 #include "../utils/SpscQueue.h"
@@ -45,6 +46,9 @@ void onClockStart()
      Serial.println("[uClock] onClockStart()");
     for (auto *sequencer : AppState::sequencers)
         sequencer->start();
+    // Arpeggiator mode: a chord held through the stop starts from its root on
+    // the downbeat instead of wherever the walk was left.
+    arpTransportStart();
     isClockRunning = true;
 }
 
@@ -63,7 +67,11 @@ void processClockEvents()
     uint32_t step = 0;
     while (clockEvents.steps.tryPop(step))
     {
-        if (isClockRunning && !uiState.voiceEditor.active) processSequencerStep(step);
+        // Arpeggiator mode consumes no clock steps: the arp advances on the PPQN
+        // path below, where its note divisions live. The queue still drains so
+        // it cannot back up while the mode is on.
+        if (isClockRunning && !uiState.voiceEditor.active && !uiState.arp.active())
+            processSequencerStep(step);
     }
 }
 
@@ -89,8 +97,14 @@ void processPendingGateTicks()
     if (!isClockRunning || uiState.voiceEditor.active) return;
     while (pending-- > 0)
     {
-        // Publish note-off at its exact PPQN tick, not the next step boundary.
-        tickSequencerVoices();
+        // Sequencer mode publishes note-off at its exact PPQN tick rather than
+        // at the next step boundary. Arpeggiator mode owns the tick instead: the
+        // engine decides when its notes start and end, and the sequencers'
+        // duration counters stay put.
+        if (uiState.arp.active())
+            arpTick();
+        else
+            tickSequencerVoices();
     }
 }
 

@@ -498,6 +498,27 @@ TEST_CASE("FaderMap rejects out-of-range channels", "[control_surface]")
     CHECK_FALSE(FaderMap().accept(4, 100));
 }
 
+TEST_CASE("FaderMap: Arpeggiator mode replaces the whole fader set", "[control_surface][fader]")
+{
+    // Range, gate, swing, tone: none of the step assignments survive, and a
+    // selected step means nothing in Arpeggiator mode.
+    CHECK(FaderMap::arpAssignmentFor(0).target == FaderTarget::ArpOctaves);
+    CHECK(FaderMap::arpAssignmentFor(1).target == FaderTarget::ArpGate);
+    CHECK(FaderMap::arpAssignmentFor(2).target == FaderTarget::ArpSwing);
+    CHECK(FaderMap::arpAssignmentFor(3).target == FaderTarget::ArpFilter);
+    for (uint8_t channel = 0; channel < FaderMap::kChannelCount; ++channel)
+    {
+        CAPTURE(channel);
+        const FaderAssignment arp = FaderMap::arpAssignmentFor(channel);
+        CHECK(arp.target != FaderTarget::None);
+        CHECK(arp.paramId == ParamId::Count); // no step lane is edited there
+        CHECK(FaderMap::assignmentFor(false, channel).target != arp.target);
+    }
+    const FaderAssignment bad = FaderMap::arpAssignmentFor(4);
+    CHECK(bad.target == FaderTarget::None);
+    CHECK(bad.paramId == ParamId::Count);
+}
+
 TEST_CASE("FaderMap deadband requires an obvious move to engage then tracks real movement", "[control_surface]")
 {
     FaderMap map;

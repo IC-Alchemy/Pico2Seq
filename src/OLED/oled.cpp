@@ -237,6 +237,9 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
 //     2) In settings main/preset menu
 //     3) Transient voice parameter info (outside settings, brief after-change)
 //     4) Default status (scale, shuffle, selected voice, encoder, step indicators)
+// - Arpeggiator mode's own page sits below Settings and above the step pages:
+//   the mode replaces what the panel edits, so the step/gate/envelope views
+//   would be showing values nothing can reach (see docs/arpeggiator.md).
 // - Timing: uses millis()-based timeouts from UIState to show transient UIs without
 //   blocking the main loop.
 // - Efficiency: clears once, sets text props once, and renders one view per frame.
@@ -283,6 +286,7 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
       uiState.oledNoticeKind != UIState::OledNoticeKind::None)
   {
     const char *line1 = "RANDOMIZED";
+    const char *line2 = "";
     switch (uiState.oledNoticeKind)
     {
     case UIState::OledNoticeKind::Saved:    line1 = "SAVED"; break;
@@ -290,6 +294,14 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     case UIState::OledNoticeKind::LoadError: line1 = "LOAD ERR"; break;
     case UIState::OledNoticeKind::VoiceCleared: line1 = "CLEARED"; break;
     case UIState::OledNoticeKind::AllCleared:   line1 = "ALL CLEAR"; break;
+    case UIState::OledNoticeKind::ArpOn:
+      line1 = "ARP ON";
+      line2 = "arp mode";
+      break;
+    case UIState::OledNoticeKind::ArpOff:
+      line1 = "ARP OFF";
+      line2 = "step seq";
+      break;
     default: break;
     }
 
@@ -298,12 +310,25 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - line1Width) / 2, 16);
     displayHardware.print(line1);
 
-    if (uiState.oledNoticeKind == UIState::OledNoticeKind::Randomized ||
-        uiState.oledNoticeKind == UIState::OledNoticeKind::VoiceCleared)
+    if (line2[0])
     {
       displayHardware.setTextSize(1);
-      char voiceLine[12];
-      snprintf(voiceLine, sizeof(voiceLine), "Voice %u", static_cast<unsigned>(uiState.oledNoticeVoice) + 1);
+      const uint8_t line2Width = static_cast<uint8_t>(strlen(line2) * 6);
+      displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - line2Width) / 2, 44);
+      displayHardware.print(line2);
+    }
+    else if (uiState.oledNoticeKind == UIState::OledNoticeKind::Randomized ||
+             uiState.oledNoticeKind == UIState::OledNoticeKind::VoiceCleared)
+    {
+      // The voice line belongs to the sequencer's step randomize/clear. In
+      // Arpeggiator mode the same notices mean the arp's chord instead, which
+      // has no single voice.
+      displayHardware.setTextSize(1);
+      char voiceLine[16];
+      if (uiState.arp.active())
+        snprintf(voiceLine, sizeof(voiceLine), "%s", "chord");
+      else
+        snprintf(voiceLine, sizeof(voiceLine), "Voice %u", static_cast<unsigned>(uiState.oledNoticeVoice) + 1);
       const uint8_t voiceLineWidth = static_cast<uint8_t>(strlen(voiceLine) * 6);
       displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - voiceLineWidth) / 2, 44);
       displayHardware.print(voiceLine);
@@ -389,6 +414,17 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     // Default to preset selection/main settings when in preset sub-mode
     // or when no voiceManager is provided.
     displaySettingsMenu(uiState);
+    commitFrame();
+    return;
+  }
+
+  // Arpeggiator mode replaces the sequencer screens below it: no step is
+  // selected there, so the gate-length, envelope and parameter pages cannot
+  // describe anything the panel is doing. Settings above still win, because the
+  // preset browser stays reachable while the arp plays.
+  if (uiState.arp.active())
+  {
+    displayArpPage(uiState);
     commitFrame();
     return;
   }
@@ -488,6 +524,126 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
   }
 
   commitFrame();
+}
+
+// Why Arpeggiator mode needs its own page: the mode replaces what the pads, the
+// four faders and the encoder do, so every step/parameter page would be showing
+// values that nothing on the panel can reach. This page shows the arp's four
+// fader settings, the held chord, what the engine is playing right now, and the
+// lidar dynamics that set the last note's velocity.
+void OLEDDisplay::displayArpPage(const UIState &state)
+{
+  const Arpeggiator::Engine &arp = state.arp;
+  const size_t scaleIndex = std::min<size_t>(currentScale, SCALES_COUNT - 1);
+  const int *row = scale[scaleIndex];
+  const uint8_t voice = std::min<uint8_t>(state.selectedVoiceIndex, UIState::MAX_VOICES - 1);
+
+  // Header: the mode, the voice the arp plays through, and the rate the dial
+  // selects.
+  displayHardware.setTextSize(1);
+  displayHardware.setCursor(2, 0);
+  displayHardware.print("ARP");
+  displayHardware.setCursor(28, 0);
+  displayHardware.print("V");
+  displayHardware.print(voice + 1);
+  const char *rate = arp.rateLabel();
+  displayHardware.setCursor(OLEDConstants::SCREEN_WIDTH - 2 - 6 * static_cast<int>(strlen(rate)), 0);
+  displayHardware.print(rate);
+  displayHardware.drawFastHLine(2, 9, 124, SH110X_WHITE);
+
+  // Pattern, octave range (fader 1) and latch.
+  displayHardware.setCursor(2, 12);
+  displayHardware.print(arp.patternLabel());
+  char octaves[12];
+  snprintf(octaves, sizeof(octaves), "oct %u", static_cast<unsigned>(arp.settings().octaves));
+  displayHardware.setCursor(46, 12);
+  displayHardware.print(octaves);
+  if (arp.latchEnabled())
+  {
+    displayHardware.setCursor(100, 12);
+    displayHardware.print("LATCH");
+  }
+
+  // The chord as note names, in the order the walk will visit it: ascending
+  // chord degrees normally, press order for the Order pattern, which is what
+  // that pattern actually plays. Scale degrees are named through the same note
+  // table the step sequencer uses.
+  const bool playsAsEntered = arp.settings().pattern == Arpeggiator::Pattern::Order;
+  char chord[40] = "";
+  size_t used = 0;
+  const uint8_t count = arp.chordCount();
+  for (uint8_t i = 0; i < count; ++i)
+  {
+    const uint8_t degree = playsAsEntered ? arp.orderDegree(i) : arp.chordDegree(i);
+    char name[16];
+    MusicalValues::noteName(static_cast<float>(degree), 0, row, name, sizeof(name));
+    const size_t length = strlen(name);
+    if (used + length + 1 >= sizeof(chord))
+    {
+      snprintf(chord + used, sizeof(chord) - used, "+");
+      break;
+    }
+    if (used)
+      chord[used++] = ' ';
+    memcpy(chord + used, name, length + 1);
+    used += length;
+  }
+  displayHardware.setCursor(2, 24);
+  displayHardware.print(count ? chord : "touch pads for chord");
+
+  // Live readout: how many notes the walk has played since the last restart,
+  // and the notes that are gated on right now (up to four, in Chord pattern).
+  char playing[24] = "";
+  size_t playingUsed = 0;
+  for (uint8_t slot = 0; slot < Arpeggiator::kMaxSlots; ++slot)
+  {
+    uint8_t degree = 0;
+    uint8_t octave = 0;
+    if (!arp.slotSounding(slot, degree, octave))
+      continue;
+    char name[16];
+    MusicalValues::noteName(static_cast<float>(degree), 12 * static_cast<int>(octave), row,
+                            name, sizeof(name));
+    const size_t length = strlen(name);
+    if (playingUsed + length + 2 >= sizeof(playing))
+      break;
+    if (playingUsed)
+      playing[playingUsed++] = '/';
+    memcpy(playing + playingUsed, name, length + 1);
+    playingUsed += length;
+  }
+  if (!playing[0] && arp.lastDegree() != Arpeggiator::kNoDegree)
+  {
+    // Between gates nothing is sounding; a mono pattern still wants to show the
+    // note it just played, or the readout would blink at every gate. The
+    // parentheses mark it as the last note rather than a gated one.
+    char lastName[16];
+    MusicalValues::noteName(static_cast<float>(arp.lastDegree()),
+                            12 * static_cast<int>(arp.lastOctave()), row, lastName,
+                            sizeof(lastName));
+    snprintf(playing, sizeof(playing), "(%s)", lastName);
+  }
+  displayHardware.setCursor(2, 36);
+  displayHardware.print("S");
+  displayHardware.print(arp.stepCount());
+  displayHardware.print(" ");
+  displayHardware.print(playing[0] ? playing : "--");
+
+  // Lidar dynamics: a bar the hand fills, with the raw distance beside it.
+  const int barLeft = 2;
+  const int barRight = 86;
+  const int barY = 58;
+  displayHardware.drawRect(barLeft, barY - 6, barRight - barLeft, 6, SH110X_WHITE);
+  const int fill = static_cast<int>((barRight - barLeft - 2) * arp.dynamics());
+  if (fill > 0)
+    displayHardware.fillRect(barLeft + 1, barY - 5, fill, 4, SH110X_WHITE);
+  char hand[16];
+  const int mm = distanceSensor.getRawDistanceMm();
+  if (!arp.handInRange()) snprintf(hand, sizeof(hand), "no hand");
+  else if (mm < 0) snprintf(hand, sizeof(hand), "--mm");
+  else snprintf(hand, sizeof(hand), "%dmm", mm);
+  displayHardware.setCursor(92, 52);
+  displayHardware.print(hand);
 }
 
 void OLEDDisplay::displayEnvelopePage(const UIState &state, const Sequencer &sequence,

@@ -32,6 +32,7 @@ add_executable(pico2seq_tests
   unit/test_voice_block.cpp
   unit/test_voiceoscillator.cpp
   unit/test_control_surface_logic.cpp
+  unit/test_arpeggiator.cpp
   unit/test_ui_transitions.cpp
   unit/test_alchemy_proto.cpp
   unit/test_app_runtime.cpp
@@ -41,6 +42,9 @@ add_executable(pico2seq_tests
 
   # Scale data
   ${CORE_DIR}/scales/scales.cpp
+
+  # Arpeggiator mode note engine (portable chord/pattern/clock state machine)
+  ${CORE_DIR}/arpeggiator/Arpeggiator.cpp
 
   # Sequencer logic
   ${CORE_DIR}/sequencer/ParameterManager.cpp
@@ -88,8 +92,10 @@ catch_discover_tests(pico2seq_tests)
 # UI policies can be checked without linking firmware glue or rendering audio.
 add_executable(pico2seq_ui_tests
   unit/test_control_surface_logic.cpp
+  unit/test_arpeggiator.cpp
   unit/test_ui_transitions.cpp
-  ${SRC_DIR}/ui/ControlSurfaceLogic.cpp)
+  ${SRC_DIR}/ui/ControlSurfaceLogic.cpp
+  ${CORE_DIR}/arpeggiator/Arpeggiator.cpp)
 target_include_directories(pico2seq_ui_tests PRIVATE
   ${STUB_DIR} ${PROJECT_SOURCE_DIR} ${SRC_DIR} ${CORE_DIR} ${RPDSP_DIR})
 target_link_libraries(pico2seq_ui_tests PRIVATE Catch2::Catch2WithMain)

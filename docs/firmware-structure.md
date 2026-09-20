@@ -15,6 +15,7 @@ work during each control-loop pass.
 | Shared objects and hand-distance calibration | `src/app/AppState.h/.cpp` |
 | Clock registration, transport and queued clock events | `src/app/ClockService.h/.cpp` |
 | Step playback, voice-state publication and live recording | `src/app/StepPlayback.h/.cpp` |
+| Arpeggiator mode (chord/pattern engine, slot-to-voice playback) | `src/pico2seq-core/arpeggiator/`, `src/app/ArpPlayback.h/.cpp`; see [Arpeggiator mode](arpeggiator.md) |
 | Voice creation, preset application and track seeding | `src/app/VoiceSetup.h/.cpp` |
 | I2S buffers, stereo output and final-mix gain | `src/app/AudioEngine.h/.cpp` |
 | Voice Editing mode (parameter catalogue, editor transport) | `src/app/VoiceEditor.h/.cpp`, `src/voice/VoiceEditParameters.h/.cpp`, `src/ui/VoiceEditControls.h` |
@@ -62,6 +63,15 @@ authority; expiry in `processPendingGateTicks()` publishes a mid-step gate-off
 `VoiceState` to `VoiceManager`. `VoiceSystem` holds only IDs and control
 snapshots, with no parallel gate flags, timers or MIDI lifecycle tracking.
 The clock step still uses the sequencer API's existing width and wrap rules.
+
+Arpeggiator mode (`Shift + hold Voice 4`, docs/arpeggiator.md) replaces the
+step-oriented paths rather than adding a second sequencer: `processClockEvents()`
+skips the step drain while it is on, `processPendingGateTicks()` feeds the arp
+engine instead of the sequencer duration counters, the pads enter a chord, and
+the LED panel, the OLED page, the four faders, the dial and the lidar all switch
+to their arp meanings. `UIState::arp` holds the engine so every surface that
+already receives `UIState` reads the same chord, and `src/app/ArpPlayback.cpp`
+is the only place that turns arp notes into `VoiceState` updates.
 
 Recording a Note requires a high Gate on the edited step. Immediate audio
 feedback applies only to the currently playing step. Distance readings
