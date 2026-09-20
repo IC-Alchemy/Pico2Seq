@@ -229,9 +229,17 @@ void ControlIO::scanControls(uint32_t nowMs)
         freezeWatchdogMark(FW_LOOP_DISTANCE);
         distanceSensor.update();
         AppState::performanceInput.observeDistance(distanceSensor.getRawDistanceMm());
+        // Arpeggiator mode has no steps to write: the same hand drives the
+        // notes' dynamics instead, and losing the hand has to be reported every
+        // pass or the arp would keep a stale velocity.
+        if (uiState.arp.active())
+        {
+            uiState.arp.observeDynamics(AppState::performanceInput.handPresent,
+                                        AppState::performanceInput.recordingValue());
+        }
         // Live recording: a held lane follows the hand every pass (or the selected
         // step in Step Edit); pitch lanes also record on clock steps. No hand: hold.
-        if (AppState::performanceInput.handPresent)
+        else if (AppState::performanceInput.handPresent)
         {
             freezeWatchdogMark(FW_LOOP_RECORD);
             const float hand = AppState::performanceInput.recordingValue();

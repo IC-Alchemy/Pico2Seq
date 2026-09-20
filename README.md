@@ -19,6 +19,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **Shuffle & Swing**: 16 PPQN shuffle templates for groovy swing timing
 
 ### Intuitive Controls
+- **Arpeggiator Mode**: `Shift + hold Voice 4` turns the same panel into a chord arpeggiator — the 32 pads become a scale-degree keyboard, the LED matrix becomes the chord map, the four faders set range/gate/swing/filter, the dial sets the rate, the lidar sets note dynamics, and the button panel switches the six patterns and latches the chord. See [Arpeggiator mode](docs/arpeggiator.md)
 - **32-Button Touch Matrix**: MPR121 capacitive touch grid providing 32 dedicated step sequencing pads across two voice banks
 - **Alchemy Modular UI Tiles**: Dedicated `SliderModule` (4 faders + 4 voice selects) and `ButtonModule8` (8 multi-function buttons) on a dedicated I2C1 bus
 - **Hardware Mode Strap (GP7)**: Instant hardware toggle between Parameter mode and Utility mode
@@ -47,10 +48,12 @@ For a practical guide to changing the firmware, start with
 ├── .gitmodules               # Git submodule configuration
 ├── src/
 │   ├── app/                  # Startup, clock/playback glue, controls and audio output
+│   │   ├── ArpPlayback.*    # Arpeggiator mode: slot-to-voice mapping and VoiceState publishing
 │   ├── audio/                # I2S audio interface, PIO DMA, and buffer management
 │   ├── pico2seq-core/        # Portable core sequencer, ParameterTrack, and scale tables
-│   │   ├── scales/           # 13 scale tables and MIDI mapping
-│   │   └── sequencer/        # Sequencer, ParameterManager, SequencerDefs, ShuffleTemplates
+│   │   ├── arpeggiator/     # Portable chord/pattern/clock engine behind Arpeggiator mode
+│   │   ├── scales/          # 13 scale tables and MIDI mapping
+│   │   └── sequencer/       # Sequencer, ParameterManager, SequencerDefs, ShuffleTemplates
 │   ├── rpdsp/                # Submodule: IC-Alchemy/RPDSP (header-only DSP algorithms)
 │   ├── VelocityEncoder/      # Submodule: IC-Alchemy/VelocityEncoder (TMAG5273 driver)
 │   ├── voice/                # Synthesizer voices, VoiceSystem, and VoicePresets

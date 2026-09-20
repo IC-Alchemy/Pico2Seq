@@ -94,4 +94,43 @@ inline void focusPad(UIState &state, uint8_t voice, uint8_t step) noexcept
     state.selectedStepForEdit = step;
     state.voiceSwitchTriggered = true;
 }
+
+// --- Arpeggiator mode --------------------------------------------------------
+
+// Why: Arpeggiator mode reuses every sequencer control, so any sequencer-shaped
+// modal state left over from the other mode would reinterpret the next gesture
+// (a step in edit, a held parameter, gate-length entry, a slide toggle). Both
+// transitions drop that state and switch the engine, which owns the mode flag
+// and the chord; the audio side (silencing sounding notes, the OLED notice)
+// stays in ArpPlayback::arpModeToggle, which calls these.
+inline void enterArpMode(UIState &state) noexcept
+{
+    state.arp.setActive(true);
+    state.selectedStepForEdit = -1;
+    state.currentEditParameter = ParamId::Count;
+    state.slideMode = false;
+    state.gateSeqLengthMode = false;
+    state.modGateParamSeqLengthsMode = false;
+    state.encoderControlWasPressed = false;
+    state.latchedParameter = -1;
+    state.envFaderLane = ParamId::Count;
+    state.envViewUntil = 0;
+    state.settingsMode = false;
+    state.voiceParameterFeedbackPending = false;
+    for (auto &held : state.parameterButtonHeld)
+        held = false;
+    for (auto &pressedAt : state.padPressTimestamps)
+        pressedAt = 0;
+}
+
+inline void exitArpMode(UIState &state) noexcept
+{
+    state.arp.setActive(false);
+    state.selectedStepForEdit = -1;
+    state.currentEditParameter = ParamId::Count;
+    state.gateSeqLengthMode = false;
+    state.encoderControlWasPressed = false;
+    for (auto &pressedAt : state.padPressTimestamps)
+        pressedAt = 0;
+}
 } // namespace UITransitions

@@ -2,6 +2,7 @@
 
 #include "AlchemyControlBridge.h"
 #include "../app/AppState.h"
+#include "../app/ArpPlayback.h"
 #include "../app/Session.h"
 #include "../app/StepPlayback.h"
 #include "../app/VoiceEditor.h"
@@ -11,6 +12,7 @@
 #include "UIConstants.h"
 #include "UIEventHandler.h"
 #include "../AlchemyUI/src/ButtonMap.h"
+#include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 
 #include <uClock.h>
@@ -21,6 +23,10 @@ namespace
 // OLED needs a short-lived announcement or the new button meanings look dead.
 // OLED banner window after a mode flip.
 constexpr unsigned long kModeBannerDurationMs = 600;
+
+// Notes in a random arp chord: four is enough for a seventh chord, which is
+// the widest chord the four voices can voice in Chord pattern.
+constexpr uint8_t kRandomChordNotes = 4;
 
 // Utility-fader ranges.
 constexpr float kTempoMinBpm = 45.0f;
@@ -129,26 +135,33 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
 
   // SliderModule buttons: voice select, or transport chords with Shift —
   // identical in both modes.
-  handleVoiceButtons(uiState);
+  handleVoiceButtons(nowMs, uiState);
   if(uiState.voiceEditor.active) return;
 
   if (uiState.alchemyMode == UIState::AlchemyMode::Param)
   {
-    handleParamButtons(uiState);
+    if (uiState.arp.active())
+      handleArpPatternButtons(uiState);
+    else
+      handleParamButtons(uiState);
   }
   else
   {
-    handleUtilityButtons(nowMs, uiState, sequencers);
+    if (uiState.arp.active())
+      handleArpUtilityButtons(nowMs, uiState);
+    else
+      handleUtilityButtons(nowMs, uiState, sequencers);
   }
 
-  // Disarm the faders whenever what they edit changes: the selected voice,
-  // or entering, leaving or moving Step Edit (ENV mode). A newly focused
-  // step or voice must not snap to wherever the faders happen to rest.
-  if (uiState.selectedVoiceIndex != lastVoiceIndex_ ||
-      uiState.selectedStepForEdit != lastStepForEdit_)
+  // Disarm the faders whenever what they edit changes: the selected voice, or
+  // entering, leaving or moving Step Edit (ENV mode). A newly focused step or
+  // voice must not snap to wherever the faders happen to rest. Arpeggiator mode
+  // has no steps, so there only a voice change redisarms them.
+  const int stepForEdit = uiState.arp.active() ? lastStepForEdit_ : uiState.selectedStepForEdit;
+  if (uiState.selectedVoiceIndex != lastVoiceIndex_ || stepForEdit != lastStepForEdit_)
   {
     lastVoiceIndex_ = uiState.selectedVoiceIndex;
-    lastStepForEdit_ = uiState.selectedStepForEdit;
+    lastStepForEdit_ = stepForEdit;
     faders_.resetDeadband();
   }
 
@@ -201,13 +214,53 @@ void AlchemyControlBridge::onModeFlip(uint32_t nowMs, UIState &uiState)
 // transport chords) must stay under muscle memory in both Param and Utility.
 // Chords reuse the same ButtonHandlers entry points as the legacy matrix so
 // there is only one transport/randomize/scale implementation to maintain.
-void AlchemyControlBridge::handleVoiceButtons(UIState &uiState)
+// Why Voice 4 defers its action to release/hold: with Shift it carries two
+// commands on one button -- a tap opens the voice editor, a hold toggles
+// Arpeggiator mode -- so the tap can only be decided once the finger is up (the
+// same reason the Play button defers its transport action to release).
+void AlchemyControlBridge::handleVoiceButtons(uint32_t nowMs, UIState &uiState)
 {
   const bool shift = uiState.shiftHeld;
   for (uint8_t voice = 0; voice < 4; ++voice)
   {
+    const TileButton &tileButton = buttonAt(sliderSlot_, voice);
     ButtonEdges &edges = buttonEdges_[kSliderRole][voice];
-    if (!edges.take(buttonAt(sliderSlot_, voice)) || !edges.pressEdge)
+    // An armed editor/arp press keeps being polled while it is held, so the
+    // long press is reachable; every other button acts on its press edge only.
+    const bool actsWhileHeld = voice == 3 && editorHoldArmed_ && !editorHoldFired_;
+    if (!edges.take(tileButton) && !(actsWhileHeld && tileButton.held()))
+    {
+      continue;
+    }
+
+    if (voice == 3 && (shift || editorHoldArmed_))
+    {
+      if (edges.pressEdge)
+      {
+        editorHoldArmed_ = true;
+        editorHoldFired_ = false;
+      }
+      else if (tileButton.held() && editorHoldArmed_ && !editorHoldFired_ &&
+               tileButton.heldMilliseconds(nowMs) >= UITimingConstants::LONG_PRESS_THRESHOLD_MS)
+      {
+        // Hold consumed: the release must not also open the editor.
+        editorHoldFired_ = true;
+        arpModeToggle(uiState);
+        // What the faders edit changed with the mode: re-arm the deadband so a
+        // resting fader cannot snap an arp setting the moment the mode flips.
+        faders_.resetDeadband();
+      }
+      else if (edges.releaseEdge)
+      {
+        if (!editorHoldFired_)
+          VoiceEditor::enter();
+        editorHoldArmed_ = false;
+        editorHoldFired_ = false;
+      }
+      continue;
+    }
+
+    if (!edges.pressEdge)
     {
       continue;
     }
@@ -302,6 +355,180 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
   }
 }
 
+// --- ButtonModule8: transport and session (shared by both modes) -----------------
+
+// Why these two live outside the per-mode panels: Play/Stop and Session must
+// keep exactly one meaning in the sequencer and in Arpeggiator mode, so both
+// utility panels call the same code. Everything else on the panel is allowed to
+// differ per mode.
+void AlchemyControlBridge::handleTransportButton(const ButtonState &button, UIState &uiState)
+{
+  if (button.pressEdge)
+  {
+    // Transport action is deferred to release/hold so a long-press can toggle
+    // settings without ever stopping playback.
+    playSettingsOpenedThisPress_ = false;
+  }
+  else if (button.held && !playSettingsOpenedThisPress_ &&
+           button.heldMs >= UITimingConstants::LONG_PRESS_THRESHOLD_MS)
+  {
+    // Long-press (any clock state): toggle settings open/closed. Entering
+    // while running keeps the transport playing -- preset apply is staged
+    // and click-safe.
+    playSettingsOpenedThisPress_ = true;
+    if (uiState.settingsMode)
+      closeSettingsMode(uiState);
+    else
+      openSettingsMode(uiState);
+  }
+  else if (button.releaseEdge)
+  {
+    if (!playSettingsOpenedThisPress_)
+    {
+      if (uiState.settingsMode && isClockRunning)
+      {
+        // Short-press while running inside settings: exit settings only, keep
+        // the transport playing.
+        closeSettingsMode(uiState);
+      }
+      else
+      {
+        handleControlButton(BUTTON_PLAY_STOP, uiState); // stop+settings / start
+      }
+    }
+    playSettingsOpenedThisPress_ = false;
+  }
+}
+
+void AlchemyControlBridge::handleSessionButton(const ButtonState &button)
+{
+  if (button.pressEdge)
+  {
+    saveLoadLatch_ = false;
+  }
+  else if (button.held && !saveLoadLatch_ &&
+           button.heldMs >= UITimingConstants::LONG_PRESS_THRESHOLD_MS)
+  {
+    saveLoadLatch_ = true; // consume the hold; release must not re-trigger
+    Session::requestLoad();
+  }
+  else if (button.releaseEdge && !saveLoadLatch_)
+  {
+    Session::requestSave();
+  }
+}
+
+// --- ButtonModule8, Arpeggiator mode --------------------------------------------
+
+// Why patterns are a single-select group rather than latchable holds: a step
+// parameter is held while a hand writes it, but a pattern is a mode the arp
+// stays in -- the button is not tracked afterwards. Latch (bit 6) is the one
+// toggle on this panel, and it is reachable from the Utility panel as well so a
+// player can latch without touching the strap.
+void AlchemyControlBridge::handleArpPatternButtons(UIState &uiState)
+{
+  for (uint8_t bit = 0; bit < 7; ++bit) // bits 0-6; bit 7 is Shift (read above)
+  {
+    ButtonEdges &edges = buttonEdges_[kButtonRole][bit];
+    if (!edges.take(buttonAt(buttonSlot_, bit)) || !edges.pressEdge)
+    {
+      continue;
+    }
+
+    if (bit == 6)
+    {
+      uiState.arp.toggleLatch();
+      continue;
+    }
+
+    const Arpeggiator::Pattern pattern = Arpeggiator::patternForButtonBit(bit);
+    if (pattern != Arpeggiator::Pattern::Count)
+      uiState.arp.setPattern(pattern);
+  }
+}
+
+// Why the step-only slots are replaced instead of shadowed: swing templates,
+// encoder-target cycling and pattern clearing all drive the step sequencer, and
+// in Arpeggiator mode those buttons would be dead. Octave range, re-sync and
+// chord randomize are their arp counterparts, while Play, Session, Scale and
+// Theme keep their positions because they mean the same thing in both modes.
+void AlchemyControlBridge::handleArpUtilityButtons(uint32_t nowMs, UIState &uiState)
+{
+  for (uint8_t bit = 0; bit < 7; ++bit) // bits 0-6; bit 7 is Shift (read above)
+  {
+    const TileButton &tileButton = buttonAt(buttonSlot_, bit);
+    ButtonEdges &edges = buttonEdges_[kButtonRole][bit];
+    const bool actsWhileHeld = bit <= 1; // Play and Session keep their holds
+    if (!edges.take(tileButton) && !(actsWhileHeld && tileButton.held()))
+    {
+      continue;
+    }
+
+    const ButtonState state{edges.pressEdge, edges.releaseEdge, tileButton.held(),
+                            tileButton.heldMilliseconds(nowMs)};
+    switch (bit)
+    {
+    case 0: // Play / Stop
+      handleTransportButton(state, uiState);
+      break;
+
+    case 1: // Session save (tap) / load last saved (long-press)
+      handleSessionButton(state);
+      break;
+
+    case 2: // Scale cycle: the arp plays the same scale table as the sequencer.
+      if (edges.pressEdge)
+        handleControlButton(BUTTON_CHANGE_SCALE, uiState);
+      break;
+
+    case 3: // Octave range cycle 1..4. The step sequencer's swing templates do
+            // not apply here: the arp swings itself (Arpeggiator::scheduleNext).
+      if (edges.pressEdge)
+        uiState.arp.cycleOctaves();
+      break;
+
+    case 4: // Theme cycle: the arp panel is painted from the same theme table.
+      if (edges.pressEdge)
+        handleControlButton(BUTTON_CHANGE_THEME, uiState);
+      break;
+
+    case 5: // Latch (the same toggle as the Param panel, so a chord can be held
+            // without changing the strap). Shift + tap re-syncs the walk to the
+            // chord's root on the next tick.
+      if (!edges.pressEdge)
+        break;
+      if (uiState.shiftHeld)
+        uiState.arp.restart();
+      else
+        uiState.arp.toggleLatch();
+      break;
+
+    case 6: // Randomize the chord (tap); Shift + tap clears it.
+      if (!edges.pressEdge)
+        break;
+      if (uiState.shiftHeld)
+      {
+        uiState.arp.clearChord();
+        uiState.arp.setLatch(false);
+        uiState.oledNoticeKind = UIState::OledNoticeKind::VoiceCleared;
+        uiState.oledNoticeUntil = nowMs + OLED_NOTICE_DURATION_MS;
+      }
+      else
+      {
+        // Seeded from the clock so two taps in a row cannot draw the same chord.
+        uiState.arp.randomizeChord(kRandomChordNotes,
+                                   static_cast<uint32_t>(nowMs) * 2654435761u + 1u);
+        uiState.oledNoticeKind = UIState::OledNoticeKind::Randomized;
+        uiState.oledNoticeUntil = nowMs + OLED_NOTICE_DURATION_MS;
+      }
+      break;
+
+    default:
+      break;
+    }
+  }
+}
+
 // --- ButtonModule8, Utility mode -------------------------------------------------
 
 // Why Utility handling is edge-plus-hold instead of edge-only: Play, Session,
@@ -326,65 +553,16 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
       continue;
     }
 
+    const ButtonState state{edges.pressEdge, edges.releaseEdge, tileButton.held(),
+                            tileButton.heldMilliseconds(nowMs)};
     switch (bit)
     {
     case 0: // Play / Stop
-      if (edges.pressEdge)
-      {
-        // Transport action is deferred to release/hold so a long-press can
-        // toggle settings without ever stopping playback.
-        playSettingsOpenedThisPress_ = false;
-      }
-      else if (tileButton.held() && !playSettingsOpenedThisPress_ &&
-               tileButton.heldMilliseconds(nowMs) >= UITimingConstants::LONG_PRESS_THRESHOLD_MS)
-      {
-        // Long-press (any clock state): toggle settings open/closed. Entering
-        // while running keeps the transport playing — preset apply is staged
-        // and click-safe.
-        playSettingsOpenedThisPress_ = true;
-        if (uiState.settingsMode)
-        {
-          closeSettingsMode(uiState);
-        }
-        else
-        {
-          openSettingsMode(uiState);
-        }
-      }
-      else if (edges.releaseEdge)
-      {
-        if (!playSettingsOpenedThisPress_)
-        {
-          if (uiState.settingsMode && isClockRunning)
-          {
-            // Short-press while running inside settings: exit settings only,
-            // keep the transport playing.
-            closeSettingsMode(uiState);
-          }
-          else
-          {
-            handleControlButton(BUTTON_PLAY_STOP, uiState); // stop+settings / start
-          }
-        }
-        playSettingsOpenedThisPress_ = false;
-      }
+      handleTransportButton(state, uiState);
       break;
 
     case 1: // Session save (tap) / load last saved (long-press)
-      if (edges.pressEdge)
-      {
-        saveLoadLatch_ = false;
-      }
-      else if (tileButton.held() && !saveLoadLatch_ &&
-               tileButton.heldMilliseconds(nowMs) >= UITimingConstants::LONG_PRESS_THRESHOLD_MS)
-      {
-        saveLoadLatch_ = true; // consume the hold; release must not re-trigger
-        Session::requestLoad();
-      }
-      else if (edges.releaseEdge && !saveLoadLatch_)
-      {
-        Session::requestSave();
-      }
+      handleSessionButton(state);
       break;
 
     case 2: // Scale cycle
@@ -476,12 +654,32 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
       continue;
     }
     const float normalized = ControlSurface::FaderMap::normalize(rawCounts);
+    // Arpeggiator mode replaces the whole fader set: no steps are edited there,
+    // so the same four faders carry the arp's range, gate, swing and tone.
     const ControlSurface::FaderAssignment assignment =
-        ControlSurface::FaderMap::assignmentFor(uiState.selectedStepForEdit >= 0, channel);
+        uiState.arp.active()
+            ? ControlSurface::FaderMap::arpAssignmentFor(channel)
+            : ControlSurface::FaderMap::assignmentFor(uiState.selectedStepForEdit >= 0, channel);
 
     switch (assignment.target)
     {
     case ControlSurface::FaderTarget::None:
+      break;
+
+    case ControlSurface::FaderTarget::ArpOctaves:
+      uiState.arp.setOctaves(Arpeggiator::octavesForFader(normalized));
+      break;
+
+    case ControlSurface::FaderTarget::ArpGate:
+      uiState.arp.setGate(normalized);
+      break;
+
+    case ControlSurface::FaderTarget::ArpSwing:
+      uiState.arp.setSwing(normalized);
+      break;
+
+    case ControlSurface::FaderTarget::ArpFilter:
+      uiState.arp.setFilter(normalized);
       break;
 
     case ControlSurface::FaderTarget::EnvLane:

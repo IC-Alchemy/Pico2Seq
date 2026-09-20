@@ -12,7 +12,8 @@ distance sensor, an OLED display, and a USB CDC diagnostics console — all on o
 > This manual was compiled from the firmware source and documentation in this repository
 > (2026-09-03; updated 2026-09-16 for Project Snapshot persistence / flash session management,
 > hot audio in SRAM, the 29-preset sound bank on one browser page, the 55–700 mm lidar window with
-> pause-on-out-of-range, and encoder base value editing). The code is authoritative; anything that
+> pause-on-out-of-range, and encoder base value editing; updated for Arpeggiator mode
+> — see [`docs/arpeggiator.md`](arpeggiator.md)). The code is authoritative; anything that
 > could not be verified against the code is explicitly marked **[unverified]**. Voice
 > numbering: the panel and docs use **Voice 1–4**; the internal firmware and some OLED
 > screens use 0-based indices **0–3** for the same voices.
@@ -673,6 +674,35 @@ button 5 held = fine adjust, button 6 held 700 ms = reset to the loaded preset's
 button 7 = control guide, button 8 = exit). The encoder changes the selected parameter's
 base. Edits stay in RAM until a preset is loaded or power is lost. Full details:
 [`docs/voice-edit.md`](voice-edit.md).
+
+### Arpeggiator mode (Shift + hold V4)
+
+Hold **Shift** and hold **V4** for 400 ms to toggle Arpeggiator mode (a *tap* on
+that same combination still opens Voice Editing; the press waits for the release
+or the hold). The whole panel changes meaning for as long as the mode is on:
+
+| Control | In Arpeggiator mode |
+|---|---|
+| Touch pads | A 32-degree scale keyboard: pad 0 is the scale root, pad 31 is 31 scale steps up. Touch pads to build a chord; releasing drops a note unless Latch is held |
+| LED matrix | The chord map: the arp voice's hue under a finger, dim when latched, accent-bright while a note sounds (brighter with higher octaves and with the lidar), breathing when the chord is empty |
+| Fader 1 | Octave range 1–4 |
+| Fader 2 | Gate length 5–95% of the interval |
+| Fader 3 | Swing depth (every second note delayed, pairs stay even) |
+| Fader 4 | Filter lane of each note, composed with the voice's patch |
+| Encoder turn | Rate: 1/4, 1/4T, 1/8, 1/8T, 1/16, 1/16T, 1/32, 1/32T |
+| Hand over the lidar | Note dynamics: velocity from a quarter of the patch value (hand close) to full (hand raised); no hand leaves the preset's velocity alone |
+| Param buttons 1–6 | Pattern: Up, Down, Up-Dn, Rnd, Order, Chord |
+| Param button 7 | Latch (hold the chord after release; the next press with nothing held starts a new chord) |
+| Utility 1 / 2 | Play/Stop and Session keep their sequencer meanings |
+| Utility 3 / 4 / 5 | Scale cycle, octave-range cycle, Latch (Shift + tap re-syncs the walk to the chord root) |
+| Utility 6 | Random four-note chord (engages Latch); Shift + tap clears the chord |
+| V1–V4 | Select which voice the arp plays through |
+| OLED | `ARP` page: pattern, rate, octave range, latch, the chord as note names, notes sounding now, and the lidar dynamics bar |
+
+The four step sequencers do not advance while the mode is on, and the mode is
+not saved with the session — a power cycle boots back into the step sequencer.
+Full details, including how Chord pattern spreads four notes over the four
+voices: [`docs/arpeggiator.md`](arpeggiator.md).
 
 ### Sensors & encoder
 
