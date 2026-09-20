@@ -472,6 +472,14 @@ so no per-span arrays use Core 1's 2 KiB stack.
    gate was long.)
    Coefficient updates retain their every-eight-samples throttle and change
    threshold; their exact sample indices are recorded in fixed storage.
+**The Filter lane is the envelope amount, not the cutoff** (2026-09-19). The
+cutoff frequency comes from `filterCutoffBase` alone - the encoder's Filter
+target - and the sequenced lane scales `filterEnvelopeOctaves` from 0 (cutoff
+parked on the base) to the preset's full sweep. `filterEnvelopeRest` defaults to
+0, so the contour only opens upward from the base, the way an analog VCF's
+contour amount works. The OLED shows the lane as `<amount>% <peak Hz>` and the
+patch base as plain Hz (`MusicalValues::format(..., baseView)`).
+
 4. `renderSources_()` selects the engine once per span. With an envelope,
    samples at or below `0.001f` leave the source and pending pitch commit alone.
    Oscillator-bank pitch commits require a high gate; slides advance every

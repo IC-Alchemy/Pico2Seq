@@ -31,7 +31,9 @@ constexpr Parameter kParameters[] = {
      nullptr, nullptr},
     {Id::Velocity, "Velocity", Group::Sequenced, Unit::Percent, 0.0f, 1.0f,
      false, nullptr, nullptr},
-    {Id::Cutoff, "Cutoff", Group::Sequenced, Unit::Percent, 0.0f, 1.0f, false,
+    // Sequenced Filter lane: envelope amount, not a frequency. The cutoff
+    // itself is Id::StaticCutoff (the patch base the encoder moves).
+    {Id::Cutoff, "FiltEnv", Group::Sequenced, Unit::Percent, 0.0f, 1.0f, false,
      nullptr, nullptr},
     {Id::Attack, "Attack", Group::Sequenced, Unit::Seconds, 0.001f,
      kAttackMaxSeconds, true, nullptr, nullptr},

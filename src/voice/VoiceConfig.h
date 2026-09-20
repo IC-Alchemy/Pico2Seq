@@ -110,16 +110,18 @@ struct VoiceConfig
   bool recipeRetrigger = true;
   float noiseSourceLevel = 1.0f;
   float noiseChaosRate = 1.0f;
-  // Filter envelope depth in OCTAVES of cutoff sweep, measured from the rest
-  // point below. 1.25 octaves of a typical 5-octave preset span is the 20-30%
-  // "env amount" a classic subtractive patch uses; the dialed cutoff stays the
-  // thing you hear, and the envelope colours it rather than replacing it.
-  float filterEnvelopeOctaves = 1.25f;
-  // Envelope level that sits exactly on the dialed cutoff. Above it the filter
-  // opens, below it closes. The old linear form multiplied the cutoff by
-  // (env * amount + floor), so a released note fell to a tenth of its cutoff
-  // and went inaudible - which is why presets used to raise the floor.
-  float filterEnvelopeRest = 0.35f;
+  // Filter envelope depth in OCTAVES of cutoff sweep at a full Filter lane,
+  // measured from the rest point below. The lane scales this, so 4 octaves at
+  // the top leaves a sequenced sweep something to actually open; a lane resting
+  // at 0.5 still gives the 2 octaves a classic subtractive patch would use.
+  float filterEnvelopeOctaves = 4.0f;
+  // Envelope level that sits exactly on the dialed cutoff. 0 makes the patch
+  // cutoff the floor and lets the envelope only open upward from it, the way an
+  // analog VCF's contour amount works: a released note rests at the cutoff you
+  // dialed instead of below it, and the sustained part of a note still differs
+  // audibly between no envelope amount and full. A non-zero value lets the
+  // filter close under the base for the first part of the sweep.
+  float filterEnvelopeRest = 0.0f;
 
   // Waveguide engine parameters (ENGINE_WAVEGUIDE only)
   float wgT60 = 2.5f;          // String tail T60 in seconds (0.05-10.0)

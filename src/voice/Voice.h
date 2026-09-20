@@ -356,11 +356,8 @@ private:
   // Envelope-modulated cutoff target, recomputed once per kFilterUpdateInterval
   // (the rate setFreq runs at) and smoothed per sample in between.
   float filterEnvTarget_ = 1000.0f;
-  // The Filter lane also scales envelope depth by +/-30% across its travel, so
-  // one sweep opens the cutoff AND deepens the contour: a dark step is both
-  // lower and less modulated, a bright step both higher and more.
-  static constexpr float kFilterEnvLaneDepthFloor = 0.7f;
-  static constexpr float kFilterEnvLaneDepthSpan = 0.6f;
+  // The Filter lane is the envelope amount, scaling filterEnvelopeOctaves from
+  // 0 (cutoff parked on the patch base) to the preset's full sweep.
   // Throttle expensive filter.setFreq() updates: coefficients are recomputed
   // at most once every kFilterUpdateInterval samples. Power of two so the
   // rolling counter wraps with a mask instead of a per-sample UDIV.

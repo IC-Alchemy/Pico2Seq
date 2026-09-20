@@ -523,13 +523,15 @@ void Voice::handleGateEdges_() noexcept
 // audio path calls it only when a staged cutoff change lands.
 void Voice::refreshFilterEnvDepth_() noexcept
 {
+  // The Filter lane IS the envelope amount: 0 leaves the cutoff parked on the
+  // patch base, 1 gives the preset's full sweep. A preset that re-purposes the
+  // lane for timbre has no depth to sequence, so it takes its static base.
   const float lane = std::clamp(
       VoiceParameters::binding(config, ParamId::Filter).target != nullptr
           ? config.filterCutoffBase
           : state.filterCutoff,
       0.0f, 1.0f);
-  const float depthScale = kFilterEnvLaneDepthFloor + kFilterEnvLaneDepthSpan * lane;
-  filterEnvOctaves_ = std::max(0.0f, config.filterEnvelopeOctaves) * depthScale;
+  filterEnvOctaves_ = std::max(0.0f, config.filterEnvelopeOctaves) * lane;
   filterEnvRest_ = std::clamp(config.filterEnvelopeRest, 0.0f, 1.0f);
 }
 
@@ -904,7 +906,7 @@ inline void Voice::applyEnvelopeParameters() noexcept
     const bool sustainLane = !VoiceParameters::binding(config, ParamId::Sustain).target;
     const bool releaseLane = !VoiceParameters::binding(config, ParamId::Release).target;
     setEnvelopeShape_(sustainLane ? state.sustainLevel : config.defaultSustain,
-                      releaseLane ? MusicalValues::envelopeSeconds(state.releaseTimeSeconds)
+                      releaseLane ? MusicalValues::releaseSeconds(state.releaseTimeSeconds)
                                   : config.defaultRelease);
     return;
   }
@@ -1255,8 +1257,12 @@ void Voice::applyParameters_(const VoiceState &newState) noexcept
   VoiceParameters::apply(config, state);
   const auto &parameters = VoiceParameters::layout(config);
   const bool repurposedFilter = VoiceParameters::binding(config, ParamId::Filter).target != nullptr;
-  filterFrequency = VoiceParameters::mapCutoff(
-      parameters, repurposedFilter ? config.filterCutoffBase : state.filterCutoff);
+  // The cutoff is the patch base alone - the encoder's Filter target moves it.
+  // The Filter lane is envelope depth now (refreshFilterEnvDepth_), so a
+  // sequenced sweep opens and closes the filter through the contour rather
+  // than stepping the frequency underneath it.
+  (void)repurposedFilter;
+  filterFrequency = VoiceParameters::mapCutoff(parameters, config.filterCutoffBase);
   refreshFilterEnvDepth_();
   if (parameters.envelopeFromTracks || config.usePatchBases)
     applyEnvelopeParameters();
