@@ -5,7 +5,7 @@
 
 /**
  * @brief LED Matrix and Display Constants
- * 
+ *
  * Centralized constants for LED matrix timing, colors, and animation parameters
  * to improve maintainability and consistency across the LED system.
  */
@@ -16,7 +16,7 @@ namespace LEDConstants {
   static constexpr uint8_t MATRIX_HEIGHT = 4; // 8x4 panel: mirrors the 4x8 touch matrix
   static constexpr uint8_t MATRIX_DATA_PIN = 1;
   static constexpr uint8_t MATRIX_TOTAL_LEDS = MATRIX_WIDTH * MATRIX_HEIGHT;
-  static constexpr uint8_t DEFAULT_BRIGHTNESS = 120;
+  static constexpr uint8_t DEFAULT_BRIGHTNESS = 222;
 
   // LED Animation Timing Constants
   static constexpr float PULSE_FREQUENCY = 0.006f;
@@ -35,12 +35,12 @@ namespace LEDConstants {
   static constexpr uint8_t SUBTLE_BLEND_AMOUNT = 32;
 
   // LED Brightness Scaling Constants
-  static constexpr uint8_t FULL_BRIGHTNESS = 200;
+  static constexpr uint8_t FULL_BRIGHTNESS = 255;
   static constexpr uint8_t HIGH_BRIGHTNESS = 180;
   static constexpr uint8_t MEDIUM_BRIGHTNESS = 128;
   static constexpr uint8_t LOW_BRIGHTNESS = 64;
-  static constexpr uint8_t DIM_BRIGHTNESS = 32;
-  static constexpr uint8_t SUBTLE_BRIGHTNESS = 12;
+  static constexpr uint8_t DIM_BRIGHTNESS = 24;
+  static constexpr uint8_t SUBTLE_BRIGHTNESS = 6;
 
   // LED Matrix Layout Constants
   static constexpr uint8_t TOP_HALF_OFFSET = 0;       // Band 0 start (pair low voice)
@@ -49,7 +49,7 @@ namespace LEDConstants {
   static constexpr uint8_t MAX_STEP_BUTTONS = 16;
 
   // Polyrhythmic Overlay Constants
-  static constexpr uint8_t POLYRHYTHM_INTENSITY = 32;
+  static constexpr uint8_t POLYRHYTHM_INTENSITY = 64;
   static constexpr size_t POLYRHYTHM_PARAM_COUNT = 3;
 }
 
@@ -61,12 +61,12 @@ namespace LEDColors {
   // Breathing Animation Colors
   static constexpr CRGB BREATHING_BLUE_BASE = CRGB(0, 0, 94);
   static constexpr uint8_t BREATHING_MIN_INTENSITY = 16;
-  static constexpr uint8_t BREATHING_MAX_INTENSITY = 80;
-  
+  static constexpr uint8_t BREATHING_MAX_INTENSITY = 99;
+
   // Polyrhythmic Overlay Colors
-  static constexpr CRGB POLYRHYTHM_NOTE = CRGB(0, 32, 66);      // Cyan tint
-  static constexpr CRGB POLYRHYTHM_VELOCITY = CRGB(0, 66, 0);   // Green tint
-  static constexpr CRGB POLYRHYTHM_FILTER = CRGB(0, 0, 66);     // Blue tint
+  static constexpr CRGB POLYRHYTHM_NOTE = CRGB(32, 0, 88);
+  static constexpr CRGB POLYRHYTHM_VELOCITY = CRGB(0, 88, 22);   // Green tint
+  static constexpr CRGB POLYRHYTHM_FILTER = CRGB(0, 10, 88);     // Blue tint
 }
 
 namespace OLEDConstants {
@@ -75,14 +75,14 @@ namespace OLEDConstants {
   static constexpr uint8_t SCREEN_WIDTH = 128;
   static constexpr uint8_t SCREEN_HEIGHT = 64;
   static constexpr int8_t RESET_PIN = -1;
-  
+
   // OLED Animation Timing
   static constexpr uint32_t BORDER_ANIM_INTERVAL_MS = 80;
   static constexpr uint8_t BORDER_ANIM_PHASES = 8;
   static constexpr uint32_t STARTUP_WIPE_DELAY_MS = 12;
   static constexpr uint32_t STARTUP_BOUNCE_DELAY_MS = 20;
   static constexpr uint32_t STARTUP_SETTLE_DELAY_MS = 300;
-  
+
   // OLED Layout Constants
   static constexpr uint8_t BORDER_THICKNESS = 1;
   static constexpr uint8_t TEXT_MARGIN = 5;

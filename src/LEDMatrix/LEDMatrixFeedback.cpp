@@ -103,7 +103,7 @@ constexpr LEDThemeColors ALL_THEMES[] = {
      CRGB(0, 44, 54),
      CRGB(0, 0, 94),
      CRGB(0, 0, 12),
-     CRGB(0, 0, 12),
+     CRGB(0, 8, 8),
      CRGB(128, 94, 0),
      CRGB(32, 24, 0),
      CRGB(94, 0, 94),
@@ -164,10 +164,10 @@ constexpr LEDThemeColors ALL_THEMES[] = {
         // a pink outlier anchor; reds lifted to offset protan red-darkening.
         {CRGB(240, 70, 60), CRGB(250, 175, 45), CRGB(255, 150, 40),
          CRGB(255, 80, 160)},
-        CRGB(62, 22, 4),     // playheadAccent - dark lava accent
+        CRGB(62, 44, 4),     // playheadAccent - dark lava accent
         CRGB(50, 20, 8),     // idleBreathingBlue - warm ember glow
-        CRGB(12, 6, 4),      // editModeDimBlueV1 - very dark warm slate
-        CRGB(14, 8, 5),      // editModeDimBlueV2
+        CRGB(5, 6, 12),      // editModeDimBlueV1 - very dark warm slate
+        CRGB(12, 12, 5),      // editModeDimBlueV2
         CRGB(230, 150, 90),  // modNoteActive - warm beige-orange
         CRGB(30, 18, 12),    // modNoteInactive
         CRGB(240, 180, 120), // modVelocityActive - pale amber
