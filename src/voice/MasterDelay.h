@@ -35,12 +35,12 @@ public:
     // High but stable: fastTanh bounds the loop and the feedback lowpass
     // keeps the ringing repeats musical.
     static constexpr float kDefaultFeedback = 0.85f;
-    static constexpr float kFeedbackCutoffHz = 2800.0f;
+    static constexpr float kFeedbackCutoffHz = 2500.0f;
 
     void prepare(float sampleRate)
     {
         sampleRate_ = sampleRate > 0.0f ? sampleRate : 48000.0f;
-        maxDelaySeconds_ = static_cast<float>(kCapacitySamples - 4) / sampleRate_;
+        maxDelaySeconds_ = static_cast<float>(kCapacitySamples *.75f) / sampleRate_;
         feedbackFilter_.prepare(sampleRate_);
         feedbackFilter_.setCutoff(kFeedbackCutoffHz);
         dcBlocker_.prepare(sampleRate_);
@@ -76,7 +76,7 @@ public:
 
     void setFeedback(float feedback)
     {
-        feedback_ = feedback < 0.0f ? 0.0f : (feedback > 0.98f ? 0.98f : feedback);
+        feedback_ = feedback < 0.0f ? 0.0f : (feedback > 0.995f ? 0.995f : feedback);
     }
 
     // --- Audio thread -------------------------------------------------------
@@ -102,8 +102,8 @@ public:
 private:
     // ~63% of the way in 15 ms (mix) / 20 ms (delay time). The time slew is
     // the audible part: a gliding read head pitch-warps the loop.
-    static constexpr float kMixTauSeconds = 0.015f;
-    static constexpr float kTimeTauSeconds = 0.020f;
+    static constexpr float kMixTauSeconds = 0.045f;
+    static constexpr float kTimeTauSeconds = 0.50f;
 
     float smoothingAlpha(float tauSeconds) const
     {
