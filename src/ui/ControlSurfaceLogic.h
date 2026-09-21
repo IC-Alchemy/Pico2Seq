@@ -315,7 +315,7 @@ enum class FaderTarget : uint8_t
 {
   None,        // unassigned
   EnvLane,     // ENV mode: one envelope lane of the selected step
-  Tempo,        // uClock BPM
+  Tempo,        // uClock BPM (Shift + fader: delay feedback)
   DelayMix,     // master delay wet mix (Shift + fader: delay time)
   MasterVolume, // VoiceManager's global gain on Core 1's final mix
   GateLength,   // gate length across the selected voice's steps
@@ -327,6 +327,13 @@ enum class FaderTarget : uint8_t
  * master-bus compressor) instead, so one physical fader serves both.
  */
 enum class MasterFaderAction : uint8_t { Volume, Macro };
+
+enum class TempoFaderAction : uint8_t { Tempo, DelayFeedback };
+
+constexpr TempoFaderAction tempoFaderAction(bool shiftHeld)
+{
+  return shiftHeld ? TempoFaderAction::DelayFeedback : TempoFaderAction::Tempo;
+}
 
 constexpr MasterFaderAction masterFaderAction(bool shiftHeld)
 {
@@ -368,8 +375,9 @@ class FaderMap
 {
 public:
   static constexpr uint8_t kChannelCount = 4;
-  // Shift retargets both master-effect faders. Re-arm them on either edge
+  // Shift retargets the first three faders. Re-arm them on either edge
   // so one parameter never snaps to the other parameter's rest position.
+  static constexpr uint8_t kTempoChannel = 0;
   static constexpr uint8_t kDelayChannel = 1;
   static constexpr uint8_t kMasterVolumeChannel = 2;
   static constexpr uint16_t kFaderMaxCounts = 4095;
@@ -402,9 +410,10 @@ public:
   /** Disarm one channel (e.g. the volume fader on shift edges). */
   void resetChannel(uint8_t channel);
 
-  /** Re-arm the mix/time and volume/macro faders on either Shift edge. */
+  /** Re-arm tempo/feedback, mix/time and volume/macro on either Shift edge. */
   void resetShiftTargets()
   {
+    resetChannel(kTempoChannel);
     resetChannel(kDelayChannel);
     resetChannel(kMasterVolumeChannel);
   }

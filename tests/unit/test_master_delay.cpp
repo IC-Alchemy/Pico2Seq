@@ -129,7 +129,7 @@ TEST_CASE("MasterDelay stays bounded and drains under hot input", "[master_delay
 {
     MasterDelay delay;
     delay.setMix(1.0f);
-    delay.setFeedback(0.995f); // worst case the setter allows
+    delay.setFeedback(1.0f); // full 100% feedback, with the existing saturated loop
     delay.setDelaySeconds(0.010f);
     delay.prepare(kSampleRate);
 

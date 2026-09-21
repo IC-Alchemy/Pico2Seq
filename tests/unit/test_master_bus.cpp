@@ -78,6 +78,7 @@ TEST_CASE("Master bus compresses the delayed mix after master volume", "[master]
         manager->setGlobalVolume(0.6f);
         manager->setMasterMacro(macro);
         manager->setDelayMix(mix);
+        manager->setDelayFeedback(0.0f);
         manager->setDelayTime(0.010f);
         manager->init(kSampleRate);
         dry.init(kSampleRate);
@@ -85,6 +86,7 @@ TEST_CASE("Master bus compresses the delayed mix after master volume", "[master]
         dry.updateParameters(busNote());
         delay->prepare(kSampleRate);
         delay->setMix(mix);
+        delay->setFeedback(0.0f);
         delay->setDelaySeconds(0.010f);
         delay->reset();
         rpdsp::Compressor compressor;
@@ -97,6 +99,17 @@ TEST_CASE("Master bus compresses the delayed mix after master volume", "[master]
         float wetPeak = 0.0f;
         for (unsigned call = 0; call < 240; ++call)
         {
+            // Live target changes must reach the audio-owned delay without
+            // resetting its tail or changing the compressor/mix controls.
+            if (call == 80 || call == 160)
+            {
+                const float feedback = call == 80 ? 1.0f : 0.35f;
+                manager->setDelayFeedback(feedback);
+                delay->setFeedback(feedback);
+                CHECK(manager->getMasterMacro() == macro);
+                CHECK(manager->getDelayMix() == mix);
+                CHECK(manager->getDelayTime() == 0.010f);
+            }
             const uint32_t n = sizes[call % sizes.size()];
             actual[n] = 99.0f;
             manager->processBlock(actual.data(), n);

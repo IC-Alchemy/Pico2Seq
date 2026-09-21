@@ -655,7 +655,7 @@ TEST_CASE("FaderMap resetChannel disarms one channel and leaves the rest", "[con
     CHECK(map.isEngaged(2));
 }
 
-TEST_CASE("Shift edges require fresh movement on both effect faders", "[control_surface][fader]")
+TEST_CASE("Shift edges require fresh movement on all three effect faders", "[control_surface][fader]")
 {
     FaderMap map;
     constexpr uint16_t rest = 2000;
@@ -666,14 +666,13 @@ TEST_CASE("Shift edges require fresh movement on both effect faders", "[control_
         REQUIRE(map.accept(channel, rest));
     }
 
-    // Exercise press and release: both targets keep their values through
+    // Exercise press and release: all targets keep their values through
     // jitter, then accept deliberate movement from the new rest position.
     for (unsigned edge = 0; edge < 2; ++edge)
     {
         map.resetShiftTargets();
-        CHECK(map.isEngaged(0)); // tempo keeps tracking
         CHECK(map.isEngaged(3)); // gate length keeps tracking
-        for (uint8_t channel : {FaderMap::kDelayChannel, FaderMap::kMasterVolumeChannel})
+        for (uint8_t channel : {FaderMap::kTempoChannel, FaderMap::kDelayChannel, FaderMap::kMasterVolumeChannel})
         {
             const uint16_t baseline = rest + edge * move;
             CHECK_FALSE(map.isEngaged(channel));
@@ -691,6 +690,16 @@ TEST_CASE("Shift + master fader drives the macro knob, plain moves drive volume"
     // The macro gesture lives on the volume channel outside ENV mode.
     CHECK(FaderMap::assignmentFor(false, FaderMap::kMasterVolumeChannel).target ==
           FaderTarget::MasterVolume);
+}
+
+TEST_CASE("Shift + tempo fader edits feedback while ENV mode keeps attack", "[control_surface][fader]")
+{
+    CHECK(tempoFaderAction(false) == TempoFaderAction::Tempo);
+    CHECK(tempoFaderAction(true) == TempoFaderAction::DelayFeedback);
+    CHECK(FaderMap::assignmentFor(false, FaderMap::kTempoChannel).target == FaderTarget::Tempo);
+    const auto env = FaderMap::assignmentFor(true, FaderMap::kTempoChannel);
+    CHECK(env.target == FaderTarget::EnvLane);
+    CHECK(env.paramId == ParamId::Attack);
 }
 
 TEST_CASE("Macro zones split at center: Warm below, Punch above", "[control_surface]")

@@ -197,7 +197,7 @@ printed on Core 0. The existing PPQN counter lost-increment window is
 documented in the
 [application guide](firmware-structure.md#ownership-and-real-time-rules).
 The master delay (rebuilt 2026-09-20) does not share the removed global
-delay's races: Core 0 publishes its mix and time through lock-free atomics
+delay's races: Core 0 publishes mix, time and feedback through lock-free atomics
 on `VoiceManager`, and Core 1 reads them once per block.
 
 ---

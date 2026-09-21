@@ -125,13 +125,15 @@ A redesigned master delay returned (2026-09-20): `MasterDelay`
 `VoiceManager::processBlock()` — a 48,000-float (~187.5 KiB) rpdsp
 `DelayLine` owned by the heap-allocated `VoiceManager`, read fractionally
 with cubic interpolation, with a DC blocker + one-pole lowpass + tanh bound
-in the feedback loop. Core 0 publishes mix and delay time through lock-free
+in the feedback loop. Core 0 publishes mix, delay time and feedback through lock-free
 `std::atomic<float>` targets on `VoiceManager`; the audio core reads them
 once per block and eases per sample. Fader 2 is the wet mix; Shift + fader 2
 is the delay time (10–750 ms at 48 kHz, using the delay branch's tuned cap).
 The resulting dry-plus-wet signal passes through master gain, then the
 master compressor. Fader 3 keeps volume, and Shift + fader 3 keeps its
-Warm/Glue/Punch compressor macro. Both effect faders re-arm on Shift edges.
+Warm/Glue/Punch compressor macro. Shift + fader 1 sets 0–100% feedback
+without changing tempo. Faders 1–3 re-arm on Shift edges; feedback eases
+with the same 45 ms time constant as wet mix.
 Delay/filter/compressor history belongs to Core 1; Core 0 only writes targets.
 
 ## Building and checking changes

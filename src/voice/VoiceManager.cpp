@@ -354,6 +354,7 @@ void VoiceManager::init(float sr)
     masterDelay_.prepare(sampleRate);
     masterDelay_.setMix(delayMix.load(std::memory_order_relaxed));
     masterDelay_.setDelaySeconds(delayTime.load(std::memory_order_relaxed));
+    masterDelay_.setFeedback(delayFeedback.load(std::memory_order_relaxed));
     masterDelay_.reset();
 
     DBG_INFO("VoiceManager: init sampleRate=%.1f", sr);
@@ -417,6 +418,7 @@ void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noe
         // per sample, the same contract as the master gain above.
         masterDelay_.setMix(delayMix.load(std::memory_order_relaxed));
         masterDelay_.setDelaySeconds(delayTime.load(std::memory_order_relaxed));
+        masterDelay_.setFeedback(delayFeedback.load(std::memory_order_relaxed));
         for (uint32_t k = 0; k < count; ++k)
         {
             const float delayed = masterDelay_.process(out[k]);

@@ -119,8 +119,8 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
 
   // Shift (bit 7 of the button tile) is a plain level in both modes.
   uiState.shiftHeld = buttonAt(buttonSlot_, 7).held();
-  // Shift changes delay mix to time and volume to compressor macro. Re-arm
-  // both faders on either edge so their other targets keep their values.
+  // Shift changes tempo to feedback, delay mix to time and volume to macro.
+  // Re-arm all three on either edge so their other targets keep their values.
   if (uiState.shiftHeld != shiftWasHeld_)
   {
     shiftWasHeld_ = uiState.shiftHeld;
@@ -518,8 +518,21 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
       break;
 
     case ControlSurface::FaderTarget::Tempo:
-      uClock.setTempo(kTempoMinBpm +
-                      normalized * (kTempoMaxBpm - kTempoMinBpm));
+      if (ControlSurface::tempoFaderAction(uiState.shiftHeld) ==
+          ControlSurface::TempoFaderAction::DelayFeedback)
+      {
+        if (voiceManager)
+          voiceManager->setDelayFeedback(normalized);
+        uiState.oledNoticeKind = UIState::OledNoticeKind::DelayFeedback;
+        uiState.oledNoticeValue =
+            static_cast<uint16_t>(lroundf(normalized * 100.0f));
+        uiState.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
+      }
+      else
+      {
+        uClock.setTempo(kTempoMinBpm +
+                        normalized * (kTempoMaxBpm - kTempoMinBpm));
+      }
       break;
 
     case ControlSurface::FaderTarget::DelayMix:

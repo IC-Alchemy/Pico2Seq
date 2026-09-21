@@ -98,7 +98,7 @@ compares scalar and block rendering while delay mix/time change.
 
 `test_master_delay.cpp` retains fractional timing, repeat darkening, bounded
 feedback and mix smoothing checks. `test_control_surface_logic.cpp` checks
-both effect faders re-arm on Shift edges while tempo/gate stay engaged,
+faders 1–3 re-arm on Shift edges while gate length stays engaged,
 and retains the step-envelope assignments and compressor macro gesture.
 
 ```powershell
@@ -107,7 +107,7 @@ cmake --build build_test --parallel
 ctest --test-dir build_test -C Release --output-on-failure
 ```
 
-On hardware, check fader 2 mix/time and fader 3 volume/macro independently,
+On hardware, check fader 1 tempo/feedback, fader 2 mix/time and fader 3 volume/macro independently,
 their OLED notices, both Shift edges, and all four ENV sliders. Listen to
 delay tails with different compressor settings; inspect underrun counters
 while all four voices play. Host tests and firmware compilation do not
@@ -119,6 +119,13 @@ all 20 failures also occurred on untouched `df6b50d` (462/482), with identical
 failure names. The focused effect/control run passed 67 cases. RP2350
 firmware compiled at 150 MHz with audio code in SRAM and all four artifacts
 (UF2, ELF, BIN, MAP) verified. It was not flashed or tested on hardware.
+
+The subsequent Shift + tempo-fader feedback change passed 68 focused cases
+and 486/506 full CTest checks, with the same 20 baseline failures. Live
+feedback changes are checked through the real combined bus at 0%, 100% and
+35%, and the saturated-delay test now exercises a full 1.0 feedback coefficient.
+The 150 MHz firmware was rebuilt with all four artifacts verified; physical
+fader/OLED behavior and audio timing remain unverified.
 
 ## Host Unit Test Suites
 

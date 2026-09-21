@@ -15,7 +15,7 @@
 //
 // All methods belong to the audio thread after startup. VoiceManager publishes
 // control-thread targets through atomics, then applies them here per block.
-// process() eases mix and time per sample, like the master gain.
+// process() eases mix, time and feedback per sample, like the master gain.
 
 #include "../rpdsp/src/rpdsp/algorithm.h"
 #include "../rpdsp/src/rpdsp/delay_line.h"
@@ -58,6 +58,7 @@ public:
         dcBlocker_.reset();
         delaySamples_ = targetDelaySamples_;
         mix_ = targetMix_;
+        feedback_ = targetFeedback_;
     }
 
     // --- Audio thread: receive targets from VoiceManager -------------------
@@ -78,7 +79,7 @@ public:
 
     void setFeedback(float feedback)
     {
-        feedback_ = feedback < 0.0f ? 0.0f : (feedback > 0.995f ? 0.995f : feedback);
+        targetFeedback_ = !(feedback > 0.0f) ? 0.0f : (feedback > 1.0f ? 1.0f : feedback);
     }
 
     // --- Audio thread -------------------------------------------------------
@@ -87,6 +88,7 @@ public:
     {
         delaySamples_ += timeAlpha_ * (targetDelaySamples_ - delaySamples_);
         mix_ += mixAlpha_ * (targetMix_ - mix_);
+        feedback_ += mixAlpha_ * (targetFeedback_ - feedback_);
 
         // readCubic(D-1) before the push is a D-sample fractional delay (the
         // same one-sample visibility compensation rpdsp::Delay uses).
@@ -102,7 +104,7 @@ public:
     float maxDelaySeconds() const { return maxDelaySeconds_; }
 
 private:
-    // ~63% of the way in 45 ms (mix) / 500 ms (delay time). The time slew is
+    // ~63% of the way in 45 ms (mix/feedback) / 500 ms (delay time). The time slew is
     // the audible part: a gliding read head pitch-warps the loop.
     static constexpr float kMixTauSeconds = 0.045f;
     static constexpr float kTimeTauSeconds = 0.50f;
@@ -118,6 +120,7 @@ private:
     float sampleRate_ = 48000.0f;
     float maxDelaySeconds_ = 0.30f;
     float feedback_ = kDefaultFeedback;
+    float targetFeedback_ = kDefaultFeedback;
     float targetMix_ = 0.0f;
     float mix_ = 0.0f;
     float targetDelaySamples_ = kDefaultDelaySeconds * 48000.0f;

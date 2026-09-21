@@ -138,6 +138,8 @@ public:
     float getDelayMix() const { return delayMix.load(std::memory_order_relaxed); }
     void setDelayTime(float seconds) { delayTime.store(seconds, std::memory_order_relaxed); }
     float getDelayTime() const { return delayTime.load(std::memory_order_relaxed); }
+    void setDelayFeedback(float feedback) { delayFeedback.store(feedback, std::memory_order_relaxed); }
+    float getDelayFeedback() const { return delayFeedback.load(std::memory_order_relaxed); }
 
     void setVoiceMix(uint8_t voiceId, float mix);
     void setTransportMuted(bool muted) noexcept { transportMuted_.store(muted, std::memory_order_relaxed); }
@@ -185,6 +187,7 @@ private:
     // delay line and its filters are audio-thread-only.
     std::atomic<float> delayMix{0.0f};
     std::atomic<float> delayTime{MasterDelay::kDefaultDelaySeconds};
+    std::atomic<float> delayFeedback{MasterDelay::kDefaultFeedback};
     static_assert(std::atomic<float>::is_always_lock_free, "Delay controls must be lock-free");
     MasterDelay masterDelay_;
 

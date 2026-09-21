@@ -111,7 +111,7 @@ the firmware only maps four faders.]** The mode switch does not change the fader
 
 | Fader | Controls |
 |---|---|
-| 1 | Master tempo (uClock BPM, 45–200) |
+| 1 | Master tempo (uClock BPM, 45–200); Shift held: delay feedback (0–100%) |
 | 2 | Delay wet mix (Shift held: delay time, 10–750 ms — §3.5) |
 | 3 | Master volume (saved with the session); Shift held: compressor macro (Warm/Glue/Punch) |
 | 4 | Gate length across the selected voice's active steps |
@@ -460,12 +460,15 @@ instead, so the delay is unreachable there).
 - **Delay time** — hold **Shift** and move fader 2: 10 to 750 ms on a log
   curve (`DELAY TIME nnn ms`). The read head glides to the new time, so the
   repeats pitch-bend like a tape machine.
-- The feedback path is fixed by design: high regeneration through a lowpass,
-  so repeats darken each cycle, with soft saturation that keeps heavy
-  feedback from ever running away. Free-running (not tempo-synced).
+- **Feedback** — hold **Shift** and move fader 1: 0–100%, shown as
+  `DELAY FB nn %`. Plain fader 1 still controls tempo. Feedback eases over
+  a 45 ms time constant and defaults to 85%. At 0%, there is one delayed
+  copy without regeneration. At 100%, the feedback coefficient is 1.0;
+  the existing lowpass, DC blocker and saturation still shape the repeats.
+  This is a free-running delay, not a freeze or tempo-sync mode.
 
-Neither delay control is saved in the session; both reset on reboot
-(mix 0, 300 ms).
+Delay controls are not saved in the session; reboot restores mix 0,
+time 300 ms and feedback 85%.
 
 ### 3.6 Master compressor and volume
 
@@ -478,9 +481,10 @@ compressor keeps its existing dry-bus behavior.
 - **Compressor macro** — hold **Shift** and move fader 3. The existing curve
   runs from Warm at 0 %, through Glue at 50 %, to Punch at 100 %. The OLED
   shows `MACRO`, its zone and percentage. The macro resets to 50 % on reboot.
-- Pressing or releasing **Shift** re-arms both effect faders. Move about 5 %
+- Pressing or releasing **Shift** re-arms faders 1–3. Move about 5 %
   from their new resting positions before either sends a value, so changing
-  delay time leaves mix intact and changing the compressor leaves volume intact.
+  feedback leaves tempo intact, delay time leaves mix intact, and changing
+  the compressor leaves volume intact.
 - In **ENV mode**, all four faders retain their selected-step envelope
   controls and Shift-reset gestures; master effects are not edited there.
 
@@ -612,7 +616,7 @@ Presets live in flash and are auditioned and applied per voice in the **preset b
 
 | Fader | No step selected (both modes) | Step Edit = ENV mode |
 |---|---|---|
-| 1 | Tempo (45–200 BPM) | Step's Attack (strings: Pick) |
+| 1 | Tempo (45–200 BPM; Shift: delay feedback) | Step's Attack (strings: Pick) |
 | 2 | Delay wet mix (Shift: delay time) | Step's Decay (strings: T60) |
 | 3 | Master volume (Shift: compressor macro) | Step's Sustain (strings: Position) |
 | 4 | Gate length across active steps | Step's Release (strings: Stiffness) |
