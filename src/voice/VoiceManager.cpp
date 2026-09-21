@@ -14,6 +14,13 @@ namespace
 // knob without perceptible lag, slow enough to hide steps and transport-mute
 // clicks (~63% of the way in 15 ms).
 constexpr float kMasterGainTauSeconds = 0.015f;
+// Macro morph easing: same shape as the master gain (fast enough to track
+// the fader, slow enough to hide steps), a touch slower so all six
+// compressor parameters arrive together (~63% in 30 ms).
+constexpr float kMacroTauSeconds = 0.030f;
+// Re-applied compressor setters trip below this macro motion: during a move
+// they run at most once per processBlock call, never per sample.
+constexpr float kMacroApplyEpsilon = 1.0e-4f;
 
 inline float makeSmoothingAlpha(float tauSeconds, float sampleRate) noexcept
 {
@@ -32,7 +39,8 @@ inline float makeSmoothingAlpha(float tauSeconds, float sampleRate) noexcept
  * Pre-allocates vector capacity to avoid runtime allocations on embedded systems
  */
 VoiceManager::VoiceManager(uint8_t maxVoices)
-    : maxVoiceCount(maxVoices), nextVoiceId(1), sampleRate(48000.0f), globalVolume(.8f)
+    : maxVoiceCount(maxVoices), nextVoiceId(1), sampleRate(48000.0f), globalVolume(.8f),
+      macroTarget_(kMacroDefault)
 {
     voices.reserve(maxVoiceCount);
     masterGainAlpha_ = makeSmoothingAlpha(kMasterGainTauSeconds, sampleRate);
@@ -330,6 +338,9 @@ void VoiceManager::init(float sr)
 {
     sampleRate = sr;
     masterGainAlpha_ = makeSmoothingAlpha(kMasterGainTauSeconds, sampleRate);
+    macroAlpha_ = makeSmoothingAlpha(kMacroTauSeconds, sampleRate);
+    macroCurrent_ = macroTarget_.load(std::memory_order_relaxed);
+    macroApplied_ = macroCurrent_;
     masterGain_ = transportMuted_.load(std::memory_order_relaxed)
                       ? 0.0f
                       : globalVolume.load(std::memory_order_relaxed);
@@ -351,12 +362,26 @@ void VoiceManager::init(float sr)
 void VoiceManager::configureMasterCompressor_()
 {
     compressor.prepare(sampleRate);
-    compressor.setThresholdDb(kMasterCompThresholdDb);
-    compressor.setRatio(kMasterCompRatio);
-    compressor.setKneeWidthDb(kMasterCompKneeDb);
-    compressor.setAttackRelease(kMasterCompAttackMs, kMasterCompReleaseMs);
-    compressor.setMakeupGainDb(kMasterCompMakeupDb);
+    applyMasterCompSettings_(settingsForMacro(macroTarget_.load(std::memory_order_relaxed)));
     compressor.reset();
+}
+
+void VoiceManager::applyMasterCompSettings_(const MasterCompSettings &settings)
+{
+    compressor.setThresholdDb(settings.thresholdDb);
+    compressor.setRatio(settings.ratio);
+    compressor.setKneeWidthDb(settings.kneeDb);
+    compressor.setAttackRelease(settings.attackMs, settings.releaseMs);
+    compressor.setMakeupGainDb(settings.makeupDb);
+}
+
+void VoiceManager::setMasterMacro(float macro)
+{
+    if (macro < 0.0f)
+        macro = 0.0f;
+    if (macro > 1.0f)
+        macro = 1.0f;
+    macroTarget_.store(macro, std::memory_order_relaxed);
 }
 
 void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noexcept
@@ -375,16 +400,31 @@ void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noe
         }
         const float target = transportMuted_.load(std::memory_order_relaxed)
                                  ? 0.0f : globalVolume.load(std::memory_order_relaxed);
+        const float macroTarget = macroTarget_.load(std::memory_order_relaxed);
         float gain = masterGain_;
         const float alpha = masterGainAlpha_;
+        float macro = macroCurrent_;
+        const float macroAlpha = macroAlpha_;
+        bool macroDirty = false;
         for (uint32_t k = 0; k < count; ++k)
         {
             gain += alpha * (target - gain);
             out[k] *= gain;
+            // Master macro morph: eased per sample, setters at most once per
+            // block so expf coefficient updates never run per sample.
+            macro += macroAlpha * (macroTarget - macro);
+            if (!macroDirty && std::fabs(macro - macroApplied_) > kMacroApplyEpsilon)
+                macroDirty = true;
             // Master-bus glue + limiter: last DSP before the DAC (AudioEngine's
             // toPcm16 clamp remains the hard ceiling for pathological sums).
             out[k] = compressor.process(out[k]);
         }
+        if (macroDirty)
+        {
+            applyMasterCompSettings_(settingsForMacro(macro));
+            macroApplied_ = macro;
+        }
+        macroCurrent_ = macro;
         masterGain_ = gain;
         out += count;
         n -= count;

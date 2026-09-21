@@ -131,6 +131,8 @@ private:
   // the hold so the release cannot also clear a single voice.
   bool clearChordThisPress_ = false;
   bool clearAllLatch_ = false;
+  // Last published Shift level: the volume/macro fader re-arms on its edges.
+  bool shiftWasHeld_ = false;
   uint8_t modeSwitchPin_ = 7; // GP7 default; setup1 sets PIN_ALCHEMY_MODE_SWITCH
   uint8_t lastVoiceIndex_ = 0;
   int lastStepForEdit_ = -1;

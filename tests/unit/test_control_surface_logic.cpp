@@ -10,6 +10,7 @@
 
 #include <cmath>
 #include <limits>
+#include <string>
 
 using namespace ControlSurface;
 
@@ -608,6 +609,50 @@ TEST_CASE("FaderMap normalize maps 12-bit counts to 0..1", "[control_surface]")
     CHECK(FaderMap::normalize(0) == Catch::Approx(0.0f).margin(0.0001f));
     CHECK(FaderMap::normalize(4095) == Catch::Approx(1.0f).margin(0.0001f));
     CHECK(FaderMap::normalize(2048) == Catch::Approx(0.5f).margin(0.001f));
+}
+
+TEST_CASE("FaderMap resetChannel disarms one channel and leaves the rest", "[control_surface]")
+{
+    constexpr uint16_t kEngage = FaderMap::kMoveThresholdCounts;
+    FaderMap map;
+    CHECK_FALSE(map.accept(1, 2000)); // seed baselines
+    CHECK_FALSE(map.accept(2, 3000));
+    CHECK(map.accept(1, 2000 + kEngage));
+    CHECK(map.accept(2, 3000 + kEngage));
+    CHECK(map.isEngaged(1));
+    CHECK(map.isEngaged(2));
+
+    // Shift edge re-arms only the volume/macro fader: its neighbor keeps
+    // tracking while it demands a deliberate move before sending again.
+    map.resetChannel(FaderMap::kMasterVolumeChannel);
+    CHECK(map.isEngaged(1));
+    CHECK_FALSE(map.isEngaged(2));
+    CHECK_FALSE(map.accept(2, 3000 + kEngage)); // reseeds baseline, silent
+    CHECK_FALSE(map.accept(2, 3000 + kEngage + 10));
+    CHECK(map.accept(2, 3000 + 2 * kEngage));
+    CHECK(map.isEngaged(2));
+
+    map.resetChannel(99); // out-of-range is a no-op, never a crash
+    CHECK(map.isEngaged(1));
+    CHECK(map.isEngaged(2));
+}
+
+TEST_CASE("Shift + master fader drives the macro knob, plain moves drive volume", "[control_surface]")
+{
+    CHECK(masterFaderAction(false) == MasterFaderAction::Volume);
+    CHECK(masterFaderAction(true) == MasterFaderAction::Macro);
+    // The macro gesture lives on the volume channel outside ENV mode.
+    CHECK(FaderMap::assignmentFor(false, FaderMap::kMasterVolumeChannel).target ==
+          FaderTarget::MasterVolume);
+}
+
+TEST_CASE("Macro zones split at center: Warm below, Punch above", "[control_surface]")
+{
+    CHECK(std::string(masterMacroZoneName(0.0f)) == "WARM");
+    CHECK(std::string(masterMacroZoneName(0.49f)) == "WARM");
+    CHECK(std::string(masterMacroZoneName(0.5f)) == "GLUE");
+    CHECK(std::string(masterMacroZoneName(0.51f)) == "PUNCH");
+    CHECK(std::string(masterMacroZoneName(1.0f)) == "PUNCH");
 }
 
 // ---------------------------------------------------------------------------

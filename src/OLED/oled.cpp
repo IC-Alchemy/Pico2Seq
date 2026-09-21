@@ -1,4 +1,5 @@
 #include "oled.h"
+#include "../ui/ControlSurfaceLogic.h"
 #include "../voice/Voice.h"
 #include "../voice/VoicePresets.h"
 #include "../voice/MusicalValues.h"
@@ -290,6 +291,7 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     case UIState::OledNoticeKind::LoadError: line1 = "LOAD ERR"; break;
     case UIState::OledNoticeKind::VoiceCleared: line1 = "CLEARED"; break;
     case UIState::OledNoticeKind::AllCleared:   line1 = "ALL CLEAR"; break;
+    case UIState::OledNoticeKind::Macro:        line1 = "MACRO"; break;
     default: break;
     }
 
@@ -307,6 +309,21 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
       const uint8_t voiceLineWidth = static_cast<uint8_t>(strlen(voiceLine) * 6);
       displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - voiceLineWidth) / 2, 44);
       displayHardware.print(voiceLine);
+    }
+
+    if (uiState.oledNoticeKind == UIState::OledNoticeKind::Macro)
+    {
+      // Zone + percent while the Shift + volume fader drives the macro knob.
+      displayHardware.setTextSize(1);
+      char macroLine[16];
+      const uint8_t percent =
+          uiState.macroNoticePercent > 100 ? 100 : uiState.macroNoticePercent;
+      snprintf(macroLine, sizeof(macroLine), "%s %u%%",
+               ControlSurface::masterMacroZoneName(percent / 100.0f),
+               static_cast<unsigned>(percent));
+      const uint8_t macroLineWidth = static_cast<uint8_t>(strlen(macroLine) * 6);
+      displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - macroLineWidth) / 2, 44);
+      displayHardware.print(macroLine);
     }
 
     commitFrame();

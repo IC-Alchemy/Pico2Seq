@@ -121,6 +121,13 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
 
   // Shift (bit 7 of the button tile) is a plain level in both modes.
   uiState.shiftHeld = buttonAt(buttonSlot_, 7).held();
+  // The volume fader doubles as the macro knob under Shift: re-arm it on
+  // shift edges so neither target snaps to the other's rest position.
+  if (uiState.shiftHeld != shiftWasHeld_)
+  {
+    shiftWasHeld_ = uiState.shiftHeld;
+    faders_.resetChannel(ControlSurface::FaderMap::kMasterVolumeChannel);
+  }
 
   // SliderModule buttons: voice select, or transport chords with Shift —
   // identical in both modes.
@@ -492,11 +499,24 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
       break;
 
     case ControlSurface::FaderTarget::MasterVolume:
-      // VoiceManager applies this lock-free gain on Core 1's final mix. The
-      // session captures it, so the fader position survives a save/load.
+      // Plain move: lock-free global gain on Core 1's final mix (captured
+      // by the session). Shift + move: master macro knob instead — one
+      // 0..1 morph across the master-bus compressor's Warm/Glue/Punch curve.
       if (voiceManager)
       {
-        voiceManager->setGlobalVolume(normalized);
+        if (ControlSurface::masterFaderAction(uiState.shiftHeld) ==
+            ControlSurface::MasterFaderAction::Macro)
+        {
+          voiceManager->setMasterMacro(normalized);
+          uiState.oledNoticeKind = UIState::OledNoticeKind::Macro;
+          uiState.macroNoticePercent =
+              static_cast<uint8_t>(lroundf(normalized * 100.0f));
+          uiState.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
+        }
+        else
+        {
+          voiceManager->setGlobalVolume(normalized);
+        }
       }
       break;
 

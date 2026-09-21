@@ -218,6 +218,16 @@ void FaderMap::resetDeadband()
   }
 }
 
+void FaderMap::resetChannel(uint8_t channel)
+{
+  if (channel >= kChannelCount)
+  {
+    return;
+  }
+  hasBaseline_[channel] = false;
+  engaged_[channel] = false;
+}
+
 bool FaderMap::isEngaged(uint8_t channel) const
 {
   return channel < kChannelCount && engaged_[channel];

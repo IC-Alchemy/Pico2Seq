@@ -320,6 +320,28 @@ enum class FaderTarget : uint8_t
   GateLength,   // gate length across the selected voice's steps
 };
 
+/**
+ * What the master-volume fader does. Plain moves drive global volume;
+ * Shift + move drives the master macro knob (Warm/Glue/Punch morph of the
+ * master-bus compressor) instead, so one physical fader serves both.
+ */
+enum class MasterFaderAction : uint8_t { Volume, Macro };
+
+constexpr MasterFaderAction masterFaderAction(bool shiftHeld)
+{
+  return shiftHeld ? MasterFaderAction::Macro : MasterFaderAction::Volume;
+}
+
+/** Display zone of a 0..1 macro position: Warm below center, Punch above. */
+inline const char *masterMacroZoneName(float macro)
+{
+  if (macro < 0.5f)
+    return "WARM";
+  if (macro > 0.5f)
+    return "PUNCH";
+  return "GLUE";
+}
+
 struct FaderAssignment
 {
   FaderTarget target = FaderTarget::None;
@@ -330,6 +352,10 @@ class FaderMap
 {
 public:
   static constexpr uint8_t kChannelCount = 4;
+  // Channel carrying MasterVolume outside ENV mode (see kTargets in the
+  // .cpp): the Shift + macro-knob gesture re-arms this channel on shift
+  // edges so volume never snaps to the macro rest position and vice versa.
+  static constexpr uint8_t kMasterVolumeChannel = 2;
   static constexpr uint16_t kFaderMaxCounts = 4095;
   // Movement smaller than this (in 12-bit counts) is not sent. 24 of 4095 is
   // about 0.6% of travel, enough that a resting finger does not nudge a lane.
@@ -356,6 +382,9 @@ public:
 
   /** Disarm all faders (e.g. on mode flip): faders must be moved before sending. */
   void resetDeadband();
+
+  /** Disarm one channel (e.g. the volume fader on shift edges). */
+  void resetChannel(uint8_t channel);
 
   /** True if the channel has detected an obvious move and is actively tracking. */
   bool isEngaged(uint8_t channel) const;
