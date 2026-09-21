@@ -38,6 +38,7 @@ add_executable(pico2seq_tests
   unit/test_voice_edit.cpp
   unit/test_settings_pads.cpp
   unit/test_persistence.cpp
+  unit/test_master_delay.cpp
 
   # Scale data
   ${CORE_DIR}/scales/scales.cpp
@@ -58,6 +59,7 @@ add_executable(pico2seq_tests
   ${SRC_DIR}/voice/VoiceEditParameters.cpp
   ${SRC_DIR}/voice/VoiceManager.cpp
   ${SRC_DIR}/voice/PatchCodec.cpp
+  unit/test_master_delay.cpp
 
   # Alchemy tile control surface decision logic (pure C++)
   ${SRC_DIR}/ui/ControlSurfaceLogic.cpp

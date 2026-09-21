@@ -120,6 +120,16 @@ The global delay effect was removed entirely (2026-09-11) — its DSP, defaults,
 control globals, and the `src/FeatureConfig.h` switch are gone from the tree,
 reclaiming the ~338 KiB the delay line would have reserved.
 
+A redesigned master delay returned (2026-09-20): `MasterDelay`
+(`src/voice/MasterDelay.h`) rides the summed block inside
+`VoiceManager::processBlock()` — a 48,000-float (1.0 s, ~187.5 KiB) rpdsp
+`DelayLine` owned by the heap-allocated `VoiceManager`, read fractionally
+with cubic interpolation, with a DC blocker + one-pole lowpass + tanh bound
+in the feedback loop. Core 0 publishes mix and delay time through lock-free
+`std::atomic<float>` targets on `VoiceManager`; the audio core reads them
+once per block and eases per sample. Fader 2 is the wet mix; Shift + fader 2
+is the delay time (10 ms–1 s).
+
 ## Building and checking changes
 
 Arduino recursively compiles `.cpp` files under `src/app/`; no source list or

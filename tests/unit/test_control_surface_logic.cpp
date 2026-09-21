@@ -12,6 +12,7 @@
 #include <limits>
 
 using namespace ControlSurface;
+using Catch::Approx;
 
 TEST_CASE("Parameter record buttons select their matching encoder base", "[control_surface]")
 {
@@ -464,15 +465,33 @@ TEST_CASE("ShiftLatch ignores out-of-range param ids", "[control_surface]")
 // FaderMap
 // ---------------------------------------------------------------------------
 
-TEST_CASE("FaderMap: without a selected step the faders are tempo/swing/-/gate length", "[control_surface][fader]")
+TEST_CASE("FaderMap: without a selected step the faders are tempo/delay mix/-/gate length", "[control_surface][fader]")
 {
     CHECK(FaderMap::assignmentFor(false, 0).target == FaderTarget::Tempo);
-    CHECK(FaderMap::assignmentFor(false, 1).target == FaderTarget::SwingAmount);
+    CHECK(FaderMap::assignmentFor(false, 1).target == FaderTarget::DelayMix);
     // The old Decay / Master Volume slot is unassigned.
     CHECK(FaderMap::assignmentFor(false, 2).target == FaderTarget::None);
     CHECK(FaderMap::assignmentFor(false, 3).target == FaderTarget::GateLength);
     for (uint8_t channel = 0; channel < FaderMap::kChannelCount; ++channel)
         CHECK(FaderMap::assignmentFor(false, channel).paramId == ParamId::Count);
+}
+
+TEST_CASE("Delay time fader mapping spans 10 ms to 1 s on a log curve", "[control_surface][fader]")
+{
+    CHECK(delaySecondsForFader(0.0f) == Approx(kDelayTimeMinSeconds).margin(1e-6f));
+    CHECK(delaySecondsForFader(1.0f) == Approx(kDelayTimeMaxSeconds).margin(1e-6f));
+    // Geometric midpoint of the range: sqrt(0.01 * 1.0).
+    CHECK(delaySecondsForFader(0.5f) == Approx(0.1f).epsilon(0.001));
+    CHECK(delaySecondsForFader(-1.0f) == Approx(kDelayTimeMinSeconds).margin(1e-6f));
+    CHECK(delaySecondsForFader(2.0f) == Approx(kDelayTimeMaxSeconds).margin(1e-6f));
+
+    float previous = 0.0f;
+    for (int i = 0; i <= 20; ++i)
+    {
+        const float seconds = delaySecondsForFader(static_cast<float>(i) / 20.0f);
+        CHECK(seconds > previous);
+        previous = seconds;
+    }
 }
 
 TEST_CASE("FaderMap: a selected step turns the faders into its envelope lanes", "[control_surface][fader]")

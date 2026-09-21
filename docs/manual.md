@@ -112,7 +112,7 @@ the firmware only maps four faders.]** The mode switch does not change the fader
 | Fader | Controls |
 |---|---|
 | 1 | Master tempo (uClock BPM, 45–200) |
-| 2 | Swing amount (continuous shuffle depth) |
+| 2 | Delay wet mix (Shift held: delay time, 10 ms–1 s — §3.5) |
 | 3 | Unassigned (was Decay / Master volume; volume now comes from the saved session) |
 | 4 | Gate length across the selected voice's active steps |
 
@@ -314,8 +314,9 @@ to audio on expiry. Nothing is transmitted over MIDI.
 7. **Try polymeter** — hold a parameter button (e.g. Filter) and tap pad 5: the Filter
    track is now 5 steps long and cycles against the 16-step Gate track.
 8. **Change key feel** — hold Shift and tap V3 to cycle through the 13 scales.
-9. **Groove** — fader 1 sets tempo and fader 2 swing (in either mode-switch position);
-   on **Utility**, button 4 cycles swing templates.
+9. **Groove & delay** — fader 1 sets tempo; on **Utility**, button 4 cycles the
+   swing templates. Fader 2 is the master delay wet mix, and **Shift + fader 2**
+   sweeps the delay time (§3.5).
 10. **Stop/start** — Utility button 1, or Shift + V1 from anywhere. Stopping opens the
     OLED **preset browser** ("Sound Buffet"); starting again resumes and closes it. A
     long-press of Play toggles the browser without stopping the transport.
@@ -441,7 +442,26 @@ Timing groove comes from **16 shuffle templates** (per-16th-note micro-timing of
 | 14 | Hip-Hop | Boom-bap asymmetric late swing |
 | 15 | Funk Groove | Syncopated funk pocket |
 
-Utility **fader 2** adds continuous swing amount on top of the selected template.
+Fader 2 no longer adds continuous swing — it is the master delay control
+(§3.5). Shuffle depth now comes only from the templates above.
+
+### 3.5 Master delay
+
+Fader 2 is a master-bus delay on the summed voice mix (both mode-switch
+positions; in ENV mode the faders are the selected step's envelope lanes
+instead, so the delay is unreachable there).
+
+- **Wet mix** — fader 2 position, 0 (dry) to 100 %. The OLED shows
+  `DELAY MIX nn %` while you move it.
+- **Delay time** — hold **Shift** and move fader 2: 10 ms to 1 s on a log
+  curve (`DELAY TIME nnn ms`). The read head glides to the new time, so the
+  repeats pitch-bend like a tape machine.
+- The feedback path is fixed by design: high regeneration through a lowpass,
+  so repeats darken each cycle, with soft saturation that keeps heavy
+  feedback from ever running away. Free-running (not tempo-synced).
+
+Neither delay control is saved in the session; both reset on reboot
+(mix 0, 300 ms).
 
 ---
 
@@ -569,7 +589,7 @@ Presets live in flash and are auditioned and applied per voice in the **preset b
 | Fader | No step selected (both modes) | Step Edit = ENV mode |
 |---|---|---|
 | 1 | Tempo (45–200 BPM) | Step's Attack (strings: Pick) |
-| 2 | Swing amount | Step's Decay (strings: T60) |
+| 2 | Delay wet mix (Shift: delay time) | Step's Decay (strings: T60) |
 | 3 | Unassigned | Step's Sustain (strings: Position) |
 | 4 | Gate length across active steps | Step's Release (strings: Stiffness) |
 

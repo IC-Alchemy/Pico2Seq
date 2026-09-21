@@ -47,6 +47,8 @@ VoiceManager::VoiceManager(uint8_t maxVoices)
     compressor.setAttackRelease(50.0f, 12.0f);  // attack ms, release ms
     compressor.setMakeupGainDb(5.0f);
 
+    masterDelay_.prepare(sampleRate);
+
     DBG_INFO("VoiceManager: constructed maxVoices=%u", maxVoices);
 }
 
@@ -348,6 +350,8 @@ void VoiceManager::init(float sr)
     compressor.setAttackRelease(2.0f, 50.0f);   // attack ms, release ms
     compressor.setMakeupGainDb(7.0f);
 
+    masterDelay_.prepare(sampleRate);
+
     DBG_INFO("VoiceManager: init sampleRate=%.1f", sr);
     for (auto &managedVoice : voices)
     {
@@ -376,10 +380,15 @@ void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noe
                                  ? 0.0f : globalVolume.load(std::memory_order_relaxed);
         float gain = masterGain_;
         const float alpha = masterGainAlpha_;
+        // Delay targets are read once per block; the delay eases toward them
+        // per sample, the same contract as the master gain above.
+        masterDelay_.setMix(delayMix.load(std::memory_order_relaxed));
+        masterDelay_.setDelaySeconds(delayTime.load(std::memory_order_relaxed));
         for (uint32_t k = 0; k < count; ++k)
         {
+            const float delayed = masterDelay_.process(out[k]);
             gain += alpha * (target - gain);
-            out[k] *= gain;
+            out[k] = delayed * gain;
         }
         masterGain_ = gain;
         out += count;

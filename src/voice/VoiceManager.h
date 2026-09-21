@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Voice.h"
+#include "MasterDelay.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../rpdsp/src/rpdsp/dynamics.h"
 #include <vector>
@@ -86,6 +87,13 @@ public:
     void setGlobalVolume(float volume) { globalVolume.store(volume, std::memory_order_relaxed); }
     float getGlobalVolume() const { return globalVolume.load(std::memory_order_relaxed); }
 
+    // Master-bus delay (see MasterDelay.h). Control-thread targets; the
+    // audio thread reads them per block and eases per sample like the gain.
+    void setDelayMix(float mix) { delayMix.store(mix, std::memory_order_relaxed); }
+    float getDelayMix() const { return delayMix.load(std::memory_order_relaxed); }
+    void setDelayTime(float seconds) { delayTime.store(seconds, std::memory_order_relaxed); }
+    float getDelayTime() const { return delayTime.load(std::memory_order_relaxed); }
+
     void setVoiceMix(uint8_t voiceId, float mix);
     void setTransportMuted(bool muted) noexcept { transportMuted_.store(muted, std::memory_order_relaxed); }
     float getVoiceMix(uint8_t voiceId) const;
@@ -127,6 +135,13 @@ private:
     float sampleRate;
     std::atomic<float> globalVolume;
     static_assert(std::atomic<float>::is_always_lock_free, "Mixer gains must be lock-free");
+
+    // Master-bus delay state. Targets cross cores through the atomics; the
+    // delay line and its filters are audio-thread-only.
+    std::atomic<float> delayMix{0.0f};
+    std::atomic<float> delayTime{MasterDelay::kDefaultDelaySeconds};
+    static_assert(std::atomic<float>::is_always_lock_free, "Delay controls must be lock-free");
+    MasterDelay masterDelay_;
 
     // Dynamics processing (configured but currently bypassed in the mix path;
     // see processAllVoices())

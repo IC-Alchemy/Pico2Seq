@@ -2,6 +2,7 @@
 #define CONTROL_SURFACE_LOGIC_H
 
 #include <cstdint>
+#include <cmath>
 
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 
@@ -312,12 +313,27 @@ private:
 /** What a fader channel controls. The mode strap does not change it. */
 enum class FaderTarget : uint8_t
 {
-  None,        // unassigned
-  EnvLane,     // ENV mode: one envelope lane of the selected step
-  Tempo,       // uClock BPM
-  SwingAmount, // continuous shuffle depth
-  GateLength,  // gate length across the selected voice's steps
+  None,       // unassigned
+  EnvLane,    // ENV mode: one envelope lane of the selected step
+  Tempo,      // uClock BPM
+  DelayMix,   // master delay wet mix (Shift + fader: delay time)
+  GateLength, // gate length across the selected voice's steps
 };
+
+// Delay time for the Shift + wet-mix-fader control: a log curve across the
+// range, so a short-throw fader spends its travel evenly over musical
+// distance. Pure so the host tests can pin the endpoints and the curve.
+inline constexpr float kDelayTimeMinSeconds = 0.010f;
+inline constexpr float kDelayTimeMaxSeconds = 1.000f;
+inline float delaySecondsForFader(float normalized)
+{
+  if (!(normalized > 0.0f))
+    return kDelayTimeMinSeconds;
+  if (normalized > 1.0f)
+    return kDelayTimeMaxSeconds;
+  return kDelayTimeMinSeconds *
+         std::pow(kDelayTimeMaxSeconds / kDelayTimeMinSeconds, normalized);
+}
 
 struct FaderAssignment
 {
@@ -338,7 +354,7 @@ public:
   /**
    * Target of one fader channel (0..3). With a step selected (ENV mode) the
    * faders are that step's Attack, Decay, Sustain and Release lanes;
-   * otherwise Tempo, Swing, (unassigned), Gate length.
+   * otherwise Tempo, Delay mix, (unassigned), Gate length.
    */
   static FaderAssignment assignmentFor(bool stepSelected, uint8_t channel);
 
