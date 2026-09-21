@@ -12,7 +12,6 @@
 #include "UIEventHandler.h"
 #include "../AlchemyUI/src/ButtonMap.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
-#include "../pico2seq-core/sequencer/ShuffleTemplates.h"
 
 #include <uClock.h>
 
@@ -26,7 +25,6 @@ constexpr unsigned long kModeBannerDurationMs = 600;
 // Utility-fader ranges.
 constexpr float kTempoMinBpm = 45.0f;
 constexpr float kTempoMaxBpm = 200.0f;
-constexpr int8_t kSwingMaxTicks = 45; // half of a 120-tick 16th at PPQN 480
 } // namespace
 
 // Why re-resolve instead of caching once: tile slots are scan order, so a tile
@@ -121,12 +119,12 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
 
   // Shift (bit 7 of the button tile) is a plain level in both modes.
   uiState.shiftHeld = buttonAt(buttonSlot_, 7).held();
-  // The volume fader doubles as the macro knob under Shift: re-arm it on
-  // shift edges so neither target snaps to the other's rest position.
+  // Shift changes delay mix to time and volume to compressor macro. Re-arm
+  // both faders on either edge so their other targets keep their values.
   if (uiState.shiftHeld != shiftWasHeld_)
   {
     shiftWasHeld_ = uiState.shiftHeld;
-    faders_.resetChannel(ControlSurface::FaderMap::kMasterVolumeChannel);
+    faders_.resetShiftTargets();
   }
 
   // SliderModule buttons: voice select, or transport chords with Shift —
@@ -463,11 +461,10 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
 // --- Faders ----------------------------------------------------------------------
 
 // Why faders fan out by assignment instead of by channel: the same four
-// physical faders mean Tempo/Swing/Volume/Gate in both strap positions, but the
+// physical faders mean Tempo/DelayMix/Volume/Gate in both strap positions, but the
 // selected step's Attack/Decay/Sustain/Release in Step Edit (ENV mode). The
 // deadband gate (accept()) stops a newly selected voice or step from
-// snapping to a stale fader position, and the shuffle buffer is static
-// because uClock retains the pointer for ISR ticks.
+// snapping to a stale fader position.
 void AlchemyControlBridge::handleFaders(UIState &uiState,
                                         const SequencerView &sequencers)
 {
@@ -525,20 +522,29 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
                       normalized * (kTempoMaxBpm - kTempoMinBpm));
       break;
 
-    case ControlSurface::FaderTarget::SwingAmount:
-    {
-      // Continuous shuffle: delay every odd 16th by up to half a step.
-      // Use static storage duration because uClock stores this pointer for Core 0 ISR ticks.
-      static int8_t continuousShuffleTicks[SHUFFLE_TEMPLATE_SIZE];
-      const int8_t offset = static_cast<int8_t>(lroundf(normalized * kSwingMaxTicks));
-      for (int i = 0; i < SHUFFLE_TEMPLATE_SIZE; ++i)
+    case ControlSurface::FaderTarget::DelayMix:
+      // One fader, two jobs: the wet mix on its own, and with Shift held the
+      // same fader sweeps delay time instead (the same move-time retarget
+      // shape as the ENV lanes' Shift reset). Both report on the OLED.
+      if (uiState.shiftHeld)
       {
-        continuousShuffleTicks[i] = (i % 2 == 1) ? offset : 0;
+        const float seconds = ControlSurface::delaySecondsForFader(normalized);
+        if (voiceManager)
+          voiceManager->setDelayTime(seconds);
+        uiState.oledNoticeKind = UIState::OledNoticeKind::DelayTime;
+        uiState.oledNoticeValue =
+            static_cast<uint16_t>(lroundf(seconds * 1000.0f));
       }
-      uClock.setShuffleTemplate(continuousShuffleTicks, SHUFFLE_TEMPLATE_SIZE);
-      uClock.setShuffle(offset > 0);
+      else
+      {
+        if (voiceManager)
+          voiceManager->setDelayMix(normalized);
+        uiState.oledNoticeKind = UIState::OledNoticeKind::DelayMix;
+        uiState.oledNoticeValue =
+            static_cast<uint16_t>(lroundf(normalized * 100.0f));
+      }
+      uiState.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
       break;
-    }
 
     case ControlSurface::FaderTarget::GateLength:
     {

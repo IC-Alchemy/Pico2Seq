@@ -155,8 +155,9 @@ fixed storage and lock-free 32-bit indices. Neither side blocks or allocates.
 One update per sample bounds the drain and lets each queued gate edge reach the
 envelope. When the queue is empty, Core 1 renders up to 32 samples before
 probing again; a concurrent publication can wait up to 0.67 ms at 48 kHz.
-Mix levels, master-volume and transport-mute targets are sampled per block
-(up to 256 frames); the master smoother still advances every sample.
+Mix levels, master-volume, transport-mute, compressor-macro and master-delay targets are
+sampled per block (up to 256 frames); the master smoother and the delay's
+mix/time eases still advance every sample.
 Updates still drain while disabled, so queued re-enables can take effect.
 Config, pitch caches, dirty flags, filter/slide coefficients, and gates
 are audio-owned. The pitch version is now ordinary single-core state.
@@ -192,9 +193,12 @@ setters: the producer is Core 0's ordinary `loop()` context. Existing clock and
 diagnostic flags are separate from the voice queue protocol.
 
 Core 1 heartbeat diagnostics use a separate four-entry SPSC queue and are
-printed on Core 0. The existing PPQN counter lost-increment window and the
-disabled delay feature's shared-control races are documented in the
+printed on Core 0. The existing PPQN counter lost-increment window is
+documented in the
 [application guide](firmware-structure.md#ownership-and-real-time-rules).
+The master delay (rebuilt 2026-09-20) does not share the removed global
+delay's races: Core 0 publishes its mix and time through lock-free atomics
+on `VoiceManager`, and Core 1 reads them once per block.
 
 ---
 
@@ -260,7 +264,11 @@ VoiceManager::processBlock() (Core 1, up to 256 frames per block)
       envelope gain, effects, velocity
       main filter split at coefficient updates, then HPF and output level
     Add voice samples * mixLevel to the block
+  Master delay on the summed block: eased mix/time, fractional cubic read,
+  DC blocker + lowpass + tanh in the feedback loop
   Advance master gain per sample and multiply the mixed block
+  Compress dry sound and repeats together with the Warm/Glue/Punch macro;
+  ease the macro per sample and update compressor coefficients at most once per block
 AudioSamples::toPcm16() -> identical left/right PCM16 -> I2S DMA at 48 kHz
 ```
 

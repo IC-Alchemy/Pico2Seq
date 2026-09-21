@@ -48,6 +48,8 @@ VoiceManager::VoiceManager(uint8_t maxVoices)
 
     configureMasterCompressor_();
 
+    masterDelay_.prepare(sampleRate);
+
     DBG_INFO("VoiceManager: constructed maxVoices=%u", maxVoices);
 }
 
@@ -345,9 +347,14 @@ void VoiceManager::init(float sr)
                       ? 0.0f
                       : globalVolume.load(std::memory_order_relaxed);
 
-    // Master-bus compressor shares the single kMasterComp* settings with
+    // Master-bus compressor shares the single macro settings curve with
     // the constructor, re-prepared for the new sample rate.
     configureMasterCompressor_();
+
+    masterDelay_.prepare(sampleRate);
+    masterDelay_.setMix(delayMix.load(std::memory_order_relaxed));
+    masterDelay_.setDelaySeconds(delayTime.load(std::memory_order_relaxed));
+    masterDelay_.reset();
 
     DBG_INFO("VoiceManager: init sampleRate=%.1f", sr);
     for (auto &managedVoice : voices)
@@ -406,10 +413,15 @@ void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noe
         float macro = macroCurrent_;
         const float macroAlpha = macroAlpha_;
         bool macroDirty = false;
+        // Delay targets are read once per block; the delay eases toward them
+        // per sample, the same contract as the master gain above.
+        masterDelay_.setMix(delayMix.load(std::memory_order_relaxed));
+        masterDelay_.setDelaySeconds(delayTime.load(std::memory_order_relaxed));
         for (uint32_t k = 0; k < count; ++k)
         {
+            const float delayed = masterDelay_.process(out[k]);
             gain += alpha * (target - gain);
-            out[k] *= gain;
+            out[k] = delayed * gain;
             // Master macro morph: eased per sample, setters at most once per
             // block so expf coefficient updates never run per sample.
             macro += macroAlpha * (macroTarget - macro);

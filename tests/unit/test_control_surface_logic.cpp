@@ -13,6 +13,7 @@
 #include <string>
 
 using namespace ControlSurface;
+using Catch::Approx;
 
 TEST_CASE("Parameter record buttons select their matching encoder base", "[control_surface]")
 {
@@ -471,14 +472,32 @@ TEST_CASE("ShiftLatch ignores out-of-range param ids", "[control_surface]")
 // FaderMap
 // ---------------------------------------------------------------------------
 
-TEST_CASE("FaderMap: without a selected step the faders are tempo/swing/volume/gate length", "[control_surface][fader]")
+TEST_CASE("FaderMap: without a selected step the faders are tempo/delay mix/volume/gate length", "[control_surface][fader]")
 {
     CHECK(FaderMap::assignmentFor(false, 0).target == FaderTarget::Tempo);
-    CHECK(FaderMap::assignmentFor(false, 1).target == FaderTarget::SwingAmount);
+    CHECK(FaderMap::assignmentFor(false, 1).target == FaderTarget::DelayMix);
     CHECK(FaderMap::assignmentFor(false, 2).target == FaderTarget::MasterVolume);
     CHECK(FaderMap::assignmentFor(false, 3).target == FaderTarget::GateLength);
     for (uint8_t channel = 0; channel < FaderMap::kChannelCount; ++channel)
         CHECK(FaderMap::assignmentFor(false, channel).paramId == ParamId::Count);
+}
+
+TEST_CASE("Delay time fader mapping spans 10 ms to 750 ms on a log curve", "[control_surface][fader]")
+{
+    CHECK(delaySecondsForFader(0.0f) == Approx(kDelayTimeMinSeconds).margin(1e-6f));
+    CHECK(delaySecondsForFader(1.0f) == Approx(kDelayTimeMaxSeconds).margin(1e-6f));
+    // Geometric midpoint of the tuned range: sqrt(0.01 * 0.75).
+    CHECK(delaySecondsForFader(0.5f) == Approx(std::sqrt(0.0075f)).epsilon(0.001));
+    CHECK(delaySecondsForFader(-1.0f) == Approx(kDelayTimeMinSeconds).margin(1e-6f));
+    CHECK(delaySecondsForFader(2.0f) == Approx(kDelayTimeMaxSeconds).margin(1e-6f));
+
+    float previous = 0.0f;
+    for (int i = 0; i <= 20; ++i)
+    {
+        const float seconds = delaySecondsForFader(static_cast<float>(i) / 20.0f);
+        CHECK(seconds > previous);
+        previous = seconds;
+    }
 }
 
 TEST_CASE("FaderMap: a selected step turns the faders into its envelope lanes", "[control_surface][fader]")
@@ -622,8 +641,7 @@ TEST_CASE("FaderMap resetChannel disarms one channel and leaves the rest", "[con
     CHECK(map.isEngaged(1));
     CHECK(map.isEngaged(2));
 
-    // Shift edge re-arms only the volume/macro fader: its neighbor keeps
-    // tracking while it demands a deliberate move before sending again.
+    // Resetting one channel leaves its neighbor tracking.
     map.resetChannel(FaderMap::kMasterVolumeChannel);
     CHECK(map.isEngaged(1));
     CHECK_FALSE(map.isEngaged(2));
@@ -635,6 +653,35 @@ TEST_CASE("FaderMap resetChannel disarms one channel and leaves the rest", "[con
     map.resetChannel(99); // out-of-range is a no-op, never a crash
     CHECK(map.isEngaged(1));
     CHECK(map.isEngaged(2));
+}
+
+TEST_CASE("Shift edges require fresh movement on both effect faders", "[control_surface][fader]")
+{
+    FaderMap map;
+    constexpr uint16_t rest = 2000;
+    constexpr uint16_t move = FaderMap::kMoveThresholdCounts;
+    for (uint8_t channel = 0; channel < FaderMap::kChannelCount; ++channel)
+    {
+        CHECK_FALSE(map.accept(channel, rest - move));
+        REQUIRE(map.accept(channel, rest));
+    }
+
+    // Exercise press and release: both targets keep their values through
+    // jitter, then accept deliberate movement from the new rest position.
+    for (unsigned edge = 0; edge < 2; ++edge)
+    {
+        map.resetShiftTargets();
+        CHECK(map.isEngaged(0)); // tempo keeps tracking
+        CHECK(map.isEngaged(3)); // gate length keeps tracking
+        for (uint8_t channel : {FaderMap::kDelayChannel, FaderMap::kMasterVolumeChannel})
+        {
+            const uint16_t baseline = rest + edge * move;
+            CHECK_FALSE(map.isEngaged(channel));
+            CHECK_FALSE(map.accept(channel, baseline));
+            CHECK_FALSE(map.accept(channel, baseline + move - 1));
+            CHECK(map.accept(channel, baseline + move));
+        }
+    }
 }
 
 TEST_CASE("Shift + master fader drives the macro knob, plain moves drive volume", "[control_surface]")

@@ -37,7 +37,7 @@ class SequencerView;
  *     bit 7 in both. In Utility mode, Shift + Randomize clears the selected
  *     voice's whole pattern (tap) or every voice's pattern (hold).
  *   - Faders: step-parameter recording in Param mode (same recording path
- *     as the lidar), tempo/swing/master-volume/gate-length in Utility mode.
+ *     as the lidar), tempo/delay-mix/master-volume/gate-length otherwise.
  */
 class AlchemyControlBridge
 {
@@ -131,7 +131,7 @@ private:
   // the hold so the release cannot also clear a single voice.
   bool clearChordThisPress_ = false;
   bool clearAllLatch_ = false;
-  // Last published Shift level: the volume/macro fader re-arms on its edges.
+  // Last published Shift level: mix/time and volume/macro re-arm on its edges.
   bool shiftWasHeld_ = false;
   uint8_t modeSwitchPin_ = 7; // GP7 default; setup1 sets PIN_ALCHEMY_MODE_SWITCH
   uint8_t lastVoiceIndex_ = 0;
