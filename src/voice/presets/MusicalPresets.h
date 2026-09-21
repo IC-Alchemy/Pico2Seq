@@ -3,6 +3,12 @@
 #include "RecipePresets.h"
 
 namespace VoicePresets {
+// Pitched recipe voices: reed pipe (vowel-like formant over a breathy body),
+// silk pad (slow-blooming detuned pair, phases left running across gates),
+// hollow bell (fast strike, ring-mod edge, no sustain), sync lead (aggressive
+// synced bite for mono lines), orbit pluck (FM snap into clean body),
+// air chime (harmonic shimmer + octave), velvet keys / copper bass (FM/DSF
+// low-end with soft attacks).
 // Reed pipe: the formant ratio walks the vowel set on an octave taper.
 constexpr VoiceParameterLayout reedPipeLayout()
 {

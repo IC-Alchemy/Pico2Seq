@@ -45,7 +45,8 @@ class AlchemyPanel {
     return tiles_.info(m.slot).present;
   }
 
-  /** Fader 0..3 as 0..1 (tempo/cutoff/resonance/balance in the sketches). */
+  /** Fader 0..3 as 0..1 (Tempo / DelayMix / Volume-or-Macro / Gate in firmware;
+      ENV lanes A/D/S/R while a step is held for edit). */
   [[nodiscard]] float fader(std::uint8_t channel) const {
     return tiles_.fader(channel);
   }

@@ -1,3 +1,6 @@
+// VoiceEditParameters.cpp — editor model implementation (control thread).
+// Recipe choice borrows its first preset's lanes so the editor always shows
+// meaningful timbre rows for the picked algorithm.
 #include "VoiceEditParameters.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "presets/MusicalPresets.h"
@@ -31,8 +34,8 @@ constexpr Parameter kParameters[] = {
      nullptr, nullptr},
     {Id::Velocity, "Velocity", Group::Sequenced, Unit::Percent, 0.0f, 1.0f,
      false, nullptr, nullptr},
-    // Sequenced Filter lane: envelope amount, not a frequency. The cutoff
-    // itself is Id::StaticCutoff (the patch base the encoder moves).
+    // Sequenced Filter lane edits envelope amount (how far the contour opens
+    // the cutoff); the patch base itself is Id::StaticCutoff.
     {Id::Cutoff, "FiltEnv", Group::Sequenced, Unit::Percent, 0.0f, 1.0f, false,
      nullptr, nullptr},
     {Id::Attack, "Attack", Group::Sequenced, Unit::Seconds, 0.001f,

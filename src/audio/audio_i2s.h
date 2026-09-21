@@ -14,11 +14,9 @@
  *  \defgroup pico_audio_i2s pico_audio_i2s
  *  I2S audio output using the PIO
  *
- * This library uses the \ref hardware_pio system to implement a I2S audio interface
- *
- * \todo Must be more we need to say here.
- * \todo certainly need an example
- *
+ * Pico2Seq use: Core 1's only sound outlet (48 kHz stereo, GP10-12). The DMA IRQ
+ * feeds PIO while loop1() renders ahead; an underrun substitutes silence, which
+ * the performer hears as a dropout — hence the pre-fill and heartbeat counters.
  */
 
 #ifdef __cplusplus
@@ -101,19 +99,16 @@ extern "C" {
 
 
 
-// The default order is CLOCK_PIN_BASE=LRCLK, CLOCK_PIN_BASE+1=BCLK
-// The swapped order is CLOCK_PIN_BASE=BCLK,  CLOCK_PIN_BASE+1=LRCLK
+// Base pin = BCLK, base+1 = LRCK (Pico2Seq: GP10/GP11, data GP12). Swapped order
+// is supported but unused; keep the default so HardwarePins.h stays true.
 #ifndef PICO_AUDIO_I2S_CLOCK_PINS_SWAPPED
 #define PICO_AUDIO_I2S_CLOCK_PINS_SWAPPED 0
 #endif
 
-// todo this needs to come from a build config
-/** \brief Base configuration structure used when setting up
+/** \brief Base configuration for one I2S outlet (pins + claimed DMA/SM)
  * \ingroup pico_audio_i2s
  */
-// Claim an available channel/state machine during setup, safely alongside
-// other DMA/PIO users. The audio driver must not assert if another peripheral
-// has already claimed the default state machine.
+// AUTO claims a free DMA channel/SM at setup so coexisting users never collide.
 #define PICO_AUDIO_I2S_DMA_CHANNEL_AUTO UINT8_MAX
 #define PICO_AUDIO_I2S_PIO_SM_AUTO UINT8_MAX
 
@@ -134,50 +129,37 @@ const audio_format_t *audio_i2s_setup(const audio_format_t *intended_audio_forma
                                                const audio_i2s_config_t *config);
 
 
-/** \brief \todo
+/** \brief Connect a producer pool straight through to I2S (no extra copy)
  * \ingroup pico_audio_i2s
  *
- * \param producer
- * \param connection
+ * Pico2Seq's path: identical PCM16 stereo formats make this the zero-copy route.
  */
 bool audio_i2s_connect_thru(audio_buffer_pool_t *producer, audio_connection_t *connection);
 
 
-/** \brief \todo
+/** \brief Connect with the default consumer format (s16 stereo)
  * \ingroup pico_audio_i2s
- *
- * \param producer
- *
- *  todo make a common version (or a macro) .. we don't want to pull in unnecessary code by default
  */
 bool audio_i2s_connect(audio_buffer_pool_t *producer);
 
 
-/** \brief \todo
+/** \brief Connect an 8-bit producer pool to I2S (unused by Pico2Seq)
  * \ingroup pico_audio_i2s
- *
- * \param producer
  */
 bool audio_i2s_connect_s8(audio_buffer_pool_t *producer);
 
-/** \brief \todo
+/** \brief Connect with an explicit consumer pool (buffer_on_give path)
  * \ingroup pico_audio_i2s
  *
- * \param producer
- * \param buffer_on_give
- * \param buffer_count
- * \param samples_per_buffer
- * \param connection
- * \return
+ * Pico2Seq passes buffer_on_give=false with zero consumer buffers to select
+ * the pass-through connection above.
  */
 bool audio_i2s_connect_extra(audio_buffer_pool_t *producer, bool buffer_on_give, uint buffer_count,
                                  uint samples_per_buffer, audio_connection_t *connection);
 
 
-/** \brief Set up system to output I2S audio
+/** \brief Enable/disable the I2S clocks (call after the pre-fill, not before)
  * \ingroup pico_audio_i2s
- *
- * \param enable true to enable I2S audio, false to disable.
  */
 void audio_i2s_set_enabled(bool enabled);
 

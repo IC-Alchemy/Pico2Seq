@@ -1,21 +1,15 @@
 #ifndef SENSOR_CONSTANTS_H
 #define SENSOR_CONSTANTS_H
 
-/**
- * @file SensorConstants.h
- * @brief Centralized constants for sensor management and calibration
- *
- * This file contains all sensor-related constants including timing parameters,
- * calibration values, hardware addresses, and parameter ranges for both
- * VL53L1X distance sensor and TMAG5273 magnetic encoder.
- */
+// SensorConstants.h — hand + knob calibration in one place.
+// Player view: VL53L1X window 55-700 mm (Short mode), octave zones above;
+// TMAG5273 jog feel (slow-whisper/fast-jump thresholds, edge-flash zones).
+// Tunables only — no logic, so tests and firmware share them.
 
 namespace SensorConstants
 {
 
-  // ======================
-  // VL53L1X Distance Sensor Constants
-  // ======================
+  // VL53L1X hand window (Short mode, mm).
 
   namespace DistanceSensor
   {
@@ -56,9 +50,7 @@ namespace SensorConstants
     // > 550 mm maps to +2 octaves up to MAX_DISTANCE_HEIGHT_MM (700 mm)
   }
 
-  // ======================
-  // Magnetic Encoder Constants
-  // ======================
+  // TMAG5273 jog feel.
 
   namespace MagneticEncoder
   {
@@ -95,9 +87,7 @@ namespace SensorConstants
     static constexpr float DEFAULT_VOICE_PARAMETER = 0.0f;               // Neutral position for voice parameters
   }
 
-  // ======================
-  // Sensor System Constants
-  // ======================
+  // Shared bus/sample-rate facts both drivers assume.
 
   namespace System
   {

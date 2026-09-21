@@ -1,3 +1,7 @@
+// VoiceConfig.h — one voice's patch: engine, oscillators, filter (brightness),
+// envelope (bloom → held loudness → release), effects, levels. Owned by the
+// control core; queued to Core 1 via Voice::setConfig. Ranges/units live on
+// each field — keep them current, the editor and tests trust them.
 #pragma once
 
 #include "VoiceOscillator.h"
@@ -64,8 +68,9 @@ struct VoiceRecipe;
 
 struct VoiceConfig
 {
-  // Patch bases live on the control core. Recorded lanes contain modifiers;
-  // only the composed playback state is sent to the audio core.
+  // Patch bases live on the control core (the patch's resting sound); recorded
+  // lanes hold offsets/modifiers and only the composed playback state crosses
+  // to the audio core.
   bool usePatchBases = false; // Enabled by firmware; legacy library clients opt in.
   float baseNote = 0.0f; // Additive transpose in scale steps
   float baseVelocity = 0.5f;

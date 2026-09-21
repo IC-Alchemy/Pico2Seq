@@ -8,6 +8,10 @@
 #ifndef SOFTWARE_SAMPLE_CONVERSION_H
 #define SOFTWARE_SAMPLE_CONVERSION_H
 
+// Format shims for pool connections (mono/stereo, 8/16-bit).
+// Pico2Seq renders s16 stereo end to end, so only the s16 pass-throughs run;
+// the rest stay as zero-cost connection options. No audio-rate cost when unused.
+
 #include <algorithm>
 #include <cstring>
 #include "audio.h"
@@ -33,7 +37,7 @@ struct FmtU16 : public FmtDetails<uint16_t> {
 struct FmtS16 : public FmtDetails<int16_t> {
 };
 
-// Multi-channel is just N samples back to back
+// Channels are N samples back to back; mono/stereo below reuse this layout.
 template<typename Fmt, uint ChannelCount>
 struct MultiChannelFmt {
     static const uint channel_count = ChannelCount;
@@ -52,7 +56,7 @@ struct sample_converter {
     static typename ToFmt::sample_t convert_sample(const typename FromFmt::sample_t &sample);
 };
 
-// noop conversion
+// Identity copy: same format both sides (Pico2Seq's s16 stereo path).
 
 template<typename Fmt>
 struct sample_converter<Fmt, Fmt> {
@@ -158,7 +162,7 @@ struct converting_copy {
     static void copy(typename ToFmt::sample_t *dest, const typename FromFmt::sample_t *src, uint sample_count);
 };
 
-// Efficient copies of same sample type
+// Fast path: identical layouts copy with memcpy, no per-sample work.
 
 template<class Fmt, uint ChannelCount>
 struct converting_copy<MultiChannelFmt<Fmt, ChannelCount>, MultiChannelFmt<Fmt, ChannelCount>> {
@@ -180,7 +184,7 @@ struct converting_copy<MultiChannelFmt<ToFmt, NumChannels>, MultiChannelFmt<From
 };
 
 
-// mono->stereo conversion
+// Mono voice duplicated to both ears: the performer hears it centered.
 template<typename ToFmt, typename FromFmt>
 struct converting_copy<Stereo<ToFmt>, Mono<FromFmt>> {
     static void copy(typename ToFmt::sample_t *dest, const typename FromFmt::sample_t *src, uint sample_count) {
@@ -192,7 +196,7 @@ struct converting_copy<Stereo<ToFmt>, Mono<FromFmt>> {
     }
 };
 
-// stereo->mono conversion
+// Stereo summed to mono first (in source precision), then converted.
 template<typename ToFmt, typename FromFmt>
 struct converting_copy<Mono<ToFmt>, Stereo<FromFmt>> {
     static void copy(typename ToFmt::sample_t *dest, const typename FromFmt::sample_t *src, uint sample_count) {

@@ -1,3 +1,6 @@
+// VoicePresets.cpp — preset registry: one entry per PresetBank.h row, checked
+// at compile time (names set, recipe presets carry layout+recipe, ranges sane).
+// Unknown names/indices fall back to Analog (index 0).
 #include "VoicePresets.h"
 #include "VoiceParameters.h"
 #include "presets/OscillatorPresets.h"
@@ -10,7 +13,7 @@
 namespace VoicePresets {
 namespace {
 struct Preset { const char *name; VoiceConfig config; };
-// Compile-time storage in flash; no runtime registration or heap allocation.
+// Flash storage; no runtime registration or heap.
 constexpr Preset kPresets[] = {
 #define VOICE_PRESET(id, name, factory) {name, factory()},
 #include "presets/PresetBank.h"

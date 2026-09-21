@@ -5,26 +5,30 @@
 #include "../ui/ControlSurfaceLogic.h"
 #include "../utils/FreezeWatchdog.h"
 
+// Core 0 control slices: 1 ms hands/sensors, ~13 ms LEDs, ~40 ms OLED.
+// The OLED only ships changed pages and LEDs go via PIO+DMA, so the fast
+// cadences stay cheap and the groove never waits on feedback.
+
 namespace
 {
 constexpr uint32_t kControlIntervalMs = 1;
 // The OLED and LED matrix run on independent cadences. OLED: commitFrame()
 // only puts the pages that changed on the bus, so a frame costs a page or two
 // of I2C transfer instead of the old full 1 KB push.
-constexpr uint32_t kOledIntervalMs = 40; // ~25 frames/s
+constexpr uint32_t kOledIntervalMs = 40; // ~25 fps: readable without hogging I2C
 // LEDs: 3x the OLED rate. show() hands the 32-pixel frame to FastLED's PIO+DMA
 // driver (~1 ms on the wire, no interrupt blackout), so a fast cadence costs
 // Core 0 little. Blends in updateStepLEDs() are per frame, so fades settle
 // in a third of the time they did at the shared 40 ms cadence.
-constexpr uint32_t kLedIntervalMs = 13; // ~77 frames/s
-constexpr uint32_t kTileBusFrequencyHz = 100000; // Standard mode (100 kHz); Alchemy tiles on Wire1
+constexpr uint32_t kLedIntervalMs = 13; // ~77 fps: fades settle fast, PIO+DMA hides cost
+constexpr uint32_t kTileBusFrequencyHz = 100000; // Tiles demand 100 kHz; 400 kHz stalls them
 constexpr uint32_t kMainBusFrequencyHz = 400000; // Fast mode (400 kHz); OLED and sensors on Wire
 constexpr uint8_t kStartupLedBrightness = 150;
-constexpr uint8_t kTouchSensorAddress = 0x5A;
+constexpr uint8_t kTouchSensorAddress = 0x5A; // MPR121 32-pad address;
 constexpr uint8_t kTouchThreshold = 45;
 constexpr uint8_t kReleaseThreshold = 14;
 
-// Program-long hardware objects: callbacks borrow them; Core 1 never sees them.
+// Program-long hardware objects; UI callbacks borrow them. Core 1 never sees them.
 struct ControlHardware
 {
     LEDMatrix ledMatrix;
@@ -73,18 +77,16 @@ void ControlIO::beginMainBusAndLeds()
     Wire.setSCL(PIN_WIRE_SCL);
     Wire.begin();
     Wire.setClock(kMainBusFrequencyHz);
-    Wire.setTimeout(25, true); // 25 ms timeout with auto-reset prevents indefinite bus stalls
+    Wire.setTimeout(25, true); // Cap a wedged bus at 25 ms so the groove survives
 
-    // Wire1 carries the Alchemy tiles only; the OLED runs on Wire (initialized
-    // above, before beginDisplay() brings the panel up).
+    // Wire1 is tiles-only; the OLED stays on Wire (set up above).
     Wire1.setSDA(PIN_ALCHEMY_WIRE1_SDA);
     Wire1.setSCL(PIN_ALCHEMY_WIRE1_SCL);
     Wire1.begin();
     Wire1.setClock(kTileBusFrequencyHz);
     Wire1.setTimeout(25, true);
 
-    // From here on, any Core-0 hang or hard fault reboots within ~2s and the
-    // post-mortem prints at the next boot (src/utils/FreezeWatchdog.h).
+    // From here a Core 0 hang/fault reboots in ~2 s with a post-mortem next boot.
     freezeWatchdogArm();
     freezeWatchdogFeed(FW_SETUP_BUS);
 
@@ -105,7 +107,7 @@ void ControlIO::beginPerformanceSensors()
         Serial.println("Distance sensor initialized successfully");
     }
 
-    // Initialize TMAG5273A magnetic encoder (Velocity Encoder board, I2C 0x35)
+    // Magnetic encoder (Velocity Encoder board, 0x35): the performer's knob.
     if (!magEncoder.begin())
     {
         Serial.println("[ERROR] TMAG5273 magnetic encoder initialization failed!");
@@ -115,7 +117,7 @@ void ControlIO::beginPerformanceSensors()
         Serial.println("TMAG5273 magnetic encoder initialized successfully");
     }
 
-    // Initialize encoder base values with proper defaults
+    // Encoder base values give the knob somewhere sensible to start from.
     initEncoderBaseValues();
 }
 
@@ -133,10 +135,8 @@ void ControlIO::beginTouchPads()
         Serial.println("MPR121 found and initialized");
         controls.touchSensor.setAutoconfig(true);
 
-        // Configure MPR121 touch thresholds.
-        // Using the original, more conservative thresholds.
-        controls.touchSensor.setThresholds(kTouchThreshold, kReleaseThreshold); // touch, release thresholds
-        // Serial.println("MPR121 thresholds configured to 155/55");
+        // Conservative touch/release thresholds: firm taps speak, brushes do not.
+        controls.touchSensor.setThresholds(kTouchThreshold, kReleaseThreshold); // touch, release;
     }
 }
 
@@ -149,12 +149,12 @@ void ControlIO::beginDisplay()
 
 void ControlIO::observeVoiceChanges()
 {
-    // Register OLED display as observer for voice parameter changes
+    // Register the OLED as the voice-change observer so edits show at once.
     if (voiceManager)
     {
         controls.display.setVoiceManager(voiceManager.get());
 
-        // Use VoiceManager's callback system for parameter updates
+        // Mirror voice edits into the OLED via VoiceManager's callback.
         voiceManager->setVoiceUpdateCallback([](uint8_t voiceId, const VoiceState &state)
                                              { controls.display.onVoiceParameterChanged(voiceId, state); });
 
@@ -172,18 +172,13 @@ void ControlIO::beginMatrixAndTiles()
     Matrix_init(&controls.touchSensor);
     Serial.println("Matrix initialized");
 
-    // Force a matrix scan to test the system
+    // Force one matrix scan so a stuck pad shows up before the first downbeat.
     Serial.println("Forcing initial matrix scan...");
     Matrix_scan();
-    // Matrix_printState();
 
-    // =======================
-    //   ALCHEMY TILE CONTROL SURFACE (Wire1 bank + GP7 mode strap)
-    // =======================
-    // SliderModule + ButtonModule8 live on their own Wire1 bank; Wire1 pin
-    // constants are bench-adjustable in includes.h. Standard mode (100 kHz),
-    // not fast mode: 400 kHz stalls tile transfers on this rig, which is the
-    // rate the working Pico_DSP_Garden sketches run these same tiles at.
+    // Alchemy tiles (faders/buttons) live on their own Wire1 bank + GP7 strap.
+    // Kept at 100 kHz: 400 kHz stalls transfers on this rig (same rate as the
+    // working Pico_DSP_Garden tile sketches).
     freezeWatchdogFeed(FW_SETUP_ALCHEMY);
     pinMode(PIN_ALCHEMY_MODE_SWITCH, INPUT_PULLUP);
     Wire1.setSDA(PIN_ALCHEMY_WIRE1_SDA);
@@ -194,7 +189,7 @@ void ControlIO::beginMatrixAndTiles()
     controls.alchemyBridge.begin(Wire1, /*bankB=*/nullptr, millis());
     printAlchemyTileScanReport();
 
-    // Use a lambda to capture the context needed by the event handler
+    // Forward pad presses/releases into the shared UI event handler.
     Matrix_setEventHandler([](const MatrixButtonEvent &evt)
                            {
         Serial.print("Matrix event: button ");
@@ -217,31 +212,25 @@ void ControlIO::scanControls(uint32_t nowMs)
         controls.lastControlUpdate = nowMs;
         freezeWatchdogFeed(FW_LOOP_CONTROL);
 
-        // Scan button matrix for user input (32 step pads)
+        // 32 step pads, only when the IRQ says something changed.
         freezeWatchdogMark(FW_LOOP_MATRIX);
         Matrix_scan();
 
-        // Poll the Alchemy tiles (param/utility buttons, voice selects,
-        // faders, GP7 mode strap) and translate edges into UI actions.
+        // Tiles: buttons, voice selects, faders, and the GP7 Param/Utility strap.
         freezeWatchdogMark(FW_LOOP_TILES);
         controls.alchemyBridge.update(nowMs, uiState, AppState::sequencerView);
 
-        // Update magnetic encoder for base parameter control
+        // Knob motion for the base-parameter target.
         freezeWatchdogMark(FW_LOOP_ENCODER);
         magEncoder.update();
         updateEncoderBaseValues(uiState);
 
-        // Update distance sensor for real-time parameter recording
+        // Hand height for live recording; absent hand freezes recording below.
         freezeWatchdogMark(FW_LOOP_DISTANCE);
         distanceSensor.update();
         AppState::performanceInput.observeDistance(distanceSensor.getRawDistanceMm());
-        // =======================
-        //   REAL-TIME PARAMETER RECORDING
-        // =======================
-        // While parameter buttons are held, the hand writes each held lane's
-        // playing step every pass, or the selected step in Step Edit. While
-        // playing, pitch lanes are left to advanceStep() on each clock step.
-        // No hand in range: steps keep their values.
+        // Live recording: a held lane follows the hand every pass (or the selected
+        // step in Step Edit); pitch lanes also record on clock steps. No hand: hold.
         if (AppState::performanceInput.handPresent)
         {
             freezeWatchdogMark(FW_LOOP_RECORD);
@@ -266,7 +255,7 @@ void ControlIO::refreshLeds(uint32_t nowMs)
         controls.lastLedUpdate = nowMs;
         freezeWatchdogFeed(FW_LOOP_LEDS);
 
-        // Render the step sequence frame, then hand it to the matrix.
+        // Show the step frame, then push it to the matrix.
         updateStepLEDs(controls.ledMatrix, AppState::sequencerView, uiState, AppState::performanceInput.distanceAboveMinimumMm);
         controls.ledMatrix.show();
     }
@@ -279,10 +268,10 @@ void ControlIO::refreshOled(uint32_t nowMs)
         controls.lastOledUpdate = nowMs;
         freezeWatchdogFeed(FW_LOOP_OLED);
 
-        // Handle voice switch display updates
+        // One-shot voice-switch notification, then the regular status frame.
         if (uiState.voiceSwitchTriggered)
         {
-            uiState.voiceSwitchTriggered = false; // Clear the trigger flag
+            uiState.voiceSwitchTriggered = false; // One-shot: consumed here
             controls.display.onVoiceSwitched(uiState, voiceManager.get());
         }
 

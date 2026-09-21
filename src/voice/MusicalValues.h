@@ -6,7 +6,9 @@
 #include <cstdio>
 #include <cstring>
 
-// Shared audio/display conversions. No UI state, allocation or hardware access.
+// MusicalValues.h — shared lane ↔ musical-unit conversions (note names,
+// envelope seconds, cutoff Hz) for audio and OLED. Pure math, no UI state,
+// no allocation, no hardware access; safe on either core and in tests.
 namespace MusicalValues {
 inline int midiNote(float note, int octave, int harmony, const int *row) noexcept {
   const int index = std::clamp(static_cast<int>(note) + harmony, 0, int(SCALE_STEPS) - 1);
@@ -27,7 +29,7 @@ inline float releaseNormalized(float seconds) noexcept {
   const float clamped = std::clamp(seconds, 0.01f, 8.0f);
   return std::log(clamped / 0.01f) / std::log(800.0f);
 }
-// Attack lane: 1 ms..2 s, so lane 0.5 is ~45 ms. Inverse: VoiceEdit::attackNormalize.
+// Attack lane: 1 ms..2 s, so lane 0.5 blooms in ~45 ms (snappy but click-free).
 inline float attackSeconds(float normalized) noexcept {
   return 0.001f * std::pow(VoiceEdit::kAttackMaxSeconds / 0.001f, std::clamp(normalized, 0.0f, 1.0f));
 }
@@ -153,7 +155,7 @@ inline void format(ParamId id, const Step &step, const VoiceConfig &config,
   }
   if (VoiceParameters::formatValue(config, id, normalized, out, size)) return;
   if (id == ParamId::Velocity) {
-    // Velocity is an amplitude multiplier, not a MIDI velocity byte.
+    // Velocity multiplies amplitude (0..1x gain), not a MIDI byte.
     std::snprintf(out, size, "%.2fx", normalized);
     return;
   }

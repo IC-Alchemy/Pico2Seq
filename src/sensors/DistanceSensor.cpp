@@ -1,5 +1,7 @@
 #include "DistanceSensor.h"
 
+// DistanceSensor.cpp — Short-mode VL53L1X polling (Core 0, non-blocking).
+// Hand window is 55-700 mm; the dropout counter decides "hand left".
 // Global instance for backward compatibility with existing code
 DistanceSensor distanceSensor;
 
@@ -11,7 +13,6 @@ DistanceSensor::DistanceSensor()
 
 bool DistanceSensor::begin()
 {
-  // Initialize I2C communication with standard settings
   Wire.begin();
   delay(SensorConstants::DistanceSensor::I2C_STABILIZATION_DELAY_MS);
 
@@ -47,7 +48,7 @@ bool DistanceSensor::begin()
     return false;
   }
 
-  // Configure inter-measurement period for continuous operation
+  // Continuous mode: sensor free-runs, update() only picks up samples.
   if (vl53l1xSensor.VL53L1X_SetInterMeasurementInMs(static_cast<uint16_t>(
           SensorConstants::DistanceSensor::INTER_MEASUREMENT_PERIOD_MS)) !=
       VL53L1X_ERROR_NONE)
@@ -56,7 +57,7 @@ bool DistanceSensor::begin()
     return false;
   }
 
-  // Start continuous measurement mode
+  // Free-run ranging; update() collects samples without ever waiting.
   if (!vl53l1xSensor.startRanging())
   {
     sensorConnected = false;
@@ -77,7 +78,7 @@ void DistanceSensor::update()
 
   unsigned long currentTimeMs = millis();
 
-  // Rate-limit updates to prevent excessive I2C communication
+  // At most one sample per READ_INTERVAL_MS: keeps I2C share predictable.
   if (currentTimeMs - lastMeasurementTimeMs < SensorConstants::DistanceSensor::READ_INTERVAL_MS)
   {
     return;
@@ -141,7 +142,7 @@ bool DistanceSensor::isConnected() const
   return sensorConnected;
 }
 
-// Backward compatibility function for legacy code integration
+// Legacy entry; prefer distanceSensor.update().
 void updateDistanceSensor()
 {
   distanceSensor.update();

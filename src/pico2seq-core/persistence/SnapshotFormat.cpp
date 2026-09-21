@@ -1,3 +1,5 @@
+// SnapshotFormat: CRC + little-endian frame codec (see header for layout).
+// Bit-by-bit IEEE CRC keeps flash dependency-free; payloads are small.
 #include "SnapshotFormat.h"
 
 namespace persistence

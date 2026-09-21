@@ -1,3 +1,5 @@
+// PatchCodec.cpp — field-by-field patch flatten/rebuild (bools packed into
+// flags; presetIndex stamped by the caller, a VoiceConfig never knows its row).
 #include "PatchCodec.h"
 #include "VoiceConfig.h"
 #include "VoicePresets.h"
@@ -59,8 +61,7 @@ void capturePatch(const VoiceConfig &c, persistence::PatchSnapshot &o) noexcept
     if (c.hasEnvelope) o.flags |= kHasEnvelope;
     if (c.hasFilter) o.flags |= kHasFilter;
     if (c.enabled) o.flags |= kEnabled;
-    // presetIndex is stamped by the caller: a VoiceConfig does not know which
-    // factory preset it came from.
+    // A VoiceConfig never knows its own bank row; the caller stamps presetIndex.
 }
 
 bool applyPatch(uint8_t presetIndex, const persistence::PatchSnapshot &in, VoiceConfig &out) noexcept
@@ -114,11 +115,10 @@ bool applyPatch(uint8_t presetIndex, const persistence::PatchSnapshot &in, Voice
     out.hasFilter = in.flags & kHasFilter;
     out.enabled = in.flags & kEnabled;
 
-    // The preset's layout descriptor is only valid for the preset's own
-    // engine/paramSet. If the saved patch re-purposed the slots, drop the
-    // pointer — VoiceParameters::layout() then derives it from paramSet.
-    // Hard sync is the exception: the oscillator bank toggles it on top of
-    // the preset's layout, so that layout's cutoff lane still applies.
+    // Keep the preset's layout only when the saved patch uses the same lane
+    // meaning (engine + paramSet agree; hard-sync toggles atop any oscillator
+    // layout, keeping its cutoff lane). Else drop to nullptr so layout()
+    // derives the slots from paramSet.
     const auto oscillatorSlots = [](uint8_t set)
     { return set == PARAMSET_STANDARD || set == PARAMSET_HARDSYNC; };
     const bool sameSlots = out.paramSet == presetParamSet ||
@@ -130,7 +130,7 @@ bool applyPatch(uint8_t presetIndex, const persistence::PatchSnapshot &in, Voice
 
     if (out.engine == ENGINE_RECIPE && out.recipe == nullptr)
     {
-        out = VoicePresets::getPresetConfig(presetIndex); // safe fallback: factory preset
+        out = VoicePresets::getPresetConfig(presetIndex); // fall back to factory sound
         return false;
     }
     return true;

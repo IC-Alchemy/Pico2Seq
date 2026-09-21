@@ -1,3 +1,7 @@
+// Voice.h — one synth voice: sources → envelope gain → effects → velocity →
+// main filter → HPF. Control thread stages (updateParameters/setConfig), Core 1
+// renders spans of <=32 samples (2 KiB stack, no heap/blocking); staged edits
+// land after the next process(). Voice index is 0-based (0-3).
 #pragma once
 
 #include "VoiceConfig.h"
@@ -45,25 +49,19 @@ struct VoiceSlewParams
 };
 
 /**
- * @brief A complete synthesizer voice with oscillators, filter, envelope, and effects
+ * @brief One synth voice: oscillators/engines, envelope (note bloom → held
+ * loudness → release), filter (brightness), and effects.
  *
- * This class encapsulates all the audio processing components needed for a single voice,
- * making it easy to create multiple independent voices with different characteristics.
- *
- * Scale data access and testability:
- * - Voice no longer reads global scale variables directly. Instead, scale data is injected
- *   via setter methods (see setScaleTable and setCurrentScalePointer).
- * - This reduces global-state coupling and makes the class easier to unit test: tests can
- *   provide a mock scale table and a fixed/current scale index without relying on externs.
- * - If no scale data is injected, Voice falls back to chromatic mapping for note calculation.
+ * Scale data is injected (setScaleTable/setCurrentScalePointer) so Voice never
+ * reads globals: tests can pass a mock table, nullptr falls back to chromatic.
  */
 class Voice
 {
 public:
   /**
    * @brief Construct a new Voice object
-   * @param id Unique identifier for this voice (0-7)
-   * @param config Configuration structure defining voice characteristics
+   * @param id Voice index (0-based, 0-3)
+   * @param config Patch defining this voice's sound
    */
   Voice(uint8_t id, const VoiceConfig &config);
 
@@ -120,21 +118,21 @@ public:
   void processBlock(float *out, uint32_t n) noexcept;
 
   /**
-   * @brief Update voice parameters from sequencer state
-   * @param newState New voice state from sequencer containing note, velocity, filter, envelope parameters
+   * @brief Update voice parameters from a sequencer step (staged; audible
+   * after the next process()). Attack = how fast the note blooms, sustain =
+   * held loudness, filter = brightness.
    */
   void updateParameters(const VoiceState &newState);
 
-  // Sequencer integration
+  // Sequencer attachment: unique_ptr takes ownership, raw pointer borrows
+  // (setup only; never while either core is using the voice).
   /**
-   * @brief Set the sequencer for this voice (takes ownership)
-   * @param seq Unique pointer to sequencer object
+   * @brief Attach a sequencer, taking ownership.
    */
   void setSequencer(std::unique_ptr<Sequencer> seq);
 
   /**
-   * @brief Set the sequencer for this voice (raw pointer, no ownership transfer)
-   * @param seq Raw pointer to sequencer object
+   * @brief Attach a sequencer without transferring ownership.
    */
   void setSequencer(Sequencer *seq);
 
@@ -172,8 +170,8 @@ public:
   const VoiceState &getState() const noexcept { return state; }
 
   /**
-   * @brief Set gate state for this voice
-   * @param gateState True for gate on (note triggered), false for gate off (note released)
+   * @brief Gate on/off: rising edge fires noteOn (pitch commits, envelope
+   * blooms), falling edge releases. Drives the event-style ADSR.
    */
   void setGate(bool gateState);
 
@@ -198,8 +196,7 @@ public:
 
   // Voice identification
   /**
-   * @brief Get voice ID
-   * @return uint8_t Voice identifier (0-7)
+   * @brief Get voice index (0-based, 0-3)
    */
   uint8_t getId() const noexcept { return voiceId; }
 
@@ -222,8 +219,8 @@ public:
   void setFrequency(float frequency);
 
   /**
-   * @brief Set slide time for frequency transitions
-   * @param slideTime Slide time in seconds (0.001-10.0)
+   * @brief Slide (portamento) time: how fast pitch glides between notes.
+   * @param slideTime Seconds (0.001-10.0); exponential time constant.
    */
   void setSlideTime(float slideTime);
 

@@ -6,23 +6,28 @@
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
 
 /**
- * @brief Centralized state management for the Pico2Seq UI.
+ * @brief Single source of UI truth (Core 0 only).
  *
- * This struct encapsulates all UI-related state variables, eliminating
- * global externs and improving modularity. An instance of this struct
- * is passed to UI functions, making data flow explicit and easier to manage.
+ * All mode flags, holds, debounce timestamps, and transient OLED notices live
+ * here — never as loose globals. Handlers mutate it, LEDs/OLED read it.
+ * To add UI state: extend this struct (not a new global) and reset it in
+ * initButtonManager(). Voice indices are 0-based internally (0..3).
  */
 struct UIState
 {
     VoiceEdit::Controls voiceEditor;
+    // Wait for all pads/tiles to release before performance input resumes
+    // (prevents a held pad from firing a step toggle on mode exit).
     bool controlsWaitRelease = false;
     // --- Parameter Button States ---
+    // Which step-parameter lane (Note/Velocity/...) the performer is holding.
     // Indexed by ParamId for direct lookup.
     bool parameterButtonHeld[PARAM_ID_COUNT] = {false};
 
     // --- Mode States ---
+    // Mutually exclusive step-edit modes: only one may own the pads at a time.
     bool modGateParamSeqLengthsMode = false;
-    bool slideMode = false;
+    bool slideMode = false; // pads toggle legato per step instead of gates
     // Selected voice index 0..3; all voice-dependent UI derives from this.
     uint8_t selectedVoiceIndex = 0;
     int selectedStepForEdit = -1;
@@ -31,8 +36,10 @@ struct UIState
     EncoderParameterMode currentEncoderParameter = EncoderParameterMode::Velocity;
 
     // --- Timing States ---
+    // Per-pad press times for tap (toggle step) vs hold (edit step). Index is
+    // the raw 0..31 pad; 0 = press was consumed by a mode, so release ignores it.
     unsigned long padPressTimestamps[SequencerConstants::MAX_STEPS_COUNT] = {0};
-    // --- Transient OLED notice (replaces the old control-cluster LED flashes) ---
+    // --- Transient OLED notice (short confirmation banner, e.g. voice randomized) ---
     enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6, Macro = 7, DelayMix = 8, DelayTime = 9, DelayFeedback = 10 };
     volatile unsigned long oledNoticeUntil = 0;
     volatile OledNoticeKind oledNoticeKind = OledNoticeKind::None;
@@ -51,6 +58,7 @@ struct UIState
     unsigned long voiceSwitchPressTime = 0;
     bool voiceSwitchWasPressed = false;
 
+    // Randomize gesture per voice: tap shuffles the pattern, hold wipes it.
     // --- Randomize Button States ---
     static constexpr int NUM_RANDOMIZE = 4;
     unsigned long randomizePressTime[NUM_RANDOMIZE] = {0};
@@ -61,10 +69,11 @@ struct UIState
     uint8_t currentShufflePatternIndex = 0;
 
     // --- Flags ---
-    // Flag to signal the LED matrix to reset step lights.
+    // Asks the LED layer to redraw step lights (set after clears/resets).
     bool resetStepsLightsFlag = false;
 
     // --- Debounce for Slide Mode Toggle ---
+    // Guards the slide toggle against double-firing on one press.
     unsigned long lastSlideModeToggleTime = 0;
 
     // --- Settings Mode State ---
@@ -81,7 +90,8 @@ struct UIState
     bool playStopWasPressed = false;
 
     // --- Encoder Control Hold / Gate Seq Length Mode ---
-    // Press/hold tracking for BUTTON_ENCODER_CONTROL to enable gate seq length mode while held
+    // One overloaded tile button: tap cycles the encoder target, hold turns
+    // pads into Gate-track-length entry (2..16). Tracked non-blocking via millis().
     unsigned long encoderControlPressTime = 0;
     bool encoderControlWasPressed = false;
     bool gateSeqLengthMode = false; // When true, step buttons set Gate track length (per selected voice)
@@ -108,7 +118,8 @@ struct UIState
     }
 
     // --- Voice Switch State ---
-    bool voiceSwitchTriggered = false; // Flag to trigger immediate OLED update for voice switching
+    // Set on voice/step selection so the OLED redraws immediately.
+    bool voiceSwitchTriggered = false;
 
     // --- Alchemy Tile Control Surface State ---
     // Tile function set selected by the GP7 strap switch. The physical

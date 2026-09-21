@@ -8,8 +8,7 @@ namespace
 constexpr const char *kSavePath = "/session.p2s";
 constexpr const char *kTempPath = "/session.tmp";
 
-// Static, not stack: ~12.4 KB each and this runs on the Core 0 Arduino loop
-// stack during saves/loads.
+// Static, not stack: ~12.4 KB each, beyond what the Core 0 loop stack can hold.
 persistence::ProjectSnapshot g_saveBuffer;
 persistence::ProjectSnapshot g_loadBuffer;
 } // namespace
@@ -17,7 +16,7 @@ persistence::ProjectSnapshot g_loadBuffer;
 bool SessionStorage::begin()
 {
     LittleFSConfig cfg;
-    cfg.setAutoFormat(false); // format explicitly so we can log/measure it
+    cfg.setAutoFormat(false); // Format explicitly so the wait is logged, not hidden
     LittleFS.setConfig(cfg);
     if (LittleFS.begin())
         return true;
@@ -43,7 +42,7 @@ SessionStorage::LoadResult SessionStorage::load(persistence::ProjectSnapshot &ou
         f.close();
         return LoadResult::BadFrame;
     }
-    // A format-1 payload is the prefix of format 2 and is completed below.
+    // Format-1 payload is a prefix of format 2; completed (upgraded) below.
     const uint16_t version = persistence::frameVersion(header);
     const bool formatV1 = version == persistence::SNAPSHOT_FORMAT_VERSION_V1;
     const size_t payloadSize = formatV1 ? sizeof(persistence::ProjectSnapshotV1)
@@ -55,8 +54,7 @@ SessionStorage::LoadResult SessionStorage::load(persistence::ProjectSnapshot &ou
         return LoadResult::BadFrame; // truncated file
     }
     f.close();
-    // Header and payload live in separate buffers; the validator CRCs the
-    // payload buffer directly (never bytes past the 12-byte header).
+    // Header and payload CRC separately: never read past the 12-byte header.
     const persistence::FrameStatus status = persistence::readFrameHeader(
         header, reinterpret_cast<const uint8_t *>(&g_loadBuffer), sizeof(g_loadBuffer),
         static_cast<uint16_t>(payloadSize),

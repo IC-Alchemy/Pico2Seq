@@ -7,6 +7,10 @@
 #include <uClock.h>
 #include <hardware/sync.h>
 
+// ISR stages, loop() plays: step numbers wait in a 16-deep ring, PPQN ticks in a
+// counter. Same-core (Core 0) handoff, no locks; processing stays in thread
+// context so the tick ISR never blocks and the groove stays tight.
+
 uint32_t g_processedStepCount = 0;
 
 namespace
@@ -16,8 +20,8 @@ constexpr float kStartingTempoBpm = 90.0f;
 struct ClockEvents
 {
     SpscQueue<uint32_t, kQueuedStepCapacity> steps;
-    // Same-core ISR visibility. The existing increment/decrement policy is
-    // retained; volatile does not fix its pre-existing lost-increment window.
+    // Same-core ISR visibility; increments can still be lost if loop() drains
+    // mid-burst. Retained policy: PPQN only shortens notes, never hangs them.
     volatile uint32_t ppqnTicksPending = 0;
     volatile uint32_t droppedSteps = 0;
 };
@@ -27,19 +31,21 @@ void onStepCallback(uint32_t uClockCurrentStep)
 {
     if (!clockEvents.steps.tryPush(uClockCurrentStep))
     {
-        clockEvents.droppedSteps++; // loop() stalled longer than the queue
+        // loop() stalled longer than 16 steps: drop the newest, count it.
+        clockEvents.droppedSteps++;
     }
 }
 
 void onOutputPPQNCallback(uint32_t tick)
 {
-    // Increment counter to signal pending tick processing
+    // Stage one pending tick for the loop drain; note length is ticked there.
     clockEvents.ppqnTicksPending++;
 }
 } // namespace
 
 void onClockStart()
 {
+    // Thread context (uClock.start() call site): safe to touch sequencers/voices.
     if (uiState.voiceEditor.active) return;
     if (voiceManager) voiceManager->setTransportMuted(false);
      Serial.println("[uClock] onClockStart()");
@@ -60,6 +66,7 @@ void onClockStop()
 
 void processClockEvents()
 {
+    // Core 0 loop drain: turns staged steps into sounding notes (see StepPlayback).
     uint32_t step = 0;
     while (clockEvents.steps.tryPop(step))
     {
@@ -69,6 +76,7 @@ void processClockEvents()
 
 void initializeClock()
 {
+    // 90 BPM, 480 PPQN, shuffle on: the default groove before the session overrides.
     uClock.init();
     uClock.setOnClockStart(onClockStart);
     uClock.setOnClockStop(onClockStop);
@@ -82,6 +90,8 @@ void initializeClock()
 
 void processPendingGateTicks()
 {
+    // Snapshot the tick count under IRQ lock (same-core ISR race), then publish
+    // each note-off on its exact tick so short gates never drag to the next step.
     const uint32_t irqState=save_and_disable_interrupts();
     uint32_t pending=clockEvents.ppqnTicksPending;
     clockEvents.ppqnTicksPending=0;
@@ -96,6 +106,7 @@ void processPendingGateTicks()
 
 void stopClockForEditor()
 {
+    // Editor needs silence: stop transport, clear gates, and drop staged ticks.
     uClock.stop();
     onClockStop(); // Also cleans up if transport was already stopped.
     const uint32_t irqState=save_and_disable_interrupts();

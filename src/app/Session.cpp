@@ -12,11 +12,15 @@
 #include <Arduino.h>
 #include <uClock.h>
 
+// Session capture/apply in three stages: before voices (preset picks), after voices
+// (patterns+patches), after clock (tempo/feel). Staging matters — voices must exist
+// before their patterns can land. Core 0 only.
+
 bool Session::g_bootLoadedOk = false;
 
 namespace
 {
-Session::PendingAction g_pending = Session::PendingAction::None; // Core-0 single-writer flag
+Session::PendingAction g_pending = Session::PendingAction::None; // Core 0 single-writer handoff
 uint32_t g_lastSavedCrc = 0;
 } // namespace
 
@@ -33,7 +37,7 @@ void Session::setLastSavedCrc(uint32_t crc) { g_lastSavedCrc = crc; }
 
 void Session::captureSession(persistence::ProjectSnapshot &out)
 {
-    out = persistence::ProjectSnapshot{}; // changedFlags uses read-modify-write below
+    out = persistence::ProjectSnapshot{}; // Clear first: changedFlags OR-accumulates below
     for (uint8_t v = 0; v < VoiceSystem::MAX_VOICES; ++v)
     {
         persistence::capturePattern(*AppState::sequencers[v], out.patterns[v], out.envelopes[v]);
@@ -60,8 +64,7 @@ void Session::captureSession(persistence::ProjectSnapshot &out)
 
 void Session::applyBeforeVoices(const persistence::ProjectSnapshot &s)
 {
-    // initializeVoices() reads voicePresetIndices to build the factory voices;
-    // everything else applies after those voices exist.
+    // Factory voices are built from these picks; the rest applies once they exist.
     const uint8_t presetCount = VoicePresets::getPresetCount();
     for (uint8_t v = 0; v < VoiceSystem::MAX_VOICES; ++v)
     {
@@ -84,8 +87,7 @@ void Session::applyAfterVoices(persistence::ProjectSnapshot &s)
             voiceManager->setVoiceConfig(voiceId, config);
             voiceManager->setVoiceSlide(voiceId, config.slideSeconds);
         }
-        // Format-1 lanes were offsets around this voice's patch: convert them
-        // to the values they played before they reach the sequencer.
+        // Format-1 lanes were patch-relative offsets: resolve to the values heard.
         const VoiceConfig *applied = voiceManager->getVoiceConfig(voiceSystem.getVoiceId(v));
         if (s.laneModel == persistence::LANE_MODEL_OFFSETS && applied)
         {
@@ -96,8 +98,7 @@ void Session::applyAfterVoices(persistence::ProjectSnapshot &s)
             }
         }
 
-        // Pads, LEDs and OLED show 16 steps per voice. A longer lane would play
-        // steps nobody can see or edit, and its playhead would leave the grid.
+        // Pads/LEDs/OLED show 16 steps: longer lanes would play invisible steps.
         persistence::applyPattern(s.patterns[v], s.envelopes[v], *AppState::sequencers[v],
                                   NUMBER_OF_STEP_BUTTONS);
         for (const auto &track : s.patterns[v].tracks)
@@ -117,7 +118,7 @@ void Session::applyAfterVoices(persistence::ProjectSnapshot &s)
         Serial.printf("[STORAGE] capped %u saved track lengths to %u steps\n",
                       static_cast<unsigned>(cappedTracks), static_cast<unsigned>(NUMBER_OF_STEP_BUTTONS));
     s.laneModel = persistence::LANE_MODEL_ABSOLUTE; // converted above
-    // Restore validated focus only; this is not a live performance voice press.
+    // Focus restore only — not a live voice press, so no note cleanup or notice.
     uiState.selectedVoiceIndex = s.settings.selectedVoice;
     uiState.slideMode = (s.settings.changedFlags & 0x10u) != 0;
     if (voiceManager)

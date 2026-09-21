@@ -15,6 +15,9 @@
  * \defgroup util_buffer buffer
  * \brief Buffer management
  * \ingroup pico_util
+ *
+ * Pico2Seq use: backing bytes behind each 256-sample I2S buffer. Allocated once
+ * at pool creation on Core 1; never in the render loop (no jitter, no dropouts).
  */
 
 #ifdef PICO_BUFFER_USB_ALLOC_HACK
@@ -33,11 +36,7 @@ extern "C" {
 
 /** \struct mem_buffer
  *  \ingroup util_buffer
- *  \brief Wrapper structure around a memory buffer
- * 
- *   Wrapper could be around static or allocated memory
- * 
- * \todo This module needs to be checked - think there are issues with the free function
+ *  \brief Wrapper around static or heap sample bytes (size + flags)
  */
 typedef struct mem_buffer {
     size_t size;

@@ -9,6 +9,11 @@
 #include "audio.h"
 #include "sample_conversion.h"
 
+// Buffer-list plumbing behind AudioEngine's take/give (see audio.h).
+// Listener payoff: buffers never tear, so sustained notes never click.
+// Same-core IRQ discipline: loop1() and the DMA IRQ share these lists on Core 1,
+// so every lock window masks interrupts (spin locks alone would deadlock).
+
 // ======================
 // == DEBUGGING =========
 
@@ -56,7 +61,7 @@ inline static void list_prepend(audio_buffer_t **phead, audio_buffer_t *ab) {
     *phead = ab;
 }
 
-// todo add a tail for these already sorted lists as we generally insert on the end
+// Sorted-list append is tail-tracked; most inserts land at the end.
 inline static void list_append_with_tail(audio_buffer_t **phead, audio_buffer_t **ptail,
                                          audio_buffer_t *ab) {
     audio_assert(ab->next == NULL);
@@ -75,12 +80,9 @@ inline static void list_append_with_tail(audio_buffer_t **phead, audio_buffer_t 
     }
 }
 
-// The buffer-list spin locks are taken from both thread code (loop1's
-// take/give) and the audio DMA IRQ (which frees/refills buffers) on the same
-// core. spin_lock_blocking does not mask interrupts, so an IRQ firing while the
-// thread holds a lock would spin on it forever - mask interrupts around every
-// lock window. Never mask across the __wfe() wait: the woken event comes from
-// the DMA IRQ itself.
+// Mask IRQs around each lock: the DMA IRQ shares these lists on Core 1, and an
+// IRQ firing mid-window would spin on the held lock forever. Never mask across
+// __wfe(): the wake event itself comes from that IRQ.
 audio_buffer_t *get_free_audio_buffer(audio_buffer_pool_t *context, bool block) {
     audio_buffer_t *ab;
 
@@ -241,17 +243,15 @@ audio_buffer_t *take_audio_buffer(audio_buffer_pool_t *ac, bool block) {
         return ac->connection->consumer_pool_take(ac->connection, block);
 }
 
-// todo rename this - this is s16 to s16
+// s16 shims: Pico2Seq renders s16 stereo throughout, so these stay pass-throughs.
 audio_buffer_t *mono_to_mono_consumer_take(audio_connection_t *connection, bool block) {
     return consumer_pool_take<Mono<FmtS16>, Mono<FmtS16>>(connection, block);
 }
 
-// todo rename this - this is s16 to s16
 audio_buffer_t *stereo_to_stereo_consumer_take(audio_connection_t *connection, bool block) {
     return consumer_pool_take<Stereo<FmtS16>, Stereo<FmtS16>>(connection, block);
 }
 
-// todo rename this - this is s16 to s16
 audio_buffer_t *mono_to_stereo_consumer_take(audio_connection_t *connection, bool block) {
     return consumer_pool_take<Stereo<FmtS16>, Mono<FmtS16>>(connection, block);
 }

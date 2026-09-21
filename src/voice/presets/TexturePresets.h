@@ -4,6 +4,10 @@
 #include "../VoiceParameters.h"
 
 namespace VoicePresets {
+// Hypersaw = seven detuned saws for wide trance stacks (detune thickens,
+// mix balances width against center); NoiseStorm = diffused noise through a
+// resonant swarm for hats-to-wind textures (regen howls near the top, kept
+// safe by the loop governor).
   // Supersaw: detune's x^4 response puts 0.30 at ~8 cent thickening and 0.75
   // at ~43 cent strings; full smear (~185 cents) stays out of lane reach.
   // Mix clips the dry-saw and center-vanish extremes.

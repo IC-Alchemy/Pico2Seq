@@ -14,7 +14,9 @@
 //
 // This header is the single place that decides which physical button is
 // which logical control, so a rewired panel is a table edit, not a logic
-// hunt. Slot order is scan order (see AlchemyTiles): the slider tile always
+// hunt. Performer view: slider buttons always pick voices 1..4; the 8-button
+// tile swaps between parameter lanes (Param) and transport/utility (Utility).
+// Slot order is scan order (see AlchemyTiles): the slider tile always
 // claims slot 0 when present, button tiles fill the following slots.
 
 #ifndef ALCHEMY_UI_BUTTON_MAP_H

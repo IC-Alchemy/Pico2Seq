@@ -1,7 +1,9 @@
 #pragma once
 #include <cstdint>
 
-// All bus, sensor and display work belongs to Core 0.
+// ControlIO: Core 0 hands, lights, and display polling.
+// Musical role: turns pads, faders, knob, and hand height into sound edits every
+// millisecond, and mirrors the groove on LEDs/OLED. All blocking I2C stays here.
 namespace ControlIO
 {
 void beginMainBusAndLeds();

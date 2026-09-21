@@ -6,21 +6,10 @@
 #include <Wire.h>
 #include "SensorConstants.h"
 
-/**
- * @class DistanceSensor
- * @brief VL53L1X distance sensor driver for real-time parameter control
- *
- * Lightweight driver that provides distance readings for real-time parameter
- * control in Pico2Seq. Optimized for audio applications with
- * non-blocking measurement updates and configurable timing parameters.
- *
- * The sensor operates in continuous measurement mode with a 35ms update interval
- * to provide smooth parameter control while avoiding interference with audio
- * processing on Core 0.
- *
- * @note This class is designed for Core 1 operation (UI/sensor processing)
- * @warning Each update performs one data-ready check and never waits for a sample
- */
+// DistanceSensor.h — VL53L1X hand-height sensor (Core 0, I2C0).
+// Player view: a theremin-like gesture — hand height bends the held lane live
+// and zones octaves. Poll update() from the Core 0 loop; it never blocks, and
+// Core 1 (audio) must never touch this.
 class DistanceSensor
 {
 public:
@@ -32,59 +21,24 @@ public:
    */
   DistanceSensor();
 
-  /**
-   * @brief Initialize VL53L1X sensor with optimized settings
-   *
-   * Configures the sensor for Long distance mode with a 33ms timing budget
-   * and 35ms inter-measurement period. Uses continuous measurement mode for
-   * real-time parameter control applications.
-   *
-   * @return true if initialization successful, false on hardware error
-   * @note Requires I2C bus to be available and sensor connected at address 0x29
-   */
+  // Start Short-mode ranging (55-700 mm window; ceilings read as no target).
+  // Needs the shared I2C bus up and the sensor at 0x29.
   bool begin();
 
-  /**
-   * @brief Non-blocking sensor update
-   *
-   * Polls the sensor for new distance measurements once, without waiting for
-   * the next sample. Polls are limited to READ_INTERVAL_MS to balance
-   * responsiveness with I2C traffic.
-   *
-   * @note Call this function regularly from Core 1 main loop
-   * @warning Do not call from Core 0 (audio processing core)
-   */
+  // Poll once: at most one data-ready check per READ_INTERVAL_MS, never a wait.
+  // Call from the Core 0 loop; never from Core 1 (audio).
   void update();
 
-  /**
-   * @brief Get the most recent distance measurement
-   *
-   * Returns the last valid distance reading in millimeters. The reading
-   * is updated by the update() function and represents the distance from
-   * the sensor to the nearest object within the measurement range.
-   *
-   * @return Distance in millimeters (55-700mm is the useful range; AppState clamps/normalizes),
-   *         or INVALID_DISTANCE_MM when nothing has been measured recently
-   * @note A single rejected measurement keeps the previous distance; a run of
-   *       INVALID_READINGS_BEFORE_DROPOUT rejected measurements clears it
-   */
+  // Last accepted hand height in mm (INVALID_DISTANCE_MM = nothing in view).
   int getRawDistanceMm() const;
 
-  /**
-   * @brief ST range status of the latest measurement, for diagnostics
-   *
-   * 0 = valid, 1 = sigma fail (noisy, still used), 2 = signal fail,
-   * 4 = out of bounds, 7 = wraparound; NO_RANGE_STATUS before the first reading.
-   */
+  // ST range status of the last sample (0 = valid, 1 = noisy-but-usable).
+  // NO_RANGE_STATUS = nothing read yet.
   uint8_t getLastRangeStatus() const;
 
   static constexpr uint8_t NO_RANGE_STATUS = 255;
 
-  /**
-   * @brief Check if sensor is providing valid readings
-   *
-   * @return true if sensor is connected and providing measurements
-   */
+  // False until begin() ranges the sensor.
   bool isConnected() const;
 
 private:
@@ -105,17 +59,10 @@ private:
   bool sensorConnected;
 };
 
-// Global instance for backward compatibility with existing code
+// Legacy global (existing call sites); prefer the instance.
 extern DistanceSensor distanceSensor;
 
-/**
- * @brief Backward compatibility function for legacy code
- *
- * Updates the global distance sensor instance. This function maintains
- * compatibility with existing code that expects a simple update function.
- *
- * @deprecated Use distanceSensor.update() directly for new code
- */
+// Legacy poll entry; prefer distanceSensor.update().
 void updateDistanceSensor();
 
 #endif // DISTANCE_SENSOR_H

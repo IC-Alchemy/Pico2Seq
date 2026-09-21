@@ -1,3 +1,7 @@
+// VoiceManager.h — owns the voices (setup-time unique_ptr only; Core 1 never
+// allocates) and renders the summed mono bus: voices → master delay → master
+// gain → macro compressor. Control thread configures; Core 1 calls
+// processBlock() only. Cross-core knobs use lock-free atomics.
 #pragma once
 
 #include "Voice.h"
@@ -10,18 +14,13 @@
 #include <string>
 
 /**
- * VoiceManager - Manages multiple voices for polyphonic/multitimbral synthesis
- *
- * This class provides:
- * - Dynamic voice allocation and deallocation
- * - Voice preset management
- * - Unified audio processing for all voices
- * - Voice parameter updates and MIDI routing
- * - Memory-efficient voice management for embedded systems
+ * VoiceManager — owns up to maxVoices synth voices and renders the master bus.
+ * Setup-time unique_ptr ownership; Core 1 allocates nothing and never blocks.
  */
 class VoiceManager
 {
 public:
+    // Host-test/builder helpers (control thread; not on Core 1).
     // Voice allocation callback - called when voice count changes
     using VoiceCountCallback = std::function<void(uint8_t voiceCount)>;
 
@@ -31,7 +30,8 @@ public:
     VoiceManager(uint8_t maxVoices = 8);
     ~VoiceManager() = default;
 
-    // Voice Management
+    // Add/remove voices (control thread, setup-time; never on Core 1).
+    // Returns the new voice ID, or 0 when full.
     uint8_t addVoice(const VoiceConfig &config);
     uint8_t addVoice(const std::string &presetName);
     bool removeVoice(uint8_t voiceId);
@@ -52,7 +52,7 @@ public:
     bool attachSequencer(uint8_t voiceId, Sequencer *sequencer);
     Sequencer *getSequencer(uint8_t voiceId);
 
-    // Audio Processing
+    // Audio thread only: sum all voices into one sample (-1..1).
     void init(float sampleRate);
     float processAllVoices() noexcept;
 
@@ -122,6 +122,7 @@ public:
     static std::vector<std::string> getAvailablePresets();
     static VoiceConfig getPresetConfig(const std::string &presetName);
 
+    // Preset lookup by name; unknown names fall back to Analog.
     // Global Voice Parameters
     void setGlobalVolume(float volume) { globalVolume.store(volume, std::memory_order_relaxed); }
     float getGlobalVolume() const { return globalVolume.load(std::memory_order_relaxed); }
@@ -223,7 +224,8 @@ private:
 };
 
 /**
- * VoiceManagerBuilder - Builder pattern for easy VoiceManager configuration
+ * VoiceManagerBuilder — setup-time helper that assembles a VoiceManager
+ * (control thread only; the built manager still renders on Core 1).
  */
 class VoiceManagerBuilder
 {
@@ -305,12 +307,13 @@ private:
 };
 
 /**
- * VoiceFactory - Factory for creating common voice configurations
+ * VoiceFactory — example setups (host tests and bring-up; firmware wires its
+ * own 4 voices instead).
  */
 class VoiceFactory
 {
 public:
-    // Create a basic dual-voice setup (like current implementation)
+    // Two-voice example: contrasting analog/digital pair.
     static std::unique_ptr<VoiceManager> createDualVoiceSetup()
     {
         return VoiceManagerBuilder()
@@ -320,7 +323,7 @@ public:
             .build();
     }
 
-    // Create a quad-voice setup for more complex arrangements
+    // Four-voice example: one voice per timbre family.
     static std::unique_ptr<VoiceManager> createQuadVoiceSetup()
     {
         return VoiceManagerBuilder()
@@ -332,14 +335,14 @@ public:
             .build();
     }
 
-    // Create a full 8-voice polyphonic setup
+    // Eight-voice example: unison analog stack.
     static std::unique_ptr<VoiceManager> createPolyphonicSetup()
     {
         auto manager = VoiceManagerBuilder()
                            .withMaxVoices(8)
                            .build();
 
-        // Add 8 identical analog voices for polyphony
+        // One analog voice per slot.
         for (int i = 0; i < 8; i++)
         {
             manager->addVoice("analog");
@@ -348,7 +351,7 @@ public:
         return manager;
     }
 
-    // Create a custom setup based on user preferences
+    // Custom example: one voice per named preset.
     static std::unique_ptr<VoiceManager> createCustomSetup(
         const std::vector<std::string> &presets,
         uint8_t maxVoices = 8)

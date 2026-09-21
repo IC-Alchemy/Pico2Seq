@@ -6,15 +6,13 @@
 #include <cstddef>         // For size_t
 #include <cstdint>
 
-/**
- * @brief Manages all parameter tracks for a sequencer.
- */
+// ParameterManager: owns one fixed-size ParameterTrack per ParamId.
+// Each lane has its own step count, so e.g. Note can run 16 steps while
+// Filter loops 8 — that independence is the polymetric sequencer.
 class ParameterManager
 {
 public:
-    /**
-     * @brief Initializes all parameter tracks with their default values.
-     */
+    // Reset every lane to its CORE_PARAMETERS default value and length.
     void init();
 
     void setStepCount(ParamId id, uint8_t steps);
@@ -22,32 +20,27 @@ public:
     float getValue(ParamId id, uint8_t stepIdx) const;
     void setValue(ParamId id, uint8_t stepIdx, float value);
     void copyStep(uint8_t srcStep, uint8_t dstStep);
-    // Every slot (all 64) takes value, which also becomes what a growing
-    // track fills its new steps with. Keeps the active length.
+    // Fill all 64 slots (present and future steps) without changing lane length.
     void fillTrack(ParamId id, float value);
 
-    // Direct (non-wrapping) access for persistence. getRawValue reads storage
-    // beyond the active length; setRawValue writes without the UI clamp/round.
-    // Writes at/beyond the active length wrap like setValue — the persistence
-    // codec grows the track to MAX first, so restore never wraps.
+    // Raw access for save/load: reads past the active length, writes without
+    // UI clamp/round (values were normalized when recorded). Writes at/beyond
+    // the active length wrap — the codec grows to MAX first so restore never wraps.
     float getRawValue(ParamId id, uint8_t stepIdx) const;
     void setRawValue(ParamId id, uint8_t stepIdx, float value);
 
     static constexpr uint8_t kDefaultRandomizeDepth = 35;
 
-    // Velocity/Filter/Attack/Decay/Sustain/Release steps get triangular
-    // offsets around 0.5, spanning 0.5 +/- depth/2 scaled by each lane's
-    // amount; Sequencer turns them into absolute values around the patch
-    // value (offsetAroundBase). Depth is how far (in percent) a step may
-    // stray from the patch toward either end of its lane, most draws
-    // staying close. Note draws scale steps 0-12, Octave and GateLength return
-    // to neutral, and Gate/Slide are never touched. A lane amount of 0 leaves
-    // that lane as it is. seed 0 seeds from the clock; any other seed repeats.
+    // Humanize: rewrite each lane around its center without touching the rhythm.
+    // Triangular spread (sum of two uniform draws) keeps most steps near the base
+    // with a few reaching the depth edge. Note draws scale steps 0-12, Octave and
+    // GateLength return to neutral, Gate/Slide are never touched (groove is sacred).
+    // Lane amount 0 skips that lane; seed 0 seeds from the clock, else repeats.
     void randomizeParameters(uint8_t depthPercent = kDefaultRandomizeDepth, uint64_t seed = 0);
-    void setLaneAmount(ParamId id, uint8_t percent); // clamps to 0-100
+    void setLaneAmount(ParamId id, uint8_t percent); // Per-lane humanize depth, clamped 0-100
     uint8_t getLaneAmount(ParamId id) const;
 
-    // Encoder Parameter Bounds Management functions moved to src/sensors/EncoderManager.h/.cpp
+    // Encoder bounds helpers live in src/sensors/EncoderManager, not here.
 
 private:
     using LaneAmounts = std::array<uint8_t, static_cast<size_t>(ParamId::Count)>;

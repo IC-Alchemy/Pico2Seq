@@ -4,37 +4,35 @@
 #include <stdint.h>
 #include <variant> // Required for std::variant
 
-/**
- * @brief Sequencer timing and configuration constants
- *
- * Centralized namespace for all sequencer-related timing constants and limits.
- * All timing values are specified with clear unit indicators for maintainability.
- */
+// SequencerDefs: shared types for the polymetric step sequencer (notes to gates).
+// Each ParamId owns an independent ParameterTrack<N> with its own loop length.
+// Portable C++ — no Arduino/hardware includes here.
 namespace SequencerConstants
 {
-  // Timing constants with unit indicators
+  // Clock: 480 PPQN, one 16th step per 120 ticks.
   static constexpr uint16_t PULSES_PER_QUARTER_NOTE_PPQN = 480;
   static constexpr uint8_t PULSES_PER_SEQUENCER_STEP_TICKS = PULSES_PER_QUARTER_NOTE_PPQN / 4;
 
-  // Step count limits
+  // Loop lengths: 2..64 steps per lane, 16 on boot.
   static constexpr uint8_t MAX_STEPS_COUNT = 64;
   static constexpr uint8_t MIN_STEPS_COUNT = 2;
   static constexpr uint8_t DEFAULT_STEPS_COUNT = 16;
 
-  // Three-octave chromatic C-to-C span for the Note parameter track.
+  // Note lane holds scale degrees 0..36 (three chromatic octaves of steps).
   static constexpr int NOTE_PARAMETER_MIN = 0;
   static constexpr int NOTE_PARAMETER_MAX = 36;
 
-  // Gate timing constants
+  // Gate length in ticks: how long a step holds its note (staccato..legato).
   static constexpr uint16_t DEFAULT_GATE_LENGTH_TICKS = PULSES_PER_SEQUENCER_STEP_TICKS / 2;
   static constexpr uint16_t MIN_GATE_LENGTH_TICKS = 1;
   static constexpr uint16_t MAX_GATE_LENGTH_TICKS = PULSES_PER_SEQUENCER_STEP_TICKS;
 
-  // Distance thresholds (in millimeters) and normalized ranges for Octave parameter track
+  // Hand-distance zones for the Octave lane: nearer = lower octave.
   static constexpr float SENSOR_MIN_DISTANCE_MM = 55.0f;
   static constexpr float SENSOR_MAX_DISTANCE_MM = 700.0f;
   static constexpr float SENSOR_SPAN_MM = SENSOR_MAX_DISTANCE_MM - SENSOR_MIN_DISTANCE_MM;
 
+  // Normalized equivalents of the zones above, derived from the sensor span.
   static constexpr float OCTAVE_ZONE_MINUS_2_MAX_MM = 90.0f;
   static constexpr float OCTAVE_ZONE_MINUS_1_MAX_MM = 280.0f;
   static constexpr float OCTAVE_ZONE_ZERO_MAX_MM    = 425.0f;
@@ -45,7 +43,7 @@ namespace SequencerConstants
   static constexpr float OCTAVE_NORM_ZERO_MAX    = (OCTAVE_ZONE_ZERO_MAX_MM - SENSOR_MIN_DISTANCE_MM) / SENSOR_SPAN_MM;
   static constexpr float OCTAVE_NORM_PLUS_1_MAX  = (OCTAVE_ZONE_PLUS_1_MAX_MM - SENSOR_MIN_DISTANCE_MM) / SENSOR_SPAN_MM;
 
-  // Stored track discrete values corresponding to -2, -1, 0, +1, +2 octaves
+  // Discrete lane detents for -2..+2 octaves; 0.5 is concert pitch.
   static constexpr float OCTAVE_TRACK_MINUS_2 = 0.0f;
   static constexpr float OCTAVE_TRACK_MINUS_1 = 0.25f;
   static constexpr float OCTAVE_TRACK_ZERO    = 0.5f;
@@ -58,7 +56,7 @@ namespace SequencerConstants
   static constexpr float LANE_FOLLOWS_PATCH = -1.0f;
 }
 
-// Legacy constants for backward compatibility - will be phased out
+// Old names kept for callers; prefer SequencerConstants::* in new code.
 constexpr uint16_t PULSES_PER_QUARTER_NOTE = SequencerConstants::PULSES_PER_QUARTER_NOTE_PPQN;
 constexpr uint8_t PULSES_PER_SEQUENCER_STEP = SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS;
 constexpr uint8_t SEQUENCER_MAX_STEPS = SequencerConstants::MAX_STEPS_COUNT;
@@ -66,11 +64,10 @@ constexpr uint8_t MIN_STEPS = SequencerConstants::MIN_STEPS_COUNT;
 constexpr uint8_t DEFAULT_STEPS = SequencerConstants::DEFAULT_STEPS_COUNT;
 
 /**
- * @brief Parameter identifiers for sequencer step automation
+ * @brief One automatable lane per step (order must match CORE_PARAMETERS).
  *
- * Defines all automatable parameters for each sequencer step. These IDs must
- * match the order of the CORE_PARAMETERS array for proper parameter mapping.
- * Each parameter has specific value ranges documented in CORE_PARAMETERS.
+ * Musically: Note/Velocity/Gate shape the phrase, Filter/ADSR shape the tone,
+ * Octave/GateLength/Slide shape articulation across steps.
  */
 enum class ParamId : uint8_t
 {
@@ -88,14 +85,12 @@ enum class ParamId : uint8_t
   Count       // Total parameter count for array sizing
 };
 
-// Constant for array sizing based on ParamId::Count
+// Array sizing helper; ParamId::Count is the lane count, not a lane.
 constexpr uint8_t PARAM_ID_COUNT = static_cast<uint8_t>(ParamId::Count);
 
 /**
- * @brief Magnetic encoder parameter cycling modes
- *
- * Defines which parameter the magnetic encoder controls in real-time.
- * Moved from UIEventHandler.h to break circular dependency.
+ * @brief Which lane the magnetic encoder plays live (moved here to avoid
+ * a UI <-> sequencer include cycle).
  */
 enum class EncoderParameterMode : uint8_t
 {
@@ -112,15 +107,12 @@ enum class EncoderParameterMode : uint8_t
 };
 
 /**
- * @brief Magnetic encoder base parameter values for bidirectional control
- *
- * Stores base values for each parameter that can be controlled by the
- * magnetic encoder. Supports bidirectional control by maintaining center points.
+ * @brief Live encoder offsets added around the sequencer value at play time.
+ * Lets the player bend pitch/filter/etc. around the pattern without rewriting it.
  */
 struct EncoderBaseValues
 {
-  // These bases are normalized bipolar offsets. They are combined with the
-  // sequencer value by shiftAndScale() when a step is played.
+  // Normalized bipolar offsets combined with the step value at play time.
   float note = 0.0f;          // Base note/pitch offset (normalized 0.0-1.0 domain)
   float velocity = 0.0f;      // Base velocity (0.0-1.0)
   float filter = 0.0f;        // Base filter cutoff (0.0-1.0)
@@ -130,21 +122,12 @@ struct EncoderBaseValues
   float slideTime = 0.0f;     // Slide time in seconds for voice glide
 };
 
-/**
- * @brief Voice-specific encoder base values
- *
- * Inherits from EncoderBaseValues with no additional members.
- */
+// Single-voice encoder bases; subtype exists for UI clarity, adds no state.
 struct EncoderBaseValuesVoice1 : public EncoderBaseValues
 {
   // No additional members
 };
-/**
- * @brief Step parameter edit button state tracking
- *
- * Tracks which parameter edit buttons are currently pressed for step editing.
- * Used by the UI system to determine which parameter to modify when editing steps.
- */
+// Which lanes the step-edit buttons currently target (UI-owned, read here).
 struct StepEditButtons
 {
   bool note;     // Note parameter edit button state
@@ -155,39 +138,21 @@ struct StepEditButtons
   bool octave;   // Octave parameter edit button state
 };
 
-// Fixed-size parameter automation track, now sourced from rpdsp instead of
-// being defined locally -- see src/rpdsp/src/rpdsp/parameter_track.h.
-//
-// Behavior is preserved with two deliberate exceptions vs. the original
-// float-only ParameterTrack<MAX_SIZE> struct that used to live here:
-//   1. init(defaultValue) alone no longer implies "start at
-//      SequencerConstants::DEFAULT_STEPS_COUNT steps" -- the rpdsp version
-//      defaults its second (stepCount) argument to MaxSteps. Call sites that
-//      relied on the old hardcoded 16-step default (ParameterManager::init)
-//      now pass CORE_PARAMETERS[i].defaultSteps explicitly instead.
-//   2. resize() now clamps out-of-range requests into [1, MaxSteps] instead
-//      of silently no-op'ing when newStepCount is outside
-//      [MIN_STEPS_COUNT, MAX_SIZE]. This matches the always-clamp convention
-//      rpdsp already uses in GatePattern/RhythmGateSequencer. In practice all
-//      existing call sites already pass validated in-range values, so this
-//      only changes behavior for out-of-range inputs that weren't hit before.
-//
-// Included via a relative path (not <rpdsp/parameter_track.h>) because the
-// Arduino firmware build has no dedicated -I wiring for bundled modules --
-// it resolves src/pico2seq-core's own includes the same way (see
-// Pico2Seq.ino and src/voice/Voice.h), relying on quoted-include relative
-// resolution instead of a configured include path.
+// Fixed-size lane storage, now from rpdsp (see src/rpdsp/src/rpdsp/parameter_track.h).
+// Keep portable: include by relative path (no -I wiring in the Arduino build).
+// Two deliberate differences from the float-only track that used to live here:
+//   1. init() defaults to 64 steps — callers pass CORE_PARAMETERS[i].defaultSteps.
+//   2. resize() clamps into [1, MaxSteps] instead of ignoring out-of-range input.
 #include "../../rpdsp/src/rpdsp/parameter_track.h"
 
 template <uint8_t MAX_SIZE>
 using ParameterTrack = rpdsp::ParameterTrack<float, MAX_SIZE>;
 
-// Define the variant type for parameter values that can be int, float, or bool
+// int/float/bool folded into the float domain the tracks store.
 using ParameterValueType = std::variant<int, float, bool>;
 
-// Step editing behavior, independent of voice/recipe bindings. Stepped lanes
-// use encoder detents; their storage remains governed by the value/range types.
-// In particular Octave retains a normalized float lane for sensor recording.
+// How a lane responds to the encoder: smooth sweep, detented step, or on/off.
+// Octave stays a normalized float lane so the distance sensor can record it.
 enum class ParameterEditKind : uint8_t
 {
   Continuous,
@@ -196,10 +161,9 @@ enum class ParameterEditKind : uint8_t
 };
 
 /**
- * @brief Parameter definition with metadata and constraints
- *
- * Defines the characteristics and valid ranges for each sequencer parameter.
- * Used for validation, UI display, and parameter initialization.
+ * @brief Per-lane metadata: musical range, edit feel, and patch behavior.
+ * Array order must match ParamId. Future editors: keep defaultSteps at 16
+ * unless a lane needs a different polymetric default.
  */
 struct ParameterDefinition
 {
@@ -219,23 +183,17 @@ struct ParameterDefinition
 };
 
 /**
- * @brief Core parameter definitions array
- *
- * Defines metadata for all sequencer parameters. Array order MUST match ParamId enum.
- * Includes live-record eligibility and the encoder base target. SlideTime is
- * a voice-only control, not the Slide toggle lane, so it has no entry here.
- * Uses SequencerConstants for consistent step count defaults.
+ * @brief Lane metadata table. SlideTime is voice-only (no Slide-toggle entry).
  */
 constexpr ParameterDefinition CORE_PARAMETERS[] = {
-    // Name, default, min, max, edit kind, steps, recordable, encoder base target, patch default
+    // Name, default, min, max, edit kind, steps, recordable, encoder target, patch default
     {"Note", 0, SequencerConstants::NOTE_PARAMETER_MIN, SequencerConstants::NOTE_PARAMETER_MAX,
      ParameterEditKind::Stepped, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Note, false},
     {"Velocity", 0.5f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Velocity, true},
     {"Filter", 0.5f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Filter, true},
     {"Attack", 0.01f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Attack, true},
-    // Decay has no record button: on 20 of the 29 presets the Decay lane is a
-    // timbre control, not an envelope stage (VoiceParameterLayout::envelopeFromTracks),
-    // so the button did nothing there. Reach it per step with the ENV-mode faders.
+    // Decay has no record button: on many presets it is a timbre control, not an
+    // envelope stage — reach it per step with the ENV-mode faders.
     {"Decay", 0.3f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, true},
     {"Octave", 0.5f, 0.0f, 1.0f, ParameterEditKind::Stepped, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Octave, false},
     {"GateLength", 0.5f, 0.001f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, false},
@@ -243,16 +201,15 @@ constexpr ParameterDefinition CORE_PARAMETERS[] = {
     {"Slide", false, false, true, ParameterEditKind::Toggle, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, false},
     // Sustain is edited per step by the ENV-mode faders only.
     {"Sustain", 0.5f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, true},
-    // Release owns the 5th record button and the encoder base that Decay had.
-    // It reaches the envelope on every preset, so it is what shapes how long a
-    // step rings - up to 10 s, enough for one downbeat note to cover 16 steps.
+    // Release owns the 5th record button: it rings every preset (up to ~10 s),
+    // so one downbeat note can cover a 16-step bar.
     {"Release", 0.3f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Release, true}
 };
 
 static_assert(sizeof(CORE_PARAMETERS) / sizeof(CORE_PARAMETERS[0]) == PARAM_ID_COUNT,
               "Every ParamId must have a descriptor");
 
-// Invalid IDs do not silently select a different parameter.
+// nullptr on invalid id — callers must not fall through to another lane.
 constexpr const ParameterDefinition *parameterDefinition(ParamId id) noexcept
 {
   const auto index = static_cast<uint8_t>(id);
@@ -271,9 +228,8 @@ constexpr bool followsPatch(float stored) noexcept
 }
 
 /**
- * Offset-to-absolute mapping of the former modifier lanes: 0.5 plays the
- * base, 0 and 1 reach the ends of the lane. Used to convert old sessions and
- * to spread Randomize around a patch value.
+ * Map an offset lane (0..1) around a patch base: 0.5 plays the base, 0/1 reach
+ * the lane ends. Used for old-session conversion and humanize spread.
  */
 constexpr float offsetAroundBase(float base, float offset) noexcept
 {
@@ -295,83 +251,52 @@ constexpr ParamId parameterForEncoderMode(EncoderParameterMode mode) noexcept
 }
 
 /**
- * @brief Voice synthesis parameters for audio output
- *
- * Contains all parameters needed by the audio synthesis engine for a single voice.
- * This struct is passed from the sequencer to the audio processing system.
- * Variable names include unit indicators and clear purpose descriptions.
- *
- * Member Ranges:
- * - noteIndex: 0-36 (integral scale step index for SCALE_STEPS array lookup)
- * - velocityLevel: 0.0-1.0 (voice amplitude multiplier)
- * - filterCutoff: 0.0-1.0 (filter cutoff frequency, 0=low, 1=high)
- * - attackTimeSeconds: 0.0-1.0 (envelope attack time in seconds)
- * - decayTimeSeconds: 0.0-1.0 (envelope decay time in seconds)
- * - octaveOffset: -12, 0, or +12 semitones from the octave parameter track
- * - gateLengthTicks: 1-PULSES_PER_SEQUENCER_STEP (gate duration in clock ticks)
- * - isGateHigh: boolean (voice on/off state)
- * - hasSlide: boolean (portamento enable flag)
- * - shouldRetrigger: boolean (envelope restart command flag)
+ * @brief Per-step voice output: what the audio engine plays for one step.
+ * Gate off keeps the previous pitch so the tail rings instead of jumping.
+ * Ranges: noteIndex 0-36, levels 0.0-1.0, octaveOffset in semitones,
+ * gateLengthTicks 1..PULSES_PER_SEQUENCER_STEP.
  */
 struct VoiceState
 {
-  float noteIndex = 0.0f;                                                   // Integral scale step index (0-36) for scale array lookup
-  // Matches CORE_PARAMETERS' neutral Velocity default. Hard-sync presets use
-  // this centered value as zero slave-frequency offset, so their slave follows
-  // the master until a Slave value is recorded.
+  float noteIndex = 0.0f; // Scale degree 0-36 for the scale-table lookup
+  // Centered default doubles as zero slave-frequency offset on hard-sync presets.
   float velocityLevel = 0.5f;
-  float filterCutoff = 0.37f;                                               // Filter cutoff frequency (0.0-1.0)
-  float attackTimeSeconds = 0.01f;                                          // Envelope attack time (0.0-1.0 seconds)
-  float decayTimeSeconds = 0.1f;                                           // Envelope decay time (0.0-1.0 seconds)
-  float sustainLevel = 0.5f;                                                // Envelope sustain level (0.0-1.0)
-  float releaseTimeSeconds = 0.3f;                                          // Envelope release time (0.0-1.0 normalized)
-  int8_t octaveOffset = 0;                                                  // Signed semitone transpose from the octave track
-  uint16_t gateLengthTicks = SequencerConstants::DEFAULT_GATE_LENGTH_TICKS; // Gate duration in clock ticks
+  float filterCutoff = 0.37f; // Brightness 0.0-1.0 (dark..open)
+  float attackTimeSeconds = 0.01f; // Pluck-like default; higher softens the front
+  float decayTimeSeconds = 0.1f; // Time to fall toward sustain
+  float sustainLevel = 0.5f; // Held level while the gate stays high
+  float releaseTimeSeconds = 0.3f; // Ring-out after gate off (normalized)
+  int8_t octaveOffset = 0; // Transpose in semitones from the Octave lane
+  uint16_t gateLengthTicks = SequencerConstants::DEFAULT_GATE_LENGTH_TICKS; // Hold time; short = staccato
 
-  // Default gate to LOW to ensure silence until sequencer explicitly gates HIGH
+  // Silence until a gated step drives it high.
   bool isGateHigh = false;      // Voice on/off state
   bool hasSlide = false;        // Portamento enable flag
   bool shouldRetrigger = false; // Envelope restart command flag
 };
 
 /**
- * @brief Sequencer step parameter container
- *
- * Contains all automatable parameters for a single sequencer step.
- * This struct is used internally by the sequencer for step data storage.
- * Variable names include unit indicators and clear purpose descriptions.
- *
- * Member Ranges:
- * - noteIndex: 0-36 (integral scale step index)
- * - velocityLevel: 0.0-1.0 (voice amplitude)
- * - filterCutoff: 0.0-1.0 (filter cutoff frequency)
- * - attackTimeSeconds: 0.0-1.0 (envelope attack time in seconds)
- * - decayTimeSeconds: 0.0-1.0 (envelope decay time in seconds)
- * - octaveOffset: -12, 0, or +12 semitones from the octave parameter track
- * - gateLengthTicks: 1-PULSES_PER_SEQUENCER_STEP (gate duration in clock ticks)
- * - isGateActive: boolean (step active/inactive)
- * - hasSlide: boolean (portamento to this step)
+ * @brief Stored step: same fields as VoiceState, decoded from lane values.
+ * Used for previews and UI reads — playback mapping, never transport state.
  */
 struct Step
 {
-  float noteIndex = 0.0f;                                                   // Integral scale step index (0-36)
-  float velocityLevel = 0.5f;                                               // Voice amplitude (0.0-1.0)
-  float filterCutoff = 0.5f;                                                 // Filter cutoff frequency (0.0-1.0)
-  float attackTimeSeconds = 0.01f;                                          // Envelope attack time (0.0-1.0 seconds)
-  float decayTimeSeconds = 0.2f;                                            // Envelope decay time (0.0-1.0 seconds)
-  float sustainLevel = 0.5f;                                                // Envelope sustain level (0.0-1.0)
-  float releaseTimeSeconds = 0.3f;                                          // Envelope release time (0.0-1.0 normalized)
-  int8_t octaveOffset = 0;                                                  // Signed semitone transpose from the octave track
-  uint16_t gateLengthTicks = SequencerConstants::DEFAULT_GATE_LENGTH_TICKS; // Gate duration in clock ticks
-  bool isGateActive = false;                                                // Step active/inactive state
-  bool hasSlide = false;                                                    // Portamento enable for this step
+  float noteIndex = 0.0f; // Scale degree 0-36
+  float velocityLevel = 0.5f; // Loudness 0.0-1.0
+  float filterCutoff = 0.5f; // Brightness 0.0-1.0
+  float attackTimeSeconds = 0.01f; // Envelope attack
+  float decayTimeSeconds = 0.2f; // Envelope decay
+  float sustainLevel = 0.5f; // Held level
+  float releaseTimeSeconds = 0.3f; // Ring-out (normalized)
+  int8_t octaveOffset = 0; // Transpose in semitones
+  uint16_t gateLengthTicks = SequencerConstants::DEFAULT_GATE_LENGTH_TICKS; // Hold time
+  bool isGateActive = false; // Sounds (true) or rests (false)
+  bool hasSlide = false; // Glide into this step
 };
 
-// --- Utility Functions ---
+// --- Utilities (defined in Sequencer.cpp) ---
 float mapNormalizedValueToParamRange(ParamId id, float normalizedValue);
-// Fold a variant parameter value (int, float, or bool) into the float domain
-// the parameter tracks store. Shared by the sequencer, parameter manager,
-// and UI clear-step path.
+// Fold an int/float/bool lane default into the float domain the tracks store.
 float parameterValueAsFloat(const ParameterValueType &value);
 
 #endif // SEQUENCER_DEFS_H

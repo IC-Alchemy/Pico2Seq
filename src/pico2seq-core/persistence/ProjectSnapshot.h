@@ -1,3 +1,6 @@
+// ProjectSnapshot: the whole song (4 patterns + patches + settings) as plain data.
+// Layout is flash-stable and versioned — old files must keep loading.
+// Portable C++ — no Arduino/hardware includes here.
 #ifndef PICO2SEQ_PROJECT_SNAPSHOT_H
 #define PICO2SEQ_PROJECT_SNAPSHOT_H
 
@@ -9,18 +12,18 @@
 namespace persistence
 {
 
-// One parameter track. Full 64-step storage so patterns keep their tail when
-// lengths shrink and grow again; defaultValue is NOT persisted (it only ever
-// comes from the compile-time CORE_PARAMETERS table).
+// One lane's 64 stored steps plus its loop length. Full storage keeps the tail
+// when a loop shortens and grows back. Defaults live in CORE_PARAMETERS, so
+// they are intentionally NOT persisted.
 struct TrackSnapshot
 {
     float values[SequencerConstants::MAX_STEPS_COUNT]; // 64 floats = 256 B
-    uint8_t stepCount;
-    uint8_t reserved[3]; // deterministic size/alignment, must stay zero
+    uint8_t stepCount; // Active loop length, 1..64
+    uint8_t reserved[3]; // Zero; keeps size/alignment deterministic
 };
 
-// Format 1 stored the nine lanes Note..Slide per voice; lanes added later
-// travel in their own block so a format-1 payload stays a valid prefix.
+// Format 1 held Note..Slide per voice; Sustain/Release appended later so a
+// format-1 payload stays a valid prefix of format 2.
 constexpr uint8_t kPatternTrackCount = static_cast<uint8_t>(ParamId::Slide) + 1;
 constexpr uint8_t kEnvelopeTrackCount = PARAM_ID_COUNT - kPatternTrackCount;
 static_assert(kEnvelopeTrackCount == 2, "Sustain and Release follow Slide");
@@ -30,25 +33,25 @@ struct PatternSnapshot
     TrackSnapshot tracks[kPatternTrackCount]; // 9 tracks = 2,340 B
 };
 
-// Format 2: ParamId::Sustain and ParamId::Release, in ParamId order.
+// Format 2 tail: Sustain, Release in ParamId order.
 struct EnvelopeTracksSnapshot
 {
     TrackSnapshot tracks[kEnvelopeTrackCount]; // 520 B
 };
 
-// How Velocity/Filter/Attack/Decay steps are stored.
+// How Velocity/Filter/ADSR steps are stored: offsets around the patch (v1)
+// vs. absolute values with follow-patch (v2).
 enum : uint32_t
 {
-    LANE_MODEL_OFFSETS = 0,  // format 1: offsets around the patch, 0.5 = patch
-    LANE_MODEL_ABSOLUTE = 1, // format 2: absolute or LANE_FOLLOWS_PATCH
+    LANE_MODEL_OFFSETS = 0, // v1: 0.5 means "patch value"
+    LANE_MODEL_ABSOLUTE = 1, // v2: absolute value or LANE_FOLLOWS_PATCH
 };
 
-// Mirrors the per-voice patch bases inside VoiceConfig; the former separate
-// encoder-base layer was removed when patch bases moved into VoiceConfig, so
+// Patch bases moved into VoiceConfig, absorbing the old encoder-base layer —
 // PatchSnapshot already captures everything it held.
 
-// VoiceConfig value fields, pointers excluded (parameters/recipe are
-// flash-resident descriptors re-derived at load, see PatchCodec).
+// Value fields of one voice's patch; flash-resident descriptors (waveforms,
+// recipe) are re-derived at load — see PatchCodec — so pointers stay out.
 struct PatchSnapshot
 {
     // 53 floats / int32s
@@ -68,9 +71,7 @@ struct PatchSnapshot
     float overdriveGain, overdriveDrive;
     float defaultAttack, defaultDecay, defaultSustain, defaultRelease;
     float outputLevel;
-    // small fields last -> no interior padding. 55 4-byte words (220 B) + 10 u8
-    // + explicit 2-byte tail = 232 B, the natural 4-byte aligned size — no
-    // compiler-dependent implicit padding anywhere in the struct.
+    // 10 packed bytes + 2 reserved: keep zero so snapshots compare/hash stable.
     uint8_t oscillatorCount, engine, paramSet, filterType, filterMode, presetIndex;
     uint8_t oscWaveforms[3];
     uint8_t flags; // bit0 usePatchBases, bit1 baseGate, bit2 baseSlide, bit3 recipeRetrigger,
@@ -78,6 +79,7 @@ struct PatchSnapshot
     uint8_t reserved[2];
 };
 
+// Global song state: tempo, mix, scale/groove, per-voice preset and UI cursor.
 struct SettingsSnapshot
 {
     float tempoBpm;
@@ -91,7 +93,7 @@ struct SettingsSnapshot
     uint8_t changedFlags;    // bit N = voiceEditor.changed[N]; bit4 = slideMode
 };
 
-// Format 1 payload. Kept only to size and load old files.
+// Format 1 payload, kept only to size and load old files — do not extend.
 struct ProjectSnapshotV1
 {
     PatternSnapshot patterns[4]; // 9,360 B
@@ -99,7 +101,7 @@ struct ProjectSnapshotV1
     SettingsSnapshot settings;   // 24 B
 };
 
-// Format 2: format 1 unchanged, then the envelope lanes and the lane model.
+// Format 2: format 1 plus the Sustain/Release lanes and the lane model tag.
 struct ProjectSnapshot
 {
     PatternSnapshot patterns[4];         // 9,360 B
@@ -109,6 +111,8 @@ struct ProjectSnapshot
     uint32_t laneModel;                  // LANE_MODEL_*
     uint32_t reserved;                   // must stay zero
 };
+// Locked flash layout: the static_asserts below are the contract. A format-1
+// payload must load as the prefix of format 2.
 static_assert(sizeof(TrackSnapshot) == 260, "locked layout");
 static_assert(sizeof(PatternSnapshot) == 2340, "locked layout");
 static_assert(sizeof(PatchSnapshot) == 232, "locked layout"); // 220 B words + 10 u8 + 2 tail
@@ -119,14 +123,12 @@ static_assert(sizeof(ProjectSnapshot) == 12400, "locked layout");
 static_assert(offsetof(ProjectSnapshot, envelopes) == sizeof(ProjectSnapshotV1),
               "a format-1 payload must load as the prefix of format 2");
 
-// Complete a snapshot whose first sizeof(ProjectSnapshotV1) bytes hold a
-// format-1 payload: envelope lanes follow the patch on 16 steps and the lane
-// model says offsets (Session converts them once the voices exist).
+// Fill a v1-loaded snapshot's missing tail: new lanes follow the patch on 16
+// steps, lane model reads as offsets (Session converts once voices exist).
 void upgradeFromV1(ProjectSnapshot &s) noexcept;
 
-// Range checks only — structural validity, not musical sense. Bounds mirror
-// the UI: tempo 45..200 BPM (UIEventHandler clamps at 45, fader tops at 200),
-// 13 scales, NUM_SHUFFLE_TEMPLATES=16, 10 LED themes.
+// Structural sanity only (ranges, not musical taste); mirrors UI limits:
+// tempo 45..200 BPM, 13 scales, 16 grooves, 10 LED themes.
 bool validateProjectSnapshot(const ProjectSnapshot &s) noexcept;
 
 } // namespace persistence

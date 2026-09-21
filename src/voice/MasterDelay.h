@@ -1,21 +1,11 @@
 #ifndef MASTER_DELAY_H
 #define MASTER_DELAY_H
 
-// MasterDelay — analog-style feedback delay on the summed mono voice bus.
-//
-// Built from rpdsp primitives around a fixed 1 s line:
-//   - a fractionally interpolated read (readCubic) whose delay time glides
-//     toward new targets with a one-pole slew, so turning the time bends
-//     pitch like a tape machine instead of stepping,
-//   - regeneration through a DC blocker and a one-pole lowpass into
-//     fastTanh: repeats darken every pass, and the loop gain can never
-//     exceed 1, so heavy feedback self-limits instead of running away,
-//   - a wet tap taken before the feedback filter, so the first repeat keeps
-//     its highs while later ones go progressively darker.
-//
-// All methods belong to the audio thread after startup. VoiceManager publishes
-// control-thread targets through atomics, then applies them here per block.
-// process() eases mix, time and feedback per sample, like the master gain.
+// MasterDelay.h — analog-style feedback delay on the summed mono voice bus.
+// Repeats darken every pass (DC blocker + lowpass in the loop, fastTanh bounds
+// loop gain to 1 so high feedback blooms instead of running away). Time glides
+// (one-pole slew) so turning it bends pitch like tape. Audio thread after
+// prepare(); VoiceManager publishes targets via atomics; no allocation.
 
 #include "../rpdsp/src/rpdsp/algorithm.h"
 #include "../rpdsp/src/rpdsp/delay_line.h"
@@ -27,15 +17,14 @@
 class MasterDelay
 {
 public:
-    // 48000 floats = 1.0 s at 48 kHz (~187.5 KiB). Reserved once, before
+    // 48000 floats = 1.0 s at 48 kHz. Reserved once at prepare(), before
     // audio starts; VoiceManager owns this next to the voices.
     static constexpr size_t kCapacitySamples = 48000;
     static constexpr size_t kMaxDelaySamples = kCapacitySamples * 3 / 4;
 
     static constexpr float kMinDelaySeconds = 0.010f;
     static constexpr float kDefaultDelaySeconds = 0.30f;
-    // High but stable: fastTanh bounds the loop and the feedback lowpass
-    // keeps the ringing repeats musical.
+    // High but stable: the loop limiter + darkening filter keep long tails musical.
     static constexpr float kDefaultFeedback = 0.75f;
     static constexpr float kFeedbackCutoffHz = 2500.0f;
 

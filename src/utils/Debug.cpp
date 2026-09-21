@@ -36,7 +36,7 @@ void vlogf(Level lvl, const char* fmt, va_list args) {
     if (!s_enabled) return;
     if ((uint8_t)lvl > (uint8_t)s_level) return;
 
-    // Fixed buffer to avoid heap; adjust size as needed
+    // Fixed buffer, no heap; longer lines truncate (not split).
     char buf[160];
     int n = vsnprintf(buf, sizeof(buf), fmt, args);
     if (n < 0) return; // format error

@@ -1,3 +1,6 @@
+// Voice.cpp — Voice implementation. Signal chain per sample/span: sources →
+// envelope gain → effects → velocity → main filter → HPF. Control thread only
+// stages (setters/updateParameters); Core 1 renders and never allocates.
 #include "Voice.h"
 #include "../utils/AudioRam.h"
 #include "../utils/DspMapping.h"
@@ -8,10 +11,10 @@
 #include "VoicePresets.h"
 #include "MusicalValues.h"
 
-// Constants
-static constexpr float FREQ_SLEW_RATE = 0.00035f; // Slide speed
+// Default slide rate: gentle portamento between sequenced notes.
+static constexpr float FREQ_SLEW_RATE = 0.00035f; // per-sample slide coefficient
 static constexpr float BASE_FREQ =
-    110.0f; // Base frequency for note calculations
+    110.0f; // chromatic-fallback anchor (A1) when no scale table is injected
 
 // The injected scale rows are int[48]; keep the centralized constant in sync.
 static_assert(SCALE_STEPS == 48, "Voice expects 48-step scale rows");
@@ -47,39 +50,37 @@ namespace
   }
 }
 
-// Static member initialization
 float Voice::frequencyLookupTable[128];
 bool Voice::lookupTableInitialized = false;
 
-// Initialize frequency lookup table covering MIDI 0..127
+// MIDI 0..127 pitch table (built once, thread-safe): per-sample mtof() would
+// waste Core 1 on every note; a lookup keeps pitch commits cheap.
 inline void Voice::initFrequencyLookupTable() noexcept
 {
   std::call_once(g_freqTableOnce, []() noexcept
                  {
-    // Use rpdsp::midiNoteToHz once per MIDI note value
+    // One mtof() per MIDI note, then lookups forever.
     for (int midi = 0; midi < 128; ++midi)
     {
       frequencyLookupTable[midi] = rpdsp::midiNoteToHz(static_cast<float>(midi));
     } });
 }
 
-// Recompute cached detune multipliers using exp2f for efficiency
+// Cached detune multipliers (2^(semitones/12) per osc): chorus/thickness
+// without powf on Core 1. Bumps detuneVersion_ so the pitch cache recomputes.
 inline void Voice::recomputeDetuneMultipliers()
 {
-  // Precompute factor = 1/12 for semitone to octave conversion
+  // 1/12 octave-per-semitone factor for the exp2f detune above.
   constexpr float kInv12 = 1.0f / 12.0f;
-  // Limit to first 3 oscillators (design maximum)
   for (uint8_t i = 0; i < 3; ++i)
   {
-    // detuneMul = 2^(semitones/12) = exp2f(semitones * (1/12))
     detuneMul[i] = exp2f(config.oscDetuning[i] * kInv12);
   }
-  // Bump detune version so pitch cache will recompute
   detuneVersion_++;
 }
 
-// Helper to compute smoothing alpha for a one-pole smoother with time constant tau (seconds):
-// alpha = 1 - exp(-1/(tau*fs)). Returns 1.0f when tau or sampleRate are non-positive.
+  // One-pole smoother coefficient: ~63% of a knob move lands in tau seconds,
+  // so gain/cutoff glides hide steps (zipper) instead of clicking.
 static inline float makeSmoothingAlpha(float tauSeconds, float sampleRate) noexcept
 {
   if (tauSeconds <= 0.0f || sampleRate <= 0.0f)
@@ -93,7 +94,7 @@ Voice::Voice(uint8_t id, const VoiceConfig &cfg)
       gate(false),
       sequencer(nullptr)
 {
-  // Static base pitch cache starts dirty to force initial compute
+  // Pitch cache starts dirty so the first span computes the real note.
   baseFreqDirty_ = true;
   cachedBaseFreqHz_ = 220.0f;
   lastSentBaseFreqHz_ = -1.0f;
@@ -108,7 +109,7 @@ Voice::Voice(uint8_t id, const VoiceConfig &cfg)
 
   // Oscillator slots are fixed-size members; nothing to allocate.
 
-  // Initialize frequency slewing
+  // Slide state per osc: exponential glide toward each new note when set.
   for (int i = 0; i < 3; i++)
   {
     freqSlew[i].currentFreq = 440.0f;
@@ -186,29 +187,28 @@ void Voice::init(float sr)
   filterSvf_.prepare(sampleRate);
   filterSvf_.setCutoff(filterFrequency);
   configureMainFilterFromConfig_();
-  // Initialize high-pass filter
+  // HPF last in chain: sheds sub rumble (esp. Karplus tails) below the cutoff.
   highPassFilter.prepare(sampleRate);
   highPassFilter.setCutoff(config.highPassFreq);
   highPassFilter.setResonance(config.highPassRes);
   hpfBypass_ = (config.highPassFreq <= 20.0f && config.highPassRes <= 0.01f);
-  // Initialize filter cutoff smoothing state (reduces zipper noise from abrupt setFreq calls).
-  // Use a short time-constant (4 ms) to remain responsive while smoothing envelope-modulation.
+  // 4 ms cutoff glide: tracks envelope sweeps without zipper stepping.
   filterCutoffCurrent = filterFrequency;
   {
-    const float tau = 0.004f; // seconds
+    const float tau = 0.004f; // glide time in seconds
     filterCutoffAlpha = makeSmoothingAlpha(tau, sampleRate);
   }
 
-  // Initialize runtime caches used by optimizations
+  // -1 sentinel forces the first span's SetFreq; 0 envelope reads as silent.
   lastAppliedFilterCutoff = -1.0f;
   lastEnvelopeValue = 0.0f;
 
-  // Initialize envelope
+  // ADSR: attack blooms the note, sustain holds it, release tails it.
   envelope.prepare(sampleRate);
   applyEnvelopeDefaults_();
   gateHighPrev_ = false;
 
-  // Initialize effects
+  // Gentle grit stage: 0-1 drive maps to 1-4 waveshaper drive.
   overdrive.setDrive(1.0f + (config.overdriveDrive * 3.0f)); // map 0-1 drive to 1-4
   overdrive.setOutputGain(1.0f);
 

@@ -6,16 +6,19 @@
 #include "UIState.h" // Include the new state header
 
 /**
- * @brief Button state and timing management for Pico2Seq UI
+ * @brief Tap/hold timing and parameter-hold queries for the UI.
  *
- * Provides utilities for button press detection and parameter button mappings,
- * operating on a central UIState object.
+ * Tap (toggle step) vs hold (edit step) splits at LONG_PRESS_THRESHOLD_MS;
+ * debounce lives here, holds live in UIState. Both surfaces (pads + tiles)
+ * share these so gestures feel identical. Add new timing windows here.
  */
 
-// UI Timing Constants
+// UI Timing Constants (Core 0 control loop; all millis()-based, non-blocking).
 namespace UITimingConstants
 {
+  // Tap vs hold split: below = toggle the step, at/above = open step-edit.
   static constexpr unsigned long LONG_PRESS_THRESHOLD_MS = 400;
+  // Contact settle time before a second edge counts as a new press.
   static constexpr unsigned long DEBOUNCE_DELAY_MS = 50;
   static constexpr unsigned long DOUBLE_PRESS_WINDOW_MS = 300;
   static constexpr unsigned long FLASH_DURATION_MS = 250;
@@ -28,10 +31,8 @@ namespace UITimingConstants
 // =======================
 
 /**
- * Parameter buttons are keyed by ParamId everywhere (the physical buttons
- * live on the Alchemy ButtonModule8 tile, not at matrix indices anymore).
- * These helpers provide the display name and the reverse lookup so OLED
- * rendering can round-trip ParamId <-> name.
+ * Parameter buttons are keyed by ParamId (the tiles carry them, not fixed
+ * matrix indices). OLED labels round-trip through these helpers.
  */
 
 /** Display name for a parameter ("Note", "Velocity", ...). */
@@ -48,27 +49,28 @@ ParamId paramIdFromName(const char *name);
 // =======================
 
 /**
- * @brief Initialize the UI state for the button manager.
+ * @brief Clear all holds/timestamps/modes to the boot state.
+ * Call once at startup; transitions (not this) own mid-session resets.
  * @param uiState Reference to the central UI state object.
  */
 void initButtonManager(UIState &uiState);
 
 /**
- * @brief Check if a press duration qualifies as a long press.
+ * @brief True once the press has lasted long enough to mean "edit", not "toggle".
  * @param pressDurationMs Duration of button press in milliseconds.
  * @return true if duration exceeds long press threshold (400ms).
  */
 bool isLongPress(unsigned long pressDurationMs);
 
 /**
- * @brief Check if any parameter button is currently held.
+ * @brief True while a parameter lane is held/latched (pads then set its length).
  * @param uiState Const reference to the central UI state object.
  * @return true if any parameter button is held.
  */
 bool isAnyParameterButtonHeld(const UIState &uiState);
 
 /**
- * @brief Get the ParamId of the currently held parameter button.
+ * @brief Which lane the pads currently address (first held in ParamId order).
  * @param uiState Const reference to the central UI state object.
  * @return The held parameter's ParamId, or ParamId::Count if none held.
  */
