@@ -292,6 +292,9 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     case UIState::OledNoticeKind::VoiceCleared: line1 = "CLEARED"; break;
     case UIState::OledNoticeKind::AllCleared:   line1 = "ALL CLEAR"; break;
     case UIState::OledNoticeKind::Macro:        line1 = "MACRO"; break;
+    case UIState::OledNoticeKind::DelayMix:     line1 = "DELAY MIX"; break;
+    case UIState::OledNoticeKind::DelayTime:    line1 = "DELAY TIME"; break;
+    case UIState::OledNoticeKind::DelayFeedback: line1 = "DELAY FB"; break;
     default: break;
     }
 
@@ -309,6 +312,20 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
       const uint8_t voiceLineWidth = static_cast<uint8_t>(strlen(voiceLine) * 6);
       displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - voiceLineWidth) / 2, 44);
       displayHardware.print(voiceLine);
+    }
+    else if (uiState.oledNoticeKind == UIState::OledNoticeKind::DelayMix ||
+             uiState.oledNoticeKind == UIState::OledNoticeKind::DelayTime ||
+             uiState.oledNoticeKind == UIState::OledNoticeKind::DelayFeedback)
+    {
+      displayHardware.setTextSize(1);
+      char valueLine[14];
+      if (uiState.oledNoticeKind != UIState::OledNoticeKind::DelayTime)
+        snprintf(valueLine, sizeof(valueLine), "%u %%", static_cast<unsigned>(uiState.oledNoticeValue));
+      else
+        snprintf(valueLine, sizeof(valueLine), "%u ms", static_cast<unsigned>(uiState.oledNoticeValue));
+      const uint8_t valueLineWidth = static_cast<uint8_t>(strlen(valueLine) * 6);
+      displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - valueLineWidth) / 2, 44);
+      displayHardware.print(valueLine);
     }
 
     if (uiState.oledNoticeKind == UIState::OledNoticeKind::Macro)

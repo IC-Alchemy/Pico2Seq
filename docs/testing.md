@@ -87,7 +87,47 @@ Bench regression checklist (host tests cannot verify the physical tile/LED/OLED 
 - Editor voice selection keeps per-voice cursors; session restore retains the saved voice
   without invoking live tile-selection note cleanup.
 
-## 18 Host Unit Test Suites
+## Master delay and compressor integration
+
+`test_master_bus.cpp` checks the real `VoiceManager` against standalone
+delay and compressor processing in the order: voices, delay, master gain,
+compressor. It covers dry bypass, all three compressor anchors, block sizes
+through 513 samples, tails after voices go silent, transport mute, zero
+master volume, and the 10–750 ms fader range at 48 kHz. The block suite also
+compares scalar and block rendering while delay mix/time change.
+
+`test_master_delay.cpp` retains fractional timing, repeat darkening, bounded
+feedback and mix smoothing checks. `test_control_surface_logic.cpp` checks
+faders 1–3 re-arm on Shift edges while gate length stays engaged,
+and retains the step-envelope assignments and compressor macro gesture.
+
+```powershell
+cmake --build build_test --parallel
+& ./build_test/tests/pico2seq_tests.exe '[master],[master_delay],[control_surface]'
+ctest --test-dir build_test -C Release --output-on-failure
+```
+
+On hardware, check fader 1 tempo/feedback, fader 2 mix/time and fader 3 volume/macro independently,
+their OLED notices, both Shift edges, and all four ENV sliders. Listen to
+delay tails with different compressor settings; inspect underrun counters
+while all four voices play. Host tests and firmware compilation do not
+establish board timing, physical controls, or listening acceptance.
+
+Integration validation on 2026-09-21 started from `DeCluttered` at `df6b50d`
+and merged `delay` at `70f2d86`. Clang Release CTest passed 484/504 checks;
+all 20 failures also occurred on untouched `df6b50d` (462/482), with identical
+failure names. The focused effect/control run passed 67 cases. RP2350
+firmware compiled at 150 MHz with audio code in SRAM and all four artifacts
+(UF2, ELF, BIN, MAP) verified. It was not flashed or tested on hardware.
+
+The subsequent Shift + tempo-fader feedback change passed 68 focused cases
+and 486/506 full CTest checks, with the same 20 baseline failures. Live
+feedback changes are checked through the real combined bus at 0%, 100% and
+35%, and the saturated-delay test now exercises a full 1.0 feedback coefficient.
+The 150 MHz firmware was rebuilt with all four artifacts verified; physical
+fader/OLED behavior and audio timing remain unverified.
+
+## Host Unit Test Suites
 
 The host test executable (`pico2seq_tests`) links all unit suites under `tests/unit/`:
 
@@ -110,7 +150,13 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 15 | `tests/unit/test_voice_edit.cpp` | Voice Editing mode | Base vs lidar-modifier independence, neutral-modifier preset round-trip, parameter catalogue reachability/clamping per engine, editor release semantics, muted-editor queue draining (`[voice_edit][recording]`) |
 | 16 | `tests/unit/test_persistence.cpp` | Session persistence (`src/pico2seq-core/persistence/`, `src/voice/PatchCodec.*`) | CRC32 vector, frame magic/version/size/CRC rejection, locked 10,312-byte snapshot layout, snapshot validation bounds, pattern round-trip incl. raw tails, patch codec pointer re-derivation, golden full-project round-trip, watchdog resume decision table, retained-store validity (`[persistence]`) |
 | 17 | `tests/unit/test_recipe_optimization.cpp` | `rpdsp` Recipe CPU Optimizations | Prepared oscillator phase/spectra, cached coefficient survival across edits/triggers, feedback operator history (`[optimization][recipes][voice]`) |
+<<<<<<< HEAD
 | 18 | `tests/unit/test_master_compressor.cpp` | Master-bus macro knob (`VoiceManager`) | `rpdsp::Compressor` Warm/Glue/Punch curve anchors, gain reduction on high-amplitude streams, Punch squeezes harder than Warm to DAC-safe levels, gradual (not instant) morphs, silence passthrough (`[master][compressor]`, also in `pico2seq_voice_tests`) |
+=======
+| 18 | `tests/unit/test_master_compressor.cpp` | Master-bus compressor (`VoiceManager`) | `rpdsp::Compressor` gain reduction on high-amplitude streams, hot 4-voice mix limited to DAC-safe levels, silence passthrough (`[master][compressor]`, also in `pico2seq_voice_tests`) |
+| 19 | `tests/unit/test_master_delay.cpp` | Master-bus delay | Fractional reads, filtered repeats, feedback bounds and mix smoothing (`[master_delay]`) |
+| 20 | `tests/unit/test_master_bus.cpp` | Combined delay and compressor | Bus order, dry bypass, tails, mute, volume and audible fader range (`[master_bus]`) |
+>>>>>>> 0f944a136ae72671a4e32563225d44b056231147
 
 ---
 

@@ -159,7 +159,7 @@ FaderAssignment FaderMap::assignmentFor(bool stepSelected, uint8_t channel)
   }
 
   static constexpr FaderTarget kTargets[kChannelCount] = {
-      FaderTarget::Tempo, FaderTarget::SwingAmount, FaderTarget::MasterVolume,
+      FaderTarget::Tempo, FaderTarget::DelayMix, FaderTarget::MasterVolume,
       FaderTarget::GateLength};
   out.target = kTargets[channel];
   return out;

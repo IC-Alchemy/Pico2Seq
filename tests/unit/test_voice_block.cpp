@@ -183,6 +183,16 @@ TEST_CASE("Block rendering drains disabled voices and leaves zero-length calls a
 TEST_CASE("VoiceManager::processBlock matches processAllVoices()", "[voice][voice_block]")
 {
     VoiceManager scalar(4), block(4);
+    bool delayEnabled = false;
+    SECTION("Dry bus") {}
+    SECTION("Delay mix and time moves") { delayEnabled = true; }
+    if (delayEnabled)
+    {
+        scalar.setDelayMix(1.0f);
+        block.setDelayMix(1.0f);
+        scalar.setDelayTime(0.01f);
+        block.setDelayTime(0.01f);
+    }
     std::array<uint8_t, 4> ids{};
     const std::array<uint8_t, 4> presets{4, 2, 1, 6};
     for (uint8_t i = 0; i < 4; ++i)
@@ -199,6 +209,11 @@ TEST_CASE("VoiceManager::processBlock matches processAllVoices()", "[voice][voic
         if (call == 8) { scalar.setGlobalVolume(0.23f); block.setGlobalVolume(0.23f); }
         if (call == 16) { scalar.setTransportMuted(true); block.setTransportMuted(true); }
         if (call == 24) { scalar.setTransportMuted(false); block.setTransportMuted(false); }
+        if (delayEnabled && call == 32)
+        {
+            scalar.setDelayMix(0.7f); block.setDelayMix(0.7f);
+            scalar.setDelayTime(0.75f); block.setDelayTime(0.75f);
+        }
         if (call == 40)
             for (auto id : ids)
             {

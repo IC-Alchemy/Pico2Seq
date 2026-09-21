@@ -2,6 +2,7 @@
 #define CONTROL_SURFACE_LOGIC_H
 
 #include <cstdint>
+#include <cmath>
 
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 
@@ -314,8 +315,8 @@ enum class FaderTarget : uint8_t
 {
   None,        // unassigned
   EnvLane,     // ENV mode: one envelope lane of the selected step
-  Tempo,        // uClock BPM
-  SwingAmount,  // continuous shuffle depth
+  Tempo,        // uClock BPM (Shift + fader: delay feedback)
+  DelayMix,     // master delay wet mix (Shift + fader: delay time)
   MasterVolume, // VoiceManager's global gain on Core 1's final mix
   GateLength,   // gate length across the selected voice's steps
 };
@@ -326,6 +327,13 @@ enum class FaderTarget : uint8_t
  * master-bus compressor) instead, so one physical fader serves both.
  */
 enum class MasterFaderAction : uint8_t { Volume, Macro };
+
+enum class TempoFaderAction : uint8_t { Tempo, DelayFeedback };
+
+constexpr TempoFaderAction tempoFaderAction(bool shiftHeld)
+{
+  return shiftHeld ? TempoFaderAction::DelayFeedback : TempoFaderAction::Tempo;
+}
 
 constexpr MasterFaderAction masterFaderAction(bool shiftHeld)
 {
@@ -342,6 +350,21 @@ inline const char *masterMacroZoneName(float macro)
   return "GLUE";
 }
 
+// Delay time for the Shift + wet-mix-fader control: a log curve across the
+// range, so a short-throw fader spends its travel evenly over musical
+// distance. Pure so the host tests can pin the endpoints and the curve.
+inline constexpr float kDelayTimeMinSeconds = 0.010f;
+inline constexpr float kDelayTimeMaxSeconds = 0.750f;
+inline float delaySecondsForFader(float normalized)
+{
+  if (!(normalized > 0.0f))
+    return kDelayTimeMinSeconds;
+  if (normalized > 1.0f)
+    return kDelayTimeMaxSeconds;
+  return kDelayTimeMinSeconds *
+         std::pow(kDelayTimeMaxSeconds / kDelayTimeMinSeconds, normalized);
+}
+
 struct FaderAssignment
 {
   FaderTarget target = FaderTarget::None;
@@ -352,9 +375,10 @@ class FaderMap
 {
 public:
   static constexpr uint8_t kChannelCount = 4;
-  // Channel carrying MasterVolume outside ENV mode (see kTargets in the
-  // .cpp): the Shift + macro-knob gesture re-arms this channel on shift
-  // edges so volume never snaps to the macro rest position and vice versa.
+  // Shift retargets the first three faders. Re-arm them on either edge
+  // so one parameter never snaps to the other parameter's rest position.
+  static constexpr uint8_t kTempoChannel = 0;
+  static constexpr uint8_t kDelayChannel = 1;
   static constexpr uint8_t kMasterVolumeChannel = 2;
   static constexpr uint16_t kFaderMaxCounts = 4095;
   // Movement smaller than this (in 12-bit counts) is not sent. 24 of 4095 is
@@ -367,7 +391,7 @@ public:
   /**
    * Target of one fader channel (0..3). With a step selected (ENV mode) the
    * faders are that step's Attack, Decay, Sustain and Release lanes;
-   * otherwise Tempo, Swing, Master volume, Gate length.
+   * otherwise Tempo, Delay mix, Master volume, Gate length.
    */
   static FaderAssignment assignmentFor(bool stepSelected, uint8_t channel);
 
@@ -385,6 +409,14 @@ public:
 
   /** Disarm one channel (e.g. the volume fader on shift edges). */
   void resetChannel(uint8_t channel);
+
+  /** Re-arm tempo/feedback, mix/time and volume/macro on either Shift edge. */
+  void resetShiftTargets()
+  {
+    resetChannel(kTempoChannel);
+    resetChannel(kDelayChannel);
+    resetChannel(kMasterVolumeChannel);
+  }
 
   /** True if the channel has detected an obvious move and is actively tracking. */
   bool isEngaged(uint8_t channel) const;
