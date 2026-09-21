@@ -125,7 +125,9 @@ constexpr LEDThemeColors ALL_THEMES[] = {
      CRGB(94, 0, 64),
      CRGB(24, 0, 16),
      CRGB(64, 94, 94),
-     CRGB(16, 24, 24)},
+     CRGB(16, 24, 24),
+     CRGB(6, 8, 14),       // backgroundBase - round-display backdrop
+     CRGB(225, 228, 236)}, // textAccent - round-display text/arc
     {LEDTheme::OCEANIC,
      // OCEANIC - deep-sea blue / sunlit sand / seafoam / pale ice. Warm sand
      // accents give V1/V2 a CVD-safe cool-vs-warm split; V3/V4 separate by
@@ -157,7 +159,9 @@ constexpr LEDThemeColors ALL_THEMES[] = {
      CRGB(144, 0, 188),
      CRGB(15, 0, 22),
      CRGB(0, 188, 166),
-     CRGB(0, 22, 15)},
+     CRGB(0, 22, 15),
+     CRGB(3, 10, 20),      // backgroundBase - round-display backdrop
+     CRGB(170, 225, 255)}, // textAccent - round-display text/arc
     {LEDTheme::VOLCANIC,
         // VOLCANIC - crimson (protan-boosted) / gold / tangerine / magma-pink.
         // Warm-family ramp with monotonic lightness as redundant channel plus
@@ -189,7 +193,9 @@ constexpr LEDThemeColors ALL_THEMES[] = {
         CRGB(255, 140, 60),  // modGateModeActive - bright ember highlight
         CRGB(26, 14, 8),     // modGateModeInactive
         CRGB(255, 220, 150), // randomizeFlash - bright warm flash
-        CRGB(24, 14, 10)     // randomizeIdle - dark subtle tone
+        CRGB(24, 14, 10),    // randomizeIdle - dark subtle tone
+        CRGB(20, 6, 3),      // backgroundBase - round-display backdrop
+        CRGB(255, 205, 160)  // textAccent - round-display text/arc
     },
     {LEDTheme::FOREST,
         // FOREST - leaf / bark-amber / glacial-lake blue / dry-grass gold.
@@ -222,7 +228,9 @@ constexpr LEDThemeColors ALL_THEMES[] = {
         CRGB(190, 210, 120), // modGateModeActive - lichen highlight
         CRGB(24, 28, 14),    // modGateModeInactive
         CRGB(230, 250, 180), // randomizeFlash - pale flash
-        CRGB(14, 20, 12)     // randomizeIdle - dark subtle tone
+        CRGB(14, 20, 12),    // randomizeIdle - dark subtle tone
+        CRGB(4, 12, 7),      // backgroundBase - round-display backdrop
+        CRGB(190, 235, 195)  // textAccent - round-display text/arc
     },
     {LEDTheme::NEON,
         // NEON - Tol-bright-style primaries: cyan / magenta / lime / violet.
@@ -254,7 +262,9 @@ constexpr LEDThemeColors ALL_THEMES[] = {
         CRGB(255, 120, 220), // modGateModeActive - pink neon highlight
         CRGB(30, 12, 26),    // modGateModeInactive
         CRGB(255, 255, 255), // randomizeFlash - white flash
-        CRGB(14, 14, 20)     // randomizeIdle - dark subtle tone
+        CRGB(14, 14, 20),    // randomizeIdle - dark subtle tone
+        CRGB(10, 0, 14),     // backgroundBase - round-display backdrop
+        CRGB(240, 120, 255)  // textAccent - round-display text/arc
     },
     {LEDTheme::MODERN,
         // MODERN - dusty blue / clay / sage / rosewood. Muted chroma for the
@@ -287,7 +297,9 @@ constexpr LEDThemeColors ALL_THEMES[] = {
         CRGB(240, 200, 160), // modGateModeActive - warm highlight
         CRGB(56, 48, 40),    // modGateModeInactive
         CRGB(255, 210, 170), // randomizeFlash - bright warm flash
-        CRGB(40, 44, 46)     // randomizeIdle - subtle gray idle tone
+        CRGB(40, 44, 46),    // randomizeIdle - subtle gray idle tone
+        CRGB(12, 14, 18),    // backgroundBase - round-display backdrop
+        CRGB(240, 240, 240)  // textAccent - round-display text/arc
     },
     // DARK_NOCTIS - midnight blue / lantern amber / deep violet / moonlight.
     // One warm accent (the lantern) gives V1/V2 a CVD-safe split; V3/V4 pair
@@ -320,7 +332,9 @@ constexpr LEDThemeColors ALL_THEMES[] = {
         CRGB(160, 140, 110), // modGateModeActive - muted warm highlight
         CRGB(18, 16, 14),    // modGateModeInactive
         CRGB(220, 200, 180), // randomizeFlash - soft warm flash
-        CRGB(12, 12, 14)     // randomizeIdle - dark subtle tone
+        CRGB(12, 12, 14),    // randomizeIdle - dark subtle tone
+        CRGB(0, 0, 4),       // backgroundBase - round-display backdrop
+        CRGB(120, 140, 200)  // textAccent - round-display text/arc
     },
     {LEDTheme::DARK_EMBER,
         // DARK_EMBER - ember-red (protan-boosted) / gold / copper-rose /
@@ -354,7 +368,9 @@ constexpr LEDThemeColors ALL_THEMES[] = {
         CRGB(255, 180, 90),  // modGateModeActive - bright ember highlight
         CRGB(18, 14, 12),    // modGateModeInactive
         CRGB(255, 210, 140), // randomizeFlash - bright warm flash
-        CRGB(10, 8, 8)       // randomizeIdle - very dark idle tone
+        CRGB(10, 8, 8),      // randomizeIdle - very dark idle tone
+        CRGB(14, 4, 0),      // backgroundBase - round-display backdrop
+        CRGB(255, 140, 60)   // textAccent - round-display text/arc
     },
 
     {LEDTheme::BLUE,
@@ -388,7 +404,9 @@ constexpr LEDThemeColors ALL_THEMES[] = {
         CRGB(160, 200, 240), // modGateModeActive - cool highlight
         CRGB(18, 16, 14),    // modGateModeInactive
         CRGB(255, 240, 220), // randomizeFlash - bright neutral flash
-        CRGB(12, 12, 14)     // randomizeIdle - dark subtle tone
+        CRGB(12, 12, 14),    // randomizeIdle - dark subtle tone
+        CRGB(3, 8, 18),      // backgroundBase - round-display backdrop
+        CRGB(160, 200, 255)  // textAccent - round-display text/arc
     },
     {LEDTheme::GREEN,
         // GREEN theme - monochrome ramp: deep / bright / mint / lime with
@@ -421,7 +439,9 @@ constexpr LEDThemeColors ALL_THEMES[] = {
         CRGB(200, 220, 160), // modGateModeActive - soft highlight
         CRGB(16, 14, 12),    // modGateModeInactive
         CRGB(255, 250, 200), // randomizeFlash - warm flash
-        CRGB(10, 12, 10)     // randomizeIdle - very dark idle tone
+        CRGB(10, 12, 10),    // randomizeIdle - very dark idle tone
+        CRGB(3, 12, 6),      // backgroundBase - round-display backdrop
+        CRGB(150, 240, 160)  // textAccent - round-display text/arc
     }};
 
 static_assert(sizeof(ALL_THEMES) / sizeof(ALL_THEMES[0]) ==

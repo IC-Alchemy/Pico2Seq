@@ -140,3 +140,35 @@ catch_discover_tests(pico2seq_audio_tests TEST_PREFIX "audio: ")
 # Opt-in throughput measurement; timing thresholds do not belong in CTest.
 add_executable(pico2seq_recipe_benchmark EXCLUDE_FROM_ALL benchmarks/recipe_benchmark.cpp)
 target_include_directories(pico2seq_recipe_benchmark PRIVATE ${SRC_DIR})
+
+# Round-display wire protocol (src/RoundDisplay/display_link.h): pure C++
+# header, so this suite needs no stubs and no firmware glue.
+add_executable(display_link_tests unit/test_display_link.cpp)
+target_include_directories(display_link_tests PRIVATE
+  ${PROJECT_SOURCE_DIR} ${SRC_DIR})
+target_link_libraries(display_link_tests PRIVATE Catch2::Catch2WithMain)
+catch_discover_tests(display_link_tests TEST_PREFIX "display-link: ")
+
+# Round-display page link (src/RoundDisplay/RoundDisplayLink.cpp): the same
+# stub-shadowed pile as pico2seq_tests (AppState globals, Sequencer, voice
+# formatting) plus the real sensor/button-manager sources; the suite itself
+# defines the two firmware-only homes (getActiveThemeColors, VoiceEditor::
+# encoderTarget) and drives Wire/millis through the stub test hooks.
+add_executable(round_display_tests
+  unit/test_round_display_link.cpp
+  ${SRC_DIR}/RoundDisplay/RoundDisplayLink.cpp
+  ${SRC_DIR}/app/AppState.cpp
+  ${SRC_DIR}/sensors/DistanceSensor.cpp
+  ${SRC_DIR}/ui/ButtonManager.cpp
+  ${SRC_DIR}/voice/VoiceEditParameters.cpp
+  ${SRC_DIR}/voice/VoiceParameters.cpp
+  ${SRC_DIR}/voice/VoicePresets.cpp
+  ${CORE_DIR}/scales/scales.cpp
+  ${CORE_DIR}/sequencer/ParameterManager.cpp
+  ${CORE_DIR}/sequencer/Sequencer.cpp
+)
+target_include_directories(round_display_tests PRIVATE
+  ${STUB_DIR} ${PROJECT_SOURCE_DIR} ${SRC_DIR} ${CORE_DIR} ${RPDSP_DIR})
+target_link_libraries(round_display_tests PRIVATE Catch2::Catch2WithMain)
+target_compile_options(round_display_tests PRIVATE -Wall -Wno-unused-parameter)
+catch_discover_tests(round_display_tests TEST_PREFIX "round-display: ")

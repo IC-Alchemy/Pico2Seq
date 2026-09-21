@@ -103,6 +103,13 @@ struct LEDThemeColors
   // Special effect colors
   CRGB randomizeFlash; // Randomize button flash
   CRGB randomizeIdle;  // Randomize button idle
+
+  // Round-display only (the LED matrix ignores these two): backgroundBase is
+  // the page backdrop and textAccent the primary text/arc color for the future
+  // round RGB565 panel. The panel also reads gateOn as voice hues and
+  // playheadAccent; conversion to RGB565 happens at packet-build time.
+  CRGB backgroundBase; // Round display page backdrop
+  CRGB textAccent;     // Round display primary text/arc color
 };
 
 /**

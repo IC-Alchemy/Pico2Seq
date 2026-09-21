@@ -2,6 +2,7 @@
 #include "AppState.h"
 #include "StepPlayback.h"
 #include "../../includes.h"
+#include "../RoundDisplay/RoundDisplayLink.h"
 #include "../ui/ControlSurfaceLogic.h"
 #include "../utils/FreezeWatchdog.h"
 
@@ -26,6 +27,9 @@ struct ControlHardware
     AlchemyControlBridge alchemyBridge;
     Adafruit_MPR121 touchSensor;
     OLEDDisplay display;
+    // Round panel link (docs/superpowers/plans/2026-09-20-round-display-link-option-b.md):
+    // serializes the OLED's winning page for the PY32 at 0x3E.
+    RoundDisplayLink roundDisplay;
     uint32_t lastControlUpdate = 0;
     uint32_t lastDisplayUpdate = 0;
 };
@@ -139,6 +143,13 @@ void ControlIO::beginDisplay()
     freezeWatchdogFeed(FW_SETUP_OLED);
     controls.display.begin();
     Serial.println("OLED display initialized");
+
+    // The round panel is optional hardware: a failed probe only means
+    // update() keeps re-probing, so never abort bring-up on it.
+    if (!controls.roundDisplay.begin())
+    {
+        Serial.println("Round display link: panel not found (will keep probing)");
+    }
 }
 
 void ControlIO::observeVoiceChanges()
@@ -276,6 +287,10 @@ void ControlIO::refreshDisplays(uint32_t nowMs)
 
         // Update OLED display
         controls.display.update(uiState, AppState::sequencerView, voiceManager.get());
+
+        // Mirror the winning page to the round panel link
+        // (docs/superpowers/plans/2026-09-20-round-display-link-option-b.md).
+        controls.roundDisplay.update(uiState, AppState::sequencerView, voiceManager.get());
 
         // Apply LED updates to hardware
         freezeWatchdogMark(FW_LOOP_LEDS);

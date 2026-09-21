@@ -27,9 +27,16 @@ inline int  analogRead(uint8_t) { return 0; }
 // Arduino primitive types
 typedef unsigned long ulong;
 
-// Arduino time stubs
-inline unsigned long millis() { return 0; }
-inline unsigned long micros() { return 0; }
+// Arduino time stubs. Host tests can drive the clock via
+// arduino_testing::setMillis()/advanceMillis(); the default of 0 matches the
+// previous hardwired stub, so existing suites keep passing unchanged.
+namespace arduino_testing {
+inline unsigned long g_stubMillis = 0;
+inline void setMillis(unsigned long ms) { g_stubMillis = ms; }
+inline void advanceMillis(unsigned long ms) { g_stubMillis += ms; }
+} // namespace arduino_testing
+inline unsigned long millis() { return arduino_testing::g_stubMillis; }
+inline unsigned long micros() { return arduino_testing::g_stubMillis * 1000UL; }
 inline void delay(unsigned long) {}
 inline void delayMicroseconds(unsigned long) {}
 
