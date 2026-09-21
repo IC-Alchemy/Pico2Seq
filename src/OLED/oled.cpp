@@ -921,7 +921,7 @@ void OLEDDisplay::drawStepIndicators(const Sequencer &sequencer, int yPosition)
     // Calculate step indicator position and width
     const int stepXPosition = leftMargin + (stepIndex * totalWidth) / stepCount;
     const int nextStepXPosition = leftMargin + ((stepIndex + 1) * totalWidth) / stepCount;
-    const int stepWidth = max(2, nextStepXPosition - stepXPosition - 1);
+    const int stepWidth = std::max(2, nextStepXPosition - stepXPosition - 1);
 
     // Get step gate state and determine if this is the current step
     const float gateValue = sequencer.getStepParameterValue(ParamId::Gate, pageStart + stepIndex);
