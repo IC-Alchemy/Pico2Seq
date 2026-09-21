@@ -38,14 +38,7 @@ VoiceManager::VoiceManager(uint8_t maxVoices)
     masterGainAlpha_ = makeSmoothingAlpha(kMasterGainTauSeconds, sampleRate);
     masterGain_ = globalVolume.load(std::memory_order_relaxed);
 
-    // Initialize compressor with default settings for a tight, punchy mix.
-    // rpdsp's compressor takes explicit makeup gain instead of auto-makeup;
-    // the values below approximate the old AutoMakeup(true) behavior.
-    compressor.prepare(sampleRate);
-    compressor.setThresholdDb(-16.0f);
-    compressor.setRatio(1.5f);
-    compressor.setAttackRelease(50.0f, 12.0f);  // attack ms, release ms
-    compressor.setMakeupGainDb(5.0f);
+    configureMasterCompressor_();
 
     DBG_INFO("VoiceManager: constructed maxVoices=%u", maxVoices);
 }
@@ -341,12 +334,9 @@ void VoiceManager::init(float sr)
                       ? 0.0f
                       : globalVolume.load(std::memory_order_relaxed);
 
-    // Reinitialize compressor for new sample rate and reapply settings
-    compressor.prepare(sampleRate);
-    compressor.setThresholdDb(-15.0f);
-    compressor.setRatio(2.0f);
-    compressor.setAttackRelease(2.0f, 50.0f);   // attack ms, release ms
-    compressor.setMakeupGainDb(7.0f);
+    // Master-bus compressor shares the single kMasterComp* settings with
+    // the constructor, re-prepared for the new sample rate.
+    configureMasterCompressor_();
 
     DBG_INFO("VoiceManager: init sampleRate=%.1f", sr);
     for (auto &managedVoice : voices)
@@ -356,6 +346,17 @@ void VoiceManager::init(float sr)
             managedVoice->voice->init(sampleRate);
         }
     }
+}
+
+void VoiceManager::configureMasterCompressor_()
+{
+    compressor.prepare(sampleRate);
+    compressor.setThresholdDb(kMasterCompThresholdDb);
+    compressor.setRatio(kMasterCompRatio);
+    compressor.setKneeWidthDb(kMasterCompKneeDb);
+    compressor.setAttackRelease(kMasterCompAttackMs, kMasterCompReleaseMs);
+    compressor.setMakeupGainDb(kMasterCompMakeupDb);
+    compressor.reset();
 }
 
 void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noexcept
@@ -380,6 +381,9 @@ void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noe
         {
             gain += alpha * (target - gain);
             out[k] *= gain;
+            // Master-bus glue + limiter: last DSP before the DAC (AudioEngine's
+            // toPcm16 clamp remains the hard ceiling for pathological sums).
+            out[k] = compressor.process(out[k]);
         }
         masterGain_ = gain;
         out += count;

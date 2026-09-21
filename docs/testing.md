@@ -87,7 +87,7 @@ Bench regression checklist (host tests cannot verify the physical tile/LED/OLED 
 - Editor voice selection keeps per-voice cursors; session restore retains the saved voice
   without invoking live tile-selection note cleanup.
 
-## 17 Host Unit Test Suites
+## 18 Host Unit Test Suites
 
 The host test executable (`pico2seq_tests`) links all unit suites under `tests/unit/`:
 
@@ -110,6 +110,7 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 15 | `tests/unit/test_voice_edit.cpp` | Voice Editing mode | Base vs lidar-modifier independence, neutral-modifier preset round-trip, parameter catalogue reachability/clamping per engine, editor release semantics, muted-editor queue draining (`[voice_edit][recording]`) |
 | 16 | `tests/unit/test_persistence.cpp` | Session persistence (`src/pico2seq-core/persistence/`, `src/voice/PatchCodec.*`) | CRC32 vector, frame magic/version/size/CRC rejection, locked 10,312-byte snapshot layout, snapshot validation bounds, pattern round-trip incl. raw tails, patch codec pointer re-derivation, golden full-project round-trip, watchdog resume decision table, retained-store validity (`[persistence]`) |
 | 17 | `tests/unit/test_recipe_optimization.cpp` | `rpdsp` Recipe CPU Optimizations | Prepared oscillator phase/spectra, cached coefficient survival across edits/triggers, feedback operator history (`[optimization][recipes][voice]`) |
+| 18 | `tests/unit/test_master_compressor.cpp` | Master-bus compressor (`VoiceManager`) | `rpdsp::Compressor` gain reduction on high-amplitude streams, hot 4-voice mix limited to DAC-safe levels, silence passthrough (`[master][compressor]`, also in `pico2seq_voice_tests`) |
 
 ---
 
@@ -241,7 +242,6 @@ separate CMake targets in `tests/CMakeLists.txt`.
 |---|---|
 | `src/pico2seq-core/sequencer/Sequencer.cpp` | `advanceStep()` polyrhythmic step progression across independent tracks |
 | `src/voice/VoicePresets.cpp` | Boundary assertion that all preset parameter values stay within [0.0, 1.0] |
-| `src/rpdsp/` `Compressor` | Master mix gain reduction verification on high-amplitude audio streams |
 
 ---
 

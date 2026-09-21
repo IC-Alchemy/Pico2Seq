@@ -56,6 +56,15 @@ public:
     float processAllVoices() noexcept;
 
     static constexpr uint32_t kMaxBlock = 256;
+    // Master-bus compressor (last DSP before the DAC): gentle 3:1 glue with
+    // a soft knee that also tames hot 4-voice stacks to DAC-safe levels.
+    // Single source of truth for the ctor, init(), and host tests.
+    static constexpr float kMasterCompThresholdDb = -12.0f;
+    static constexpr float kMasterCompRatio = 3.0f;
+    static constexpr float kMasterCompKneeDb = 6.0f;
+    static constexpr float kMasterCompAttackMs = 10.0f;
+    static constexpr float kMasterCompReleaseMs = 120.0f;
+    static constexpr float kMasterCompMakeupDb = 3.0f;
     // Audio thread only. Overwrites n samples, splitting larger calls into blocks.
     void processBlock(float *out, uint32_t n) noexcept;
     float processVoice(uint8_t voiceId);
@@ -128,9 +137,12 @@ private:
     std::atomic<float> globalVolume;
     static_assert(std::atomic<float>::is_always_lock_free, "Mixer gains must be lock-free");
 
-    // Dynamics processing (configured but currently bypassed in the mix path;
-    // see processAllVoices())
+    // Master-bus glue + limiter (last DSP before the DAC; see processBlock()).
+    // processVoice() is a solo tap and intentionally bypasses it, so the
+    // gain-reduction state always tracks the real summed mix.
     rpdsp::Compressor compressor;
+    // Control thread only: (re)applies the kMasterComp* settings above.
+    void configureMasterCompressor_();
 
     // Callbacks
     VoiceCountCallback voiceCountCallback;
