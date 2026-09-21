@@ -5,7 +5,7 @@
 #include "Sequencer.h"
 
 // --- Constants for real-time parameter editing ---
-constexpr float MAX_SENSOR_DISTANCE_MM = 1100.0f;
+constexpr float MAX_SENSOR_DISTANCE_MM = 750.0f;
 
 constexpr float OCTAVE_LOW_THRESHOLD = 1.0f / 3.0f;  // Threshold for mapping float to -1 octave
 constexpr float OCTAVE_HIGH_THRESHOLD = 2.0f / 3.0f;  // Threshold for mapping float to +1 octave

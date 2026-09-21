@@ -36,8 +36,8 @@ namespace SequencerConstants
   static constexpr float SENSOR_SPAN_MM = SENSOR_MAX_DISTANCE_MM - SENSOR_MIN_DISTANCE_MM;
 
   static constexpr float OCTAVE_ZONE_MINUS_2_MAX_MM = 90.0f;
-  static constexpr float OCTAVE_ZONE_MINUS_1_MAX_MM = 280.0f;
-  static constexpr float OCTAVE_ZONE_ZERO_MAX_MM    = 425.0f;
+  static constexpr float OCTAVE_ZONE_MINUS_1_MAX_MM = 220.0f;
+  static constexpr float OCTAVE_ZONE_ZERO_MAX_MM    = 355.0f;
   static constexpr float OCTAVE_ZONE_PLUS_1_MAX_MM  = 550.0f;
 
   static constexpr float OCTAVE_NORM_MINUS_2_MAX = (OCTAVE_ZONE_MINUS_2_MAX_MM - SENSOR_MIN_DISTANCE_MM) / SENSOR_SPAN_MM;
@@ -238,7 +238,7 @@ constexpr ParameterDefinition CORE_PARAMETERS[] = {
     // so the button did nothing there. Reach it per step with the ENV-mode faders.
     {"Decay", 0.3f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, true},
     {"Octave", 0.5f, 0.0f, 1.0f, ParameterEditKind::Stepped, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Octave, false},
-    {"GateLength", 0.5f, 0.001f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, false},
+    {"GateLength", 0.8f, 0.1f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, false},
     {"Gate", false, false, true, ParameterEditKind::Toggle, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, false},
     {"Slide", false, false, true, ParameterEditKind::Toggle, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, false},
     // Sustain is edited per step by the ENV-mode faders only.
@@ -246,7 +246,7 @@ constexpr ParameterDefinition CORE_PARAMETERS[] = {
     // Release owns the 5th record button and the encoder base that Decay had.
     // It reaches the envelope on every preset, so it is what shapes how long a
     // step rings - up to 10 s, enough for one downbeat note to cover 16 steps.
-    {"Release", 0.3f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Release, true}
+    {"Release", 0.4f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Release, true}
 };
 
 static_assert(sizeof(CORE_PARAMETERS) / sizeof(CORE_PARAMETERS[0]) == PARAM_ID_COUNT,
