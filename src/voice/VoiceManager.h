@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Voice.h"
+#include "MasterDelay.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../rpdsp/src/rpdsp/dynamics.h"
 #include <vector>
@@ -56,15 +57,45 @@ public:
     float processAllVoices() noexcept;
 
     static constexpr uint32_t kMaxBlock = 256;
-    // Master-bus compressor (last DSP before the DAC): gentle 3:1 glue with
-    // a soft knee that also tames hot 4-voice stacks to DAC-safe levels.
-    // Single source of truth for the ctor, init(), and host tests.
-    static constexpr float kMasterCompThresholdDb = -12.0f;
-    static constexpr float kMasterCompRatio = 3.0f;
-    static constexpr float kMasterCompKneeDb = 6.0f;
-    static constexpr float kMasterCompAttackMs = 10.0f;
-    static constexpr float kMasterCompReleaseMs = 120.0f;
-    static constexpr float kMasterCompMakeupDb = 3.0f;
+    // Master-bus macro compressor (last DSP before the DAC). One 0..1 knob
+    // morphs all six compressor parameters along a Warm -> Glue -> Punch
+    // curve; the audio thread eases toward the target so fader moves never
+    // step the output. Single source of truth for init(), the audio thread,
+    // and host tests.
+    struct MasterCompSettings
+    {
+        float thresholdDb;
+        float ratio;
+        float kneeDb;
+        float attackMs;
+        float releaseMs;
+        float makeupDb;
+    };
+    // Curve anchors: m = 0 Warm/Glue/Leveler, m = 0.5 Neutral/Mild Glue
+    // (the specified mastering squeeze), m = 1 Punch/Smash/Pump.
+    static constexpr MasterCompSettings kMacroWarm = {-14.0f, 2.5f, 9.0f, 30.0f, 250.0f, 2.0f};
+    static constexpr MasterCompSettings kMacroCenter = {-10.0f, 1.8f, 6.0f, 15.0f, 150.0f, 1.5f};
+    static constexpr MasterCompSettings kMacroPunch = {-14.0f, 6.0f, 2.0f, 6.0f, 70.0f, 4.0f};
+    static constexpr float kMacroDefault = 0.5f;
+    static constexpr MasterCompSettings lerpMacroSettings(MasterCompSettings a,
+                                                           MasterCompSettings b,
+                                                           float t) noexcept
+    {
+        return {a.thresholdDb + (b.thresholdDb - a.thresholdDb) * t,
+                a.ratio + (b.ratio - a.ratio) * t,
+                a.kneeDb + (b.kneeDb - a.kneeDb) * t,
+                a.attackMs + (b.attackMs - a.attackMs) * t,
+                a.releaseMs + (b.releaseMs - a.releaseMs) * t,
+                a.makeupDb + (b.makeupDb - a.makeupDb) * t};
+    }
+    // Piecewise-linear morph through the anchors; out-of-range clamps.
+    static constexpr MasterCompSettings settingsForMacro(float macro) noexcept
+    {
+        const float m = macro < 0.0f ? 0.0f : (macro > 1.0f ? 1.0f : macro);
+        if (m <= 0.5f)
+            return lerpMacroSettings(kMacroWarm, kMacroCenter, m * 2.0f);
+        return lerpMacroSettings(kMacroCenter, kMacroPunch, (m - 0.5f) * 2.0f);
+    }
     // Audio thread only. Overwrites n samples, splitting larger calls into blocks.
     void processBlock(float *out, uint32_t n) noexcept;
     float processVoice(uint8_t voiceId);
@@ -94,6 +125,21 @@ public:
     // Global Voice Parameters
     void setGlobalVolume(float volume) { globalVolume.store(volume, std::memory_order_relaxed); }
     float getGlobalVolume() const { return globalVolume.load(std::memory_order_relaxed); }
+
+    // Master macro knob (control thread writes, audio thread follows).
+    // 0 = Warm/Glue/Leveler, 0.5 = Neutral/Mild Glue, 1 = Punch/Smash/Pump.
+    // Driven by Shift + master-volume fader; not part of the session snapshot.
+    void setMasterMacro(float macro);
+    float getMasterMacro() const { return macroTarget_.load(std::memory_order_relaxed); }
+
+    // Master-bus delay (see MasterDelay.h). Control-thread targets; the
+    // audio thread reads them per block and eases per sample like the gain.
+    void setDelayMix(float mix) { delayMix.store(mix, std::memory_order_relaxed); }
+    float getDelayMix() const { return delayMix.load(std::memory_order_relaxed); }
+    void setDelayTime(float seconds) { delayTime.store(seconds, std::memory_order_relaxed); }
+    float getDelayTime() const { return delayTime.load(std::memory_order_relaxed); }
+    void setDelayFeedback(float feedback) { delayFeedback.store(feedback, std::memory_order_relaxed); }
+    float getDelayFeedback() const { return delayFeedback.load(std::memory_order_relaxed); }
 
     void setVoiceMix(uint8_t voiceId, float mix);
     void setTransportMuted(bool muted) noexcept { transportMuted_.store(muted, std::memory_order_relaxed); }
@@ -137,12 +183,31 @@ private:
     std::atomic<float> globalVolume;
     static_assert(std::atomic<float>::is_always_lock_free, "Mixer gains must be lock-free");
 
-    // Master-bus glue + limiter (last DSP before the DAC; see processBlock()).
-    // processVoice() is a solo tap and intentionally bypasses it, so the
-    // gain-reduction state always tracks the real summed mix.
+    // Master-bus delay state. Targets cross cores through the atomics; the
+    // delay line and its filters are audio-thread-only.
+    std::atomic<float> delayMix{0.0f};
+    std::atomic<float> delayTime{MasterDelay::kDefaultDelaySeconds};
+    std::atomic<float> delayFeedback{MasterDelay::kDefaultFeedback};
+    static_assert(std::atomic<float>::is_always_lock_free, "Delay controls must be lock-free");
+    MasterDelay masterDelay_;
+
+    // Master-bus compressor follows delay and master gain, so both dry audio
+    // and repeats share its gain reduction. processVoice() is a solo tap
+    // that bypasses both effects and never advances their state.
     rpdsp::Compressor compressor;
-    // Control thread only: (re)applies the kMasterComp* settings above.
+    // Macro morph state: macroTarget_ is the lock-free control-thread target;
+    // macroCurrent_/macroApplied_ are audio-thread only. Setters (never
+    // prepare/reset) run on the audio thread while the knob moves; the gain-
+    // reduction smoother hides the motion.
+    std::atomic<float> macroTarget_;
+    static_assert(std::atomic<float>::is_always_lock_free, "Macro target must be lock-free");
+    float macroCurrent_ = kMacroDefault;
+    float macroApplied_ = kMacroDefault;
+    float macroAlpha_ = 1.0f;
+    // Control thread only (ctor/init): full (re)configuration.
     void configureMasterCompressor_();
+    // Either thread: setters only, never touches live detector state.
+    void applyMasterCompSettings_(const MasterCompSettings &settings);
 
     // Callbacks
     VoiceCountCallback voiceCountCallback;

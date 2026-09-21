@@ -129,8 +129,9 @@ checks passing. No DSP implementation was changed for block rendering.
 
 Core 1 mixes 256-frame blocks; each voice checks its queue between spans of
 at most 32 samples. Queued controls still get one sample each. A concurrently
-published update can wait up to 0.67 ms for the next span. Master/mix targets
-are read per block; master gain still eases every sample. Member/static scratch
+published update can wait up to 0.67 ms for the next span. Master/mix/delay/macro
+targets are read per block; master gain, compressor macro and the delay's mix/time eases still
+run every sample. Member/static scratch
 keeps sample arrays off Core 1's 2 KiB stack.
 
 Measurements use the supplied Unicorn 2.1.4 Cortex-M33 harness, pqt-gcc

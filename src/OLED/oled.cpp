@@ -1,4 +1,5 @@
 #include "oled.h"
+#include "../ui/ControlSurfaceLogic.h"
 #include "../voice/Voice.h"
 #include "../voice/VoicePresets.h"
 #include "../voice/MusicalValues.h"
@@ -290,6 +291,10 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     case UIState::OledNoticeKind::LoadError: line1 = "LOAD ERR"; break;
     case UIState::OledNoticeKind::VoiceCleared: line1 = "CLEARED"; break;
     case UIState::OledNoticeKind::AllCleared:   line1 = "ALL CLEAR"; break;
+    case UIState::OledNoticeKind::Macro:        line1 = "MACRO"; break;
+    case UIState::OledNoticeKind::DelayMix:     line1 = "DELAY MIX"; break;
+    case UIState::OledNoticeKind::DelayTime:    line1 = "DELAY TIME"; break;
+    case UIState::OledNoticeKind::DelayFeedback: line1 = "DELAY FB"; break;
     default: break;
     }
 
@@ -307,6 +312,35 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
       const uint8_t voiceLineWidth = static_cast<uint8_t>(strlen(voiceLine) * 6);
       displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - voiceLineWidth) / 2, 44);
       displayHardware.print(voiceLine);
+    }
+    else if (uiState.oledNoticeKind == UIState::OledNoticeKind::DelayMix ||
+             uiState.oledNoticeKind == UIState::OledNoticeKind::DelayTime ||
+             uiState.oledNoticeKind == UIState::OledNoticeKind::DelayFeedback)
+    {
+      displayHardware.setTextSize(1);
+      char valueLine[14];
+      if (uiState.oledNoticeKind != UIState::OledNoticeKind::DelayTime)
+        snprintf(valueLine, sizeof(valueLine), "%u %%", static_cast<unsigned>(uiState.oledNoticeValue));
+      else
+        snprintf(valueLine, sizeof(valueLine), "%u ms", static_cast<unsigned>(uiState.oledNoticeValue));
+      const uint8_t valueLineWidth = static_cast<uint8_t>(strlen(valueLine) * 6);
+      displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - valueLineWidth) / 2, 44);
+      displayHardware.print(valueLine);
+    }
+
+    if (uiState.oledNoticeKind == UIState::OledNoticeKind::Macro)
+    {
+      // Zone + percent while the Shift + volume fader drives the macro knob.
+      displayHardware.setTextSize(1);
+      char macroLine[16];
+      const uint8_t percent =
+          uiState.macroNoticePercent > 100 ? 100 : uiState.macroNoticePercent;
+      snprintf(macroLine, sizeof(macroLine), "%s %u%%",
+               ControlSurface::masterMacroZoneName(percent / 100.0f),
+               static_cast<unsigned>(percent));
+      const uint8_t macroLineWidth = static_cast<uint8_t>(strlen(macroLine) * 6);
+      displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - macroLineWidth) / 2, 44);
+      displayHardware.print(macroLine);
     }
 
     commitFrame();
@@ -904,7 +938,7 @@ void OLEDDisplay::drawStepIndicators(const Sequencer &sequencer, int yPosition)
     // Calculate step indicator position and width
     const int stepXPosition = leftMargin + (stepIndex * totalWidth) / stepCount;
     const int nextStepXPosition = leftMargin + ((stepIndex + 1) * totalWidth) / stepCount;
-    const int stepWidth = max(2, nextStepXPosition - stepXPosition - 1);
+    const int stepWidth = std::max(2, nextStepXPosition - stepXPosition - 1);
 
     // Get step gate state and determine if this is the current step
     const float gateValue = sequencer.getStepParameterValue(ParamId::Gate, pageStart + stepIndex);
