@@ -7,8 +7,8 @@
 #include "SequencerDefs.h"
 #include "Sequencer.h"
 
-// Live-record distance ceiling; the musical play zone (0-400 mm) maps below it.
-constexpr float MAX_SENSOR_DISTANCE_MM = 1100.0f;
+// Live-record distance ceiling just above the play zone (lifts read as max).
+constexpr float MAX_SENSOR_DISTANCE_MM = 750.0f;
 
 constexpr float OCTAVE_LOW_THRESHOLD = 1.0f / 3.0f; // Below this: down an octave (-12)
 constexpr float OCTAVE_HIGH_THRESHOLD = 2.0f / 3.0f; // Above this: up an octave (+12)
