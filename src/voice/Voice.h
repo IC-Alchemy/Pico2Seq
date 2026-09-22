@@ -58,6 +58,19 @@ struct VoiceSlewParams
 class Voice
 {
 public:
+  // Waveguide string tuning: configured base (waveguideSettings_) vs. last
+  // humanized values pushed to the DSP (waveguideApplied_, audio/tests only;
+  // `valid` is unused on that copy). Public so tests can read it back.
+  struct WaveguideSettings
+  {
+    float t60 = 0.0f;
+    float brightness = 0.0f;
+    float pickPosition = 0.0f;
+    float pickHardness = 0.0f;
+    float stiffness = 0.0f;
+    float detune = 0.0f;
+    bool valid = false;
+  };
   /**
    * @brief Construct a new Voice object
    * @param id Voice index (0-based, 0-3)
@@ -97,6 +110,9 @@ public:
   // UI code reads these separate producer-owned copies instead.
   const VoiceConfig &getRequestedConfig() const noexcept { return controls_.config; }
   const VoiceState &getRequestedState() const noexcept { return controls_.state; }
+  // Last humanized waveguide values pushed to the string model (audio thread
+  // while rendering; tests may read it while audio is stopped).
+  const WaveguideSettings &getAppliedWaveguideParams() const noexcept { return waveguideApplied_; }
 
   // Control thread: retry a full queue and sample the control-owned scale index.
   // Call every loop even when no new knob/note events arrive.
@@ -291,16 +307,21 @@ private:
   rpdsp::PluckedStringVoice<kWaveguideCapacity> waveguide_;
   // Audio-owned cache: unchanged controls need no coefficient recalculation.
   // Invalidated whenever the string model is reset or prepared again.
-  struct WaveguideSettings
-  {
-    float t60 = 0.0f;
-    float brightness = 0.0f;
-    float pickPosition = 0.0f;
-    float pickHardness = 0.0f;
-    float stiffness = 0.0f;
-    float detune = 0.0f;
-    bool valid = false;
-  } waveguideSettings_;
+  // (Type moved to the public section for test introspection.)
+  WaveguideSettings waveguideSettings_;
+  // Per-note humanization: dedicated audio-thread PRNG plus the last
+  // humanized values actually pushed to the string model (audio/tests only;
+  // `valid` is unused on this copy). Reseeded per voice in
+  // resetAlternateEngines_(), so the sequence is scoped to the string-model
+  // lifetime: a fresh model rolls the same deterministic sequence for a
+  // given gate history (bit-exact reset/re-init tests rely on this).
+  static constexpr uint32_t kWaveguideHumanizeSeed = 0xC2B60A1Fu;
+  rpdsp::XorShift32 wgHumanizeRng_{kWaveguideHumanizeSeed};
+  WaveguideSettings waveguideApplied_;
+  // Humanization depth: ±4% multiplicative around each configured base,
+  // strictly under the 5% musical ceiling. Exact zeros stay zero, so an
+  // explicitly unison/dry setting (detune/stiffness 0) never drifts.
+  static constexpr float kWaveguideHumanize = 0.04f;
   // A Hypersaw itself contains the seven saw voices. Keep exactly one instance
   // per Voice rather than building a second unison stack from VoiceOscillator.
   rpdsp::Hypersaw hypersaw_;
@@ -577,9 +598,27 @@ private:
 
   /**
    * @brief Apply engine-specific configuration (waveguide and Hypersaw tuning)
-   *        Called from init() and applyConfig_() at control rate.
+   *        Called from init() and applyConfig_() at control rate. Waveguide
+   *        string tuning is gate-gated (see pushWaveguideParams_()): edits
+   *        made while a note rings wait for the next gate-on.
    */
   void applyEngineConfig_();
+  /**
+   * @brief Push waveguide string tuning with per-note humanization
+   *
+   * Audio thread only. Scales each configured wg* base by ±kWaveguideHumanize
+   * and pushes the result to the string model, recording the pushed values
+   * in waveguideApplied_ (test introspection). Called on every gate rise and
+   * retrigger before the pluck; the base cache in waveguideSettings_ belongs
+   * to applyEngineConfig_(), so an edit made while gated still lands
+   * (re-humanized) on the next gate-on. A ringing Karplus loop is never
+   * retuned mid-note.
+   */
+  void pushWaveguideParams_() noexcept;
+  /**
+   * @brief Scale one waveguide base by ±kWaveguideHumanize (audio thread)
+   */
+  float wgHumanize_(float base) noexcept;
 
   /**
    * @brief Waveguide engine source stage: pluck on pending edges, process string

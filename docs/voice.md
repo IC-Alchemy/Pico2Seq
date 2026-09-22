@@ -399,7 +399,11 @@ the `wg*` config fields tune T60, loop brightness, pick position/hardness, stiff
 bypassed, velocity scales the pluck excitation itself (soft picks inject less energy,
 and the ringing tail is never rescaled by later velocity changes), and the string
 rings past gate fall on its own T60 (gate edges still arm plucks — see
-`handleGateEdges_()`).
+`handleGateEdges_()`). String tuning lands only on note starts: each gate
+rise (or retrigger) re-pushes the `wg*` bases with a small per-note
+humanization (±4% multiplicative, under the 5% musical ceiling; exact zeros
+stay zero so unison/dry settings never drift), and edits made while a note
+rings wait for the next gate-on instead of retuning the live loop.
 WgPluck/WgNylon keep a gentle 55/66 Hz high-pass to shed subsonic rumble that
 Karplus tails otherwise accumulate; WgBell/WgShimmer bypass the high-pass too.
 Preset 13 uses `engine = ENGINE_HYPERSAW`: one `rpdsp::Hypersaw` instance supplies

@@ -495,6 +495,8 @@ void Voice::handleGateEdges_() noexcept
         applyPendingEnvelopeTimes_(true);
         envelope.noteOn();
       }
+      // Retune the string before the re-pluck (no-op unless waveguide).
+      if (cachedEngine_ == ENGINE_WAVEGUIDE) pushWaveguideParams_();
       wgPluckPending_ = true; // waveguide engine re-plucks on retriggers
       hypersawTriggerPending_ = true;
       recipeTriggerPending_ = true;
@@ -507,6 +509,8 @@ void Voice::handleGateEdges_() noexcept
       applyPendingEnvelopeTimes_(true);
       envelope.noteOn();
     }
+    // Fresh string tuning lands with the pluck, never mid-note.
+    if (cachedEngine_ == ENGINE_WAVEGUIDE) pushWaveguideParams_();
     wgPluckPending_ = true;
     hypersawTriggerPending_ = true;
     recipeTriggerPending_ = true;
@@ -767,6 +771,13 @@ void Voice::applyEngineConfig_()
   // NOTE: cachedEngine_ is NOT updated here — the engine switch belongs to
   // applyStructuralConfig_() so a live swap waits for the gate to fall.
   if (cachedEngine_ == ENGINE_WAVEGUIDE) {
+    // String tuning lands only on note starts (see pushWaveguideParams_()):
+    // retuning a ringing Karplus loop mid-note clicks and fights the tail,
+    // so edits made while gated wait for the next gate rise/retrigger.
+    // Idle pushes carry the exact base (no RNG consumed — determinism for a
+    // given gate history); the gate-on path re-rolls humanization anyway.
+    if (gate)
+      return;
     auto &last = waveguideSettings_;
     if (!last.valid || last.t60 != config.wgT60)
       waveguide_.setDecayTimeSeconds(config.wgT60);
@@ -782,6 +793,8 @@ void Voice::applyEngineConfig_()
       waveguide_.setDetuneCents(config.wgDetune);
     last = {config.wgT60, config.wgBrightness, config.wgPickPosition,
             config.wgPickHardness, config.wgStiffness, config.wgDetune, true};
+    waveguideApplied_ = {config.wgT60, config.wgBrightness, config.wgPickPosition,
+                         config.wgPickHardness, config.wgStiffness, config.wgDetune, true};
   } else if (cachedEngine_ == ENGINE_HYPERSAW) {
     hypersaw_.setDetune(config.hypersawDetune);
     hypersaw_.setMix(config.hypersawMix);
@@ -789,6 +802,37 @@ void Voice::applyEngineConfig_()
     recipeEngine_.configure(config);
   }
 
+}
+
+float Voice::wgHumanize_(float base) noexcept
+{
+  // ±kWaveguideHumanize multiplicative; exact zeros stay zero.
+  return base * (1.0f + kWaveguideHumanize * wgHumanizeRng_.nextBipolar());
+}
+
+void Voice::pushWaveguideParams_() noexcept
+{
+  // Per-note humanization: each base rolls ±4% (under the 5% ceiling) so
+  // repeated notes never machine-gun. The setters clamp into range; the
+  // position/hardness/detune setters take effect on the next pluck(), which
+  // this call always precedes (gate rise/retrigger arms wgPluckPending_).
+  // Only waveguideApplied_ is recorded here — the base cache belongs to
+  // applyEngineConfig_(), so an edit made while gated is still "unseen"
+  // and lands (re-humanized) on the next gate-on.
+  const float t60 = wgHumanize_(config.wgT60);
+  const float brightness = wgHumanize_(config.wgBrightness);
+  const float pickPosition = wgHumanize_(config.wgPickPosition);
+  const float pickHardness = wgHumanize_(config.wgPickHardness);
+  const float stiffness = wgHumanize_(config.wgStiffness);
+  const float detune = wgHumanize_(config.wgDetune);
+  waveguide_.setDecayTimeSeconds(t60);
+  waveguide_.setBrightness(brightness);
+  waveguide_.setPickPosition(pickPosition);
+  waveguide_.setPickHardness(pickHardness);
+  waveguide_.setStiffness(stiffness);
+  waveguide_.setDetuneCents(detune);
+  waveguideApplied_ = {t60, brightness, pickPosition, pickHardness,
+                       stiffness, detune, true};
 }
 
 float PICO2SEQ_AUDIO_FUNC(Voice::processWaveguide_)() noexcept
@@ -876,6 +920,11 @@ void Voice::resetAlternateEngines_() noexcept
   recipeTriggerPending_ = false;
   waveguide_.reset();
   waveguideSettings_.valid = false;
+  waveguideApplied_.valid = false;
+  // Fresh string model → fresh humanization sequence (distinct per voice).
+  // Keeps reset/re-init output bit-identical for a given gate history.
+  wgHumanizeRng_ = rpdsp::XorShift32{kWaveguideHumanizeSeed +
+                                     static_cast<uint32_t>(voiceId) * 0x9E3779B9u};
   wgPluckPending_ = false;
   hypersaw_.reset();
   hypersawTriggerPending_ = false;
