@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pico2Seq Code Map</title>
+<style>
+  :root { --fg:#1a1a1a; --bg:#fdfdfd; --accent:#0a7d4a; --warn:#b45309; --red:#b91c1c; --muted:#666; --border:#ddd; --code-bg:#f5f5f5; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg:#e4e4e4; --bg:#1a1a1a; --accent:#4ade80; --warn:#fbbf24; --red:#f87171; --muted:#999; --border:#333; --code-bg:#262626; }
+  }
+  * { box-sizing:border-box; }
+  body { font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--fg); background:var(--bg); max-width:1020px; margin:1.5em auto; padding:0 1.5em 3em; }
+  h1,h2,h3,h4 { font-weight:600; margin-top:1.6em; line-height:1.3; }
+  h1 { font-size:1.7em; margin-bottom:.2em; }
+  h2 { font-size:1.35em; border-bottom:1px solid var(--border); padding-bottom:.2em; }
+  h3 { font-size:1.08em; }
+  a { color:var(--accent); }
+  code { background:var(--code-bg); padding:.15em .35em; border-radius:3px; font-size:.92em; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  pre { background:var(--code-bg); padding:1em 1.2em; border-radius:6px; overflow-x:auto; font-size:.87em; line-height:1.5; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  pre code { background:none; padding:0; }
+  table { border-collapse:collapse; width:100%; margin:.8em 0; font-size:.93em; }
+  th,td { border:1px solid var(--border); padding:.45em .7em; vertical-align:top; text-align:left; }
+  th { font-weight:600; background:var(--code-bg); }
+  ul { padding-left:1.4em; } li { margin:.25em 0; }
+  details { margin:.5em 0; } details > summary { cursor:pointer; font-weight:600; padding:.4em 0; }
+  hr { border:none; border-top:1px solid var(--border); margin:2em 0; }
+  .meta { color:var(--muted); font-size:.85em; }
+  .sub { color:var(--muted); font-size:.95em; margin-top:.3em; }
+  .scroll { overflow-x:auto; }
+  .status { background:color-mix(in srgb, var(--accent) 12%, var(--bg)); border:1px solid var(--accent); border-radius:8px; padding:.9em 1.2em; margin:1.2em 0; }
+  .status .badge { display:inline-block; background:var(--accent); color:var(--bg); padding:.1em .6em; border-radius:4px; font-size:.78em; font-weight:600; letter-spacing:.02em; }
+  .status p { margin:.5em 0 0; font-size:.92em; }
+  .next { border:1px solid var(--warn); border-left:4px solid var(--warn); border-radius:8px; padding:.8em 1.2em; margin:1.2em 0; background:color-mix(in srgb, var(--warn) 8%, var(--bg)); }
+  .next > summary { cursor:pointer; font-weight:600; font-size:1.02em; padding:0; }
+  .next > summary .meta { font-weight:400; }
+  .next ol { margin:.5em 0 .1em 1.3em; padding:0; }
+  .next ol li { margin:.3em 0; }
+  .pill { display:inline-block; font-size:.78em; padding:.1em .55em; border-radius:10px; background:var(--code-bg); color:var(--muted); margin-left:.4em; vertical-align:1px; white-space:nowrap; }
+  .pill.done { background:var(--accent); color:var(--bg); }
+  .pill.warn { background:var(--red);    color:var(--bg); }
+  .pill.next { background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
+  .pill.c0  { background:#3b82f6; color:#fff; }
+  .pill.c1  { background:#8b5cf6; color:#fff; }
+  .pill.sub { background:#0d9488; color:#fff; }
+  .callout { border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:4px; padding:.7em 1em; margin:1em 0; font-size:.93em; background:color-mix(in srgb, var(--accent) 5%, var(--bg)); }
+  .tabbar { display:flex; flex-wrap:wrap; gap:.2em; border-bottom:2px solid var(--border); margin:1.2em 0 1.5em; }
+  .tabbar .tab { padding:.55em 1em; cursor:pointer; border:1px solid transparent; border-bottom:none; border-radius:6px 6px 0 0; font:inherit; font-weight:500; font-size:.95em; color:var(--muted); background:none; margin-bottom:-2px; }
+  .tabbar .tab:hover { color:var(--fg); }
+  .tabbar .tab.active { color:var(--fg); border-color:var(--border); border-bottom:2px solid var(--bg); background:var(--bg); font-weight:600; }
+  .pane { display:none; } .pane.active { display:block; }
+  /* symbol index */
+  .idxbar { position:sticky; top:0; background:var(--bg); padding:.6em 0; border-bottom:1px solid var(--border); margin-bottom:.6em; z-index:5; }
+  .idxbar input { font:inherit; width:min(420px,90%); padding:.45em .7em; border:1px solid var(--border); border-radius:6px; background:var(--code-bg); color:var(--fg); }
+  table.idx td:first-child { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.9em; white-space:nowrap; }
+  table.idx td:nth-child(2) { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.86em; white-space:nowrap; }
+  /* svg map */
+  svg .bx rect { fill:var(--code-bg); stroke:var(--border); }
+  svg .bx text { fill:var(--fg); font-size:11.5px; text-anchor:middle; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  svg .hot rect { stroke:var(--accent); stroke-width:1.6; }
+  svg .queue rect { fill:none; stroke-dasharray:4 3; }
+  svg .note rect { fill:none; stroke-dasharray:4 3; }
+  svg .lane { fill:color-mix(in srgb, var(--accent) 4%, var(--bg)); stroke:var(--border); stroke-dasharray:6 4; }
+  svg .lanetitle { font-weight:600; font-size:12.5px; fill:var(--muted); letter-spacing:.03em; }
+  svg .edge { stroke:var(--muted); fill:none; marker-end:url(#arr); }
+  svg .xedge { stroke:var(--warn); fill:none; stroke-dasharray:5 3; marker-end:url(#arrw); }
+  svg .lbl { fill:var(--muted); font-size:11px; font-style:italic; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🗺️ Pico2Seq Code Map</h1>
+  <div class="sub">What goes where in the firmware — start at <code>Pico2Seq.ino</code>, follow a function name to its file, and see how a step becomes sound. Deep-dive doc: <code>docs/firmware-structure.md</code> and <code>docs/architecture.md</code>.</div>
+</header>
+
+<div class="status">
+  <span class="badge">REFERENCE · branch DeCluttered @ 4d2c457</span>
+  <span class="meta" style="float:right">As of 2026-09-21 21:16 UTC</span>
+  <p>4-voice polyphonic sequencer/synth on Raspberry Pi Pico 2 (RP2350) · 48 kHz audio · ~20k lines under <code>src/</code> (+ two submodules) · 4 host test targets, 315 tests</p>
+</div>
+
+<details class="next" open>
+  <summary>How to use this map <span class="meta">· 3 moves</span></summary>
+  <ol>
+    <li><span class="who">Looking for a function</span> — open the <a href="#" onclick="goTab('idx');return false;">Symbol index</a> and type its name (try <code>processBlock</code>). Every entry has file:line.</li>
+    <li><span class="who">New to the codebase</span> — read the <a href="#" onclick="goTab('flow');return false;">Data flow</a> tab: one diagram, then "life of a step" and "life of a sample" in words.</li>
+    <li><span class="who">About to edit</span> — check the <a href="#" onclick="goTab('map');return false;">Directory map</a> pills first: <span class="pill done">host-tested ✓</span> files you can unit-test, <span class="pill warn">hardware-bound</span> files that only run on the board. The invariants live in <code>AGENTS.md</code>.</li>
+  </ol>
+</details>
+
+<div class="tabbar">
+  <button class="tab active" data-pane="over">1 &middot; Overview</button>
+  <button class="tab" data-pane="flow">2 &middot; Data flow</button>
+  <button class="tab" data-pane="map">3 &middot; Directory map</button>
+  <button class="tab" data-pane="idx">4 &middot; Symbol index</button>
+  <button class="tab" data-pane="faq">5 &middot; FAQ</button>
+</div>
+
+<main>
+
+  <!-- ═══════════════════════ TAB 1: OVERVIEW ═══════════════════════ -->
+  <section class="pane active" id="over">
+    <div class="callout">There is no <code>main()</code>. Pico2Seq is an Arduino sketch on a dual-core RP2350: the 24-line <code>Pico2Seq.ino</code> only wires <b>Core 0</b> (<code>setup()</code>/<code>loop()</code> → <code>Application</code> — everything except audio) and <b>Core 1</b> (<code>setup1()</code>/<code>loop1()</code> → <code>AudioEngine</code> — audio synthesis only). All real logic lives in modules under <code>src/</code>.</div>
+
+    <h2>The 60-second mental model</h2>
+    <table>
+      <tr><th style="width:130px">Core</th><th>Entry point</th><th>Owns</th><th>Hard rule</th></tr>
+      <tr><td><span class="pill c0">Core 0</span> control</td><td><code>setup()</code>/<code>loop()</code> → <code>Application::begin()</code>/<code>update()</code></td><td>uClock ISR (staging only), clock-event drain, step playback, touch matrix + tiles, TMAG5273/VL53L1X sensors, encoders, OLED + LED refresh, voice editor, session save/load</td><td>~1 kHz pass; keep it snappy — USB serial and flash writes stall it</td></tr>
+      <tr><td><span class="pill c1">Core 1</span> audio</td><td><code>setup1()</code>/<code>loop1()</code> → <code>AudioEngine::begin()</code>/<code>renderNextBuffer()</code></td><td>Per-buffer render: mix 4 voices → convert → I2S DMA</td><td>Real-time: never block, allocate, or <code>Serial.print</code> here</td></tr>
+    </table>
+    <p>Cross-core communication is <b>lock-free only</b>: <code>volatile</code>/<code>std::atomic</code> flags (<code>voicesReady</code>, PPQN counter) and <code>SpscQueue</code>s (per-voice control updates, the step ring, the heartbeat). No mutexes anywhere.</p>
+
+    <h2>Reading order for newcomers</h2>
+    <ol>
+      <li><code>Pico2Seq.ino</code> — 24 lines, the whole dual-core lifecycle.</li>
+      <li><code>src/app/Application.cpp:169</code> — <code>update()</code>, the ordered pipeline of the control core.</li>
+      <li><code>src/app/AudioEngine.cpp:164</code> — <code>renderNextBuffer()</code>, the audio core's whole loop.</li>
+      <li><code>src/voice/Voice.cpp:339</code> — <code>Voice::processBlock()</code>, the hottest function in the firmware.</li>
+      <li><code>src/pico2seq-core/sequencer/Sequencer.cpp:206</code> — <code>advanceStep()</code>, how a musical step is read out.</li>
+      <li><code>docs/firmware-structure.md</code> — the file-by-file ownership map.</li>
+    </ol>
+
+    <h2>Legend</h2>
+    <p>
+      <span class="pill c0">Core 0</span> runs on the control core &nbsp;
+      <span class="pill c1">Core 1</span> runs on the audio core &nbsp;
+      <span class="pill done">host-tested ✓</span> compiles into the CMake test suite &nbsp;
+      <span class="pill warn">hardware-bound</span> needs the physical board (keep logic out of these) &nbsp;
+      <span class="pill sub">submodule</span> separate git repo &nbsp;
+      <span class="pill next">dormant</span> compiles but does nothing
+    </p>
+
+    <h2>Out of scope of this map</h2>
+    <ul>
+      <li><code>src/rpdsp/</code> internals — it is a header-only DSP submodule (<code>IC-Alchemy/RPDSP</code>); this map covers how <code>src/voice/</code> uses it.</li>
+      <li>Hardware bring-up details (pin map, I2C addresses) — <code>src/app/HardwarePins.h</code> and <code>README.md</code>.</li>
+    </ul>
+  </section>
+
+  <!-- ═══════════════════════ TAB 2: DATA FLOW ═══════════════════════ -->
+  <section class="pane" id="flow">
+    <h2>Input → sound, across the two cores</h2>
+    <div class="scroll">
+    <svg viewBox="0 0 960 600" width="960" style="max-width:none" role="img" aria-label="Dual-core data flow diagram: core 0 control path from clock ISR and touch inputs into the sequencer; cross-core SPSC queues; core 1 audio path from I2S DMA through the voice DSP chain to I2S out">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted)"/>
+        </marker>
+        <marker id="arrw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--warn)"/>
+        </marker>
+      </defs>
+
+      <!-- CORE 0 LANE -->
+      <rect class="lane" x="14" y="42" width="932" height="238" rx="10"/>
+      <text class="lanetitle" x="24" y="32">CORE 0 — CONTROL · setup()/loop() → Application::update() · ~1 kHz</text>
+
+      <!-- row 1: clock path -->
+      <g class="bx hot"><rect x="36" y="66" width="120" height="46" rx="6"/>
+        <text x="96" y="85">uClock ISR</text><text x="96" y="100">onStepCallback</text></g>
+      <g class="bx queue"><rect x="176" y="66" width="90" height="46" rx="6"/>
+        <text x="221" y="85">step ring</text><text x="221" y="100">SpscQueue</text></g>
+      <g class="bx"><rect x="286" y="66" width="150" height="46" rx="6"/>
+        <text x="361" y="93">Application::update</text></g>
+      <g class="bx"><rect x="456" y="66" width="140" height="46" rx="6"/>
+        <text x="526" y="93">processClockEvents</text></g>
+      <g class="bx"><rect x="616" y="66" width="150" height="46" rx="6"/>
+        <text x="691" y="93">processSequencerStep</text></g>
+      <g class="bx hot"><rect x="786" y="66" width="142" height="46" rx="6"/>
+        <text x="857" y="85">Sequencer::advanceStep</text><text x="857" y="100">× 4 voices</text></g>
+      <path class="edge" d="M156 89 H 172"/><path class="edge" d="M266 89 H 282"/>
+      <path class="edge" d="M436 89 H 452"/><path class="edge" d="M596 89 H 612"/>
+      <path class="edge" d="M766 89 H 782"/>
+
+      <!-- row 2: input path -->
+      <g class="bx"><rect x="36" y="160" width="120" height="46" rx="6"/>
+        <text x="96" y="179">MPR121 tiles</text><text x="96" y="194">+ Matrix</text></g>
+      <g class="bx"><rect x="176" y="160" width="110" height="46" rx="6"/>
+        <text x="231" y="179">TMAG5273</text><text x="231" y="194">VL53L1X</text></g>
+      <g class="bx"><rect x="306" y="160" width="160" height="46" rx="6"/>
+        <text x="386" y="187">ControlIO::scanControls</text></g>
+      <g class="bx"><rect x="486" y="160" width="190" height="46" rx="6"/>
+        <text x="581" y="179">UIEventHandler /</text><text x="581" y="194">AlchemyControlBridge</text></g>
+      <g class="bx"><rect x="696" y="160" width="70" height="46" rx="6"/>
+        <text x="731" y="187">UIState</text></g>
+      <g class="bx"><rect x="766" y="160" width="120" height="46" rx="6"/>
+        <text x="826" y="179">record steps</text><text x="826" y="194">advanceSeqStep</text></g>
+      <path class="edge" d="M286 183 H 302"/>
+      <path class="edge" d="M96 206 V 222 H 296 V 187 H 302"/>
+      <path class="edge" d="M466 183 H 482"/><path class="edge" d="M676 183 H 692"/>
+      <path class="edge" d="M581 206 V 216 H 826 V 210"/>
+      <path class="edge" d="M826 160 V 116"/>
+
+      <!-- gates -->
+      <g class="bx"><rect x="600" y="226" width="328" height="40" rx="6"/>
+        <text x="764" y="243">VoiceSystem gates (all 4 voices)</text><text x="764" y="258">+ MidiNoteManager (voices 0–1)</text></g>
+      <path class="edge" d="M908 112 V 222"/>
+
+      <!-- cross-core band -->
+      <g class="bx queue"><rect x="80" y="296" width="150" height="36" rx="6"/>
+        <text x="155" y="311">voicesReady</text><text x="155" y="325">(boot flag)</text></g>
+      <path class="xedge" d="M155 280 V 292"/>
+      <g class="bx queue"><rect x="600" y="296" width="220" height="36" rx="6"/>
+        <text x="710" y="311">per-voice SPSC</text><text x="710" y="325">ControlUpdate (264 B)</text></g>
+      <path class="xedge" d="M710 266 V 292"/>
+      <path class="xedge" d="M710 332 V 376"/>
+
+      <!-- CORE 1 LANE -->
+      <rect class="lane" x="14" y="346" width="932" height="234" rx="10"/>
+      <text class="lanetitle" x="24" y="368">CORE 1 — AUDIO · setup1()/loop1() → AudioEngine::renderNextBuffer() · 48 kHz real-time</text>
+
+      <g class="bx hot"><rect x="36" y="380" width="110" height="46" rx="6"/>
+        <text x="91" y="399">I2S DMA</text><text x="91" y="414">buffer free</text></g>
+      <g class="bx hot"><rect x="166" y="380" width="190" height="46" rx="6"/>
+        <text x="261" y="407">renderNextBuffer</text></g>
+      <g class="bx hot"><rect x="376" y="380" width="180" height="46" rx="6"/>
+        <text x="466" y="407">VoiceManager::processBlock</text></g>
+      <g class="bx hot"><rect x="576" y="380" width="150" height="46" rx="6"/>
+        <text x="651" y="407">Voice::processBlock ×4</text></g>
+      <g class="bx note"><rect x="746" y="380" width="182" height="46" rx="6"/>
+        <text x="837" y="399">renderSpan_ → rpdsp</text><text x="837" y="414">engines → filter → ADSR</text></g>
+      <path class="edge" d="M146 403 H 162"/><path class="edge" d="M356 403 H 372"/>
+      <path class="edge" d="M556 403 H 572"/>
+      <path class="edge" d="M726 403 H 742"/>
+
+      <g class="bx"><rect x="376" y="470" width="180" height="40" rx="6"/>
+        <text x="466" y="494">AudioSamples::toPcm16</text></g>
+      <g class="bx"><rect x="596" y="470" width="130" height="40" rx="6"/>
+        <text x="661" y="494">I2S out · 48 kHz</text></g>
+      <path class="edge" d="M466 426 V 466"/><path class="edge" d="M556 490 H 592"/>
+      <text class="lbl" x="36" y="545">Core 1 also publishes Heartbeat stats through an SPSC queue; core 0 prints them every ~2 s.</text>
+      <text class="lbl" x="36" y="563">Core 0 retries failed control-queue pushes once per pass via VoiceManager::flushControlUpdates.</text>
+    </svg>
+    </div>
+
+    <h2>The same flow in words</h2>
+    <h3>Life of a step (Core 0, once per musical step)</h3>
+    <ol>
+      <li>Stock uClock fires its alarm on core 0. The ISR callback <code>onStepCallback</code> (<code>ClockService.cpp:26</code>) does one thing: push the step number into a <code>SpscQueue</code> ring (drops + counts on overflow). Nothing else lives in ISR context.</li>
+      <li><code>Application::update()</code> (<code>Application.cpp:169</code>) drains the ring via <code>ClockService::processClockEvents()</code> (<code>ClockService.cpp:61</code>).</li>
+      <li>Each drained step goes to <code>StepPlayback::processSequencerStep()</code> (<code>StepPlayback.cpp:113</code>) → <code>Sequencer::advanceStep()</code> (<code>Sequencer.cpp:206</code>) reads the current value of each of the 9 parameter lanes (each lane can have its own step count — polymetric).</li>
+      <li>Values pass through <code>VoiceEdit::composeLane</code> (<code>VoiceEditParameters.cpp:984</code>) — sequencer tracks store ±0.5 offsets around each voice's base patch parameters — producing a <code>VoiceState</code>.</li>
+      <li><code>updateActiveVoiceState()</code> (<code>StepPlayback.cpp:73</code>) writes gates/notes into <code>VoiceSystem</code>, and <code>Voice::updateParameters()</code> (<code>Voice.cpp:962</code>) pushes the new parameters into that voice's SPSC control queue. Failed pushes are retried next pass by <code>VoiceManager::flushControlUpdates()</code>.</li>
+    </ol>
+    <h3>Life of a sample (Core 1, continuously at 48 kHz)</h3>
+    <ol>
+      <li><code>loop1()</code> calls <code>AudioEngine::renderNextBuffer()</code> (<code>AudioEngine.cpp:164</code>), which blocks on a free DMA buffer — that blocking <i>is</i> the pacing.</li>
+      <li><code>VoiceManager::processBlock()</code> (<code>VoiceManager.cpp:361</code>) renders each voice: <code>Voice::processBlock()</code> (<code>Voice.cpp:339</code>) first drains one queued control update per sample, then <code>renderSpan_</code> (<code>Voice.cpp:364</code>) runs the per-voice DSP chain from <code>src/rpdsp/</code> (osc bank / waveguide / recipe / hypersaw / noise-FX → ladder or SVF filter → ADSR → overdrive/wavefolder).</li>
+      <li>The mix goes through <code>AudioSamples::toPcm16()</code> (<code>Pcm16.h:13</code>) into the I2S DMA ring. Meanwhile the master gain ramps smoothly via <code>VoiceManager::advanceMasterGain_()</code>.</li>
+    </ol>
+  </section>
+
+  <!-- ═══════════════════════ TAB 3: DIRECTORY MAP ═══════════════════════ -->
+  <section class="pane" id="map">
+    <h2>What goes where, directory by directory</h2>
+    <p class="meta">Line counts from the tree as of 2026-09-21. Pills: <span class="pill done">host-tested ✓</span> runs in the CMake suite · <span class="pill warn">hardware-bound</span> needs the board · <span class="pill c0">Core 0</span> / <span class="pill c1">Core 1</span> · <span class="pill sub">submodule</span> · <span class="pill next">dormant</span>.</p>
+
+    <h3><code>Pico2Seq.ino</code> <span class="pill c0">Core 0</span> <span class="pill c1">Core 1</span></h3>
+    <div class="scroll"><table>
+      <tr><th>File</th><th style="width:60px">~LOC</th><th>What it is</th></tr>
+      <tr><td><code>Pico2Seq.ino</code></td><td>24</td><td>The shell. <code>setup()/loop()</code> → <code>Application</code>; <code>setup1()/loop1()</code> → <code>AudioEngine</code>. Nothing else.</td></tr>
+    </table></div>
+
+    <h3><code>src/app/</code> — the application layer <span class="pill c0">Core 0</span> (AudioEngine: <span class="pill c1">Core 1</span>)</h3>
+    <div class="scroll"><table>
+      <tr><th>File</th><th style="width:60px">~LOC</th><th>What it is</th></tr>
+      <tr><td><code>Application.cpp/.h</code></td><td>324</td><td>Core-0 owner: <code>begin()</code> (:80) boot, <code>update()</code> (:169) — the ordered pipeline (steps → diagnostics → gate ticks → controls → displays), session/autosave I/O.</td></tr>
+      <tr><td><code>AudioEngine.cpp/.h</code></td><td>288</td><td><b>Core 1.</b> <code>renderNextBuffer()</code> (:164), <code>fill_audio_buffer()</code> (:41) DMA callback, heartbeat publication.</td></tr>
+      <tr><td><code>ClockService.cpp/.h</code></td><td>120</td><td>uClock ISR callbacks (stage-only): <code>onStepCallback</code> (:26), <code>onClockStart/Stop</code> (:41/:51), drains <code>processClockEvents</code> (:61), <code>processPendingGateTicks</code> (:83), <code>initializeClock</code> (:70).</td></tr>
+      <tr><td><code>StepPlayback.cpp/.h</code></td><td>147</td><td>Per-step playback: <code>processSequencerStep</code> (:113), <code>updateActiveVoiceState</code> (:73).</td></tr>
+      <tr><td><code>VoicePlayback.cpp/.h</code></td><td>52</td><td>The single voice-state publishing path (sequencer → voice control queue).</td></tr>
+      <tr><td><code>VoiceSetup.cpp/.h</code></td><td>68</td><td>Constructs voices + sequencers on core 0, wires <code>composeLane</code>, publishes <code>voicesReady</code>.</td></tr>
+      <tr><td><code>VoiceEditor.cpp/.h</code></td><td>194</td><td>Modal voice editor (Shift + Voice 3 chord): 11 parameter groups, fine mode, live publish.</td></tr>
+      <tr><td><code>ControlIO.cpp/.h</code></td><td>294</td><td>1 ms control slice: <code>scanControls</code> (:206) touch/sensors/encoders, <code>refreshDisplays</code> (:250, 40 ms OLED/LED).</td></tr>
+      <tr><td><code>AppState.cpp/.h</code></td><td>82</td><td>Sketch globals: <code>sequencers[]</code>, <code>voiceManager</code>, <code>isClockRunning</code>, <code>PerformanceInput</code> lidar calibration ✓.</td></tr>
+      <tr><td><code>Session* / RetainedSession*</code></td><td>330</td><td>Session capture/apply over <code>ProjectSnapshot</code>, CRC-guarded save/load, survive-reboot mirror. ✓ logic tested via <code>[persistence]</code>.</td></tr>
+      <tr><td><code>Pcm16.h</code></td><td>26</td><td><code>toPcm16()</code> float→int16 conversion. ✓ tested <code>[pcm]</code>.</td></tr>
+      <tr><td><code>HardwarePins.h</code>, <code>SequencerView.h</code></td><td>51</td><td>Pin map; read-only UI view of a sequencer.</td></tr>
+    </table></div>
+
+    <h3><code>src/ui/</code> — UI state &amp; control surface</h3>
+    <div class="scroll"><table>
+      <tr><th>File</th><th style="width:60px">~LOC</th><th>What it is</th></tr>
+      <tr><td><code>UIState.h</code></td><td>119</td><td><b>Single source of UI truth</b> — one struct; extend it, never add globals. ✓ header tested via <code>[recording]</code>.</td></tr>
+      <tr><td><code>UIEventHandler.cpp/.h</code></td><td>812</td><td>Matrix event funnel, held-button poll, <code>advanceSequencerStep</code> (:680) — the UI→sequencer bridge.</td></tr>
+      <tr><td><code>ControlSurfaceLogic.cpp/.h</code></td><td>658</td><td>Pure button/press policy — the place for testable control logic. ✓ tested <code>[control_surface]</code>.</td></tr>
+      <tr><td><code>AlchemyControlBridge.cpp/.h</code></td><td>690</td><td>Alchemy tiles/faders → UIState + sequencers; utility long-presses. Hardware-bound (Wire).</td></tr>
+      <tr><td><code>ButtonHandlers / ButtonManager</code></td><td>507</td><td>Physical button long/double-press handling.</td></tr>
+      <tr><td><code>SettingsPads.h</code>, <code>UIConstants.h</code>, <code>UITransitions.h</code>, <code>VoiceEditControls.h</code></td><td>372</td><td>Settings-mode pad actions, UI constants, mode transitions, editor control map.</td></tr>
+    </table></div>
+
+    <h3><code>src/voice/</code> — the synthesizer <span class="pill c1">Core 1</span> hot path</h3>
+    <div class="scroll"><table>
+      <tr><th>File</th><th style="width:60px">~LOC</th><th>What it is</th></tr>
+      <tr><td><code>Voice.cpp/.h</code></td><td>1949</td><td>One synth voice: SPSC control queue, pitch cache, DSP chain. <code>processBlock</code> (:339), <code>renderSpan_</code> (:364), <code>updateParameters</code> (:962). ✓ control queue tested.</td></tr>
+      <tr><td><code>VoiceManager.cpp/.h</code></td><td>962</td><td>Voice ownership + mixing: <code>processBlock</code> (:361), <code>processAllVoices</code> (:390, 1-sample wrapper kept for tests), <code>flushControlUpdates</code> (:661), master gain ramp.</td></tr>
+      <tr><td><code>VoiceOscillator.h</code></td><td>198</td><td>Waveform-id → rpdsp class dispatch (<code>std::variant</code>, <code>renderAdd</code> per span).</td></tr>
+      <tr><td><code>VoiceConfig.h</code></td><td>177</td><td>Per-voice engine/filter/envelope configuration struct.</td></tr>
+      <tr><td><code>VoiceParameters / VoiceEditParameters</code></td><td>1441</td><td>Lane→config bindings; the 70-parameter editor table; <code>VoiceEdit::composeLane</code> (:984) — the ±0.5 modifier transform. ✓ tested <code>[voice_edit]</code>.</td></tr>
+      <tr><td><code>VoicePresets + presets/</code></td><td>959</td><td><b>29-preset registry</b> (PresetBank X-macro + Oscillator/Recipe/String/Texture/Musical headers), compile-time bank validation. ✓ tested <code>[presets]</code>.</td></tr>
+      <tr><td><code>PatchCodec.cpp/.h</code></td><td>160</td><td><code>VoiceConfig</code> ↔ <code>PatchSnapshot</code> serialization. ✓ tested <code>[persistence]</code>.</td></tr>
+      <tr><td><code>VoiceSystem.h</code></td><td>69</td><td><code>voiceIds[]</code>/<code>voiceStates[]</code> with bounds-clamping accessors — always go through these.</td></tr>
+      <tr><td><code>MusicalValues.h</code></td><td>150</td><td>Pure conversions (note→Hz, envelope seconds) + OLED display formatting.</td></tr>
+      <tr><td><code>engines/RecipeEngine.h, RecipeSources.h</code></td><td>191</td><td>Recipe DSP engine composition. ✓ tested <code>[recipes]</code>.</td></tr>
+    </table></div>
+
+    <h3><code>src/pico2seq-core/</code> — portable sequencer core <span class="pill done">host-tested ✓</span></h3>
+    <p class="meta">Plain C++, <b>no Arduino/UI/hardware includes allowed, ever</b> — reusable in other projects. Sequencer→UI bridging belongs in <code>src/ui/UIEventHandler</code>, not here.</p>
+    <div class="scroll"><table>
+      <tr><th>File</th><th style="width:60px">~LOC</th><th>What it is</th></tr>
+      <tr><td><code>sequencer/Sequencer.cpp/.h</code></td><td>856</td><td>One sequencer: polymetric pattern (9 lanes × 64 steps), <code>advanceStep</code> (:206), copy/set/clear/randomize, octave decode.</td></tr>
+      <tr><td><code>sequencer/ParameterManager.cpp/.h</code></td><td>240</td><td>Lane storage + <code>setValue/getValue</code> (:84/:76), randomize with per-lane amounts.</td></tr>
+      <tr><td><code>sequencer/SequencerDefs.h</code></td><td>326</td><td><code>ParamId</code>, <code>ParameterTrack&lt;N&gt;</code>, constants (gate track length defines pattern length).</td></tr>
+      <tr><td><code>sequencer/ShuffleTemplates.h</code></td><td>52</td><td>Swing/shuffle tables.</td></tr>
+      <tr><td><code>scales/</code></td><td>109</td><td>Scale tables + note lookup (injected into voices; chromatic fallback).</td></tr>
+      <tr><td><code>persistence/</code></td><td>296</td><td><code>ProjectSnapshot</code>, <code>PatternCodec</code>, <code>SnapshotFormat</code> (crc32), <code>RetainedSessionLogic</code>. ✓ tested.</td></tr>
+    </table></div>
+
+    <h3><code>src/rpdsp/</code> — DSP library <span class="pill sub">submodule</span></h3>
+    <p>Header-only, namespace <code>rpdsp</code>, <code>prepare()/reset()/process()</code> convention (~6.5k lines, 33 files). Reached from <code>src/voice/VoiceOscillator.h</code>. Never include <code>src/rpdsp/src/rpdsp.h</code> — it is an Arduino discovery shim, not a real header.</p>
+
+    <h3>Hardware-bound drivers <span class="pill warn">hardware-bound</span></h3>
+    <div class="scroll"><table>
+      <tr><th>Directory</th><th style="width:60px">~LOC</th><th>What it is</th></tr>
+      <tr><td><code>src/audio/</code></td><td>1759</td><td>PIO I2S DMA driver (<code>audio_i2s.c</code> + <code>.pio.h</code>, <code>buffer.c</code> ring). <code>audio.cpp</code> + <code>sample_conversion.h</code> are kept host-testable against stubs ✓.</td></tr>
+      <tr><td><code>src/OLED/</code></td><td>1178</td><td>SH110X 128×128 display pages (sequencer, voice editor, notices). <code>displayVoiceEditor</code> declared <code>oled.h:114</code>.</td></tr>
+      <tr><td><code>src/LEDMatrix/</code></td><td>1449</td><td>WS2812B 8×4 pad mirror, 10 themes, step/gate lights.</td></tr>
+      <tr><td><code>src/matrix/</code></td><td>265</td><td>MPR121 32-pad touch matrix scan.</td></tr>
+      <tr><td><code>src/sensors/</code></td><td>700</td><td><code>DistanceSensor</code> (VL53L1X lidar), <code>EncoderManager</code> (rotary), <code>SensorConstants.h</code>.</td></tr>
+      <tr><td><code>src/VelocityEncoder/</code> <span class="pill sub">submodule</span></td><td>2391</td><td>TMAG5273 magnetic-encoder driver + encoder math.</td></tr>
+      <tr><td><code>src/midi/</code> <span class="pill next">dormant</span></td><td>—</td><td>Plumbing left over from USB MIDI (removed 2026-09-06). All sends are stubs; no I/O path exists.</td></tr>
+    </table></div>
+
+    <h3><code>src/utils/</code> — shared infrastructure <span class="pill done">host-tested ✓</span></h3>
+    <div class="scroll"><table>
+      <tr><th>File</th><th style="width:60px">~LOC</th><th>What it is</th></tr>
+      <tr><td><code>SpscQueue.h</code></td><td>60</td><td>The lock-free single-producer/single-consumer queue both cores depend on (step ring, per-voice control updates, heartbeat).</td></tr>
+      <tr><td><code>FreezeWatchdog.h</code></td><td>187</td><td>Retained-RAM phase breadcrumbs + forensics for the freeze investigation. ✓ own test target.</td></tr>
+      <tr><td><code>Debug.h/.cpp</code>, <code>DspMapping.h</code>, <code>AudioRam.h</code></td><td>243</td><td>Leveled debug prints, <code>fmap</code>/mapping helpers, audio-RAM allocation.</td></tr>
+    </table></div>
+
+    <h3><code>src/AlchemyUI/src/</code> — tile panel protocol</h3>
+    <div class="scroll"><table>
+      <tr><th>File</th><th style="width:60px">~LOC</th><th>What it is</th></tr>
+      <tr><td><code>AlchemyProto.h</code>, <code>TileButton.h</code></td><td>319</td><td>Wire-format decode — Arduino-free. ✓ tested <code>[alchemy_proto]</code>.</td></tr>
+      <tr><td><code>AlchemyTiles, ButtonMap, AlchemyPanel</code></td><td>545</td><td>Tile bank I/O + 20-button panel map (Wire-bound parts untested).</td></tr>
+    </table></div>
+
+    <h3><code>tests/</code> — host test suite <span class="pill done">4 targets · 315 tests</span></h3>
+    <p><code>pico2seq_tests</code> (240) · <code>pico2seq_voice_tests</code> (70) · <code>pico2seq_watchdog_tests</code> (4) · <code>pico2seq_audio_tests</code> (1). Stubs under <code>tests/stubs/</code> mirror real header paths exactly. <code>tests/CMakeLists.txt</code> is the source of truth for what counts as tested. Run: <code>cmake --build build_test --parallel &amp;&amp; ./build_test/tests/pico2seq_tests</code>.</p>
+  </section>
+
+  <!-- ═══════════════════════ TAB 4: SYMBOL INDEX ═══════════════════════ -->
+  <section class="pane" id="idx">
+    <h2>Symbol index</h2>
+    <div class="idxbar">
+      <input id="idx-q" type="search" placeholder="Type a symbol — e.g. processBlock, advanceStep, composeLane…" oninput="filterIdx()" autocomplete="off">
+      <span class="meta" id="idx-count" style="margin-left:.6em"></span>
+    </div>
+
+    <h3 class="idxhead">Startup &amp; the Core-0 pass</h3>
+    <div class="scroll"><table class="idx"><tbody>
+      <tr><td>setup / loop</td><td>Pico2Seq.ino:6</td><td>Core-0 Arduino entry → <code>Application::begin()</code> / <code>update()</code></td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>setup1 / loop1</td><td>Pico2Seq.ino:18</td><td>Core-1 Arduino entry → <code>AudioEngine::begin()</code> / <code>renderNextBuffer()</code></td><td><span class="pill c1">C1</span></td></tr>
+      <tr><td>Application::begin</td><td>src/app/Application.cpp:80</td><td>Boot: clock init, control I/O, session load</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>Application::update</td><td>src/app/Application.cpp:169</td><td>The ~1 kHz control pass; five ordered stages</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>printRuntimeDiagnostics</td><td>src/app/Application.cpp:36</td><td>2 s heartbeat line (steps, audioBufs, underruns)</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>ControlIO::scanControls</td><td>src/app/ControlIO.cpp:206</td><td>Touch matrix + tiles + sensors + encoders, every pass</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>ControlIO::refreshDisplays</td><td>src/app/ControlIO.cpp:250</td><td>OLED + LED refresh, throttled to 40 ms</td><td><span class="pill c0">C0</span></td></tr>
+    </tbody></table></div>
+
+    <h3 class="idxhead">Clock &amp; step playback (Core 0)</h3>
+    <div class="scroll"><table class="idx"><tbody>
+      <tr><td>initializeClock</td><td>src/app/ClockService.cpp:70</td><td>uClock setup + <code>uClock.start()</code> (:79); ISR lands on core 0</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>onStepCallback</td><td>src/app/ClockService.cpp:26</td><td>uClock ISR callback — stage-only: push step into the SpscQueue ring</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>onClockStart / onClockStop</td><td>src/app/ClockService.cpp:41</td><td>Transport start/stop callbacks</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>processClockEvents</td><td>src/app/ClockService.cpp:61</td><td>Drain the step ring in thread context</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>processPendingGateTicks</td><td>src/app/ClockService.cpp:83</td><td>Gate timing ticks for all 4 voices (VoiceSystem)</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>processSequencerStep</td><td>src/app/StepPlayback.cpp:113</td><td>One musical step: advance sequencer, produce VoiceState</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>updateActiveVoiceState</td><td>src/app/StepPlayback.cpp:73</td><td>Publish gates/notes into VoiceSystem for the active voice</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>advanceSequencerStep</td><td>src/ui/UIEventHandler.cpp:680</td><td>UI bridge: unpack recording gestures → <code>Sequencer::advanceStep</code></td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>Sequencer::advanceStep</td><td>src/pico2seq-core/sequencer/Sequencer.cpp:206</td><td>Read all 9 lanes at the current uClock step (polymetric modulo)</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>Sequencer::setStep</td><td>src/pico2seq-core/sequencer/Sequencer.cpp:516</td><td>Write one step (encodes octave as offset/48+0.5)</td><td></td></tr>
+      <tr><td>Sequencer::playbackValue</td><td>src/pico2seq-core/sequencer/Sequencer.h:247</td><td>Raw stored value for a lane/step (±0.5 modifier space)</td><td></td></tr>
+      <tr><td>mapFloatToOctaveOffset</td><td>src/pico2seq-core/sequencer/Sequencer.cpp:12</td><td>Octave decode — intentionally clamps to ±12 at playback</td><td></td></tr>
+      <tr><td>Sequencer::clearPattern</td><td>src/pico2seq-core/sequencer/Sequencer.cpp:174</td><td>Reset; patch mode widens to 64 first (see note in review)</td><td></td></tr>
+      <tr><td>Sequencer::copyStep</td><td>src/pico2seq-core/sequencer/Sequencer.cpp:538</td><td>Copy all lanes between steps</td><td></td></tr>
+      <tr><td>ParameterManager::setValue / getValue</td><td>src/pico2seq-core/sequencer/ParameterManager.cpp:84 / :76</td><td>Lane storage write/read with clamping</td><td></td></tr>
+    </tbody></table></div>
+
+    <h3 class="idxhead">Audio path (Core 1) — where <code>processBlock</code> lives</h3>
+    <div class="scroll"><table class="idx"><tbody>
+      <tr><td>AudioEngine::begin</td><td>src/app/AudioEngine.cpp:122</td><td>Core-1 audio setup</td><td><span class="pill c1">C1</span></td></tr>
+      <tr><td>AudioEngine::renderNextBuffer</td><td>src/app/AudioEngine.cpp:164</td><td>The core-1 loop body: block on free DMA buffer, render, convert</td><td><span class="pill c1">C1</span></td></tr>
+      <tr><td>fill_audio_buffer</td><td>src/app/AudioEngine.cpp:41</td><td>I2S DMA callback: mixBuffer → <code>toPcm16</code> → hardware</td><td><span class="pill c1">C1</span></td></tr>
+      <tr><td>AudioSamples::toPcm16</td><td>src/app/Pcm16.h:13</td><td>float → int16 with clipping</td><td><span class="pill c1">C1</span></td></tr>
+      <tr><td>VoiceManager::processBlock</td><td>src/voice/VoiceManager.cpp:361</td><td>Mix all 4 voices + master gain into one float buffer</td><td><span class="pill c1">C1</span></td></tr>
+      <tr><td>Voice::processBlock</td><td>src/voice/Voice.cpp:339</td><td>Per-voice render: drain control queue → <code>renderSpan_</code> chunks</td><td><span class="pill c1">C1</span></td></tr>
+      <tr><td>Voice::renderSpan_</td><td>src/voice/Voice.cpp:364</td><td>The hot inner loop: rpdsp engines → filter → envelope → FX</td><td><span class="pill c1">C1</span></td></tr>
+      <tr><td>VoiceManager::processAllVoices</td><td>src/voice/VoiceManager.cpp:390</td><td>1-sample wrapper around processBlock — kept for host tests</td><td><span class="pill c1">C1</span></td></tr>
+      <tr><td>VoiceManager::advanceMasterGain_</td><td>src/voice/VoiceManager.cpp:397</td><td>Smooth 15 ms master-volume ramp</td><td><span class="pill c1">C1</span></td></tr>
+      <tr><td>VoiceOscillator renderAdd / renderOscillatorAdd_</td><td>src/voice/VoiceOscillator.h:80 / :95</td><td>Templated per-span oscillator add (one variant dispatch per span)</td><td><span class="pill c1">C1</span></td></tr>
+      <tr><td>Voice::applyControlUpdate_</td><td>src/voice/Voice.cpp:296</td><td>Apply one queued parameter update inside the render</td><td><span class="pill c1">C1</span></td></tr>
+      <tr><td>Voice::applyEnvelopeParameters</td><td>src/voice/Voice.cpp:861</td><td>Normalized → ADSR seconds mapping</td><td><span class="pill c1">C1</span></td></tr>
+      <tr><td>Voice::updateParameters</td><td>src/voice/Voice.cpp:962</td><td>Core-0 side: stage a VoiceState into the per-voice SPSC queue</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>Voice::flushControlUpdates / VoiceManager::flushControlUpdates</td><td>src/voice/Voice.cpp:256 / VoiceManager.cpp:661</td><td>Retry failed queue pushes (per pass, core 0)</td><td><span class="pill c0">C0</span></td></tr>
+    </tbody></table></div>
+
+    <h3 class="idxhead">Voice parameters &amp; presets</h3>
+    <div class="scroll"><table class="idx"><tbody>
+      <tr><td>VoiceEdit::composeLane</td><td>src/voice/VoiceEditParameters.cpp:984</td><td>The ±0.5 sequencer-offset → real-parameter transform (playback + OLED + MusicalValues all route through it)</td><td></td></tr>
+      <tr><td>PresetBank (kPresets)</td><td>src/voice/presets/PresetBank.h</td><td>29-preset X-macro registry, compile-time validated</td><td></td></tr>
+      <tr><td>VoicePresets::get*</td><td>src/voice/VoicePresets.cpp:55</td><td>Named accessors into the bank (Analog, WgPluck, …)</td><td></td></tr>
+      <tr><td>PatchCodec capture / apply</td><td>src/voice/PatchCodec.cpp:19 / :66</td><td>VoiceConfig ↔ PatchSnapshot mirror lists</td><td></td></tr>
+      <tr><td>VoiceSystem::getVoiceState / getVoiceId</td><td>src/voice/VoiceSystem.h:52 / :29</td><td>Bounds-clamped accessors — never index the arrays directly</td><td></td></tr>
+      <tr><td>MusicalValues conversions</td><td>src/voice/MusicalValues.h:64</td><td>note→Hz, envelope seconds (also used by OLED formatting)</td><td></td></tr>
+      <tr><td>Session::captureSession</td><td>src/app/Session.cpp:34</td><td>Snapshot all 4 sequencers + patches into ProjectSnapshot</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>persistence/ (crc32, ProjectSnapshot, PatternCodec)</td><td>src/pico2seq-core/persistence/</td><td>Portable session/pattern serialization ✓</td><td></td></tr>
+    </tbody></table></div>
+
+    <h3 class="idxhead">UI, sensors &amp; drivers (hardware side)</h3>
+    <div class="scroll"><table class="idx"><tbody>
+      <tr><td>AlchemyControlBridge::handleUtilityButtons</td><td>src/ui/AlchemyControlBridge.cpp:308</td><td>Tile-panel utility long-presses</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>AlchemyControlBridge::handleFaders</td><td>src/ui/AlchemyControlBridge.cpp:465</td><td>Fader → parameter mapping</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>VoiceEditor (modal editor)</td><td>src/app/VoiceEditor.cpp</td><td>Enter via Shift+Voice3; navigates 11 groups; publishes live</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>displayVoiceEditor</td><td>src/OLED/oled.h:114</td><td>Dedicated OLED page for the editor</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>DistanceSensor (VL53L1X)</td><td>src/sensors/DistanceSensor.cpp</td><td>Hand-distance lidar → performance input</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>TMAG5273 driver</td><td>src/VelocityEncoder/src/TMAG5273.cpp</td><td>Magnetic encoder (submodule)</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>EncoderManager</td><td>src/sensors/EncoderManager.cpp</td><td>Rotary encoder → step/base editing, voice-scoped</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>Matrix (MPR121)</td><td>src/matrix/Matrix.cpp</td><td>32-pad capacitive touch scan</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>LEDMatrixFeedback</td><td>src/LEDMatrix/LEDMatrixFeedback.cpp</td><td>8×4 pad mirror, themes, step lights</td><td><span class="pill c0">C0</span></td></tr>
+      <tr><td>SpscQueue&lt;T,N&gt;</td><td>src/utils/SpscQueue.h</td><td>Lock-free SPSC — the only sanctioned cross-core queue</td><td></td></tr>
+      <tr><td>FreezeWatchdog</td><td>src/utils/FreezeWatchdog.h</td><td>Retained-RAM phase breadcrumbs for post-mortem</td><td></td></tr>
+    </tbody></table></div>
+  </section>
+
+  <!-- ═══════════════════════ TAB 5: FAQ ═══════════════════════ -->
+  <section class="pane" id="faq">
+    <h2>Questions this map answers</h2>
+
+    <h3>Where is <code>main()</code>?</h3>
+    <p>There isn't one. Arduino's dual-core lifecycle starts in <code>Pico2Seq.ino</code>: <code>setup()/loop()</code> (core 0) → <code>Application::begin()/update()</code>; <code>setup1()/loop1()</code> (core 1) → <code>AudioEngine::begin()/renderNextBuffer()</code>.</p>
+
+    <h3>Where is <code>processBlock</code> and who calls it?</h3>
+    <p><code>loop1()</code> → <code>AudioEngine::renderNextBuffer()</code> (<code>AudioEngine.cpp:164</code>) → <code>VoiceManager::processBlock()</code> (<code>VoiceManager.cpp:361</code>) → <code>Voice::processBlock()</code> (<code>Voice.cpp:339</code>) for each of the 4 voices. <code>VoiceManager::processAllVoices()</code> (<code>:390</code>) is the one-sample-at-a-time wrapper kept alive mainly by the host tests.</p>
+
+    <h3>How do sequencer values become sound?</h3>
+    <p><code>Sequencer::playbackValue()</code> returns a stored ±0.5 modulation offset; <code>VoiceEdit::composeLane</code> (<code>VoiceEditParameters.cpp:984</code>) composes it around the voice's base patch parameters into a <code>VoiceState</code>; <code>Voice::updateParameters()</code> queues it; <code>Voice::processBlock()</code> applies it on the next rendered span. Note lane is an additive transpose around <code>baseNote</code>, not a replacement.</p>
+
+    <h3>Where did MIDI go?</h3>
+    <p>USB MIDI was removed 2026-09-06. <code>src/midi/</code> is dormant plumbing with stub sends; nothing transmits. Gate/note bookkeeping for voices 0–1 still lives in <code>MidiNoteManager</code> as internal state only.</p>
+
+    <h3>Which files can I unit-test?</h3>
+    <p>Anything with no hardware dependency: all of <code>src/pico2seq-core/</code>, <code>src/ui/ControlSurfaceLogic.cpp</code>, most of <code>src/voice/</code>, the header-only <code>AlchemyProto.h</code>/<code>TileButton.h</code>, <code>audio.cpp</code>/<code>sample_conversion.h</code> (via stubs), <code>FreezeWatchdog.h</code>, plus the two header-only exceptions <code>Pcm16.h</code> and <code>AppState.h</code>'s calibration. Keep new logic out of the <code>src/app/*.cpp</code> glue files — extract it into <code>ControlSurfaceLogic</code> or <code>pico2seq-core</code> instead.</p>
+
+    <h3>Where are gates handled?</h3>
+    <p>All four voices have software gates and duration timers in <code>VoiceSystem</code>, ticked by <code>ClockService::processPendingGateTicks()</code> (<code>ClockService.cpp:83</code>) on core 0. Voices 0–1 additionally get <code>MidiNoteManager</code> internal note tracking. The audio-side ADSR release tail lives on core 1 inside <code>Voice</code>.</p>
+
+    <h3>Why does the Gate track matter specially?</h3>
+    <p>The Gate lane's step count defines the whole pattern length for a voice; every other lane modulo-wraps against the global uClock step independently. That is what makes polymeter ("Note: 16, Filter: 8") work.</p>
+
+    <h3>What do I run after changing code?</h3>
+    <p><code>cmake -B build_test -DCMAKE_BUILD_TYPE=Debug &amp;&amp; cmake --build build_test --parallel &amp;&amp; ./build_test/tests/pico2seq_tests</code> — plus the other three targets. There is no CI; the suite is the gate. Firmware builds need Arduino IDE / <code>scripts/build_pico2seq.ps1</code> and a board.</p>
+  </section>
+
+</main>
+
+<script type="application/json" id="artifact-state">
+{"as_of": "2026-09-21 21:16 UTC", "page": "code-map", "branch": "DeCluttered", "head": "4d2c457", "tabs": ["over", "flow", "map", "idx", "faq"]}
+</script>
+
+<script>
+function goTab(id){
+  document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active', t.dataset.pane === id); });
+  document.querySelectorAll('.pane').forEach(function(p){ p.classList.toggle('active', p.id === id); });
+}
+document.querySelectorAll('.tab').forEach(function(t){ t.addEventListener('click', function(){ goTab(t.dataset.pane); }); });
+
+(function(){
+  var tables = document.querySelectorAll('table.idx');
+  var total = 0;
+  tables.forEach(function(t){ total += t.querySelectorAll('tbody tr').length; });
+  var count = document.getElementById('idx-count');
+  function filterIdx(){
+    var q = document.getElementById('idx-q').value.toLowerCase(), shown = 0;
+    tables.forEach(function(t){
+      var vis = 0;
+      t.querySelectorAll('tbody tr').forEach(function(tr){
+        var hit = !q || tr.textContent.toLowerCase().indexOf(q) >= 0;
+        tr.style.display = hit ? '' : 'none';
+        if (hit) vis++;
+      });
+      t.parentElement.style.display = vis ? '' : 'none';
+      var h = t.closest('section').querySelectorAll('h3.idxhead'), tbls = t.closest('section').querySelectorAll('table.idx');
+      for (var i = 0; i < tbls.length; i++){
+        if (tbls[i] === t){ h[i].style.display = vis ? '' : 'none'; break; }
+      }
+      shown += vis;
+    });
+    count.textContent = shown + ' of ' + total + ' symbols';
+  }
+  window.filterIdx = filterIdx;
+  filterIdx();
+})();
+</script>
+
+</body>
+</html>
