@@ -24,6 +24,10 @@ struct Heartbeat
     uint8_t voiceIds[4];
     uint32_t renderAverageUs; // Last window mean, excluding buffer-wait time
     uint32_t renderMaxUs;
+    uint32_t voicesAverageUs;
+    uint32_t delayAverageUs;
+    uint32_t compressorAverageUs;
+    uint32_t miscAverageUs; // PCM conversion, dispatch and profiler overhead
     uint32_t renderOverBudget; // Buffers slower than 256/48000 s (~5.33 ms)
     uint32_t underruns; // DMA silence substitutions (listener hears dropouts)
     uint32_t txStalls; // Observed stalls of the I2S output

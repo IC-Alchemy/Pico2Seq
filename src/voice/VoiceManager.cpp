@@ -9,9 +9,17 @@
 #include "../pico2seq-core/scales/scales.h" // Inject scale data into voices
 #include "Voice.h"
 #include "VoicePresets.h"
+#if defined(ARDUINO_ARCH_RP2040) || defined(ARDUINO_ARCH_RP2350)
+#include <Arduino.h>
+#endif
 
 namespace
 {
+#if defined(ARDUINO_ARCH_RP2040) || defined(ARDUINO_ARCH_RP2350)
+inline uint32_t profileNowUs() noexcept { return micros(); }
+#else
+inline uint32_t profileNowUs() noexcept { return 0; }
+#endif
 // One-pole time constant for the master gain: fast enough to track the volume
 // knob without perceptible lag, slow enough to hide steps and transport-mute
 // clicks (~63% of the way in 15 ms).
@@ -309,9 +317,11 @@ void VoiceManager::setMasterMacro(float macro)
 
 void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noexcept
 {
+    StageProfile profile{};
     while (n > 0)
     {
         const uint32_t count = std::min(n, kMaxBlock);
+        const uint32_t voicesStart = profileNowUs();
         std::fill_n(out, count, 0.0f);
         for (auto &managedVoice : voices)
         {
@@ -321,6 +331,7 @@ void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noe
             for (uint32_t k = 0; k < count; ++k)
                 out[k] += voiceScratch_[k] * mix;
         }
+        profile.voicesUs += profileNowUs() - voicesStart;
         const float target = transportMuted_.load(std::memory_order_relaxed)
                                  ? 0.0f : globalVolume.load(std::memory_order_relaxed);
         const float macroTarget = macroTarget_.load(std::memory_order_relaxed);
@@ -334,6 +345,7 @@ void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noe
         masterDelay_.setMix(delayMix.load(std::memory_order_relaxed));
         masterDelay_.setDelaySeconds(delayTime.load(std::memory_order_relaxed));
         masterDelay_.setFeedback(delayFeedback.load(std::memory_order_relaxed));
+        const uint32_t delayStart = profileNowUs();
         for (uint32_t k = 0; k < count; ++k)
         {
             const float delayed = masterDelay_.process(out[k]);
@@ -344,10 +356,16 @@ void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noe
             macro += macroAlpha * (macroTarget - macro);
             if (!macroDirty && std::fabs(macro - macroApplied_) > kMacroApplyEpsilon)
                 macroDirty = true;
+        }
+        profile.delayUs += profileNowUs() - delayStart;
+        const uint32_t compressorStart = profileNowUs();
+        for (uint32_t k = 0; k < count; ++k)
+        {
             // Master-bus glue + limiter: last DSP before the DAC (AudioEngine's
             // toPcm16 clamp remains the hard ceiling for pathological sums).
             out[k] = compressor.process(out[k]);
         }
+        profile.compressorUs += profileNowUs() - compressorStart;
         if (macroDirty)
         {
             applyMasterCompSettings_(settingsForMacro(macro));
@@ -358,6 +376,7 @@ void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noe
         out += count;
         n -= count;
     }
+    lastStageProfile_ = profile;
 }
 
 float PICO2SEQ_AUDIO_FUNC(VoiceManager::processAllVoices)() noexcept

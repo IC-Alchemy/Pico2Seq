@@ -38,8 +38,7 @@ bool audioStarted = false; // Core 1 only; never read blindly from Core 0
 SpscQueue<AudioEngine::Heartbeat, kHeartbeatQueueCapacity> heartbeats;
 audio_buffer_pool_t *producer_pool = nullptr;
 std::array<float, SAMPLES_PER_BUFFER> mixBuffer{}; // Core 1 render scratch (2 KiB stack limit)
-
-
+VoiceManager::StageProfile lastStageProfile{};
 
 void PICO2SEQ_AUDIO_FUNC(fill_audio_buffer)(audio_buffer_t *buffer)
 {
@@ -61,10 +60,15 @@ void PICO2SEQ_AUDIO_FUNC(fill_audio_buffer)(audio_buffer_t *buffer)
 
     // Fixed scratch bounds even an oversized producer buffer; chunking keeps
     // each VoiceManager block within kMaxBlock.
+    lastStageProfile = {};
     for (int offset = 0; offset < N; offset += SAMPLES_PER_BUFFER)
     {
         const int count = std::min(N - offset, SAMPLES_PER_BUFFER);
         voiceManager->processBlock(mixBuffer.data(), static_cast<uint32_t>(count));
+        const VoiceManager::StageProfile chunkProfile = voiceManager->lastStageProfile();
+        lastStageProfile.voicesUs += chunkProfile.voicesUs;
+        lastStageProfile.delayUs += chunkProfile.delayUs;
+        lastStageProfile.compressorUs += chunkProfile.compressorUs;
         for (int i = 0; i < count; ++i)
         {
             const int16_t sample = AudioSamples::toPcm16(mixBuffer[i]);
@@ -170,6 +174,10 @@ void PICO2SEQ_AUDIO_FUNC(AudioEngine::renderNextBuffer)()
     static uint32_t renderCount = 0;
     static uint32_t renderMaxUs = 0;
     static uint32_t renderOverBudget = 0;
+    static uint32_t voicesTotalUs = 0;
+    static uint32_t delayTotalUs = 0;
+    static uint32_t compressorTotalUs = 0;
+    static uint32_t miscTotalUs = 0;
     if (!audioStarted)
         return;
     audioPhase.store(Phase::BufferWait, std::memory_order_relaxed);
@@ -182,6 +190,12 @@ void PICO2SEQ_AUDIO_FUNC(AudioEngine::renderNextBuffer)()
         fill_audio_buffer(audioBuffer);
         const uint32_t renderUs = micros() - renderStart;
         renderTotalUs += renderUs;
+        voicesTotalUs += lastStageProfile.voicesUs;
+        delayTotalUs += lastStageProfile.delayUs;
+        compressorTotalUs += lastStageProfile.compressorUs;
+        const uint32_t measuredStages = lastStageProfile.voicesUs + lastStageProfile.delayUs +
+                                        lastStageProfile.compressorUs;
+        miscTotalUs += renderUs > measuredStages ? renderUs - measuredStages : 0;
         ++renderCount;
         if (renderUs > renderMaxUs) renderMaxUs = renderUs;
         if (renderUs > (SAMPLES_PER_BUFFER * 1000000u / 48000u)) ++renderOverBudget;
@@ -203,6 +217,10 @@ void PICO2SEQ_AUDIO_FUNC(AudioEngine::renderNextBuffer)()
         heartbeat.bufferCount = c1BufCount;
         heartbeat.renderAverageUs = renderCount ? renderTotalUs / renderCount : 0;
         heartbeat.renderMaxUs = renderMaxUs;
+        heartbeat.voicesAverageUs = renderCount ? voicesTotalUs / renderCount : 0;
+        heartbeat.delayAverageUs = renderCount ? delayTotalUs / renderCount : 0;
+        heartbeat.compressorAverageUs = renderCount ? compressorTotalUs / renderCount : 0;
+        heartbeat.miscAverageUs = renderCount ? miscTotalUs / renderCount : 0;
         heartbeat.renderOverBudget = renderOverBudget;
         heartbeat.underruns = audio_i2s_underrun_count();
         heartbeat.txStalls = audio_i2s_tx_stall_count();
@@ -215,6 +233,7 @@ void PICO2SEQ_AUDIO_FUNC(AudioEngine::renderNextBuffer)()
         renderTotalUs = 0;
         renderCount = 0;
         renderMaxUs = 0;
+        voicesTotalUs = delayTotalUs = compressorTotalUs = miscTotalUs = 0;
     }
 }
 

@@ -57,6 +57,12 @@ public:
     float processAllVoices() noexcept;
 
     static constexpr uint32_t kMaxBlock = 256;
+    struct StageProfile
+    {
+        uint32_t voicesUs = 0;
+        uint32_t delayUs = 0;
+        uint32_t compressorUs = 0;
+    };
     // Master-bus macro compressor (last DSP before the DAC). One 0..1 knob
     // morphs all six compressor parameters along a Warm -> Glue -> Punch
     // curve; the audio thread eases toward the target so fader moves never
@@ -98,6 +104,8 @@ public:
     }
     // Audio thread only. Overwrites n samples, splitting larger calls into blocks.
     void processBlock(float *out, uint32_t n) noexcept;
+    // Audio-thread-only snapshot for AudioEngine's permanent heartbeat profiler.
+    StageProfile lastStageProfile() const noexcept { return lastStageProfile_; }
     float processVoice(uint8_t voiceId);
 
     // Voice Control
@@ -164,6 +172,7 @@ private:
     float masterGain_ = 0.0f;
     std::array<float, kMaxBlock> voiceScratch_{}; // Core 1 scratch; keep off its 2 KiB stack
     float masterGainAlpha_ = 1.0f;
+    StageProfile lastStageProfile_{};
 
     struct ManagedVoice
     {

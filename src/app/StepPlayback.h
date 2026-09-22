@@ -15,4 +15,7 @@ bool recordParameter(ParamId id, float normalizedValue);
 // Step Edit only: drop the step's own value so it follows the patch again.
 // Returns true when the step had its own value.
 bool resetStepToPatch(ParamId id);
+// Detailed Core-0 sequencer telemetry. Runtime-toggle with 'D' over USB serial.
+bool sequencerTraceEnabled() noexcept;
+void setSequencerTraceEnabled(bool enabled) noexcept;
 void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq);

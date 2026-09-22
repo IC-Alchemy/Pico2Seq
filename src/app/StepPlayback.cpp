@@ -4,8 +4,10 @@
 #include "../sensors/SensorConstants.h"
 #include "../sensors/EncoderManager.h"
 #include "../ui/UIEventHandler.h"
+#include "../voice/VoiceEditParameters.h"
 #include "VoicePlayback.h"
 #include <algorithm>
+#include <Arduino.h>
 
 // Clock-step fan-out + live hand/fader recording (see header). All Core 0 thread
 // context; note duration itself is ticked separately via tickSequencerVoices().
@@ -13,7 +15,54 @@
 namespace
 {
 constexpr int kDistanceDisabled = -1;
+bool g_sequencerTraceEnabled = false;
+
+void printSequencerTrace(uint32_t clockStep, uint8_t voice, const Sequencer &seq,
+                         const VoiceState &published)
+{
+    const uint8_t voiceId = voiceSystem.getVoiceId(voice);
+    const VoiceConfig *config = voiceManager ? voiceManager->getVoiceConfig(voiceId) : nullptr;
+    const uint8_t filterStep = seq.getCurrentStepForParameter(ParamId::Filter);
+    const uint8_t attackStep = seq.getCurrentStepForParameter(ParamId::Attack);
+    const uint8_t decayStep = seq.getCurrentStepForParameter(ParamId::Decay);
+    const float filterRaw = seq.getStepParameterValue(ParamId::Filter, filterStep);
+    const float attackRaw = seq.getStepParameterValue(ParamId::Attack, attackStep);
+    const float decayRaw = seq.getStepParameterValue(ParamId::Decay, decayStep);
+    const float filterComposed = config ? VoiceEdit::composeLane(ParamId::Filter, filterRaw, config) : filterRaw;
+    const float attackComposed = config ? VoiceEdit::composeLane(ParamId::Attack, attackRaw, config) : attackRaw;
+    const float decayComposed = config ? VoiceEdit::composeLane(ParamId::Decay, decayRaw, config) : decayRaw;
+    Serial.printf("[SEQTRACE] clk=%lu v=%u id=%u gateStep=%u gate=%u note=%.2f "
+                  "F{s=%u raw=%.5f cmp=%.5f pub=%.5f} "
+                  "A{s=%u raw=%.5f cmp=%.5f pub=%.5f} "
+                  "D{s=%u raw=%.5f cmp=%.5f pub=%.5f}",
+                  static_cast<unsigned long>(clockStep), static_cast<unsigned>(voice + 1),
+                  static_cast<unsigned>(voiceId), static_cast<unsigned>(seq.getCurrentStep()),
+                  published.isGateHigh ? 1u : 0u, published.noteIndex,
+                  static_cast<unsigned>(filterStep), filterRaw, filterComposed, published.filterCutoff,
+                  static_cast<unsigned>(attackStep), attackRaw, attackComposed, published.attackTimeSeconds,
+                  static_cast<unsigned>(decayStep), decayRaw, decayComposed, published.decayTimeSeconds);
+    if (config)
+    {
+        const float attackBase = VoiceEdit::composeLane(
+            ParamId::Attack, SequencerConstants::LANE_FOLLOWS_PATCH, config);
+        const float decayBase = VoiceEdit::composeLane(
+            ParamId::Decay, SequencerConstants::LANE_FOLLOWS_PATCH, config);
+        Serial.printf(" cfg{engine=%u paramSet=%u patch=%u hasFilter=%u hasEnv=%u "
+                      "baseF=%.5f baseA=%.5f baseD=%.5f attackSec=%.5f decaySec=%.5f "
+                      "envOct=%.3f envRest=%.3f}",
+                      static_cast<unsigned>(config->engine), static_cast<unsigned>(config->paramSet),
+                      config->usePatchBases ? 1u : 0u, config->hasFilter ? 1u : 0u,
+                      config->hasEnvelope ? 1u : 0u, config->filterCutoffBase,
+                      attackBase, decayBase, config->defaultAttack, config->defaultDecay,
+                      config->filterEnvelopeOctaves,
+                      config->filterEnvelopeRest);
+    }
+    Serial.println();
 }
+}
+
+bool sequencerTraceEnabled() noexcept { return g_sequencerTraceEnabled; }
+void setSequencerTraceEnabled(bool enabled) noexcept { g_sequencerTraceEnabled = enabled; }
 
 bool recordParameter(ParamId id, float normalizedValue)
 {
@@ -111,4 +160,8 @@ void processSequencerStep(uint32_t uClockCurrentStep)
 
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i)
         publishVoiceState(i, tempStates[i]);
+
+    if (g_sequencerTraceEnabled)
+        for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i)
+            printSequencerTrace(uClockCurrentStep, i, *AppState::sequencers[i], tempStates[i]);
 }

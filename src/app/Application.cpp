@@ -97,12 +97,18 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
     {
         if (Serial)
         {
-            Serial.printf("[DIAG C1] alive bufs=%lu ids=%u,%u,%u,%u render_us=%lu max_us=%lu budget_us=5333 over=%lu underruns=%lu txstalls=%lu\n",
+            Serial.printf("[DIAG C1] alive bufs=%lu ids=%u,%u,%u,%u render_us=%lu max_us=%lu "
+                          "voices_us=%lu delay_us=%lu comp_us=%lu misc_us=%lu "
+                          "budget_us=5333 over=%lu underruns=%lu txstalls=%lu\n",
                           static_cast<unsigned long>(heartbeat.bufferCount),
                           heartbeat.voiceIds[0], heartbeat.voiceIds[1],
                           heartbeat.voiceIds[2], heartbeat.voiceIds[3],
                           static_cast<unsigned long>(heartbeat.renderAverageUs),
                           static_cast<unsigned long>(heartbeat.renderMaxUs),
+                          static_cast<unsigned long>(heartbeat.voicesAverageUs),
+                          static_cast<unsigned long>(heartbeat.delayAverageUs),
+                          static_cast<unsigned long>(heartbeat.compressorAverageUs),
+                          static_cast<unsigned long>(heartbeat.miscAverageUs),
                           static_cast<unsigned long>(heartbeat.renderOverBudget),
                           static_cast<unsigned long>(heartbeat.underruns),
                           static_cast<unsigned long>(heartbeat.txStalls));
@@ -324,10 +330,20 @@ void Application::update()
     }
 
     // Bench aid: 'W' over serial hangs Core 0 to prove the retained-RAM resume path.
-    if (Serial.available() > 0 && Serial.read() == 'W')
+    while (Serial.available() > 0)
     {
-        Serial.println("[BENCH] freezing Core 0 on request");
-        for (;;) {}
+        const char command = static_cast<char>(Serial.read());
+        if (command == 'W')
+        {
+            Serial.println("[BENCH] freezing Core 0 on request");
+            for (;;) {}
+        }
+        if (command == 'D' || command == 'd')
+        {
+            setSequencerTraceEnabled(!sequencerTraceEnabled());
+            Serial.printf("[SEQTRACE] %s (send D to toggle)\n",
+                          sequencerTraceEnabled() ? "ON" : "OFF");
+        }
     }
 
     ControlIO::pollHeldButtons();
