@@ -32,6 +32,7 @@ enum VoiceParamSet : uint8_t
   PARAMSET_HYPERSAW = 2,
   PARAMSET_NOISESTORM = 3,
   PARAMSET_HARDSYNC = 4,
+  PARAMSET_SITAR = 5,
 };
 
 // Topology of the voice's main filter (when hasFilter is set). The ladder is

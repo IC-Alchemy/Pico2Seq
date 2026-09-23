@@ -19,6 +19,7 @@ add_executable(pico2seq_tests
   unit/test_rpdsp_additions.cpp
   unit/test_sitar_voice.cpp
   unit/test_sitar_engine.cpp
+  unit/test_sitar_lanes.cpp
   unit/test_parameter_mapping.cpp
   unit/test_parameter_randomize.cpp
   unit/test_dsp_recipe_regressions.cpp
@@ -113,6 +114,7 @@ add_executable(pico2seq_voice_tests
   unit/test_master_bus.cpp
   unit/test_master_delay.cpp
   unit/test_sitar_engine.cpp
+  unit/test_sitar_lanes.cpp
   ${CORE_DIR}/scales/scales.cpp
   ${CORE_DIR}/sequencer/ParameterManager.cpp
   ${CORE_DIR}/sequencer/Sequencer.cpp

@@ -102,6 +102,19 @@ constexpr VoiceParameterLayout waveguideLayout()
   p.slots[static_cast<size_t>(ParamId::Release)] = control("Stiffness", &VoiceConfig::wgStiffness);
   return p;
 }
+constexpr VoiceParameterLayout sitarLayout()
+{
+  VoiceParameterLayout p{};
+  p.envelopeFromTracks = false;
+  // Velocity lives in the pluck excitation (Voice::processSitar_). Scaling the
+  // raw output too would double-apply it (VCA and pluck amplitude) and zipper
+  // the ringing string on every velocity step.
+  p.velocityToAmplitude = false;
+  p.slots[static_cast<size_t>(ParamId::Filter)] = control("JAWARI", &VoiceConfig::sitarJawari);
+  p.slots[static_cast<size_t>(ParamId::Attack)] = control("PICK", &VoiceConfig::sitarPickHardness);
+  p.slots[static_cast<size_t>(ParamId::Decay)] = control("TARAF", &VoiceConfig::sitarTarafAmount);
+  return p;
+}
 constexpr VoiceParameterLayout hypersawLayout()
 {
   VoiceParameterLayout p{};

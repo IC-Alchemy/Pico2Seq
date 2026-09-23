@@ -33,8 +33,10 @@ namespace {
 constexpr size_t slot(ParamId id) { return static_cast<size_t>(id); }
 constexpr VoiceParameterLayout kStandard{};
 constexpr VoiceParameterLayout kHardSync = hardSyncLayout();
+constexpr VoiceParameterLayout kSitar = sitarLayout();
 constexpr VoiceParameterLayout kLegacyLayouts[] = {
-    kStandard, waveguideLayout(), hypersawLayout(), noiseStormLayout(), kHardSync};
+    kStandard, waveguideLayout(), hypersawLayout(), noiseStormLayout(), kHardSync,
+    kSitar};
 
 float stateValue(const VoiceState &s, ParamId id) noexcept
 {

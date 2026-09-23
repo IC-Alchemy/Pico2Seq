@@ -50,7 +50,7 @@ constexpr Parameter kParameters[] = {
      nullptr, nullptr},
     {Id::Slide, "Slide enable", Group::Sequenced, Unit::Toggle, 0.0f, 1.0f,
      false, nullptr, nullptr},
-    {Id::Engine, "Engine", Group::Source, Unit::Choice, 0.0f, 4.0f, false,
+    {Id::Engine, "Engine", Group::Source, Unit::Choice, 0.0f, 5.0f, false,
      +[](const VoiceConfig &c) { return static_cast<float>(c.engine); },
      +[](VoiceConfig &c, float v) {
        c.engine = static_cast<std::remove_reference_t<decltype(c.engine)>>(v);
@@ -843,6 +843,7 @@ void setValue(Id id, VoiceConfig &c, float v) noexcept {
     c.paramSet = c.engine == ENGINE_WAVEGUIDE  ? PARAMSET_WAVEGUIDE
                  : c.engine == ENGINE_HYPERSAW ? PARAMSET_HYPERSAW
                  : c.engine == ENGINE_NOISEFX  ? PARAMSET_NOISESTORM
+                 : c.engine == ENGINE_SITAR    ? PARAMSET_SITAR
                                                : PARAMSET_STANDARD;
     if (c.engine == ENGINE_RECIPE)
       selectRecipe(c, 0);
@@ -912,9 +913,9 @@ void format(Id id, const VoiceConfig &c, char *out, size_t capacity) noexcept {
   const auto *b = bindingFor(id, c);
   if (id == Id::Engine) {
     const char *n[] = {"Oscillators", "Waveguide", "Noise FX", "Hypersaw",
-                       "Recipe"};
+                       "Recipe", "Sitar"};
     std::snprintf(out, capacity, "%s",
-                  n[std::clamp(static_cast<int>(v), 0, 4)]);
+                  n[std::clamp(static_cast<int>(v), 0, 5)]);
     return;
   }
   if (id == Id::Recipe) {
