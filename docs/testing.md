@@ -138,7 +138,7 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 3 | `tests/unit/test_dsp_recipe_regressions.cpp` | `rpdsp` Recipe Regressions | ADSR envelope curves and retriggers, compressor across sample rates, vowel/tape/frequency-shifter/buffer recipes (`[recipe_regression]`) |
 | 4 | `tests/unit/test_scales.cpp` | Musical Scale Lookup Tables | 13 scales monotonic ordering, root notes at 0, MIDI boundary validation, chromatic fallback |
 | 5 | `tests/unit/test_sequencer.cpp` | Core Step Sequencer | `ParameterTrack<N>` wrapping, `NoteDurationTracker` countdowns, start/stop, gate toggling |
-| 6 | `tests/unit/test_voice.cpp` | Synthesizer Voice Engine | Voice state transitions, staged parameter application on `process()`, scale injection, filter sweep, preset registry (29 named presets, engine selection, finite bounded audio per preset), waveguide / noise-FX engine behavior |
+| 6 | `tests/unit/test_voice.cpp` | Synthesizer Voice Engine | Voice state transitions, staged parameter application on `process()`, scale injection, filter sweep, preset registry (30 named presets, engine selection, finite bounded audio per preset), waveguide / noise-FX engine behavior |
 | 7 | `tests/unit/test_voice_transfer.cpp` | `Voice` control→audio handoff | `SpscQueue` FIFO ordering, no torn multiword payloads under concurrent transfers, queued gate edges reach samples (`[voice_transfer]`) |
 | 8 | `tests/unit/test_voiceoscillator.cpp` | Voice Oscillator Dispatch | `VoiceOscillator` variant dispatch, band-limited waveforms, pulse width modulation, pitch changes |
 | 9 | `tests/unit/test_control_surface_logic.cpp` | Tile UI Decision Logic | `ModeStabilizer` debouncing, `PadBank` voice-pair resolution, `ShiftLatch` latching, `FaderMap` deadband |
@@ -146,17 +146,14 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 11 | `tests/unit/test_app_runtime.cpp` | App runtime helpers | PCM16 DAC conversion (clipping/truncation, `[app][pcm]`), lidar recording calibration across the 55–700 mm window (`[app][recording]`) |
 | 12 | `tests/unit/test_audio_i2s.cpp` | I2S output path (`pico2seq_audio_tests`) | Rendered buffers handed to DMA, starvation recovery (`[audio][i2s]`, isolated `tests/audio_stubs/`) |
 | 13 | `tests/unit/test_freeze_watchdog.cpp` | `FreezeWatchdog` (`pico2seq_watchdog_tests`) | Watchdog scratch evidence, boot vs late-serial reconnect, no stale reports on normal boot (`[watchdog]`, isolated `tests/watchdog_stubs/`) |
-| 14 | `tests/unit/test_voice_recipes.cpp` | Recipe/engine voices | Preset registry coherence (29 presets across core, recipes, and musical presets), waveguide tails across engine resets, recipe timbre lanes, envelope gate/retrigger behavior (`[voice][presets][waveguide][recipes]`) |
+| 14 | `tests/unit/test_voice_recipes.cpp` | Recipe/engine voices | Preset registry coherence (30 presets across core, recipes, and musical presets), waveguide tails across engine resets, recipe timbre lanes, envelope gate/retrigger behavior (`[voice][presets][waveguide][recipes]`) |
 | 15 | `tests/unit/test_voice_edit.cpp` | Voice Editing mode | Base vs lidar-modifier independence, neutral-modifier preset round-trip, parameter catalogue reachability/clamping per engine, editor release semantics, muted-editor queue draining (`[voice_edit][recording]`) |
-| 16 | `tests/unit/test_persistence.cpp` | Session persistence (`src/pico2seq-core/persistence/`, `src/voice/PatchCodec.*`) | CRC32 vector, frame magic/version/size/CRC rejection, locked 10,312-byte snapshot layout, snapshot validation bounds, pattern round-trip incl. raw tails, patch codec pointer re-derivation, golden full-project round-trip, watchdog resume decision table, retained-store validity (`[persistence]`) |
+| 16 | `tests/unit/test_persistence.cpp` | Session persistence (`src/pico2seq-core/persistence/`, `src/voice/PatchCodec.*`) | CRC32 vector, frame magic/version/size/CRC rejection, locked 10,472-byte snapshot layout, snapshot validation bounds, pattern round-trip incl. raw tails, patch codec pointer re-derivation, golden full-project round-trip, watchdog resume decision table, retained-store validity (`[persistence]`) |
 | 17 | `tests/unit/test_recipe_optimization.cpp` | `rpdsp` Recipe CPU Optimizations | Prepared oscillator phase/spectra, cached coefficient survival across edits/triggers, feedback operator history (`[optimization][recipes][voice]`) |
-<<<<<<< HEAD
 | 18 | `tests/unit/test_master_compressor.cpp` | Master-bus macro knob (`VoiceManager`) | `rpdsp::Compressor` Warm/Glue/Punch curve anchors, gain reduction on high-amplitude streams, Punch squeezes harder than Warm to DAC-safe levels, gradual (not instant) morphs, silence passthrough (`[master][compressor]`, also in `pico2seq_voice_tests`) |
-=======
-| 18 | `tests/unit/test_master_compressor.cpp` | Master-bus compressor (`VoiceManager`) | `rpdsp::Compressor` gain reduction on high-amplitude streams, hot 4-voice mix limited to DAC-safe levels, silence passthrough (`[master][compressor]`, also in `pico2seq_voice_tests`) |
 | 19 | `tests/unit/test_master_delay.cpp` | Master-bus delay | Fractional reads, filtered repeats, feedback bounds and mix smoothing (`[master_delay]`) |
 | 20 | `tests/unit/test_master_bus.cpp` | Combined delay and compressor | Bus order, dry bypass, tails, mute, volume and audible fader range (`[master_bus]`) |
->>>>>>> 0f944a136ae72671a4e32563225d44b056231147
+| 21 | `tests/unit/test_sitar_voice.cpp`, `test_sitar_engine.cpp`, `test_sitar_lanes.cpp`, `test_sitar_preset.cpp`, `test_sitar_integration.cpp` | Sitar physical-model voice | Model behavior (`[rpdsp][sitar]`), engine wiring and natural tails (`[sitar_engine]`), JAWARI/PICK/TARAF lanes (`[sitar_lanes]`), factory preset (`[sitar_preset]`), preset switching/lane render/retrigger/mixing integration (`[sitar_integration]`) |
 
 ---
 

@@ -102,13 +102,14 @@ All in `persistence::` (`ProjectSnapshot.h`). Sizes are part of the format:
 | `PatchSnapshot` | 232 B | 55 × 4-byte value words (220 B) + 10 u8 (counts, engine/paramSet/filter/preset/waveforms/flags) + 2 `reserved` tail bytes, packed so there is **no** compiler-dependent padding |
 | `SettingsSnapshot` | 24 B | tempo, master volume, theme, scale, shuffle, selected voice, 4 preset indices, 4 editor cursors, `changedFlags` |
 | `ProjectSnapshotV1` | 10,312 B | Format 1: 4 patterns (9,360 B) + 4 patches (928 B) + settings (24 B). Only used to size old files |
-| **`ProjectSnapshot`** | **12,400 B** | Format 2: the format-1 layout unchanged, then 4 × `EnvelopeTracksSnapshot` (2,080 B), `laneModel` (u32) and `reserved` (u32) |
-| Flash file | 12,412 B | 12-byte frame header + 12,400-byte payload (format-1 files: 10,324 B) |
+| `SitarPatchSnapshot` | 40 B | 10 floats: the ENGINE_SITAR patch fields of one voice (format 3) |
+| **`ProjectSnapshot`** | **12,560 B** | Format 3: the format-2 layout unchanged, then 4 × `SitarPatchSnapshot` (160 B) |
+| Flash file | 12,572 B | 12-byte frame header + 12,560-byte payload (format-2 files: 12,412 B; format-1 files: 10,324 B) |
 
 **Format 2 (2026-09-19).** A format-1 payload is byte-for-byte the prefix of
 format 2 (`static_assert(offsetof(ProjectSnapshot, envelopes) == sizeof(ProjectSnapshotV1))`).
 `SessionStorage::load` reads the header's version first (`frameVersion()`), reads
-10,312 or 12,400 payload bytes, checks the frame against that version, and for a
+the matching payload size, checks the frame against that version, and for a
 format-1 file calls `upgradeFromV1()`: Sustain/Release tracks follow the patch on
 16 steps and `laneModel = LANE_MODEL_OFFSETS`. `Session::applyAfterVoices()` then
 converts the Velocity/Filter/Attack/Decay values in the snapshot, voice by voice,
@@ -116,8 +117,17 @@ from offsets around the loaded patch to the absolute values they played
 (`VoiceEdit::convertOffsetValues()`; neutral 0.5 becomes `LANE_FOLLOWS_PATCH`), before
 `applyPattern()`, and marks the snapshot `LANE_MODEL_ABSOLUTE`. The conversion works on
 snapshot data because `Sequencer::setRawStepValue()` wraps at a lane's active length.
-The next save writes format 2. The retained-RAM store moved to `RETAINED_VERSION = 2`,
-so a watchdog resume across the firmware update falls back to the flash file.
+
+**Format 3 (2026-09-23).** A format-2 payload is byte-for-byte the prefix of
+format 3 (`static_assert(offsetof(ProjectSnapshot, sitar) == 12400)`): the
+ten `sitar*` fields moved into per-voice tails rather than growing the
+size-locked `PatchSnapshot`. `SessionStorage::load` reads 10,312 (v1),
+12,400 (v2) or 12,560 (v3) payload bytes and calls `upgradeFromV1()` /
+`upgradeFromV2()` for the older files — both zero the sitar tails, which is
+safe because those files' patches predate ENGINE_SITAR. `Session` captures
+and restores the tails around `voicecodec::capturePatch`/`applyPatch`. The
+retained-RAM store moved to `RETAINED_VERSION = 3`, so a watchdog resume
+across the firmware update falls back to the flash file.
 
 Field notes:
 
@@ -270,11 +280,16 @@ is computed over the payload buffer directly, never over bytes past the header.
 ```
 offset  size  field
 0       4     magic   0x50325331 ('P2S1', LE)
-4       2     version SNAPSHOT_FORMAT_VERSION = 2 (1 still loads, see §3)
-6       2     payloadSize (u16; sizeof(ProjectSnapshot) = 12400, format 1: 10312)
+4       2     version SNAPSHOT_FORMAT_VERSION = 3 (1 and 2 still load, see §3)
+6       2     payloadSize (u16; sizeof(ProjectSnapshot) = 12560, format 2: 12400, format 1: 10312)
 8       4     crc32   CRC-32/ISO-HDLC over payload (poly 0xEDB88320, init/xor 0xFFFFFFFF;
               check vector: "123456789" -> 0xCBF43926)
 ```
+
+Version history: v2 (2026-09-19) added the Sustain/Release envelope tails and
+the lane model tag; v1 files upgrade transparently. v3 (2026-09-23) added the
+per-voice sitar tails; v1 and v2 files upgrade transparently (their patches
+predate ENGINE_SITAR, so the zeroed tails are never read as sitar tuning).
 
 API:
 

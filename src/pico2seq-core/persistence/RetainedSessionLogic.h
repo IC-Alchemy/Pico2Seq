@@ -12,7 +12,7 @@ namespace persistence
 {
 
 constexpr uint32_t RETAINED_MAGIC = 0x52455431u; // 'RET1': guards against stale RAM
-constexpr uint16_t RETAINED_VERSION = 2; // Tracks snapshot format 2; bump together
+constexpr uint16_t RETAINED_VERSION = 3; // Tracks snapshot format 3; bump together
 constexpr uint8_t MAX_RESUME_ATTEMPTS = 3; // Past this, halt: the song itself may crash boot
 constexpr uint16_t RETAINED_FLAG_BOOT_COMPLETED = 1u << 0;
 

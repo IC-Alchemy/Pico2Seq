@@ -430,7 +430,7 @@ the live session instead of demanding a power-cycle.
 
 ### What is saved
 
-One locked-layout `persistence::ProjectSnapshotV1` POD (10,312 bytes, pinned by
+One locked-layout `persistence::ProjectSnapshotV1` POD (10,472 bytes, pinned by
 `static_assert`): per voice the 9 `ParameterTrack`s (all 64 steps plus the
 polymetric length; tail steps beyond the length are stored raw) and the
 `VoiceConfig` patch (value fields only — the flash-resident

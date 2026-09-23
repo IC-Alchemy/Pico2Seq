@@ -547,9 +547,9 @@ screen's voice-parameter page; envelope and overdrive can be switched off per vo
 too. On SVF voices the mode picks the response (LP→low-pass, BP→band-pass, HP→high-pass);
 only **Analog** and **Lead** still run the true ladder filter.
 
-### 4.2 The 29 presets
+### 4.2 The 30 presets
 
-The sound bank contains 29 built-in presets (held as `constexpr` flash tables), all on one browser page in Settings mode. Preset *n* sits on pad *n*−1:
+The sound bank contains 30 built-in presets (held as `constexpr` flash tables), all on one browser page in Settings mode. Preset *n* sits on pad *n*−1:
 
 #### Pads 0–23: Presets 1–24
 
@@ -580,7 +580,7 @@ The sound bank contains 29 built-in presets (held as `constexpr` flash tables), 
 | 23 | **CopperBass** | recipe | Rounded DSF bass: harmonic spacing with a sub sine from `osc_pdmorph` | Bright / Spacing / Sub |
 | 24 | **ReedPipe** | recipe | Held acoustic reed tone: `osc_formant` bursts blended with sine fundamental | Formant / Bloom / Body |
 
-#### Pads 24–28: Presets 25–29
+#### Pads 24–29: Presets 25–30
 
 | # | Preset | Engine | Character | Timbre controls (Filter / Attack / Decay) |
 |---|---|---|---|---|
@@ -589,12 +589,13 @@ The sound bank contains 29 built-in presets (held as `constexpr` flash tables), 
 | 27 | **SyncLead** | recipe | Melodic sync lead: `osc_revsync` blended with pitched `osc_pdmorph` body | Sync / Edge / Bite |
 | 28 | **OrbitPluck** | recipe | Metallic pluck: sine-modulated `osc_tzfm` with clean fundamental body | Index / Ratio / Body |
 | 29 | **AirChime** | recipe | Ethereal harmonic chime: `osc_prism` blended with octave sine, slow decay | Focus / Spread / OctMix |
+| 30 | **Sitar** | sitar | Physical sitar: buzzing jawari string with sympathetic taraf bank and gourd body; natural decay, no ADSR | JAWARI / PICK / TARAF |
 
 #### Preset Selection in Settings Mode
 
 Presets live in flash and are auditioned and applied per voice in the **preset browser** (long-press Play, or stop the transport to open Settings on the OLED):
 - **Voice Selection**: Press the SliderModule **V1–V4** buttons to switch which voice is being edited. Pads never change the voice while Settings is open.
-- **Applying Presets**: Touch **pads 0–30** (the lit pads on the LED matrix mirror; pads 0–28 hold today's 29 presets) to instantly assign that preset to the active voice. Pad 31 is unassigned. There are no pages.
+- **Applying Presets**: Touch **pads 0–29** (the lit pads on the LED matrix mirror; they hold today's 30 presets) to instantly assign that preset to the active voice. Pad 30 is free and pad 31 is unassigned. There are no pages.
 - **Voice Parameters**: Pressing the encoder button toggles the Settings screen between the preset browser and the voice-parameter toggles (envelope, overdrive, filter mode, filter resonance).
 
 ---

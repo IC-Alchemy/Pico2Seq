@@ -12,13 +12,15 @@ existing tracks; each sound decides what its timbre controls do.
 | `presets/TexturePresets.h` | Native Hypersaw and NoiseStorm settings |
 | `presets/RecipePresets.h` | Recipe settings and their three timbre bindings |
 | `presets/MusicalPresets.h` | Eight musical patches, defaults and timbre bindings |
+| `presets/SitarPresets.h` | Sitar physical-model preset and its JAWARI/PICK/TARAF layout |
 | `presets/PresetBank.h` | One list of preset IDs, names and factories |
 | `engines/RecipeSources.h` | Small rpdsp patches, with their state sizes declared |
 | `engines/RecipeEngine.h` | Fixed storage and lifecycle for those patches |
 | `Voice.cpp` | Shared pitch, gate, envelope, filter, mixing and cross-core delivery |
 
-The bank currently has 29 presets. Existing IDs 0–20 retain their names and
-order. The latest eight presets occupy IDs 21–28.
+The bank currently has 30 presets. Existing IDs 0–20 retain their names and
+order. The musical presets occupy IDs 21–28; the Sitar physical-model preset
+is ID 29.
 Name lookup is case-insensitive, including `VoiceManager` lookup/listing.
 
 ## Musical preset bank
@@ -47,8 +49,8 @@ Integer ratios keep FM/ring sounds harmonically related; fractional ratios
 provide more metallic textures. The chosen defaults use harmonic ratios.
 
 VelvetKeys, CopperBass and ReedPipe sit on pads 21–23;
-SilkPad through AirChime occupy pads 24–28.
-All eight retain Note, Velocity, Octave, GateLength, Slide and the Gate trigger.
+SilkPad through AirChime occupy pads 24–28; the Sitar occupies pad 29.
+All eight musical patches retain Note, Velocity, Octave, GateLength, Slide and the Gate trigger.
 The voice editor includes all ten recipe sources and their matching layouts.
 
 Host checks cover control influence, finite output at parameter extremes,

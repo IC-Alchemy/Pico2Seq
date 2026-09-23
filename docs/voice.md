@@ -11,13 +11,9 @@ The voice module provides a comprehensive synthesizer voice system with multi-os
 The voice system consists of several key components:
 
 - **`Voice`**: Individual synthesizer voice encapsulating oscillators, a main filter (ladder or state-variable, per `filterType`), high-pass filter, ADSR envelope, overdrive waveshaper, and lock-free parameter/pitch staging.
-<<<<<<< HEAD
-- **`VoiceManager`**: Manages multiple voices with allocation, deallocation, master volume scaling, per-voice mix levels, unified block audio processing, and the master-bus glue compressor (`rpdsp::Compressor`, last DSP before the DAC). The compressor is driven by the master macro knob (Shift + master-volume fader): 0 = Warm/Glue/Leveler, 0.5 = Neutral/Mild Glue, 1 = Punch/Smash/Pump (`settingsForMacro()`); the audio thread eases toward the fader target so moves never step the output. The macro position is performance state, not part of the session snapshot.
-=======
-- **`VoiceManager`**: Manages multiple voices with allocation, deallocation, per-voice mix levels and unified block audio processing. The summed bus passes through `MasterDelay`, master volume, then the glue compressor (`rpdsp::Compressor`, last DSP before the DAC). Fader 2 controls delay mix/time; fader 3 controls volume/compressor macro.
->>>>>>> 0f944a136ae72671a4e32563225d44b056231147
+- **`VoiceManager`**: Manages multiple voices with allocation, deallocation, master volume scaling, per-voice mix levels, and unified block audio processing. The summed bus passes through `MasterDelay`, master volume, then the glue compressor (`rpdsp::Compressor`, last DSP before the DAC). The compressor is driven by the master macro knob (Shift + master-volume fader): 0 = Warm/Glue/Leveler, 0.5 = Neutral/Mild Glue, 1 = Punch/Smash/Pump (`settingsForMacro()`); the audio thread eases toward the fader target so moves never step the output. The macro position is performance state, not part of the session snapshot.
 - **`VoiceSystem`**: Centralized structure consolidating voice IDs and control-core state snapshots into arrays for `MAX_VOICES = 4` voices.
-- **`VoicePresets`**: Registry of 29 presets, built from grouped preset headers and one `PresetBank.h` list. Fourteen recipe presets cover FM, phase distortion, DSF, formants, ring modulation, reversing sync and spectral/chaotic synthesis. See the [musical preset bank](../src/voice/README.md#musical-preset-bank) for the latest eight sounds and their controls.
+- **`VoicePresets`**: Registry of 30 presets, built from grouped preset headers and one `PresetBank.h` list. Fourteen recipe presets cover FM, phase distortion, DSF, formants, ring modulation, reversing sync and spectral/chaotic synthesis. See the [musical preset bank](../src/voice/README.md#musical-preset-bank) for the latest eight sounds and their controls.
 - **`VoiceOscillator`**: Variant-based dispatcher decoupling numeric waveform IDs from `rpdsp` oscillator classes.
 - **Supporting Classes**: `VoiceManagerBuilder` and `VoiceFactory` for builder-pattern and pre-configured voice setups.
 
@@ -62,6 +58,7 @@ enum VoiceEngine : uint8_t {
     ENGINE_NOISEFX = 2,   // Noise + chaos source through diffuser/swarm inserts
     ENGINE_HYPERSAW = 3,  // One rpdsp::Hypersaw (internally seven detuned saw voices)
     ENGINE_RECIPE = 4,    // Fixed-state rpdsp patch
+    ENGINE_SITAR = 5,     // Sitar physical model (rpdsp::SitarStringVoice)
 };
 
 struct VoiceConfig {
@@ -74,8 +71,8 @@ struct VoiceConfig {
     int harmony[3] = {0, 0, 0};                                             // Harmony intervals in scale steps (-12 to +12)
 
     // Sound engine selection (VoiceEngine). Ignored fields stay at their defaults.
-    uint8_t engine = ENGINE_OSC;                                            // ENGINE_OSC, ENGINE_WAVEGUIDE, ENGINE_NOISEFX, or ENGINE_HYPERSAW
-    uint8_t paramSet = PARAMSET_STANDARD;                                   // Sequencer-slot re-purposing (STANDARD/WAVEGUIDE/HYPERSAW/NOISESTORM/HARDSYNC)
+    uint8_t engine = ENGINE_OSC;                                            // ENGINE_OSC, ENGINE_WAVEGUIDE, ENGINE_NOISEFX, ENGINE_HYPERSAW, ENGINE_RECIPE, or ENGINE_SITAR
+    uint8_t paramSet = PARAMSET_STANDARD;                                   // Sequencer-slot re-purposing (STANDARD/WAVEGUIDE/HYPERSAW/NOISESTORM/HARDSYNC/SITAR)
 
     const VoiceParameterLayout *parameters = nullptr; // Immutable layout in flash
     const VoiceRecipe *recipe = nullptr;              // Immutable patch descriptor
@@ -88,6 +85,18 @@ struct VoiceConfig {
     float wgPickHardness = 0.8f;                                            // Excitation burst: 0 soft felt .. 1 hard pick
     float wgStiffness = 0.0f;                                               // Inharmonic dispersion: 0 harmonic .. 1 bell-like
     float wgDetune = 6.0f;                                                  // Two-string course spread in cents (0.0-30.0)
+
+    // Sitar engine parameters (ENGINE_SITAR only)
+    float sitarDecay = 5.0f;                                                // Main string T60 in seconds (0.05-10.0)
+    float sitarBrightness = 0.92f;                                          // Loop damping: 0 dark .. 1 glassy (0.0-1.0)
+    float sitarPickPosition = 0.12f;                                        // Pick point on string (0.02 bridge .. 0.5 middle)
+    float sitarPickHardness = 0.9f;                                         // Excitation burst: 0 soft felt .. 1 hard pick
+    float sitarJawari = 0.45f;                                              // Bridge-contact buzz amount (0.0-1.0)
+    float sitarJawariThreshold = 0.3f;                                      // Level above which the string touches the bridge (0.0-1.0)
+    float sitarTarafAmount = 0.35f;                                         // Sympathetic taraf bank level (0.0-1.0)
+    float sitarTarafDecay = 4.0f;                                           // Sympathetic ring time after the drive stops (0.05-12.0 s)
+    float sitarBodyAmount = 0.25f;                                          // Wooden body resonance mix (0.0-1.0)
+    float sitarBodyFrequency = 130.0f;                                      // Low body mode; second mode 2.756x above (50.0-500.0 Hz)
 
     // Hypersaw engine parameters (ENGINE_HYPERSAW only)
     float hypersawDetune = 0.2f;                                            // Seven-voice detune amount (0.0-1.0)
@@ -358,10 +367,12 @@ names and configs in flash. Appending one bank entry updates count and lookups.
 Unknown indices/config names fall back to Analog; unknown display indices return
 "Unknown". Existing per-preset getters remain available. Name matching is
 case-insensitive, and `VoiceManager::getAvailablePresets()` derives its list from
-the same bank. The bank currently holds 29 presets (indices 0–28): the 15 original
-presets are detailed below, followed by six recipe presets (15–20) and eight musical
+the same bank. The bank currently holds 30 presets (indices 0–29): the 15 original
+presets are detailed below, followed by six recipe presets (15–20), eight musical
 presets (21–28) described in the [voice and preset extension guide](../src/voice/README.md)
-and [musical preset bank](../src/voice/README.md#musical-preset-bank).
+and [musical preset bank](../src/voice/README.md#musical-preset-bank), and the
+Sitar physical-model preset (29) documented in the
+[ENGINE_SITAR section](#engine_sitar-sitar-physical-model-preset-29).
 
 | # | Preset Name | Engine | Oscillators | Amplitudes | Detune (Semis) | Harmony | Filter Mode | Filter Settings | Overdrive | Envelope (A/D/S/R) | Output Level |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -437,12 +448,56 @@ values survive the first sequencer update.
 | WAVEGUIDE | 9–12 | Note / velocity | Brightness (0–1) | Pick hardness (0–1) | T60 (0.05–7 s at runtime, EXP; `wgT60ToNormalized` seeding assumes a 0.05–10 s curve) |
 | HYPERSAW | 13 | Note / velocity | Cutoff (live) | Native seven-voice detune (0–1) | Native center/side mix (0–1) |
 | NOISESTORM | 14 | Note / velocity | Swarm color | Swarm regen | Chaos level (the SVF keeps the preset's static `filterCutoffBase`) |
+| SITAR | 29 | Note / velocity | JAWARI bridge buzz (0–1) | PICK hardness (0–1) | TARAF amount (0–1) |
 
 For HYPERSAW/NOISESTORM the ADSR times come from the preset defaults (`applyEnvelopeDefaults_()`),
 since the Attack/Decay tracks no longer carry envelope times. Live preset switches are
 gate-safe: scalar config applies immediately, but the oscillator rebuild and engine
 reset are deferred until the gate falls (`applyStructuralConfig_()`), so swapping
-presets while playing never clicks a held note or cuts a ringing tail.
+presets while playing never clicks a held note or cuts a ringing tail. Chain toggles
+such as `hasEnvelope` are scalars too: switching a natural-tail preset (waveguide or
+sitar) to an enveloped one while held hands the level to the still-idle ADSR, which
+mutes the note until the next gate rise.
+
+### ENGINE_SITAR: sitar physical model (preset 29)
+
+Preset 29 uses `engine = ENGINE_SITAR`: one `rpdsp::SitarStringVoice<2048>` per
+voice — a Karplus-Strong two-string course with three sitar-specific additions.
+**Jawari** soft-compresses loop readouts above a contact threshold *inside* the
+string feedback loop, so the bridge buzz is strongest right after the pluck and
+cleans up as the string decays; it only ever removes energy, so the loop stays
+stable. **Taraf** is five high-Q resonators at 1/1.5/2/3/4 times the played note,
+driven continuously by the string — never plucked, they ring with the string and
+keep sounding after it dies (`sitarTarafDecay` holds at every pitch). **Body**
+mixes two RBJ bandpasses at `sitarBodyFrequency` and 2.756× above it, so the
+string feels attached to a gourd.
+
+`Voice::processSitar_()` plucks on each gate rise or retrigger — velocity drives
+the excitation, and the sitar layout sets `velocityToAmplitude = false` so it is
+never double-applied in the VCA. A gated pitch change on a ringing string (a
+Slide-lane step, a legato note, bend) performs *meend*: the loop delay slews over
+`slideSeconds` (0.005–2 s) without resetting the delay or retriggering the
+excitation, and the taraf bank retunes to the target pitch at control rate.
+
+Like the waveguide presets, the Sitar preset sets `hasFilter = false` and
+`hasEnvelope = false`: no synth filter and no gated VCA — the voice rings on its
+natural string/jawari decay while the sympathetic bank keeps singing, then
+settles bit-exact silent. The idle-skip carve-out consults the model's
+`isActive()`, so a still-ringing taraf tail is never skipped.
+
+The Filter/Attack/Decay lanes become the sitar timbre controls (seeded from the
+preset's resting values, which sit exactly on the lane midpoints):
+
+| Lane | Control | Config field | Preset span (min–max) | Rest |
+|---|---|---|---|---|
+| Filter | JAWARI | `sitarJawari` | 0.05–0.95 | 0.45 |
+| Attack | PICK | `sitarPickHardness` | 0.3–1.0 | 0.9 |
+| Decay | TARAF | `sitarTarafAmount` | 0.0–0.9 | 0.45 |
+
+The remaining seven `sitar*` fields (decay, brightness, pick position, jawari
+threshold, taraf decay, body amount/frequency — see `VoiceConfig` above) are
+tuned by the preset and round-trip through patch persistence
+(`SNAPSHOT_FORMAT_VERSION` 2).
 
 ---
 
