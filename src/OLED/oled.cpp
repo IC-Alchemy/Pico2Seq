@@ -203,11 +203,29 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
   update(uiState, sequencers, nullptr);
 }
 
+<<<<<<< HEAD
 // Main render: strict view priority so two screens never fight for a frame:
 // PARAM/UTIL banner > confirmation notice > held-lane value > settings pages >
 // arp page (below Settings, above the step pages: the mode replaces what the
 // panel edits, so step/gate/envelope views would show unreachable values) >
 // gate-length bar > step/ENV edit > idle status. One view draws, then returns.
+=======
+// update() (main):
+// - The heart of the display state machine. It enforces a strict priority order so
+//   that mutually exclusive views do not fight for the screen in a given frame.
+//   Priority from highest to lowest:
+//     0) Transient PARAM/UTIL mode banner and confirmation notice (short windows)
+//     1) In settings + voice parameter edit active (recent interaction window)
+//     2) In settings main/preset menu
+//     3) Transient voice parameter info (outside settings, brief after-change)
+//     4) Default status (scale, shuffle, selected voice, encoder, step indicators)
+// - Arpeggiator mode's own page sits below Settings and above the step pages:
+//   the mode replaces what the panel edits, so the step/gate/envelope views
+//   would be showing values nothing can reach (see docs/arpeggiator.md).
+// - Timing: uses millis()-based timeouts from UIState to show transient UIs without
+//   blocking the main loop.
+// - Efficiency: clears once, sets text props once, and renders one view per frame.
+>>>>>>> f93e3bf691631b6a65407f345dbf37e8c6115c41
 void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers,
                          VoiceManager *voiceManager)
 {
@@ -255,10 +273,13 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     case UIState::OledNoticeKind::LoadError: line1 = "LOAD ERR"; break;
     case UIState::OledNoticeKind::VoiceCleared: line1 = "CLEARED"; break;
     case UIState::OledNoticeKind::AllCleared:   line1 = "ALL CLEAR"; break;
+<<<<<<< HEAD
     case UIState::OledNoticeKind::Macro:        line1 = "MACRO"; break;
     case UIState::OledNoticeKind::DelayMix:     line1 = "DELAY MIX"; break;
     case UIState::OledNoticeKind::DelayTime:    line1 = "DELAY TIME"; break;
     case UIState::OledNoticeKind::DelayFeedback: line1 = "DELAY FB"; break;
+=======
+>>>>>>> f93e3bf691631b6a65407f345dbf37e8c6115c41
     case UIState::OledNoticeKind::ArpOn:
       line1 = "ARP ON";
       line2 = "arp mode";
@@ -414,7 +435,11 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     return;
   }
 
+<<<<<<< HEAD
   // Gate-length edit: bar over the 16 playable steps of the selected voice.
+=======
+  // MEDIUM-LOW PRIORITY: Gate Sequence Length Mode (active while encoder control is held)
+>>>>>>> f93e3bf691631b6a65407f345dbf37e8c6115c41
   if (uiState.gateSeqLengthMode)
   {
     const uint8_t gateLen = sequence.getParameterStepCount(ParamId::Gate);

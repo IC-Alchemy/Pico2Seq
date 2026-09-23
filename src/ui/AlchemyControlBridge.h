@@ -42,9 +42,15 @@ class SequencerView;
  *     panel keeps Play/Session/Scale/Theme while Octave range, Re-sync and
  *     Randomize-chord take the step-only slots.
  *   - Faders: step-parameter recording in Param mode (same recording path
+<<<<<<< HEAD
  *     as the lidar), tempo/delay-mix/master-volume/gate-length otherwise;
  *     in Arpeggiator mode the same four faders set arp range, gate, swing
  *     and filter (ControlSurface::FaderMap::arpAssignmentFor).
+=======
+ *     as the lidar), tempo/swing/gate-length outside it; in Arpeggiator mode
+ *     the same four faders set arp range, gate, swing and filter
+ *     (ControlSurface::FaderMap::arpAssignmentFor).
+>>>>>>> f93e3bf691631b6a65407f345dbf37e8c6115c41
  */
 class AlchemyControlBridge
 {

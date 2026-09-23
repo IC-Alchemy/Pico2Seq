@@ -46,8 +46,13 @@ struct UIState
     // Per-pad press times for tap (toggle step) vs hold (edit step). Index is
     // the raw 0..31 pad; 0 = press was consumed by a mode, so release ignores it.
     unsigned long padPressTimestamps[SequencerConstants::MAX_STEPS_COUNT] = {0};
+<<<<<<< HEAD
     // --- Transient OLED notice (short confirmation banner; replaces the old control-cluster LED flashes) ---
     enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6, Macro = 7, DelayMix = 8, DelayTime = 9, DelayFeedback = 10, ArpOn = 11, ArpOff = 12 };
+=======
+    // --- Transient OLED notice (replaces the old control-cluster LED flashes) ---
+    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6, ArpOn = 7, ArpOff = 8 };
+>>>>>>> f93e3bf691631b6a65407f345dbf37e8c6115c41
     volatile unsigned long oledNoticeUntil = 0;
     volatile OledNoticeKind oledNoticeKind = OledNoticeKind::None;
     volatile uint8_t oledNoticeVoice = 0; // 0-based voice, valid for Randomized and VoiceCleared

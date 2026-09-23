@@ -229,6 +229,12 @@ void ControlIO::scanControls(uint32_t nowMs)
         freezeWatchdogMark(FW_LOOP_DISTANCE);
         distanceSensor.update();
         AppState::performanceInput.observeDistance(distanceSensor.getRawDistanceMm());
+<<<<<<< HEAD
+=======
+        // =======================
+        //   PARAMETER RECORDING / ARP DYNAMICS
+        // =======================
+>>>>>>> f93e3bf691631b6a65407f345dbf37e8c6115c41
         // Arpeggiator mode has no steps to write: the same hand drives the
         // notes' dynamics instead, and losing the hand has to be reported every
         // pass or the arp would keep a stale velocity.
@@ -237,8 +243,15 @@ void ControlIO::scanControls(uint32_t nowMs)
             uiState.arp.observeDynamics(AppState::performanceInput.handPresent,
                                         AppState::performanceInput.recordingValue());
         }
+<<<<<<< HEAD
         // Live recording: a held lane follows the hand every pass (or the selected
         // step in Step Edit); pitch lanes also record on clock steps. No hand: hold.
+=======
+        // While parameter buttons are held, the hand writes each held lane's
+        // playing step every pass, or the selected step in Step Edit. While
+        // playing, pitch lanes are left to advanceStep() on each clock step.
+        // No hand in range: steps keep their values.
+>>>>>>> f93e3bf691631b6a65407f345dbf37e8c6115c41
         else if (AppState::performanceInput.handPresent)
         {
             freezeWatchdogMark(FW_LOOP_RECORD);

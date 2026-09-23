@@ -157,7 +157,11 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
     uiState.arp.releaseAllHeldPads();
     return;
   }
+<<<<<<< HEAD
   // Edge-only input: holds are promoted by polling so the loop never blocks.
+=======
+  // Poll held buttons (long press detection) using the shared routing table.
+>>>>>>> f93e3bf691631b6a65407f345dbf37e8c6115c41
   pollUIHeldButtons(uiState, sequencers);
 
   // =======================

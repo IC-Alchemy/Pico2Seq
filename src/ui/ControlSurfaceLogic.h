@@ -315,10 +315,16 @@ enum class FaderTarget : uint8_t
 {
   None,        // unassigned
   EnvLane,     // ENV mode: one envelope lane of the selected step
+<<<<<<< HEAD
   Tempo,        // uClock BPM (Shift + fader: delay feedback)
   DelayMix,     // master delay wet mix (Shift + fader: delay time)
   MasterVolume, // VoiceManager's global gain on Core 1's final mix
   GateLength,   // gate length across the selected voice's steps
+=======
+  Tempo,       // uClock BPM
+  SwingAmount, // continuous shuffle depth
+  GateLength,  // gate length across the selected voice's steps
+>>>>>>> f93e3bf691631b6a65407f345dbf37e8c6115c41
   // Arpeggiator mode replaces the whole step-oriented set: the same four
   // faders shape the arp's note range, length, swing and tone instead.
   ArpOctaves, // arp range in octaves
