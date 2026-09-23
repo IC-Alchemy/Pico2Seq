@@ -849,7 +849,6 @@ void Voice::applyEngineConfig_()
             config.sitarBodyFrequency, last.slideTime, true};
     // Meend bend time follows the voice's slide parameter (slideSeconds).
     pushSitarSlideTime_();
->>>>>>> 1dd6e54 (feat: add ENGINE_SITAR voice engine wired to rpdsp::SitarStringVoice)
   } else if (cachedEngine_ == ENGINE_HYPERSAW) {
     hypersaw_.setDetune(config.hypersawDetune);
     hypersaw_.setMix(config.hypersawMix);

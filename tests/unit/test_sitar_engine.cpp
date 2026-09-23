@@ -75,7 +75,7 @@ TEST_CASE("Sitar engine lifecycle: pluck rings past gate-off then settles silent
     auto config = sitarConfig();
     Voice voice(0, config);
     voice.init(kSampleRate);
-    voice.updateParameters(gatedState(9.0f)); // note 9 -> 880 Hz base pitch
+    voice.updateParameters(gatedState(9.0f)); // note 9 -> 220 Hz base pitch (row 9, octave 0)
     float peak = 0.0f;
     for (int i = 0; i < 9600; ++i)
     {
@@ -277,7 +277,7 @@ TEST_CASE("Ringing sitar string bends smoothly to a repitched target",
     voice.init(kSampleRate);
     voice.setSlideTime(0.8f); // slow meend; SlideChanged must reach the model
     (void)voice.process();    // drain the queued slide change
-    voice.updateParameters(gatedState(9.0f)); // pluck at 880 Hz
+    voice.updateParameters(gatedState(9.0f)); // pluck at 220 Hz (row 9, octave 0)
     for (int i = 0; i < 4800; ++i) (void)voice.process();
 
     voice.setFrequency(440.0f); // pitch change while gated -> meend bend

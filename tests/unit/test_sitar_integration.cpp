@@ -461,11 +461,14 @@ TEST_CASE("A lane-driven note change bends a ringing sitar string", "[sitar_inte
     voice.setSlideTime(0.6f); // slow meend; reaches the model via SlideChanged
     (void)voice.process();
 
-    voice.updateParameters(gatedState(9.0f)); // plucks at 880 Hz
+    voice.updateParameters(gatedState(9.0f)); // plucks at 220 Hz (A3: row 9, octave 0)
     for (int i = 0; i < 4800; ++i) (void)voice.process();
 
     VoiceState bent = gatedState(9.0f);
-    bent.noteIndex = 21.0f; // twelve semitones up, arriving through the Note lane
+    // A Note-lane change within the scale row (this lineage clamps noteIndex
+    // to the 12-step row; octaves ride octaveOffset): row 9 (A3) -> row 4
+    // (E3), a sixth down, arriving through the Note lane.
+    bent.noteIndex = 4.0f;
     bent.hasSlide = true;
     voice.updateParameters(bent);
 
@@ -490,16 +493,16 @@ TEST_CASE("A lane-driven note change bends a ringing sitar string", "[sitar_inte
     }
     REQUIRE(maxDelta < 0.4f); // continuous bend, no retune glitch
 
-    const double oldPitch = goertzelMagnitude(early.data(), early.size(), 880.0f, kSampleRate);
+    const double oldPitch = goertzelMagnitude(early.data(), early.size(), 220.0f, kSampleRate);
     const double targetEarly =
-        goertzelMagnitude(early.data(), early.size(), 1760.0f, kSampleRate);
+        goertzelMagnitude(early.data(), early.size(), 164.81f, kSampleRate);
     INFO("early old-pitch bin " << oldPitch << " target bin " << targetEarly);
     REQUIRE(oldPitch > targetEarly); // the bend starts from the old pitch
 
     const double landed =
-        goertzelMagnitude(settled.data(), settled.size(), 1760.0f, kSampleRate);
+        goertzelMagnitude(settled.data(), settled.size(), 164.81f, kSampleRate);
     const double residue =
-        goertzelMagnitude(settled.data(), settled.size(), 880.0f, kSampleRate);
+        goertzelMagnitude(settled.data(), settled.size(), 220.0f, kSampleRate);
     INFO("settled target bin " << landed << " residue bin " << residue);
     REQUIRE(landed > 2.0 * residue); // and it lands on the new pitch
 }
