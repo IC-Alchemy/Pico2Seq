@@ -13,6 +13,7 @@
 #include "../rpdsp/src/rpdsp/effects.h"
 #include "../rpdsp/src/rpdsp/hypersaw.h"
 #include "../rpdsp/src/rpdsp/waveguide.h"
+#include "../rpdsp/src/rpdsp/sitar.h"
 #include "../rpdsp/src/rpdsp/DSPFunctions.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
@@ -322,6 +323,30 @@ private:
   // strictly under the 5% musical ceiling. Exact zeros stay zero, so an
   // explicitly unison/dry setting (detune/stiffness 0) never drifts.
   static constexpr float kWaveguideHumanize = 0.04f;
+  // Dedicated sitar model (jawari bridge + taraf sympathetic bank + body).
+  // Same fixed-storage, natural-tail discipline as the waveguide engine;
+  // capacity matches kWaveguideCapacity (about 24 Hz minimum pitch at 48 kHz).
+  static constexpr size_t kSitarCapacity = kWaveguideCapacity;
+  rpdsp::SitarStringVoice<kSitarCapacity> sitar_;
+  // Audio-owned cache: unchanged controls need no coefficient recalculation.
+  // slideTime mirrors Voice::slideTimeSeconds (the sitar meend time follows
+  // the voice's existing slide parameter). Invalidated whenever the model is
+  // reset or prepared again.
+  struct SitarSettings
+  {
+    float decay = 0.0f;
+    float brightness = 0.0f;
+    float pickPosition = 0.0f;
+    float pickHardness = 0.0f;
+    float jawari = 0.0f;
+    float jawariThreshold = 0.0f;
+    float tarafAmount = 0.0f;
+    float tarafDecay = 0.0f;
+    float bodyAmount = 0.0f;
+    float bodyFrequency = 0.0f;
+    float slideTime = 0.0f;
+    bool valid = false;
+  } sitarSettings_;
   // A Hypersaw itself contains the seven saw voices. Keep exactly one instance
   // per Voice rather than building a second unison stack from VoiceOscillator.
   rpdsp::Hypersaw hypersaw_;
@@ -349,6 +374,8 @@ private:
   // Set on gate rise/retrigger so the waveguide engine plucks with the pitch
   // already committed for this frame; consumed by renderSources_().
   bool wgPluckPending_ = false;
+  // Same edge contract as wgPluckPending_ for the sitar engine.
+  bool sitarPluckPending_ = false;
   // Hypersaw randomizes its internal phases on each gate rise/retrigger.
   bool hypersawTriggerPending_ = false;
   // Cached engine (clamped config.engine), updated on config apply.
@@ -597,10 +624,16 @@ private:
 
 
   /**
+<<<<<<< HEAD
    * @brief Apply engine-specific configuration (waveguide and Hypersaw tuning)
    *        Called from init() and applyConfig_() at control rate. Waveguide
    *        string tuning is gate-gated (see pushWaveguideParams_()): edits
    *        made while a note rings wait for the next gate-on.
+=======
+   * @brief Apply engine-specific configuration (waveguide, sitar and
+   *        Hypersaw tuning)
+   *        Called from init() and applyConfig_() at control rate.
+>>>>>>> 1dd6e54 (feat: add ENGINE_SITAR voice engine wired to rpdsp::SitarStringVoice)
    */
   void applyEngineConfig_();
   /**
@@ -620,11 +653,23 @@ private:
    */
   float wgHumanize_(float base) noexcept;
 
+  // Push the voice's slide time into the sitar model (its meend bend time
+  // follows the existing slide parameter). Control rate; no-op unless the
+  // sitar engine is selected and the value changed.
+  void pushSitarSlideTime_() noexcept;
+
   /**
    * @brief Waveguide engine source stage: pluck on pending edges, process string
    * @return float Waveguide output
    */
   float processWaveguide_() noexcept;
+
+  /**
+   * @brief Sitar engine source stage: pluck on pending edges, meend-bend a
+   *        ringing string on gated pitch changes, process the model
+   * @return float Sitar output
+   */
+  float processSitar_() noexcept;
 
   /**
    * @brief Process the single native seven-voice Hypersaw source

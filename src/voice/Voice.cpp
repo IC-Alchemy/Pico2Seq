@@ -214,12 +214,13 @@ void Voice::init(float sr)
 
   // Alternate engines: prepare + seed state, then apply tuning from config.
   // init() is setup-time, so the engine cache is set directly here.
-  cachedEngine_ = (config.engine <= static_cast<uint8_t>(ENGINE_RECIPE))
+  cachedEngine_ = (config.engine <= static_cast<uint8_t>(ENGINE_SITAR))
                       ? config.engine
                       : static_cast<uint8_t>(ENGINE_OSC);
   recipeEngine_.prepare(sampleRate);
   recipeEngine_.select(config.recipe);
   waveguide_.prepare(sampleRate);
+  sitar_.prepare(sampleRate);
   hypersaw_.prepare(sampleRate);
   hypersaw_.reseed(0x9e3779b9u + static_cast<uint32_t>(voiceId) + 1u);
   resetAlternateEngines_();
@@ -315,6 +316,8 @@ void PICO2SEQ_AUDIO_FUNC(Voice::applyControlUpdate_)() noexcept
   {
     slideTimeSeconds = update.slideSeconds;
     slideAlpha = makeSmoothingAlpha(slideTimeSeconds, sampleRate);
+    // The sitar meend bend time follows the voice's slide parameter.
+    pushSitarSlideTime_();
   }
   if (changes & BendChanged)
     pitchBendSemitones_ = update.bendSemitones;
@@ -443,7 +446,10 @@ bool PICO2SEQ_AUDIO_FUNC(Voice::canSkipSilentSpan_)() const noexcept
 {
   return quietRun_ >= kQuietHold && config.hasEnvelope && !gate && !gateHighPrev_ &&
          !state.shouldRetrigger && !structuralPending_ && !envelope.isActive() &&
-         cachedEngine_ != ENGINE_WAVEGUIDE && cachedEngine_ != ENGINE_NOISEFX;
+         cachedEngine_ != ENGINE_WAVEGUIDE && cachedEngine_ != ENGINE_NOISEFX &&
+         // The sitar engine reports its own composite activity (string +
+         // body + taraf): skip only once nothing in the model is ringing.
+         (cachedEngine_ != ENGINE_SITAR || !sitar_.isActive());
 }
 
 void PICO2SEQ_AUDIO_FUNC(Voice::advanceSilentSpan_)(uint32_t n) noexcept
@@ -498,6 +504,7 @@ void Voice::handleGateEdges_() noexcept
       // Retune the string before the re-pluck (no-op unless waveguide).
       if (cachedEngine_ == ENGINE_WAVEGUIDE) pushWaveguideParams_();
       wgPluckPending_ = true; // waveguide engine re-plucks on retriggers
+      sitarPluckPending_ = true; // sitar engine re-plucks on retriggers
       hypersawTriggerPending_ = true;
       recipeTriggerPending_ = true;
     }
@@ -512,6 +519,7 @@ void Voice::handleGateEdges_() noexcept
     // Fresh string tuning lands with the pluck, never mid-note.
     if (cachedEngine_ == ENGINE_WAVEGUIDE) pushWaveguideParams_();
     wgPluckPending_ = true;
+    sitarPluckPending_ = true;
     hypersawTriggerPending_ = true;
     recipeTriggerPending_ = true;
   }
@@ -683,6 +691,12 @@ void PICO2SEQ_AUDIO_FUNC(Voice::renderSources_)(float *sig, const float *env, ui
       if (!gateBySilence || env[k] > 0.001f) sig[k] = processWaveguide_();
     return;
   }
+  if (cachedEngine_ == ENGINE_SITAR)
+  {
+    for (uint32_t k = first; k < n; ++k)
+      if (!gateBySilence || env[k] > 0.001f) sig[k] = processSitar_();
+    return;
+  }
   if (cachedEngine_ == ENGINE_HYPERSAW || cachedEngine_ == ENGINE_RECIPE)
   {
     for (uint32_t k = first; k < n; ++k)
@@ -761,13 +775,24 @@ void Voice::processEffectsChain(float &signal)
   applyEffects(signal);
 }
 
-// -------- Alternate engines (waveguide / Hypersaw / noise-FX) --------
+// -------- Alternate engines (waveguide / sitar / Hypersaw / noise-FX) --------
+
+void Voice::pushSitarSlideTime_() noexcept
+{
+  if (cachedEngine_ != static_cast<uint8_t>(ENGINE_SITAR))
+    return;
+  if (sitarSettings_.valid && sitarSettings_.slideTime == slideTimeSeconds)
+    return;
+  sitar_.setSlideTimeSeconds(slideTimeSeconds);
+  sitarSettings_.slideTime = slideTimeSeconds;
+}
 
 void Voice::applyEngineConfig_()
 {
-  // Waveguide tuning. These are control-rate setters with internal clamps;
+  // Engine tuning. These are control-rate setters with internal clamps;
   // setBrightness()/setPickHardness() derive coefficients from sampleRate_,
-  // so waveguide_.prepare() must have run first (init() guarantees this).
+  // so waveguide_.prepare()/sitar_.prepare() must have run first (init()
+  // guarantees this).
   // NOTE: cachedEngine_ is NOT updated here — the engine switch belongs to
   // applyStructuralConfig_() so a live swap waits for the gate to fall.
   if (cachedEngine_ == ENGINE_WAVEGUIDE) {
@@ -795,6 +820,36 @@ void Voice::applyEngineConfig_()
             config.wgPickHardness, config.wgStiffness, config.wgDetune, true};
     waveguideApplied_ = {config.wgT60, config.wgBrightness, config.wgPickPosition,
                          config.wgPickHardness, config.wgStiffness, config.wgDetune, true};
+  } else if (cachedEngine_ == ENGINE_SITAR) {
+    auto &last = sitarSettings_;
+    if (!last.valid || last.decay != config.sitarDecay)
+      sitar_.setDecayTimeSeconds(config.sitarDecay);
+    if (!last.valid || last.brightness != config.sitarBrightness)
+      sitar_.setBrightness(config.sitarBrightness);
+    if (!last.valid || last.pickPosition != config.sitarPickPosition)
+      sitar_.setPickPosition(config.sitarPickPosition);
+    if (!last.valid || last.pickHardness != config.sitarPickHardness)
+      sitar_.setPickHardness(config.sitarPickHardness);
+    if (!last.valid || last.jawari != config.sitarJawari)
+      sitar_.setJawari(config.sitarJawari);
+    if (!last.valid || last.jawariThreshold != config.sitarJawariThreshold)
+      sitar_.setJawariThreshold(config.sitarJawariThreshold);
+    if (!last.valid || last.tarafAmount != config.sitarTarafAmount)
+      sitar_.setTarafAmount(config.sitarTarafAmount);
+    if (!last.valid || last.tarafDecay != config.sitarTarafDecay)
+      sitar_.setTarafDecaySeconds(config.sitarTarafDecay);
+    if (!last.valid || last.bodyAmount != config.sitarBodyAmount)
+      sitar_.setBodyAmount(config.sitarBodyAmount);
+    if (!last.valid || last.bodyFrequency != config.sitarBodyFrequency)
+      sitar_.setBodyFrequency(config.sitarBodyFrequency);
+    last = {config.sitarDecay, config.sitarBrightness, config.sitarPickPosition,
+            config.sitarPickHardness, config.sitarJawari,
+            config.sitarJawariThreshold, config.sitarTarafAmount,
+            config.sitarTarafDecay, config.sitarBodyAmount,
+            config.sitarBodyFrequency, last.slideTime, true};
+    // Meend bend time follows the voice's slide parameter (slideSeconds).
+    pushSitarSlideTime_();
+>>>>>>> 1dd6e54 (feat: add ENGINE_SITAR voice engine wired to rpdsp::SitarStringVoice)
   } else if (cachedEngine_ == ENGINE_HYPERSAW) {
     hypersaw_.setDetune(config.hypersawDetune);
     hypersaw_.setMix(config.hypersawMix);
@@ -853,6 +908,38 @@ float PICO2SEQ_AUDIO_FUNC(Voice::processWaveguide_)() noexcept
     }
   }
   return waveguide_.process();
+}
+
+float PICO2SEQ_AUDIO_FUNC(Voice::processSitar_)() noexcept
+{
+  // Same pitch plumbing as the waveguide: honor oscillator-bank harmony on
+  // the first slot, else the plain base pitch.
+  const float targetHz = (cachedOscCount_ > 0) ? pitchCache_.finalFreq[0]
+                                               : pitchCache_.baseFreq;
+  if (sitarPluckPending_)
+  {
+    sitarPluckPending_ = false;
+    if (targetHz > 0.0f)
+    {
+      // Velocity drives the excitation itself, clamped to [0,1]: the model's
+      // pluck amplitude is deliberately unbounded above, and velocity is a
+      // 0..1 control. A pluck cancels any active slide (a re-pluck wins).
+      sitar_.pluck(targetHz, std::clamp(state.velocityLevel, 0.0f, 1.0f));
+      engineAppliedPitchGen_ = pitchGen_;
+    }
+  }
+  else if (state.isGateHigh && pitchGen_ != engineAppliedPitchGen_)
+  {
+    // A ringing string repitched while gated (slide lane, legato note,
+    // bend/mod): meend — bend to the new pitch through the model's
+    // fractional-delay slew instead of waiting for the next pluck.
+    if (targetHz > 0.0f)
+    {
+      sitar_.slideTo(targetHz);
+      engineAppliedPitchGen_ = pitchGen_;
+    }
+  }
+  return sitar_.process();
 }
 
 float PICO2SEQ_AUDIO_FUNC(Voice::processPitchedEngine_)() noexcept
@@ -926,6 +1013,9 @@ void Voice::resetAlternateEngines_() noexcept
   wgHumanizeRng_ = rpdsp::XorShift32{kWaveguideHumanizeSeed +
                                      static_cast<uint32_t>(voiceId) * 0x9E3779B9u};
   wgPluckPending_ = false;
+  sitar_.reset();
+  sitarSettings_.valid = false;
+  sitarPluckPending_ = false;
   hypersaw_.reset();
   hypersawTriggerPending_ = false;
   engineAppliedPitchGen_ = 0;
@@ -1407,7 +1497,7 @@ void Voice::applyConfig_(const VoiceConfig &newConfig) noexcept
     stagedWaveforms_[i] = config.oscWaveforms[i];
     stagedPulseWidth_[i] = config.oscPulseWidth[i];
   }
-  stagedEngine_ = (config.engine <= static_cast<uint8_t>(ENGINE_RECIPE))
+  stagedEngine_ = (config.engine <= static_cast<uint8_t>(ENGINE_SITAR))
                       ? config.engine
                       : static_cast<uint8_t>(ENGINE_OSC);
   structuralPending_ = structuralPending_ || structuralChange;

@@ -18,6 +18,7 @@ enum VoiceEngine : uint8_t
   ENGINE_NOISEFX = 2,   // Noise + chaos source through diffuser/swarm inserts
   ENGINE_HYPERSAW = 3,  // One rpdsp::Hypersaw (internally seven detuned saw voices)
   ENGINE_RECIPE = 4,    // Fixed-state rpdsp recipe selected by config.recipe
+  ENGINE_SITAR = 5,     // Sitar physical model (rpdsp::SitarStringVoice)
 };
 
 // How the sequencer's parameter slots are interpreted for this voice. STANDARD
@@ -135,6 +136,19 @@ struct VoiceConfig
   float wgPickHardness = 0.8f; // Excitation burst: 0 soft felt .. 1 hard pick
   float wgStiffness = 0.0f;    // Inharmonic dispersion: 0 harmonic .. 1 bell-like
   float wgDetune = 6.0f;       // Two-string course spread in cents (0.0-30.0)
+
+  // Sitar engine parameters (ENGINE_SITAR only). Defaults mirror the
+  // rpdsp::SitarStringVoice model defaults so a raw config sounds as tuned.
+  float sitarDecay = 5.0f;           // String tail T60 in seconds (0.05-10.0)
+  float sitarBrightness = 0.92f;     // Loop damping: 0 dark .. 1 glassy (0.0-1.0)
+  float sitarPickPosition = 0.12f;   // Pick point, 0.02 bridge .. 0.5 middle
+  float sitarPickHardness = 0.9f;    // Excitation burst: 0 soft felt .. 1 hard pick
+  float sitarJawari = 0.45f;         // Bridge contact/buzz amount (0.0-1.0)
+  float sitarJawariThreshold = 0.3f; // Contact threshold: 0 buzzes sooner .. 1 later (0.0-1.0)
+  float sitarTarafAmount = 0.35f;    // Sympathetic taraf bank level (0.0-1.0)
+  float sitarTarafDecay = 4.0f;      // Sympathetic ring T60 in seconds (0.05-12.0)
+  float sitarBodyAmount = 0.25f;     // Body resonance mix (0.0-1.0)
+  float sitarBodyFrequency = 130.0f; // Low body mode in Hz (50-500)
 
   // Hypersaw engine parameters (ENGINE_HYPERSAW only)
   float hypersawDetune = 0.2f; // Seven-voice detune amount (0.0-1.0)
