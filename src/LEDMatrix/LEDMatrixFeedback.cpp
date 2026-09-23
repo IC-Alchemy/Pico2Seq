@@ -822,7 +822,7 @@ static void renderArpPanel(LEDMatrix &ledMatrix, const UIState &uiState) {
   // that is sounding, so the panel shows the gesture that is being heard.
   const uint8_t dynamicScale =
       static_cast<uint8_t>(LEDConstants::MEDIUM_BRIGHTNESS +
-                           (arp.dynamics() * (LEDConstants::FULL_BRIGHTNESS -
+                           (arp.lastVelocityScale() * (LEDConstants::FULL_BRIGHTNESS -
                                               LEDConstants::MEDIUM_BRIGHTNESS)));
 
   for (uint8_t pad = 0; pad < Arpeggiator::kPadCount; ++pad) {
@@ -847,7 +847,7 @@ static void renderArpPanel(LEDMatrix &ledMatrix, const UIState &uiState) {
                                                 breathing * 8.0f));
     }
 
-    if (arp.degreeSounding(pad)) {
+    if (isClockRunning && arp.degreeSounding(pad)) {
       // Sounding now: push the hue toward the playhead accent, harder for the
       // higher octaves of the range so a climbing arp reads as a climb.
       uint8_t octave = 0;

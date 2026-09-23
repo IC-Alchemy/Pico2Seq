@@ -323,6 +323,10 @@ enum class FaderTarget : uint8_t
   ArpGate,    // note length as a fraction of the interval
   ArpSwing,   // arp swing depth
   ArpFilter,  // per-note filter lane
+  ArpHits,
+  ArpLength,
+  ArpRotate,
+  ArpAccent,
 };
 
 struct FaderAssignment
@@ -350,10 +354,11 @@ public:
 
   /**
    * Target of one fader channel (0..3) in Arpeggiator mode: octave range, gate
-   * length, swing depth, filter. Step selection is meaningless there, so this
+   * length, swing depth, filter; Shift selects hits, length, rotate, accent.
+   * Step selection is meaningless there, so this
    * set applies in both step-edit states; the strap does not change it.
    */
-  static FaderAssignment arpAssignmentFor(uint8_t channel);
+  static FaderAssignment arpAssignmentFor(uint8_t channel, bool shift = false);
 
   /** 12-bit raw fader counts -> normalized 0..1. */
   static float normalize(uint16_t rawCounts);

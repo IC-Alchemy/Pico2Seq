@@ -170,7 +170,7 @@ FaderAssignment FaderMap::assignmentFor(bool stepSelected, uint8_t channel)
 // faders there are the whole continuous control surface of the arp, and none of
 // them means anything in step terms (tempo, swing and gate length all drive the
 // step sequencer). Values are interpreted by the engine, which clamps them.
-FaderAssignment FaderMap::arpAssignmentFor(uint8_t channel)
+FaderAssignment FaderMap::arpAssignmentFor(uint8_t channel, bool shift)
 {
   FaderAssignment out;
   if (channel >= kChannelCount)
@@ -180,7 +180,10 @@ FaderAssignment FaderMap::arpAssignmentFor(uint8_t channel)
   static constexpr FaderTarget kTargets[kChannelCount] = {
       FaderTarget::ArpOctaves, FaderTarget::ArpGate, FaderTarget::ArpSwing,
       FaderTarget::ArpFilter};
-  out.target = kTargets[channel];
+  static constexpr FaderTarget kShiftTargets[kChannelCount] = {
+      FaderTarget::ArpHits, FaderTarget::ArpLength, FaderTarget::ArpRotate,
+      FaderTarget::ArpAccent};
+  out.target = shift ? kShiftTargets[channel] : kTargets[channel];
   return out;
 }
 

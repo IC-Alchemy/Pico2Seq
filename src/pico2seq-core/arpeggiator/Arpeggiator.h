@@ -32,6 +32,8 @@ inline constexpr uint8_t kPadCount = 32;    // 8x4 touch pads = 32 scale degrees
 inline constexpr uint8_t kMaxSlots = 4;     // one voice per simultaneous note
 inline constexpr uint8_t kMinOctaves = 1;
 inline constexpr uint8_t kMaxOctaves = 4;
+inline constexpr uint8_t kMaxRhythmSteps = 16;
+inline constexpr uint8_t kRhythmPresetCount = 6;
 // Note length as a fraction of the interval. The ceiling leaves a gap before
 // the next note so a mono pattern always retriggers instead of gliding.
 inline constexpr float kMinGate = 0.05f;
@@ -98,6 +100,11 @@ uint8_t clampOctaves(uint8_t octaves) noexcept;
  */
 uint8_t octavesForFader(float normalized) noexcept;
 
+// Evenly distribute hits across a short repeating grid. Rotation moves the
+// entire rhythm right; zero hits is an intentional rest, not a stopped clock.
+bool rhythmHit(uint8_t step, uint8_t hits, uint8_t length, uint8_t rotation) noexcept;
+const char *rhythmPresetName(uint8_t preset) noexcept;
+
 /**
  * Voice behind one arp slot: slot 0 is the selected voice (the one the player
  * chose for the arp), the rest walk the other voices in index order. Chord
@@ -126,7 +133,14 @@ struct Settings
   float gate = 0.5f;             // note length as a fraction of the interval
   float swing = 0.0f;            // 0..1 of half an interval, applied to every second gap
   float filter = 0.5f;           // per-note Filter lane, composed with the patch
+  uint8_t hits = 8;
+  uint8_t length = 8;
+  uint8_t rotation = 0;
+  float accent = 0.0f;           // soften other hits relative to the rotated first hit
 };
+
+uint16_t intervalTicks(const Settings &settings, bool longGap) noexcept;
+uint16_t gateTicks(const Settings &settings, bool longGap) noexcept;
 
 // --- One tick's worth of note events ----------------------------------------
 
@@ -223,6 +237,19 @@ public:
   void setGate(float gate) noexcept;
   void setSwing(float swing) noexcept;
   void setFilter(float filter) noexcept;
+  void setRhythm(uint8_t hits, uint8_t length, uint8_t rotation) noexcept;
+  void setRhythmPreset(uint8_t preset) noexcept;
+  void setAccent(float accent) noexcept;
+  /** Shift-faders: hits, grid length, rotation, accent, in that order. */
+  void setRhythmFader(uint8_t channel, float normalized) noexcept;
+  bool rhythmHitAt(uint8_t step) const noexcept;
+  /** -1 for a custom grid, otherwise the matching starting point. */
+  int rhythmPreset() const noexcept;
+  uint8_t rhythmStep() const noexcept { return rhythmStep_; }
+  bool hasRhythmStep() const noexcept { return rhythmStarted_; }
+  /** Velocity multiplier captured at note-on, including hand and accent. */
+  float lastVelocityScale() const noexcept { return lastVelocityScale_; }
+  void resetRateMotion() noexcept { rateMotion_ = 0.0f; }
   /** Current rate name, for the OLED header. */
   const char *rateLabel() const noexcept { return rateName(settings_.rate); }
   /** Current pattern name, for the OLED header. */
@@ -294,7 +321,11 @@ private:
   uint16_t ticksToNext_ = 0;  // 0 = the next tick starts a note
   uint16_t gateTicksLeft_ = 0;
   bool stopPending_ = false;
-  uint16_t walk_ = 0;  // intervals scheduled since the last restart
+  uint32_t walk_ = 0;  // intervals scheduled since the last restart
+  uint8_t rhythmStep_ = 0;
+  uint8_t nextRhythmStep_ = 0;
+  bool rhythmStarted_ = false;
+  float lastVelocityScale_ = 1.0f;
 
   // Sounding slots
   uint8_t soundingMask_ = 0;

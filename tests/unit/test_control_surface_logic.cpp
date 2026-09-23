@@ -720,3 +720,21 @@ TEST_CASE("Between clock steps the lidar keeps writing only continuous lanes", "
                          ParamId::Release, ParamId::Count})
         CHECK_FALSE(recordsBetweenSteps(lane));
 }
+
+TEST_CASE("Arp Shift faders expose only the rhythm layer", "[control_surface][arpeggiator]")
+{
+    using namespace ControlSurface;
+    CHECK(FaderMap::arpAssignmentFor(0, true).target == FaderTarget::ArpHits);
+    CHECK(FaderMap::arpAssignmentFor(1, true).target == FaderTarget::ArpLength);
+    CHECK(FaderMap::arpAssignmentFor(2, true).target == FaderTarget::ArpRotate);
+    CHECK(FaderMap::arpAssignmentFor(3, true).target == FaderTarget::ArpAccent);
+    CHECK(FaderMap::arpAssignmentFor(4, true).target == FaderTarget::None);
+    FaderMap faders;
+    CHECK_FALSE(faders.accept(0, 2000));
+    CHECK(faders.accept(0, 2300));
+    faders.resetDeadband(); // entering Shift
+    CHECK_FALSE(faders.accept(0, 2300));
+    CHECK(faders.accept(0, 2600));
+    faders.resetDeadband(); // leaving Shift
+    CHECK_FALSE(faders.accept(0, 2600));
+}

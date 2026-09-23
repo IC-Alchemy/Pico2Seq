@@ -635,7 +635,7 @@ or the hold). The whole panel changes meaning for as long as the mode is on:
 
 | Control | In Arpeggiator mode |
 |---|---|
-| Touch pads | A 32-degree scale keyboard: pad 0 is the scale root, pad 31 is 31 scale steps up. Touch pads to build a chord; releasing drops a note unless Latch is held |
+| Touch pads | A 32-degree scale keyboard: pad 0 is the scale root, pad 31 is 31 scale steps up. Touch pads to build a chord; releasing drops a note unless Latch is on |
 | LED matrix | The chord map: the arp voice's hue under a finger, dim when latched, accent-bright while a note sounds (brighter with higher octaves and with the lidar), breathing when the chord is empty |
 | Fader 1 | Octave range 1â€“4 |
 | Fader 2 | Gate length 5â€“95% of the interval |
@@ -645,11 +645,16 @@ or the hold). The whole panel changes meaning for as long as the mode is on:
 | Hand over the lidar | Note dynamics: velocity from a quarter of the patch value (hand close) to full (hand raised); no hand leaves the preset's velocity alone |
 | Param buttons 1â€“6 | Pattern: Up, Down, Up-Dn, Rnd, Order, Chord |
 | Param button 7 | Latch (hold the chord after release; the next press with nothing held starts a new chord) |
-| Utility 1 / 2 | Play/Stop and Session keep their sequencer meanings |
-| Utility 3 / 4 / 5 | Scale cycle, octave-range cycle, Latch (Shift + tap re-syncs the walk to the chord root) |
-| Utility 6 | Random four-note chord (engages Latch); Shift + tap clears the chord |
+| Utility 1 / 2 | Play/Stop stays on the arp page (hold Play for sounds); Session saves/loads as before |
+| Utility 3 / 4 / 5 | Scale cycle, octave-range cycle, Theme |
+| Utility 6 | Latch; Shift + tap restarts the walk |
+| Utility 7 | Random four-note chord (engages Latch); Shift + tap clears the chord |
 | V1â€“V4 | Select which voice the arp plays through |
-| OLED | `ARP` page: pattern, rate, octave range, latch, the chord as note names, notes sounding now, and the lidar dynamics bar |
+| Shift + pattern 1–6 | Rhythm: All, Pulse, Tresillo, Five, Orbit, Seven |
+| Shift + faders 1–4 | Hits, Length (1–16), Rotate, Accent |
+| Shift + dial | Tempo, 45–200 BPM |
+| Shift + Latch | Restart in either panel position |
+| OLED | Persistent preset, transport/rate/latch, pattern/range/scale, key summary, rhythm strip, tempo, gate ms, swing ratio, last primary pitch and Shift control guide |
 
 The four step sequencers do not advance while the mode is on, and the mode is
 not saved with the session â€” a power cycle boots back into the step sequencer.

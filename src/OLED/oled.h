@@ -155,8 +155,8 @@ private:
   void displayEnvelopePage(const UIState &state, const Sequencer &sequence,
                            const VoiceConfig *config);
 
-  // Arpeggiator mode: the arp's settings, held chord, live note readout and
-  // lidar dynamics. The mode's only screen; see docs/arpeggiator.md.
+  // Arpeggiator mode: preset, chord, rhythm strip, musical values and Shift
+  // control guide. The mode's play screen; see docs/arpeggiator.md.
   void displayArpPage(const UIState &state);
 
   /**

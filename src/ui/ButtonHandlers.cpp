@@ -197,8 +197,9 @@ void handleControlButton(int buttonId, UIState &state)
     if (isClockRunning)
     {
       uClock.stop();
-      // Enter settings mode when stopping
-      openSettingsMode(state);
+      // Arp players need the chord and rhythm ready while stopped. Presets
+      // remain available on Play-hold; the sequencer keeps stop-to-settings.
+      if (!state.arp.active()) openSettingsMode(state);
     }
     else
     {

@@ -12,6 +12,7 @@
 #include "../ui/ButtonManager.h"
 #include "../ui/ControlSurfaceLogic.h"
 #include "../ui/SettingsPads.h"
+#include "../ui/ArpDisplay.h"
 #include <algorithm>
 #include <cstring> // For strcmp, strlen
 #include <Arduino.h>
@@ -267,14 +268,14 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
   if (uiState.alchemyModeBannerUntil != 0 && millis() < uiState.alchemyModeBannerUntil)
   {
     const bool paramMode = (uiState.alchemyMode == UIState::AlchemyMode::Param);
-    const char *banner = paramMode ? "PARAM" : "UTIL";
+    const char *banner = paramMode ? (uiState.arp.active() ? "ARP" : "PARAM") : "UTIL";
     const uint8_t bannerWidth = static_cast<uint8_t>(strlen(banner) * 6 * 3); // size-3 text
     displayHardware.setTextSize(3);
     displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - bannerWidth) / 2, 24);
     displayHardware.print(banner);
     displayHardware.setTextSize(1);
     displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - 10 * 6) / 2, 52);
-    displayHardware.print(paramMode ? "> params <" : "> utility <");
+    displayHardware.print(paramMode ? (uiState.arp.active() ? "> patterns <" : "> params <") : "> utility <");
     commitFrame();
     return;
   }
@@ -296,7 +297,7 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     case UIState::OledNoticeKind::AllCleared:   line1 = "ALL CLEAR"; break;
     case UIState::OledNoticeKind::ArpOn:
       line1 = "ARP ON";
-      line2 = "arp mode";
+      line2 = "Touch pads, then Play";
       break;
     case UIState::OledNoticeKind::ArpOff:
       line1 = "ARP OFF";
@@ -526,124 +527,151 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
   commitFrame();
 }
 
-// Why Arpeggiator mode needs its own page: the mode replaces what the pads, the
-// four faders and the encoder do, so every step/parameter page would be showing
-// values that nothing on the panel can reach. This page shows the arp's four
-// fader settings, the held chord, what the engine is playing right now, and the
-// lidar dynamics that set the last note's velocity.
+// Eight fixed rows; the rhythm strip uses one row. No marquee or automatic
+// page switching while playing. Shift reveals the controls in physical order.
 void OLEDDisplay::displayArpPage(const UIState &state)
 {
-  const Arpeggiator::Engine &arp = state.arp;
+  const auto &arp = state.arp;
+  const auto &settings = arp.settings();
+  const auto voice = std::min<uint8_t>(state.selectedVoiceIndex, 3);
   const size_t scaleIndex = std::min<size_t>(currentScale, SCALES_COUNT - 1);
-  const int *row = scale[scaleIndex];
-  const uint8_t voice = std::min<uint8_t>(state.selectedVoiceIndex, UIState::MAX_VOICES - 1);
+  const float bpm = uClock.getTempo();
+  const int preset = arp.rhythmPreset();
+  const char *rhythm = Arpeggiator::rhythmPresetName(static_cast<uint8_t>(preset));
+  char text[64]; // Format first, then visibly truncate once in line().
+  auto line = [&](int y, const char *value) {
+    ArpDisplay::Row fitted;
+    ArpDisplay::fit(value, fitted);
+    displayHardware.setTextSize(1);
+    displayHardware.setCursor(1, y);
+    displayHardware.print(fitted);
+  };
+  displayHardware.setTextWrap(false);
+  snprintf(text, sizeof(text), "ARP %s V%u %s %s", isClockRunning ? ">" : "[]",
+           unsigned(voice + 1), arp.rateLabel(), arp.latchEnabled() ? "HOLD" : "LIVE");
+  line(0, text);
+  displayHardware.fillRect(0, 8, 128, 8, SH110X_WHITE);
+  displayHardware.setTextColor(SH110X_BLACK);
+  line(8, VoicePresets::getPresetName(state.voicePresetIndices[voice]));
+  displayHardware.setTextColor(SH110X_WHITE);
 
-  // Header: the mode, the voice the arp plays through, and the rate the dial
-  // selects.
-  displayHardware.setTextSize(1);
-  displayHardware.setCursor(2, 0);
-  displayHardware.print("ARP");
-  displayHardware.setCursor(28, 0);
-  displayHardware.print("V");
-  displayHardware.print(voice + 1);
-  const char *rate = arp.rateLabel();
-  displayHardware.setCursor(OLEDConstants::SCREEN_WIDTH - 2 - 6 * static_cast<int>(strlen(rate)), 0);
-  displayHardware.print(rate);
-  displayHardware.drawFastHLine(2, 9, 124, SH110X_WHITE);
-
-  // Pattern, octave range (fader 1) and latch.
-  displayHardware.setCursor(2, 12);
-  displayHardware.print(arp.patternLabel());
-  char octaves[12];
-  snprintf(octaves, sizeof(octaves), "oct %u", static_cast<unsigned>(arp.settings().octaves));
-  displayHardware.setCursor(46, 12);
-  displayHardware.print(octaves);
-  if (arp.latchEnabled())
-  {
-    displayHardware.setCursor(100, 12);
-    displayHardware.print("LATCH");
+  if (state.shiftHeld) {
+    snprintf(text, sizeof(text), "RHYTHM %u/%u rotate %u", unsigned(settings.hits),
+             unsigned(settings.length), unsigned(settings.rotation));
+    line(16, text);
+    if (state.alchemyMode == UIState::AlchemyMode::Param) {
+      line(24, "1All 2Pulse 3Tresillo");
+      line(32, "4Five 5Orbit 6Seven");
+    } else {
+      line(24, "6:Restart 7:Clear");
+      line(32, "PARAM: rhythm presets");
+    }
+    line(48, "1Hits 2Len 3Rot 4Acc");
+    snprintf(text, sizeof(text), "Dial:tempo %.0fbpm", bpm);
+    line(56, text);
+  } else {
+    constexpr const char *scales[] = {"Major", "Dorian", "Phryg", "Lydian", "Mixolyd",
+        "Minor", "Locrian", "MinPent", "PhrDom", "LydDom", "HarmMin", "Whole", "Chrom"};
+    static_assert(sizeof(scales) / sizeof(scales[0]) == SCALES_COUNT);
+    snprintf(text, sizeof(text), "%s %uoct %s", arp.patternLabel(), unsigned(settings.octaves), scales[scaleIndex]);
+    line(16, text);
+    ArpDisplay::Row chord;
+    ArpDisplay::chord(arp, scale[scaleIndex], chord);
+    line(24, chord);
+    snprintf(text, sizeof(text), "%u/%u %s %.0fbpm", unsigned(settings.hits), unsigned(settings.length), rhythm, bpm);
+    line(32, text);
+    ArpDisplay::Row gate;
+    ArpDisplay::gate(settings, bpm, gate);
+    const unsigned swing = ArpDisplay::swingLong(settings);
+    snprintf(text, sizeof(text), "G%s Sw%u:%u", gate, swing, 100 - swing);
+    line(48, text);
+    line(56, !isClockRunning ? "Play:start Hold:sound" : "Shift:rhythm + tempo");
+    if (isClockRunning && arp.lastDegree() != Arpeggiator::kNoDegree && state.arpLastNotes[0]) {
+      displayHardware.fillRect(0, 56, 128, 8, SH110X_BLACK);
+      char note[8];
+      snprintf(note, sizeof(note), "%.7s", state.arpLastNotes);
+      if (strlen(state.arpLastNotes) > 7) note[6] = '~';
+      snprintf(text, sizeof(text), "Last %s Sh:more", note);
+      line(56, text);
+    }
   }
 
-  // The chord as note names, in the order the walk will visit it: ascending
-  // chord degrees normally, press order for the Order pattern, which is what
-  // that pattern actually plays. Scale degrees are named through the same note
-  // table the step sequencer uses.
-  const bool playsAsEntered = arp.settings().pattern == Arpeggiator::Pattern::Order;
-  char chord[40] = "";
-  size_t used = 0;
-  const uint8_t count = arp.chordCount();
-  for (uint8_t i = 0; i < count; ++i)
-  {
-    const uint8_t degree = playsAsEntered ? arp.orderDegree(i) : arp.chordDegree(i);
-    char name[16];
-    MusicalValues::noteName(static_cast<float>(degree), 0, row, name, sizeof(name));
-    const size_t length = strlen(name);
-    if (used + length + 1 >= sizeof(chord))
-    {
-      snprintf(chord + used, sizeof(chord) - used, "+");
+  // Bright cells are hits, tiny dots are rests; underline is the clock's
+  // current position (including rests). Stopped transport has no playhead.
+  for (uint8_t step = 0; step < settings.length; ++step) {
+    const int left = step * 128 / settings.length;
+    const int width = (step + 1) * 128 / settings.length - left - 2;
+    if (arp.rhythmHitAt(step))
+      displayHardware.fillRect(left + 1, 40, width, 4, SH110X_WHITE);
+    else displayHardware.drawPixel(left + 1 + width / 2, 42, SH110X_WHITE);
+    if (isClockRunning && arp.hasRhythmStep() && step == arp.rhythmStep())
+      displayHardware.drawFastHLine(left + 1, 46, width, SH110X_WHITE);
+  }
+
+  // A recent movement replaces only the middle three rows. The patch, mode,
+  // rate, rhythm and help stay in place; unsigned elapsed time handles wrap.
+  if (state.arpControl != UIState::ArpControl::None &&
+      static_cast<uint32_t>(millis() - state.arpControlAt) < 1400) {
+    const char *label = "";
+    const char *hint = "";
+    ArpDisplay::Row value = "";
+    using Control = UIState::ArpControl;
+    switch (state.arpControl) {
+    case Control::Octaves:
+      label = "1 RANGE"; snprintf(value, sizeof(value), "%u oct", unsigned(settings.octaves)); break;
+    case Control::Gate:
+      label = "2 GATE length"; ArpDisplay::gate(settings, bpm, value); break;
+    case Control::Swing: {
+      label = "3 SWING long:short";
+      const unsigned amount = ArpDisplay::swingLong(settings);
+      snprintf(value, sizeof(value), "%u:%u", amount, 100 - amount); break;
+    }
+    case Control::Filter: {
+      label = "4 TONE";
+      const VoiceConfig *config = voiceManager ? voiceManager->getVoiceConfig(voiceSystem.getVoiceId(voice)) : nullptr;
+      if (config) {
+        Step step = MusicalValues::baseStep(*config);
+        step.filterCutoff = VoiceEdit::composeLane(ParamId::Filter, settings.filter, config);
+        MusicalValues::format(ParamId::Filter, step, *config, scale[scaleIndex], bpm, value, sizeof(value));
+      } else snprintf(value, sizeof(value), "--");
       break;
     }
-    if (used)
-      chord[used++] = ' ';
-    memcpy(chord + used, name, length + 1);
-    used += length;
+    case Control::Hits:
+      label = "SHIFT 1 HITS"; snprintf(value, sizeof(value), "%u / %u", unsigned(settings.hits), unsigned(settings.length));
+      hint = settings.hits ? "Hits spread evenly" : "Silent: raise Hits"; break;
+    case Control::Length:
+      label = "SHIFT 2 LENGTH"; snprintf(value, sizeof(value), "%u steps", unsigned(settings.length)); break;
+    case Control::Rotate:
+      label = "SHIFT 3 ROTATE"; snprintf(value, sizeof(value), "+%u", unsigned(settings.rotation)); break;
+    case Control::Accent:
+      label = "SHIFT 4 ACCENT";
+      snprintf(value, sizeof(value), "1:%.2f", 1.0f - 0.75f * settings.accent);
+      hint = "First hit : others"; break;
+    case Control::Rate:
+      label = "DIAL RATE"; snprintf(value, sizeof(value), "%s", arp.rateLabel()); hint = "T = triplet"; break;
+    case Control::Tempo:
+      label = "SHIFT DIAL TEMPO"; snprintf(value, sizeof(value), "%.0f BPM", bpm); break;
+    case Control::Rhythm:
+      label = "RHYTHM"; snprintf(value, sizeof(value), "%s", rhythm); hint = "Shift+faders: reshape"; break;
+    case Control::Latch:
+      label = "HOLD CHORD"; snprintf(value, sizeof(value), "%s", arp.latchEnabled() ? "On" : "Off");
+      hint = arp.latchEnabled() ? "New touch replaces it" : "Release lets notes go"; break;
+    case Control::Restart:
+      label = "RESTART"; snprintf(value, sizeof(value), "Step 1"); hint = "Next clock pulse"; break;
+    default: break;
+    }
+    displayHardware.fillRect(0, 16, 128, 24, SH110X_BLACK);
+    line(16, label);
+    displayHardware.setTextSize(strlen(value) <= 10 ? 2 : 1);
+    displayHardware.setCursor(1, 24);
+    displayHardware.print(value);
+    if (hint[0]) {
+      displayHardware.fillRect(0, 56, 128, 8, SH110X_BLACK);
+      line(56, hint);
+    }
   }
-  displayHardware.setCursor(2, 24);
-  displayHardware.print(count ? chord : "touch pads for chord");
-
-  // Live readout: how many notes the walk has played since the last restart,
-  // and the notes that are gated on right now (up to four, in Chord pattern).
-  char playing[24] = "";
-  size_t playingUsed = 0;
-  for (uint8_t slot = 0; slot < Arpeggiator::kMaxSlots; ++slot)
-  {
-    uint8_t degree = 0;
-    uint8_t octave = 0;
-    if (!arp.slotSounding(slot, degree, octave))
-      continue;
-    char name[16];
-    MusicalValues::noteName(static_cast<float>(degree), 12 * static_cast<int>(octave), row,
-                            name, sizeof(name));
-    const size_t length = strlen(name);
-    if (playingUsed + length + 2 >= sizeof(playing))
-      break;
-    if (playingUsed)
-      playing[playingUsed++] = '/';
-    memcpy(playing + playingUsed, name, length + 1);
-    playingUsed += length;
-  }
-  if (!playing[0] && arp.lastDegree() != Arpeggiator::kNoDegree)
-  {
-    // Between gates nothing is sounding; a mono pattern still wants to show the
-    // note it just played, or the readout would blink at every gate. The
-    // parentheses mark it as the last note rather than a gated one.
-    char lastName[16];
-    MusicalValues::noteName(static_cast<float>(arp.lastDegree()),
-                            12 * static_cast<int>(arp.lastOctave()), row, lastName,
-                            sizeof(lastName));
-    snprintf(playing, sizeof(playing), "(%s)", lastName);
-  }
-  displayHardware.setCursor(2, 36);
-  displayHardware.print("S");
-  displayHardware.print(arp.stepCount());
-  displayHardware.print(" ");
-  displayHardware.print(playing[0] ? playing : "--");
-
-  // Lidar dynamics: a bar the hand fills, with the raw distance beside it.
-  const int barLeft = 2;
-  const int barRight = 86;
-  const int barY = 58;
-  displayHardware.drawRect(barLeft, barY - 6, barRight - barLeft, 6, SH110X_WHITE);
-  const int fill = static_cast<int>((barRight - barLeft - 2) * arp.dynamics());
-  if (fill > 0)
-    displayHardware.fillRect(barLeft + 1, barY - 5, fill, 4, SH110X_WHITE);
-  char hand[16];
-  const int mm = distanceSensor.getRawDistanceMm();
-  if (!arp.handInRange()) snprintf(hand, sizeof(hand), "no hand");
-  else if (mm < 0) snprintf(hand, sizeof(hand), "--mm");
-  else snprintf(hand, sizeof(hand), "%dmm", mm);
-  displayHardware.setCursor(92, 52);
-  displayHardware.print(hand);
+  displayHardware.setTextSize(1);
+  displayHardware.setTextWrap(true);
 }
 
 void OLEDDisplay::displayEnvelopePage(const UIState &state, const Sequencer &sequence,
@@ -1060,7 +1088,7 @@ void OLEDDisplay::drawStepIndicators(const Sequencer &sequencer, int yPosition)
     // Calculate step indicator position and width
     const int stepXPosition = leftMargin + (stepIndex * totalWidth) / stepCount;
     const int nextStepXPosition = leftMargin + ((stepIndex + 1) * totalWidth) / stepCount;
-    const int stepWidth = max(2, nextStepXPosition - stepXPosition - 1);
+    const int stepWidth = std::max(2, nextStepXPosition - stepXPosition - 1);
 
     // Get step gate state and determine if this is the current step
     const float gateValue = sequencer.getStepParameterValue(ParamId::Gate, pageStart + stepIndex);
