@@ -624,16 +624,11 @@ private:
 
 
   /**
-<<<<<<< HEAD
-   * @brief Apply engine-specific configuration (waveguide and Hypersaw tuning)
+   * @brief Apply engine-specific configuration (waveguide, sitar and
+   *        Hypersaw tuning)
    *        Called from init() and applyConfig_() at control rate. Waveguide
    *        string tuning is gate-gated (see pushWaveguideParams_()): edits
    *        made while a note rings wait for the next gate-on.
-=======
-   * @brief Apply engine-specific configuration (waveguide, sitar and
-   *        Hypersaw tuning)
-   *        Called from init() and applyConfig_() at control rate.
->>>>>>> 1dd6e54 (feat: add ENGINE_SITAR voice engine wired to rpdsp::SitarStringVoice)
    */
   void applyEngineConfig_();
   /**
