@@ -42,11 +42,16 @@ SessionStorage::LoadResult SessionStorage::load(persistence::ProjectSnapshot &ou
         f.close();
         return LoadResult::BadFrame;
     }
-    // Format-1 payload is a prefix of format 2; completed (upgraded) below.
+    // v1 and v2 payloads are prefixes of the current format (see
+    // ProjectSnapshot); the missing tails are filled by the upgrades below.
     const uint16_t version = persistence::frameVersion(header);
-    const bool formatV1 = version == persistence::SNAPSHOT_FORMAT_VERSION_V1;
-    const size_t payloadSize = formatV1 ? sizeof(persistence::ProjectSnapshotV1)
-                                        : sizeof(persistence::ProjectSnapshot);
+    size_t payloadSize;
+    if (version == persistence::SNAPSHOT_FORMAT_VERSION_V1)
+        payloadSize = sizeof(persistence::ProjectSnapshotV1);
+    else if (version == persistence::SNAPSHOT_FORMAT_VERSION_V2)
+        payloadSize = offsetof(persistence::ProjectSnapshot, sitar);
+    else
+        payloadSize = sizeof(persistence::ProjectSnapshot);
     if (f.read(reinterpret_cast<uint8_t *>(&g_loadBuffer), payloadSize) !=
         static_cast<int>(payloadSize))
     {
@@ -58,11 +63,16 @@ SessionStorage::LoadResult SessionStorage::load(persistence::ProjectSnapshot &ou
     const persistence::FrameStatus status = persistence::readFrameHeader(
         header, reinterpret_cast<const uint8_t *>(&g_loadBuffer), sizeof(g_loadBuffer),
         static_cast<uint16_t>(payloadSize),
-        formatV1 ? persistence::SNAPSHOT_FORMAT_VERSION_V1 : persistence::SNAPSHOT_FORMAT_VERSION);
+        (version == persistence::SNAPSHOT_FORMAT_VERSION_V1 ||
+         version == persistence::SNAPSHOT_FORMAT_VERSION_V2)
+            ? version
+            : persistence::SNAPSHOT_FORMAT_VERSION);
     if (status != persistence::FrameStatus::Ok)
         return LoadResult::BadFrame;
-    if (formatV1)
+    if (version == persistence::SNAPSHOT_FORMAT_VERSION_V1)
         persistence::upgradeFromV1(g_loadBuffer);
+    else if (version == persistence::SNAPSHOT_FORMAT_VERSION_V2)
+        persistence::upgradeFromV2(g_loadBuffer);
     if (!persistence::validateProjectSnapshot(g_loadBuffer))
         return LoadResult::BadFrame;
     out = g_loadBuffer;

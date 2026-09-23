@@ -22,9 +22,10 @@ TEST_CASE("crc32 matches the ISO-HDLC check vector", "[persistence]")
 TEST_CASE("project snapshot size is locked", "[persistence]")
 {
     STATIC_REQUIRE(sizeof(ProjectSnapshotV1) == 10312u);
-    STATIC_REQUIRE(sizeof(ProjectSnapshot) == 12400u);
+    STATIC_REQUIRE(offsetof(ProjectSnapshot, sitar) == 12400u);
+    STATIC_REQUIRE(sizeof(ProjectSnapshot) == 12560u);
     STATIC_REQUIRE(std::is_trivially_copyable_v<ProjectSnapshot>);
-    STATIC_REQUIRE(SNAPSHOT_FORMAT_VERSION == 2);
+    STATIC_REQUIRE(SNAPSHOT_FORMAT_VERSION == 3);
 }
 
 namespace
@@ -151,6 +152,9 @@ TEST_CASE("a format-1 file loads as the prefix of format 2", "[persistence]")
             CHECK(followsPatch(track.values[0]));
             CHECK(followsPatch(track.values[63]));
         }
+    // v1 files predate ENGINE_SITAR: the tails read as zero, never as tuning.
+    for (const auto &voice : loaded.sitar)
+        CHECK(voice.decay == 0.0f);
 }
 
 TEST_CASE("pattern codec round-trips values, lengths, and shrink-grown tails", "[persistence]")
@@ -276,6 +280,112 @@ TEST_CASE("patch codec round-trips an edited patch", "[persistence]")
     REQUIRE(restored.hasOverdrive);
     REQUIRE(restored.overdriveDrive == 0.9f);
     REQUIRE(restored.outputLevel == 0.31f);
+}
+
+TEST_CASE("sitar patch fields round-trip through the snapshot tails", "[persistence]")
+{
+    const uint8_t sitar = static_cast<uint8_t>(VoicePresets::Id::Sitar);
+    VoiceConfig original = VoicePresets::getPresetConfig(sitar);
+    // Distinct, in-range edits for every serialized sitar field: a session
+    // that loses any of them silently reverts that part of the timbre to
+    // the factory preset on reload.
+    original.sitarDecay = 6.5f;
+    original.sitarBrightness = 0.4f;
+    original.sitarPickPosition = 0.33f;
+    original.sitarPickHardness = 0.55f;
+    original.sitarJawari = 0.7f;
+    original.sitarJawariThreshold = 0.2f;
+    original.sitarTarafAmount = 0.6f;
+    original.sitarTarafDecay = 8.0f;
+    original.sitarBodyAmount = 0.4f;
+    original.sitarBodyFrequency = 210.0f;
+
+    // Capture mirrors Session: PatchSnapshot carries the non-sitar fields;
+    // the ten sitar fields go to the ProjectSnapshot's format-3 tail.
+    ProjectSnapshot snap{};
+    voicecodec::capturePatch(original, snap.patches[2]);
+    SitarPatchSnapshot &tail = snap.sitar[2];
+    tail.decay = original.sitarDecay;
+    tail.brightness = original.sitarBrightness;
+    tail.pickPosition = original.sitarPickPosition;
+    tail.pickHardness = original.sitarPickHardness;
+    tail.jawari = original.sitarJawari;
+    tail.jawariThreshold = original.sitarJawariThreshold;
+    tail.tarafAmount = original.sitarTarafAmount;
+    tail.tarafDecay = original.sitarTarafDecay;
+    tail.bodyAmount = original.sitarBodyAmount;
+    tail.bodyFrequency = original.sitarBodyFrequency;
+
+    REQUIRE(tail.decay == 6.5f);
+    REQUIRE(tail.tarafDecay == 8.0f);
+    REQUIRE(tail.bodyFrequency == 210.0f);
+
+    // Apply mirrors Session::applyAfterVoices: patch first, sitar tail over it.
+    VoiceConfig restored;
+    REQUIRE(voicecodec::applyPatch(sitar, snap.patches[2], restored));
+    restored.sitarDecay = tail.decay;
+    restored.sitarBrightness = tail.brightness;
+    restored.sitarPickPosition = tail.pickPosition;
+    restored.sitarPickHardness = tail.pickHardness;
+    restored.sitarJawari = tail.jawari;
+    restored.sitarJawariThreshold = tail.jawariThreshold;
+    restored.sitarTarafAmount = tail.tarafAmount;
+    restored.sitarTarafDecay = tail.tarafDecay;
+    restored.sitarBodyAmount = tail.bodyAmount;
+    restored.sitarBodyFrequency = tail.bodyFrequency;
+    // Same engine and paramSet, so the preset's owned layout pointer survives.
+    REQUIRE(restored.parameters == VoicePresets::getPresetConfig(sitar).parameters);
+    REQUIRE(restored.engine == ENGINE_SITAR);
+    REQUIRE(restored.paramSet == PARAMSET_SITAR);
+    REQUIRE(restored.sitarDecay == 6.5f);
+    REQUIRE(restored.sitarBrightness == 0.4f);
+    REQUIRE(restored.sitarPickPosition == 0.33f);
+    REQUIRE(restored.sitarPickHardness == 0.55f);
+    REQUIRE(restored.sitarJawari == 0.7f);
+    REQUIRE(restored.sitarJawariThreshold == 0.2f);
+    REQUIRE(restored.sitarTarafAmount == 0.6f);
+    REQUIRE(restored.sitarTarafDecay == 8.0f);
+    REQUIRE(restored.sitarBodyAmount == 0.4f);
+    REQUIRE(restored.sitarBodyFrequency == 210.0f);
+}
+
+TEST_CASE("a format-2 file loads as the prefix of format 3", "[persistence]")
+{
+    // Build a format-2 payload exactly as the envelope-lane firmware saved
+    // it: everything but the sitar tails.
+    ProjectSnapshot old{};
+    seedValidStepCounts(old);
+    old.settings.tempoBpm = 97.0f;
+    old.patterns[2].tracks[static_cast<uint8_t>(ParamId::Note)].values[5] = 9.0f;
+    const size_t v2Size = offsetof(ProjectSnapshot, sitar);
+    uint8_t frame[12 + sizeof(ProjectSnapshot)];
+    std::memcpy(frame + 12, &old, v2Size);
+    writeFrameHeader(frame, v2Size, crc32(frame + 12, v2Size));
+    frame[4] = static_cast<uint8_t>(SNAPSHOT_FORMAT_VERSION_V2);
+    frame[5] = 0;
+
+    // The loader reads the version first, then the matching payload size.
+    REQUIRE(frameVersion(frame) == SNAPSHOT_FORMAT_VERSION_V2);
+    ProjectSnapshot loaded{};
+    std::memset(&loaded, 0x5A, sizeof(loaded)); // garbage past the prefix
+    std::memcpy(&loaded, frame + 12, v2Size);
+    REQUIRE(readFrameHeader(frame, reinterpret_cast<const uint8_t *>(&loaded), sizeof(loaded),
+                            static_cast<uint16_t>(v2Size),
+                            SNAPSHOT_FORMAT_VERSION_V2) == FrameStatus::Ok);
+    // A format-2 frame is not a format-3 frame.
+    REQUIRE(readFrameHeader(frame, reinterpret_cast<const uint8_t *>(&loaded), sizeof(loaded),
+                            static_cast<uint16_t>(v2Size)) == FrameStatus::BadVersion);
+    upgradeFromV2(loaded);
+    REQUIRE(validateProjectSnapshot(loaded));
+    CHECK(loaded.settings.tempoBpm == 97.0f);
+    CHECK(loaded.patterns[2].tracks[static_cast<uint8_t>(ParamId::Note)].values[5] == 9.0f);
+    // v2 files predate ENGINE_SITAR: the tails read as zero, never as tuning.
+    for (const auto &voice : loaded.sitar)
+    {
+        CHECK(voice.decay == 0.0f);
+        CHECK(voice.jawari == 0.0f);
+        CHECK(voice.bodyFrequency == 0.0f);
+    }
 }
 
 TEST_CASE("paramSet change clears the preset layout pointer", "[persistence]")

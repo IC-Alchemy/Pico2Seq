@@ -38,6 +38,9 @@ void capturePatch(const VoiceConfig &c, persistence::PatchSnapshot &o) noexcept
     o.filterEnvelopeOctaves = c.filterEnvelopeOctaves; o.filterEnvelopeRest = c.filterEnvelopeRest;
     o.wgT60 = c.wgT60; o.wgBrightness = c.wgBrightness; o.wgPickPosition = c.wgPickPosition;
     o.wgPickHardness = c.wgPickHardness; o.wgStiffness = c.wgStiffness; o.wgDetune = c.wgDetune;
+    // The ten sitar* fields live in the ProjectSnapshot's format-3 tails
+    // (Session::captureSession/applyAfterVoices), not in PatchSnapshot:
+    // PatchSnapshot's size is locked by the format-1 prefix contract.
     o.hypersawDetune = c.hypersawDetune; o.hypersawMix = c.hypersawMix;
     o.noiseDiffuseSize = c.noiseDiffuseSize; o.noiseDiffuseMix = c.noiseDiffuseMix;
     o.noiseSwarmColor = c.noiseSwarmColor; o.noiseSwarmRegen = c.noiseSwarmRegen;
@@ -92,6 +95,8 @@ bool applyPatch(uint8_t presetIndex, const persistence::PatchSnapshot &in, Voice
     out.filterEnvelopeOctaves = in.filterEnvelopeOctaves; out.filterEnvelopeRest = in.filterEnvelopeRest;
     out.wgT60 = in.wgT60; out.wgBrightness = in.wgBrightness; out.wgPickPosition = in.wgPickPosition;
     out.wgPickHardness = in.wgPickHardness; out.wgStiffness = in.wgStiffness; out.wgDetune = in.wgDetune;
+    // sitar* fields come from the snapshot's format-3 tails (Session), so a
+    // preset swap keeps its factory sitar tuning until Session overrides it.
     out.hypersawDetune = in.hypersawDetune; out.hypersawMix = in.hypersawMix;
     out.noiseDiffuseSize = in.noiseDiffuseSize; out.noiseDiffuseMix = in.noiseDiffuseMix;
     out.noiseSwarmColor = in.noiseSwarmColor; out.noiseSwarmRegen = in.noiseSwarmRegen;

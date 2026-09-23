@@ -11,9 +11,11 @@ namespace persistence
 {
 
 constexpr uint32_t SNAPSHOT_MAGIC = 0x50325331u; // 'P2S1': rejects non-song flash at once
-constexpr uint16_t SNAPSHOT_FORMAT_VERSION = 2;
-// Old songs still load: a v1 payload is the prefix of v2 (see ProjectSnapshot).
+// 3: ProjectSnapshot grew the per-voice sitar tails (2026-09-23). Old songs
+// still load: v1 and v2 payloads are prefixes of v3 (see ProjectSnapshot).
+constexpr uint16_t SNAPSHOT_FORMAT_VERSION = 3;
 constexpr uint16_t SNAPSHOT_FORMAT_VERSION_V1 = 1;
+constexpr uint16_t SNAPSHOT_FORMAT_VERSION_V2 = 2;
 
 // IEEE CRC over the payload only; catches torn flash writes and bit rot.
 uint32_t crc32(const uint8_t *data, size_t length) noexcept;

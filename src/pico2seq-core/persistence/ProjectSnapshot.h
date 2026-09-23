@@ -54,7 +54,7 @@ enum : uint32_t
 // recipe) are re-derived at load — see PatchCodec — so pointers stay out.
 struct PatchSnapshot
 {
-    // 53 floats / int32s
+    // 55 floats / int32s
     float baseNote, baseVelocity, baseOctave, baseGateLength, slideSeconds;
     float oscAmplitudes[3];
     float oscDetuning[3];
@@ -101,7 +101,18 @@ struct ProjectSnapshotV1
     SettingsSnapshot settings;   // 24 B
 };
 
-// Format 2: format 1 plus the Sustain/Release lanes and the lane model tag.
+// Format 3 tail: per-voice ENGINE_SITAR patch fields. v1/v2 files carry no
+// sitar data — the loader leaves this tail zeroed, and those files' patches
+// predate the sitar engine (engine byte ≤ ENGINE_RECIPE), so the zeros are
+// never interpreted as sitar tuning.
+struct SitarPatchSnapshot
+{
+    float decay, brightness, pickPosition, pickHardness;
+    float jawari, jawariThreshold;
+    float tarafAmount, tarafDecay, bodyAmount, bodyFrequency; // 10 floats = 40 B
+};
+
+// Format 3: format 2 plus the per-voice sitar tails.
 struct ProjectSnapshot
 {
     PatternSnapshot patterns[4];         // 9,360 B
@@ -110,22 +121,31 @@ struct ProjectSnapshot
     EnvelopeTracksSnapshot envelopes[4]; // 2,080 B
     uint32_t laneModel;                  // LANE_MODEL_*
     uint32_t reserved;                   // must stay zero
+    SitarPatchSnapshot sitar[4];         // 160 B — format 3 tail
 };
 // Locked flash layout: the static_asserts below are the contract. A format-1
-// payload must load as the prefix of format 2.
+// payload must load as the prefix of format 2; a format-2 payload as the
+// prefix of format 3.
 static_assert(sizeof(TrackSnapshot) == 260, "locked layout");
 static_assert(sizeof(PatternSnapshot) == 2340, "locked layout");
 static_assert(sizeof(PatchSnapshot) == 232, "locked layout"); // 220 B words + 10 u8 + 2 tail
 static_assert(sizeof(SettingsSnapshot) == 24, "locked layout");
 static_assert(sizeof(ProjectSnapshotV1) == 10312, "locked layout");
 static_assert(sizeof(EnvelopeTracksSnapshot) == 520, "locked layout");
-static_assert(sizeof(ProjectSnapshot) == 12400, "locked layout");
+static_assert(sizeof(SitarPatchSnapshot) == 40, "locked layout");
+static_assert(sizeof(ProjectSnapshot) == 12560, "locked layout");
 static_assert(offsetof(ProjectSnapshot, envelopes) == sizeof(ProjectSnapshotV1),
               "a format-1 payload must load as the prefix of format 2");
+static_assert(offsetof(ProjectSnapshot, sitar) == 12400,
+              "a format-2 payload must load as the prefix of format 3");
 
 // Fill a v1-loaded snapshot's missing tail: new lanes follow the patch on 16
 // steps, lane model reads as offsets (Session converts once voices exist).
 void upgradeFromV1(ProjectSnapshot &s) noexcept;
+
+// Fill a v2-loaded snapshot's missing tail: the sitar tails read as zero
+// (v2 patches predate ENGINE_SITAR, so the values are never used as tuning).
+void upgradeFromV2(ProjectSnapshot &s) noexcept;
 
 // Structural sanity only (ranges, not musical taste); mirrors UI limits:
 // tempo 45..200 BPM, 13 scales, 16 grooves, 10 LED themes.

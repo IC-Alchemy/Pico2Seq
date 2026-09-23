@@ -44,7 +44,22 @@ void Session::captureSession(persistence::ProjectSnapshot &out)
         const VoiceConfig *config =
             voiceManager ? voiceManager->getVoiceConfig(voiceSystem.getVoiceId(v)) : nullptr;
         if (config)
+        {
             voicecodec::capturePatch(*config, out.patches[v]);
+            // Sitar tails: the ten ENGINE_SITAR fields live in the snapshot's
+            // format-3 tails, outside the size-locked PatchSnapshot.
+            persistence::SitarPatchSnapshot &sitar = out.sitar[v];
+            sitar.decay = config->sitarDecay;
+            sitar.brightness = config->sitarBrightness;
+            sitar.pickPosition = config->sitarPickPosition;
+            sitar.pickHardness = config->sitarPickHardness;
+            sitar.jawari = config->sitarJawari;
+            sitar.jawariThreshold = config->sitarJawariThreshold;
+            sitar.tarafAmount = config->sitarTarafAmount;
+            sitar.tarafDecay = config->sitarTarafDecay;
+            sitar.bodyAmount = config->sitarBodyAmount;
+            sitar.bodyFrequency = config->sitarBodyFrequency;
+        }
         out.patches[v].presetIndex = uiState.voicePresetIndices[v];
 
         out.settings.editorCursor[v] = static_cast<uint8_t>(uiState.voiceEditor.cursor[v]);
@@ -82,6 +97,20 @@ void Session::applyAfterVoices(persistence::ProjectSnapshot &s)
         VoiceConfig config;
         if (voicecodec::applyPatch(uiState.voicePresetIndices[v], s.patches[v], config))
         {
+            // Restore the saved sitar tuning (zeros for v1/v2 files, whose
+            // patches predate ENGINE_SITAR — a non-sitar engine never reads
+            // them, and the first Sitar preset apply overwrites them).
+            const persistence::SitarPatchSnapshot &sitar = s.sitar[v];
+            config.sitarDecay = sitar.decay;
+            config.sitarBrightness = sitar.brightness;
+            config.sitarPickPosition = sitar.pickPosition;
+            config.sitarPickHardness = sitar.pickHardness;
+            config.sitarJawari = sitar.jawari;
+            config.sitarJawariThreshold = sitar.jawariThreshold;
+            config.sitarTarafAmount = sitar.tarafAmount;
+            config.sitarTarafDecay = sitar.tarafDecay;
+            config.sitarBodyAmount = sitar.bodyAmount;
+            config.sitarBodyFrequency = sitar.bodyFrequency;
             VoiceEdit::enablePatch(config);
             const uint8_t voiceId = voiceSystem.getVoiceId(v);
             voiceManager->setVoiceConfig(voiceId, config);

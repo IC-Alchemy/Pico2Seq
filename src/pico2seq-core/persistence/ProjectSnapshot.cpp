@@ -21,6 +21,14 @@ void upgradeFromV1(ProjectSnapshot &s) noexcept
     // Offset-era file: Session converts these once the voices exist.
     s.laneModel = LANE_MODEL_OFFSETS;
     s.reserved = 0;
+    for (auto &voice : s.sitar)
+        voice = SitarPatchSnapshot{};
+}
+
+void upgradeFromV2(ProjectSnapshot &s) noexcept
+{
+    for (auto &voice : s.sitar)
+        voice = SitarPatchSnapshot{};
 }
 
 bool validateProjectSnapshot(const ProjectSnapshot &s) noexcept
