@@ -7,6 +7,7 @@
 #include "presets/StringPresets.h"
 #include "presets/TexturePresets.h"
 #include "presets/RecipePresets.h"
+#include "presets/SitarPresets.h"
 #include "presets/MusicalPresets.h"
 #include <iterator>
 
@@ -71,6 +72,7 @@ bool sameName(std::string_view a, std::string_view b) noexcept
   const VoiceConfig &getWaveguideShimmerVoice() noexcept { return kPresets[12].config; }
   const VoiceConfig &getHypersawVoice() noexcept { return kPresets[13].config; }
   const VoiceConfig &getNoiseStormVoice() noexcept { return kPresets[14].config; }
+  const VoiceConfig &getSitarVoice() noexcept { return kPresets[29].config; }
 
 
 const char *getPresetName(uint8_t index) noexcept

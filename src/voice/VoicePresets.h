@@ -40,6 +40,7 @@ namespace VoicePresets {
   const VoiceConfig& getWaveguideShimmerVoice() noexcept;
   const VoiceConfig& getHypersawVoice() noexcept;
   const VoiceConfig& getNoiseStormVoice() noexcept;
+  const VoiceConfig& getSitarVoice() noexcept;
 
   // Preset utilities
   const char* getPresetName(uint8_t presetIndex) noexcept;
