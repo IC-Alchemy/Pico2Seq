@@ -15,7 +15,8 @@ namespace {
 constexpr float kSampleRate = 48000.0f;
 
 // A raw sitar-engine config using the legacy (paramSet-derived) lane set —
-// the factory preset is a later task.
+// deliberately not the factory "Sitar" preset (that lives in
+// presets/SitarPresets.h).
 VoiceConfig sitarLaneConfig()
 {
     VoiceConfig c{};

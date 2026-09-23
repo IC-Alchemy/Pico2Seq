@@ -12,8 +12,9 @@
 namespace {
 constexpr float kSampleRate = 48000.0f;
 
-// A raw sitar engine config (the factory preset is a later task). Strip the
-// shared chain back so measurements see the model output directly.
+// A raw sitar engine config — deliberately not the factory "Sitar" preset
+// (that lives in presets/SitarPresets.h). Strip the shared chain back so
+// measurements see the model output directly.
 VoiceConfig sitarConfig()
 {
     VoiceConfig c{};
