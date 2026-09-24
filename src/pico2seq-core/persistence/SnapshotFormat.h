@@ -1,3 +1,6 @@
+// SnapshotFormat: flash framing for saved songs (magic + version + size + CRC).
+// A corrupt/torn write must fail loudly, never replay as a wrong song.
+// Portable C++ — no Arduino/hardware includes here.
 #ifndef PICO2SEQ_SNAPSHOT_FORMAT_H
 #define PICO2SEQ_SNAPSHOT_FORMAT_H
 
@@ -7,12 +10,15 @@
 namespace persistence
 {
 
-constexpr uint32_t SNAPSHOT_MAGIC = 0x50325331u; // 'P2S1'
-constexpr uint16_t SNAPSHOT_FORMAT_VERSION = 1;
+constexpr uint32_t SNAPSHOT_MAGIC = 0x50325331u; // 'P2S1': rejects non-song flash at once
+constexpr uint16_t SNAPSHOT_FORMAT_VERSION = 2;
+// Old songs still load: a v1 payload is the prefix of v2 (see ProjectSnapshot).
+constexpr uint16_t SNAPSHOT_FORMAT_VERSION_V1 = 1;
 
-// CRC-32/ISO-HDLC (the zlib/IEEE variant): poly 0xEDB88320, init/final 0xFFFFFFFF.
+// IEEE CRC over the payload only; catches torn flash writes and bit rot.
 uint32_t crc32(const uint8_t *data, size_t length) noexcept;
 
+// 12-byte little-endian frame header; fixed size keeps flash offsets stable.
 struct FrameHeader
 {
     uint32_t magic;
@@ -25,11 +31,13 @@ void writeFrameHeader(uint8_t out[12], uint32_t payloadSize, uint32_t payloadCrc
 
 enum class FrameStatus { Ok, TooShort, BadMagic, BadVersion, BadSize, BadCrc };
 
-// Header and payload may live in DIFFERENT buffers (the loader reads them
-// separately) — the CRC is computed over `payload` directly, never over
-// bytes following the header. `payloadCapacity` must be >= the declared size.
+// Reject in order: wrong file, wrong version, wrong size, short buffer, bad CRC.
 FrameStatus readFrameHeader(const uint8_t header[12], const uint8_t *payload,
-                            size_t payloadCapacity, uint16_t expectedPayloadSize) noexcept;
+                            size_t payloadCapacity, uint16_t expectedPayloadSize,
+                            uint16_t expectedVersion = SNAPSHOT_FORMAT_VERSION) noexcept;
+
+// Peek the version first so the loader picks the v1 vs v2 payload size.
+uint16_t frameVersion(const uint8_t header[12]) noexcept;
 
 } // namespace persistence
 

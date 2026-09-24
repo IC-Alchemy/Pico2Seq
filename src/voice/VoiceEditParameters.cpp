@@ -1,3 +1,6 @@
+// VoiceEditParameters.cpp — editor model implementation (control thread).
+// Recipe choice borrows its first preset's lanes so the editor always shows
+// meaningful timbre rows for the picked algorithm.
 #include "VoiceEditParameters.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "presets/MusicalPresets.h"
@@ -31,7 +34,9 @@ constexpr Parameter kParameters[] = {
      nullptr, nullptr},
     {Id::Velocity, "Velocity", Group::Sequenced, Unit::Percent, 0.0f, 1.0f,
      false, nullptr, nullptr},
-    {Id::Cutoff, "Cutoff", Group::Sequenced, Unit::Percent, 0.0f, 1.0f, false,
+    // Sequenced Filter lane edits envelope amount (how far the contour opens
+    // the cutoff); the patch base itself is Id::StaticCutoff.
+    {Id::Cutoff, "FiltEnv", Group::Sequenced, Unit::Percent, 0.0f, 1.0f, false,
      nullptr, nullptr},
     {Id::Attack, "Attack", Group::Sequenced, Unit::Seconds, 0.001f,
      kAttackMaxSeconds, true, nullptr, nullptr},
@@ -485,22 +490,22 @@ constexpr Parameter kParameters[] = {
      +[](VoiceConfig &c, float v) {
        c.noiseChaosRate = static_cast<decltype(c.noiseChaosRate)>(v);
      }},
-    {Id::FilterEnvAmount, "Env amount", Group::Filter, Unit::Number, 0.0f, 2.0f,
+    {Id::FilterEnvAmount, "Env octaves", Group::Filter, Unit::Number, 0.0f, 4.0f,
      false,
      +[](const VoiceConfig &c) {
-       return static_cast<float>(c.filterEnvelopeAmount);
+       return static_cast<float>(c.filterEnvelopeOctaves);
      },
      +[](VoiceConfig &c, float v) {
-       c.filterEnvelopeAmount =
-           static_cast<decltype(c.filterEnvelopeAmount)>(v);
+       c.filterEnvelopeOctaves =
+           static_cast<decltype(c.filterEnvelopeOctaves)>(v);
      }},
-    {Id::FilterEnvFloor, "Env floor", Group::Filter, Unit::Number, 0.0f, 1.0f,
+    {Id::FilterEnvFloor, "Env rest", Group::Filter, Unit::Number, 0.0f, 1.0f,
      false,
      +[](const VoiceConfig &c) {
-       return static_cast<float>(c.filterEnvelopeFloor);
+       return static_cast<float>(c.filterEnvelopeRest);
      },
      +[](VoiceConfig &c, float v) {
-       c.filterEnvelopeFloor = static_cast<decltype(c.filterEnvelopeFloor)>(v);
+       c.filterEnvelopeRest = static_cast<decltype(c.filterEnvelopeRest)>(v);
      }},
 };
 static_assert(std::size(kParameters) == static_cast<size_t>(Id::Count));
@@ -560,6 +565,10 @@ float laneBase(ParamId id, const VoiceConfig &c) noexcept {
     return (c.baseOctave + 24.0f) / 48.0f;
   case ParamId::GateLength:
     return (c.baseGateLength - 0.001f) / 0.999f;
+  case ParamId::Sustain:
+    return std::clamp(c.defaultSustain, 0.0f, 1.0f);
+  case ParamId::Release:
+    return timeNormalize(c.defaultRelease);
   default:
     return 0.5f;
   }
@@ -665,6 +674,18 @@ ParamId sequenceLane(Id id, const VoiceConfig &c) noexcept {
   case Id::EnvDecay:
     return VoiceParameters::layout(c).envelopeFromTracks ? ParamId::Decay
                                                          : ParamId::Count;
+  case Id::Sustain:
+    return VoiceParameters::binding(c, ParamId::Sustain).target ? ParamId::Count
+                                                                : ParamId::Sustain;
+  case Id::Release:
+    return VoiceParameters::binding(c, ParamId::Release).target ? ParamId::Count
+                                                                : ParamId::Release;
+  case Id::PickPosition:
+    target = &VoiceConfig::wgPickPosition;
+    break;
+  case Id::Stiffness:
+    target = &VoiceConfig::wgStiffness;
+    break;
   case Id::StaticCutoff:
     return VoiceParameters::binding(c, ParamId::Filter).target
                ? ParamId::Count
@@ -673,11 +694,20 @@ ParamId sequenceLane(Id id, const VoiceConfig &c) noexcept {
     break;
   }
   if (target)
-    for (ParamId lane :
-         {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Decay})
+    for (ParamId lane : {ParamId::Velocity, ParamId::Filter, ParamId::Attack,
+                         ParamId::Decay, ParamId::Sustain, ParamId::Release})
       if (VoiceParameters::binding(c, lane).target == target)
         return lane;
   return ParamId::Count;
+}
+const char *laneName(ParamId lane, const VoiceConfig &c) noexcept {
+  if (lane <= ParamId::Slide)
+    return name(static_cast<Id>(lane), c);
+  const auto &b = VoiceParameters::binding(c, lane);
+  if (b.name)
+    return b.name;
+  const auto *definition = parameterDefinition(lane);
+  return definition ? definition->name : "--";
 }
 const char *name(Id id, const VoiceConfig &c) noexcept {
   if (id <= Id::Slide) {
@@ -985,6 +1015,14 @@ float composeLane(ParamId id, float stored, const void *context) noexcept {
   if (!context)
     return stored;
   const auto &c = *static_cast<const VoiceConfig *>(context);
+  if (isPatchDefaultLane(id)) {
+    // Absolute lane: a step's own value plays as stored; a step that follows
+    // the patch plays the patch value (or the lane default without bases).
+    if (!followsPatch(stored))
+      return std::clamp(stored, 0.0f, 1.0f);
+    return c.usePatchBases ? laneBase(id, c)
+                           : parameterValueAsFloat(CORE_PARAMETERS[static_cast<size_t>(id)].defaultValue);
+  }
   if (!c.usePatchBases)
     return stored;
   if (id == ParamId::Gate)
@@ -1023,8 +1061,20 @@ void seedModifiers(Sequencer &seq) {
     const auto id = static_cast<ParamId>(i);
     if (id == ParamId::Gate || id == ParamId::Slide)
       continue;
-    seq.fillModulationTrack(id, id == ParamId::Note ? 0.0f : mapNormalizedValueToParamRange(id, 0.5f));
+    seq.fillModulationTrack(id, isPatchDefaultLane(id) ? SequencerConstants::LANE_FOLLOWS_PATCH
+                                : id == ParamId::Note ? 0.0f
+                                : mapNormalizedValueToParamRange(id, 0.5f));
   }
+}
+void convertOffsetValues(ParamId id, float *values, size_t count, const VoiceConfig &c) {
+  if (!values || !isPatchDefaultLane(id))
+    return;
+  constexpr float kNeutral = 0.5f;
+  const float base = laneBase(id, c);
+  for (size_t step = 0; step < count; ++step)
+    values[step] = std::fabs(values[step] - kNeutral) < 1e-4f
+                       ? SequencerConstants::LANE_FOLLOWS_PATCH
+                       : offsetAroundBase(base, values[step]);
 }
 void enablePatch(VoiceConfig &c) noexcept { c.usePatchBases = true; }
 } // namespace VoiceEdit

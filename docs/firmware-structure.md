@@ -14,7 +14,8 @@ work during each control-loop pass.
 | Sensor startup, polling or display cadence | `src/app/ControlIO.cpp` |
 | Shared objects and hand-distance calibration | `src/app/AppState.h/.cpp` |
 | Clock registration, transport and queued clock events | `src/app/ClockService.h/.cpp` |
-| Step playback, software gates and live recording | `src/app/StepPlayback.h/.cpp` |
+| Step playback, voice-state publication and live recording | `src/app/StepPlayback.h/.cpp` |
+| Arpeggiator mode (chord/pattern engine, slot-to-voice playback) | `src/pico2seq-core/arpeggiator/`, `src/app/ArpPlayback.h/.cpp`; see [Arpeggiator mode](arpeggiator.md) |
 | Voice creation, preset application and track seeding | `src/app/VoiceSetup.h/.cpp` |
 | I2S buffers, stereo output and final-mix gain | `src/app/AudioEngine.h/.cpp` |
 | Voice Editing mode (parameter catalogue, editor transport) | `src/app/VoiceEditor.h/.cpp`, `src/voice/VoiceEditParameters.h/.cpp`, `src/ui/VoiceEditControls.h` |
@@ -24,9 +25,9 @@ work during each control-loop pass.
 | A preset or its eight musical controls | `src/voice/presets/PresetBank.h`, `src/voice/VoiceParameters.h/.cpp` |
 | Step lengths, scales or sequencer rules | Portable `src/pico2seq-core/` |
 
-The app modules connect existing subsystems. USB MIDI is disabled in this
-checkout. `MidiNoteManager` compatibility calls still participate in software
-gate/note bookkeeping; changing them needs a separate musical-behavior review.
+The app modules connect existing subsystems. USB is TinyUSB CDC-only; the
+firmware has no MIDI transport or dormant MIDI tracker. Optional MIDI callbacks
+remain in the portable sequencer for other applications. See [MIDI status](midi.md).
 
 Sketch-level persistence lives in `src/app/Session*` (capture/apply, save/load
 requests), `src/app/SessionStorage*` (LittleFS file I/O), and
@@ -56,12 +57,21 @@ pass. Unsigned subtraction preserves timer-wrap behavior.
 
 `processSequencerStep()` advances all four voices in order, applies all four
 encoder offsets, then stages voice updates. Only the selected voice receives
-hand-distance input. All four voices honor GateLength: `gates[MAX_VOICES]` and
-duration timers are managed across all four voices (indices 0–3), while note-duration
-expiry in `processPendingGateTicks()` pushes the mid-step note-off to every voice in
-`VoiceManager`. Voices 0 and 1 additionally participate in internal `MidiNoteManager`
-tracking. The clock step still goes through the existing sequencer API with its
-existing width and wrap rules.
+hand-distance input. All four voices honor GateLength through their sequencer's
+note-duration state. `Sequencer::tickNoteDuration()` is the sole duration
+authority; expiry in `processPendingGateTicks()` publishes a mid-step gate-off
+`VoiceState` to `VoiceManager`. `VoiceSystem` holds only IDs and control
+snapshots, with no parallel gate flags, timers or MIDI lifecycle tracking.
+The clock step still uses the sequencer API's existing width and wrap rules.
+
+Arpeggiator mode (`Shift + hold Voice 4`, docs/arpeggiator.md) replaces the
+step-oriented paths rather than adding a second sequencer: `processClockEvents()`
+skips the step drain while it is on, `processPendingGateTicks()` feeds the arp
+engine instead of the sequencer duration counters, the pads enter a chord, and
+the LED panel, the OLED page, the four faders, the dial and the lidar all switch
+to their arp meanings. `UIState::arp` holds the engine so every surface that
+already receives `UIState` reads the same chord, and `src/app/ArpPlayback.cpp`
+is the only place that turns arp notes into `VoiceState` updates.
 
 Recording a Note requires a high Gate on the edited step. Immediate audio
 feedback applies only to the currently playing step. Distance readings
@@ -76,8 +86,16 @@ recording then leaves steps unchanged. Regression tests pin this calibration.
 `AppState.cpp` defines the existing `uiState`, `seq1`..`seq4`, `voiceManager`,
 `voiceSystem`, scale and transport symbols once. Their types and public entry
 points remain compatible with existing callers. `AppState::sequencers` is an
-immutable table of borrowed pointers in voice order. UI flags remain in
-`UIState`; hardware objects and refresh timestamps are private to `ControlIO`.
+immutable routing table of borrowed pointers in voice order; concrete
+`seq1`..`seq4` construction is retained. `OLEDDisplay::update()` and
+`updateStepLEDs()` borrow this table via `Sequencer *const *` and a `size_t`
+count, rather than accepting four sequencer references.
+
+UI flags remain in `UIState`: `selectedVoiceIndex` owns voice selection, while
+`isPresetSelection()` and `isVoiceParameterSettings()` derive settings views
+from `settingsMode` and `currentSubMode`. The old `isVoice2Mode`,
+`inPresetSelection` and `inVoiceParameterMode` mirrors are gone. Hardware
+objects and refresh timestamps are private to `ControlIO`.
 
 Core 0 allocates the voice collection once during setup and publishes
 `voicesReady` with release ordering after initialization. Core 1 acquires it
@@ -111,6 +129,22 @@ tick. A separate counter-policy fix needs timing regression and bench tests.
 The global delay effect was removed entirely (2026-09-11) — its DSP, defaults,
 control globals, and the `src/FeatureConfig.h` switch are gone from the tree,
 reclaiming the ~338 KiB the delay line would have reserved.
+
+A redesigned master delay returned (2026-09-20): `MasterDelay`
+(`src/voice/MasterDelay.h`) rides the summed block inside
+`VoiceManager::processBlock()` — a 48,000-float (~187.5 KiB) rpdsp
+`DelayLine` owned by the heap-allocated `VoiceManager`, read fractionally
+with cubic interpolation, with a DC blocker + one-pole lowpass + tanh bound
+in the feedback loop. Core 0 publishes mix, delay time and feedback through lock-free
+`std::atomic<float>` targets on `VoiceManager`; the audio core reads them
+once per block and eases per sample. Fader 2 is the wet mix; Shift + fader 2
+is the delay time (10–750 ms at 48 kHz, using the delay branch's tuned cap).
+The resulting dry-plus-wet signal passes through master gain, then the
+master compressor. Fader 3 keeps volume, and Shift + fader 3 keeps its
+Warm/Glue/Punch compressor macro. Shift + fader 1 sets 0–100% feedback
+without changing tempo. Faders 1–3 re-arm on Shift edges; feedback eases
+with the same 45 ms time constant as wet mix.
+Delay/filter/compressor history belongs to Core 1; Core 0 only writes targets.
 
 ## Building and checking changes
 

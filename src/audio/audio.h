@@ -21,6 +21,9 @@ extern "C" {
  *
  * Common API for audio output
  *
+ * Pico2Seq use: Core 1 takes a free buffer, renders 256 samples, and gives it
+ * back; blocking take *is* the 48 kHz pacing. Listener payoff: no clicks from
+ * torn buffers. Never allocate or print in this path.
  */
 
 // PICO_CONFIG: SPINLOCK_ID_AUDIO_FREE_LIST_LOCK, Spinlock number for the audio free list, min=0, max=31, default=6, group=audio
@@ -66,7 +69,7 @@ typedef struct audio_buffer {
     const audio_buffer_format_t *format;
     uint32_t sample_count;
     uint32_t max_sample_count;
-    uint32_t user_data; // only valid while the user has the buffer
+    uint32_t user_data; // Scratch while the renderer owns the buffer; cleared on give
     // private - todo make an internal version
     struct audio_buffer *next;
 } audio_buffer_t;
@@ -152,18 +155,17 @@ audio_buffer_t *audio_new_buffer(audio_buffer_format_t *format, int buffer_sampl
  */
 void audio_init_buffer(audio_buffer_t *audio_buffer, audio_buffer_format_t *format, int buffer_sample_count);
 
-/*! \brief \todo
+/*! \brief Hand a filled (producer) or finished (consumer) buffer back
  *  \ingroup pico_audio
  *
- * \param ac \todo
- * \param buffer \todo
- * \return Pointer to an audio_buffer
+ * A produced buffer becomes playable; a consumed one becomes fillable again.
  */
 void give_audio_buffer(audio_buffer_pool_t *ac, audio_buffer_t *buffer);
 
-/*! \brief \todo
+/*! \brief Take a buffer to fill (producer) or play (consumer)
  *  \ingroup pico_audio
  *
+ * Core 1 calls this with block=true: the wait paces synthesis to DMA demand.
  * \return Pointer to an audio_buffer
  */
 audio_buffer_t *take_audio_buffer(audio_buffer_pool_t *ac, bool block);
@@ -204,22 +206,22 @@ void audio_upsample_double(int16_t *input, int16_t *output, uint output_count, u
 void audio_complete_connection(audio_connection_t *connection, audio_buffer_pool_t *producer,
                                       audio_buffer_pool_t *consumer);
 
-/*! \brief \todo
+/*! \brief Take a free (fillable) buffer; block=true paces Core 1 to DMA demand
  *  \ingroup pico_audio
  */
 audio_buffer_t *get_free_audio_buffer(audio_buffer_pool_t *context, bool block);
 
-/*! \brief \todo
+/*! \brief Return an empty buffer to the free list (renderer finished with it)
  *  \ingroup pico_audio
  */
 void queue_free_audio_buffer(audio_buffer_pool_t *context, audio_buffer_t *ab);
 
-/*! \brief \todo
+/*! \brief Take a filled (playable) buffer; block=true waits for the renderer
  *  \ingroup pico_audio
  */
 audio_buffer_t *get_full_audio_buffer(audio_buffer_pool_t *context, bool block);
 
-/*! \brief \todo
+/*! \brief Queue a filled buffer for DMA play (listener hears it next)
  *  \ingroup pico_audio
  */
 void queue_full_audio_buffer(audio_buffer_pool_t *context, audio_buffer_t *ab);

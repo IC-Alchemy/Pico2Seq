@@ -2,31 +2,14 @@
 
 ## 1. Overview & Architecture
 
-The `src/pico2seq-core/scales/` module defines the musical tuning system for the Pico2Seq synthesizer. It provides 13 scale definitions spanning 4 octaves (48 steps), mapping sequencer step indices to semitone offsets for internal audio synthesis and external MIDI generation.
+The `src/pico2seq-core/scales/` module defines the musical tuning system for the Pico2Seq synthesizer. It provides 13 scale definitions spanning 4 octaves (48 steps), mapping sequencer step indices to semitone offsets for internal audio synthesis. Optional MIDI callbacks remain in the portable sequencer, but the firmware has no MIDI transport.
 
+```text
+Scale tables -> Voice scale-degree/pitch lookup -> oscillator frequency
 ```
-                              ┌─────────────────────────────────────────────────────────┐
-                              │                 Scale Table Definition                  │
-                              │           scale[SCALES_COUNT][SCALE_STEPS]              │
-                              │                  (13 scales x 48 steps)                 │
-                              └────────────────────────────┬────────────────────────────┘
-                                                           │
-                                   ┌───────────────────────┴───────────────────────┐
-                                   │                                               │
-                                   ▼                                               ▼
-              ┌────────────────────────────────────────┐     ┌─────────────────────────────────────────┐
-              │      Internal Audio Synthesis          │     │    Internal MIDI Note Lifecycle         │
-              │         (src/voice/Voice.cpp)          │     │       (StepPlayback / MidiManager)      │
-              │                                        │     │                                         │
-              │  scaleSemitone = scale[s][note+harm]   │     │  scaleSemitone = scale[s][note]         │
-              │  midiNote = scaleSemitone + 48 + oct   │     │  midiNote = scaleSemitone + 36 + oct    │
-              │             ▲                          │     │             ▲                           │
-              │             │ C3 Base (MIDI 48)        │     │             │ C2 Base (MIDI 36)         │
-              │                                        │     │                                         │
-              │  frequencyLookupTable[midiNote]        │     │  midiNoteManager.noteOn()               │
-              │  -> Oscillator Frequency in Hz         │     │  -> Internal note state (0-127 clamped) │
-              └────────────────────────────────────────┘     └─────────────────────────────────────────┘
-```
+
+The former parallel C2-base conversion for the dormant firmware MIDI tracker
+has been removed; it is not part of the audio pitch path.
 
 ### Key Architectural Principles
 
@@ -36,9 +19,9 @@ The `src/pico2seq-core/scales/` module defines the musical tuning system for the
    Synthesis components (such as `Voice`) do not read global scale variables directly. Instead, scale tables and active scale pointers are injected via `Voice::setScaleTable()` and `Voice::setCurrentScalePointer()`. Passing `nullptr` enables chromatic fallback, allowing unit tests to run without global state.
 3. **Precomputed Unique-Degree Rank Cache**:
    `Voice::setScaleTable()` precomputes scale degree ranks (`scaleUniqueCounts`, `scaleIndexToRank`, `scaleUniqueIndexList`) outside the realtime path, enabling $O(1)$ indexed lookups for harmony and degree transposition during audio processing.
-4. **Dual Pitch Base Offsets**:
-   - **Internal Audio Synthesis**: Centered at **C3** (MIDI note 48, base +48).
-   - **Internal MIDI Note Lifecycle (`MidiNoteManager`)**: Centered at **C2** (MIDI note 36, base +36). (USB MIDI transmission was removed 2026-09-06; `MidiNoteManager` maintains this for internal gate/note state tracking).
+4. **Audio Pitch Base**:
+   Internal audio synthesis is centered at **C3** (MIDI note 48, base +48).
+   MIDI note numbers here describe pitch; they do not imply MIDI transmission.
 
 ---
 
@@ -111,7 +94,8 @@ const char* scaleNames[SCALES_COUNT] = {
 
 ## 4. Dual Pitch Offset Architecture
 
-A critical architectural distinction exists between how scale semitones are converted for **internal audio synthesis** versus **external MIDI output**:
+Scale semitones are converted to oscillator frequencies in the audio voice.
+The removed firmware MIDI tracker no longer has a parallel pitch path.
 
 ### 4.1 Internal Audio Synthesis: C3 Base (+48)
 
@@ -144,24 +128,12 @@ inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset, int 
   - High step (72 semitones, +12 octave offset): MIDI note 132 — beyond the table's 128 entries; sequencer parameter ranges keep the computed note inside the table (there is no runtime clamp on this synthesis path).
 - **Rationale**: Internal oscillator waveforms and ladder filter character are voiced to sound full and punchy centered in the C3 octave.
 
-### 4.2 Internal MIDI Note Tracking (`MidiNoteManager`): C2 Base (+36)
+### 4.2 Removed Firmware MIDI Conversion
 
-In `src/app/StepPlayback.cpp` and `src/midi/MidiManager.cpp`:
-
-```cpp
-uint8_t noteIndex = static_cast<uint8_t>(std::max(0.0f, std::min(state.noteIndex, static_cast<float>(SCALE_STEPS - 1))));
-int midiNote = scale[currentScale][noteIndex] + 36 + static_cast<int>(state.octaveOffset);
-
-// Clamp MIDI note to valid range (0-127)
-int clampedMidiNote = std::max(0, std::min(midiNote, 127));
-
-midiNoteManager.noteOn(voiceIndex, static_cast<int8_t>(clampedMidiNote),
-                       static_cast<uint8_t>(state.velocityLevel * 127), 1, state.gateLengthTicks);
-```
-
-- **Base Pitch**: **C2** (MIDI note 36 = 65.41 Hz).
-- **Pitch Range**: MIDI notes 24 (C1) to 108 (C8).
-- **Rationale**: Internal note lifecycle and gate tracking via `MidiNoteManager` uses standard bass/lead registers starting at C2. Note that USB MIDI transmission was removed on 2026-09-06; `MidiNoteManager` maintains this bookkeeping internally.
+The former C2-base (+36) conversion in step playback served only the dormant
+`MidiNoteManager` tracker. That tracker and its firmware conversion path have
+been removed. Audio pitch is unchanged. See [MIDI status](midi.md) for the
+separate optional hooks retained in the portable sequencer.
 
 ---
 

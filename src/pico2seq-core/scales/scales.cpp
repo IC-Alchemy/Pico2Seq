@@ -1,7 +1,9 @@
 #include "scales.h"
 
- // Scale names array
- const char* scaleNames[SCALES_COUNT] = {
+// Scale library: one semitone row per scale; a Note step indexes into the row.
+// Trailing repeated top notes pad short scales out to SCALE_STEPS so any
+// Note value 0..36 still resolves inside the chosen key.
+ const char* scaleNames[SCALES_COUNT] = { // Order must match the rows below
     "Ionian Major",
     "Dorian",
     "Phrygian",
@@ -17,7 +19,7 @@
     "Chromatic"
 };
 
- // Scale intervals array
+ // Semitone offsets per scale step; tail repeats hold the top octave.
  int scale[SCALES_COUNT][SCALE_STEPS] = {
     // Ionian (Major): 1-2-3-4-5-6-7
     {0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24, 26,

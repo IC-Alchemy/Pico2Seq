@@ -20,29 +20,32 @@
 #include <uClock.h>
 #include <cstdio>
 
+// UIEventHandler.cpp — one funnel for all 32 step pads + tile entry points.
+// Core 0 only, non-blocking (millis() timing, no waits). Tap toggles a step,
+// hold opens it for edit, Shift+pad clears it; modes below arbitrate the rest.
 // =======================
 //   UI EVENT CONSTANTS
 // =======================
 
 namespace UIEventConstants
 {
-  // Voice system constants
-  static constexpr uint8_t MAX_VOICES = 4; // Number of voices supported by the hardware - used for LED feedback and settings menu navigation (4 voices)
+  // Four voices, 0-based everywhere internally (UI shows 1..4).
+  static constexpr uint8_t MAX_VOICES = 4;
   static constexpr uint8_t VOICE_1_INDEX = 0;
   static constexpr uint8_t VOICE_2_INDEX = 1;
   static constexpr uint8_t VOICE_3_INDEX = 2;
   static constexpr uint8_t VOICE_4_INDEX = 3;
 
-  // Default voice preset indices
+  // Boot presets for voices 1-2 (indices into VoicePresets).
   static constexpr uint8_t DEFAULT_VOICE_1_PRESET = 0; // Analog preset
   static constexpr uint8_t DEFAULT_VOICE_2_PRESET = 1; // Digital preset
 
-  // Settings mode constants
+  // Settings browser voices shown at once + initial cursor positions.
   static constexpr uint8_t SETTINGS_MENU_VOICE_COUNT = 4;
   static constexpr uint8_t SETTINGS_MENU_INITIAL_INDEX = 0;
   static constexpr uint8_t SETTINGS_SUBMENU_INITIAL_INDEX = 0;
 
-  // Slide mode constants
+  // Slide gate values: legato off/on per step.
   static constexpr uint8_t SLIDE_OFF_VALUE = 0;
   static constexpr uint8_t SLIDE_ON_VALUE = 1;
 
@@ -52,20 +55,20 @@ namespace UIEventConstants
 static_assert(UIState::NUM_RANDOMIZE >= UIEventConstants::MAX_VOICES,
               "UI expects 4 randomize buttons; update UIState::NUM_RANDOMIZE or adjust handlers.");
 
-// External function declarations that the UI calls
+// LED theme lives in the LED layer; UI only tracks the index.
 extern void setLEDTheme(LEDTheme theme);
 
-// External variables that are still needed from the main file
+// Step-parameter metadata (names/defaults) owned by the sequencer core.
 extern const ParameterDefinition CORE_PARAMETERS[];
 
-// Helper function declarations (static to this file)
+// File-local helpers: step routing, slide steps, settings pages, encoder follow.
 static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
                                   UIState &uiState, const SequencerView &sequencers);
 
-// Private helper handlers for matrixEventHandler
+// Slide-mode and settings-page helpers (one owner each, called from the funnel).
 static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, const SequencerView &sequencers);
 
-// Settings sub-mode helpers (settings mode refactor)
+// Settings sub-mode helpers.
 static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState);
 static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState, VoiceManager *voiceManager);
 
@@ -146,27 +149,69 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
                         const SequencerView &sequencers)
 {
 
-  if(uiState.voiceEditor.active || uiState.controlsWaitRelease) return;
+  if(uiState.voiceEditor.active || uiState.controlsWaitRelease)
+  {
+    // A modal state swallows pad releases (the early return below), so the arp
+    // must not keep believing a finger is still down: latched notes stay,
+    // physically held ones are dropped.
+    uiState.arp.releaseAllHeldPads();
+    return;
+  }
+<<<<<<< HEAD
+  // Edge-only input: holds are promoted by polling so the loop never blocks.
+=======
   // Poll held buttons (long press detection) using the shared routing table.
+>>>>>>> f93e3bf691631b6a65407f345dbf37e8c6115c41
   pollUIHeldButtons(uiState, sequencers);
+
+  // =======================
+  //   ARPEGGIATOR MODE: CHORD ENTRY
+  // =======================
+
+  /**
+   * Handle touch pads as the arp's scale-degree keyboard.
+   *
+   * In Arpeggiator mode the 32 pads are a 32-degree ladder (see
+   * src/pico2seq-core/arpeggiator/Arpeggiator.h): a touch joins the chord, a
+   * release drops it unless Latch is on. Nothing here reads the pad banks,
+   * selects a step or toggles a gate, so no sequencer pad path may run.
+   *
+   * Why releases are always delivered: Settings can open while a finger is
+   * down (Play long-press), and a swallowed release would leave that note in
+   * the chord forever. Presses still belong to whichever page has the pads.
+   */
+  if (uiState.arp.active() && evt.buttonIndex < NUMBER_OF_STEP_PADS)
+  {
+    if (evt.type == MATRIX_BUTTON_PRESSED)
+    {
+      // Settings (the preset browser) keeps the pads while it is open: it maps
+      // raw pad indices to presets, so a press there is not chord entry.
+      if (!uiState.settingsMode)
+        uiState.arp.pressPad(evt.buttonIndex);
+    }
+    else
+    {
+      // A release always reaches the chord, even if Settings opened while the
+      // finger was down -- otherwise that note would stay in the chord forever.
+      uiState.arp.releasePad(evt.buttonIndex);
+    }
+    if (!uiState.settingsMode)
+      return;
+  }
 
   // =======================
   //   SLIDE MODE STEP HANDLING
   // =======================
 
-  /**
-   * Handle step pads in slide mode - toggle slide per step
-   *
-   * When in slide mode, step pads toggle the slide parameter for individual
-   * steps on their own voice rather than toggling the step on/off.
-   */
+  // Slide mode owns the pads: each tap flips legato for that step's voice.
+  // (No gate toggles here — one gesture, one job.)
   if (!uiState.settingsMode && uiState.slideMode && evt.buttonIndex < NUMBER_OF_STEP_PADS)
   {
     if (evt.type == MATRIX_BUTTON_PRESSED)
     {
       handleSlideModeStep(evt, uiState, sequencers);
     }
-    return; // In slide mode, step pads only toggle slide
+    return; // Slide consumed the pad; normal step handling stays out.
   }
 
   // Step pads: settings navigation, gate-seq-length entry, parameter length
@@ -253,7 +298,7 @@ void handleParameterButtonById(uint8_t paramId, bool pressed, UIState &uiState)
 static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
                                   UIState &uiState, const SequencerView &sequencers)
 {
-  // Ignore out-of-bounds pad indices (all 32 matrix indices are step pads now)
+  // Pads outside the 32-step grid have no voice; ignore them.
   if (evt.buttonIndex >= NUMBER_OF_STEP_PADS)
   {
     return false;
@@ -263,13 +308,8 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
   //   SETTINGS MODE HANDLING
   // =======================
 
-  /**
-   * Handle settings mode navigation and voice configuration
-   *
-   * Settings mode allows configuration of voice presets and voice parameters.
-   * Navigation uses raw pad indices (no bank resolution). Pads never change
-   * the selected voice here; only the voice buttons do (selectVoice).
-   */
+  // Settings owns the pads: raw indices browse presets/timbre (no bank
+  // mapping), voice buttons alone switch voices, releases are swallowed.
   if (uiState.settingsMode)
   {
     // Settings owns every pad edge while open. A release that fell through
@@ -291,7 +331,7 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
     {
       handleVoiceParameter(evt, uiState, voiceManager.get());
     }
-    return true; // Event was handled in settings mode
+    return true; // Handled inside settings; step toggling stays out.
   }
 
   // Resolve the pad through the bank mapping: bank = index/16 picks one of
@@ -420,8 +460,6 @@ static void autoSelectEncoderParameter(ParamId paramId, UIState &uiState)
     uiState.currentEncoderParameter = newEncoderParam;
     // A turn made for the previous target must not carry over to this one.
     VoiceEditor::clearEncoder();
-    // Serial.print("Encoder auto-selected: ");
-    // Serial.println(CORE_PARAMETERS[static_cast<int>(paramId)].name);
   }
 }
 
@@ -522,7 +560,7 @@ void pollUIHeldButtons(UIState &uiState, const SequencerView &sequencers)
   unsigned long currentTimeMs = millis();
 
   // Check for long press resets on every voice in the routing table.
-  for (uint8_t voiceIndex = 0; voiceIndex < sequencers.size(); voiceIndex++)
+  for (size_t voiceIndex = 0; voiceIndex < sequencers.size(); ++voiceIndex)
   {
     if (uiState.randomizeWasPressed[voiceIndex] &&
         !uiState.randomizeResetTriggered[voiceIndex])
@@ -597,17 +635,17 @@ static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, 
   {
     Sequencer &currentActiveSequencer = *activeSequencerPtr;
 
-    // Get current slide value and toggle it
+    // Flip legato for this step; the performer hears the glide on next pass.
     uint8_t currentSlideValue = currentActiveSequencer.getStepParameterValue(
         ParamId::Slide, pad.step);
     uint8_t newSlideValue = (currentSlideValue > UIEventConstants::SLIDE_OFF_VALUE) ? UIEventConstants::SLIDE_OFF_VALUE : UIEventConstants::SLIDE_ON_VALUE;
 
-    // Apply the new slide value to the step
+    // Write the flipped legato back to the step.
     currentActiveSequencer.setStepParameterValue(ParamId::Slide, pad.step, newSlideValue);
   }
   else
   {
-    // No sequencer available for the pad's voice; ignore.
+    // Null voice slot (should not happen via PadBank); nothing to flip.
   }
 }
 
@@ -685,7 +723,7 @@ void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_d
                   uiState.parameterButtonHeld[static_cast<int>(ParamId::Velocity)],
                   uiState.parameterButtonHeld[static_cast<int>(ParamId::Filter)],
                   uiState.parameterButtonHeld[static_cast<int>(ParamId::Attack)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Decay)],
+                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Release)],
                   uiState.parameterButtonHeld[static_cast<int>(ParamId::Octave)],
                   uiState.selectedStepForEdit,
                   voiceState);

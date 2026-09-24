@@ -2,6 +2,7 @@
 
 #include "AlchemyControlBridge.h"
 #include "../app/AppState.h"
+#include "../app/ArpPlayback.h"
 #include "../app/Session.h"
 #include "../app/StepPlayback.h"
 #include "../app/VoiceEditor.h"
@@ -11,8 +12,8 @@
 #include "UIConstants.h"
 #include "UIEventHandler.h"
 #include "../AlchemyUI/src/ButtonMap.h"
+#include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
-#include "../pico2seq-core/sequencer/ShuffleTemplates.h"
 
 #include <uClock.h>
 
@@ -23,19 +24,13 @@ namespace
 // OLED banner window after a mode flip.
 constexpr unsigned long kModeBannerDurationMs = 600;
 
+// Notes in a random arp chord: four is enough for a seventh chord, which is
+// the widest chord the four voices can voice in Chord pattern.
+constexpr uint8_t kRandomChordNotes = 4;
+
 // Utility-fader ranges.
 constexpr float kTempoMinBpm = 45.0f;
 constexpr float kTempoMaxBpm = 200.0f;
-constexpr int8_t kSwingMaxTicks = 45; // half of a 120-tick 16th at PPQN 480
-
-// Why a free function: the fader map speaks ControlSurface::Mode while the
-// rest of the firmware speaks UIState::AlchemyMode, so one canonical
-// translation keeps Param/Utility from drifting apart at each call site.
-ControlSurface::Mode bridgeMode(UIState::AlchemyMode mode)
-{
-  return (mode == UIState::AlchemyMode::Param) ? ControlSurface::Mode::Param
-                                               : ControlSurface::Mode::Utility;
-}
 } // namespace
 
 // Why re-resolve instead of caching once: tile slots are scan order, so a tile
@@ -130,26 +125,43 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
 
   // Shift (bit 7 of the button tile) is a plain level in both modes.
   uiState.shiftHeld = buttonAt(buttonSlot_, 7).held();
+  // Shift changes tempo to feedback, delay mix to time and volume to macro.
+  // Re-arm all three on either edge so their other targets keep their values.
+  if (uiState.shiftHeld != shiftWasHeld_)
+  {
+    shiftWasHeld_ = uiState.shiftHeld;
+    faders_.resetShiftTargets();
+  }
 
   // SliderModule buttons: voice select, or transport chords with Shift —
   // identical in both modes.
-  handleVoiceButtons(uiState);
+  handleVoiceButtons(nowMs, uiState);
   if(uiState.voiceEditor.active) return;
 
   if (uiState.alchemyMode == UIState::AlchemyMode::Param)
   {
-    handleParamButtons(uiState);
+    if (uiState.arp.active())
+      handleArpPatternButtons(uiState);
+    else
+      handleParamButtons(uiState);
   }
   else
   {
-    handleUtilityButtons(nowMs, uiState, sequencers);
+    if (uiState.arp.active())
+      handleArpUtilityButtons(nowMs, uiState);
+    else
+      handleUtilityButtons(nowMs, uiState, sequencers);
   }
 
-  // If selected voice changed (via voice buttons or pad bank selection),
-  // disarm faders so newly focused voice does not snap on minor movement.
-  if (uiState.selectedVoiceIndex != lastVoiceIndex_)
+  // Disarm the faders whenever what they edit changes: the selected voice, or
+  // entering, leaving or moving Step Edit (ENV mode). A newly focused step or
+  // voice must not snap to wherever the faders happen to rest. Arpeggiator mode
+  // has no steps, so there only a voice change redisarms them.
+  const int stepForEdit = uiState.arp.active() ? lastStepForEdit_ : uiState.selectedStepForEdit;
+  if (uiState.selectedVoiceIndex != lastVoiceIndex_ || stepForEdit != lastStepForEdit_)
   {
     lastVoiceIndex_ = uiState.selectedVoiceIndex;
+    lastStepForEdit_ = stepForEdit;
     faders_.resetDeadband();
   }
 
@@ -202,13 +214,53 @@ void AlchemyControlBridge::onModeFlip(uint32_t nowMs, UIState &uiState)
 // transport chords) must stay under muscle memory in both Param and Utility.
 // Chords reuse the same ButtonHandlers entry points as the legacy matrix so
 // there is only one transport/randomize/scale implementation to maintain.
-void AlchemyControlBridge::handleVoiceButtons(UIState &uiState)
+// Why Voice 4 defers its action to release/hold: with Shift it carries two
+// commands on one button -- a tap opens the voice editor, a hold toggles
+// Arpeggiator mode -- so the tap can only be decided once the finger is up (the
+// same reason the Play button defers its transport action to release).
+void AlchemyControlBridge::handleVoiceButtons(uint32_t nowMs, UIState &uiState)
 {
   const bool shift = uiState.shiftHeld;
   for (uint8_t voice = 0; voice < 4; ++voice)
   {
+    const TileButton &tileButton = buttonAt(sliderSlot_, voice);
     ButtonEdges &edges = buttonEdges_[kSliderRole][voice];
-    if (!edges.take(buttonAt(sliderSlot_, voice)) || !edges.pressEdge)
+    // An armed editor/arp press keeps being polled while it is held, so the
+    // long press is reachable; every other button acts on its press edge only.
+    const bool actsWhileHeld = voice == 3 && editorHoldArmed_ && !editorHoldFired_;
+    if (!edges.take(tileButton) && !(actsWhileHeld && tileButton.held()))
+    {
+      continue;
+    }
+
+    if (voice == 3 && (shift || editorHoldArmed_))
+    {
+      if (edges.pressEdge)
+      {
+        editorHoldArmed_ = true;
+        editorHoldFired_ = false;
+      }
+      else if (tileButton.held() && editorHoldArmed_ && !editorHoldFired_ &&
+               tileButton.heldMilliseconds(nowMs) >= UITimingConstants::LONG_PRESS_THRESHOLD_MS)
+      {
+        // Hold consumed: the release must not also open the editor.
+        editorHoldFired_ = true;
+        arpModeToggle(uiState);
+        // What the faders edit changed with the mode: re-arm the deadband so a
+        // resting fader cannot snap an arp setting the moment the mode flips.
+        faders_.resetDeadband();
+      }
+      else if (edges.releaseEdge)
+      {
+        if (!editorHoldFired_)
+          VoiceEditor::enter();
+        editorHoldArmed_ = false;
+        editorHoldFired_ = false;
+      }
+      continue;
+    }
+
+    if (!edges.pressEdge)
     {
       continue;
     }
@@ -288,13 +340,192 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
     if (uiState.slideMode)
       continue;
 
-    // Bits 0-5 map straight onto ParamId Note..Octave (ButtonMap.h order).
-    const uint8_t paramId = bit;
+    // Bits 0-5 follow ButtonMap.h order. The 5th button is silkscreened Decay
+    // but records Release: Decay is a timbre lane on most presets, while
+    // Release shapes the tail on all of them.
+    static constexpr ParamId kButtonLanes[6] = {
+        ParamId::Note, ParamId::Velocity, ParamId::Filter,
+        ParamId::Attack, ParamId::Release, ParamId::Octave};
+    const uint8_t paramId = static_cast<uint8_t>(kButtonLanes[bit]);
     latch_.onParamButton(paramId, edges.pressEdge, uiState.shiftHeld);
     latch_.applyTo(uiState.parameterButtonHeld, PARAM_ID_COUNT);
     uiState.latchedParameter = latch_.latched();
 
     handleParameterButtonById(paramId, edges.pressEdge, uiState);
+  }
+}
+
+// --- ButtonModule8: transport and session (shared by both modes) -----------------
+
+// Why these two live outside the per-mode panels: Play/Stop and Session must
+// keep exactly one meaning in the sequencer and in Arpeggiator mode, so both
+// utility panels call the same code. Everything else on the panel is allowed to
+// differ per mode.
+void AlchemyControlBridge::handleTransportButton(const ButtonState &button, UIState &uiState)
+{
+  if (button.pressEdge)
+  {
+    // Transport action is deferred to release/hold so a long-press can toggle
+    // settings without ever stopping playback.
+    playSettingsOpenedThisPress_ = false;
+  }
+  else if (button.held && !playSettingsOpenedThisPress_ &&
+           button.heldMs >= UITimingConstants::LONG_PRESS_THRESHOLD_MS)
+  {
+    // Long-press (any clock state): toggle settings open/closed. Entering
+    // while running keeps the transport playing -- preset apply is staged
+    // and click-safe.
+    playSettingsOpenedThisPress_ = true;
+    if (uiState.settingsMode)
+      closeSettingsMode(uiState);
+    else
+      openSettingsMode(uiState);
+  }
+  else if (button.releaseEdge)
+  {
+    if (!playSettingsOpenedThisPress_)
+    {
+      if (uiState.settingsMode && isClockRunning)
+      {
+        // Short-press while running inside settings: exit settings only, keep
+        // the transport playing.
+        closeSettingsMode(uiState);
+      }
+      else
+      {
+        handleControlButton(BUTTON_PLAY_STOP, uiState); // stop+settings / start
+      }
+    }
+    playSettingsOpenedThisPress_ = false;
+  }
+}
+
+void AlchemyControlBridge::handleSessionButton(const ButtonState &button)
+{
+  if (button.pressEdge)
+  {
+    saveLoadLatch_ = false;
+  }
+  else if (button.held && !saveLoadLatch_ &&
+           button.heldMs >= UITimingConstants::LONG_PRESS_THRESHOLD_MS)
+  {
+    saveLoadLatch_ = true; // consume the hold; release must not re-trigger
+    Session::requestLoad();
+  }
+  else if (button.releaseEdge && !saveLoadLatch_)
+  {
+    Session::requestSave();
+  }
+}
+
+// --- ButtonModule8, Arpeggiator mode --------------------------------------------
+
+// Why patterns are a single-select group rather than latchable holds: a step
+// parameter is held while a hand writes it, but a pattern is a mode the arp
+// stays in -- the button is not tracked afterwards. Latch (bit 6) is the one
+// toggle on this panel, and it is reachable from the Utility panel as well so a
+// player can latch without touching the strap.
+void AlchemyControlBridge::handleArpPatternButtons(UIState &uiState)
+{
+  for (uint8_t bit = 0; bit < 7; ++bit) // bits 0-6; bit 7 is Shift (read above)
+  {
+    ButtonEdges &edges = buttonEdges_[kButtonRole][bit];
+    if (!edges.take(buttonAt(buttonSlot_, bit)) || !edges.pressEdge)
+    {
+      continue;
+    }
+
+    if (bit == 6)
+    {
+      uiState.arp.toggleLatch();
+      continue;
+    }
+
+    const Arpeggiator::Pattern pattern = Arpeggiator::patternForButtonBit(bit);
+    if (pattern != Arpeggiator::Pattern::Count)
+      uiState.arp.setPattern(pattern);
+  }
+}
+
+// Why the step-only slots are replaced instead of shadowed: swing templates,
+// encoder-target cycling and pattern clearing all drive the step sequencer, and
+// in Arpeggiator mode those buttons would be dead. Octave range, re-sync and
+// chord randomize are their arp counterparts, while Play, Session, Scale and
+// Theme keep their positions because they mean the same thing in both modes.
+void AlchemyControlBridge::handleArpUtilityButtons(uint32_t nowMs, UIState &uiState)
+{
+  for (uint8_t bit = 0; bit < 7; ++bit) // bits 0-6; bit 7 is Shift (read above)
+  {
+    const TileButton &tileButton = buttonAt(buttonSlot_, bit);
+    ButtonEdges &edges = buttonEdges_[kButtonRole][bit];
+    const bool actsWhileHeld = bit <= 1; // Play and Session keep their holds
+    if (!edges.take(tileButton) && !(actsWhileHeld && tileButton.held()))
+    {
+      continue;
+    }
+
+    const ButtonState state{edges.pressEdge, edges.releaseEdge, tileButton.held(),
+                            tileButton.heldMilliseconds(nowMs)};
+    switch (bit)
+    {
+    case 0: // Play / Stop
+      handleTransportButton(state, uiState);
+      break;
+
+    case 1: // Session save (tap) / load last saved (long-press)
+      handleSessionButton(state);
+      break;
+
+    case 2: // Scale cycle: the arp plays the same scale table as the sequencer.
+      if (edges.pressEdge)
+        handleControlButton(BUTTON_CHANGE_SCALE, uiState);
+      break;
+
+    case 3: // Octave range cycle 1..4. The step sequencer's swing templates do
+            // not apply here: the arp swings itself (Arpeggiator::scheduleNext).
+      if (edges.pressEdge)
+        uiState.arp.cycleOctaves();
+      break;
+
+    case 4: // Theme cycle: the arp panel is painted from the same theme table.
+      if (edges.pressEdge)
+        handleControlButton(BUTTON_CHANGE_THEME, uiState);
+      break;
+
+    case 5: // Latch (the same toggle as the Param panel, so a chord can be held
+            // without changing the strap). Shift + tap re-syncs the walk to the
+            // chord's root on the next tick.
+      if (!edges.pressEdge)
+        break;
+      if (uiState.shiftHeld)
+        uiState.arp.restart();
+      else
+        uiState.arp.toggleLatch();
+      break;
+
+    case 6: // Randomize the chord (tap); Shift + tap clears it.
+      if (!edges.pressEdge)
+        break;
+      if (uiState.shiftHeld)
+      {
+        uiState.arp.clearChord();
+        uiState.arp.setLatch(false);
+        uiState.oledNoticeKind = UIState::OledNoticeKind::VoiceCleared;
+        uiState.oledNoticeUntil = nowMs + OLED_NOTICE_DURATION_MS;
+      }
+      else
+      {
+        // Seeded from the clock so two taps in a row cannot draw the same chord.
+        uiState.arp.randomizeChord(kRandomChordNotes,
+                                   static_cast<uint32_t>(nowMs) * 2654435761u + 1u);
+        uiState.oledNoticeKind = UIState::OledNoticeKind::Randomized;
+        uiState.oledNoticeUntil = nowMs + OLED_NOTICE_DURATION_MS;
+      }
+      break;
+
+    default:
+      break;
+    }
   }
 }
 
@@ -322,65 +553,16 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
       continue;
     }
 
+    const ButtonState state{edges.pressEdge, edges.releaseEdge, tileButton.held(),
+                            tileButton.heldMilliseconds(nowMs)};
     switch (bit)
     {
     case 0: // Play / Stop
-      if (edges.pressEdge)
-      {
-        // Transport action is deferred to release/hold so a long-press can
-        // toggle settings without ever stopping playback.
-        playSettingsOpenedThisPress_ = false;
-      }
-      else if (tileButton.held() && !playSettingsOpenedThisPress_ &&
-               tileButton.heldMilliseconds(nowMs) >= UITimingConstants::LONG_PRESS_THRESHOLD_MS)
-      {
-        // Long-press (any clock state): toggle settings open/closed. Entering
-        // while running keeps the transport playing — preset apply is staged
-        // and click-safe.
-        playSettingsOpenedThisPress_ = true;
-        if (uiState.settingsMode)
-        {
-          closeSettingsMode(uiState);
-        }
-        else
-        {
-          openSettingsMode(uiState);
-        }
-      }
-      else if (edges.releaseEdge)
-      {
-        if (!playSettingsOpenedThisPress_)
-        {
-          if (uiState.settingsMode && isClockRunning)
-          {
-            // Short-press while running inside settings: exit settings only,
-            // keep the transport playing.
-            closeSettingsMode(uiState);
-          }
-          else
-          {
-            handleControlButton(BUTTON_PLAY_STOP, uiState); // stop+settings / start
-          }
-        }
-        playSettingsOpenedThisPress_ = false;
-      }
+      handleTransportButton(state, uiState);
       break;
 
     case 1: // Session save (tap) / load last saved (long-press)
-      if (edges.pressEdge)
-      {
-        saveLoadLatch_ = false;
-      }
-      else if (tileButton.held() && !saveLoadLatch_ &&
-               tileButton.heldMilliseconds(nowMs) >= UITimingConstants::LONG_PRESS_THRESHOLD_MS)
-      {
-        saveLoadLatch_ = true; // consume the hold; release must not re-trigger
-        Session::requestLoad();
-      }
-      else if (edges.releaseEdge && !saveLoadLatch_)
-      {
-        Session::requestSave();
-      }
+      handleSessionButton(state);
       break;
 
     case 2: // Scale cycle
@@ -457,11 +639,10 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
 // --- Faders ----------------------------------------------------------------------
 
 // Why faders fan out by assignment instead of by channel: the same four
-// physical faders mean step params in Param mode but global Tempo/Swing/
-// Volume/Gate in Utility mode. The deadband gate (accept()) stops a newly
-// selected voice or mode from snapping to a stale fader position, the Gate
-// check stops Note edits on muted steps from writing inaudible data, and the
-// shuffle buffer is static because uClock retains the pointer for ISR ticks.
+// physical faders mean Tempo/DelayMix/Volume/Gate in both strap positions, but the
+// selected step's Attack/Decay/Sustain/Release in Step Edit (ENV mode). The
+// deadband gate (accept()) stops a newly selected voice or step from
+// snapping to a stale fader position.
 void AlchemyControlBridge::handleFaders(UIState &uiState,
                                         const SequencerView &sequencers)
 {
@@ -473,63 +654,108 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
       continue;
     }
     const float normalized = ControlSurface::FaderMap::normalize(rawCounts);
+    // Arpeggiator mode replaces the whole fader set: no steps are edited there,
+    // so the same four faders carry the arp's range, gate, swing and tone.
     const ControlSurface::FaderAssignment assignment =
-        ControlSurface::FaderMap::assignmentFor(bridgeMode(uiState.alchemyMode), channel);
+        uiState.arp.active()
+            ? ControlSurface::FaderMap::arpAssignmentFor(channel)
+            : ControlSurface::FaderMap::assignmentFor(uiState.selectedStepForEdit >= 0, channel);
 
     switch (assignment.target)
     {
-    case ControlSurface::FaderTarget::StepParam:
-      // Same recording path as the lidar: records into the step in edit when
-      // this fader's parameter is the armed/held one or matches current edit parameter.
-      if (uiState.selectedStepForEdit >= 0)
+    case ControlSurface::FaderTarget::None:
+      break;
+
+    case ControlSurface::FaderTarget::ArpOctaves:
+      uiState.arp.setOctaves(Arpeggiator::octavesForFader(normalized));
+      break;
+
+    case ControlSurface::FaderTarget::ArpGate:
+      uiState.arp.setGate(normalized);
+      break;
+
+    case ControlSurface::FaderTarget::ArpSwing:
+      uiState.arp.setSwing(normalized);
+      break;
+
+    case ControlSurface::FaderTarget::ArpFilter:
+      uiState.arp.setFilter(normalized);
+      break;
+
+    case ControlSurface::FaderTarget::EnvLane:
+      // The fader's position is the step's absolute value; Shift + move
+      // hands the lane back to the patch value instead.
+      if (uiState.shiftHeld)
+        resetStepToPatch(assignment.paramId);
+      else
+        recordParameter(assignment.paramId, normalized);
+      uiState.envFaderLane = assignment.paramId;
+      uiState.envViewUntil = millis() + ENCODER_BASE_VIEW_MS;
+      break;
+
+    case ControlSurface::FaderTarget::MasterVolume:
+      // Plain move: lock-free global gain on Core 1's final mix (captured
+      // by the session). Shift + move: master macro knob instead — one
+      // 0..1 morph across the master-bus compressor's Warm/Glue/Punch curve.
+      if (voiceManager)
       {
-        const ParamId held = getHeldParameterParamId(uiState);
-        if (held == assignment.paramId ||
-            (held == ParamId::Count && (uiState.currentEditParameter == assignment.paramId || uiState.currentEditParameter == ParamId::Count)))
+        if (ControlSurface::masterFaderAction(uiState.shiftHeld) ==
+            ControlSurface::MasterFaderAction::Macro)
         {
-          const uint8_t step = static_cast<uint8_t>(uiState.selectedStepForEdit);
-          Sequencer *selectedSeq = sequencers.get(uiState.selectedVoiceIndex);
-          if (selectedSeq)
-          {
-            if (assignment.paramId != ParamId::Note ||
-                selectedSeq->getStepParameterValue(ParamId::Gate, step) > 0.5f)
-            {
-              float val = mapNormalizedValueToParamRange(assignment.paramId, normalized);
-              selectedSeq->setStepParameterValue(assignment.paramId, step, val);
-              updateActiveVoiceState(step, *selectedSeq);
-            }
-          }
+          voiceManager->setMasterMacro(normalized);
+          uiState.oledNoticeKind = UIState::OledNoticeKind::Macro;
+          uiState.macroNoticePercent =
+              static_cast<uint8_t>(lroundf(normalized * 100.0f));
+          uiState.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
+        }
+        else
+        {
+          voiceManager->setGlobalVolume(normalized);
         }
       }
       break;
 
-    case ControlSurface::FaderTarget::MasterVolume:
-      // VoiceManager applies this lock-free gain on Core 1's final mix.
-      if (voiceManager)
-      {
-        voiceManager->setGlobalVolume(normalized);
-      }
-      break;
-
     case ControlSurface::FaderTarget::Tempo:
-      uClock.setTempo(kTempoMinBpm +
-                      normalized * (kTempoMaxBpm - kTempoMinBpm));
+      if (ControlSurface::tempoFaderAction(uiState.shiftHeld) ==
+          ControlSurface::TempoFaderAction::DelayFeedback)
+      {
+        if (voiceManager)
+          voiceManager->setDelayFeedback(normalized);
+        uiState.oledNoticeKind = UIState::OledNoticeKind::DelayFeedback;
+        uiState.oledNoticeValue =
+            static_cast<uint16_t>(lroundf(normalized * 100.0f));
+        uiState.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
+      }
+      else
+      {
+        uClock.setTempo(kTempoMinBpm +
+                        normalized * (kTempoMaxBpm - kTempoMinBpm));
+      }
       break;
 
-    case ControlSurface::FaderTarget::SwingAmount:
-    {
-      // Continuous shuffle: delay every odd 16th by up to half a step.
-      // Use static storage duration because uClock stores this pointer for Core 0 ISR ticks.
-      static int8_t continuousShuffleTicks[SHUFFLE_TEMPLATE_SIZE];
-      const int8_t offset = static_cast<int8_t>(lroundf(normalized * kSwingMaxTicks));
-      for (int i = 0; i < SHUFFLE_TEMPLATE_SIZE; ++i)
+    case ControlSurface::FaderTarget::DelayMix:
+      // One fader, two jobs: the wet mix on its own, and with Shift held the
+      // same fader sweeps delay time instead (the same move-time retarget
+      // shape as the ENV lanes' Shift reset). Both report on the OLED.
+      if (uiState.shiftHeld)
       {
-        continuousShuffleTicks[i] = (i % 2 == 1) ? offset : 0;
+        const float seconds = ControlSurface::delaySecondsForFader(normalized);
+        if (voiceManager)
+          voiceManager->setDelayTime(seconds);
+        uiState.oledNoticeKind = UIState::OledNoticeKind::DelayTime;
+        uiState.oledNoticeValue =
+            static_cast<uint16_t>(lroundf(seconds * 1000.0f));
       }
-      uClock.setShuffleTemplate(continuousShuffleTicks, SHUFFLE_TEMPLATE_SIZE);
-      uClock.setShuffle(offset > 0);
+      else
+      {
+        if (voiceManager)
+          voiceManager->setDelayMix(normalized);
+        uiState.oledNoticeKind = UIState::OledNoticeKind::DelayMix;
+        uiState.oledNoticeValue =
+            static_cast<uint16_t>(lroundf(normalized * 100.0f));
+      }
+      uiState.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
       break;
-    }
 
     case ControlSurface::FaderTarget::GateLength:
     {

@@ -12,7 +12,8 @@ distance sensor, an OLED display, and a USB CDC diagnostics console — all on o
 > This manual was compiled from the firmware source and documentation in this repository
 > (2026-09-03; updated 2026-09-16 for Project Snapshot persistence / flash session management,
 > hot audio in SRAM, the 29-preset sound bank on one browser page, the 55–700 mm lidar window with
-> pause-on-out-of-range, and encoder base value editing). The code is authoritative; anything that
+> pause-on-out-of-range, and encoder base value editing; updated for Arpeggiator mode
+> — see [`docs/arpeggiator.md`](arpeggiator.md)). The code is authoritative; anything that
 > could not be verified against the code is explicitly marked **[unverified]**. Voice
 > numbering: the panel and docs use **Voice 1–4**; the internal firmware and some OLED
 > screens use 0-based indices **0–3** for the same voices.
@@ -91,11 +92,10 @@ bank and its pair partner takes the other bank. This mirrors exactly onto the LE
 What pads do, per situation:
 
 - **Normal tap** — toggles the gate (note on/off) of that step on the bank's voice.
-- **Long-press a pad** (about 0.4 s) — enters **Step Edit mode** for that step: the OLED
-  shows the step's parameter values, and the magnetic encoder / faders then edit that
-  specific step.
-- **Hold a parameter button + touch pads** — real-time/step parameter entry (see
-  §5). Note *pitch* can only be written into steps whose gate is ON.
+- **Long-press a pad** (about 0.4 s) — enters **Step Edit mode** for that step. The
+  faders switch to **ENV mode** and edit only that step's envelope (§1.3), the OLED
+  shows the step's Attack / Decay / Sustain / Release, and the magnetic encoder edits the
+  step's selected parameter.
 - **Hold a parameter button + tap a pad** — sets that parameter track's **length** to the
   pad number (pad 5 = 5 steps). This is how you make polymetric tracks (§3.2).
 - **Shift + pad** — clears that step (gate off, all parameters back to defaults).
@@ -106,26 +106,42 @@ What pads do, per situation:
 
 The panel carries five vertical slider slots; the firmware exposes **four fader channels**
 on the SliderModule tile (12-bit resolution). **[unverified: the fifth slot's function —
-the firmware only maps four faders.]**
+the firmware only maps four faders.]** The mode switch does not change the faders.
 
-**Param mode** (mode switch toward Param) — faders edit the selected voice, live, and
-record into the armed step while a step is in Step Edit:
-
-| Fader | Controls |
-|---|---|
-| 1 | Filter cutoff |
-| 2 | Attack time |
-| 3 | Decay time |
-| 4 | Velocity |
-
-**Utility mode** (mode switch toward Utility):
+**Normally** (no step selected), in both mode-switch positions:
 
 | Fader | Controls |
 |---|---|
-| 1 | Master tempo (uClock BPM, 45–200) |
-| 2 | Swing amount (continuous shuffle depth) |
-| 3 | **Master volume** — final output gain, applied lock-free on Core 1's final mix (added 2026-09-11) |
+| 1 | Master tempo (uClock BPM, 45–200); Shift held: delay feedback (0–100%) |
+| 2 | Delay wet mix (Shift held: delay time, 10–750 ms — §3.5) |
+| 3 | Master volume (saved with the session); Shift held: compressor macro (Warm/Glue/Punch) |
 | 4 | Gate length across the selected voice's active steps |
+
+**ENV mode** — long-press a pad to select a step (Step Edit). The faders then edit **only
+that voice and that step**:
+
+| Fader | Voices with an envelope | Strings (no envelope) |
+|---|---|---|
+| 1 | Attack | Pick hardness |
+| 2 | Decay | T60 (ring time) |
+| 3 | Sustain level | Pick position |
+| 4 | Release | Stiffness |
+
+Hypersaw, NoiseStorm and the recipe voices use faders 1–2 for the engine controls their
+Attack/Decay lanes already carry (Detune / Mix, Regen / Chaos, recipe macros); faders 3–4
+are their real Sustain and Release.
+
+- The fader position **is** the step's value (absolute): bottom = shortest time / zero
+  level, top = longest / full. Values are heard the next time the step plays; a sounding
+  note keeps its running stage, so edits never click.
+- A step you have not touched **follows the patch** (the preset's own envelope). The OLED
+  shows such values in parentheses. **Shift + move a fader** returns that lane of the step
+  to the patch value.
+- A fader only takes over after an obvious move, so selecting a step never snaps its
+  values to wherever the faders rest. The same applies after changing voice or leaving
+  Step Edit.
+- Faders no longer set voice bases or record live. Use the encoder for bases (§1.6) and
+  the distance sensor for live recording (§1.7).
 
 ### 1.4 Voice buttons (V1–V4)
 
@@ -152,7 +168,7 @@ Eight buttons (ButtonModule8) change meaning with the **mode switch** on GPIO 7:
 | 2 | Velocity | Save / Load (tap: save session, hold: reload) |
 | 3 | Filter | Scale cycle |
 | 4 | Attack | Swing pattern cycle |
-| 5 | Decay | LED theme cycle |
+| 5 | Release | LED theme cycle |
 | 6 | Octave | Encoder target cycle |
 | 7 | Slide | Randomize |
 | 8 | Shift | Shift |
@@ -167,27 +183,25 @@ turn it slowly for ultra-fine single-step adjustments, quickly to sweep a whole 
 range. It edits whatever the **encoder target** is — cycle targets with the Utility-mode
 "Encoder target" button. The target order is:
 
-**Velocity → Filter → Attack → Decay → Note → Octave → Slide Time → (back to Velocity)**
+**Velocity → Filter → Attack → Release → Note → Octave → Slide Time → (back to Velocity)**
 
-- Voice targets (Velocity/Filter/Attack/Decay/Note) set that parameter's **base value for
-  the selected voice**. Each voice stores its own bases in its patch, and at step time
-  every voice applies its own base — see §9 and
-  [`docs/voice-edit.md`](voice-edit.md) for how bases combine with recorded modifiers.
+- Voice targets (Velocity/Filter/Attack/Release/Note) set that parameter's **base value for
+  the selected voice** (its patch value). Steps that follow the patch play it; steps with
+  their own recorded value keep theirs — see §9 and
+  [`docs/voice-edit.md`](voice-edit.md).
 - Note and Octave move one step per short turn; continuous targets follow turn speed.
 - Slide Time sets the portamento glide time.
-- In Step Edit mode the encoder edits the **selected step's stored value** instead: the
-  held parameter, else the toggled edit parameter, else the encoder target's lane (the OLED
-  shows the same one). Note and Octave move one step per detent.
-- With no parameter button held, the OLED home screen always shows the **base** of the
-  encoder target, so every turn is visible. While a parameter button is held it shows the
-  value at that parameter's playing position instead — the composed value that live
-  recording writes and the voice plays. While the transport runs, a base change reaches the
-  sounding note at once without retriggering it.
-  toggled edit parameter, or else the encoder target's lane. Note and Octave move one
-  step per detent.
-- The OLED normally shows the playing step's composed value. For 1.5 s after an encoder
-  turn it shows the edited **base** instead, marked `Base` on the home screen and `BASE`
-  on a parameter screen. A held parameter also shows the current lidar reading in mm.
+- In Step Edit mode the encoder edits the **selected step's value** instead: the held
+  parameter, else the toggled edit parameter, else the encoder target's lane (named at the
+  bottom of the OLED's ENV page). A step that follows the patch starts from the patch
+  value. Note and Octave move one step per detent.
+- While the transport runs, a base change reaches the sounding note at once without
+  retriggering it.
+- The OLED normally shows the playing step's composed value of the encoder target (or, while
+  a parameter button is held, of that parameter — the value live recording writes and the
+  voice plays). For 1.5 s after an encoder turn it shows the edited
+  **base** instead, marked `Base` on the home screen and `BASE` on a parameter screen. A
+  held parameter also shows the current lidar reading in mm.
 
 **Hold** the Utility-mode encoder button (about a second) to enter **Gate Sequence Length
 mode**: the LEDs show a blinking band on the selected voice's rows, and touching pads 1–16
@@ -197,10 +211,23 @@ sets that voice's Gate track length (2–16 steps). Release the button to exit.
 
 A laser time-of-flight sensor (usable range **55–700 mm**) above the panel. It is the
 **hands-free performance controller**: hold (or Shift+latch) a parameter button, then move
-your hand over the sensor, and the reading is recorded live into the armed parameter of the
-currently playing step on the **selected voice** — e.g. sweep Filter over a pattern without
-touching anything. Pitch recording only lands on steps whose gate is ON. In Step Edit mode
-the sensor records into the selected step instead.
+your hand over the sensor, and the reading is recorded live into that parameter's sequence
+at its currently playing step on the **selected voice** — e.g. sweep Filter over a pattern
+without touching anything. Hold several parameter buttons to record them all at once. Each
+parameter records at its own position, so a 5-step Filter track is written 5 steps round. Each new step starts from the hand's current height.
+Velocity, Filter, Attack and Release keep recording while their step plays: the step follows
+your hand, and the sounding note changes without retriggering — cutoff and velocity at
+once, attack and release from the next note (a running attack or release keeps its length, so
+live edits never click). The 5th button records **Release**, not Decay: on 20 of the 29
+presets the Decay lane is an engine control rather than an envelope stage, while Release
+reaches the envelope on every preset and is what sets how long a step rings (up to 10 s,
+enough for one downbeat note to cover 16 steps). Decay itself is still editable per step
+with the ENV-mode faders. Hand height **is** the value: near the sensor is the bottom of the
+parameter's range, 700 mm the top, whatever the voice's patch value. Note and Octave take one value per note, on the step, so hand
+jitter cannot warble a sounding pitch. With the transport stopped the hand writes the step
+each parameter is paused on. Pitch recording only
+lands while the playing gate is ON. In Step Edit mode the sensor records into the selected
+step instead.
 
 Since the Voice Editing mode landed (2026-09-11) the sensor records a **relative modifier**
 rather than an absolute value: the reading is normalized to 0–1, the midpoint (≈50 %) is
@@ -213,9 +240,6 @@ button is held, the OLED parameter screen always shows the sensor's current read
 at the right: plain (`412mm`) inside the recording window, in parentheses (`(812mm)`)
 outside it, and `--mm` with no measurement. A held parameter's screen takes priority over
 the settings and sequence-length screens.
-button is held, the OLED parameter screen always shows the sensor's current reading in mm
-at the right: plain (`412mm`) inside the recording window, in parentheses (`(812mm)`)
-outside it, and `--mm` with no measurement.
 
 ### 1.8 OLED display
 
@@ -271,8 +295,8 @@ Ten color themes are available (cycle with Utility button 5) — see §6.
 
 There are **no hardware gate outputs** in the current firmware: the old GPIO gate/clock
 pins were reassigned to the I2S audio output. "Gate" now means the internal gate timing
-only — the `MidiNoteManager` state machine still runs gate/note bookkeeping for voices 1–2
- internally, but nothing is transmitted anywhere.
+only — each of the four sequencers owns its note duration and publishes gate-off
+to audio on expiry. Nothing is transmitted over MIDI.
 
 ---
 
@@ -289,14 +313,15 @@ only — the `MidiNoteManager` state machine still runs gate/note bookkeeping fo
 5. **Program a pattern** — tap pads in the bank rows for that voice (§1.2). Lit pads are
    active steps; the LED playhead shows where you are. Touch the low bank (rows 1–2) for
    the pair's first voice, the high bank (rows 3–4) for its partner.
-6. **Shape the sound** — make sure the mode switch is on **Param**, then use faders 1–4
-   (Filter / Attack / Decay / Velocity) or turn the magnetic encoder (Velocity target by
-   default).
+6. **Shape the sound** — turn the magnetic encoder (Velocity target by default; cycle
+   targets with the Utility encoder button). To shape one step's envelope, long-press its
+   pad and use faders 1–4 (Attack / Decay / Sustain / Release).
 7. **Try polymeter** — hold a parameter button (e.g. Filter) and tap pad 5: the Filter
    track is now 5 steps long and cycles against the 16-step Gate track.
 8. **Change key feel** — hold Shift and tap V3 to cycle through the 13 scales.
-9. **Groove & level** — flip the mode switch to **Utility**: fader 1 sets tempo, fader 3
-   is the master volume, and button 4 cycles swing templates.
+9. **Groove & delay** — fader 1 sets tempo; on **Utility**, button 4 cycles the
+   swing templates. Fader 2 is the master delay wet mix, and **Shift + fader 2**
+   sweeps the delay time (§3.5).
 10. **Stop/start** — Utility button 1, or Shift + V1 from anywhere. Stopping opens the
     OLED **preset browser** ("Sound Buffet"); starting again resumes and closes it. A
     long-press of Play toggles the browser without stopping the transport.
@@ -333,6 +358,12 @@ supports up to 64):
 | 6 | **GateLength** | 0.1–100 % of a step | How long each note is held |
 | 7 | **Gate** | on/off | Whether the step triggers at all |
 | 8 | **Slide** | on/off | Portamento into that step (no envelope retrigger; pitch glides) |
+| 9 | **Sustain** | 0–100 % | Envelope sustain level (ENV fader 3) |
+| 10 | **Release** | 1 ms–10 s | Envelope release time (ENV fader 4) |
+
+Velocity, Filter, Attack, Decay, Sustain and Release steps either hold their own value or
+**follow the patch** (play the voice's preset/base value). Fresh and cleared steps follow
+the patch.
 
 Every track wraps on its own length (`step modulo trackLength`), so a 16-step Gate track
 with an 8-step Filter track, a 5-step Velocity track, and a 3-step Octave track all run
@@ -352,8 +383,9 @@ Other track behaviors worth knowing:
   at the Slide Time set by the encoder. A gate-off step right after a slide step lets the
   note ring out instead of choking it.
 - **Randomize** (Utility button 7 short press, or Shift + V2) applies musical heuristics:
-  even steps have a 75 % gate chance, odd steps ~33 %, slides ~8 %, short attacks and
-  medium decays weighted, filter swept 20–95 %. **Long-press** Randomize (≥ 1 s) resets
+  even steps have a 75 % gate chance, odd steps ~33 %, slides ~8 %, and velocity, filter
+  and the envelope spread around each voice's patch values (attacks kept short enough to
+  sound inside a short gate). **Long-press** Randomize (≥ 1 s) resets
   the selected voice's parameters instead.
 - **Shift + Randomize tap** clears the selected voice completely: every stored step
   value, all gates and slides off, and all track lengths back to their 16-step
@@ -415,7 +447,47 @@ Timing groove comes from **16 shuffle templates** (per-16th-note micro-timing of
 | 14 | Hip-Hop | Boom-bap asymmetric late swing |
 | 15 | Funk Groove | Syncopated funk pocket |
 
-Utility **fader 2** adds continuous swing amount on top of the selected template.
+Fader 2 no longer adds continuous swing — it is the master delay control
+(§3.5). Shuffle depth now comes only from the templates above.
+
+### 3.5 Master delay
+
+Fader 2 is a master-bus delay on the summed voice mix (both mode-switch
+positions; in ENV mode the faders are the selected step's envelope lanes
+instead, so the delay is unreachable there).
+
+- **Wet mix** — fader 2 position, 0 (dry) to 100 % added wet signal; dry stays present. The OLED shows
+  `DELAY MIX nn %` while you move it.
+- **Delay time** — hold **Shift** and move fader 2: 10 to 750 ms on a log
+  curve (`DELAY TIME nnn ms`). The read head glides to the new time, so the
+  repeats pitch-bend like a tape machine.
+- **Feedback** — hold **Shift** and move fader 1: 0–100%, shown as
+  `DELAY FB nn %`. Plain fader 1 still controls tempo. Feedback eases over
+  a 45 ms time constant and defaults to 85%. At 0%, there is one delayed
+  copy without regeneration. At 100%, the feedback coefficient is 1.0;
+  the existing lowpass, DC blocker and saturation still shape the repeats.
+  This is a free-running delay, not a freeze or tempo-sync mode.
+
+Delay controls are not saved in the session; reboot restores mix 0,
+time 300 ms and feedback 85%.
+
+### 3.6 Master compressor and volume
+
+The summed voices pass through the delay, then master volume, then the
+compressor. Dry sound and repeats share compression; master volume and
+transport mute control the whole result. With delay mix at zero, the
+compressor keeps its existing dry-bus behavior.
+
+- **Master volume** — fader 3; saved with the session.
+- **Compressor macro** — hold **Shift** and move fader 3. The existing curve
+  runs from Warm at 0 %, through Glue at 50 %, to Punch at 100 %. The OLED
+  shows `MACRO`, its zone and percentage. The macro resets to 50 % on reboot.
+- Pressing or releasing **Shift** re-arms faders 1–3. Move about 5 %
+  from their new resting positions before either sends a value, so changing
+  feedback leaves tempo intact, delay time leaves mix intact, and changing
+  the compressor leaves volume intact.
+- In **ENV mode**, all four faders retain their selected-step envelope
+  controls and Shift-reset gestures; master effects are not edited there.
 
 ---
 
@@ -460,13 +532,16 @@ Each voice runs a full synthesis chain at 48 kHz on the audio core:
  HIGH-PASS filter (per preset, tames lows)
         |
         v
- voice output level -> summed with the other 3 voices -> Stereo Out
+ voice output level -> summed with the other 3 voices
+ -> master delay -> master volume -> master compressor -> Stereo Out
 ```
 
-**The delay effect was removed** (2026-09-11): the global delay line, its boot
+**The old delay effect was removed** (2026-09-11): the global delay line, its boot
 parameters, and every control that drove it (Utility button 2, Shift + V4,
 Utility fader 3, and the encoder's Delay Time / Delay Feedback targets) are
 gone from the codebase, reclaiming ~338 KiB of RAM.
+The current master delay (§3.5) uses its own smaller buffer and fader 2;
+fader 3 controls master volume and the compressor macro (§3.6).
 
 Filter **mode** (LP24 … HP12) and **resonance** are cycled/set from the OLED Settings
 screen's voice-parameter page; envelope and overdrive can be switched off per voice there
@@ -535,27 +610,26 @@ Presets live in flash and are auditioned and applied per voice in the **preset b
 | Long-press a pad (~0.4 s) | Enter Step Edit mode for that step (encoder/faders/sensor edit it; OLED shows values) |
 | Shift + pad | Clear that step (gate off, parameters to defaults) |
 | Hold a parameter button + tap pad | Set that parameter track's length to the pad number |
-| Hold (or Shift+latch) a parameter button + touch pads during playback | Record live values into the armed parameter of the current step (Note only on gate-on steps) |
 | Pad press while Gate Length mode is held | Set the selected voice's Gate track length (2–16 steps) |
 | Tap a pad while the preset browser is open | Apply that preset to the selected voice — pads 0–28 = presets 1–29 (pads 0–30 are preset slots); V1–V4 switch the target voice |
 
 ### Faders
 
-| Fader | Param mode | Utility mode |
+| Fader | No step selected (both modes) | Step Edit = ENV mode |
 |---|---|---|
-| 1 | Filter cutoff (selected voice) | Tempo (45–200 BPM) |
-| 2 | Attack time | Swing amount |
-| 3 | Decay time | **Master volume** (final mix gain) |
-| 4 | Velocity | Gate length across active steps |
+| 1 | Tempo (45–200 BPM; Shift: delay feedback) | Step's Attack (strings: Pick) |
+| 2 | Delay wet mix (Shift: delay time) | Step's Decay (strings: T60) |
+| 3 | Master volume (Shift: compressor macro) | Step's Sustain (strings: Position) |
+| 4 | Gate length across active steps | Step's Release (strings: Stiffness) |
 
-With a step in Step Edit and the matching parameter button armed, moving a fader writes
-the value into that step.
+In ENV mode the fader position is the step's absolute value; Shift + move returns that lane
+of the step to the patch value. See §1.3.
 
 ### Buttons — Param mode (mode switch LOW)
 
 | Button | Action |
 |---|---|
-| Note / Velocity / Filter / Attack / Decay / Octave | Hold to arm real-time recording for that parameter (distance sensor / encoder / faders); auto-selects it as the encoder target |
+| Note / Velocity / Filter / Attack / Decay / Octave | Hold to arm real-time recording for that parameter (distance sensor / encoder); auto-selects it as the encoder target |
 | Shift + tap a parameter | **Latches** the hold (no finger needed). One latch at a time: pressing another parameter moves the latch; tapping the latched one clears it |
 | Slide | Toggles slide/portamento mode (clears conflicting edit modes) |
 | Shift | Modifier for latches and voice-button chords |
@@ -601,6 +675,35 @@ button 7 = control guide, button 8 = exit). The encoder changes the selected par
 base. Edits stay in RAM until a preset is loaded or power is lost. Full details:
 [`docs/voice-edit.md`](voice-edit.md).
 
+### Arpeggiator mode (Shift + hold V4)
+
+Hold **Shift** and hold **V4** for 400 ms to toggle Arpeggiator mode (a *tap* on
+that same combination still opens Voice Editing; the press waits for the release
+or the hold). The whole panel changes meaning for as long as the mode is on:
+
+| Control | In Arpeggiator mode |
+|---|---|
+| Touch pads | A 32-degree scale keyboard: pad 0 is the scale root, pad 31 is 31 scale steps up. Touch pads to build a chord; releasing drops a note unless Latch is held |
+| LED matrix | The chord map: the arp voice's hue under a finger, dim when latched, accent-bright while a note sounds (brighter with higher octaves and with the lidar), breathing when the chord is empty |
+| Fader 1 | Octave range 1–4 |
+| Fader 2 | Gate length 5–95% of the interval |
+| Fader 3 | Swing depth (every second note delayed, pairs stay even) |
+| Fader 4 | Filter lane of each note, composed with the voice's patch |
+| Encoder turn | Rate: 1/4, 1/4T, 1/8, 1/8T, 1/16, 1/16T, 1/32, 1/32T |
+| Hand over the lidar | Note dynamics: velocity from a quarter of the patch value (hand close) to full (hand raised); no hand leaves the preset's velocity alone |
+| Param buttons 1–6 | Pattern: Up, Down, Up-Dn, Rnd, Order, Chord |
+| Param button 7 | Latch (hold the chord after release; the next press with nothing held starts a new chord) |
+| Utility 1 / 2 | Play/Stop and Session keep their sequencer meanings |
+| Utility 3 / 4 / 5 | Scale cycle, octave-range cycle, Latch (Shift + tap re-syncs the walk to the chord root) |
+| Utility 6 | Random four-note chord (engages Latch); Shift + tap clears the chord |
+| V1–V4 | Select which voice the arp plays through |
+| OLED | `ARP` page: pattern, rate, octave range, latch, the chord as note names, notes sounding now, and the lidar dynamics bar |
+
+The four step sequencers do not advance while the mode is on, and the mode is
+not saved with the session — a power cycle boots back into the step sequencer.
+Full details, including how Chord pattern spreads four notes over the four
+voices: [`docs/arpeggiator.md`](arpeggiator.md).
+
 ### Sensors & encoder
 
 | Gesture | Result |
@@ -608,7 +711,7 @@ base. Edits stay in RAM until a preset is loaded or power is lost. Full details:
 | Turn magnetic encoder | Adjust the active encoder target; slow = fine, fast = coarse (velocity-sensitive) |
 | Utility button 6 | Change encoder target (Velocity → Filter → Attack → Decay → Note → Octave → Slide Time) |
 | Hold Utility button 6 | Gate Sequence Length mode |
-| Move hand over VL53L1X while a parameter is armed | Hands-free live recording of a relative modifier on that parameter into the current step of the selected voice (midpoint ≈ neutral) |
+| Move hand over VL53L1X while a parameter is armed | Hands-free live recording of a relative modifier into that parameter's sequence at its playing step on the selected voice, continuously while held and heard at once (midpoint ≈ neutral) |
 | Mode switch (GPIO 7) | Select Param (LOW) or Utility (HIGH) button set; shows a banner on flip |
 | Shift + V4 (hold, release) | Enter Voice Editing mode (transport stops; see above) |
 
@@ -640,10 +743,9 @@ from the firmware; display names are as documented in `docs/LEDMatrix.md`:
 
 Pico2Seq does **not** transmit or receive any MIDI. The USB port enumerates as a CDC serial
 device (Adafruit TinyUSB stack) and carries power plus the 115200-baud diagnostics console
-only. What remains of the old MIDI subsystem is the internal `MidiNoteManager` state
-machine: it still performs the gate/note lifecycle bookkeeping (note-on/off pairing, gate
-synchronization) that voices 1–2's software gates rely on, but every send function is a
-stub. There is no CC output, no MIDI clock, and no MIDI-in feature.
+only. The dormant MIDI trackers and stub send paths have also been removed;
+all four voices use their sequencer's note-duration lifecycle. There is no CC
+output, no MIDI clock, and no MIDI-in feature.
 
 ### Clock & timing internals (for the curious)
 
@@ -698,20 +800,22 @@ cmake --build build_test --parallel
 
 **Behavioral gotchas (by design, verified in code):**
 
-- **All four voices (0–3) carry software gate timers** in `VoiceSystem`;
-  voices 0 and 1 additionally maintain internal note lifecycle state in `MidiNoteManager`.
-  Nothing is transmitted anywhere — USB MIDI was removed 2026-09-06. Internal voice
+- **All four voices (0–3) use sequencer-owned note durations**; `VoiceSystem`
+  holds voice IDs and control snapshots, not a second gate timer.
+  Nothing is transmitted over MIDI. Internal voice
   indices are 0-based (0–3); the OLED shows `Voice: 0`–`Voice: 3` and `V0`–`V3` on edit
   screens, while the voice buttons and this manual say V1–V4.
 - **The encoder edits per-voice bases or the step in edit.** Each voice stores its own
-  base values in its patch; turning the encoder changes the selected voice's base, and at
-  step time every voice applies its own base. With a step selected for edit
-  (`uiState.selectedStepForEdit >= 0`), it edits that step's stored value instead.
-- **The encoder edits per-voice bases or the selected step.** Each voice stores its own
-  base values in its patch; with a step selected, the encoder edits that step's stored
-  value instead.
-- **Can't program a pitch into a step?** Note edits are rejected on gate-off steps. Toggle
-  the step on first.
+  base values in its patch; turning the encoder changes the selected voice's base, which
+  every step that follows the patch plays. With a step selected for edit
+  (`uiState.selectedStepForEdit >= 0`), it edits that step's value instead, and the faders
+  edit that step's envelope.
+- **Can't program a pitch into a step?** Note edits (sensor, encoder step edit) are
+  rejected on gate-off steps. Toggle the step on first.
+- **Lidar or fader seems to record nowhere?** Check the OLED: the ENV page (`S5` with
+  Attack/Decay/Sustain/Release rows) means a step is in Step Edit, so recording goes to
+  that step only. Long-press the same pad again (or tap
+  any pad) to leave Step Edit and record into the playing steps again.
 - **Pad does something unexpected** — check the context: a held parameter button turns pad
   presses into track-length setting; Gate Length mode turns them into Gate length; Shift
   turns them into clear-step. All pads are step pads; there is no pad "menu".
@@ -723,11 +827,15 @@ cmake --build build_test --parallel
   `lidar=<mm> st=<status>` every 2 s.
 - **ToF recorded value stuck at one end** — the raw distance is rebased by 55 mm
   (`MIN_DISTANCE_HEIGHT_MM`) and normalized over the 645 mm span, so the nearest usable
-  position (55 mm) maps to 0 (a -50% modifier). A value shown at 0% can simply be a low
-  base plus a low recording; turn the encoder to raise the base.
-- **Fader "jumps" after a mode flip** — on the first sample after a mode change the fader
-  re-sends its position, so the parameter snaps to where the fader physically is. Move the
-  fader through its travel to re-take the parameter.
+  position (55 mm) records the bottom of the range and 700 mm the top. (Before 2026-09-19
+  recordings were offsets from the base, and a base at 0 swallowed every low hand height.)
+- **A voice goes silent on some steps** — check those steps' Attack and Decay on the ENV
+  page. A voice with sustain 0 (Square, Percussion) ends at the attack peak, so a very
+  short decay or an attack longer than the gate barely sounds. Shift + move the fader to
+  return the lane to the patch value.
+- **Fader "jumps" when it takes over** — after a mode flip, a voice change or entering /
+  leaving Step Edit, a fader does nothing until it moves by about 1.5 % of its travel; the
+  value then jumps to where the fader is.
 - **No sound after editing?** Voice Editing mode leaves the transport stopped when you
   exit — press Play to resume.
 
@@ -764,14 +872,16 @@ cmake --build build_test --parallel
 | **Latch (Shift latch)** | Shift + parameter tap keeps the parameter "held" without finger contact; one latch at a time |
 | **Pad-mirror** | The LED matrix displays exactly the touch grid's (band, step) positions |
 | **Param / Utility mode** | The GP7 mode switch's two button function sets on the 8-button tile |
-| **ParamId** | The nine automatable per-step parameters (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide) |
+| **ParamId** | The eleven automatable per-step parameters (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide, Sustain, Release) |
+| **ENV mode** | Step Edit's fader layout: faders 1–4 edit the selected step's Attack / Decay / Sustain / Release |
+| **Follows the patch** | A step with no value of its own on an absolute lane; it plays the voice's preset/base value |
 | **Polymetric / polymeter** | Parameter tracks of different lengths cycling against each other on the same voice |
 | **PPQN** | Pulses per quarter note; the internal clock runs at 480 PPQN (no MIDI clock is transmitted) |
 | **Preset** | One of 15 factory voice configurations (§4.2) |
 | **Shuffle template** | One of 16 per-16th-note micro-timing groove tables |
 | **Slide** | Per-step portamento flag: no envelope retrigger, pitch glides over the Slide Time |
 | **Sound Buffet** | The OLED overview of all four voices' current presets, shown in the Settings screen |
-| **Step Edit mode** | Long-press a pad to select that step; encoder/faders/sensor then edit its parameters |
+| **Step Edit mode** | Long-press a pad to select that step; the encoder and sensor edit its parameters and the faders its envelope (ENV mode) |
 | **Voice Editing mode** | Shift + V4: stop transport and edit any voice's sound parameters directly (encoder + button tiles) |
 | **Waveguide engine** | Karplus-Strong physical modeling of a plucked string (presets 10–13) |
 

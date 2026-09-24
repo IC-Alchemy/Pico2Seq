@@ -1,5 +1,8 @@
 #include "AppState.h"
 
+// Definitions for the shared live state declared above. Core 0 owns construction
+// order here: sequencers first (voice order), the rest published during setup.
+
 UIState uiState;
 namespace
 {

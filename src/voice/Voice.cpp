@@ -1,3 +1,6 @@
+// Voice.cpp — Voice implementation. Signal chain per sample/span: sources →
+// envelope gain → effects → velocity → main filter → HPF. Control thread only
+// stages (setters/updateParameters); Core 1 renders and never allocates.
 #include "Voice.h"
 #include "../utils/AudioRam.h"
 #include "../utils/DspMapping.h"
@@ -8,10 +11,10 @@
 #include "VoicePresets.h"
 #include "MusicalValues.h"
 
-// Constants
-static constexpr float FREQ_SLEW_RATE = 0.00035f; // Slide speed
+// Default slide rate: gentle portamento between sequenced notes.
+static constexpr float FREQ_SLEW_RATE = 0.00035f; // per-sample slide coefficient
 static constexpr float BASE_FREQ =
-    110.0f; // Base frequency for note calculations
+    110.0f; // chromatic-fallback anchor (A1) when no scale table is injected
 
 // The injected scale rows are int[48]; keep the centralized constant in sync.
 static_assert(SCALE_STEPS == 48, "Voice expects 48-step scale rows");
@@ -47,39 +50,37 @@ namespace
   }
 }
 
-// Static member initialization
 float Voice::frequencyLookupTable[128];
 bool Voice::lookupTableInitialized = false;
 
-// Initialize frequency lookup table covering MIDI 0..127
+// MIDI 0..127 pitch table (built once, thread-safe): per-sample mtof() would
+// waste Core 1 on every note; a lookup keeps pitch commits cheap.
 inline void Voice::initFrequencyLookupTable() noexcept
 {
   std::call_once(g_freqTableOnce, []() noexcept
                  {
-    // Use rpdsp::midiNoteToHz once per MIDI note value
+    // One mtof() per MIDI note, then lookups forever.
     for (int midi = 0; midi < 128; ++midi)
     {
       frequencyLookupTable[midi] = rpdsp::midiNoteToHz(static_cast<float>(midi));
     } });
 }
 
-// Recompute cached detune multipliers using exp2f for efficiency
+// Cached detune multipliers (2^(semitones/12) per osc): chorus/thickness
+// without powf on Core 1. Bumps detuneVersion_ so the pitch cache recomputes.
 inline void Voice::recomputeDetuneMultipliers()
 {
-  // Precompute factor = 1/12 for semitone to octave conversion
+  // 1/12 octave-per-semitone factor for the exp2f detune above.
   constexpr float kInv12 = 1.0f / 12.0f;
-  // Limit to first 3 oscillators (design maximum)
   for (uint8_t i = 0; i < 3; ++i)
   {
-    // detuneMul = 2^(semitones/12) = exp2f(semitones * (1/12))
     detuneMul[i] = exp2f(config.oscDetuning[i] * kInv12);
   }
-  // Bump detune version so pitch cache will recompute
   detuneVersion_++;
 }
 
-// Helper to compute smoothing alpha for a one-pole smoother with time constant tau (seconds):
-// alpha = 1 - exp(-1/(tau*fs)). Returns 1.0f when tau or sampleRate are non-positive.
+  // One-pole smoother coefficient: ~63% of a knob move lands in tau seconds,
+  // so gain/cutoff glides hide steps (zipper) instead of clicking.
 static inline float makeSmoothingAlpha(float tauSeconds, float sampleRate) noexcept
 {
   if (tauSeconds <= 0.0f || sampleRate <= 0.0f)
@@ -93,9 +94,9 @@ Voice::Voice(uint8_t id, const VoiceConfig &cfg)
       gate(false),
       sequencer(nullptr)
 {
-  // Static base pitch cache starts dirty to force initial compute
+  // Pitch cache starts dirty so the first span computes the real note.
   baseFreqDirty_ = true;
-  cachedBaseFreqHz_ = 440.0f;
+  cachedBaseFreqHz_ = 220.0f;
   lastSentBaseFreqHz_ = -1.0f;
   // Initialize frequency lookup table once in a thread-safe manner
   initFrequencyLookupTable();
@@ -108,7 +109,7 @@ Voice::Voice(uint8_t id, const VoiceConfig &cfg)
 
   // Oscillator slots are fixed-size members; nothing to allocate.
 
-  // Initialize frequency slewing
+  // Slide state per osc: exponential glide toward each new note when set.
   for (int i = 0; i < 3; i++)
   {
     freqSlew[i].currentFreq = 440.0f;
@@ -122,7 +123,7 @@ Voice::Voice(uint8_t id, const VoiceConfig &cfg)
   state.attackTimeSeconds = 0.01f;
   state.decayTimeSeconds = 0.1f;
   state.octaveOffset = 0;
-  state.gateLengthTicks = 12; // Default gate length
+  state.gateLengthTicks = 90; // 3/4 step, matching VoiceConfig::baseGateLength
   state.isGateHigh = false;
   state.hasSlide = false;
   state.shouldRetrigger = false;
@@ -152,6 +153,8 @@ void Voice::init(float sr)
   pitchBendSemitones_ = controls_.bendSemitones;
   pitchModSemitones_ = controls_.modulationSemitones;
   filterFrequency = controls_.filterHz;
+  filterEnvTarget_ = filterFrequency;
+  refreshFilterEnvDepth_();
   sampleRate = sr;
   // Changing sample rate can affect tuning in downstream modules; ensure base frequency recompute
   baseFreqDirty_ = true;
@@ -184,29 +187,28 @@ void Voice::init(float sr)
   filterSvf_.prepare(sampleRate);
   filterSvf_.setCutoff(filterFrequency);
   configureMainFilterFromConfig_();
-  // Initialize high-pass filter
+  // HPF last in chain: sheds sub rumble (esp. Karplus tails) below the cutoff.
   highPassFilter.prepare(sampleRate);
   highPassFilter.setCutoff(config.highPassFreq);
   highPassFilter.setResonance(config.highPassRes);
   hpfBypass_ = (config.highPassFreq <= 20.0f && config.highPassRes <= 0.01f);
-  // Initialize filter cutoff smoothing state (reduces zipper noise from abrupt setFreq calls).
-  // Use a short time-constant (4 ms) to remain responsive while smoothing envelope-modulation.
+  // 4 ms cutoff glide: tracks envelope sweeps without zipper stepping.
   filterCutoffCurrent = filterFrequency;
   {
-    const float tau = 0.004f; // seconds
+    const float tau = 0.004f; // glide time in seconds
     filterCutoffAlpha = makeSmoothingAlpha(tau, sampleRate);
   }
 
-  // Initialize runtime caches used by optimizations
+  // -1 sentinel forces the first span's SetFreq; 0 envelope reads as silent.
   lastAppliedFilterCutoff = -1.0f;
   lastEnvelopeValue = 0.0f;
 
-  // Initialize envelope
+  // ADSR: attack blooms the note, sustain holds it, release tails it.
   envelope.prepare(sampleRate);
   applyEnvelopeDefaults_();
   gateHighPrev_ = false;
 
-  // Initialize effects
+  // Gentle grit stage: 0-1 drive maps to 1-4 waveshaper drive.
   overdrive.setDrive(1.0f + (config.overdriveDrive * 3.0f)); // map 0-1 drive to 1-4
   overdrive.setOutputGain(1.0f);
 
@@ -333,7 +335,10 @@ void PICO2SEQ_AUDIO_FUNC(Voice::applyControlUpdate_)() noexcept
   if (changes & FrequencyChanged)
     applyFrequency_(update.frequency);
   if (changes & FilterChanged)
+  {
     filterFrequency = update.filterHz;
+    refreshFilterEnvDepth_();
+  }
 }
 
 void PICO2SEQ_AUDIO_FUNC(Voice::processBlock)(float *out, uint32_t n) noexcept
@@ -385,6 +390,9 @@ void PICO2SEQ_AUDIO_FUNC(Voice::renderSpan_)(float *out, uint32_t n) noexcept
     rpdsp::ADSR adsr = envelope;
     for (uint32_t k = 0; k < n; ++k) spanEnv_[k] = adsr.process();
     envelope = adsr;
+    // Held envelope edits land once their stage has ended.
+    if (envelopeChangePending_())
+      applyPendingEnvelopeTimes_(false);
   }
   else
   {
@@ -483,7 +491,12 @@ void Voice::handleGateEdges_() noexcept
     if (gateHigh)
     {
       if (config.hasEnvelope)
+      {
+        applyPendingEnvelopeTimes_(true);
         envelope.noteOn();
+      }
+      // Retune the string before the re-pluck (no-op unless waveguide).
+      if (cachedEngine_ == ENGINE_WAVEGUIDE) pushWaveguideParams_();
       wgPluckPending_ = true; // waveguide engine re-plucks on retriggers
       hypersawTriggerPending_ = true;
       recipeTriggerPending_ = true;
@@ -492,7 +505,12 @@ void Voice::handleGateEdges_() noexcept
   else if (rising)
   {
     if (config.hasEnvelope)
+    {
+      applyPendingEnvelopeTimes_(true);
       envelope.noteOn();
+    }
+    // Fresh string tuning lands with the pluck, never mid-note.
+    if (cachedEngine_ == ENGINE_WAVEGUIDE) pushWaveguideParams_();
     wgPluckPending_ = true;
     hypersawTriggerPending_ = true;
     recipeTriggerPending_ = true;
@@ -504,18 +522,40 @@ void Voice::handleGateEdges_() noexcept
   }
 }
 
+// Envelope depth follows the Filter lane, so a cutoff sequence modulates the
+// contour as well as the frequency. Cheap enough for the control path; the
+// audio path calls it only when a staged cutoff change lands.
+void Voice::refreshFilterEnvDepth_() noexcept
+{
+  // The Filter lane IS the envelope amount: 0 leaves the cutoff parked on the
+  // patch base, 1 gives the preset's full sweep. A preset that re-purposes the
+  // lane for timbre has no depth to sequence, so it takes its static base.
+  const float lane = std::clamp(
+      VoiceParameters::binding(config, ParamId::Filter).target != nullptr
+          ? config.filterCutoffBase
+          : state.filterCutoff,
+      0.0f, 1.0f);
+  filterEnvOctaves_ = std::max(0.0f, config.filterEnvelopeOctaves) * lane;
+  filterEnvRest_ = std::clamp(config.filterEnvelopeRest, 0.0f, 1.0f);
+}
+
 uint32_t PICO2SEQ_AUDIO_FUNC(Voice::planFilterUpdates_)(const float *env, uint32_t n) noexcept
 {
   float current = filterCutoffCurrent;
   float lastApplied = lastAppliedFilterCutoff;
   uint8_t counter = filterUpdateCounter;
   const float alpha = filterCutoffAlpha;
+  const float octaves = filterEnvOctaves_;
+  const float rest = filterEnvRest_;
+  float target = filterEnvTarget_;
   uint32_t events = 0;
   for (uint32_t k = 0; k < n; ++k)
   {
-    const float targetCutoff = filterFrequency *
-        (env[k] * config.filterEnvelopeAmount + config.filterEnvelopeFloor);
-    current += alpha * (targetCutoff - current);
+    // exp2f runs at the setFreq rate, not per sample; the smoother below fills
+    // the gap, which is also what keeps cutoff modulation free of zipper noise.
+    if (counter == 0)
+      target = filterFrequency * exp2f(octaves * (env[k] - rest));
+    current += alpha * (target - current);
     if (counter == 0 && ShouldApplyFilterFreq_(current, lastApplied))
     {
       spanFilterEvents_[events++] = {static_cast<uint8_t>(k), current};
@@ -526,6 +566,7 @@ uint32_t PICO2SEQ_AUDIO_FUNC(Voice::planFilterUpdates_)(const float *env, uint32
   filterCutoffCurrent = current;
   lastAppliedFilterCutoff = lastApplied;
   filterUpdateCounter = counter;
+  filterEnvTarget_ = target;
   return events;
 }
 
@@ -730,6 +771,13 @@ void Voice::applyEngineConfig_()
   // NOTE: cachedEngine_ is NOT updated here — the engine switch belongs to
   // applyStructuralConfig_() so a live swap waits for the gate to fall.
   if (cachedEngine_ == ENGINE_WAVEGUIDE) {
+    // String tuning lands only on note starts (see pushWaveguideParams_()):
+    // retuning a ringing Karplus loop mid-note clicks and fights the tail,
+    // so edits made while gated wait for the next gate rise/retrigger.
+    // Idle pushes carry the exact base (no RNG consumed — determinism for a
+    // given gate history); the gate-on path re-rolls humanization anyway.
+    if (gate)
+      return;
     auto &last = waveguideSettings_;
     if (!last.valid || last.t60 != config.wgT60)
       waveguide_.setDecayTimeSeconds(config.wgT60);
@@ -745,6 +793,8 @@ void Voice::applyEngineConfig_()
       waveguide_.setDetuneCents(config.wgDetune);
     last = {config.wgT60, config.wgBrightness, config.wgPickPosition,
             config.wgPickHardness, config.wgStiffness, config.wgDetune, true};
+    waveguideApplied_ = {config.wgT60, config.wgBrightness, config.wgPickPosition,
+                         config.wgPickHardness, config.wgStiffness, config.wgDetune, true};
   } else if (cachedEngine_ == ENGINE_HYPERSAW) {
     hypersaw_.setDetune(config.hypersawDetune);
     hypersaw_.setMix(config.hypersawMix);
@@ -752,6 +802,37 @@ void Voice::applyEngineConfig_()
     recipeEngine_.configure(config);
   }
 
+}
+
+float Voice::wgHumanize_(float base) noexcept
+{
+  // ±kWaveguideHumanize multiplicative; exact zeros stay zero.
+  return base * (1.0f + kWaveguideHumanize * wgHumanizeRng_.nextBipolar());
+}
+
+void Voice::pushWaveguideParams_() noexcept
+{
+  // Per-note humanization: each base rolls ±4% (under the 5% ceiling) so
+  // repeated notes never machine-gun. The setters clamp into range; the
+  // position/hardness/detune setters take effect on the next pluck(), which
+  // this call always precedes (gate rise/retrigger arms wgPluckPending_).
+  // Only waveguideApplied_ is recorded here — the base cache belongs to
+  // applyEngineConfig_(), so an edit made while gated is still "unseen"
+  // and lands (re-humanized) on the next gate-on.
+  const float t60 = wgHumanize_(config.wgT60);
+  const float brightness = wgHumanize_(config.wgBrightness);
+  const float pickPosition = wgHumanize_(config.wgPickPosition);
+  const float pickHardness = wgHumanize_(config.wgPickHardness);
+  const float stiffness = wgHumanize_(config.wgStiffness);
+  const float detune = wgHumanize_(config.wgDetune);
+  waveguide_.setDecayTimeSeconds(t60);
+  waveguide_.setBrightness(brightness);
+  waveguide_.setPickPosition(pickPosition);
+  waveguide_.setPickHardness(pickHardness);
+  waveguide_.setStiffness(stiffness);
+  waveguide_.setDetuneCents(detune);
+  waveguideApplied_ = {t60, brightness, pickPosition, pickHardness,
+                       stiffness, detune, true};
 }
 
 float PICO2SEQ_AUDIO_FUNC(Voice::processWaveguide_)() noexcept
@@ -839,6 +920,11 @@ void Voice::resetAlternateEngines_() noexcept
   recipeTriggerPending_ = false;
   waveguide_.reset();
   waveguideSettings_.valid = false;
+  waveguideApplied_.valid = false;
+  // Fresh string model → fresh humanization sequence (distinct per voice).
+  // Keeps reset/re-init output bit-identical for a given gate history.
+  wgHumanizeRng_ = rpdsp::XorShift32{kWaveguideHumanizeSeed +
+                                     static_cast<uint32_t>(voiceId) * 0x9E3779B9u};
   wgPluckPending_ = false;
   hypersaw_.reset();
   hypersawTriggerPending_ = false;
@@ -861,30 +947,77 @@ void Voice::updateOscillatorFrequencies()
 inline void Voice::applyEnvelopeParameters() noexcept
 {
   if(config.usePatchBases) {
-    envelope.setAttack(MusicalValues::attackSeconds(state.attackTimeSeconds));
-    envelope.setDecay(MusicalValues::envelopeSeconds(state.decayTimeSeconds));
-    envelope.setSustain(config.defaultSustain);
-    envelope.setRelease(config.defaultRelease);
+    // Each lane drives its envelope stage unless the layout re-purposes it
+    // (then the patch value shapes that stage, set in applyConfig_()).
+    if (VoiceParameters::layout(config).envelopeFromTracks)
+      setEnvelopeTimes_(MusicalValues::attackSeconds(state.attackTimeSeconds),
+                        MusicalValues::envelopeSeconds(state.decayTimeSeconds));
+    const bool sustainLane = !VoiceParameters::binding(config, ParamId::Sustain).target;
+    const bool releaseLane = !VoiceParameters::binding(config, ParamId::Release).target;
+    setEnvelopeShape_(sustainLane ? state.sustainLevel : config.defaultSustain,
+                      releaseLane ? MusicalValues::releaseSeconds(state.releaseTimeSeconds)
+                                  : config.defaultRelease);
     return;
   }
   // Map normalized parameters to appropriate ranges
   float attack =
-      dspmap::fmap(state.attackTimeSeconds, 0.002f, 0.75f, dspmap::Mapping::LINEAR);
+      dspmap::fmap(state.attackTimeSeconds, 0.002f, 0.5f, dspmap::Mapping::LINEAR);
   float decay =
       dspmap::fmap(state.decayTimeSeconds, 0.01f, 0.5f, dspmap::Mapping::LOG);
   // float release = decay; // Use decay for release in this implementation
 
-  envelope.setAttack(attack);
-  envelope.setDecay(0.075f + (decay * 0.32f));
+  setEnvelopeTimes_(attack, 0.075f + (decay * 0.32f));
   envelope.setRelease(decay);
 }
 
 inline void Voice::applyEnvelopeDefaults_() noexcept
 {
-  envelope.setAttack(config.defaultAttack);
-  envelope.setDecay(config.defaultDecay);
-  envelope.setSustain(config.defaultSustain);
-  envelope.setRelease(config.defaultRelease);
+  setEnvelopeTimes_(config.defaultAttack, config.defaultDecay);
+  setEnvelopeShape_(config.defaultSustain, config.defaultRelease);
+}
+
+void Voice::setEnvelopeTimes_(float attackSeconds, float decaySeconds) noexcept
+{
+  pendingAttackSeconds_ = attackSeconds;
+  pendingDecaySeconds_ = decaySeconds;
+  applyPendingEnvelopeTimes_(false);
+}
+
+void Voice::setEnvelopeShape_(float sustainLevel, float releaseSeconds) noexcept
+{
+  pendingSustain_ = std::clamp(sustainLevel, 0.0f, 1.0f);
+  pendingReleaseSeconds_ = releaseSeconds;
+  applyPendingEnvelopeTimes_(false);
+}
+
+void PICO2SEQ_AUDIO_FUNC(Voice::applyPendingEnvelopeTimes_)(bool noteOn) noexcept
+{
+  // A stage not running (or restarting at a note-on) can take a new length
+  // without a level step; the running one keeps its length until it ends.
+  const auto stage = envelope.stage();
+  if (pendingAttackSeconds_ >= 0.0f && (noteOn || stage != rpdsp::ADSR::Stage::kAttack))
+  {
+    envelope.setAttack(pendingAttackSeconds_);
+    pendingAttackSeconds_ = -1.0f;
+  }
+  if (pendingDecaySeconds_ >= 0.0f && (noteOn || stage != rpdsp::ADSR::Stage::kDecay))
+  {
+    envelope.setDecay(pendingDecaySeconds_);
+    pendingDecaySeconds_ = -1.0f;
+  }
+  // Decay ramps toward the sustain level and sustain holds it, so a new
+  // level in either stage steps the output.
+  if (pendingSustain_ >= 0.0f &&
+      (noteOn || (stage != rpdsp::ADSR::Stage::kDecay && stage != rpdsp::ADSR::Stage::kSustain)))
+  {
+    envelope.setSustain(pendingSustain_);
+    pendingSustain_ = -1.0f;
+  }
+  if (pendingReleaseSeconds_ >= 0.0f && (noteOn || stage != rpdsp::ADSR::Stage::kRelease))
+  {
+    envelope.setRelease(pendingReleaseSeconds_);
+    pendingReleaseSeconds_ = -1.0f;
+  }
 }
 
 size_t Voice::effectiveScaleIndex_() const noexcept
@@ -1173,9 +1306,14 @@ void Voice::applyParameters_(const VoiceState &newState) noexcept
   VoiceParameters::apply(config, state);
   const auto &parameters = VoiceParameters::layout(config);
   const bool repurposedFilter = VoiceParameters::binding(config, ParamId::Filter).target != nullptr;
-  filterFrequency = VoiceParameters::mapCutoff(
-      parameters, repurposedFilter ? config.filterCutoffBase : state.filterCutoff);
-  if (parameters.envelopeFromTracks)
+  // The cutoff is the patch base alone - the encoder's Filter target moves it.
+  // The Filter lane is envelope depth now (refreshFilterEnvDepth_), so a
+  // sequenced sweep opens and closes the filter through the contour rather
+  // than stepping the frequency underneath it.
+  (void)repurposedFilter;
+  filterFrequency = VoiceParameters::mapCutoff(parameters, config.filterCutoffBase);
+  refreshFilterEnvDepth_();
+  if (parameters.envelopeFromTracks || config.usePatchBases)
     applyEnvelopeParameters();
   applyEngineConfig_();
 
@@ -1244,9 +1382,13 @@ void Voice::applyConfig_(const VoiceConfig &newConfig) noexcept
 
     const auto &paramLayout = VoiceParameters::layout(config);
     filterFrequency = VoiceParameters::mapCutoff(paramLayout, config.filterCutoffBase);
-    filter.setFreq(filterFrequency);
-    filterSvf_.setCutoff(filterFrequency);
-    filterCutoffCurrent = filterFrequency;
+    refreshFilterEnvDepth_();
+    // The cutoff smoother glides to the new target. Snapping to it (without
+    // the envelope) stepped the filter on every live base edit. Both
+    // topologies take the current cutoff so a switch starts from it.
+    filter.setFreq(filterCutoffCurrent);
+    filterSvf_.setCutoff(filterCutoffCurrent);
+    lastAppliedFilterCutoff = filterCutoffCurrent;
   }
 
   highPassFilter.setCutoff(config.highPassFreq);

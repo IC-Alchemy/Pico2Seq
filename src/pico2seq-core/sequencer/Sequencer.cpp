@@ -1,14 +1,19 @@
+// Sequencer: turns lane patterns into sounded steps (notes, tone, articulation).
+// One instance per voice; transport runs on Core 0 and hands VoiceStates out.
+// Portable C++ — no Arduino/hardware includes here.
 #include <cstdint>
 #include <algorithm>
 #include <cmath>
 #include "SequencerDefs.h"
 #include "Sequencer.h"
 
-// --- Constants for real-time parameter editing ---
-constexpr float MAX_SENSOR_DISTANCE_MM = 1100.0f;
+// Live-record distance ceiling just above the play zone (lifts read as max).
+constexpr float MAX_SENSOR_DISTANCE_MM = 750.0f;
 
-constexpr float OCTAVE_LOW_THRESHOLD = 1.0f / 3.0f;  // Threshold for mapping float to -1 octave
-constexpr float OCTAVE_HIGH_THRESHOLD = 2.0f / 3.0f;  // Threshold for mapping float to +1 octave
+constexpr float OCTAVE_LOW_THRESHOLD = 1.0f / 3.0f; // Below this: down an octave (-12)
+constexpr float OCTAVE_HIGH_THRESHOLD = 2.0f / 3.0f; // Above this: up an octave (+12)
+// Three-zone octave quantize: low/middle/high hand (or knob) region becomes
+// a singable -12/0/+12 jump instead of a continuous slide.
 int8_t mapFloatToOctaveOffset(float octaveValue)
 {
     if (octaveValue < OCTAVE_LOW_THRESHOLD)
@@ -25,8 +30,7 @@ int8_t mapFloatToOctaveOffset(float octaveValue)
     }
 }
 
-// Fold a variant parameter value (int, float, or bool) into the float domain
-// the parameter tracks store.
+// int/float/bool lane defaults folded into the float domain tracks store.
 float parameterValueAsFloat(const ParameterValueType &value)
 {
     return std::visit(
@@ -44,7 +48,8 @@ float parameterValueAsFloat(const ParameterValueType &value)
         value);
 }
 
-// Helper function to map a normalized value (0.0-1.0) to a parameter's defined min/max range.
+// Live input (0.0-1.0 hand position) into a lane's musical range. Octave snaps
+// to detents; other lanes scale linearly and clamp/round on store.
 float mapNormalizedValueToParamRange(ParamId id, float normalizedValue)
 {
     if (id == ParamId::Octave)
@@ -64,7 +69,7 @@ float mapNormalizedValueToParamRange(ParamId id, float normalizedValue)
     const float minVal = parameterValueAsFloat(def.minValue);
     const float maxVal = parameterValueAsFloat(def.maxValue);
 
-    // The ParameterManager's setValue will handle clamping and rounding.
+    // setValue() clamps and rounds; the linear map here stays unclamped.
     return minVal + normalizedValue * (maxVal - minVal);
 }
 
@@ -74,14 +79,13 @@ Sequencer::Sequencer()
 }
 
 Sequencer::Sequencer(uint8_t channel)
-    : running(false), currentStep(0), lastNote(-1), currentNote(-1), noteDurationCounter(0), channel(channel), parameterManager(), previousStepHadSlide(false) // Initialize parameterManager explicitly
+    : running(false), currentStep(0), lastNote(-1), currentNote(-1), noteDurationCounter(0), channel(channel), parameterManager(), previousStepHadSlide(false)
       ,
-      envelope() // Initialize envelope explicitly
+      envelope()
       ,
-      noteDuration() // Initialize noteDuration explicitly
+      noteDuration()
 {
     noteActive = false;
-    // Initialize all per-parameter step counters to 0
     for (size_t i = 0; i < static_cast<size_t>(ParamId::Count); ++i)
     {
         currentStepPerParam[i] = 0;
@@ -92,10 +96,8 @@ Sequencer::Sequencer(uint8_t channel)
 
 bool Sequencer::isNotePlaying() const
 {
-    // A note is considered playing while the envelope is either currently triggered
-    // (gate held) OR it's in the release phase (release requested but envelope not finished).
-    // Using logical OR ensures the envelope's release phase is treated as "playing"
-    // so the voice won't continue indefinitely after a high gate event.
+    // Playing = gate held OR release tail still ringing; either way the voice
+    // is not free for a new note.
     return envelope.isTriggered() || !envelope.isReleased();
 }
 
@@ -134,17 +136,55 @@ void Sequencer::setStepParameterValue(ParamId id, uint8_t stepIdx, float value)
     parameterManager.setValue(id, stepIdx, value);
 }
 
+bool Sequencer::gateIsOn(uint8_t stepIdx) const
+{
+    return getStepParameterValue(ParamId::Gate, stepIdx) > 0.5f;
+}
+
+bool Sequencer::writeStepValue(ParamId id, uint8_t stepIdx, float value)
+{
+    const float previous = getStepParameterValue(id, stepIdx);
+    setStepParameterValue(id, stepIdx, value);
+    return getStepParameterValue(id, stepIdx) != previous;
+}
+
+bool Sequencer::recordLiveValue(ParamId id, float value)
+{
+    if (id >= ParamId::Count)
+    {
+        return false;
+    }
+    // Pitch overdubs only onto sounding steps, so rests keep their melody.
+    if (id == ParamId::Note && !gateIsOn(getCurrentStepForParameter(ParamId::Gate)))
+    {
+        return false;
+    }
+    return writeStepValue(id, getCurrentStepForParameter(id), value);
+}
+
+bool Sequencer::editStepValue(ParamId id, uint8_t stepIdx, float value)
+{
+    if (id >= ParamId::Count || stepIdx >= SequencerConstants::MAX_STEPS_COUNT)
+    {
+        return false;
+    }
+    if (id == ParamId::Note && !gateIsOn(stepIdx))
+    {
+        return false;
+    }
+    return writeStepValue(id, stepIdx, value);
+}
+
 void Sequencer::reset()
 {
     currentStep = 0;
-    // Reset all per-parameter step counters to 0
     for (size_t i = 0; i < static_cast<size_t>(ParamId::Count); ++i)
     {
         currentStepPerParam[i] = 0;
     }
     running = false;
-    previousStepHadSlide = false; // Reset slide state tracking
-    handleNoteOff(nullptr);       // Pass nullptr as no voice state to update
+    previousStepHadSlide = false;
+    handleNoteOff(nullptr); // No VoiceState to notify on transport reset
 }
 
 uint8_t Sequencer::getCurrentStepForParameter(ParamId paramId) const
@@ -158,7 +198,7 @@ void Sequencer::resetAllSteps()
         for(uint8_t step=0;step<SequencerConstants::MAX_STEPS_COUNT;++step) resetModifierStep(step);
         return;
     }
-    // Data-driven reset using the defaults from CORE_PARAMETERS
+    // Patch mode stores neutral modifiers, not raw defaults (see header).
     for (size_t i = 0; i < static_cast<size_t>(ParamId::Count); ++i)
     {
         ParamId currentId = static_cast<ParamId>(i);
@@ -175,9 +215,9 @@ void Sequencer::clearPattern()
 {
     if (usesPlaybackTransform())
     {
-        // resetModifierStep writes through setValue, which wraps at the active
-        // track length: widen every track first so the neutral modifiers land
-        // in all 64 slots and survive later track growth.
+        // Widen first: setValue wraps at the active length, so neutralizing a
+        // short track would corrupt its head with tail values. Every slot is
+        // overwritten right after, then lengths shrink back to 16.
         for (uint8_t param = 0; param < PARAM_ID_COUNT; ++param)
         {
             parameterManager.setStepCount(static_cast<ParamId>(param),
@@ -190,11 +230,10 @@ void Sequencer::clearPattern()
     }
     else
     {
-        // Re-run the boot initialization: it fills the full 64-slot capacity
-        // with each track's default value, not just the active length.
+        // Boot defaults across the full 64-slot capacity, not just the loop.
         initializeParameters();
     }
-    // Restore the default polyrhythm track lengths (16 steps everywhere).
+    // Back to 16-step loops everywhere; ends any ringing note like reset().
     for (uint8_t param = 0; param < PARAM_ID_COUNT; ++param)
     {
         parameterManager.setStepCount(static_cast<ParamId>(param),
@@ -206,7 +245,7 @@ void Sequencer::clearPattern()
 void Sequencer::advanceStep(uint32_t current_uclock_step, int mm_distance,
                             bool is_note_button_held, bool is_velocity_button_held,
                             bool is_filter_button_held, bool is_attack_button_held,
-                            bool is_decay_button_held, bool is_octave_button_held,
+                            bool is_release_button_held, bool is_octave_button_held,
                             int current_selected_step_for_edit,
                             VoiceState *voiceState)
 {
@@ -215,21 +254,19 @@ void Sequencer::advanceStep(uint32_t current_uclock_step, int mm_distance,
         return;
     }
 
-    // Use the Gate parameter's step count to determine the main sequence length
+    // Bar cursor follows the Gate lane; narrowing only after modulo avoids
+    // aliasing every 256 steps onto position 0.
     uint8_t sequenceLength = getParameterStepCount(ParamId::Gate);
     if (sequenceLength > 0)
     {
-        // Modulo the full-width counter first; narrowing before the modulo would
-        // alias every 256 steps (uint8_t wrap) onto pattern position 0.
         currentStep = static_cast<uint8_t>(current_uclock_step % sequenceLength);
     }
     else
     {
-        currentStep = 0; // Fallback if no sequence length is set
+        currentStep = 0; // No Gate length yet; park the cursor at step 0
     }
 
-    // Advance each parameter's step counter independently based on its own step count
-    // This enables polyrhythmic patterns where different parameters cycle at different rates
+    // Each lane wraps on its own length: different lengths phase into polyrhythm.
     for (size_t i = 0; i < static_cast<size_t>(ParamId::Count); ++i)
     {
         ParamId paramId = static_cast<ParamId>(i);
@@ -237,20 +274,18 @@ void Sequencer::advanceStep(uint32_t current_uclock_step, int mm_distance,
 
         if (paramStepCount > 0)
         {
-            // Use efficient increment and wrap instead of modulo for performance
             currentStepPerParam[i] = static_cast<uint8_t>(current_uclock_step % paramStepCount);
         }
         else
         {
-            currentStepPerParam[i] = 0; // Fallback if no step count is set
+            currentStepPerParam[i] = 0; // Unset length; park at step 0
         }
     }
 
-    // Handle real-time parameter recording first
-    // Disable distance sensor control when in edit mode (selectedStepForEdit >= 0)
+    // Live overdub first (skipped in step-edit mode so the hand never fights a selection).
     if (mm_distance >= 0 && current_selected_step_for_edit == -1)
     {
-        // Simple normalization of sensor distance value
+        // Hand position (or calibrated knob input) as 0.0-1.0 for the lane mappers.
         const float normalizedDistance = std::clamp(recordingInput_ >= 0.0f ? recordingInput_ :
             static_cast<float>(mm_distance) / MAX_SENSOR_DISTANCE_MM, 0.0f, 1.0f);
 
@@ -264,45 +299,25 @@ void Sequencer::advanceStep(uint32_t current_uclock_step, int mm_distance,
             {ParamId::Velocity, is_velocity_button_held},
             {ParamId::Filter, is_filter_button_held},
             {ParamId::Attack, is_attack_button_held},
-            {ParamId::Decay, is_decay_button_held},
+            {ParamId::Release, is_release_button_held},
             {ParamId::Octave, is_octave_button_held}
-            // Removed: {ParamId::Slide, slideMode}
-            // This was causing slide values to be overwritten during playback in slide mode.
-            // Slide values should only be set via step presses in slide mode, not real-time recording.
+            // Slide is step-pressed only: live overdub here used to erase slides.
         };
 
         for (const auto &pb : paramButtons)
         {
             if (pb.held)
             {
-                // GATE-CONTROLLED NOTE PROGRAMMING: Check gate restriction for Note parameter
-                if (pb.id == ParamId::Note)
-                {
-                    uint8_t gateStepIdx = currentStepPerParam[static_cast<size_t>(ParamId::Gate)];
-                    float gateValue = getStepParameterValue(ParamId::Gate, gateStepIdx);
-                    if (gateValue <= 0.5f) // Gate is LOW (0.0)
-                    {
-                        // Skip Note parameter recording on steps with LOW gates
-                        continue;
-                    }
-                }
-
-                // For all other parameters, scale the normalized value to the parameter's range
-                float value = mapNormalizedValueToParamRange(pb.id, normalizedDistance);
-                // Use the parameter's own current step index for recording
-                uint8_t paramStepIdx = currentStepPerParam[static_cast<size_t>(pb.id)];
-                setStepParameterValue(pb.id, paramStepIdx, value);
+                // Overdub at that lane's own cursor (Note still skips resting steps).
+                recordLiveValue(pb.id, mapNormalizedValueToParamRange(pb.id, normalizedDistance));
             }
         }
     }
 
-    // Process the step with current parameter values (including any newly recorded ones)
-    // Use UINT8_MAX to signal that per-parameter step indices should be used
+    // Sound the combined cursors (UINT8_MAX = per-lane positions), including
+    // anything just overdubbed, so the player hears the edit immediately.
     recordingInput_ = -1.0f;
     processStep(UINT8_MAX, voiceState);
-
-    // If parameters were recorded during this step, the voice state is already updated
-    // with the new values by processStep() above, providing immediate real-time feedback
 }
 
 void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
@@ -317,6 +332,8 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
     const float filterVal = values.filterCutoff;
     const float attackVal = values.attackTimeSeconds;
     const float decayVal = values.decayTimeSeconds;
+    const float sustainVal = values.sustainLevel;
+    const float releaseVal = values.releaseTimeSeconds;
     const float noteVal = values.noteIndex;
     const float velocityVal = values.velocityLevel;
     const bool slideVal = values.hasSlide;
@@ -325,15 +342,15 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
 
     if (gateOn)
     {
-        // Calculate the final note value and clamp to valid MIDI range [0, 127]
+        // Scale degree + octave transpose, clamped to the MIDI range.
         int rawNote = static_cast<int>(noteVal) + octaveOffset;
         int finalNote = std::max(0, std::min(rawNote, 127));
 
-        // If the step's gate is on, decide whether to start a new note or slide to it.
-        // If a slide note is encountered but no note is currently active, start the note.
+        // Gated step: fresh attack, or a legato slide from the ringing note.
+        // A slide with no active note still attacks so it is never silent.
         if (!slideVal || !noteActive)
         {
-            // Always retrigger envelope for each gated step (or initial slide note).
+            // New articulation: restart the envelope for a crisp front.
             if (voiceState)
             {
                 voiceState->shouldRetrigger = true;
@@ -344,58 +361,58 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
         }
         else
         {
-            // This is a slide from an active note. Don't retrigger the envelope, just update the current note value.
+            // Legato: bend pitch without restarting the envelope, but re-arm
+            // the hold time for this step's gate length.
             currentNote = static_cast<int8_t>(finalNote);
             noteActive = true;
-            // For slides, we still need to update the note duration for the current step
             noteDuration.start(noteDurationTicks);
         }
     }
     else
     {
-        // The gate is off for this step. Only turn off the note if the previous step didn't have slide enabled.
-        // This allows slide steps to sustain the envelope even when followed by gate-off steps.
+        // Rest: release, unless the previous step's slide is still carrying
+        // the phrase through it.
         if (!previousStepHadSlide)
         {
             handleNoteOff(voiceState);
         }
     }
 
-    // Add a null check to prevent crashes when previewing steps without a valid voiceState
+    // Previews may pass null; sounding steps need a VoiceState to write into.
     if (voiceState)
     {
-        // Always update non-frequency parameters regardless of gate state
+        // Tone always follows the step; pitch only on gated steps so a resting
+        // step never steals the ringing note — it fades on its own pitch.
         voiceState->filterCutoff = filterVal;
         voiceState->attackTimeSeconds = attackVal;
         voiceState->decayTimeSeconds = decayVal;
+        voiceState->sustainLevel = sustainVal;
+        voiceState->releaseTimeSeconds = releaseVal;
         voiceState->velocityLevel = velocityVal;
         voiceState->isGateHigh = gateOn;
         voiceState->hasSlide = slideVal;
         voiceState->gateLengthTicks = noteDurationTicks;
 
-        // GATE-CONTROLLED NOTE OUTPUT: Only update note and octave when gate is HIGH
-        // This allows current notes to continue/fade when gate is LOW
+        // Gate off: keep the old pitch so the tail rings instead of jumping.
         if (gateOn)
         {
-            voiceState->noteIndex = noteVal; // Store raw note value for audio synthesis (scale array lookup)
+            voiceState->noteIndex = noteVal; // Raw scale degree; audio quantizes it
             voiceState->octaveOffset = octaveOffset;
         }
         // When gate is LOW, preserve the previous note and octave values
-        // allowing the current note to continue playing or fade naturally
     }
 
-    // Update slide state tracking for next step
+    // Remember slide-through-rests for the next step.
     previousStepHadSlide = slideVal && gateOn;
 }
 
 void Sequencer::startNote(uint8_t note, uint8_t velocity, uint16_t duration)
 {
-    // Update note state
     currentNote = static_cast<int8_t>(note);
     noteActive = true;
     lastNote = currentNote;
 
-    // Start duration tracking and envelope
+    // Hold the note for its gate length with the envelope struck.
     noteDuration.start(duration);
     triggerEnvelope();
 }
@@ -404,7 +421,7 @@ void Sequencer::handleNoteOff(VoiceState *voiceState)
 {
     if (noteActive)
     {
-        // Send MIDI note-off if callback is set
+        // Optional external note-off routing (legacy MIDI hook).
         if (midiNoteOffCallback)
         {
             midiNoteOffCallback(static_cast<uint8_t>(currentNote), channel);
@@ -415,7 +432,7 @@ void Sequencer::handleNoteOff(VoiceState *voiceState)
         releaseEnvelope();
         noteDuration.reset();
 
-        // If a voiceState is provided, update it to signal note-off to the audio engine.
+        // Signal the audio engine: gate down, no pending retrigger.
         if (voiceState)
         {
             voiceState->isGateHigh = false;
@@ -431,7 +448,7 @@ bool Sequencer::tickNoteDuration(VoiceState *voiceState)
         noteDuration.tick();
         if (!noteDuration.isActive())
         {
-            // Note duration has expired, turn the note off.
+            // Hold expired mid-step: release the note and report the edge.
             handleNoteOff(voiceState);
             return true;
         }
@@ -441,15 +458,13 @@ bool Sequencer::tickNoteDuration(VoiceState *voiceState)
 
 void Sequencer::playStepNow(uint8_t stepIdx, VoiceState *voiceState)
 {
-    // This method is the public entry point for previewing a step.
-    // It processes the step's parameters, updates the provided voice state,
-    // and triggers the note's envelope.
+    // Audition one stored step exactly as the transport would play it.
     processStep(stepIdx, voiceState);
 }
 
 void Sequencer::previewActiveStep(VoiceState *voiceState)
 {
-    // Evaluates current parameter values at their independent polymetric cursors (UINT8_MAX)
+    // Audition the currently sounding lane combination (per-lane cursors).
     processStep(UINT8_MAX, voiceState);
 }
 
@@ -464,8 +479,10 @@ void Sequencer::refreshVoiceParameters(VoiceState *voiceState) const
     voiceState->filterCutoff = values.filterCutoff;
     voiceState->attackTimeSeconds = values.attackTimeSeconds;
     voiceState->decayTimeSeconds = values.decayTimeSeconds;
-    // Pitch follows only a sounding note, matching processStep(): a released
-    // note keeps its pitch through the tail.
+    voiceState->sustainLevel = values.sustainLevel;
+    voiceState->releaseTimeSeconds = values.releaseTimeSeconds;
+    // Pitch tracks only a held gate, matching processStep(): released tails
+    // keep their pitch instead of jumping to the next step.
     if (voiceState->isGateHigh)
     {
         voiceState->noteIndex = values.noteIndex;
@@ -476,16 +493,16 @@ void Sequencer::refreshVoiceParameters(VoiceState *voiceState) const
 
 void Sequencer::toggleStep(uint8_t stepIdx)
 {
-    // Get current gate value
+    // Flip this step between sounding and resting.
     float gate = getStepParameterValue(ParamId::Gate, stepIdx);
-    // Toggle: if >0.5, set to 0.0; else set to 1.0
-    setStepParameterValue(ParamId::Gate, stepIdx, (gate > 0.5f) ? 0.0f : 1.0f);
+    setStepParameterValue(ParamId::Gate, stepIdx, (gate > 0.5f) ? 0.0f : 1.0f); // Toggle lanes snap at 0.5
 }
 
 namespace
 {
-// Share conversions only; the accessor owns cursor selection and playback mapping.
-// A concrete callable keeps decoding allocation-free without type erasure.
+// One decode path for stored, previewed, and played steps: the caller picks
+// the lane values (cursor vs. index, raw vs. patch-mapped), decodeStep only
+// converts. Template (not std::function) keeps the hot path allocation-free.
 template <typename ValueAccessor>
 Step decodeStep(const ValueAccessor &value, Sequencer::OctaveMapper octaveMapper)
 {
@@ -495,6 +512,8 @@ Step decodeStep(const ValueAccessor &value, Sequencer::OctaveMapper octaveMapper
     s.filterCutoff = value(ParamId::Filter);
     s.attackTimeSeconds = value(ParamId::Attack);
     s.decayTimeSeconds = value(ParamId::Decay);
+    s.sustainLevel = value(ParamId::Sustain);
+    s.releaseTimeSeconds = value(ParamId::Release);
     s.isGateActive = value(ParamId::Gate) > 0.5f;
     s.hasSlide = value(ParamId::Slide) > 0.5f;
     const float octave = value(ParamId::Octave);
@@ -524,12 +543,16 @@ void Sequencer::setStep(uint8_t stepIdx, const Step &step)
     setStepParameterValue(ParamId::Filter, stepIdx, step.filterCutoff);
     setStepParameterValue(ParamId::Attack, stepIdx, step.attackTimeSeconds);
     setStepParameterValue(ParamId::Decay, stepIdx, step.decayTimeSeconds);
+    setStepParameterValue(ParamId::Sustain, stepIdx, step.sustainLevel);
+    setStepParameterValue(ParamId::Release, stepIdx, step.releaseTimeSeconds);
     setStepParameterValue(ParamId::Gate, stepIdx, step.isGateActive ? 1.0f : 0.0f);
     setStepParameterValue(ParamId::Slide, stepIdx, step.hasSlide ? 1.0f : 0.0f);
 
+    // Octave lane stores semitones; encode back to its 0.0-1.0 detents.
     const float octaveVal = std::clamp(static_cast<float>(step.octaveOffset) / 48.0f + 0.5f, 0.0f, 1.0f);
     setStepParameterValue(ParamId::Octave, stepIdx, octaveVal);
 
+    // Ticks back to a 0.001-1.0 step fraction; shortest still sounds (never 0).
     const float gateLenFraction = static_cast<float>(step.gateLengthTicks) /
         static_cast<float>(SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS);
     setStepParameterValue(ParamId::GateLength, stepIdx, std::clamp(gateLenFraction, 0.001f, 1.0f));
@@ -555,11 +578,51 @@ Step Sequencer::getPlaybackStep(uint8_t stepIdx) const
 void Sequencer::randomizeParameters(uint8_t depthPercent, uint64_t seed)
 {
     parameterManager.randomizeParameters(depthPercent, seed);
+    if (usesPlaybackTransform())
+    {
+        // Humanize draws offsets around 0.5; in patch mode store what the step
+        // actually plays — the offset spread around the patch base.
+        for (uint8_t i = 0; i < PARAM_ID_COUNT; ++i)
+        {
+            const auto id = static_cast<ParamId>(i);
+            if (!isPatchDefaultLane(id) || parameterManager.getLaneAmount(id) == 0)
+                continue;
+            const float base = patchValue(id);
+            // Cap attacks: a longer-than-gate attack on a sustain-0 voice would
+            // go silent, so stay at/below the patch attack or lane center.
+            const float ceiling = id == ParamId::Attack ? std::max(base, 0.5f) : 1.0f;
+            for (uint8_t step = 0; step < getParameterStepCount(id); ++step)
+            {
+                const float offset = getStepParameterValue(id, step);
+                setStepParameterValue(id, step, std::min(offsetAroundBase(base, offset), ceiling));
+            }
+        }
+    }
     if (parameterManager.getLaneAmount(ParamId::Octave) == 0)
         return;
-    // Neutral octave across the entire track capacity (64 steps).
+    // Humanize leaves octave centered (concert pitch) across all 64 slots.
     for (uint8_t i = 0; i < SequencerConstants::MAX_STEPS_COUNT; ++i)
         setStepParameterValue(ParamId::Octave, i, 0.5f);
+}
+
+float Sequencer::patchValue(ParamId id) const
+{
+    if (playbackTransform_)
+        return playbackTransform_(id, SequencerConstants::LANE_FOLLOWS_PATCH, playbackContext_);
+    const auto *definition = parameterDefinition(id);
+    return definition ? parameterValueAsFloat(definition->defaultValue) : 0.0f;
+}
+
+float Sequencer::getPlaybackValue(ParamId id, uint8_t stepIdx) const
+{
+    return playbackValue(id, stepIdx);
+}
+
+bool Sequencer::followPatch(ParamId id, uint8_t stepIdx)
+{
+    if (!isPatchDefaultLane(id) || stepIdx >= SequencerConstants::MAX_STEPS_COUNT)
+        return false;
+    return writeStepValue(id, stepIdx, SequencerConstants::LANE_FOLLOWS_PATCH);
 }
 
 void Sequencer::triggerEnvelope()

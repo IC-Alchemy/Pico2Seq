@@ -67,11 +67,11 @@ TEST_CASE("ParameterTrack resize extends with default values", "[paramtrack]") {
 
 // ─── Randomization depth around the patch base ──────────────────────────────
 //
-// Playback composes track values as modifiers around the per-preset base
-// (VoiceEdit::composeLane): 0.5 plays the base exactly, 0 and 1 reach the
-// lane's ends, and each half is linear in between. The randomizer draws
-// triangular offsets of at most depth/2 around 0.5, so depth D moves a step at
-// most D% of the way from its base toward either end of the lane.
+// The randomizer draws triangular offsets of at most depth/2 around 0.5. In
+// patch mode the Sequencer turns them into absolute values around the patch
+// value (offsetAroundBase): 0.5 is the patch, 0 and 1 the lane's ends, each
+// half linear, so depth D moves a step at most D% of the way from the patch
+// toward either end of the lane.
 
 namespace
 {
@@ -84,16 +84,28 @@ float composeFilterEffective(float stored)
     return VoiceEdit::composeLane(ParamId::Filter, stored, &config);
 }
 
+const VoiceConfig &standardPatch()
+{
+    static const VoiceConfig config = [] {
+        VoiceConfig c{};
+        VoiceEdit::enablePatch(c);
+        return c;
+    }();
+    return config;
+}
+
 struct Sweep { float minimum = 1.0f, maximum = 0.0f; };
 
 Sweep composedFilterSweep(uint8_t depth, uint64_t seed)
 {
-    ParameterManager pm;
-    pm.init();
-    pm.randomizeParameters(depth, seed);
+    Sequencer seq;
+    seq.setPlaybackTransform(VoiceEdit::composeLane, &standardPatch(), VoiceEdit::mapOctave);
+    VoiceEdit::seedModifiers(seq);
+    seq.randomizeParameters(depth, seed);
     Sweep sweep;
-    for (uint8_t step = 0; step < pm.getStepCount(ParamId::Filter); ++step) {
-        const float effective = composeFilterEffective(pm.getValue(ParamId::Filter, step));
+    for (uint8_t step = 0; step < seq.getParameterStepCount(ParamId::Filter); ++step) {
+        const float effective = seq.getPlaybackValue(ParamId::Filter, step);
+        REQUIRE_FALSE(followsPatch(seq.getStepParameterValue(ParamId::Filter, step)));
         sweep.minimum = std::min(sweep.minimum, effective);
         sweep.maximum = std::max(sweep.maximum, effective);
     }
@@ -116,8 +128,9 @@ TEST_CASE("randomizeParameters keeps Filter offsets inside the default depth rad
 }
 
 TEST_CASE("randomizeParameters composes a sweep that widens with depth and never goes dead", "[paramtrack][sequencer]") {
-    // A neutral 0.5 modifier must compose to exactly the standard lane base.
-    REQUIRE(composeFilterEffective(0.5f) == Catch::Approx(kFilterLaneBase));
+    // A step that follows the patch plays exactly the standard lane base.
+    REQUIRE(composeFilterEffective(SequencerConstants::LANE_FOLLOWS_PATCH) ==
+            Catch::Approx(kFilterLaneBase));
     for (uint64_t seed : {7ull, 99ull, 2026ull}) {
         INFO("seed " << seed);
         const Sweep subtle = composedFilterSweep(10, seed);
@@ -386,6 +399,47 @@ TEST_CASE("Sequencer::clearPattern wipes every slot and restores default track l
     }
 }
 
+TEST_CASE("Randomize keeps attacks short enough for short gates", "[sequencer][randomize]") {
+    // A long attack never finishes inside a short gate: a sustain-0 voice
+    // would fall silent. Attack stays at or below max(patch, lane center).
+    Sequencer seq;
+    seq.setPlaybackTransform(VoiceEdit::composeLane, &standardPatch(), VoiceEdit::mapOctave);
+    VoiceEdit::seedModifiers(seq);
+    const float ceiling = std::max(seq.patchValue(ParamId::Attack), 0.5f);
+    for (uint64_t seed = 1; seed < 40; ++seed) {
+        seq.randomizeParameters(100, seed);
+        for (uint8_t step = 0; step < seq.getParameterStepCount(ParamId::Attack); ++step)
+            REQUIRE(seq.getPlaybackValue(ParamId::Attack, step) <= ceiling + 1e-6f);
+    }
+    // Sustain and Release are randomized around the patch too.
+    bool sustainMoved = false, releaseMoved = false;
+    for (uint8_t step = 0; step < 16; ++step) {
+        sustainMoved |= seq.getPlaybackValue(ParamId::Sustain, step) != seq.patchValue(ParamId::Sustain);
+        releaseMoved |= seq.getPlaybackValue(ParamId::Release, step) != seq.patchValue(ParamId::Release);
+    }
+    CHECK(sustainMoved);
+    CHECK(releaseMoved);
+}
+
+TEST_CASE("An absolute lane step can return to the patch value", "[sequencer]") {
+    Sequencer seq;
+    seq.setPlaybackTransform(VoiceEdit::composeLane, &standardPatch(), VoiceEdit::mapOctave);
+    VoiceEdit::seedModifiers(seq);
+    REQUIRE(followsPatch(seq.getStepParameterValue(ParamId::Decay, 3)));
+    REQUIRE(seq.editStepValue(ParamId::Decay, 3, 0.8f));
+    CHECK(seq.getPlaybackValue(ParamId::Decay, 3) == Catch::Approx(0.8f));
+    CHECK(seq.followPatch(ParamId::Decay, 3));
+    CHECK_FALSE(seq.followPatch(ParamId::Decay, 3)); // already following
+    CHECK(seq.getPlaybackValue(ParamId::Decay, 3) == Catch::Approx(seq.patchValue(ParamId::Decay)));
+    // Offset lanes have no patch-following state.
+    CHECK_FALSE(seq.followPatch(ParamId::Note, 3));
+    CHECK_FALSE(seq.followPatch(ParamId::GateLength, 3));
+    // Growing a lane fills the new steps with 'follows patch', not a raw default.
+    seq.setParameterStepCount(ParamId::Decay, 4);
+    seq.setParameterStepCount(ParamId::Decay, 32);
+    CHECK(followsPatch(seq.getStepParameterValue(ParamId::Decay, 20)));
+}
+
 TEST_CASE("Sequencer::clearPattern neutralizes modifier steps in patch mode", "[sequencer]") {
     Sequencer seq(0);
     seq.setPlaybackTransform(
@@ -399,11 +453,14 @@ TEST_CASE("Sequencer::clearPattern neutralizes modifier steps in patch mode", "[
 
     seq.clearPattern();
 
-    // Patch mode plays stored values as modifiers around the preset base:
-    // cleared steps must sit at the neutral midpoint with gates off.
+    // Cleared steps follow the patch on absolute lanes, sit at no offset on
+    // the others, and have their gates off.
     for (uint8_t step = 0; step < SequencerConstants::MAX_STEPS_COUNT; ++step) {
         REQUIRE(seq.getRawStepValue(ParamId::Gate, step) == 0.0f);
-        REQUIRE(seq.getRawStepValue(ParamId::Velocity, step) == Catch::Approx(0.5f));
+        REQUIRE(followsPatch(seq.getRawStepValue(ParamId::Velocity, step)));
+        REQUIRE(followsPatch(seq.getRawStepValue(ParamId::Release, step)));
+        REQUIRE(seq.getRawStepValue(ParamId::GateLength, step) ==
+                Catch::Approx(mapNormalizedValueToParamRange(ParamId::GateLength, 0.5f)));
     }
     REQUIRE(seq.getParameterStepCount(ParamId::Gate) == SequencerConstants::DEFAULT_STEPS_COUNT);
 }
@@ -763,4 +820,57 @@ TEST_CASE("refreshVoiceParameters updates a sounding voice without retriggering"
     CHECK_FALSE(state.isGateHigh);
 
     seq.refreshVoiceParameters(nullptr); // tolerated
+}
+
+// ─── Live recording and step edits (lidar, faders, encoder) ──────────────────
+
+TEST_CASE("Live values land on each lane's own playing step", "[sequencer][recording]") {
+    Sequencer seq(0);
+    seq.setParameterStepCount(ParamId::Filter, 5);
+    seq.setStepParameterValue(ParamId::Gate, 7, 1.0f);
+    seq.start();
+    VoiceState state;
+    seq.advanceStep(7, -1, false, false, false, false, false, false, -1, &state);
+    REQUIRE(seq.getCurrentStepForParameter(ParamId::Filter) == 2);
+
+    // Between clock steps the playing step takes the value, not step 7.
+    REQUIRE(seq.recordLiveValue(ParamId::Filter, 0.9f));
+    CHECK(seq.getStepParameterValue(ParamId::Filter, 2) == Catch::Approx(0.9f));
+    CHECK(seq.getPlaybackStep().filterCutoff == Catch::Approx(0.9f));
+    // An unchanged value reports no change, so callers skip the voice refresh.
+    CHECK_FALSE(seq.recordLiveValue(ParamId::Filter, 0.9f));
+    // Out-of-range lanes are rejected.
+    CHECK_FALSE(seq.recordLiveValue(ParamId::Count, 0.5f));
+}
+
+TEST_CASE("Live pitch follows the playing gate, not the Note lane's own step", "[sequencer][recording]") {
+    Sequencer seq(0);
+    seq.setParameterStepCount(ParamId::Note, 4);
+    seq.setStepParameterValue(ParamId::Gate, 1, 1.0f); // Note cursor 1 at step 5; gate step 5 is off
+    seq.start();
+    VoiceState state;
+    seq.advanceStep(5, -1, false, false, false, false, false, false, -1, &state);
+    REQUIRE(seq.getCurrentStepForParameter(ParamId::Note) == 1);
+    CHECK_FALSE(seq.recordLiveValue(ParamId::Note, 9.0f));
+    CHECK(seq.getStepParameterValue(ParamId::Note, 1) == 0.0f);
+    // Other lanes still record on a silent step.
+    CHECK(seq.recordLiveValue(ParamId::Decay, 0.7f));
+
+    seq.setStepParameterValue(ParamId::Gate, 5, 1.0f);
+    CHECK(seq.recordLiveValue(ParamId::Note, 9.0f));
+    CHECK(seq.getStepParameterValue(ParamId::Note, 1) == 9.0f);
+}
+
+TEST_CASE("Step edits never write pitch into a gate-off step", "[sequencer][recording]") {
+    Sequencer seq(0);
+    CHECK_FALSE(seq.editStepValue(ParamId::Note, 3, 12.0f));
+    CHECK(seq.getStepParameterValue(ParamId::Note, 3) == 0.0f);
+    CHECK(seq.editStepValue(ParamId::Attack, 3, 0.4f));
+    CHECK(seq.getStepParameterValue(ParamId::Attack, 3) == Catch::Approx(0.4f));
+
+    seq.toggleStep(3);
+    CHECK(seq.editStepValue(ParamId::Note, 3, 12.0f));
+    CHECK(seq.getStepParameterValue(ParamId::Note, 3) == 12.0f);
+    CHECK_FALSE(seq.editStepValue(ParamId::Note, 3, 12.2f)); // rounds to the stored step
+    CHECK_FALSE(seq.editStepValue(ParamId::Filter, SequencerConstants::MAX_STEPS_COUNT, 0.5f));
 }

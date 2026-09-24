@@ -7,11 +7,9 @@
 // =======================
 
 /**
- * @brief Display names for the parameter buttons, keyed by ParamId.
+ * @brief Display names for the parameter lanes, keyed by ParamId.
  *
- * Parameter buttons live on the Alchemy ButtonModule8 tile (Shift-keyed,
- * mode-dependent) rather than at fixed matrix indices, so the only mapping
- * that remains is ParamId -> display name. Array order matches ParamId.
+ * Array order matches ParamId so OLED labels and tile buttons stay in sync.
  */
 const char *paramName(ParamId paramId)
 {
@@ -41,23 +39,21 @@ ParamId paramIdFromName(const char *name)
 // =======================
 
 /**
- * @brief Initialize button manager state and reset all UI timing variables
+ * @brief Reset holds, pad timers, and modes to the boot state.
  *
- * Resets all button-related states to their defaults, including parameter
- * button hold states, step press timestamps, and UI mode flags. This ensures
- * a clean starting state for the button management system.
+ * Gives the performer a known grid: no stuck holds, no half-open editor.
  *
  * @param uiState Reference to the central UI state object to initialize
  */
 void initButtonManager(UIState &uiState)
 {
-  // Reset all parameter button hold states
+  // Reset all parameter button hold states (no stuck lanes after boot).
   for (int paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
   {
     uiState.parameterButtonHeld[paramIndex] = false;
   }
 
-  // Reset all step button press timestamps for long press detection
+  // Clear pad timers so no boot-time release reads as a hold.
   for (int stepIndex = 0; stepIndex < SequencerConstants::MAX_STEPS_COUNT; ++stepIndex)
   {
     uiState.padPressTimestamps[stepIndex] = 0;
@@ -82,11 +78,10 @@ void initButtonManager(UIState &uiState)
 }
 
 /**
- * @brief Check if a button press duration qualifies as a long press
+ * @brief Tap vs hold split for step pads and tile buttons.
  *
- * Determines whether the given press duration exceeds the long press threshold.
- * Long presses are used for alternative functions like entering edit mode,
- * resetting sequences, or accessing settings.
+ * Below threshold the performer toggles a step; at/above, the step opens for
+ * editing. Polled from the control loop, never blocking.
  *
  * @param pressDurationMs Duration of button press in milliseconds
  * @return true if duration exceeds long press threshold (400ms)
@@ -97,11 +92,10 @@ bool isLongPress(unsigned long pressDurationMs)
 }
 
 /**
- * @brief Check if any parameter button is currently being held
+ * @brief True while a parameter lane is held (pads then set its track length).
  *
- * Scans through all parameter button mappings to determine if any parameter
- * button is currently in a held state. This is used to determine UI behavior
- * when step buttons are pressed (parameter editing vs step toggling).
+ * Slide is skipped while slide mode owns the pads, so one gesture cannot both
+ * toggle legato and rewrite a track length.
  *
  * @param uiState Const reference to the central UI state object
  * @return true if any parameter button is currently held, false otherwise
@@ -112,7 +106,7 @@ bool isAnyParameterButtonHeld(const UIState &uiState)
   {
     const ParamId currentParamId = static_cast<ParamId>(paramIndex);
 
-    // Skip Slide parameter button if currently in slide mode to avoid conflicts
+    // Slide is modal: while it owns the pads it must not also count as a held lane.
     if (currentParamId == ParamId::Slide && uiState.slideMode)
     {
       continue;
@@ -127,11 +121,9 @@ bool isAnyParameterButtonHeld(const UIState &uiState)
 }
 
 /**
- * @brief Get the ParamId of the currently held parameter button
+ * @brief Which lane the pads currently address (first held in ParamId order).
  *
- * Scans the held states in ParamId order and returns the first held
- * parameter. This allows the UI to determine which parameter is being
- * controlled when step buttons are pressed for parameter editing.
+ * The held lane decides what a pad tap writes: track length, not a gate flip.
  *
  * @param uiState Const reference to the central UI state object
  * @return The held parameter's ParamId, or ParamId::Count if none held
@@ -142,7 +134,7 @@ ParamId getHeldParameterParamId(const UIState &uiState)
   {
     const ParamId currentParamId = static_cast<ParamId>(paramIndex);
 
-    // Skip Slide parameter button if currently in slide mode to avoid conflicts
+    // Slide is modal: while it owns the pads it must not also count as a held lane.
     if (currentParamId == ParamId::Slide && uiState.slideMode)
     {
       continue;

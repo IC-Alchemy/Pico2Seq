@@ -7,10 +7,8 @@
 #include <type_traits>
 #include <variant>
 
-// Waveform identifiers stored in VoiceConfig::oscWaveforms[]. rpdsp uses one
-// class per waveform instead of a waveform enum, so these ids select the
-// class through VoiceOscillator below. WAVE_NOISE stays at 255, the old
-// VoiceConfig percussion/noise marker.
+// Waveform ids in VoiceConfig::oscWaveforms[]. WAVE_NOISE (255) is the legacy
+// noise marker; unknown ids fall back to the band-limited saw below.
 inline constexpr uint8_t WAVE_SIN = 0;
 inline constexpr uint8_t WAVE_TRI = 1;
 inline constexpr uint8_t WAVE_SAW = 2;
@@ -20,10 +18,10 @@ inline constexpr uint8_t WAVE_BSP_SQUARE = 5;  // band-limited (was WAVE_POLYBLE
 inline constexpr uint8_t WAVE_HARDSYNC_SAW = 6; // band-limited master/slave hard-sync saw
 inline constexpr uint8_t WAVE_NOISE = 255;
 
-// One oscillator slot in a Voice: decouples the waveform byte in VoiceConfig
-// from rpdsp's class-per-waveform API. Amplitude is not modeled here — the
-// caller multiplies oscAmplitudes[] at mix time because rpdsp oscillators
-// have no amp parameter.
+// VoiceOscillator.h — one oscillator slot: maps the WAVE_* id in VoiceConfig
+// to rpdsp's class-per-waveform API. Amplitude stays with the caller (mix-time
+// oscAmplitudes[] gain); slave pitch is only read for WAVE_HARDSYNC_SAW.
+// Hot path: variant dispatch runs once per span; no allocation here.
 class VoiceOscillator {
  public:
   void prepare(float sampleRate) {
@@ -31,8 +29,8 @@ class VoiceOscillator {
     std::visit([this](auto& osc) { prepareIfTuned(osc); }, osc_);
   }
 
-  // Swaps the active oscillator class. The running pitch and pulse width are
-  // re-applied so a config commit mid-note does not drop the frequency.
+  // Swaps the oscillator class for a waveform edit. Pitch/pulse width carry
+  // over so a mid-note edit never drops the frequency.
   void setWaveform(uint8_t waveform) {
     const uint8_t normalized = normalize(waveform);
     if (normalized == waveform_) {
@@ -53,9 +51,8 @@ class VoiceOscillator {
     std::visit([this](auto& osc) { setFreqIfTuned(osc); }, osc_);
   }
 
-  // For WAVE_HARDSYNC_SAW, setFreq() above is the master pitch. The slave
-  // pitch is independent and can be sequenced without rebuilding the
-  // oscillator. Other waveforms intentionally ignore this setter.
+  // WAVE_HARDSYNC_SAW only: independent slave pitch (the sequenced Slave lane
+  // rides this); every other waveform ignores it.
   void setSlaveFrequency(float hz) {
     slaveFrequencyHz_ = hz;
     std::visit([this](auto& osc) { setSlaveFreqIfHardSync(osc); }, osc_);

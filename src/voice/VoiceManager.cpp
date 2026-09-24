@@ -1,3 +1,5 @@
+// VoiceManager.cpp — VoiceManager implementation (control thread, except
+// processBlock/processAllVoices which run on Core 1 and never allocate).
 #include "VoiceManager.h"
 #include "../utils/AudioRam.h"
 #include <algorithm>
@@ -14,6 +16,13 @@ namespace
 // knob without perceptible lag, slow enough to hide steps and transport-mute
 // clicks (~63% of the way in 15 ms).
 constexpr float kMasterGainTauSeconds = 0.015f;
+// Macro morph easing: same shape as the master gain (fast enough to track
+// the fader, slow enough to hide steps), a touch slower so all six
+// compressor parameters arrive together (~63% in 30 ms).
+constexpr float kMacroTauSeconds = 0.030f;
+// Re-applied compressor setters trip below this macro motion: during a move
+// they run at most once per processBlock call, never per sample.
+constexpr float kMacroApplyEpsilon = 1.0e-4f;
 
 inline float makeSmoothingAlpha(float tauSeconds, float sampleRate) noexcept
 {
@@ -24,41 +33,26 @@ inline float makeSmoothingAlpha(float tauSeconds, float sampleRate) noexcept
 } // namespace
 
 /**
- * @brief Constructor for VoiceManager
- * Initializes voice management system with specified maximum voice capacity
- *
- * @param maxVoices Maximum number of simultaneous voices this manager can handle
- * Sets up initial state: voice ID counter, sample rate (48kHz default), and global volume
- * Pre-allocates vector capacity to avoid runtime allocations on embedded systems
+ * @brief VoiceManager setup: voice capacity, 48 kHz default rate, master bus.
+ * @param maxVoices Max simultaneous voices (firmware uses 4).
  */
 VoiceManager::VoiceManager(uint8_t maxVoices)
-    : maxVoiceCount(maxVoices), nextVoiceId(1), sampleRate(48000.0f), globalVolume(.8f)
+    : maxVoiceCount(maxVoices), nextVoiceId(1), sampleRate(48000.0f), globalVolume(.8f),
+      macroTarget_(kMacroDefault)
 {
     voices.reserve(maxVoiceCount);
     masterGainAlpha_ = makeSmoothingAlpha(kMasterGainTauSeconds, sampleRate);
     masterGain_ = globalVolume.load(std::memory_order_relaxed);
 
-    // Initialize compressor with default settings for a tight, punchy mix.
-    // rpdsp's compressor takes explicit makeup gain instead of auto-makeup;
-    // the values below approximate the old AutoMakeup(true) behavior.
-    compressor.prepare(sampleRate);
-    compressor.setThresholdDb(-16.0f);
-    compressor.setRatio(1.5f);
-    compressor.setAttackRelease(50.0f, 12.0f);  // attack ms, release ms
-    compressor.setMakeupGainDb(5.0f);
+    configureMasterCompressor_();
+
+    masterDelay_.prepare(sampleRate);
 
     DBG_INFO("VoiceManager: constructed maxVoices=%u", maxVoices);
 }
 
 /**
- * Adds a new voice using a VoiceConfig structure
- * Creates and initializes a new voice with the provided configuration
- *
- * @param config VoiceConfig structure containing oscillator, filter, and envelope settings
- * @return uint8_t Unique voice ID (1-255), or 0 if no slots available
- *
- * Process: Checks capacity → generates unique ID → creates voice → initializes → adds to collection
- * Notifies any registered callbacks about voice count change
+ * Adds a voice from a VoiceConfig. Returns the new voice ID, or 0 when full.
  */
 uint8_t VoiceManager::addVoice(const VoiceConfig &config)
 {
@@ -86,13 +80,7 @@ uint8_t VoiceManager::addVoice(const VoiceConfig &config)
 }
 
 /**
- * Adds a new voice using a preset name
- * Convenience method that looks up preset configuration by name and creates voice
- *
- * @param presetName String identifier for preset ("analog", "digital", "bass", "lead", "pad", "percussion")
- * @return uint8_t Unique voice ID, or 0 if preset not found or no slots available
- *
- * Falls back to "analog" preset if specified preset name doesn't exist
+ * Adds a voice from a preset name (unknown names fall back to Analog).
  */
 uint8_t VoiceManager::addVoice(const std::string &presetName)
 {
@@ -101,14 +89,7 @@ uint8_t VoiceManager::addVoice(const std::string &presetName)
 }
 
 /**
- * Removes a voice by its unique ID
- * Safely removes voice from management and cleans up resources
- *
- * @param voiceId The unique identifier of the voice to remove
- * @return bool True if voice was found and removed, false if voice ID not found
- *
- * Uses std::find_if for safe searching, then erases from vector
- * Notifies callbacks about voice count change after removal
+ * Removes a voice by ID. True when found and removed.
  */
 bool VoiceManager::removeVoice(uint8_t voiceId)
 {
@@ -131,11 +112,7 @@ bool VoiceManager::removeVoice(uint8_t voiceId)
 }
 
 /**
- * Removes all voices from the manager
- * Completely clears the voice collection and resets management state
- *
- * Efficiently clears all managed voices using vector::clear()
- * Notifies callbacks that voice count has changed to 0
+ * Removes all voices (control thread, setup-time).
  */
 void VoiceManager::removeAllVoices()
 {
@@ -145,14 +122,7 @@ void VoiceManager::removeAllVoices()
 }
 
 /**
- * Updates a voice's configuration with new settings
- * Applies new oscillator, filter, and envelope parameters to an existing voice
- *
- * @param voiceId Target voice to reconfigure
- * @param config New VoiceConfig structure with updated parameters
- * @return bool True if voice found and updated, false if voice ID not found
- *
- * Queues configuration for application on the audio thread
+ * Reconfigures a voice (queued for the audio thread).
  */
 bool VoiceManager::setVoiceConfig(uint8_t voiceId, const VoiceConfig &config)
 {
@@ -189,13 +159,7 @@ bool VoiceManager::setVoicePreset(uint8_t voiceId, const std::string &presetName
 }
 
 /**
- * Retrieves the latest requested configuration on the control thread
- * Provides read-only access to a voice's current oscillator/filter/envelope settings
- *
- * @param voiceId Voice to query
- * @return VoiceConfig* Pointer to voice's config, or nullptr if voice not found
- *
- * Useful for UI display or debugging voice parameters
+ * Control-thread read of the staged patch (for UI display, not DSP state).
  */
 const VoiceConfig *VoiceManager::getVoiceConfig(uint8_t voiceId)
 {
@@ -209,20 +173,9 @@ const VoiceConfig *VoiceManager::getVoiceConfig(uint8_t voiceId)
 }
 
 /**
- * Updates real-time voice parameters like frequency, gate, velocity
- * Used for live performance control and MIDI input handling
- *
- * The control thread copies the requested state into the voice's bounded queue.
- * Voice::process() applies it and computes pitch on the audio thread.
- * The callback receives the requested state on the control thread.
- * A full queue retains pending controls for flushControlUpdates() to retry.
- *
- * @param voiceId Voice to update
- * @param state VoiceState structure containing frequency, gate, velocity, etc.
- * @return bool True if voice found and updated, false otherwise
- *
- * Queues note/gate/pitch changes without touching the live DSP state
- * Notifies registered callbacks about the voice update
+ * Stages a sequencer step (note/gate/velocity/brightness) for the audio
+ * thread; never touches live DSP state. A full queue keeps pending controls
+ * for flushControlUpdates() to retry.
  */
 bool VoiceManager::updateVoiceState(uint8_t voiceId, const VoiceState &state)
 {
@@ -240,13 +193,7 @@ bool VoiceManager::updateVoiceState(uint8_t voiceId, const VoiceState &state)
 }
 
 /**
- * Retrieves the latest requested state on the control thread
- * Provides access to live parameters like current frequency, gate status, velocity
- *
- * @param voiceId Voice to query
- * @return VoiceState* Pointer to current voice state, or nullptr if voice not found
- *
- * Useful for UI feedback, visualizations, or debugging voice behavior
+ * Control-thread read of the staged step (for UI feedback, not DSP state).
  */
 const VoiceState *VoiceManager::getVoiceState(uint8_t voiceId)
 {
@@ -259,15 +206,7 @@ const VoiceState *VoiceManager::getVoiceState(uint8_t voiceId)
 }
 
 /**
- * Attaches a sequencer to a voice using unique_ptr (transfer ownership)
- * Enables rhythmic/arpeggiated playback for the specified voice
- *
- * @param voiceId Voice to attach sequencer to
- * @param sequencer Unique pointer to sequencer instance (ownership transferred)
- * @return bool True if voice found and sequencer attached, false otherwise
- *
- * Transfers ownership of sequencer to voice - original pointer becomes invalid
- * Voice will automatically handle sequencer lifecycle
+ * Attaches a sequencer, taking ownership (setup only).
  */
 bool VoiceManager::attachSequencer(uint8_t voiceId, std::unique_ptr<Sequencer> sequencer)
 {
@@ -281,23 +220,14 @@ bool VoiceManager::attachSequencer(uint8_t voiceId, std::unique_ptr<Sequencer> s
 }
 
 /**
- * Attaches a sequencer to a voice using raw pointer (no ownership transfer)
- * Enables rhythmic/arpeggiated playback without transferring sequencer ownership
- *
- * @param voiceId Voice to attach sequencer to
- * @param sequencer Raw pointer to sequencer instance (caller retains ownership)
- * @return bool True if voice found and sequencer attached, false otherwise
- *
- * Caller is responsible for sequencer lifecycle management
- * Useful for shared sequencers or external sequencer management
+ * Attaches a sequencer without transferring ownership (caller keeps it).
  */
 bool VoiceManager::attachSequencer(uint8_t voiceId, Sequencer *sequencer)
 {
     ManagedVoice *managedVoice = findVoice(voiceId);
     if (managedVoice && managedVoice->voice && sequencer)
     {
-        // For raw pointers, we don't transfer ownership
-        // The Voice class needs to handle this case
+        // Borrowed pointer: ownership stays with the caller.
         managedVoice->voice->setSequencer(sequencer);
         return true;
     }
@@ -305,13 +235,7 @@ bool VoiceManager::attachSequencer(uint8_t voiceId, Sequencer *sequencer)
 }
 
 /**
- * Retrieves the sequencer attached to a specific voice
- * Provides access to voice's current sequencer for inspection or control
- *
- * @param voiceId Voice to query
- * @return Sequencer* Pointer to attached sequencer, or nullptr if none or voice not found
- *
- * Returns nullptr if no sequencer is attached to the voice
+ * The voice's sequencer, or nullptr when none is attached.
  */
 Sequencer *VoiceManager::getSequencer(uint8_t voiceId)
 {
@@ -325,28 +249,28 @@ Sequencer *VoiceManager::getSequencer(uint8_t voiceId)
 }
 
 /**
- * Initializes or reinitializes all voices with new sample rate
- * Updates sample rate parameter and reinitializes all DSP components
- *
- * @param sr New sample rate in Hz (e.g., 44100.0f, 48000.0f)
- *
- * Must be called after changing audio system sample rate
- * Reinitializes oscillators, filters, and envelopes with new rate
+ * Sets the sample rate for all voices and the master bus (control thread).
  */
 void VoiceManager::init(float sr)
 {
     sampleRate = sr;
     masterGainAlpha_ = makeSmoothingAlpha(kMasterGainTauSeconds, sampleRate);
+    macroAlpha_ = makeSmoothingAlpha(kMacroTauSeconds, sampleRate);
+    macroCurrent_ = macroTarget_.load(std::memory_order_relaxed);
+    macroApplied_ = macroCurrent_;
     masterGain_ = transportMuted_.load(std::memory_order_relaxed)
                       ? 0.0f
                       : globalVolume.load(std::memory_order_relaxed);
 
-    // Reinitialize compressor for new sample rate and reapply settings
-    compressor.prepare(sampleRate);
-    compressor.setThresholdDb(-15.0f);
-    compressor.setRatio(2.0f);
-    compressor.setAttackRelease(2.0f, 50.0f);   // attack ms, release ms
-    compressor.setMakeupGainDb(7.0f);
+    // Master-bus compressor shares the single macro settings curve with
+    // the constructor, re-prepared for the new sample rate.
+    configureMasterCompressor_();
+
+    masterDelay_.prepare(sampleRate);
+    masterDelay_.setMix(delayMix.load(std::memory_order_relaxed));
+    masterDelay_.setDelaySeconds(delayTime.load(std::memory_order_relaxed));
+    masterDelay_.setFeedback(delayFeedback.load(std::memory_order_relaxed));
+    masterDelay_.reset();
 
     DBG_INFO("VoiceManager: init sampleRate=%.1f", sr);
     for (auto &managedVoice : voices)
@@ -356,6 +280,31 @@ void VoiceManager::init(float sr)
             managedVoice->voice->init(sampleRate);
         }
     }
+}
+
+void VoiceManager::configureMasterCompressor_()
+{
+    compressor.prepare(sampleRate);
+    applyMasterCompSettings_(settingsForMacro(macroTarget_.load(std::memory_order_relaxed)));
+    compressor.reset();
+}
+
+void VoiceManager::applyMasterCompSettings_(const MasterCompSettings &settings)
+{
+    compressor.setThresholdDb(settings.thresholdDb);
+    compressor.setRatio(settings.ratio);
+    compressor.setKneeWidthDb(settings.kneeDb);
+    compressor.setAttackRelease(settings.attackMs, settings.releaseMs);
+    compressor.setMakeupGainDb(settings.makeupDb);
+}
+
+void VoiceManager::setMasterMacro(float macro)
+{
+    if (macro < 0.0f)
+        macro = 0.0f;
+    if (macro > 1.0f)
+        macro = 1.0f;
+    macroTarget_.store(macro, std::memory_order_relaxed);
 }
 
 void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noexcept
@@ -374,13 +323,37 @@ void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noe
         }
         const float target = transportMuted_.load(std::memory_order_relaxed)
                                  ? 0.0f : globalVolume.load(std::memory_order_relaxed);
+        const float macroTarget = macroTarget_.load(std::memory_order_relaxed);
         float gain = masterGain_;
         const float alpha = masterGainAlpha_;
+        float macro = macroCurrent_;
+        const float macroAlpha = macroAlpha_;
+        bool macroDirty = false;
+        // Delay targets are read once per block; the delay eases toward them
+        // per sample, the same contract as the master gain above.
+        masterDelay_.setMix(delayMix.load(std::memory_order_relaxed));
+        masterDelay_.setDelaySeconds(delayTime.load(std::memory_order_relaxed));
+        masterDelay_.setFeedback(delayFeedback.load(std::memory_order_relaxed));
         for (uint32_t k = 0; k < count; ++k)
         {
+            const float delayed = masterDelay_.process(out[k]);
             gain += alpha * (target - gain);
-            out[k] *= gain;
+            out[k] = delayed * gain;
+            // Master macro morph: eased per sample, setters at most once per
+            // block so expf coefficient updates never run per sample.
+            macro += macroAlpha * (macroTarget - macro);
+            if (!macroDirty && std::fabs(macro - macroApplied_) > kMacroApplyEpsilon)
+                macroDirty = true;
+            // Master-bus glue + limiter: last DSP before the DAC (AudioEngine's
+            // toPcm16 clamp remains the hard ceiling for pathological sums).
+            out[k] = compressor.process(out[k]);
         }
+        if (macroDirty)
+        {
+            applyMasterCompSettings_(settingsForMacro(macro));
+            macroApplied_ = macro;
+        }
+        macroCurrent_ = macro;
         masterGain_ = gain;
         out += count;
         n -= count;
@@ -452,45 +425,24 @@ void VoiceManager::enableVoice(uint8_t voiceId, bool enabled)
     }
 }
 
-/**
- * Convenience method to disable a voice
- * Immediately mutes specified voice without removing it
- *
- * @param voiceId Voice to disable
- *
- * Wrapper around enableVoice(voiceId, false) for clarity
- */
+/** Mutes a voice without removing it. */
 void VoiceManager::disableVoice(uint8_t voiceId)
 {
     enableVoice(voiceId, false);
     // enableVoice logs; nothing else here to avoid duplicate prints
 }
 
-/**
- * Checks if a voice is currently enabled for processing
- *
- * @param voiceId Voice to check
- * @return bool true if voice exists and is enabled, false otherwise
- *
- * Useful for UI feedback and voice state monitoring
- */
+/** True when the voice exists and is enabled. */
 bool VoiceManager::isVoiceEnabled(uint8_t voiceId) const
 {
     const ManagedVoice *managedVoice = findVoice(voiceId);
     return managedVoice ? managedVoice->enabled : false;
 }
 
-/**
- * Returns list of all currently enabled voice IDs
- *
- * @return std::vector<uint8_t> Vector containing IDs of all enabled voices
- *
- * Optimized for embedded systems: pre-allocates exact capacity needed
- * Useful for UI voice lists, MIDI routing, or debugging
- */
+/** IDs of all enabled voices (control thread; reserve() avoids reallocation). */
 std::vector<uint8_t> VoiceManager::getActiveVoiceIds() const
 {
-    // OPTIMIZATION: Pre-allocate with exact size to avoid dynamic reallocation
+    // Reserve the max possible size to avoid reallocation.
     std::vector<uint8_t> activeIds;
     activeIds.reserve(voices.size()); // Reserve maximum possible size
 
@@ -505,15 +457,7 @@ std::vector<uint8_t> VoiceManager::getActiveVoiceIds() const
     return activeIds;
 }
 
-/**
- * Returns list of all available voice preset names
- *
- * @return std::vector<std::string> Vector of preset name strings
- *
- * Static method - provides consistent preset list across all VoiceManager instances
- * Presets include: analog, digital, bass, lead, pad, percussion
- * Used by UI for preset selection menus
- */
+/** All preset names, lowercased (setup/UI helper; never called by audio). */
 // Static methods for preset management
 std::vector<std::string> VoiceManager::getAvailablePresets()
 {
@@ -530,34 +474,16 @@ std::vector<std::string> VoiceManager::getAvailablePresets()
 
 }
 
-/**
- * Retrieves the VoiceConfig for a named preset
- *
- * @param presetName Name of preset to retrieve configuration for
- * @return VoiceConfig Complete voice configuration for the preset
- *
- * Static method - maps preset names to VoicePresets factory methods
- * Falls back to "analog" preset if requested preset not found
- * Used internally by addVoice() and setVoicePreset() methods
- */
+/** Patch for a preset name (unknown names fall back to Analog). */
 VoiceConfig VoiceManager::getPresetConfig(const std::string &presetName)
 {
     return VoicePresets::getPresetConfigByName(presetName);
 }
 
-/**
- * Private helper: finds a ManagedVoice by its unique ID
- *
- * @param voiceId ID of voice to find
- * @return ManagedVoice* Pointer to found voice, or nullptr if not found
- *
- * Uses direct iteration for better embedded performance vs std::find_if
- * Returns raw pointer to avoid ownership issues
- */
-// Private helper methods - OPTIMIZED for embedded performance
+// Private helpers (control thread).
 VoiceManager::ManagedVoice *VoiceManager::findVoice(uint8_t voiceId)
 {
-    // OPTIMIZATION: Use direct iteration instead of std::find_if for better embedded performance
+    // Direct iteration (cheaper than std::find_if on this core).
     for (auto &voice : voices)
     {
         if (voice->id == voiceId)
@@ -569,13 +495,7 @@ VoiceManager::ManagedVoice *VoiceManager::findVoice(uint8_t voiceId)
 }
 
 /**
- * Private helper: generates unique voice IDs
- *
- * @return uint8_t New unique voice ID (1-255)
- *
- * Handles ID overflow (wraps from 255 to 1)
- * Ensures uniqueness by checking against existing voices
- * Never returns 0 (reserved for error/invalid cases)
+ * Next voice ID (1-255, wraps; 0 is reserved for "no voice").
  */
 uint8_t VoiceManager::generateVoiceId()
 {
@@ -601,13 +521,7 @@ uint8_t VoiceManager::generateVoiceId()
     return id;
 }
 
-/**
- * Private helper: notifies callbacks about voice count changes
- *
- * Calls registered voiceCountCallback with current voice count
- * Used for UI updates, MIDI routing changes, or system notifications
- * Safe to call even if no callback is registered
- */
+/** Runs the voice-count callback, if one is registered. */
 void VoiceManager::notifyVoiceCountChanged()
 {
     if (voiceCountCallback)
@@ -617,16 +531,7 @@ void VoiceManager::notifyVoiceCountChanged()
     DBG_INFO("VoiceManager: voiceCount=%u", (unsigned)getVoiceCount());
 }
 
-/**
- * Private helper: notifies callbacks about voice parameter updates
- *
- * @param voiceId ID of voice that was updated
- * @param state New voice state parameters
- *
- * Calls registered voiceUpdateCallback with voice ID and new state
- * Used for UI parameter displays, MIDI feedback, or debugging
- * Safe to call even if no callback is registered
- */
+/** Runs the voice-update callback, if one is registered. */
 void VoiceManager::notifyVoiceUpdated(uint8_t voiceId, const VoiceState &state)
 {
     if (voiceUpdateCallback)
@@ -638,14 +543,7 @@ void VoiceManager::notifyVoiceUpdated(uint8_t voiceId, const VoiceState &state)
 }
 
 /**
- * Sets the portamento (slide) time for frequency changes
- * Controls how quickly voice glides between frequencies
- *
- * @param voiceId Voice to control
- * @param slideTime Slide time in seconds (0.0 = instant, higher = slower glide)
- *
- * Enables smooth pitch transitions between notes
- * Applied to frequency parameter changes for legato playing
+ * Slide (portamento) time: how fast the voice glides between notes.
  */
 void VoiceManager::setVoiceSlide(uint8_t voiceId, float slideTime)
 {

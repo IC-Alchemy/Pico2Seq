@@ -18,7 +18,11 @@
 
 #include <uClock.h>
 
-// Begin tracking a randomize press for a voice index [0..3]
+// ButtonHandlers.cpp — what each button gesture does to the music.
+// All timing is millis()-based and non-blocking (Core 0 must keep scanning).
+// Transport/scale/theme act immediately; destructive wipes are hold-gated.
+
+// Stamp the press start so release can split tap (audition) vs hold (commit).
 void beginRandomizePress(int voiceIndex, UIState &state)
 {
   if (voiceIndex < 0 || voiceIndex >= UIState::NUM_RANDOMIZE)
@@ -27,7 +31,7 @@ void beginRandomizePress(int voiceIndex, UIState &state)
   state.randomizeWasPressed[voiceIndex] = true;
 }
 
-// End tracking for a randomize press and clear flags
+// Clear the tap/hold latch so one press can never fire twice.
 void endRandomizePress(int voiceIndex, UIState &state)
 {
   if (voiceIndex < 0 || voiceIndex >= UIState::NUM_RANDOMIZE)
@@ -36,7 +40,9 @@ void endRandomizePress(int voiceIndex, UIState &state)
   state.randomizeResetTriggered[voiceIndex] = false;
 }
 
-// Handle randomize button behavior for a single voice
+// Tap: performer gets a fresh variation now. Hold (via pollUIHeldButtons):
+// the voice goes silent-empty. Short-press path only; the hold path lives in
+// the poller because the matrix delivers edges, not holds.
 void handleRandomizeButton(int voiceIndex, UIState &state)
 {
   if (voiceIndex < 0 || voiceIndex >= UIState::NUM_RANDOMIZE)
@@ -46,28 +52,26 @@ void handleRandomizeButton(int voiceIndex, UIState &state)
   if (!seq)
     return;
 
-  // Calculate press duration and branch accordingly
+  // Tap vs hold split, decided on release so a hold can still promote mid-press.
   unsigned long heldTime = millis() - state.randomizePressTime[voiceIndex];
   if (!isLongPress(heldTime))
   {
-    // Short press: randomize parameters
+    // Short press: shuffle this voice's steps for instant variation.
     seq->randomizeParameters();
-    //   Serial.print("Seq ");
-    //  Serial.print(voiceIndex + 1);
-    //  Serial.println(" randomized by short press");
 
-    // Transient OLED confirmation (replaces the old control-LED flash)
+    // Brief OLED banner so the performer sees which voice just shuffled.
     state.oledNoticeKind = UIState::OledNoticeKind::Randomized;
     state.oledNoticeVoice = static_cast<uint8_t>(voiceIndex);
     state.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
   }
 
-  // Reset state and UI flashes common to all randomize buttons
+  // Always unlatch and leave step-edit: a shuffled voice shows the grid, not a stale editor.
   endRandomizePress(voiceIndex, state);
   state.selectedStepForEdit = -1;
 }
 
-// Helper to cycle encoder parameter selection and report
+// Step the encoder to its next target (velocity -> filter -> ...); the next
+// turn then edits the newly shown lane. Clears the accumulator so no jump carries over.
 static void cycleEncoderParameter(UIState &uiState)
 {
   VoiceEditor::clearEncoder();
@@ -78,8 +82,9 @@ static void cycleEncoderParameter(UIState &uiState)
   uiState.lastEncoderButtonPressTime = millis();
 }
 
-// Handle parameter button for a specific voice and parameter index
-// paramIndex is the matrix button index (e.g., 8..24) for voice parameter toggles
+// Toggle a timbre switch on the selected voice (envelope/drive/filter).
+// paramIndex is the raw settings-pad index driving this toggle.
+// Works on a copy, then publishes: Core 1 audio never sees a half-written config.
 void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)
 {
   if (!voiceManager)
@@ -92,7 +97,7 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)
   const VoiceConfig *liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
   if (!liveCfg)
     return;
-  // Work on a local copy to avoid mutating live config from UI thread
+  // Work on a local copy: the UI thread must never mutate the live voice config.
   VoiceConfig config = *liveCfg;
 
   // Set UI state for voice parameter mode feedback
@@ -116,7 +121,7 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)
     Serial.print(" overdrive ");
     Serial.println(config.hasOverdrive ? "ON" : "OFF");
     break;
-  // case 10 (hasWavefolder toggle) removed with the wavefolder effect
+  // Wavefolder toggle (pad 10) went away with the effect; pads 15-24 stay spare.
   case 11:
   { // Cycle through the shared filter-mode table (names and modes stay in sync)
     if (!config.hasFilter)
@@ -167,18 +172,20 @@ void handleVoiceParameterButton(int voiceIndex, int paramIndex, UIState &state)
   break;
 
   default:
-    // Buttons 15-24 reserved for future voice parameters
+    // Spare pad: no timbre mapped yet, so nothing changes audibly.
     Serial.print("Voice parameter button ");
     Serial.print(paramIndex);
     Serial.println(" pressed (no action defined yet)");
     break;
   }
 
-  // Apply the updated configuration to the voice to persist changes
+  // Publish the switched timbre to the audio core via the staged handoff.
   voiceManager->setVoiceConfig(currentVoiceId, config);
 }
 
-// Handle generic control buttons by button id
+// One entry point for transport/mode tiles: play/stop, scale, theme, swing,
+// slide, encoder target. Each branch is immediate except play/stop, which also
+// opens/closes the preset browser so stopping invites sound selection.
 void handleControlButton(int buttonId, UIState &state)
 {
   switch (buttonId)
@@ -197,13 +204,13 @@ void handleControlButton(int buttonId, UIState &state)
     if (isClockRunning)
     {
       uClock.stop();
-      // Enter settings mode when stopping
+      // Stopping opens the preset browser: silence invites sound selection.
       openSettingsMode(state);
     }
     else
     {
       uClock.start();
-      // Exit settings mode if active
+      // Starting again leaves the browser if it was open: back to the grid.
       if (state.settingsMode)
       {
         closeSettingsMode(state);
@@ -229,14 +236,9 @@ void handleControlButton(int buttonId, UIState &state)
   {
     state.currentShufflePatternIndex = (state.currentShufflePatternIndex + 1) % NUM_SHUFFLE_TEMPLATES;
     const ShuffleTemplate &currentTemplate = shuffleTemplates[state.currentShufflePatternIndex];
-    // Apply shuffle template to uClock
+    // Apply shuffle template to uClock (index 0 = straight time).
     uClock.setShuffleTemplate(const_cast<int8_t *>(currentTemplate.ticks), SHUFFLE_TEMPLATE_SIZE);
-    uClock.setShuffle(state.currentShufflePatternIndex > 0); // Enable shuffle if not "No Shuffle"
-
-    // Serial.print("Shuffle pattern changed to index ");
-    // Serial.print(state.currentShufflePatternIndex);
-    // Serial.print(": ");
-    // Serial.println(currentTemplate.name);
+    uClock.setShuffle(state.currentShufflePatternIndex > 0);
   }
   break;
 

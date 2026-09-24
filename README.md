@@ -8,7 +8,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **4 Independent Polyphonic Voices**: Each with a complete DSP chain (B-spline oscillator bank, resonant main filter, ADSR envelope, overdrive distortion)
 - **Five Sound Engines per Voice**: A classic oscillator bank (up to 3 oscillators, or raw noise), a Karplus-Strong **waveguide** engine for plucked/nylon/bell/shimmer strings, a **noise-FX texture** engine (prime-tap diffuser, regenerative allpass swarm, pitch-tracked Lorenz chaos growl), a native 7-voice **hypersaw** engine, and a **recipe** engine for modular rpdsp sound synthesis patches (FM, phase distortion, DSF, formant synthesis, ring modulation, reversing sync, spectral, and chaotic prisms)
 - **Two Filter Topologies**: A 24dB multi-mode ladder filter (LP12, LP24, BP12, BP24, HP12, HP24) with drive and passband gain compensation on the character voices, plus a clean modulation-stable state-variable filter (LP/BP/HP) everywhere else — including all three bass presets
-- **Effects Processing**: Per-voice overdrive distortion
+- **Effects Processing**: Per-voice overdrive distortion, followed by a master-bus analog-style delay and compressor. Shift + fader 1 sets feedback (0–100%). Fader 2 sets delay mix (Shift: time); fader 3 sets master volume (Shift: Warm/Glue/Punch compressor macro).
 - **ADSR Envelopes**: Fast, analog-modeled attack, decay, sustain, and release stages with microsecond accuracy
 - **29 Voice Presets**: Stored as `constexpr` tables in flash (.rodata), all on one browser page, covering classic subtractive, sub-bass, waveguide string, hypersaw, noise-texture, and 14 recipe/musical sounds
 
@@ -19,6 +19,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **Shuffle & Swing**: 16 PPQN shuffle templates for groovy swing timing
 
 ### Intuitive Controls
+- **Arpeggiator Mode**: `Shift + hold Voice 4` turns the same panel into a chord arpeggiator — the 32 pads become a scale-degree keyboard, the LED matrix becomes the chord map, the four faders set range/gate/swing/filter, the dial sets the rate, the lidar sets note dynamics, and the button panel switches the six patterns and latches the chord. See [Arpeggiator mode](docs/arpeggiator.md)
 - **32-Button Touch Matrix**: MPR121 capacitive touch grid providing 32 dedicated step sequencing pads across two voice banks
 - **Alchemy Modular UI Tiles**: Dedicated `SliderModule` (4 faders + 4 voice selects) and `ButtonModule8` (8 multi-function buttons) on a dedicated I2C1 bus
 - **Hardware Mode Strap (GP7)**: Instant hardware toggle between Parameter mode and Utility mode
@@ -47,10 +48,12 @@ For a practical guide to changing the firmware, start with
 ├── .gitmodules               # Git submodule configuration
 ├── src/
 │   ├── app/                  # Startup, clock/playback glue, controls and audio output
+│   │   ├── ArpPlayback.*    # Arpeggiator mode: slot-to-voice mapping and VoiceState publishing
 │   ├── audio/                # I2S audio interface, PIO DMA, and buffer management
 │   ├── pico2seq-core/        # Portable core sequencer, ParameterTrack, and scale tables
-│   │   ├── scales/           # 13 scale tables and MIDI mapping
-│   │   └── sequencer/        # Sequencer, ParameterManager, SequencerDefs, ShuffleTemplates
+│   │   ├── arpeggiator/     # Portable chord/pattern/clock engine behind Arpeggiator mode
+│   │   ├── scales/          # 13 scale tables and MIDI mapping
+│   │   └── sequencer/       # Sequencer, ParameterManager, SequencerDefs, ShuffleTemplates
 │   ├── rpdsp/                # Submodule: IC-Alchemy/RPDSP (header-only DSP algorithms)
 │   ├── VelocityEncoder/      # Submodule: IC-Alchemy/VelocityEncoder (TMAG5273 driver)
 │   ├── voice/                # Synthesizer voices, VoiceSystem, and VoicePresets
@@ -67,7 +70,7 @@ For a practical guide to changing the firmware, start with
 │   │   └── UIEventHandler.h/.cpp      # Sequencer step adapter logic
 │   ├── matrix/               # MPR121 4×8 touch matrix — 32 dedicated step pads
 │   ├── sensors/              # Sensor management (EncoderManager and VL53L1X DistanceSensor)
-│   ├── midi/                 # Internal gate/note lifecycle (MidiNoteManager); USB MIDI removed 2026-09-06
+│   ├── midi/                 # Removal notice only; USB remains CDC-only
 │   ├── LEDMatrix/            # 8×4 WS2812B RGB visual feedback (pad-mirror) and 10 color themes
 │   ├── OLED/                 # 128×64 SH1106G OLED display manager and priority screens
 │   ├── utils/                # Debug logging utilities (Debug.h/.cpp)
@@ -168,7 +171,7 @@ Copy-StageTree -Source $repoRoot -Destination $stageSketch
 $boardOptions = @(
     'flash=4194304_65536'
     'arch=arm'
-    'freq=300'
+    'freq=150'
     'opt=Optimize3'
     'profile=Disabled'
     'rtti=Disabled'
@@ -228,7 +231,7 @@ MIDI, displays, sensors, or controls on physical hardware.
 6. **Real-time recording:** Hold (or Shift+tap to latch) a parameter button and touch step pads to record automation into the pattern.
 7. **Switch function sets:** Toggle the GP7 mode strap between **Param** (Note, Velocity, Filter, Attack, Decay, Octave, Slide, Shift) and **Utility** (Play/Stop, Session Save/Load, Scale, Swing, Theme, Encoder Target, Randomize, Shift).
 8. **Voice Editing mode:** Hold **Shift** and press slider button 4 to stop transport and edit any voice's sound parameters directly with the encoder (button tiles navigate groups/parameters; slider buttons 1–4 pick the voice). See [`docs/voice-edit.md`](docs/voice-edit.md).
-9. **Master volume:** In Utility mode, fader 3 sets the final output volume (applied on Core 1's final mix).
+9. **Delay & groove:** Fader 2 sets the master delay wet mix (hold **Shift** and move the same fader for delay time, 10–750 ms, with tape-style pitch glides). Fader 3 keeps master volume; **Shift + fader 3** morphs the compressor across Warm/Glue/Punch. Shuffle/swing comes from the 16 templates (Utility button 4).
 10. **Clear a voice / start fresh:** In Utility mode, **Shift + Randomize tap** wipes the selected voice's whole pattern (all step values, gates, slides and per-track lengths); **Shift + Randomize long-press** wipes all four voices the same way. Voice presets, tempo and transport state are kept.
 
 ### Preset System

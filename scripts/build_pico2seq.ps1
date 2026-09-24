@@ -2,9 +2,16 @@
 param(
     [string]$ArduinoCli = 'arduino-cli',
     [string]$BuildDirectory,
-    [ValidateSet(150, 225, 300)] [int]$CpuMHz = 300,
+    [ValidateSet(150, 225, 300)] [int]$CpuMHz = 150,
     [switch]$AudioInFlash,
-    [switch]$KeepStage
+    [switch]$KeepStage,
+    # User-facing build name (first prompt of build.ps1). publish_uf2.ps1
+    # turns it into "<title>_Pico2Seq_<yyyy-MM-dd>.uf2".
+    [string]$FirmwareTitle = '',
+    # Working-copy destination. Keep this default in sync with
+    # publish_uf2.ps1 -WorkingUf2Dir.
+    [string]$WorkingUf2Dir = 'Z:\Codezzz\workingUF2',
+    [switch]$NoWorkingCopy
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,6 +37,13 @@ if ([string]::IsNullOrWhiteSpace($BuildDirectory)) {
 } else {
     $buildPath = [IO.Path]::GetFullPath($BuildDirectory)
 }
+
+$subStatus = git -C $repoRoot submodule status --recursive
+# git prefixes each line with ' ' (in sync), '+' (different commit checked out),
+# '-' (not initialized) or 'U' (merge conflicts). Only the last three are stale.
+if ($subStatus -match '^[\+\-U]') { throw "Submodules out of date. Run: git submodule update --init --recursive`n$subStatus" }
+if (-not (Test-Path (Join-Path $repoRoot 'src/rpdsp/src/rpdsp/DSPFunctions.h'))) {
+    throw 'src/rpdsp is empty. Clone with --recurse-submodules or run: git submodule update --init --recursive' }
 
 function Copy-StageTree {
     param(
@@ -102,6 +116,18 @@ try {
     })
     if ($missingArtifacts.Count -gt 0) {
         throw "Arduino CLI exited with code 0, but these expected artifacts were not found: $($missingArtifacts -join ', ')."
+    }
+
+    # Rename/copy the UF2 from wherever this build landed: publish_uf2.ps1
+    # finds the newest *.uf2 recursively, stages the canonical
+    # "<title>_Pico2Seq_<date>.uf2" next to the original (the original stays
+    # for `arduino-cli upload --input-dir`), and copies it to the working folder.
+    $publishScript = Join-Path $PSScriptRoot 'publish_uf2.ps1'
+    if (Test-Path -LiteralPath $publishScript -PathType Leaf) {
+        & $publishScript -BuildDir $buildPath -FirmwareTitle $FirmwareTitle `
+            -WorkingUf2Dir $WorkingUf2Dir -NoWorkingCopy:$NoWorkingCopy
+    } else {
+        Write-Warning 'publish_uf2.ps1 was not found next to this script; skipping UF2 rename/copy.'
     }
 
     $buildSucceeded = $true

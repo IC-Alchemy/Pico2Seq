@@ -1,3 +1,6 @@
+// VoicePresets.h — factory patches (flash-resident constexpr; no heap).
+// Each preset is a complete musical starting point: engine, oscillators,
+// filter, and envelope defaults voiced to play well from the first step.
 #pragma once
 
 #include "VoiceConfig.h"
@@ -28,7 +31,7 @@ namespace VoicePresets {
   const VoiceConfig& getPadVoice() noexcept;
   const VoiceConfig& getPercussionVoice() noexcept;
 
-  // Extended factory functions (presets 8-15)
+  // Extended factories: subs, plucked strings, supersaw, noise, recipes.
   const VoiceConfig& getSubFunkVoice() noexcept;
   const VoiceConfig& getRubberSubVoice() noexcept;
   const VoiceConfig& getWaveguidePluckVoice() noexcept;
@@ -43,9 +46,8 @@ namespace VoicePresets {
   const VoiceConfig& getPresetConfig(uint8_t presetIndex) noexcept;
   uint8_t getPresetCount() noexcept;
 
-  // Sequencer-slot interop for non-standard param sets. Inverse of WgPluck's
-  // T60 lane (0.15..4 s, centered on 1.8 s) so preset values can be seeded
-  // into the re-purposed Decay track.
+  // Inverse of the WgPluck T60 lane (0.15..4 s, centered 1.8 s): converts a
+  // patch T60 in seconds back to a Decay-lane value for track seeding.
   float wgT60ToNormalized(float t60Seconds) noexcept;
 
   // Which sequencer parameter set a preset exposes. Out-of-range or unknown

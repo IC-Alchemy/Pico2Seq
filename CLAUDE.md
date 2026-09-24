@@ -60,7 +60,7 @@ extension's `buildPreferences` `-ffast-math` is not read by the CLI, so it is pa
 via `--build-property`):
 
 ```bash
-PICO2_FQBN='rp2040:rp2040:rpipico2:flash=4194304_65536,arch=arm,freq=225,opt=Optimize3,profile=Disabled,rtti=Disabled,stackprotect=Disabled,exceptions=Disabled,dbgport=Disabled,dbglvl=None,usbstack=tinyusb,ipbtstack=ipv4only,uploadmethod=default'
+PICO2_FQBN='rp2040:rp2040:rpipico2:flash=4194304_65536,arch=arm,freq=150,opt=Optimize3,profile=Disabled,rtti=Disabled,stackprotect=Disabled,exceptions=Disabled,dbgport=Disabled,dbglvl=None,usbstack=tinyusb,ipbtstack=ipv4only,uploadmethod=default'
 
 arduino-cli compile --fqbn "$PICO2_FQBN" \
   --build-property "build.extra_flags=-ffast-math" \
@@ -91,6 +91,31 @@ Two ways to flash:
 Rule of thumb after a freeze: watchdog rebooted (post-mortem printed) → method 1 works;
 hard-froze with no reboot → use method 2.
 
+### Freeze recovery and CPU-clock policy
+
+The stable firmware baseline is **150 MHz**. Keep all normal build paths aligned at 150 MHz:
+
+- `scripts/build_pico2seq.ps1` defaults to `CpuMHz = 150`.
+- `.vscode/arduino.json` uses `freq=150`.
+- The documented CLI FQBN uses `freq=150`.
+- `scripts/build.ps1` requires an explicit CPU selection; it must never silently select 300 MHz.
+- 225 MHz and 300 MHz are performance experiments only and must be requested explicitly with
+  `-CpuMHz 225` or `-CpuMHz 300` (or the corresponding board option). A no-argument helper build
+  must never default to 300 MHz.
+
+This policy addresses the confirmed configuration regression: commit `388b6df` changed the helper
+from 225 MHz to 300 MHz, while the known-good `build/t1-225` artifact was explicitly built at 225 MHz.
+PowerShell history showed later no-argument helper invocations inheriting 300 MHz. The final
+`review-150-final3` firmware was built at 150 MHz and the user confirmed that it works on the board;
+keep 150 MHz as the default until a faster clock is separately hardware-validated.
+
+The fault postmortem is also corrected. The Arduino/FreeRTOS Core 0 task uses PSP, but the old
+handler always read MSP, so its PC/LR values could be stale stack words and falsely appeared to point
+at LittleFS. `src/utils/FreezeWatchdog.cpp` now uses a naked `EXC_RETURN` stack selector, records
+`CFSR`/`HFSR`/`BFAR`/`MMFAR`/`EXC_RETURN` in NOINIT RAM, and avoids invalid frame reads for stacking
+errors. This improves future diagnosis; it is not a substitute for the 150 MHz hardware A/B result.
+Always decode a reported PC/LR against the ELF produced by the exact failing build—addresses are
+link-layout-specific.
 
 ## Testing strategy — read this before touching anything under `src/`
 
@@ -183,11 +208,12 @@ Matrix/TMAG5273/VL53L1X input  (Core 0)
     has been transmitted since USB MIDI was removed 2026-09-06) → VoiceManager
   → Voice spans (sources → envelope gain → effects → velocity → main filter → HPF)
   → fill_audio_buffer()  (Core 1)  → I2S @ 48kHz (final mix includes the master
-    volume from `VoiceManager::setGlobalVolume()`, utility fader 3)
+    volume from `VoiceManager::setGlobalVolume()`, restored from the session and
+    driven by Utility-mode fader 3)
 ```
 
 `Sequencer::ParameterTrack<N>` (in `SequencerDefs.h`) is the polymetric building block: each
-`ParamId` (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide) gets its own
+`ParamId` (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide, Sustain, Release) gets its own
 fixed-size array with an independent `currentStepCount` and modulo-wrapping `getValue()`. This
 is what makes "Note track at 16 steps, Filter track at 8 steps" possible on the same voice.
 

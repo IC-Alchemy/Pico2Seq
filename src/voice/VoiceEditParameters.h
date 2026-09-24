@@ -1,3 +1,7 @@
+// VoiceEditParameters.h — patch editor model: stable Id per parameter (append
+// only; cursors persist by Id), groups for the UI pages, units/ranges for
+// display and clamping. available() hides engine-irrelevant rows (e.g. string
+// model on oscillator voices). Pure control-thread logic; no DSP here.
 #pragma once
 #include "VoiceParameters.h"
 #include <cstddef>
@@ -27,7 +31,7 @@ enum class Unit : uint8_t {
   Toggle,
   Choice
 };
-// Append new IDs; editor cursors refer to these stable IDs, never visible rows.
+// Append new IDs; editor cursors persist by these stable IDs, not visible rows.
 enum class Id : uint8_t {
   Note,
   Velocity,
@@ -130,15 +134,28 @@ Id nextParameter(Id current, int direction, const VoiceConfig &config,
                  bool changeGroup) noexcept;
 ParamId sequenceLane(Id id, const VoiceConfig &config) noexcept;
 
-// Attack lanes stop at 2 s so their travel stays on playable step attacks;
-// decay lanes keep the full 1 ms..10 s envelope range.
+// Attack lanes stop at 2 s so encoder travel stays on playable pluck-to-swell
+// attacks; decay keeps the full 1 ms..10 s envelope range.
 inline constexpr float kAttackMaxSeconds = 2.0f;
 
+// A lane's patch value, normalized the way the lane stores it.
 float laneBase(ParamId id, const VoiceConfig &config) noexcept;
 float timeNormalize(float seconds) noexcept;
 float attackNormalize(float seconds) noexcept;
+// Playback transform. Absolute lanes (isPatchDefaultLane) play their stored
+// value, or laneBase() for LANE_FOLLOWS_PATCH; Note and Octave transpose the
+// patch; GateLength offsets it around 0.5; Gate/Slide combine with the patch.
 float composeLane(ParamId id, float stored, const void *config) noexcept;
 int8_t mapOctave(float normalized) noexcept;
+// Neutral pattern: absolute lanes follow the patch, offsets rest at zero.
 void seedModifiers(Sequencer &sequencer);
+// Sessions saved before absolute lanes stored Velocity/Filter/Attack/Decay as
+// offsets around the patch (0.5 = patch). Converts one saved lane in place:
+// neutral steps follow the patch, every other step becomes the absolute
+// value it played under config. Works on saved data, not a live Sequencer,
+// whose raw writes wrap at the active length.
+void convertOffsetValues(ParamId lane, float *values, size_t count, const VoiceConfig &config);
+// Display name of a sequencer lane under this voice's layout.
+const char *laneName(ParamId lane, const VoiceConfig &config) noexcept;
 void enablePatch(VoiceConfig &config) noexcept;
 } // namespace VoiceEdit

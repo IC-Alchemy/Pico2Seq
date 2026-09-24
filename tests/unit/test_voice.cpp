@@ -377,6 +377,81 @@ TEST_CASE("Waveguide presets bypass filter and envelope", "[voice][presets]") {
     }
 }
 
+TEST_CASE("Waveguide string tuning lands only on gate-on, humanized under 5%", "[voice][waveguide]") {
+    VoiceConfig cfg = VoicePresets::getWaveguidePluckVoice();
+    Voice v(0, cfg);
+    initVoiceWithScale(v);
+
+    auto within5pct = [](float applied, float base) {
+        if (base == 0.0f)
+            return applied == 0.0f; // explicit unison/dry never drifts
+        return std::fabs(applied - base) <= 0.05f * std::fabs(base);
+    };
+    auto checkBounded = [&](const Voice::WaveguideSettings &a, const VoiceConfig &base) {
+        INFO("t60 " << a.t60 << " vs " << base.wgT60);
+        REQUIRE(within5pct(a.t60, base.wgT60));
+        REQUIRE(within5pct(a.brightness, base.wgBrightness));
+        REQUIRE(within5pct(a.pickPosition, base.wgPickPosition));
+        REQUIRE(within5pct(a.pickHardness, base.wgPickHardness));
+        REQUIRE(within5pct(a.stiffness, base.wgStiffness));
+        REQUIRE(within5pct(a.detune, base.wgDetune));
+    };
+    auto runSamples = [&](int n) {
+        for (int i = 0; i < n; ++i)
+            v.process();
+    };
+
+    // Gate on: tuning lands, humanized around the configured base.
+    v.setGate(true);
+    runSamples(4);
+    const auto first = v.getAppliedWaveguideParams();
+    REQUIRE(first.valid);
+    checkBounded(first, cfg);
+    REQUIRE(first.stiffness == 0.0f); // WgPluck base is 0: stays exactly 0
+
+    // Retune while the note rings: the ringing string must not move.
+    VoiceConfig held = cfg;
+    held.wgT60 = 6.0f;
+    held.wgBrightness = 0.2f;
+    held.wgPickPosition = 0.4f;
+    held.wgPickHardness = 0.3f;
+    held.wgDetune = 12.0f;
+    v.setConfig(held);
+    runSamples(64);
+    const auto duringNote = v.getAppliedWaveguideParams();
+    REQUIRE(duringNote.t60 == first.t60);
+    REQUIRE(duringNote.brightness == first.brightness);
+    REQUIRE(duringNote.pickPosition == first.pickPosition);
+    REQUIRE(duringNote.pickHardness == first.pickHardness);
+    REQUIRE(duringNote.stiffness == first.stiffness);
+    REQUIRE(duringNote.detune == first.detune);
+
+    // Next gate-on picks up the edited base, still humanized.
+    v.setGate(false);
+    runSamples(4);
+    v.setGate(true);
+    runSamples(4);
+    const auto second = v.getAppliedWaveguideParams();
+    checkBounded(second, held);
+    REQUIRE(second.t60 != first.t60);
+
+    // Repeated notes re-roll: not every pluck sounds identical.
+    bool varied = false;
+    float prevT60 = second.t60;
+    for (int n = 0; n < 8; ++n)
+    {
+        v.setGate(false);
+        runSamples(4);
+        v.setGate(true);
+        runSamples(4);
+        const float t = v.getAppliedWaveguideParams().t60;
+        checkBounded(v.getAppliedWaveguideParams(), held);
+        varied = varied || (t != prevT60);
+        prevT60 = t;
+    }
+    REQUIRE(varied);
+}
+
 TEST_CASE("Only Analog and Lead keep the ladder filter", "[voice][presets]") {
     int ladderCount = 0;
     for (uint8_t p = 0; p < VoicePresets::getPresetCount(); ++p)

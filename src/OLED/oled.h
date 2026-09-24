@@ -1,3 +1,7 @@
+// oled.h — SH1106 128x64 status screen (Core 0, I2C0).
+// Player view: what's editable now — held-lane value, ENV page, preset menu.
+// One view per frame by priority; commitFrame() pushes only changed 128-byte
+// pages so a static screen costs no I2C traffic.
 #ifndef OLED_H
 #define OLED_H
 
@@ -13,113 +17,64 @@
 struct VoiceConfig;
 class SequencerView;
 
-/**
- * @brief Voice Parameter Observer Interface
- *
- * Provides immediate callback system for real-time OLED display updates
- * when voice parameters change or voices are switched. Enables responsive
- * visual feedback for parameter editing operations.
- */
+// Callback into the screen when a voice value or selection changes, so the
+// player sees the edit without waiting for the next poll.
 class VoiceParameterObserver
 {
 public:
   virtual ~VoiceParameterObserver() = default;
 
-  /**
-   * @brief Called when a voice parameter value changes
-   * @param voiceId ID of the voice that changed
-   * @param state Current voice state with updated parameter values
-   */
+  // Fired with the new value already applied; state is the voice snapshot.
   virtual void onVoiceParameterChanged(uint8_t voiceId, const VoiceState &state) = 0;
 
-  /**
-   * @brief Called when the active voice is switched
-   * @param newVoiceId ID of the newly selected voice
-   */
+  // Fired on voice select (0-based id); the screen re-reads on next update.
   virtual void onVoiceSwitched(uint8_t newVoiceId) = 0;
 };
 
-/**
- * @brief OLED Display Manager for Pico2Seq
- *
- * Comprehensive display system providing real-time visual feedback for:
- * - Parameter editing with value display and progress bars
- * - Settings menu navigation with preset selection
- * - Voice parameter configuration display
- * - Step sequencer status with animated indicators
- * - Scale and shuffle pattern information
- *
- * Implements VoiceParameterObserver for immediate parameter change feedback
- * and includes animated visual enhancements for professional appearance.
- */
+// SH1106 status screen: held-lane value, ENV page, preset/settings menus, and
+// a step-bar mirror of the gate lane. Priority-ordered, one view per frame;
+// all drawing is Core 0, millis()-timed, never blocking.
 class OLEDDisplay : public VoiceParameterObserver
 {
 public:
-  /**
-   * @brief Constructor - initializes display object
-   */
   OLEDDisplay();
 
-  /**
-   * @brief Initialize OLED display hardware
-   * @return true if initialization successful, false on failure
-   */
+  // Probe the panel at 0x3C; false = run headless, caller degrades gracefully.
   bool begin();
 
-  /**
-   * @brief Update display with current system state (basic version)
-   * @param uiState Current UI state containing button states and modes
-   * @param sequencers Fixed voice-order view for parameter values
-   */
+  // Render from UI + sequencer snapshots (no voice config: some views degrade).
   void update(const UIState &uiState, const SequencerView &sequencers);
 
-  /**
-   * @brief Update display with voice manager access (extended version)
-   * @param uiState Current UI state containing button states and modes
-   * @param sequencers Fixed voice-order view for parameter values
-   * @param voiceManager Pointer to voice manager for accessing voice configurations
-   */
+  // Full render with voice configs for musical (Hz/note) value formatting.
   void update(const UIState &uiState, const SequencerView &sequencers,
               class VoiceManager *voiceManager);
 
-  /**
-   * @brief Clear display and turn off all pixels
-   */
+  // Blank the panel now (also pushes, so LEDs/OLED stay in sync).
   void clear();
 
-  /**
-   * @brief Check if display hardware is initialized and ready
-   * @return true if display is ready for use
-   */
+  // False until begin() probes the panel — every view bails when headless.
   bool isInitialized() const { return isDisplayInitialized; }
 
-  /**
-   * @brief Set voice manager reference for parameter updates
-   * @param voiceManager Pointer to the voice manager instance
-   */
+  // Cached for observer callbacks between update() calls.
   void setVoiceManager(class VoiceManager *voiceManager);
 
   // VoiceParameterObserver interface implementation
   void onVoiceParameterChanged(uint8_t voiceId, const VoiceState &state) override;
   void onVoiceSwitched(uint8_t newVoiceId) override;
 
-  /**
-   * @brief Handle voice switching with immediate OLED update (extended version)
-   * @param uiState Current UI state for context
-   * @param voiceManager Pointer to voice manager for configuration access
-   */
+  // Observer callback with full context: redraws settings views immediately.
   void onVoiceSwitched(const UIState &uiState, class VoiceManager *voiceManager);
 
 private:
   void displayVoiceEditor(const UIState &uiState, class VoiceManager *voiceManager);
-  // Hardware display object
+  // SH1106 driver; all drawing goes to its 1 KB buffer, commitFrame() pushes.
   Adafruit_SH1106G displayHardware;
   bool isDisplayInitialized = false;
 
-  // Voice manager reference for immediate updates
+  // Cached for observer callbacks between update() calls (never owned).
   class VoiceManager *voiceManagerReference = nullptr;
 
-  // Animation state variables
+  // Startup-animation clock only; the live screen never animates on a timer.
   uint32_t lastAnimationFrameMs = 0;
   uint8_t borderAnimationPhase = 0;
 
@@ -132,15 +87,9 @@ private:
   // every page rather than trusting power-up RAM.
   uint8_t frameShadow_[kFrameBytes];
 
-  /**
-   * @brief Push the framebuffer to the panel page by page, skipping unchanged pages
-   *
-   * Every view redraws the whole buffer after clearDisplay(), which resets the
-   * library's dirty window — Adafruit's partial-update transfer never engages
-   * and each display() costs a full ~1 KB I2C frame push. Comparing against
-   * frameShadow_ per 128-byte page keeps a static screen off the bus entirely
-   * and limits an update to the pages it actually changed.
-   */
+  // Push the redrawn buffer page by page, skipping pages the panel already
+  // shows. Views clearDisplay() first (resetting the lib's dirty window), so
+  // without this gate every frame would cost a full ~1 KB I2C push.
   void commitFrame();
 
   void drawVoiceHeader(const UIState &state, bool prominent);
@@ -150,53 +99,45 @@ private:
   void displayParameterInfo(ParamId id, const Step &values, const UIState &state,
                             uint8_t step, const VoiceConfig *config, bool selected,
                             bool showDistance, bool base);
+  // ENV mode: the selected step's four envelope lanes (the ENV faders), the
+  // last moved one marked, values in parentheses following the patch.
+  void displayEnvelopePage(const UIState &state, const Sequencer &sequence,
+                           const VoiceConfig *config);
 
+  // Arpeggiator mode: the arp's settings, held chord, live note readout and
+  // lidar dynamics. The mode's only screen; see docs/arpeggiator.md.
+  void displayArpPage(const UIState &state);
+
+<<<<<<< HEAD
+  // Preset pick / sound-buffet list, per SettingsSubMode.
+=======
+>>>>>>> f93e3bf691631b6a65407f345dbf37e8c6115c41
   /**
    * @brief Display settings menu with navigation and preset selection
    * @param uiState Current UI state containing settings menu state
    */
   void displaySettingsMenu(const UIState &uiState);
 
-  /**
-   * @brief Display voice parameter information (legacy function)
-   * @param uiState Current UI state containing voice parameter information
-   * @param voiceManager Pointer to voice manager for configuration access
-   * @param leadVoiceId ID of the lead voice
-   * @param bassVoiceId ID of the bass voice
-   */
+  // Transient "what just changed" card after a settings-pad tap.
   void displayVoiceParameterInfo(const UIState &uiState, class VoiceManager *voiceManager,
                                  uint8_t leadVoiceId, uint8_t bassVoiceId);
 
-  /**
-   * @brief Display voice parameter toggles in settings mode
-   * @param uiState Current UI state with voice selection
-   * @param voiceManager Pointer to voice manager for configuration access
-   */
+  // Settings-pad grid help page (tap = toggle/+, Shift+tap = -).
   void displayVoiceParameterToggles(const UIState &uiState, class VoiceManager *voiceManager);
 
-  /**
-   * @brief Force immediate display update for voice parameter changes
-   * @param uiState Current UI state for context
-   * @param voiceManager Pointer to voice manager for configuration access
-   */
+  // Redraw settings views outside the frame cadence (voice-switch feedback).
   void forceUpdate(const UIState &uiState, class VoiceManager *voiceManager);
 
   // Visual enhancement helper functions
 
-  /**
-   * @brief Draw step indicator bars at bottom of display
-   * @param sequencer Sequencer reference for step state
-   * @param yPosition Y coordinate for indicator placement
-   */
+  // Gate-lane mirror: tall bar = sounding step, mid = gated, short = rest.
   void drawStepIndicators(const Sequencer &sequencer, int yPosition);
 
-  /**
-   * @brief Run startup animation sequence
-   */
+  // One-shot boot splash; delays allowed here, never in the live loop.
   void runStartupAnimation();
 };
 
-// External declaration for global OLED display instance
+// Live screen instance (Core 0 owns it).
 extern OLEDDisplay oledDisplay;
 
 #endif // OLED_H

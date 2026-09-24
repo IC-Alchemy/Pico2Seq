@@ -11,6 +11,9 @@
 #include "ButtonHandlers.h"
 #include "UIConstants.h"
 
+// UIEventHandler.h — pad/tile events in, sequencer/UIState updates out (Core 0).
+// Single funnel for both surfaces: 32 step pads plus tile entry points via
+// AlchemyControlBridge. All state in UIState; no MIDI (removed 2026-09-06).
 // Forward declarations to prevent circular dependencies
 class Sequencer;
 class SequencerView;

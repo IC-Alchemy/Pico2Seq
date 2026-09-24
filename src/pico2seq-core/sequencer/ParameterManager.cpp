@@ -1,3 +1,6 @@
+// ParameterManager: fixed-size per-lane storage behind the polymetric sequencer.
+// No heap, no Arduino — safe for the step hot path and the host test build.
+
 #include "ParameterManager.h"
 
 #include <algorithm> // For std::max, std::min
@@ -6,8 +9,7 @@
 #include <cstdint>   // For uint32_t
 #include <variant> // For ParameterValueType (std::variant, via SequencerDefs.h)
 
-// Encoder parameter bounds management functions moved to
-// src/sensors/EncoderManager.cpp
+// Encoder bounds helpers live in src/sensors/EncoderManager, not here.
 
 // Internal utilities for randomization
 namespace {
@@ -16,7 +18,8 @@ static_assert(kParamCount ==
                   (sizeof(CORE_PARAMETERS) / sizeof(CORE_PARAMETERS[0])),
               "ParamId::Count must match CORE_PARAMETERS size");
 
-// Lightweight Linear Congruential Generator (LCG) to avoid TLS issues
+// Tiny LCG instead of rand(): deterministic under test and no TLS/static-init
+// surprises on the Pico. Only used to humanize lanes, never in the audio path.
 static uint32_t lcg_state = 0;
 
 void seed_lcg() {
@@ -49,13 +52,19 @@ int lcg_rand_int(int min, int max) {
 
 void ParameterManager::init() {
   for (size_t i = 0; i < static_cast<size_t>(ParamId::Count); ++i) {
-    // Initialize each track with its default value and step count from
-    // CORE_PARAMETERS. The step count must be passed explicitly now --
-    // rpdsp::ParameterTrack::init() defaults to MaxSteps (64), not the old
-    // hardcoded SequencerConstants::DEFAULT_STEPS_COUNT (16).
+    // Each lane starts at its CORE_PARAMETERS default over its own default length.
+    // Pass the length explicitly: rpdsp::ParameterTrack::init() defaults to 64.
     _tracks[i].init(parameterValueAsFloat(CORE_PARAMETERS[i].defaultValue),
                     CORE_PARAMETERS[i].defaultSteps);
   }
+}
+
+void ParameterManager::fillTrack(ParamId id, float value) {
+  if (static_cast<size_t>(id) >= kParamCount) {
+    return;
+  }
+  auto &track = _tracks[static_cast<size_t>(id)];
+  track.init(value, track.stepCount());
 }
 
 void ParameterManager::setStepCount(ParamId id, uint8_t steps) {
@@ -86,8 +95,13 @@ void ParameterManager::setValue(ParamId id, uint8_t stepIdx, float value) {
     return;
   }
 
-  // Apply clamping and rounding based on parameter definition
+  // Clamp to the lane's musical range (int lanes round); Toggle lanes snap to
+  // 0/1. The follow-patch sentinel passes through untouched on patch lanes.
   const auto &paramDef = CORE_PARAMETERS[static_cast<size_t>(id)];
+  if (paramDef.patchDefault && value == SequencerConstants::LANE_FOLLOWS_PATCH) {
+    _tracks[static_cast<size_t>(id)].setValue(stepIdx, value);
+    return;
+  }
   float minVal = parameterValueAsFloat(paramDef.minValue);
   float maxVal = parameterValueAsFloat(paramDef.maxValue);
 
@@ -96,7 +110,7 @@ void ParameterManager::setValue(ParamId id, uint8_t stepIdx, float value) {
   if (paramDef.editKind == ParameterEditKind::Toggle) { // Round to 0 or 1
     clampedValue = (clampedValue > 0.5f) ? 1.0f : 0.0f;
   } else if (paramDef.minValue.index() ==
-             0) { // If min value is int, assume integer parameter
+             0) { // Int-typed lane (e.g. Note): store whole steps so scale lookup stays in key
     clampedValue = roundf(clampedValue);
   }
 
@@ -150,7 +164,8 @@ void ParameterManager::randomizeParameters(uint8_t depthPercent,
   const float depth = std::min<uint8_t>(depthPercent, 100) / 100.0f;
   for (size_t i = 0; i < kParamCount; ++i) {
     const auto paramId = static_cast<ParamId>(i);
-    // The rhythm stays the player's: gates and slides are never rewritten.
+    // Rhythm is the player's: gates and slides are never rewritten, amount-0
+    // lanes are left alone.
     if (paramId == ParamId::Gate || paramId == ParamId::Slide ||
         _laneAmounts[i] == 0)
       continue;
@@ -159,7 +174,7 @@ void ParameterManager::randomizeParameters(uint8_t depthPercent,
     for (uint8_t step = 0; step < steps; ++step) {
       switch (paramId) {
       case ParamId::Note:
-        // A compact run of scale steps; playback quantizes them to the scale.
+        // Random scale degrees; playback quantizes them into the current scale.
         setValue(paramId, step, static_cast<float>(lcg_rand_int(0, 12)));
         break;
       case ParamId::Octave:
@@ -167,8 +182,8 @@ void ParameterManager::randomizeParameters(uint8_t depthPercent,
         setValue(paramId, step, mapNormalizedValueToParamRange(paramId, 0.5f));
         break;
       default: {
-        // The sum of two uniform draws is triangular on [-1, 1]: most steps
-        // stay near the base, a few reach the edge of the depth.
+        // Triangular spread: most steps hug the center, a few wander to the
+        // depth edge — variation without losing the musical middle.
         const float spread =
             lcg_rand_float(0.0f, 1.0f) + lcg_rand_float(0.0f, 1.0f) - 1.0f;
         setValue(paramId, step, 0.5f + 0.5f * spread * depth * amount);

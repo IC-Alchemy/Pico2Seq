@@ -7,67 +7,45 @@
 #include "VoicePlayback.h"
 #include <algorithm>
 
+// Clock-step fan-out + live hand/fader recording (see header). All Core 0 thread
+// context; note duration itself is ticked separately via tickSequencerVoices().
+
 namespace
 {
-constexpr float kGateHighThreshold = 0.5f;
 constexpr int kDistanceDisabled = -1;
 }
 
-void updateParametersForStep(uint8_t stepToUpdate)
+bool recordParameter(ParamId id, float normalizedValue)
 {
-    if (stepToUpdate >= SequencerConstants::MAX_STEPS_COUNT)
-        return;
-    // No hand over the sensor: keep what the step already holds.
-    if (!AppState::performanceInput.handPresent)
-        return;
+    if (uiState.voiceEditor.active || uiState.controlsWaitRelease || id >= ParamId::Count)
+        return false;
 
-    updateParametersForStepNormalized(stepToUpdate, AppState::performanceInput.recordingValue());
+    // Keep the legacy voice-4 fallback for an invalid UI selection.
+    Sequencer &activeSeq = AppState::sequencerView.clamped(uiState.selectedVoiceIndex);
+    const float value = mapNormalizedValueToParamRange(id, normalizedValue);
+    const int selected = uiState.selectedStepForEdit;
+    const bool stepEdit = selected >= 0 && selected < SequencerConstants::MAX_STEPS_COUNT;
+    // Step Edit targets the selected step; live recording targets the playing step
+    // (between steps too, so the note tracks the hand). Note stays gate-protected.
+    const bool changed = stepEdit ? activeSeq.editStepValue(id, static_cast<uint8_t>(selected), value)
+                                  : activeSeq.recordLiveValue(id, value);
+    // Runs every 1 ms pass: only a real change (post-clamp/rounding) retunes audio.
+    if (changed)
+        updateActiveVoiceState(stepEdit ? static_cast<uint8_t>(selected) : UINT8_MAX, activeSeq);
+    return changed;
 }
 
-void updateParametersForStepNormalized(uint8_t stepToUpdate, float normalizedValue)
+bool resetStepToPatch(ParamId id)
 {
-    if(uiState.voiceEditor.active || uiState.controlsWaitRelease) return;
-    if (stepToUpdate >= SequencerConstants::MAX_STEPS_COUNT)
-        return;
-
-    // Retain the existing fallback to voice 4 for an invalid UI selection.
-    const uint8_t sequenceIndex = uiState.selectedVoiceIndex < VoiceSystem::MAX_VOICES
-                                      ? uiState.selectedVoiceIndex : VoiceSystem::MAX_VOICES - 1;
-    Sequencer &activeSeq = *AppState::sequencers[sequenceIndex];
-
-    bool parametersWereUpdated = false;
-    const ParamId heldParamId = getHeldParameterParamId(uiState);
-    const ParamId paramToEdit = (heldParamId != ParamId::Count) ? heldParamId : uiState.currentEditParameter;
-    if (paramToEdit != ParamId::Count)
-    {
-        // Silent steps keep their pitch while other parameters remain editable.
-        if (paramToEdit == ParamId::Note)
-        {
-            float gateValue = activeSeq.getStepParameterValue(ParamId::Gate, stepToUpdate);
-            if (gateValue <= kGateHighThreshold)
-            {
-                // Skip Note parameter editing on steps with LOW gates
-                // This protects steps from note frequency changes during programming/editing
-                return;
-            }
-        }
-
-        // Use the helper function to do the scaling correctly for any parameter.
-        float valueToSet = mapNormalizedValueToParamRange(paramToEdit, normalizedValue);
-        const float previousValue = activeSeq.getStepParameterValue(paramToEdit, stepToUpdate);
-        activeSeq.setStepParameterValue(paramToEdit, stepToUpdate, valueToSet);
-        // This runs every control pass (1 ms) while a step is in edit. Only an
-        // actual change (after clamping and note rounding) is previewed, so a
-        // steady hand does not retrigger the step each pass.
-        parametersWereUpdated = activeSeq.getStepParameterValue(paramToEdit, stepToUpdate) != previousValue;
-
-    }
-
-    // Provide immediate audio feedback when recording parameters to current step
-    if (parametersWereUpdated)
-    {
-        updateActiveVoiceState(stepToUpdate, activeSeq);
-    }
+    const int selected = uiState.selectedStepForEdit;
+    if (uiState.voiceEditor.active || uiState.controlsWaitRelease || selected < 0 ||
+        selected >= SequencerConstants::MAX_STEPS_COUNT)
+        return false;
+    Sequencer &activeSeq = AppState::sequencerView.clamped(uiState.selectedVoiceIndex);
+    const bool changed = activeSeq.followPatch(id, static_cast<uint8_t>(selected));
+    if (changed)
+        updateActiveVoiceState(static_cast<uint8_t>(selected), activeSeq);
+    return changed;
 }
 
 void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
@@ -86,11 +64,8 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
         return;
     }
 
-    // UI edits arrive every control pass (lidar, faders, encoder). Re-running
-    // the step here retriggered the envelope on each one, which kept
-    // oscillator voices near silent while waveguides kept re-plucking.
-    // Refresh the sounding voice in place instead; an edit to a step that is
-    // not playing is heard when its cursor comes round.
+    // Refresh in place: re-running the step would retrigger the envelope every
+    // pass (oscillators choked, waveguides re-plucked). Unplayed steps sound on arrival.
     VoiceState &activeVoiceState = voiceSystem.getVoiceState(voiceIndex);
     if (isClockRunning)
     {
@@ -103,6 +78,8 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
         activeVoiceState.filterCutoff = values.filterCutoff;
         activeVoiceState.attackTimeSeconds = values.attackTimeSeconds;
         activeVoiceState.decayTimeSeconds = values.decayTimeSeconds;
+        activeVoiceState.sustainLevel = values.sustainLevel;
+        activeVoiceState.releaseTimeSeconds = values.releaseTimeSeconds;
         activeVoiceState.noteIndex = values.noteIndex;
         activeVoiceState.octaveOffset = values.octaveOffset;
         activeVoiceState.shouldRetrigger = false;
@@ -118,10 +95,10 @@ void processSequencerStep(uint32_t uClockCurrentStep)
     VoiceState tempStates[VoiceSystem::MAX_VOICES];
     for(uint8_t i=0;i<VoiceSystem::MAX_VOICES;++i) tempStates[i]=voiceSystem.getVoiceState(i);
     const uint8_t selectedVoice = uiState.selectedVoiceIndex;
-    // With no hand in range, live recording pauses and steps keep their values.
+    // With no hand present, recording pauses and steps hold their values.
     const int handDistance = AppState::performanceInput.handPresent
                                  ? AppState::performanceInput.distanceAboveMinimumMm : kDistanceDisabled;
-    // First advance all four voices. Only the selected voice hears the sensor.
+    // Advance all four voices first; only the selected voice hears the sensor.
     for (uint8_t voice = 0; voice < VoiceSystem::MAX_VOICES; ++voice)
     {
         const int distance = voice == selectedVoice ? handDistance : kDistanceDisabled;
@@ -130,7 +107,7 @@ void processSequencerStep(uint32_t uClockCurrentStep)
                              distance, uiState, &tempStates[voice]);
     }
 
-    // Bases have already been composed by each sequencer's playback transform.
+    // Playback transforms already folded patch bases into these states.
 
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i)
         publishVoiceState(i, tempStates[i]);

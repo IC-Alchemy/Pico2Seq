@@ -1,6 +1,9 @@
 #include "VoicePlayback.h"
 #include "AppState.h"
 
+// Single publish path for steps, live edits, and note-offs (see header).
+// Copy-then-retain: callers may pass the retained state itself. Core 0 only.
+
 void publishVoiceState(uint8_t voiceIndex, const VoiceState &state)
 {
     if (voiceIndex >= VoiceSystem::MAX_VOICES)
@@ -33,7 +36,8 @@ void stopSequencerVoice(uint8_t voiceIndex)
     auto &state = voiceSystem.getVoiceState(voiceIndex);
     sequencer.stop();
     sequencer.handleNoteOff(&state);
-    // Clear even when the sequencer was already inactive (e.g. editor entry).
+    // Always clear, even from an inactive sequencer (e.g. editor entry), so no
+    // gate or slide survives into the next take.
     state.isGateHigh = false;
     state.shouldRetrigger = false;
     state.hasSlide = false;

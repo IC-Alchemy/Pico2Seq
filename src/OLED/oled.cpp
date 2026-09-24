@@ -1,10 +1,11 @@
 #include "oled.h"
+#include "../ui/ControlSurfaceLogic.h"
 #include "../voice/Voice.h"
 #include "../voice/VoicePresets.h"
 #include "../voice/MusicalValues.h"
 #include "../app/VoiceEditor.h"
 #include "../app/AppState.h"
-#include "../voice/VoiceSystem.h" // Added for complete VoiceSystem type
+#include "../voice/VoiceSystem.h" // voice id -> slot lookup
 #include "../../includes.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 #include "../pico2seq-core/sequencer/ShuffleTemplates.h"
@@ -13,30 +14,14 @@
 #include "../ui/ControlSurfaceLogic.h"
 #include "../ui/SettingsPads.h"
 #include <algorithm>
-#include <cstring> // For strcmp, strlen
+#include <cstring> // strcmp, strlen
 #include <Arduino.h>
 
 // ========================= OLED Display Module =========================
-// Overview:
-// - Purpose: Centralized UI rendering for Pico2Seq on an SH110X OLED.
-// - Responsibilities: Initialize display hardware, render hierarchical UI (settings,
-//   parameter edit, default status), and provide immediate visual feedback for voice
-//   parameter changes using an observer-style interface.
-// - Design principles:
-//   1) Deterministic, low-overhead drawing: minimize dynamic heap use and heavy
-//      drawing inside real-time pathways; batch draw calls and refresh once.
-//   2) Clear priority model: setting/parameter edit screens pre-empt default UI to
-//      avoid flicker and conflicting renders.
-//   3) Embedded-friendly timing: all temporary views use millis()-based timeouts
-//      rather than blocking delays (except startup animation which is one-shot).
-//   4) Portability: only rely on Arduino-compatible primitives and SH110X API.
-//   5) Maintainability: readable layout constants and small helper functions.
-// - Performance notes:
-//   - Each view draws a whole frame into the 1024-byte buffer; commitFrame()
-//     then pushes only the 128-byte pages that differ from what the panel
-//     already shows, so a static screen sends nothing at all.
-//   - Geometry is computed with simple integer math to keep CPU usage low.
-//   - Where possible we reuse UIState/Sequencer data to avoid recomputation.
+// What's editable now, on a 128x64 SH1106 (Core 0, I2C0 at 400 kHz).
+// One view per frame by priority (banner > held lane > settings > status);
+// transient views are millis()-timed, never blocking. Each view redraws the
+// 1 KB buffer and commitFrame() pushes only changed 128-byte pages.
 // =======================================================================
 // OLED lives on the main bus (Wire, I2C0) at 400 kHz; Wire1 stays a tiles-only
 // 100 kHz bus. commitFrame() pushes pages over Wire, so the two must agree.
@@ -53,15 +38,10 @@ OLEDDisplay::OLEDDisplay() : displayHardware(OLEDConstants::SCREEN_WIDTH, OLEDCo
   memset(frameShadow_, 0xFF, kFrameBytes);
 }
 
-// begin():
-// - Brings up the OLED hardware at the configured I2C address, returns false on
-//   failure so caller can degrade gracefully.
-// - Sets default text properties so subsequent draw calls have predictable state.
-// - Runs a one-shot startup animation (it uses delays by design since it's only
-//   executed during boot and never in the real-time audio loop).
+// begin(): probe at 0x3C (false = headless); boot splash may delay, the live
+// loop never does.
 bool OLEDDisplay::begin()
 {
-  // Initialize display hardware with I2C address
   if (!displayHardware.begin(OLEDConstants::I2C_ADDRESS, true))
   {
     Serial.println("[ERROR] OLED display initialization failed!");
@@ -70,13 +50,11 @@ bool OLEDDisplay::begin()
 
   isDisplayInitialized = true;
 
-  // Clear display and set default text properties
   displayHardware.clearDisplay();
   displayHardware.setTextSize(1);
   displayHardware.setTextColor(SH110X_WHITE);
   displayHardware.setCursor(0, 0);
 
-  // Show startup animation
   runStartupAnimation();
 
   Serial.println("OLED display initialized successfully");
@@ -219,15 +197,19 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
   commitFrame();
 }
 
-// update() (thin wrapper):
-// - For convenience, delegates to the extended overload by passing a null manager.
-//   Keeps call sites simple when voice config is not needed for that frame.
+// Thin wrapper: no voice config, so musical-value views degrade to raw lanes.
 void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers)
 {
-  // Call extended version with null voice manager
   update(uiState, sequencers, nullptr);
 }
 
+<<<<<<< HEAD
+// Main render: strict view priority so two screens never fight for a frame:
+// PARAM/UTIL banner > confirmation notice > held-lane value > settings pages >
+// arp page (below Settings, above the step pages: the mode replaces what the
+// panel edits, so step/gate/envelope views would show unreachable values) >
+// gate-length bar > step/ENV edit > idle status. One view draws, then returns.
+=======
 // update() (main):
 // - The heart of the display state machine. It enforces a strict priority order so
 //   that mutually exclusive views do not fight for the screen in a given frame.
@@ -237,9 +219,13 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
 //     2) In settings main/preset menu
 //     3) Transient voice parameter info (outside settings, brief after-change)
 //     4) Default status (scale, shuffle, selected voice, encoder, step indicators)
+// - Arpeggiator mode's own page sits below Settings and above the step pages:
+//   the mode replaces what the panel edits, so the step/gate/envelope views
+//   would be showing values nothing can reach (see docs/arpeggiator.md).
 // - Timing: uses millis()-based timeouts from UIState to show transient UIs without
 //   blocking the main loop.
 // - Efficiency: clears once, sets text props once, and renders one view per frame.
+>>>>>>> f93e3bf691631b6a65407f345dbf37e8c6115c41
 void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers,
                          VoiceManager *voiceManager)
 {
@@ -248,7 +234,6 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     return;
   }
 
-  // Store voice manager reference for immediate updates
   voiceManagerReference = voiceManager;
 
   displayHardware.clearDisplay();
@@ -259,8 +244,7 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     displayVoiceEditor(uiState,voiceManager);
     return;
   }
-  // HIGHEST PRIORITY: transient PARAM / UTIL banner shown for a short window
-  // after the GP7 mode strap flips the Alchemy control surface function set.
+  // PARAM/UTIL strap flip: fullscreen banner for a short window.
   if (uiState.alchemyModeBannerUntil != 0 && millis() < uiState.alchemyModeBannerUntil)
   {
     const bool paramMode = (uiState.alchemyMode == UIState::AlchemyMode::Param);
@@ -276,13 +260,12 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     return;
   }
 
-  // Transient confirmation notice (replaces the old control-cluster LED
-  // flashes). Shown just below the PARAM/UTIL banner, above everything else,
-  // then the previous view resumes.
+  // Confirmation notice (saved/loaded/macro/...): covers all, then resumes.
   if (uiState.oledNoticeUntil != 0 && millis() < uiState.oledNoticeUntil &&
       uiState.oledNoticeKind != UIState::OledNoticeKind::None)
   {
     const char *line1 = "RANDOMIZED";
+    const char *line2 = "";
     switch (uiState.oledNoticeKind)
     {
     case UIState::OledNoticeKind::Saved:    line1 = "SAVED"; break;
@@ -290,6 +273,21 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     case UIState::OledNoticeKind::LoadError: line1 = "LOAD ERR"; break;
     case UIState::OledNoticeKind::VoiceCleared: line1 = "CLEARED"; break;
     case UIState::OledNoticeKind::AllCleared:   line1 = "ALL CLEAR"; break;
+<<<<<<< HEAD
+    case UIState::OledNoticeKind::Macro:        line1 = "MACRO"; break;
+    case UIState::OledNoticeKind::DelayMix:     line1 = "DELAY MIX"; break;
+    case UIState::OledNoticeKind::DelayTime:    line1 = "DELAY TIME"; break;
+    case UIState::OledNoticeKind::DelayFeedback: line1 = "DELAY FB"; break;
+=======
+>>>>>>> f93e3bf691631b6a65407f345dbf37e8c6115c41
+    case UIState::OledNoticeKind::ArpOn:
+      line1 = "ARP ON";
+      line2 = "arp mode";
+      break;
+    case UIState::OledNoticeKind::ArpOff:
+      line1 = "ARP OFF";
+      line2 = "step seq";
+      break;
     default: break;
     }
 
@@ -298,15 +296,57 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - line1Width) / 2, 16);
     displayHardware.print(line1);
 
-    if (uiState.oledNoticeKind == UIState::OledNoticeKind::Randomized ||
-        uiState.oledNoticeKind == UIState::OledNoticeKind::VoiceCleared)
+    if (line2[0])
     {
       displayHardware.setTextSize(1);
-      char voiceLine[12];
-      snprintf(voiceLine, sizeof(voiceLine), "Voice %u", static_cast<unsigned>(uiState.oledNoticeVoice) + 1);
+      const uint8_t line2Width = static_cast<uint8_t>(strlen(line2) * 6);
+      displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - line2Width) / 2, 44);
+      displayHardware.print(line2);
+    }
+    else if (uiState.oledNoticeKind == UIState::OledNoticeKind::Randomized ||
+             uiState.oledNoticeKind == UIState::OledNoticeKind::VoiceCleared)
+    {
+      // The voice line belongs to the sequencer's step randomize/clear. In
+      // Arpeggiator mode the same notices mean the arp's chord instead, which
+      // has no single voice.
+      displayHardware.setTextSize(1);
+      char voiceLine[16];
+      if (uiState.arp.active())
+        snprintf(voiceLine, sizeof(voiceLine), "%s", "chord");
+      else
+        snprintf(voiceLine, sizeof(voiceLine), "Voice %u", static_cast<unsigned>(uiState.oledNoticeVoice) + 1);
       const uint8_t voiceLineWidth = static_cast<uint8_t>(strlen(voiceLine) * 6);
       displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - voiceLineWidth) / 2, 44);
       displayHardware.print(voiceLine);
+    }
+    else if (uiState.oledNoticeKind == UIState::OledNoticeKind::DelayMix ||
+             uiState.oledNoticeKind == UIState::OledNoticeKind::DelayTime ||
+             uiState.oledNoticeKind == UIState::OledNoticeKind::DelayFeedback)
+    {
+      displayHardware.setTextSize(1);
+      char valueLine[14];
+      if (uiState.oledNoticeKind != UIState::OledNoticeKind::DelayTime)
+        snprintf(valueLine, sizeof(valueLine), "%u %%", static_cast<unsigned>(uiState.oledNoticeValue));
+      else
+        snprintf(valueLine, sizeof(valueLine), "%u ms", static_cast<unsigned>(uiState.oledNoticeValue));
+      const uint8_t valueLineWidth = static_cast<uint8_t>(strlen(valueLine) * 6);
+      displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - valueLineWidth) / 2, 44);
+      displayHardware.print(valueLine);
+    }
+
+    if (uiState.oledNoticeKind == UIState::OledNoticeKind::Macro)
+    {
+      // Zone + percent while the Shift + volume fader drives the macro knob.
+      displayHardware.setTextSize(1);
+      char macroLine[16];
+      const uint8_t percent =
+          uiState.macroNoticePercent > 100 ? 100 : uiState.macroNoticePercent;
+      snprintf(macroLine, sizeof(macroLine), "%s %u%%",
+               ControlSurface::masterMacroZoneName(percent / 100.0f),
+               static_cast<unsigned>(percent));
+      const uint8_t macroLineWidth = static_cast<uint8_t>(strlen(macroLine) * 6);
+      displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - macroLineWidth) / 2, 44);
+      displayHardware.print(macroLine);
     }
 
     commitFrame();
@@ -367,13 +407,7 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     return;
   }
 
-  // Priority-based display logic with SettingsSubMode handling
-  //
-  // New sub-mode architecture (UIState::SettingsSubMode):
-  // - PRESET_SELECTION: show preset selection/main settings UI
-  // - VOICE_PARAMETER: show parameter toggles UI
-  //
-  // The active settings page is derived only from UIState.
+  // Settings pages derive only from UIState's sub-mode.
   if (uiState.settingsMode)
   {
     const bool subParam = uiState.isVoiceParameterSettings();
@@ -381,29 +415,40 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     if (subParam && voiceManager)
     {
       displayVoiceParameterToggles(uiState, voiceManager);
-      // displayVoiceParameterToggles() ends with its own commitFrame(); no
-      // second push needed here.
+      // Toggles view pushes its own frame; returning avoids a double push.
       return;
     }
 
-    // Default to preset selection/main settings when in preset sub-mode
-    // or when no voiceManager is provided.
     displaySettingsMenu(uiState);
     commitFrame();
     return;
   }
 
+  // Arpeggiator mode replaces the sequencer screens below it: no step is
+  // selected there, so the gate-length, envelope and parameter pages cannot
+  // describe anything the panel is doing. Settings above still win, because the
+  // preset browser stays reachable while the arp plays.
+  if (uiState.arp.active())
+  {
+    displayArpPage(uiState);
+    commitFrame();
+    return;
+  }
+
+<<<<<<< HEAD
+  // Gate-length edit: bar over the 16 playable steps of the selected voice.
+=======
   // MEDIUM-LOW PRIORITY: Gate Sequence Length Mode (active while encoder control is held)
+>>>>>>> f93e3bf691631b6a65407f345dbf37e8c6115c41
   if (uiState.gateSeqLengthMode)
   {
     const uint8_t gateLen = sequence.getParameterStepCount(ParamId::Gate);
 
-    // Header
     drawVoiceHeader(uiState, false);
     displayHardware.setCursor(2, 14);
     displayHardware.print("Sequence length");
 
-    // Voice and length info
+    // Voice/length readout.
     displayHardware.setTextSize(1);
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 24);
     displayHardware.print("Voice: ");
@@ -420,9 +465,7 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     const int right = OLEDConstants::SCREEN_WIDTH - 2;
     const int totalW = right - left;
     const uint8_t cappedLen = std::min<uint8_t>(gateLen, LEDConstants::MAX_STEP_BUTTONS);
-    // Outline
     displayHardware.drawRect(left, barY - 6, totalW, 6, SH110X_WHITE);
-    // Fill proportional to cappedLen
     const int fillW = (totalW - 2) * cappedLen / LEDConstants::MAX_STEP_BUTTONS;
     if (fillW > 0)
     {
@@ -438,7 +481,13 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
   const ParamId encoderLane = config ? VoiceEdit::sequenceLane(encoderId, *config) : ParamId::Count;
   const bool showBase = config && uiState.encoderBaseViewUntil != 0 &&
                         millis() < uiState.encoderBaseViewUntil;
-  if (editing != ParamId::Count && (held != ParamId::Count || selected)) {
+  // Step Edit is ENV mode: the envelope page, unless a toggled parameter is
+  // being edited and no ENV fader moved in the last moment.
+  const bool envelopePage = selected && (editing == ParamId::Count ||
+                            (uiState.envViewUntil != 0 && millis() < uiState.envViewUntil));
+  if (envelopePage) {
+    displayEnvelopePage(uiState, sequence, config);
+  } else if (editing != ParamId::Count && (held != ParamId::Count || selected)) {
     const uint8_t step = selected ? static_cast<uint8_t>(uiState.selectedStepForEdit) :
                                    sequence.getCurrentStepForParameter(editing);
     const bool base = showBase && encoderLane == editing;
@@ -446,17 +495,10 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
                          base ? MusicalValues::baseStep(*config) :
                                 sequence.getPlaybackStep(selected ? step : UINT8_MAX),
                          uiState, step, config, selected, held != ParamId::Count, base);
-  } else if (selected) {
-    drawVoiceHeader(uiState, false);
-    displayHardware.setCursor(2, 18);
-    displayHardware.setTextSize(2);
-    displayHardware.print("Step "); displayHardware.print(uiState.selectedStepForEdit + 1);
-    displayHardware.setTextSize(1);
-    displayHardware.setCursor(2, 43); displayHardware.print("Hold parameter");
-    displayHardware.setCursor(2, 54); displayHardware.print("to edit this step");
   } else {
-    // No parameter held: show the base the encoder edits for its target.
-    // Step modifiers are left out, so a turn always shows its effect.
+    // No parameter held: the encoder target's playing value, or for 1.5 s
+    // after an encoder turn the base it changed (a step's own value could
+    // otherwise hide the edit).
     drawVoiceHeader(uiState, true);
     displayHardware.setCursor(104, 0);
     displayHardware.print("S"); displayHardware.print(sequence.getCurrentStep() + 1);
@@ -468,7 +510,7 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     if (config) {
       if (lane != ParamId::Count)
         MusicalValues::format(lane, values, *config, scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)],
-                              uClock.getTempo(), value, sizeof(value));
+                              uClock.getTempo(), value, sizeof(value), showBase);
       else VoiceEdit::format(encoderId, *config, value, sizeof(value));
     }
     displayHardware.setTextSize(1);
@@ -489,6 +531,165 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
   }
 
   commitFrame();
+}
+
+// Why Arpeggiator mode needs its own page: the mode replaces what the pads, the
+// four faders and the encoder do, so every step/parameter page would be showing
+// values that nothing on the panel can reach. This page shows the arp's four
+// fader settings, the held chord, what the engine is playing right now, and the
+// lidar dynamics that set the last note's velocity.
+void OLEDDisplay::displayArpPage(const UIState &state)
+{
+  const Arpeggiator::Engine &arp = state.arp;
+  const size_t scaleIndex = std::min<size_t>(currentScale, SCALES_COUNT - 1);
+  const int *row = scale[scaleIndex];
+  const uint8_t voice = std::min<uint8_t>(state.selectedVoiceIndex, UIState::MAX_VOICES - 1);
+
+  // Header: the mode, the voice the arp plays through, and the rate the dial
+  // selects.
+  displayHardware.setTextSize(1);
+  displayHardware.setCursor(2, 0);
+  displayHardware.print("ARP");
+  displayHardware.setCursor(28, 0);
+  displayHardware.print("V");
+  displayHardware.print(voice + 1);
+  const char *rate = arp.rateLabel();
+  displayHardware.setCursor(OLEDConstants::SCREEN_WIDTH - 2 - 6 * static_cast<int>(strlen(rate)), 0);
+  displayHardware.print(rate);
+  displayHardware.drawFastHLine(2, 9, 124, SH110X_WHITE);
+
+  // Pattern, octave range (fader 1) and latch.
+  displayHardware.setCursor(2, 12);
+  displayHardware.print(arp.patternLabel());
+  char octaves[12];
+  snprintf(octaves, sizeof(octaves), "oct %u", static_cast<unsigned>(arp.settings().octaves));
+  displayHardware.setCursor(46, 12);
+  displayHardware.print(octaves);
+  if (arp.latchEnabled())
+  {
+    displayHardware.setCursor(100, 12);
+    displayHardware.print("LATCH");
+  }
+
+  // The chord as note names, in the order the walk will visit it: ascending
+  // chord degrees normally, press order for the Order pattern, which is what
+  // that pattern actually plays. Scale degrees are named through the same note
+  // table the step sequencer uses.
+  const bool playsAsEntered = arp.settings().pattern == Arpeggiator::Pattern::Order;
+  char chord[40] = "";
+  size_t used = 0;
+  const uint8_t count = arp.chordCount();
+  for (uint8_t i = 0; i < count; ++i)
+  {
+    const uint8_t degree = playsAsEntered ? arp.orderDegree(i) : arp.chordDegree(i);
+    char name[16];
+    MusicalValues::noteName(static_cast<float>(degree), 0, row, name, sizeof(name));
+    const size_t length = strlen(name);
+    if (used + length + 1 >= sizeof(chord))
+    {
+      snprintf(chord + used, sizeof(chord) - used, "+");
+      break;
+    }
+    if (used)
+      chord[used++] = ' ';
+    memcpy(chord + used, name, length + 1);
+    used += length;
+  }
+  displayHardware.setCursor(2, 24);
+  displayHardware.print(count ? chord : "touch pads for chord");
+
+  // Live readout: how many notes the walk has played since the last restart,
+  // and the notes that are gated on right now (up to four, in Chord pattern).
+  char playing[24] = "";
+  size_t playingUsed = 0;
+  for (uint8_t slot = 0; slot < Arpeggiator::kMaxSlots; ++slot)
+  {
+    uint8_t degree = 0;
+    uint8_t octave = 0;
+    if (!arp.slotSounding(slot, degree, octave))
+      continue;
+    char name[16];
+    MusicalValues::noteName(static_cast<float>(degree), 12 * static_cast<int>(octave), row,
+                            name, sizeof(name));
+    const size_t length = strlen(name);
+    if (playingUsed + length + 2 >= sizeof(playing))
+      break;
+    if (playingUsed)
+      playing[playingUsed++] = '/';
+    memcpy(playing + playingUsed, name, length + 1);
+    playingUsed += length;
+  }
+  if (!playing[0] && arp.lastDegree() != Arpeggiator::kNoDegree)
+  {
+    // Between gates nothing is sounding; a mono pattern still wants to show the
+    // note it just played, or the readout would blink at every gate. The
+    // parentheses mark it as the last note rather than a gated one.
+    char lastName[16];
+    MusicalValues::noteName(static_cast<float>(arp.lastDegree()),
+                            12 * static_cast<int>(arp.lastOctave()), row, lastName,
+                            sizeof(lastName));
+    snprintf(playing, sizeof(playing), "(%s)", lastName);
+  }
+  displayHardware.setCursor(2, 36);
+  displayHardware.print("S");
+  displayHardware.print(arp.stepCount());
+  displayHardware.print(" ");
+  displayHardware.print(playing[0] ? playing : "--");
+
+  // Lidar dynamics: a bar the hand fills, with the raw distance beside it.
+  const int barLeft = 2;
+  const int barRight = 86;
+  const int barY = 58;
+  displayHardware.drawRect(barLeft, barY - 6, barRight - barLeft, 6, SH110X_WHITE);
+  const int fill = static_cast<int>((barRight - barLeft - 2) * arp.dynamics());
+  if (fill > 0)
+    displayHardware.fillRect(barLeft + 1, barY - 5, fill, 4, SH110X_WHITE);
+  char hand[16];
+  const int mm = distanceSensor.getRawDistanceMm();
+  if (!arp.handInRange()) snprintf(hand, sizeof(hand), "no hand");
+  else if (mm < 0) snprintf(hand, sizeof(hand), "--mm");
+  else snprintf(hand, sizeof(hand), "%dmm", mm);
+  displayHardware.setCursor(92, 52);
+  displayHardware.print(hand);
+}
+
+void OLEDDisplay::displayEnvelopePage(const UIState &state, const Sequencer &sequence,
+                                      const VoiceConfig *config)
+{
+  const uint8_t step = static_cast<uint8_t>(std::max(0, state.selectedStepForEdit));
+  drawVoiceHeader(state, false);
+  displayHardware.setCursor(98, 0);
+  displayHardware.print("S"); displayHardware.print(step + 1);
+  displayHardware.drawFastHLine(2, 10, 124, SH110X_WHITE);
+  const Step values = sequence.getPlaybackStep(step);
+  const int *row = scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)];
+  constexpr ParamId kLanes[] = {ParamId::Attack, ParamId::Decay, ParamId::Sustain, ParamId::Release};
+  int y = 13;
+  for (const ParamId lane : kLanes) {
+    displayHardware.setCursor(2, y);
+    displayHardware.print(lane == state.envFaderLane ? ">" : " ");
+    displayHardware.print(config ? VoiceEdit::laneName(lane, *config) : paramName(lane));
+    char value[24] = "--";
+    if (config)
+      MusicalValues::format(lane, values, *config, row, uClock.getTempo(), value, sizeof(value));
+    char shown[28];
+    if (followsPatch(sequence.getStepParameterValue(lane, step)))
+      snprintf(shown, sizeof(shown), "(%s)", value);
+    else
+      snprintf(shown, sizeof(shown), "%s", value);
+    displayHardware.setCursor(OLEDConstants::SCREEN_WIDTH - 2 - 6 * static_cast<int>(strlen(shown)), y);
+    displayHardware.print(shown);
+    y += 10;
+  }
+  // The encoder edits this step too: name the lane it turns.
+  const ParamId encoderLane = ControlSurface::stepEditParameter(
+      ParamId::Count, state.currentEditParameter, state.currentEncoderParameter);
+  displayHardware.setCursor(2, 55);
+  displayHardware.print("()=patch");
+  if (encoderLane != ParamId::Count) {
+    displayHardware.print(" Enc:");
+    displayHardware.print(config ? VoiceEdit::laneName(encoderLane, *config) : paramName(encoderLane));
+  }
 }
 
 void OLEDDisplay::drawMusicalValue(const char *text, int y)
@@ -535,13 +736,13 @@ void OLEDDisplay::displayParameterInfo(ParamId id, const Step &values,
   drawVoiceHeader(state, false);
   displayHardware.drawFastHLine(2, 10, 124, SH110X_WHITE);
   displayHardware.setCursor(2, 14);
-  displayHardware.print(config ? VoiceEdit::name(static_cast<VoiceEdit::Id>(id), *config) : paramName(id));
+  displayHardware.print(config ? VoiceEdit::laneName(id, *config) : paramName(id));
   displayHardware.setCursor(104, 14);
   displayHardware.print("S"); displayHardware.print(step + 1);
   char value[48] = "--";
   if (config)
     MusicalValues::format(id, values, *config, scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)],
-                          uClock.getTempo(), value, sizeof(value));
+                          uClock.getTempo(), value, sizeof(value), base);
   drawMusicalValue(value, 27);
   displayHardware.setTextSize(1);
   displayHardware.setCursor(2, 46);
@@ -575,13 +776,12 @@ void OLEDDisplay::displayParameterInfo(ParamId id, const Step &values,
 void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
 {
   displayHardware.setTextSize(1);
-  // Sub-mode indicator per new SettingsSubMode architecture
+  // Preset pick for the selected voice.
   displayHardware.setCursor(OLEDConstants::SCREEN_WIDTH - 68, 2);
   displayHardware.print("Preset Mode");
 
   if (uiState.isPresetSelection())
   {
-    // Enhanced preset selection with cycling interface
     int currentPresetIndex = (uiState.selectedVoiceIndex < UIState::MAX_VOICES) ? uiState.voicePresetIndices[uiState.selectedVoiceIndex] : 0;
 
     // Header with voice info
@@ -598,17 +798,16 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
     const char *currentPresetName = VoicePresets::getPresetName(currentPresetIndex);
     const int presetSize = strlen(currentPresetName) <= 10 ? 2 : 1;
     displayHardware.setTextSize(presetSize);
-    int textWidth = strlen(currentPresetName) * 6 * presetSize; // Approximate width for size 2
+    int textWidth = strlen(currentPresetName) * 6 * presetSize; // 6px per size-1 column
     int centerX = (OLEDConstants::SCREEN_WIDTH - textWidth) / 2;
     displayHardware.setCursor(centerX, 20);
     displayHardware.print(currentPresetName);
 
-    // Subtle underline animation
+    // Underline sweep marks the screen alive while picking.
     uint8_t phase = (millis() / 120) % (OLEDConstants::SCREEN_WIDTH - 10);
     displayHardware.drawFastHLine(OLEDConstants::TEXT_MARGIN, 38, OLEDConstants::SCREEN_WIDTH - 10, SH110X_WHITE);
     displayHardware.drawFastHLine(OLEDConstants::TEXT_MARGIN, 39, phase, SH110X_WHITE);
 
-    // Navigation indicators
     displayHardware.setTextSize(1);
 
     // Pad N holds preset N (VoicePresets::presetIndexForPad)
@@ -625,7 +824,7 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
   }
   else
   {
-    // Enhanced main settings menu
+    // Voice list: one row per voice with its preset.
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, OLEDConstants::TEXT_MARGIN);
     displayHardware.setTextSize(1);
     displayHardware.print("Sound Buffet");
@@ -639,7 +838,7 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
     {
       int yPosition = 16 + voiceIndex * 9;
 
-      // Animated bullet indicator
+      // Blinking dot = alive; rows are static otherwise.
       uint8_t blinkPhase = ((millis() / 250) + voiceIndex) % 2;
       if (blinkPhase)
       {
@@ -650,7 +849,6 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
         displayHardware.drawCircle(4, yPosition + 2, 2, SH110X_WHITE);
       }
 
-      // Current preset name for each voice
       displayHardware.setCursor(12, yPosition);
       displayHardware.print(voiceIndex + 1); displayHardware.print(" ");
       const char *presetName = (voiceIndex < UIState::MAX_VOICES) ? VoicePresets::getPresetName(uiState.voicePresetIndices[voiceIndex]) : "Unknown";
@@ -675,7 +873,7 @@ void OLEDDisplay::displayVoiceParameterInfo(const UIState &uiState, VoiceManager
   displayHardware.setTextSize(1);
   displayHardware.setTextColor(SH110X_WHITE);
 
-  // Snapshot the event rather than re-reading a possibly changed voice.
+  // Snapshot the notice event; the voice may have moved on already.
   displayHardware.setCursor(4, 2);
   displayHardware.print("VOICE ");
   displayHardware.print(uiState.voiceParameterNoticeVoice + 1);
@@ -708,10 +906,9 @@ void OLEDDisplay::forceUpdate(const UIState &uiState, VoiceManager *voiceManager
     return;
   }
 
-  // Store voice manager reference
   voiceManagerReference = voiceManager;
 
-  // Force immediate update in settings mode with new sub-mode handling
+  // Settings-only redraw; the live views refresh on their own frame.
   if (uiState.settingsMode)
   {
     const bool subParam = uiState.isVoiceParameterSettings();
@@ -730,8 +927,7 @@ void OLEDDisplay::forceUpdate(const UIState &uiState, VoiceManager *voiceManager
 
 void OLEDDisplay::onVoiceParameterChanged(uint8_t voiceId, const VoiceState &state)
 {
-  // This method is called immediately when a voice parameter changes
-  // Provides immediate visual feedback with proper voice ID mapping
+  // Observer ping: map the voice id to its 0-based slot for the header.
 
   if (!isDisplayInitialized)
   {
@@ -745,7 +941,7 @@ void OLEDDisplay::onVoiceParameterChanged(uint8_t voiceId, const VoiceState &sta
     return;
   }
 
-  // Determine which voice this corresponds to
+  // Map the sounding voice id to its 0-based slot; unknown ids are ignored.
   uint8_t displayVoiceNumber = 0;
   bool voiceFound = false;
 
@@ -765,31 +961,6 @@ void OLEDDisplay::onVoiceParameterChanged(uint8_t voiceId, const VoiceState &sta
     Serial.println(voiceId);
     return;
   }
-  /*
-      // Comprehensive debug output for troubleshooting
-      Serial.println("=== OLED Voice Parameter Change ===");
-      Serial.print("Voice ID: ");
-      Serial.print(voiceId);
-      Serial.print(" -> Display Voice: ");
-      Serial.println(displayVoiceNumber);
-      Serial.print("Note: ");
-      Serial.print(state.noteIndex);
-      Serial.print(" Velocity: ");
-      Serial.print(state.velocityLevel);
-      Serial.print(" Filter: ");
-      Serial.print(state.filterCutoff);
-      Serial.print(" Attack: ");
-      Serial.print(state.attackTimeSeconds);
-      Serial.print(" Decay: ");
-      Serial.println(state.decayTimeSeconds);
-      Serial.print("Lead Voice ID: ");
-      Serial.println(voice1Id);
-      Serial.print("Bass Voice ID: ");
-      Serial.println(voice2Id);
-      Serial.println("=================================");
-
-
-      */
 }
 
 void OLEDDisplay::onVoiceSwitched(const UIState &uiState, VoiceManager *voiceManager)
@@ -806,10 +977,9 @@ void OLEDDisplay::onVoiceSwitched(const UIState &uiState, VoiceManager *voiceMan
     return;
   }
 
-  // Store voice manager reference
   voiceManagerReference = voiceManager;
 
-  // Force immediate update in settings mode with new sub-mode handling
+  // Settings-only redraw; the live views refresh on their own frame.
   if (uiState.settingsMode)
   {
     const bool subParam = uiState.isVoiceParameterSettings();
@@ -828,8 +998,8 @@ void OLEDDisplay::onVoiceSwitched(const UIState &uiState, VoiceManager *voiceMan
 
 void OLEDDisplay::onVoiceSwitched(uint8_t newVoiceId)
 {
-  // Interface-compliant method for VoiceParameterObserver
-  // This is called when the voice system switches to a new voice
+  // Minimal observer overload: the header re-reads on the next update(), so
+  // there is nothing to draw here. Kept to satisfy the interface.
 
   if (!isDisplayInitialized)
   {
@@ -837,17 +1007,12 @@ void OLEDDisplay::onVoiceSwitched(uint8_t newVoiceId)
     return;
   }
 
-  // Serial.print("OLED: Voice switched to ID ");
-  // Serial.println(newVoiceId);
-
-  // This method provides the minimal interface compliance
-  // The extended version with UIState and VoiceManager parameters
-  // should be used for full functionality
+  // Nothing to draw here; the UIState overload does the real work.
 }
 
 void OLEDDisplay::drawStepIndicators(const Sequencer &sequencer, int yPosition)
 {
-  // Draw step indicator bars showing gate states and current playhead position
+  // Gate-lane mirror: tall bar = sounding step, mid = gated, short = rest.
   uint8_t stepCount = sequencer.getParameterStepCount(ParamId::Gate);
   if (stepCount == 0)
   {
@@ -860,20 +1025,16 @@ void OLEDDisplay::drawStepIndicators(const Sequencer &sequencer, int yPosition)
   const int rightMargin = OLEDConstants::SCREEN_WIDTH - 4;
   const int totalWidth = rightMargin - leftMargin;
 
-  // Draw individual step indicators
   for (uint8_t stepIndex = 0; stepIndex < stepCount; ++stepIndex)
   {
-    // Calculate step indicator position and width
     const int stepXPosition = leftMargin + (stepIndex * totalWidth) / stepCount;
     const int nextStepXPosition = leftMargin + ((stepIndex + 1) * totalWidth) / stepCount;
-    const int stepWidth = max(2, nextStepXPosition - stepXPosition - 1);
+    const int stepWidth = std::max(2, nextStepXPosition - stepXPosition - 1);
 
-    // Get step gate state and determine if this is the current step
     const float gateValue = sequencer.getStepParameterValue(ParamId::Gate, pageStart + stepIndex);
     const bool isGateActive = gateValue > 0.5f;
     const bool isCurrentStep = (pageStart + stepIndex == currentStepIndex);
 
-    // Calculate indicator height based on state
     int indicatorHeight;
     if (isCurrentStep)
     {
@@ -890,7 +1051,7 @@ void OLEDDisplay::drawStepIndicators(const Sequencer &sequencer, int yPosition)
 
     const int indicatorTopY = yPosition - indicatorHeight;
 
-    // Draw step indicator (filled for active gates, outline for inactive)
+    // Filled = gated (audible), outline = rest.
     if (isGateActive)
     {
       displayHardware.fillRect(stepXPosition, indicatorTopY, stepWidth, indicatorHeight, SH110X_WHITE);
@@ -904,28 +1065,25 @@ void OLEDDisplay::drawStepIndicators(const Sequencer &sequencer, int yPosition)
 
 void OLEDDisplay::runStartupAnimation()
 {
-  // Professional startup animation with wipe effect and title bounce
+  // One-shot boot splash (delays allowed: boot only, never the live loop).
   displayHardware.clearDisplay();
 
-  // Horizontal wipe effect across screen
   for (int wipeWidth = 0; wipeWidth <= OLEDConstants::SCREEN_WIDTH; wipeWidth += 10)
   {
     displayHardware.fillRect(0, 0, wipeWidth, OLEDConstants::SCREEN_HEIGHT, SH110X_WHITE);
     commitFrame();
     delay(OLEDConstants::STARTUP_WIPE_DELAY_MS);
 
-    // Clear and redraw border for scanning effect
     displayHardware.clearDisplay();
     displayHardware.drawRect(0, 0, OLEDConstants::SCREEN_WIDTH, OLEDConstants::SCREEN_HEIGHT, SH110X_WHITE);
   }
 
-  // Title bounce animation
+  // Title drop, then the invite line.
   const char *applicationTitle = "ic alchemy";
-  const int titleCharacterWidth = 12; // Approximate width per character at size 2
+  const int titleCharacterWidth = 12; // 6px columns at size 2
   const int titlePixelWidth = strlen(applicationTitle) * titleCharacterWidth;
   const int titleCenterX = (OLEDConstants::SCREEN_WIDTH - titlePixelWidth) / 2;
 
-  // Animate title dropping down and bouncing
   for (int titleY = -16; titleY <= 18; titleY += 3)
   {
     displayHardware.clearDisplay();
@@ -938,7 +1096,6 @@ void OLEDDisplay::runStartupAnimation()
     delay(OLEDConstants::STARTUP_BOUNCE_DELAY_MS);
   }
 
-  // Final settle with subtitle
   displayHardware.setTextSize(1);
   displayHardware.setCursor(18, 44);
   displayHardware.print("Let's play");
@@ -962,7 +1119,8 @@ void OLEDDisplay::displayVoiceEditor(const UIState &state, VoiceManager *manager
       const auto lane = VoiceEdit::sequenceLane(id, *config);
       if (lane != ParamId::Count) {
         MusicalValues::format(lane, MusicalValues::baseStep(*config), *config,
-            scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)], uClock.getTempo(), value, sizeof(value));
+            scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)], uClock.getTempo(), value, sizeof(value),
+            /*baseView=*/true);
       } else VoiceEdit::format(id,*config,value,sizeof(value));
       displayHardware.setCursor(0,13);displayHardware.print(VoiceEdit::groupName(VoiceEdit::parameter(id).group));
       displayHardware.setCursor(0,25);displayHardware.print(VoiceEdit::name(id,*config));

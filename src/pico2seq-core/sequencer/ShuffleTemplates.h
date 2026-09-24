@@ -4,17 +4,17 @@
 #include <cstdint>
 
 const int NUM_SHUFFLE_TEMPLATES = 16;
-const int SHUFFLE_TEMPLATE_SIZE = 16; // Explicitly define template size
+const int SHUFFLE_TEMPLATE_SIZE = 16; // One bar of 16ths; all rows must fill it
 
 struct ShuffleTemplate
 {
-    const char *name;
-    int8_t ticks[SHUFFLE_TEMPLATE_SIZE];
+    const char *name; // UI label shown on the OLED
+    int8_t ticks[SHUFFLE_TEMPLATE_SIZE]; // Per-16th offset; keep within +/-120
 };
 
-// 16-step groove templates for 480 PPQN.
-// Each 16th note step = 120 ticks.
-// A positive value delays the step, a negative value pushes it earlier.
+// ShuffleTemplates: per-16th micro-timing grooves that make the grid feel human.
+// Offsets are ticks at 480 PPQN (120/step); + delays the step (laid-back),
+// - pulls it early. Even steps stay on the beat, odd steps carry the swing.
 const ShuffleTemplate shuffleTemplates[NUM_SHUFFLE_TEMPLATES] = {
 
     {"No Shuffle", {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
@@ -23,7 +23,7 @@ const ShuffleTemplate shuffleTemplates[NUM_SHUFFLE_TEMPLATES] = {
     {"Neg' Swing (53%)", {0, -10, 0, -11, 0, -10, 0, -9, 0, -10, 0, -10, 0, -11, 0, -10}},
     {"CornBread", {0, 13, 0, 14, 0, 13, 0, 14, 0, 15, 0, 13, 0, 15, 0, 14}},
 
-    // Added new swing templates
+    // Light swing: offbeats drag just enough to loosen straight 16ths.
     {"Swing (55%)", {0, 17, 0, 18, 0, 17, 0, 18, 0, 17, 0, 18, 0, 18, 0, 17}},
     {"Swing (56%)", {0, 19, 0, 18, 0, 19, 0, 20, 0, 19, 0, 20, 0, 23, 0, 20}},
     {"Swing (57%)", {0, 23, 0, 22, 0, 23, 0, 23, 0, 22, 0, 23, 0, 22, 0, 23}},
@@ -40,7 +40,7 @@ const ShuffleTemplate shuffleTemplates[NUM_SHUFFLE_TEMPLATES] = {
 
 };
 
-// Helper function to get shuffle template name for OLED display
+// Name lookup for the OLED; out-of-range index means a corrupt session slot.
 inline const char *getShuffleTemplateName(uint8_t index)
 {
     if (index >= NUM_SHUFFLE_TEMPLATES)

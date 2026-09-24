@@ -1,6 +1,11 @@
 #pragma once
 
-// Core libraries
+// Central include map: one place to see every subsystem the firmware wires together.
+// Musical role: none at runtime — build-time only. Technical role: legacy aggregator
+// kept so older modules still compile; new app code in src/app/ includes directly.
+// Core note: no code here, so no core constraints.
+
+// Third-party UI/sensor/display drivers.
 #include <FastLED.h>
 #include <Adafruit_VL53L1X.h>
 #include <Adafruit_MPR121.h> // MAKE SURE TO ENABLE AUTOCONFIG IN MPR121.H
@@ -11,27 +16,27 @@
 #include <Adafruit_SH110X.h>
 
 
-// Audio and DSP (voice DSP comes from src/rpdsp via src/voice/Voice.h)
+// Sound out (I2S pool) + what notes are legal (scale tables).
 #include "src/audio/audio.h"
 #include "src/audio/audio_i2s.h"
 #include "src/pico2seq-core/scales/scales.h"
 
-// Matrix and Sequencer
+// Step pads + the polymetric pattern engine they drive.
 #include "src/matrix/Matrix.h"
 #include "src/pico2seq-core/sequencer/Sequencer.h"
 #include "src/pico2seq-core/sequencer/SequencerDefs.h"
 
-// LED Matrix
+// Step-grid light feedback.
 #include "src/LEDMatrix/ledMatrix.h"
 #include "src/LEDMatrix/LEDMatrixFeedback.h"
 
-// Sensors
+// Hand-distance + knob motion feeding live recording.
 #include "src/sensors/SensorConstants.h"
 #include "src/sensors/DistanceSensor.h"
 #include "src/VelocityEncoder/src/MagEncoder.h"
 #include "src/sensors/EncoderManager.h"
 
-// MIDI and UI
+// Performer-facing controls and shared UI state.
 #include "src/ui/UIEventHandler.h"
 #include "src/ui/ButtonManager.h"
 #include "src/ui/UIState.h"
@@ -39,10 +44,10 @@
 
 #include "src/app/HardwarePins.h"
 
-// OLED Display
+// 128x64 status display.
 #include "src/OLED/oled.h"
 
-// Voices
+// Synth voices and their Core-0-owned staging structs.
 #include "src/voice/VoiceManager.h"
 #include "src/voice/Voice.h"
 #include "src/voice/VoiceSystem.h"

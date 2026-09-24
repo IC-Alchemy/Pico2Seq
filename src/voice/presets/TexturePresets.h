@@ -4,6 +4,10 @@
 #include "../VoiceParameters.h"
 
 namespace VoicePresets {
+// Hypersaw = seven detuned saws for wide trance stacks (detune thickens,
+// mix balances width against center); NoiseStorm = diffused noise through a
+// resonant swarm for hats-to-wind textures (regen howls near the top, kept
+// safe by the loop governor).
   // Supersaw: detune's x^4 response puts 0.30 at ~8 cent thickening and 0.75
   // at ~43 cent strings; full smear (~185 cents) stays out of lane reach.
   // Mix clips the dry-saw and center-vanish extremes.
@@ -15,10 +19,10 @@ namespace VoicePresets {
     auto &mix = p.slots[static_cast<size_t>(ParamId::Decay)];
     detune = spanned(detune, {0.0f, 0.30f, 0.75f}, dspmap::Mapping::LINEAR);
     mix = spanned(mix, {0.15f, 0.50f, 0.95f}, dspmap::Mapping::LINEAR);
-    p.cutoffMinimum = 200.0f; // supersaw register
-    p.cutoffMaximum = 12000.0f;
+    p.cutoffMinimum = 80.0f; // supersaw register
+    p.cutoffMaximum = 4000.0f;
     p.cutoffCurve = dspmap::Mapping::OCTAVE;
-    p.cutoffCenter = 3200.0f;
+    p.cutoffCenter = 400.0f;
     return p;
   }
   // Swarm: regen's top ~25% (1.0..1.2) is the deliberate howl/bloom zone the
