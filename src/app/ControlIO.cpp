@@ -2,6 +2,7 @@
 #include "AppState.h"
 #include "StepPlayback.h"
 #include "../../includes.h"
+#include "../sitar/SitarPerformance.h"
 #include "../ui/ControlSurfaceLogic.h"
 #include "../utils/FreezeWatchdog.h"
 
@@ -220,18 +221,27 @@ void ControlIO::scanControls(uint32_t nowMs)
         freezeWatchdogMark(FW_LOOP_TILES);
         controls.alchemyBridge.update(nowMs, uiState, AppState::sequencerView);
 
-        // Knob motion for the base-parameter target.
+        // Knob motion for the base-parameter target, or for the sitar's
+        // focused lane while the mode owns the panel.
         freezeWatchdogMark(FW_LOOP_ENCODER);
         magEncoder.update();
-        updateEncoderBaseValues(uiState);
+        if (uiState.sitar.active)
+            Sitar::Performance::nudgeFocused(uiState, magEncoder.takeParameterIncrement(-1.0f, 1.0f, 3));
+        else
+            updateEncoderBaseValues(uiState);
 
         // Hand height for live recording; absent hand freezes recording below.
         freezeWatchdogMark(FW_LOOP_DISTANCE);
         distanceSensor.update();
         AppState::performanceInput.observeDistance(distanceSensor.getRawDistanceMm());
+        // The sitar reads the same hand as pluck force: near the panel is a soft
+        // brush, high above it a hard mizrab stroke.
+        if (uiState.sitar.active)
+            Sitar::Performance::observeHand(uiState, AppState::performanceInput.handPresent,
+                                            AppState::performanceInput.recordingValue());
         // Live recording: a held lane follows the hand every pass (or the selected
         // step in Step Edit); pitch lanes also record on clock steps. No hand: hold.
-        if (AppState::performanceInput.handPresent)
+        if (AppState::performanceInput.handPresent && !uiState.sitar.active)
         {
             freezeWatchdogMark(FW_LOOP_RECORD);
             const float hand = AppState::performanceInput.recordingValue();
@@ -255,8 +265,13 @@ void ControlIO::refreshLeds(uint32_t nowMs)
         controls.lastLedUpdate = nowMs;
         freezeWatchdogFeed(FW_LOOP_LEDS);
 
-        // Show the step frame, then push it to the matrix.
-        updateStepLEDs(controls.ledMatrix, AppState::sequencerView, uiState, AppState::performanceInput.distanceAboveMinimumMm);
+        // Show the step frame, then push it to the matrix. Sitar Explorer
+        // replaces the step picture with the raga's map, its blooms and its
+        // stroke flashes while the mode is on.
+        if (uiState.sitar.active)
+            Sitar::Performance::renderLeds(controls.ledMatrix, uiState, nowMs);
+        else
+            updateStepLEDs(controls.ledMatrix, AppState::sequencerView, uiState, AppState::performanceInput.distanceAboveMinimumMm);
         controls.ledMatrix.show();
     }
 }

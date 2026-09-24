@@ -264,6 +264,8 @@ VoiceManager::processBlock() (Core 1, up to 256 frames per block)
       envelope gain, effects, velocity
       main filter split at coefficient updates, then HPF and output level
     Add voice samples * mixLevel to the block
+  Auxiliary instrument (when one is attached): Sitar::Instrument::renderAdd()
+  sums the Sitar Explorer courses into the same block — see docs/sitar.md
   Master delay on the summed block: eased mix/time, fractional cubic read,
   DC blocker + lowpass + tanh in the feedback loop
   Advance master gain per sample and multiply the mixed block
@@ -277,6 +279,11 @@ Fixed member/static scratch keeps sample arrays off Core 1's 2 KiB stack.
 `processVoice()` retains its single-voice behavior. See the
 [voice pipeline](voice.md#4-dsp-processing-pipeline--signal-flow) for silent-skip
 eligibility and the [measurements](audio-performance.md#block-rendering-and-silent-voice-skip).
+
+An extra mono source can join the bus through
+`VoiceManager::setAuxiliaryInstrument()`; Sitar Explorer (`docs/sitar.md`) is its
+only user so far, and it enters *before* the master delay, gain and compressor so
+the master controls treat it like a voice.
 
 
 ### 5.1 `VoiceOscillator` Class Dispatch

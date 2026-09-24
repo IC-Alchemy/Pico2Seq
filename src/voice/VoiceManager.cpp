@@ -321,6 +321,11 @@ void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noe
             for (uint32_t k = 0; k < count; ++k)
                 out[k] += voiceScratch_[k] * mix;
         }
+        // An auxiliary instrument joins the sum before the master delay, gain
+        // and compressor, so the master fader and the master FX treat it like
+        // any other source.
+        if (auxiliaryInstrument_ != nullptr)
+            auxiliaryInstrument_->renderAdd(out, count);
         const float target = transportMuted_.load(std::memory_order_relaxed)
                                  ? 0.0f : globalVolume.load(std::memory_order_relaxed);
         const float macroTarget = macroTarget_.load(std::memory_order_relaxed);

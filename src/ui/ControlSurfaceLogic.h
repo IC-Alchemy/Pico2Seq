@@ -254,6 +254,24 @@ public:
 };
 
 // ---------------------------------------------------------------------------
+// Tempo window (shared by the sequencer faders and the Sitar Explorer's
+// jhala tempo, so the two surfaces cannot drift apart)
+// ---------------------------------------------------------------------------
+
+inline constexpr float kMinTempoBpm = 45.0f;
+inline constexpr float kMaxTempoBpm = 200.0f;
+
+/** Tempo for a normalized fader reading, clamped to the window. */
+constexpr float tempoForFader(float normalized)
+{
+    if (!(normalized > 0.0f))
+        return kMinTempoBpm;
+    if (normalized > 1.0f)
+        return kMaxTempoBpm;
+    return kMinTempoBpm + (kMaxTempoBpm - kMinTempoBpm) * normalized;
+}
+
+// ---------------------------------------------------------------------------
 // Shift latch semantics
 // ---------------------------------------------------------------------------
 

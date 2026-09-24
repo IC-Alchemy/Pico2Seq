@@ -2,6 +2,7 @@
 #include "AppState.h"
 #include "StepPlayback.h"
 #include "VoicePlayback.h"
+#include "../sitar/SitarPerformance.h"
 #include "../utils/SpscQueue.h"
 #include <Arduino.h>
 #include <uClock.h>
@@ -71,6 +72,10 @@ void processClockEvents()
     while (clockEvents.steps.tryPop(step))
     {
         if (isClockRunning && !uiState.voiceEditor.active) processSequencerStep(step);
+        // Sitar Explorer rides the same 16th-note grid: the transport's tempo
+        // and Play/Stop become the jhala drone's speed and on/off switch.
+        if (isClockRunning && uiState.sitar.active)
+            Sitar::Performance::onClockStep(uiState, static_cast<uint8_t>(step & 15u));
     }
 }
 

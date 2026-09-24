@@ -1,6 +1,7 @@
 #include "VoiceSetup.h"
 #include "AppState.h"
 #include "AudioEngine.h"
+#include "../sitar/SitarPerformance.h"
 #include "../voice/VoicePresets.h"
 #include "../voice/VoiceEditParameters.h"
 #include <Arduino.h>
@@ -27,6 +28,11 @@ void initializeVoices()
             voiceManager->getVoiceConfig(voiceSystem.getVoiceId(i)),VoiceEdit::mapOctave);
         VoiceEdit::seedModifiers(*AppState::sequencers[i]);
     }
+
+    // Sitar Explorer's courses are prepared here (Core 0, before Core 1 starts
+    // rendering) and hung on the master bus, so the mode's instrument is ready
+    // the moment it is entered.
+    Sitar::Performance::begin();
 
     // Publishing happens later in Application::begin(), after the rest of setup.
 }

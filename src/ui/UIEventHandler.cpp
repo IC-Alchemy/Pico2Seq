@@ -5,6 +5,7 @@
 #include "../app/VoiceSetup.h"
 #include "../app/VoiceEditor.h"
 #include "../sensors/EncoderManager.h"
+#include "../sitar/SitarPerformance.h"
 #include "../pico2seq-core/scales/scales.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../pico2seq-core/sequencer/ShuffleTemplates.h"
@@ -150,6 +151,13 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
 {
 
   if(uiState.voiceEditor.active || uiState.controlsWaitRelease) return;
+  // Sitar Explorer owns all 32 pads while it is on: every touch is a fret, a
+  // stroke or an exploration pad, never a step toggle. The sequencer keeps
+  // playing — the mode layers over the song rather than stopping it.
+  if(uiState.sitar.active) {
+    Sitar::Performance::onPadEvent(evt, uiState, millis());
+    return;
+  }
   // Edge-only input: holds are promoted by polling so the loop never blocks.
   pollUIHeldButtons(uiState, sequencers);
 

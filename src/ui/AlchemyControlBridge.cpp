@@ -5,6 +5,8 @@
 #include "../app/Session.h"
 #include "../app/StepPlayback.h"
 #include "../app/VoiceEditor.h"
+#include "../sitar/SitarPerformance.h"
+#include "UITransitions.h"
 
 #include "ButtonHandlers.h"
 #include "ButtonManager.h"
@@ -21,10 +23,6 @@ namespace
 // OLED needs a short-lived announcement or the new button meanings look dead.
 // OLED banner window after a mode flip.
 constexpr unsigned long kModeBannerDurationMs = 600;
-
-// Utility-fader ranges.
-constexpr float kTempoMinBpm = 45.0f;
-constexpr float kTempoMaxBpm = 200.0f;
 } // namespace
 
 // Why re-resolve instead of caching once: tile slots are scan order, so a tile
@@ -115,6 +113,26 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
     return;
   }
 
+  // Sitar Explorer owns the panel while it is on: the tiles become the sitar's
+  // buttons and ragas, and the faders become its stage macros. Physical
+  // histories still advance (the same discipline as the editor branch above) so
+  // no held tile can leak a sequencer action after the mode is left.
+  if(uiState.sitar.active) {
+    for(uint8_t bit=0;bit<8;++bit) {
+      buttonEdges_[kButtonRole][bit].take(buttonAt(buttonSlot_,bit));
+      buttonEdges_[kSliderRole][bit].take(buttonAt(sliderSlot_,bit));
+    }
+    latch_.reset(); playSettingsOpenedThisPress_=false;
+    // A fresh visit re-arms every fader: the sitar's lanes must not snap to
+    // wherever the performer left the sliders last time.
+    if(!sitarWasActive_) { sitarWasActive_=true; faders_.resetDeadband(); }
+    Sitar::Performance::pollTiles(uiState,buttons,voices,nowMs);
+    if(!uiState.sitar.active) return;  // the exit chord already released the mode
+    handleSitarFaders(uiState,nowMs);
+    return;
+  }
+  sitarWasActive_=false;
+
   handleModeStrap(nowMs, uiState);
 
   // Shift (bit 7 of the button tile) is a plain level in both modes.
@@ -139,6 +157,15 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
   else
   {
     handleUtilityButtons(nowMs, uiState, sequencers);
+  }
+
+  // Shift + theme may have just entered Sitar Explorer on this very pass: take
+  // the faders over now instead of letting one sequencer fader move through.
+  if (uiState.sitar.active)
+  {
+    if(!sitarWasActive_) { sitarWasActive_=true; faders_.resetDeadband(); }
+    handleSitarFaders(uiState,nowMs);
+    return;
   }
 
   // Disarm the faders whenever what they edit changes: the selected voice,
@@ -193,6 +220,23 @@ void AlchemyControlBridge::onModeFlip(uint32_t nowMs, UIState &uiState)
   uiState.shiftHeld = false;
   faders_.resetDeadband();
   uiState.alchemyModeBannerUntil = nowMs + kModeBannerDurationMs;
+}
+
+// Why the mode gets its own fader pass instead of a branch inside
+// handleFaders: the sitar's four macros are a different assignment table (and
+// the step/edit branches below mean nothing while pads are frets), but the
+// deadband gate must stay identical so entering the mode can never snap a lane
+// to a parked slider.
+void AlchemyControlBridge::handleSitarFaders(UIState &uiState, uint32_t nowMs)
+{
+  for (uint8_t channel = 0; channel < ControlSurface::FaderMap::kChannelCount; ++channel)
+  {
+    const uint16_t rawCounts = panel_.tiles().faderRaw(channel);
+    if (!faders_.accept(channel, rawCounts))
+      continue;
+    Sitar::Performance::onFader(uiState, channel, ControlSurface::FaderMap::normalize(rawCounts),
+                                nowMs);
+  }
 }
 
 // --- SliderModule buttons --------------------------------------------------------
@@ -397,9 +441,22 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
         handleControlButton(BUTTON_CHANGE_SWING_PATTERN, uiState);
       break;
 
-    case 4: // Theme cycle
+    case 4: // Theme cycle; Shift+tap toggles Sitar Explorer (the mode's own
+            // top row then owns the lights), so the panel has one deliberate
+            // way in and out.
       if (edges.pressEdge)
-        handleControlButton(BUTTON_CHANGE_THEME, uiState);
+      {
+        if (uiState.shiftHeld)
+        {
+          UITransitions::toggleSitar(uiState);
+          if (uiState.sitar.active) Sitar::Performance::onEntered(uiState, nowMs);
+          else Sitar::Performance::onExited(uiState, nowMs);
+        }
+        else
+        {
+          handleControlButton(BUTTON_CHANGE_THEME, uiState);
+        }
+      }
       break;
 
     case 5: // Encoder-control target cycle; hold enters gate seq length mode
@@ -530,8 +587,7 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
       }
       else
       {
-        uClock.setTempo(kTempoMinBpm +
-                        normalized * (kTempoMaxBpm - kTempoMinBpm));
+        uClock.setTempo(ControlSurface::tempoForFader(normalized));
       }
       break;
 

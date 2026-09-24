@@ -67,6 +67,9 @@ public:
 
 private:
   void displayVoiceEditor(const UIState &uiState, class VoiceManager *voiceManager);
+  // Sitar Explorer: the raga, the focused sitar.h lane and its value, the
+  // clocked drone's state, and how much string is still ringing.
+  void displaySitarPage(const UIState &uiState);
   // SH1106 driver; all drawing goes to its 1 KB buffer, commitFrame() pushes.
   Adafruit_SH1106G displayHardware;
   bool isDisplayInitialized = false;

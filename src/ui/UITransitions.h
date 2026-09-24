@@ -88,10 +88,52 @@ inline bool selectPerformanceVoice(UIState &state, uint8_t voice) noexcept
 // Preserves the parameter target and never stops sounding notes.
 inline void focusPad(UIState &state, uint8_t voice, uint8_t step) noexcept
 {
-    if (voice >= UIState::MAX_VOICES)
-        return;
-    state.selectedVoiceIndex = voice;
-    state.selectedStepForEdit = step;
-    state.voiceSwitchTriggered = true;
+  if (voice >= UIState::MAX_VOICES)
+    return;
+  state.selectedVoiceIndex = voice;
+  state.selectedStepForEdit = step;
+  state.voiceSwitchTriggered = true;
+}
+
+// Sitar Explorer owns the panel: pads play the raga, faders are the sitar's
+// macros, the knob walks sitar.h's lanes. Entering drops every sequencer
+// mode that would otherwise claim a pad, and leaves the transport exactly as
+// it was — the clock is what drives the mode's jhala drone.
+inline void enterSitar(UIState &state) noexcept
+{
+  closeSettings(state);
+  clearStepEdit(state);
+  state.slideMode = false;
+  for (auto &held : state.parameterButtonHeld)
+    held = false;
+  state.latchedParameter = -1;
+  state.modGateParamSeqLengthsMode = false;
+  state.gateSeqLengthMode = false;
+  state.encoderControlWasPressed = false;
+  // No pad press may survive into the mode as a pluck or back out as a step.
+  for (auto &pressedAt : state.padPressTimestamps)
+    pressedAt = 0;
+  state.resetStepsLightsFlag = true;
+  state.sitar.enter();
+}
+
+// Leave the mode: strings ring out on their own, and the pads wait for a
+// clean release so the exiting chord cannot toggle a step on the way out.
+inline void exitSitar(UIState &state) noexcept
+{
+  state.sitar.exit();
+  state.controlsWaitRelease = true;
+  for (auto &pressedAt : state.padPressTimestamps)
+    pressedAt = 0;
+  state.resetStepsLightsFlag = true;
+}
+
+// Shift + Utility 5 (theme) toggles the mode from either side.
+inline void toggleSitar(UIState &state) noexcept
+{
+  if (state.sitar.active)
+    exitSitar(state);
+  else
+    enterSitar(state);
 }
 } // namespace UITransitions

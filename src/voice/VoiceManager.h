@@ -27,6 +27,20 @@ public:
     // Voice parameter update callback - called when voice parameters change
     using VoiceUpdateCallback = std::function<void(uint8_t voiceId, const VoiceState &state)>;
 
+    // An extra mono instrument that is not one of the sequencer voices (see
+    // Sitar Explorer). Implemented by the owner, never allocated here: the
+    // manager only calls renderAdd while summing the bus, so whatever it adds
+    // passes through the master delay, gain and compressor like a voice does.
+    // Control thread sets the pointer once; Core 1 only calls renderAdd.
+    class AuxiliaryInstrument
+    {
+    public:
+        virtual ~AuxiliaryInstrument() = default;
+        // Audio thread. Adds `count` mono samples into out; must not allocate,
+        // block, or read mutable control-thread state.
+        virtual void renderAdd(float *out, uint32_t count) noexcept = 0;
+    };
+
     VoiceManager(uint8_t maxVoices = 8);
     ~VoiceManager() = default;
 
@@ -146,6 +160,14 @@ public:
     void setTransportMuted(bool muted) noexcept { transportMuted_.store(muted, std::memory_order_relaxed); }
     float getVoiceMix(uint8_t voiceId) const;
 
+    // Auxiliary instrument hook (see AuxiliaryInstrument above). Pass nullptr to
+    // detach. Setup/steady state only; never called from the audio thread.
+    void setAuxiliaryInstrument(AuxiliaryInstrument *instrument) noexcept
+    {
+        auxiliaryInstrument_ = instrument;
+    }
+    AuxiliaryInstrument *auxiliaryInstrument() const noexcept { return auxiliaryInstrument_; }
+
     // Voice Routing
     void setVoiceOutput(uint8_t voiceId, uint8_t outputChannel);
     uint8_t getVoiceOutput(uint8_t voiceId) const;
@@ -157,6 +179,10 @@ public:
 
 private:
     std::atomic<bool> transportMuted_{false};
+    // Core 1 reads this pointer every block; Core 0 sets it at setup, never
+    // while rendering. Not atomic by the same reasoning as the sequencer
+    // pointers attached to voices.
+    AuxiliaryInstrument *auxiliaryInstrument_ = nullptr;
 
     // Master-bus gain smoothing (audio thread only). globalVolume and
     // transportMuted_ are targets; advanceMasterGain_() eases toward them so

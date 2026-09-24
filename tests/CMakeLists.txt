@@ -41,6 +41,7 @@ add_executable(pico2seq_tests
   unit/test_voice_edit.cpp
   unit/test_settings_pads.cpp
   unit/test_persistence.cpp
+  unit/test_sitar.cpp
 
   # Scale data
   ${CORE_DIR}/scales/scales.cpp
@@ -64,6 +65,11 @@ add_executable(pico2seq_tests
 
   # Alchemy tile control surface decision logic (pure C++)
   ${SRC_DIR}/ui/ControlSurfaceLogic.cpp
+
+  # Sitar Explorer: portable lane table, gesture policy and the audio courses
+  ${SRC_DIR}/sitar/SitarParameters.cpp
+  ${SRC_DIR}/sitar/SitarControls.cpp
+  ${SRC_DIR}/sitar/SitarInstrument.cpp
 )
 
 # Stub headers must come first so they shadow Arduino.h / Wire.h / pico/sync.h
@@ -110,6 +116,7 @@ add_executable(pico2seq_voice_tests
   unit/test_master_compressor.cpp
   unit/test_master_bus.cpp
   unit/test_master_delay.cpp
+  unit/test_sitar.cpp
   ${CORE_DIR}/scales/scales.cpp
   ${CORE_DIR}/sequencer/ParameterManager.cpp
   ${CORE_DIR}/sequencer/Sequencer.cpp
@@ -118,6 +125,9 @@ add_executable(pico2seq_voice_tests
   ${SRC_DIR}/voice/VoiceParameters.cpp
   ${SRC_DIR}/voice/VoiceEditParameters.cpp
   ${SRC_DIR}/voice/VoiceManager.cpp
+  ${SRC_DIR}/sitar/SitarParameters.cpp
+  ${SRC_DIR}/sitar/SitarControls.cpp
+  ${SRC_DIR}/sitar/SitarInstrument.cpp
 )
 target_include_directories(pico2seq_voice_tests PRIVATE
   ${STUB_DIR} ${PROJECT_SOURCE_DIR} ${SRC_DIR} ${CORE_DIR} ${RPDSP_DIR})

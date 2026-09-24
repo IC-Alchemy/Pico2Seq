@@ -8,6 +8,7 @@
 #include "VoiceSetup.h"
 #include "AudioEngine.h"
 #include "../sensors/DistanceSensor.h"
+#include "../sitar/SitarPerformance.h"
 #include "../utils/FreezeWatchdog.h"
 #include "../pico2seq-core/persistence/ProjectSnapshot.h"
 #include "../pico2seq-core/persistence/SnapshotFormat.h"
@@ -323,11 +324,21 @@ void Application::update()
         }
     }
 
-    // Bench aid: 'W' over serial hangs Core 0 to prove the retained-RAM resume path.
-    if (Serial.available() > 0 && Serial.read() == 'W')
+    // Bench aids over the serial console: 'W' hangs Core 0 to prove the
+    // retained-RAM resume path, 'S' toggles Sitar Explorer so the mode (and
+    // every sitar.h lane) can be explored without touching the panel.
+    if (Serial.available() > 0)
     {
-        Serial.println("[BENCH] freezing Core 0 on request");
-        for (;;) {}
+        const int consoleKey = Serial.read();
+        if (consoleKey == 'W')
+        {
+            Serial.println("[BENCH] freezing Core 0 on request");
+            for (;;) {}
+        }
+        else if (consoleKey == 'S')
+        {
+            Sitar::Performance::toggleFromConsole(uiState, nowMs);
+        }
     }
 
     ControlIO::pollHeldButtons();

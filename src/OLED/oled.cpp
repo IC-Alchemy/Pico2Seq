@@ -1,5 +1,7 @@
 #include "oled.h"
 #include "../ui/ControlSurfaceLogic.h"
+#include "../sitar/SitarInstrument.h"
+#include "../sitar/SitarParameters.h"
 #include "../voice/Voice.h"
 #include "../voice/VoicePresets.h"
 #include "../voice/MusicalValues.h"
@@ -204,8 +206,9 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
 }
 
 // Main render: strict view priority so two screens never fight for a frame:
-// PARAM/UTIL banner > confirmation notice > held-lane value > settings pages >
-// gate-length bar > step/ENV edit > idle status. One view draws, then returns.
+// voice editor > Sitar Explorer > PARAM/UTIL banner > confirmation notice >
+// held-lane value > settings pages > gate-length bar > step/ENV edit > idle
+// status. One view draws, then returns.
 void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers,
                          VoiceManager *voiceManager)
 {
@@ -222,6 +225,13 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
 
   if(uiState.voiceEditor.active) {
     displayVoiceEditor(uiState,voiceManager);
+    return;
+  }
+  // Sitar Explorer outranks everything else it could coexist with: while the
+  // mode is on, the screen is the sitar's own page (raga, focused sitar.h lane
+  // and its value, the drone's rhythm, and how much string is ringing).
+  if (uiState.sitar.active) {
+    displaySitarPage(uiState);
     return;
   }
   // PARAM/UTIL strap flip: fullscreen banner for a short window.
@@ -921,6 +931,60 @@ void OLEDDisplay::runStartupAnimation()
   displayHardware.print("Let's play");
   commitFrame();
   delay(OLEDConstants::STARTUP_SETTLE_DELAY_MS);
+}
+
+// Sitar Explorer: the mode's own page. The performer sees which raga the
+// fingerboard is playing, which of sitar.h's thirteen lanes the knob (and
+// fader 4) is on, that lane's value in musical units, the clocked drone's
+// state, and a meter of how much string is still ringing — the panel's answer
+// to "what am I hearing, and what else is there?".
+void OLEDDisplay::displaySitarPage(const UIState &uiState)
+{
+  const Sitar::Controls &controls = uiState.sitar;
+  const Sitar::Raga &table = controls.currentRaga();
+  const Sitar::ParamInfo &lane = Sitar::paramInfo(controls.focus);
+  const uint8_t laneIndex = Sitar::paramIndex(controls.focus);
+  char value[32] = {};
+  Sitar::formatParamValue(controls.focus, controls.value[laneIndex], value, sizeof(value));
+  char position[8] = {};
+  Sitar::formatParamPosition(controls.focus, position, sizeof(position));
+
+  // Ragas are not scales: the thaat names the parent scale the aroh comes from.
+  displayHardware.setCursor(0, 0);
+  displayHardware.printf("SITAR %s (%s)", table.name, table.thaat);
+
+  // Where the cursor is in the browse order, so the performer can see that
+  // there is more sitar.h in both directions.
+  displayHardware.setCursor(0, 9);
+  displayHardware.printf("%s %s", Sitar::groupName(lane.group), position);
+
+  displayHardware.setTextSize(2);
+  displayHardware.setCursor(0, 18);
+  displayHardware.print(value);
+  displayHardware.setTextSize(1);
+
+  displayHardware.setCursor(0, 36);
+  displayHardware.print(lane.name);
+
+  // The clocked drone: the transport's tempo is the jhala's speed, and the
+  // tanpura pulse is the bar's downbeat.
+  displayHardware.setCursor(0, 45);
+  displayHardware.printf("jhala %s tanpura %s", Sitar::jhalaName(controls.jhala),
+                         controls.tanpura ? "on" : "off");
+
+  // How much string is still ringing (the audio thread's published envelope),
+  // as a meter beside the finger's current fret.
+  float bloom = 0.0f;
+  for (uint8_t course = 0; course < Sitar::kCourseCount; ++course)
+    bloom = std::max(bloom, Sitar::instrument().courseLevel(static_cast<Sitar::Course>(course)));
+  displayHardware.setCursor(0, 55);
+  displayHardware.printf("%s|", Sitar::fretName(controls.fingerFret));
+  constexpr int kMeterCells = 10;
+  const int lit = static_cast<int>(bloom * static_cast<float>(kMeterCells) + 0.5f);
+  displayHardware.setCursor(18, 55);
+  for (int cell = 0; cell < kMeterCells; ++cell)
+    displayHardware.print(cell < lit ? "=" : "-");
+  commitFrame();
 }
 
 void OLEDDisplay::displayVoiceEditor(const UIState &state, VoiceManager *manager)

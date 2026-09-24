@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include "VoiceEditControls.h"
+#include "../sitar/SitarControls.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
 
 /**
@@ -16,6 +17,11 @@
 struct UIState
 {
     VoiceEdit::Controls voiceEditor;
+    // Sitar Explorer: the whole performance state of the sitar demo (active
+    // flag, raga, focused sitar.h lane, lane values, jhala/tanpura, pad flashes).
+    // Lives here like the voice editor's controls, so the mode has one home and
+    // the LED/OLED renderers can read it without extra plumbing.
+    Sitar::Controls sitar;
     // Wait for all pads/tiles to release before performance input resumes
     // (prevents a held pad from firing a step toggle on mode exit).
     bool controlsWaitRelease = false;

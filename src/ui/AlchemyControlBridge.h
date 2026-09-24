@@ -103,6 +103,12 @@ private:
   void handleUtilityButtons(uint32_t nowMs, UIState &uiState,
                             const SequencerView &sequencers);
   void handleFaders(UIState &uiState, const SequencerView &sequencers);
+  /**
+   * Sitar Explorer fader pass: the same deadband and engagement gate as
+   * handleFaders, but the four channels mean the sitar's macros while the mode
+   * is on (see Sitar::Performance::onFader).
+   */
+  void handleSitarFaders(UIState &uiState, uint32_t nowMs);
 
   AlchemyPanel panel_;
   ControlSurface::ModeStabilizer mode_;
@@ -133,6 +139,9 @@ private:
   bool clearAllLatch_ = false;
   // Shift edges re-arm tempo/feedback, mix/time and volume/macro.
   bool shiftWasHeld_ = false;
+  // Sitar Explorer: a fresh visit re-arms the fader deadband so the mode's
+  // lanes cannot snap to where the sliders were parked last time.
+  bool sitarWasActive_ = false;
   uint8_t modeSwitchPin_ = 7; // GP7 default; setup1 sets PIN_ALCHEMY_MODE_SWITCH
   uint8_t lastVoiceIndex_ = 0;
   int lastStepForEdit_ = -1;

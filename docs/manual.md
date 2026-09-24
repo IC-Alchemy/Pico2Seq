@@ -32,6 +32,9 @@ distance sensor, an OLED display, and a USB CDC diagnostics console — all on o
 9. [Troubleshooting & gotchas](#9-troubleshooting--gotchas)
 10. [Glossary](#10-glossary)
 
+A separate guide covers the **Sitar Explorer** performance mode — the worked
+example for `rpdsp::SitarStringVoice`: [`docs/sitar.md`](sitar.md).
+
 ---
 
 ## 1. Panel & hardware layout
@@ -596,6 +599,20 @@ Presets live in flash and are auditioned and applied per voice in the **preset b
 - **Voice Selection**: Press the SliderModule **V1–V4** buttons to switch which voice is being edited. Pads never change the voice while Settings is open.
 - **Applying Presets**: Touch **pads 0–30** (the lit pads on the LED matrix mirror; pads 0–28 hold today's 29 presets) to instantly assign that preset to the active voice. Pad 31 is unassigned. There are no pages.
 - **Voice Parameters**: Pressing the encoder button toggles the Settings screen between the preset browser and the voice-parameter toggles (envelope, overdrive, filter mode, filter resonance).
+
+#### Sitar Explorer (the `sitar.h` example)
+
+**Shift + Utility button 5** (the theme button, with the strap in *Utility*) enters
+and leaves **Sitar Explorer**: a performance mode that hands the whole panel to
+`rpdsp::SitarStringVoice` ([`src/rpdsp/src/rpdsp/sitar.h`](../src/rpdsp/src/rpdsp/sitar.h)).
+The two lower touch rows become a 16-fret raga fingerboard (slide across frets for
+**meend**), the row above is the right hand (chikari strokes, jhala, tanpura,
+shimmer, palm), the row above that jumps between the model's lane groups, the
+faders are the sitar's macros, the knob walks and edits **all thirteen setters**,
+the voice buttons pick a raga, the distance sensor is the pluck force, and the
+OLED, LEDs and serial console report all of it. The transport keeps running: its
+sixteenths are the jhala drone's rhythm and Play/Stop switches it. The full map,
+the lane table and the build requirement are in [`docs/sitar.md`](sitar.md).
 
 ---
 
