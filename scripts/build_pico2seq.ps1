@@ -41,9 +41,22 @@ if ([string]::IsNullOrWhiteSpace($BuildDirectory)) {
 $subStatus = git -C $repoRoot submodule status --recursive
 # git prefixes each line with ' ' (in sync), '+' (different commit checked out),
 # '-' (not initialized) or 'U' (merge conflicts). Only the last three are stale.
-if ($subStatus -match '^[\+\-U]') { throw "Submodules out of date. Run: git submodule update --init --recursive`n$subStatus" }
-if (-not (Test-Path (Join-Path $repoRoot 'src/rpdsp/src/rpdsp/DSPFunctions.h'))) {
-    throw 'src/rpdsp is empty. Clone with --recurse-submodules or run: git submodule update --init --recursive' }
+if ($subStatus -match '^[\+\-U]') {
+    throw "Submodules are not initialized or do not match the recorded pins. Run: git submodule update --init --recursive`n$subStatus`nThis helper does not reset, clean, or discard local work."
+}
+
+# Check both required submodules by their source entry points. A clean status line
+# alone is not enough on a partially materialized checkout.
+$requiredSubmoduleFiles = @(
+    'src/rpdsp/src/rpdsp/DSPFunctions.h',
+    'src/VelocityEncoder/src/MagEncoder.h'
+)
+$missingSubmoduleFiles = @($requiredSubmoduleFiles | Where-Object {
+    -not (Test-Path (Join-Path $repoRoot $_) -PathType Leaf)
+})
+if ($missingSubmoduleFiles.Count -gt 0) {
+    throw "Required submodule source is missing. Run: git submodule update --init --recursive`nMissing: $($missingSubmoduleFiles -join ', ')`nThis helper does not reset, clean, or discard local work."
+}
 
 # Fail before staging if tracked firmware source still contains merge-conflict markers.
 $conflictMarkerMatches = @(git -C $repoRoot grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- '*.ino' '*.h' '*.c' '*.cpp')

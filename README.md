@@ -112,22 +112,45 @@ For a practical guide to changing the firmware, start with
     control core. Upstream 2.3.0 changed the callback API; re-verify before
     upgrading.)
 
+### Fresh GitHub clone and 150 MHz build
+
+For a new checkout, run these commands from an empty directory:
+
+```bash
+git clone --recurse-submodules https://github.com/IC-Alchemy/Pico2Seq.git
+cd Pico2Seq
+git switch DeCluttered
+git submodule update --init --recursive
+```
+
+The final submodule command is intentionally repeatable after switching branches. The helper
+never resets, cleans, or discards local work. If it reports stale or missing submodules, fix the
+checkout with the command above and review any local changes before retrying.
+
+On Windows with PowerShell, compile the stable firmware baseline explicitly at **150 MHz**:
+
+```powershell
+pwsh -NoProfile -File scripts/build_pico2seq.ps1 `
+  -CpuMHz 150 `
+  -BuildDirectory build/pico2seq-150 `
+  -NoWorkingCopy
+```
+
+The command writes `build/pico2seq-150/Pico2Seq.ino.uf2`, `.elf`, `.bin`, and `.map`. It compiles
+only; it does not upload or hardware-test the board. The clean DeCluttered lineage does not contain
+the optional `scripts/publish_uf2.ps1` helper, so the build helper may print a warning and leave the
+artifacts in the requested build directory. The helper's required submodule and source-marker checks
+remain hard errors.
+
 ### Installation & Flashing
 
-1. **Clone the repository with submodules:**
-   ```bash
-   git clone --recurse-submodules https://github.com/IC-Alchemy/Pico2Seq.git
-   cd Pico2Seq
-   ```
-   *(If cloned without `--recurse-submodules`, run `git submodule update --init --recursive`)*
-
-2. **Open in Arduino IDE:**
+1. **Open in Arduino IDE:**
    - Launch Arduino IDE
    - Open `Pico2Seq.ino`
    - Select board: **Raspberry Pi Pico 2** / **RP2350**
    - Ensure USB stack is set to **Adafruit TinyUSB**
 
-3. **Compile and Upload:**
+2. **Compile and Upload:**
    - Compile and flash to the Pico 2 board
    - Monitor the USB serial console (115200 baud) for startup diagnostics
 
