@@ -1,7 +1,7 @@
 # Arpeggiator mode
 
 Arpeggiator mode turns the whole performance surface into a chord arpeggiator:
-the 32 touch pads become a 32-degree scale keyboard, the LED panel becomes the
+the 32 touch pads become a scale-degree keyboard, the LED panel becomes the
 chord map, the four faders set its range / gate / swing / tone, the dial sets
 the rate, the distance sensor sets note dynamics, and the twelve buttons switch
 patterns, latch the chord and drive the transport. Hold Shift to reveal rhythm
@@ -44,13 +44,15 @@ and all four voices are gated off, so nothing bleeds across the switch.
 Settings survive on purpose — they describe how the player wants the arp to
 behave, not one performance.
 
-## The pads are a 32-degree ladder
+## The pads are scale-degree positions
 
-Pad index = scale-table index. Pad 0 is the scale root (MIDI 48 through the
-voices' own mapping), pad 31 is 31 scale steps above it, and the walk reads left
-to right, top to bottom like text. One pad layout therefore plays a major scale
-in Ionian, a whole-tone run in Wholetone and semitones in Chromatic — the arp
-always plays the scale the Scale button selects.
+Pad index is a physical position on the 8x4 panel. For a seven-note scale, each
+row is one octave: columns 0–6 are the seven scale degrees and column 7 is the
+next octave's root. The first pad of the next row repeats the last pad of the
+preceding row, so the panel shows four octave rows with intentional root
+overlaps. For example, in Major, pad 0 is C, pads 1–6 are D–B, pad 7 is the
+following C, and pad 8 is that same C. Other scale families retain the linear
+32-position ladder until a layout rule is defined for them.
 
 Touching a pad adds its degree to the chord; releasing it drops it again. There
 is no step selection, no long-press-to-edit and no Shift+pad clearing in this
@@ -212,15 +214,15 @@ use zero-based bits. Control feedback replaces only the middle three rows.
 
 ## The LED panel is the chord map
 
-The 8x4 WS2812B panel mirrors the touch pads, so each LED is one scale degree:
+The 8x4 WS2812B panel mirrors the touch pads, so each LED is one physical scale position. For seven-note scales the first/last column of each row and the row-boundary pads are the same octave-root relationship described above.
 
 | State | Colour |
 |---|---|
 | Finger on the pad | The arp voice's gate-on hue for the current theme |
 | Latched, finger off | The same hue at gate-off brightness |
 | Sounding now | Hue pushed toward the theme's playhead accent — harder for higher octaves of the range — scaled by captured lidar dynamics and accent |
-| Free | Off, except a dim breathing marker on the scale's roots so the ladder stays navigable |
-| No chord held | The whole panel breathes |
+| Free | A quiet one-eighth shade of the selected voice hue; scale roots use a distinct half-strength shade |
+| No chord held | The same root/free shades remain visible, so the scale ladder is ready for chord entry |
 
 ## How it is built
 

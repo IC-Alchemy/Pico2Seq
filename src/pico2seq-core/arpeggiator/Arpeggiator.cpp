@@ -286,10 +286,23 @@ uint8_t Engine::effectiveCount() const noexcept
 {
   uint32_t mask = physicalMask_ | latchedMask_;
   uint8_t count = 0;
-  while (mask)
+  for (uint8_t pad = 0; pad < kPadCount; ++pad)
   {
-    mask &= mask - 1u;
-    ++count;
+    if (!(mask & padBit(pad)))
+      continue;
+    const uint8_t degree = scaleDegreeForPad(pad, scaleNotesPerOctave_);
+    bool duplicate = false;
+    for (uint8_t previous = 0; previous < pad; ++previous)
+    {
+      if ((mask & padBit(previous)) &&
+          scaleDegreeForPad(previous, scaleNotesPerOctave_) == degree)
+      {
+        duplicate = true;
+        break;
+      }
+    }
+    if (!duplicate)
+      ++count;
   }
   return count;
 }
@@ -302,8 +315,21 @@ uint8_t Engine::chordDegree(uint8_t index) const noexcept
   {
     if (!(mask & padBit(pad)))
       continue;
+    const uint8_t degree = scaleDegreeForPad(pad, scaleNotesPerOctave_);
+    bool duplicate = false;
+    for (uint8_t previous = 0; previous < pad; ++previous)
+    {
+      if ((mask & padBit(previous)) &&
+          scaleDegreeForPad(previous, scaleNotesPerOctave_) == degree)
+      {
+        duplicate = true;
+        break;
+      }
+    }
+    if (duplicate)
+      continue;
     if (seen == index)
-      return pad;
+      return degree;
     ++seen;
   }
   return kNoDegree;
@@ -311,7 +337,26 @@ uint8_t Engine::chordDegree(uint8_t index) const noexcept
 
 uint8_t Engine::orderDegree(uint8_t index) const noexcept
 {
-  return index < orderCount_ ? order_[index] : kNoDegree;
+  uint8_t seen = 0;
+  for (uint8_t i = 0; i < orderCount_; ++i)
+  {
+    const uint8_t degree = scaleDegreeForPad(order_[i], scaleNotesPerOctave_);
+    bool duplicate = false;
+    for (uint8_t previous = 0; previous < i; ++previous)
+    {
+      if (scaleDegreeForPad(order_[previous], scaleNotesPerOctave_) == degree)
+      {
+        duplicate = true;
+        break;
+      }
+    }
+    if (duplicate)
+      continue;
+    if (seen == index)
+      return degree;
+    ++seen;
+  }
+  return kNoDegree;
 }
 
 bool Engine::padInChord(uint8_t pad) const noexcept
@@ -684,6 +729,17 @@ bool Engine::degreeSounding(uint8_t degree) const noexcept
     if ((soundingMask_ & (1u << slot)) && soundingDegree_[slot] == degree)
       return true;
   return false;
+}
+
+bool Engine::padSounding(uint8_t pad) const noexcept
+{
+  return pad < kPadCount &&
+         degreeSounding(scaleDegreeForPad(pad, scaleNotesPerOctave_));
+}
+
+void Engine::setScaleNotesPerOctave(uint8_t notesPerOctave) noexcept
+{
+  scaleNotesPerOctave_ = notesPerOctave == kSevenNoteScale ? notesPerOctave : 0;
 }
 
 } // namespace Arpeggiator

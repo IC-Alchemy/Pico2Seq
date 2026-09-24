@@ -64,7 +64,10 @@ void arpNoteOn(uint8_t voice, uint8_t degree, uint8_t octave, bool primary)
 
 void arpModeToggle(UIState &uiState)
 {
-    const bool entering = !uiState.arp.active();
+  const bool entering = !uiState.arp.active();
+  uiState.arp.setScaleNotesPerOctave(
+      scaleNotesPerOctave(scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)]));
+
 
     // Silence first, on both edges: the ticks that would end the sounding note
     // are about to come from the other mode's path.
@@ -109,7 +112,12 @@ void arpModeToggle(UIState &uiState)
 
 void arpTick()
 {
-    const Arpeggiator::Tick out = uiState.arp.tick();
+  // Scale selection is shared with the sequencer, so keep the ARP geometry in
+  // sync even when the scale is changed while the mode is already active.
+  uiState.arp.setScaleNotesPerOctave(
+      scaleNotesPerOctave(scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)]));
+  const Arpeggiator::Tick out = uiState.arp.tick();
+
     for (uint8_t slot = 0; slot < Arpeggiator::kMaxSlots; ++slot)
     {
         const uint8_t slotBit = static_cast<uint8_t>(1u << slot);

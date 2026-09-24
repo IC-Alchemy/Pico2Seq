@@ -85,6 +85,38 @@ void pressChord(Engine &engine, std::initializer_list<uint8_t> pads)
 }
 } // namespace
 
+TEST_CASE("Seven-note pad layout makes each row an octave", "[arpeggiator]")
+{
+  // The eight columns show seven scale degrees plus the next root. The row
+  // boundary repeats the root deliberately, so a physical row is one octave.
+  CHECK(scaleDegreeForPad(0, 7) == 0);
+  CHECK(scaleDegreeForPad(6, 7) == 6);
+  CHECK(scaleDegreeForPad(7, 7) == 7);
+  CHECK(scaleDegreeForPad(8, 7) == 7);
+  CHECK(scaleDegreeForPad(14, 7) == 13);
+  CHECK(scaleDegreeForPad(15, 7) == 14);
+  CHECK(scaleDegreeForPad(16, 7) == 14);
+  CHECK(scaleDegreeForPad(31, 7) == 28);
+
+  // Non-seven-note scales retain the linear 32-degree ladder until they get a
+  // deliberately different layout rule.
+  CHECK(scaleDegreeForPad(7, 12) == 7);
+  CHECK(scaleDegreeForPad(8, 12) == 8);
+}
+
+TEST_CASE("Seven-note duplicate boundary pads share one chord tone", "[arpeggiator]")
+{
+  Engine engine;
+  engine.setScaleNotesPerOctave(7);
+  engine.pressPad(7);
+  engine.pressPad(8);
+  CHECK(engine.chordCount() == 1);
+  CHECK(engine.chordDegree(0) == 7);
+  CHECK(engine.orderDegree(0) == 7);
+  CHECK(engine.padInChord(7));
+  CHECK(engine.padInChord(8));
+}
+
 TEST_CASE("Arpeggiator rate table maps to PPQN note divisions", "[arpeggiator]")
 {
     CHECK(rateTicks(Rate::Quarter) == 480);

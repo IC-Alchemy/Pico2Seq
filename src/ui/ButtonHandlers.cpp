@@ -214,6 +214,8 @@ void handleControlButton(int buttonId, UIState &state)
 
   case BUTTON_CHANGE_SCALE:
     currentScale = (currentScale + 1) % 13;
+    state.arp.setScaleNotesPerOctave(
+        scaleNotesPerOctave(scale[currentScale]));
     Serial.print("Scale changed to: ");
     Serial.print(currentScale);
     Serial.print(" (");

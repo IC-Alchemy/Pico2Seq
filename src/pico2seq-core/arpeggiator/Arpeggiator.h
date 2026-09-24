@@ -11,12 +11,14 @@
 // reports note starts and stops by slot, and src/app/ArpPlayback.cpp maps slots
 // onto voices and voices onto VoiceState.
 //
-// Pad indices are scale-table indices. The 8x4 touch panel becomes a 32-degree
-// ladder: pad 0 is the scale root (MIDI 48 through the voices' own mapping) and
-// pad 31 is 31 scale steps above it, so the same pads walk a major scale in
-// Ionian and a semitone run in Chromatic. Arp range climbs in whole
-// octaves through VoiceState::octaveOffset (+12 semitones per step of range),
-// not through a scale-table stride, so every scale gets true octaves.
+// Pad indices are physical positions on the 8x4 touch panel. For a seven-note
+// scale, each row is one octave: columns 0..6 are the seven scale degrees and
+// column 7 repeats the next octave's root; the first pad of the next row is the
+// same note as the last pad of the previous row. Other scales retain the
+// original linear 32-degree ladder. Arp range climbs in whole octaves through
+// VoiceState::octaveOffset (+12 semitones per step of range), not through a
+// scale-table stride, so every scale gets true octaves.
+
 //
 // Timing is in uClock's 480 PPQN ticks: the caller feeds one tick per output
 // pulse, the engine decides when the next note is due. Swing delays every
@@ -28,8 +30,31 @@ namespace Arpeggiator
 
 // --- Geometry and limits -----------------------------------------------------
 
-inline constexpr uint8_t kPadCount = 32;    // 8x4 touch pads = 32 scale degrees
+inline constexpr uint8_t kPadCount = 32;    // 8x4 touch pads = 32 physical positions
+inline constexpr uint8_t kPadColumns = 8;   // one panel row
 inline constexpr uint8_t kMaxSlots = 4;     // one voice per simultaneous note
+inline constexpr uint8_t kSevenNoteScale = 7;
+inline constexpr uint8_t kNoDegree = 0xFF;
+
+/**
+ * Map a physical pad to the scale degree it represents for a scale with
+ * `notesPerOctave` notes.  Seven-note scales use the full eight-column panel
+ * as an octave: columns 0..6 are the seven notes and column 7 is the next
+ * root.  The first pad of the following row therefore deliberately repeats
+ * the last pad of the preceding row. Other scales retain the original linear
+ * 32-degree ladder until they have a layout rule of their own.
+ */
+constexpr uint8_t scaleDegreeForPad(uint8_t pad, uint8_t notesPerOctave) noexcept
+{
+  if (pad >= kPadCount)
+    return kNoDegree;
+  if (notesPerOctave != kSevenNoteScale)
+    return pad;
+  const uint8_t row = pad / kPadColumns;
+  const uint8_t column = pad % kPadColumns;
+  return static_cast<uint8_t>(row * kSevenNoteScale +
+                             (column < kSevenNoteScale ? column : kSevenNoteScale));
+}
 inline constexpr uint8_t kMinOctaves = 1;
 inline constexpr uint8_t kMaxOctaves = 4;
 inline constexpr uint8_t kMaxRhythmSteps = 16;
@@ -40,8 +65,6 @@ inline constexpr float kMinGate = 0.05f;
 inline constexpr float kMaxGate = 0.95f;
 // Slot 0 always plays the selected voice; the other slots take the remaining
 // voices in index order, so a Chord pattern spreads over the whole instrument.
-inline constexpr uint8_t kNoDegree = 0xFF;
-
 // --- Pattern and rate catalogue ---------------------------------------------
 
 enum class Pattern : uint8_t
@@ -279,6 +302,10 @@ public:
   bool slotSounding(uint8_t slot, uint8_t &degree, uint8_t &octave) const noexcept;
   /** True while any gated-on slot is playing this scale degree. */
   bool degreeSounding(uint8_t degree) const noexcept;
+  /** True while a physical pad is sounding, including duplicate octave pads. */
+  bool padSounding(uint8_t pad) const noexcept;
+  /** Select seven-note octave-row mapping; zero restores linear mapping. */
+  void setScaleNotesPerOctave(uint8_t notesPerOctave) noexcept;
   /** Note-on events since the last restart(), for the OLED step readout. */
   uint16_t stepCount() const noexcept { return stepCount_; }
   /** Scale degree of the most recent note-on, or kNoDegree before the first. */
@@ -340,6 +367,7 @@ private:
 
   // Encoder motion left over from rate turning
   float rateMotion_ = 0.0f;
+  uint8_t scaleNotesPerOctave_ = 0;
   uint32_t rng_ = 0x9E3779B9ul;
 };
 
