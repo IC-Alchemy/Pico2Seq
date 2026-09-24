@@ -38,6 +38,16 @@ if ($subStatus -match '^[\+\-U]') { throw "Submodules out of date. Run: git subm
 if (-not (Test-Path (Join-Path $repoRoot 'src/rpdsp/src/rpdsp/DSPFunctions.h'))) {
     throw 'src/rpdsp is empty. Clone with --recurse-submodules or run: git submodule update --init --recursive' }
 
+# Fail before staging if tracked firmware source still contains merge-conflict markers.
+$conflictMarkerMatches = @(git -C $repoRoot grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- '*.ino' '*.h' '*.c' '*.cpp')
+$conflictMarkerSearchExit = $LASTEXITCODE
+if ($conflictMarkerSearchExit -eq 0) {
+    throw "Conflict markers found in firmware source:`n$($conflictMarkerMatches -join "`n")"
+}
+if ($conflictMarkerSearchExit -ne 1) {
+    throw "Conflict-marker source scan failed with exit code $conflictMarkerSearchExit."
+}
+
 function Copy-StageTree {
     param(
         [Parameter(Mandatory)] [string]$Source,
