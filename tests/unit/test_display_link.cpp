@@ -48,20 +48,7 @@ void fillTestTheme(rd::ThemeBlock& theme)
 /** Wire size of the body each page carries. ParamEdit shares HeldParam's. */
 size_t bodyLenFor(rd::PageId page)
 {
-    switch (page)
-    {
-        case rd::PageId::VoiceEditor:      return sizeof(rd::VoiceEditorBody);
-        case rd::PageId::ModeBanner:       return sizeof(rd::ModeBannerBody);
-        case rd::PageId::Notice:           return sizeof(rd::NoticeBody);
-        case rd::PageId::HeldParam:        return sizeof(rd::HeldParamBody);
-        case rd::PageId::SettingsToggles:  return sizeof(rd::SettingsTogglesBody);
-        case rd::PageId::SettingsPresets:  return sizeof(rd::SettingsPresetsBody);
-        case rd::PageId::GateLength:       return sizeof(rd::GateLengthBody);
-        case rd::PageId::StepEnv:          return sizeof(rd::StepEnvBody);
-        case rd::PageId::ParamEdit:        return sizeof(rd::HeldParamBody);
-        case rd::PageId::Status:           return sizeof(rd::StatusBody);
-    }
-    return 0;
+    return rd::bodySizeForPage(page);
 }
 
 /** Fill frame.page's body with a byte pattern derived from the page id, so two
@@ -143,6 +130,8 @@ TEST_CASE("every page body keeps its packed wire size", "[display_link]")
     // silently truncate at serialize time otherwise.
     for (int p = 1; p <= 10; ++p)
         CHECK(bodyLenFor(static_cast<rd::PageId>(p)) <= rd::kMaxBodyBytes);
+    CHECK(bodyLenFor(static_cast<rd::PageId>(0)) == 0);
+    CHECK(bodyLenFor(static_cast<rd::PageId>(11)) == 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -340,6 +329,20 @@ TEST_CASE("decodeFrame rejects an impossible bodyLen", "[display_link]")
     CHECK_FALSE(rd::decodeFrame(bytes, sizeof(bytes), out));
 }
 
+TEST_CASE("decodeFrame enforces the page-specific body schema", "[display_link]")
+{
+    rd::PageFrame frame = makeTestFrame(rd::PageId::ModeBanner);
+    uint8_t bytes[rd::kMaxFrameBytes] = {0};
+    const size_t len = rd::serializeFrame(frame, bytes, sizeof(bytes));
+    REQUIRE(len == wireLen(sizeof(rd::ModeBannerBody)));
+
+    // Change the page id without changing the body length, then repair SUM.
+    bytes[2] = static_cast<uint8_t>(rd::PageId::Status);
+    bytes[len - 1] = rd::frameSum(bytes, len - 1);
+    rd::PageFrame out = {};
+    CHECK_FALSE(rd::decodeFrame(bytes, len, out));
+}
+
 TEST_CASE("serializeFrame returns 0 instead of writing past the cap", "[display_link]")
 {
     const rd::PageFrame frame = makeTestFrame(rd::PageId::Status); // the biggest body
@@ -355,4 +358,8 @@ TEST_CASE("serializeFrame returns 0 instead of writing past the cap", "[display_
     rd::PageFrame oversized = frame;
     oversized.bodyLen = rd::kMaxBodyBytes + 1;
     CHECK(rd::serializeFrame(oversized, bytes, sizeof(bytes)) == 0);
+
+    rd::PageFrame wrongPageBody = frame;
+    wrongPageBody.page = rd::PageId::ModeBanner;
+    CHECK(rd::serializeFrame(wrongPageBody, bytes, sizeof(bytes)) == 0);
 }

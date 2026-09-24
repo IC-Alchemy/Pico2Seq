@@ -27,7 +27,8 @@ class VoiceManager;
  *     bytes with the same 4-bit SEQ (idempotent on the panel);
  *   - SEQ advances only when the content changed, never on a heartbeat;
  *   - a failed send leaves the shadow dirty, so the next 40 ms display tick
- *     retries — never an in-line retry;
+ *     retries; after three consecutive failures the link marks the panel absent
+ *     and returns to the one-second re-probe cadence;
  *   - with the panel absent, begin() fails and update() re-probes at most
  *     every 1000 ms (hot-plug support) and sends nothing meanwhile.
  */
@@ -70,9 +71,14 @@ private:
   uint8_t lastSent_[rdisplay::kMaxFrameBytes] = {0};
   size_t lastSentLen_ = 0;
   uint8_t lastSeq_ = 0;
+  uint8_t pending_[rdisplay::kMaxFrameBytes] = {0};
+  size_t pendingLen_ = 0;
+  uint8_t pendingSeq_ = 0;
+  bool hasPending_ = false;
   bool dirty_ = true; // nothing sent yet — first frame always goes out
   uint32_t lastSendMs_ = 0;
 
   uint32_t sentFrames_ = 0;
   uint32_t sendFailures_ = 0;
+  uint8_t consecutiveSendFailures_ = 0;
 };

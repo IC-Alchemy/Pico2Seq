@@ -160,9 +160,9 @@ static_assert(sizeof(ModeBannerBody) == 1, "ModeBannerBody wire size");
 struct NoticeBody {
   uint8_t kind;           // mirrors UIState::OledNoticeKind's numeric value
   uint8_t voice;
-  uint16_t value;         // oledNoticeValue (delay notices)
+  uint16_t value;         // reserved; current UI notice kinds have no numeric payload
   char word[12];          // "RANDOMIZED", "SAVED", ...
-  char sub[12];           // per-voice or delay-time suffix
+  char sub[12];           // per-voice suffix
 };
 static_assert(sizeof(NoticeBody) == 28, "NoticeBody wire size");
 
@@ -247,6 +247,23 @@ static_assert(sizeof(StatusBody) == 40, "StatusBody wire size");
 inline constexpr uint8_t kMaxBodyBytes = 40;   // sizeof(StatusBody)
 inline constexpr uint8_t kMaxFrameBytes = 64;  // header(4) + theme(14) + body + SUM(1)
 
+/** Return the wire body size for a known page, or zero for an unknown page. */
+inline size_t bodySizeForPage(PageId page) {
+  switch (page) {
+  case PageId::VoiceEditor: return sizeof(VoiceEditorBody);
+  case PageId::ModeBanner: return sizeof(ModeBannerBody);
+  case PageId::Notice: return sizeof(NoticeBody);
+  case PageId::HeldParam:
+  case PageId::ParamEdit: return sizeof(HeldParamBody);
+  case PageId::SettingsToggles: return sizeof(SettingsTogglesBody);
+  case PageId::SettingsPresets: return sizeof(SettingsPresetsBody);
+  case PageId::GateLength: return sizeof(GateLengthBody);
+  case PageId::StepEnv: return sizeof(StepEnvBody);
+  case PageId::Status: return sizeof(StatusBody);
+  }
+  return 0;
+}
+
 struct PageFrame {
   uint8_t protoVer;
   uint8_t seq;            // 4-bit, advances only when the page content changed
@@ -277,7 +294,8 @@ inline uint8_t frameSum(const uint8_t* bytes, size_t n) {
  * receiver derives it from the transaction length.
  */
 inline size_t serializeFrame(const PageFrame& frame, uint8_t* out, size_t cap) {
-  if (frame.bodyLen > kMaxBodyBytes) return 0;
+  if (frame.bodyLen != bodySizeForPage(frame.page) ||
+      frame.bodyLen > kMaxBodyBytes) return 0;
   const size_t headerBytes = 4;  // protoVer, seq, pageId, themeIdx
   const size_t sumBytes = 1;
   const size_t need = headerBytes + sizeof(ThemeBlock) + sumBytes + frame.bodyLen;
@@ -315,12 +333,14 @@ inline bool decodeFrame(const uint8_t* in, size_t n, PageFrame& out) {
   if (n < headerBytes + sizeof(ThemeBlock) + sumBytes + 1) return false;
   const size_t bodyLen = n - headerBytes - sizeof(ThemeBlock) - sumBytes;
   if (bodyLen > kMaxBodyBytes) return false;
+  const PageId page = static_cast<PageId>(in[2]);
+  if (bodyLen != bodySizeForPage(page)) return false;
   if (in[0] != kProtoVerV1) return false;
   if (frameSum(in, n - 1) != in[n - 1]) return false;
 
   out.protoVer = in[0];
   out.seq = in[1];
-  out.page = static_cast<PageId>(in[2]);
+  out.page = page;
   out.themeIdx = in[3];
   size_t o = headerBytes;
   const size_t themeWords = sizeof(ThemeBlock) / sizeof(uint16_t);

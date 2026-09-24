@@ -38,8 +38,17 @@ namespace
 constexpr uint32_t kHeartbeatIntervalMs = 500;
 // With the panel absent, re-probe at most once a second (hot-plug support).
 constexpr uint32_t kReprobeIntervalMs = 1000;
+constexpr uint8_t kConsecutiveSendFailuresBeforeReprobe = 3;
+constexpr size_t kMaxWireFrameBytes = rdisplay::kMaxFrameBytes - 1;
+constexpr uint32_t kMaxInt16 = 32767;
+constexpr uint32_t kMinInt16Magnitude = 32768;
 
 /** Zero-fill + truncate copy into the fixed char arrays the wire carries. */
+bool deadlineActive(uint32_t deadline, uint32_t now) noexcept
+{
+  return deadline != 0 && static_cast<int32_t>(deadline - now) > 0;
+}
+
 void copyString(char *out, size_t cap, const char *text)
 {
   if (cap == 0)
@@ -83,24 +92,34 @@ const char *noticeWord(UIState::OledNoticeKind kind)
   case UIState::OledNoticeKind::LoadError:   return "LOAD ERR";
   case UIState::OledNoticeKind::VoiceCleared: return "CLEARED";
   case UIState::OledNoticeKind::AllCleared:  return "ALL CLEAR";
-  case UIState::OledNoticeKind::DelayMix:    return "DELAY MIX";
-  case UIState::OledNoticeKind::DelayTime:   return "DELAY TIME";
   default:                                   return "RANDOMIZED";
   }
 }
 
-/** Per-voice or delay suffix under the notice word (oled.cpp:303-325). */
-void noticeSub(UIState::OledNoticeKind kind, uint8_t voice, uint16_t value,
+/** Per-voice suffix under the notice word (oled.cpp:303-325). */
+void noticeSub(UIState::OledNoticeKind kind, uint8_t voice,
                char *out, size_t cap)
 {
   out[0] = '\0';
   if (kind == UIState::OledNoticeKind::Randomized ||
       kind == UIState::OledNoticeKind::VoiceCleared)
     snprintf(out, cap, "Voice %u", static_cast<unsigned>(voice) + 1);
-  else if (kind == UIState::OledNoticeKind::DelayMix)
-    snprintf(out, cap, "%u %%", static_cast<unsigned>(value));
-  else if (kind == UIState::OledNoticeKind::DelayTime)
-    snprintf(out, cap, "%u ms", static_cast<unsigned>(value));
+}
+
+int16_t clampDistanceMm(int value) noexcept
+{
+  if (value < -static_cast<int>(kMinInt16Magnitude))
+    return -32768;
+  if (value > static_cast<int>(kMaxInt16))
+    return 32767;
+  return static_cast<int16_t>(value);
+}
+
+uint8_t normalizeStep(int step) noexcept
+{
+  if (step < 0)
+    return 0;
+  return static_cast<uint8_t>(std::min(step, static_cast<int>(SequencerConstants::MAX_STEPS_COUNT) - 1));
 }
 
 const int *scaleRow()
@@ -159,12 +178,16 @@ bool RoundDisplayLink::probe()
   // one-byte read. Never blocks long — Wire.setTimeout(25, true) is armed by
   // ControlIO::beginMainBusAndLeds().
   Wire.beginTransmission(rdisplay::kDisplayAddress);
-  Wire.write(rdisplay::kRegWhoAmI);
-  if (Wire.endTransmission() != 0)
+  if (Wire.write(rdisplay::kRegWhoAmI) != 1 || Wire.endTransmission() != 0)
     return false;
   if (Wire.requestFrom(rdisplay::kDisplayAddress, static_cast<uint8_t>(1)) != 1)
     return false;
-  return Wire.read() == rdisplay::kWhoAmIMagic;
+  if (Wire.read() != rdisplay::kWhoAmIMagic)
+    return false;
+
+  uint8_t typeId = 0;
+  uint8_t protoVer = 0;
+  return probeIdentity(typeId, protoVer);
 }
 
 bool RoundDisplayLink::begin()
@@ -183,8 +206,7 @@ bool RoundDisplayLink::probeIdentity(uint8_t &typeId, uint8_t &protoVer)
   for (size_t i = 0; i < sizeof(regs); ++i)
   {
     Wire.beginTransmission(rdisplay::kDisplayAddress);
-    Wire.write(regs[i]);
-    if (Wire.endTransmission() != 0)
+    if (Wire.write(regs[i]) != 1 || Wire.endTransmission() != 0)
       return false;
     if (Wire.requestFrom(rdisplay::kDisplayAddress, static_cast<uint8_t>(1)) != 1)
       return false;
@@ -249,11 +271,11 @@ void buildNoticeBody(const UIState &uiState, uint8_t *body, uint8_t &bodyLen)
   rdisplay::NoticeBody out = {};
   out.kind = static_cast<uint8_t>(uiState.oledNoticeKind);
   out.voice = uiState.oledNoticeVoice;
-  out.value = uiState.oledNoticeValue;
+  out.value = 0;
   copyString(out.word, sizeof(out.word), noticeWord(uiState.oledNoticeKind));
   char sub[16];
   noticeSub(uiState.oledNoticeKind, uiState.oledNoticeVoice,
-            uiState.oledNoticeValue, sub, sizeof(sub));
+            sub, sizeof(sub));
   copyString(out.sub, sizeof(out.sub), sub);
   std::memcpy(body, &out, sizeof(out));
   bodyLen = sizeof(out);
@@ -267,8 +289,9 @@ void buildHeldParamBody(const UIState &uiState, ParamId id,
 {
   rdisplay::HeldParamBody out = {};
   const bool selected = uiState.selectedStepForEdit >= 0;
-  const uint8_t step = selected ? static_cast<uint8_t>(uiState.selectedStepForEdit)
-                                : sequence.getCurrentStepForParameter(id);
+  const uint8_t step = selected
+                           ? normalizeStep(uiState.selectedStepForEdit)
+                           : sequence.getCurrentStepForParameter(id);
   Step liveStep = sequence.getPlaybackStep(selected ? step : UINT8_MAX);
   composeHandValue(id, liveStep, config);
 
@@ -277,7 +300,7 @@ void buildHeldParamBody(const UIState &uiState, ParamId id,
   out.mode = showBase ? 0 : (selected ? 2 : 1);
   out.step = static_cast<int8_t>(step);
   const int mm = distanceSensor.getRawDistanceMm();
-  out.distanceMm = static_cast<int16_t>(mm);
+  out.distanceMm = clampDistanceMm(mm);
   out.handPresent = AppState::performanceInput.handPresent ? 1 : 0;
 
   char value[48] = "--";
@@ -342,7 +365,7 @@ void buildStepEnvBody(const UIState &uiState, const Sequencer &sequence,
                       uint8_t *body, uint8_t &bodyLen)
 {
   rdisplay::StepEnvBody out = {};
-  const uint8_t step = static_cast<uint8_t>(std::max(0, uiState.selectedStepForEdit));
+  const uint8_t step = normalizeStep(uiState.selectedStepForEdit);
   out.voice = std::min<uint8_t>(uiState.selectedVoiceIndex, UIState::MAX_VOICES - 1);
   out.step = step;
   out.lastLane = static_cast<uint8_t>(uiState.envFaderLane);
@@ -377,8 +400,7 @@ void buildStatusBody(const UIState &uiState, const Sequencer &sequence,
   {
     const auto lane = VoiceEdit::sequenceLane(encoderId, *config);
     const Step playing = sequence.getPlaybackStep();
-    const bool showBase = uiState.encoderBaseViewUntil != 0 &&
-                          millis() < uiState.encoderBaseViewUntil;
+    const bool showBase = deadlineActive(uiState.encoderBaseViewUntil, millis());
     const Step values = showBase ? MusicalValues::baseStep(*config) : playing;
     char value[48] = "--";
     if (lane != ParamId::Count)
@@ -439,12 +461,12 @@ size_t buildFrame(const UIState &uiState, const SequencerView &sequencers,
     page = rdisplay::PageId::VoiceEditor;
     buildVoiceEditorBody(uiState, voiceManager, frame.body, frame.bodyLen);
   }
-  else if (uiState.alchemyModeBannerUntil != 0 && now < uiState.alchemyModeBannerUntil)
+  else if (deadlineActive(uiState.alchemyModeBannerUntil, now))
   {
     page = rdisplay::PageId::ModeBanner;
     buildModeBannerBody(uiState, frame.body, frame.bodyLen);
   }
-  else if (uiState.oledNoticeUntil != 0 && now < uiState.oledNoticeUntil &&
+  else if (deadlineActive(uiState.oledNoticeUntil, now) &&
            uiState.oledNoticeKind != UIState::OledNoticeKind::None)
   {
     page = rdisplay::PageId::Notice;
@@ -477,7 +499,7 @@ size_t buildFrame(const UIState &uiState, const SequencerView &sequencers,
   {
     const auto editing = held != ParamId::Count ? held : uiState.currentEditParameter;
     const bool envelopePage = selected && (editing == ParamId::Count ||
-                                (uiState.envViewUntil != 0 && now < uiState.envViewUntil));
+                                deadlineActive(uiState.envViewUntil, now));
     if (envelopePage)
     {
       page = rdisplay::PageId::StepEnv;
@@ -490,8 +512,7 @@ size_t buildFrame(const UIState &uiState, const SequencerView &sequencers,
       const ParamId encoderLane = config ? VoiceEdit::sequenceLane(encoderId, *config)
                                          : ParamId::Count;
       const bool showBase = config != nullptr &&
-                            uiState.encoderBaseViewUntil != 0 &&
-                            now < uiState.encoderBaseViewUntil &&
+                            deadlineActive(uiState.encoderBaseViewUntil, now) &&
                             encoderLane == editing;
       buildHeldParamBody(uiState, editing, sequence, config, showBase,
                          frame.body, frame.bodyLen);
@@ -520,24 +541,37 @@ bool RoundDisplayLink::sendFrame(const uint8_t *bytes, size_t len, uint8_t seq)
   // counter goes in first, then the SUM is recomputed over the patched
   // buffer (the shadow-comparable bytes carry SEQ zeroed).
   uint8_t wire[rdisplay::kMaxFrameBytes] = {0};
-  if (len < 4 || len > sizeof(wire))
+  // kMaxFrameBytes includes the register byte, so leave room for it in the
+  // Arduino Wire transaction as well as in the local frame scratch buffer.
+  if (len < 4 || len > sizeof(wire) || len > kMaxWireFrameBytes)
     return false;
   std::memcpy(wire, bytes, len);
   wire[1] = seq;
   wire[len - 1] = rdisplay::frameSum(wire, len - 1);
 
   Wire.beginTransmission(rdisplay::kDisplayAddress);
-  Wire.write(rdisplay::kRegFrame);
-  Wire.write(wire, len);
-  if (Wire.endTransmission() == 0)
+  const size_t regWritten = Wire.write(rdisplay::kRegFrame);
+  const size_t frameWritten = regWritten == 1 ? Wire.write(wire, len) : 0;
+  const uint8_t endStatus = Wire.endTransmission();
+  if (regWritten == 1 && frameWritten == len && endStatus == 0)
   {
+    // The register byte and the frame are queued as one I2C transaction. Do
+    // not mark the shadow clean unless both writes and STOP succeeded.
     ++sentFrames_;
+    consecutiveSendFailures_ = 0;
     lastSendMs_ = millis();
     return true;
   }
   // Drop and wait: the shadow stays dirty, the next display tick retries
   // (never an in-line retry — plan §2, AlchemyTiles.h:36-38 discipline).
   ++sendFailures_;
+  ++consecutiveSendFailures_;
+  if (consecutiveSendFailures_ >= kConsecutiveSendFailuresBeforeReprobe)
+  {
+    present_ = false;
+    lastProbeMs_ = millis();
+    consecutiveSendFailures_ = 0;
+  }
   return false;
 }
 
@@ -576,15 +610,31 @@ void RoundDisplayLink::update(const UIState &uiState,
 
   // SEQ advances only when the content changed; a dirty re-send keeps the
   // counter so the panel's equality rule sees the same frame.
-  const uint8_t seq = differs
-                          ? static_cast<uint8_t>((lastSeq_ + 1) & rdisplay::kStatusSeqMask)
-                          : lastSeq_;
+  uint8_t seq = differs
+                    ? static_cast<uint8_t>((lastSeq_ + 1) & rdisplay::kStatusSeqMask)
+                    : lastSeq_;
+  if (differs && hasPending_)
+  {
+    if (len == pendingLen_ && std::memcmp(bytes, pending_, len) == 0)
+      seq = pendingSeq_; // retry the exact ambiguous payload with its SEQ
+    else
+      seq = static_cast<uint8_t>((pendingSeq_ + 1) & rdisplay::kStatusSeqMask);
+  }
   if (sendFrame(bytes, len, seq))
   {
     std::memcpy(lastSent_, bytes, len);
     lastSentLen_ = len;
     lastSeq_ = seq;
+    hasPending_ = false;
+    pendingLen_ = 0;
     dirty_ = false;
+  }
+  else
+  {
+    std::memcpy(pending_, bytes, len);
+    pendingLen_ = len;
+    pendingSeq_ = seq;
+    hasPending_ = true;
   }
 }
 

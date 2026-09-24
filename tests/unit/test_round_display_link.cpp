@@ -87,7 +87,7 @@ struct TestRig
         Wire.endTransmissionStatus = 0;
         if (panelPresent)
         {
-            Wire.rxFeed.assign({rd::kWhoAmIMagic});
+            Wire.rxFeed.assign({rd::kWhoAmIMagic, rd::kTypeDisplay, rd::kProtoVerV1});
             REQUIRE(link.begin());
         }
         else
@@ -170,15 +170,18 @@ TEST_CASE("begin probes WHOAMI at the display address", "[round_display]")
 {
     Wire.clearTestState();
     Wire.recordTransmissions = true;
-    Wire.rxFeed.assign({rd::kWhoAmIMagic});
+    Wire.rxFeed.assign({rd::kWhoAmIMagic, rd::kTypeDisplay, rd::kProtoVerV1});
     RoundDisplayLink link;
     CHECK(link.begin());
     CHECK(link.isInitialized());
 
-    // The probe is a tile-shaped pointer read: write reg 0x00, STOP, read 1.
-    REQUIRE(Wire.transmissions.size() == 1);
+    // The probe validates WHOAMI, TYPE_ID and PROTO_VER before accepting a
+    // device. Each is a separate register-pointer transaction.
+    REQUIRE(Wire.transmissions.size() == 3);
     CHECK(Wire.transmissions[0].address == rd::kDisplayAddress);
     CHECK(Wire.transmissions[0].bytes == std::vector<uint8_t>{rd::kRegWhoAmI});
+    CHECK(Wire.transmissions[1].bytes == std::vector<uint8_t>{rd::kRegTypeId});
+    CHECK(Wire.transmissions[2].bytes == std::vector<uint8_t>{rd::kRegProtoVer});
 }
 
 TEST_CASE("begin fails cleanly when the panel is absent", "[round_display]")
@@ -230,7 +233,7 @@ TEST_CASE("an absent panel stays silent until a later probe recovers",
 
     // 1000 ms later the probe succeeds and the first frame goes out.
     rig.advance(1000);
-    Wire.rxFeed.assign({rd::kWhoAmIMagic});
+    Wire.rxFeed.assign({rd::kWhoAmIMagic, rd::kTypeDisplay, rd::kProtoVerV1});
     rig.update(rig.ui, rig.view, nullptr);
     CHECK(rig.link.isInitialized());
     REQUIRE(frameCount() == 1);
@@ -676,8 +679,6 @@ TEST_CASE("the Notice body mirrors the OLED wording for all notice kinds",
         {UIState::OledNoticeKind::LoadError, "LOAD ERR", "", 0, 0},
         {UIState::OledNoticeKind::VoiceCleared, "CLEARED", "Voice 1", 0, 0},
         {UIState::OledNoticeKind::AllCleared, "ALL CLEAR", "", 0, 0},
-        {UIState::OledNoticeKind::DelayMix, "DELAY MIX", "45 %", 0, 45},
-        {UIState::OledNoticeKind::DelayTime, "DELAY TIME", "250 ms", 0, 250},
     };
 
     for (const auto &notice : cases)
@@ -688,7 +689,6 @@ TEST_CASE("the Notice body mirrors the OLED wording for all notice kinds",
             rig.ui.oledNoticeUntil = 1000 + 100;
             rig.ui.oledNoticeKind = notice.kind;
             rig.ui.oledNoticeVoice = notice.voice;
-            rig.ui.oledNoticeValue = notice.value;
 
             rig.update(rig.ui, rig.view, nullptr);
             REQUIRE(frameCount() == 1);
@@ -698,7 +698,7 @@ TEST_CASE("the Notice body mirrors the OLED wording for all notice kinds",
             std::memcpy(&body, frame.body, sizeof(body));
             CHECK(body.kind == static_cast<uint8_t>(notice.kind));
             CHECK(body.voice == notice.voice);
-            CHECK(body.value == notice.value);
+            CHECK(body.value == 0);
             CHECK(bodyString(body.word, sizeof(body.word)) == notice.word);
             CHECK(bodyString(body.sub, sizeof(body.sub)) == notice.sub);
         }

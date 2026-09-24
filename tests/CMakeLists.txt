@@ -170,5 +170,9 @@ add_executable(round_display_tests
 target_include_directories(round_display_tests PRIVATE
   ${STUB_DIR} ${PROJECT_SOURCE_DIR} ${SRC_DIR} ${CORE_DIR} ${RPDSP_DIR})
 target_link_libraries(round_display_tests PRIVATE Catch2::Catch2WithMain)
-target_compile_options(round_display_tests PRIVATE -Wall -Wno-unused-parameter)
+if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+  target_compile_options(round_display_tests PRIVATE /W4)
+elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(round_display_tests PRIVATE -Wall -Wno-unused-parameter)
+endif()
 catch_discover_tests(round_display_tests TEST_PREFIX "round-display: ")
