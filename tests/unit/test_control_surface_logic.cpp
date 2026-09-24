@@ -53,6 +53,25 @@ TEST_CASE("Parameter record buttons select their matching encoder base", "[contr
     }
 }
 
+TEST_CASE("Record button bits map to the intended parameter lanes", "[control_surface]")
+{
+    constexpr ParamId expected[] = {
+        ParamId::Note, ParamId::Velocity, ParamId::Filter,
+        ParamId::Attack, ParamId::Release, ParamId::Octave,
+    };
+    static_assert(sizeof(expected) / sizeof(expected[0]) == 6);
+
+    for (uint8_t bit = 0; bit < 6; ++bit)
+    {
+        CAPTURE(bit);
+        CHECK(recordParamForButtonBit(bit) == expected[bit]);
+    }
+
+    CHECK(recordParamForButtonBit(6) == ParamId::Count);
+    CHECK(recordParamForButtonBit(7) == ParamId::Count);
+    CHECK(recordParamForButtonBit(UINT8_MAX) == ParamId::Count);
+}
+
 TEST_CASE("Parameter descriptors distinguish recording, detents and toggles", "[control_surface][parameter_metadata]")
 {
     constexpr ParameterEditKind kinds[] = {
