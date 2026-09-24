@@ -137,10 +137,10 @@ pwsh -NoProfile -File scripts/build_pico2seq.ps1 `
 ```
 
 The command writes `build/pico2seq-150/Pico2Seq.ino.uf2`, `.elf`, `.bin`, and `.map`. It compiles
-only; it does not upload or hardware-test the board. The clean DeCluttered lineage does not contain
-the optional `scripts/publish_uf2.ps1` helper, so the build helper may print a warning and leave the
-artifacts in the requested build directory. The helper's required submodule and source-marker checks
-remain hard errors.
+only; it does not upload or hardware-test the board. The optional
+`scripts/publish_uf2.ps1` rename/copy step is skipped when that developer helper is absent; the
+required UF2/ELF/BIN/MAP artifacts remain in the requested build directory. The helper's required
+submodule and source-marker checks remain hard errors.
 
 ### Installation & Flashing
 

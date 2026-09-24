@@ -150,7 +150,8 @@ try {
         & $publishScript -BuildDir $buildPath -FirmwareTitle $FirmwareTitle `
             -WorkingUf2Dir $WorkingUf2Dir -NoWorkingCopy:$NoWorkingCopy
     } else {
-        Write-Warning 'publish_uf2.ps1 was not found next to this script; skipping UF2 rename/copy.'
+        # Publishing is an optional developer convenience. A fresh clone only
+        # needs the standard UF2/ELF/BIN/MAP artifacts in BuildDirectory.
     }
 
     $buildSucceeded = $true
