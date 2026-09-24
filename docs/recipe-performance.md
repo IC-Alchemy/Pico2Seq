@@ -38,8 +38,8 @@ Prism's harmonic fade near Nyquist still update at audio rate, including slides.
 - Cortex-M33 assembly built with the installed Arduino toolchain's `-O3`,
   `-ffast-math`, and softfp settings contains no floating-point division in the
   optimized AirChime or SilkPad source callbacks. The prior callbacks did.
-- The final Arduino CLI build at the existing 300 MHz setting exited 0 and
-  produced UF2, ELF, BIN, and MAP files. It was not uploaded.
+- A historical Arduino CLI build at 300 MHz exited 0 and produced UF2, ELF,
+  BIN, and MAP files. It was not uploaded; 300 MHz is not the normal baseline.
 
 Measured on Windows with Clang 20.1.7, `-O3`, and both benchmark processes pinned
 to the same logical CPU (2026-09-14):

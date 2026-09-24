@@ -168,7 +168,7 @@ Copy-StageTree -Source $repoRoot -Destination $stageSketch
 $boardOptions = @(
     'flash=4194304_65536'
     'arch=arm'
-    'freq=300'
+    'freq=150'
     'opt=Optimize3'
     'profile=Disabled'
     'rtti=Disabled'

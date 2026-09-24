@@ -75,10 +75,10 @@ is not a promise of an unchanged or endless repeat.
    could keep names, units, defaults and ranges aligned.
 
 8. **Build defaults and some older documentation need reconciliation.**
-   The [build helper](../scripts/build_pico2seq.ps1) defaults to 300 MHz,
-   while this work explicitly built at 150 MHz. Dependency versions come
-   from the installed Arduino environment. Some architecture text also
-   still describes a PPQN read/modify/write race, while the current
+   The [build helper](../scripts/build_pico2seq.ps1) now defaults to the
+   stable 150 MHz baseline; higher clocks remain explicit choices. Dependency
+   versions come from the installed Arduino environment. Some architecture
+   text also still describes a PPQN read/modify/write race, while the current
    [clock consumer](../src/app/ClockService.cpp) disables interrupts around
    taking and clearing the pending count. Verify the current ownership and
    update the explanation rather than assuming an old warning is current.

@@ -50,7 +50,7 @@ helpers can still use XIP. In particular, Arduino's wrapped math routines in the
 DSP calculations, control ownership and diagnostic timing boundaries are unchanged.
 
 For a controlled hardware comparison, build both variants from the same source
-at the same clock (the helper's default clock remains 300 MHz):
+at the same clock (the helper's default clock is 150 MHz):
 
 ```powershell
 ./scripts/build_pico2seq.ps1 -CpuMHz 150 -AudioInFlash -BuildDirectory build/audio-xip-150

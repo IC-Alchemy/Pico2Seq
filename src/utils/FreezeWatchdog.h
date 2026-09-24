@@ -57,6 +57,25 @@ enum FreezePhase : uint32_t
     FW_FAULT = 0xDEADF00D,
 };
 
+// Full Cortex-M fault record retained in NOINIT RAM across a watchdog reset.
+// The watchdog scratch registers retain the small, always-available summary;
+// this record preserves the fault-status registers for the next boot report.
+struct FreezeFaultRecord
+{
+    uint32_t magic;
+    uint32_t cfsr;
+    uint32_t hfsr;
+    uint32_t mmfar;
+    uint32_t bfar;
+    uint32_t pc;
+    uint32_t lr;
+    uint32_t excReturn;
+    uint32_t core;
+    uint32_t frameValid;
+};
+
+static constexpr uint32_t FREEZE_FAULT_RECORD_MAGIC = 0x46525554u; // "FRUT"
+
 static const char *freezeWatchdogPhaseName(uint32_t phase)
 {
     switch (phase)
@@ -108,21 +127,11 @@ static inline void freezeWatchdogFeed(uint32_t phase)
 }
 
 #if defined(__arm__)
-// Capture the stacked PC/LR of the faulting code, then stall and let the armed
-// watchdog reboot us. Handles both the plain and the extended (FPU) frame
-// layout, since the integer block comes first in both.
-static void freezeWatchdogHardFaultHandler()
-{
-    uint32_t stackedMsp;
-    asm volatile("mrs %0, msp" : "=r"(stackedMsp));
-    const uint32_t *frame = reinterpret_cast<const uint32_t *>(stackedMsp);
-    watchdog_hw->scratch[0] = FW_FAULT;
-    watchdog_hw->scratch[5] = frame[6]; // stacked PC
-    watchdog_hw->scratch[6] = frame[5]; // stacked LR
-    for (;;)
-    {
-    }
-}
+// Defined in FreezeWatchdog.cpp. The handler must be a naked assembly entry
+// point so it can read the original exception frame before a C++ prologue moves
+// MSP or changes the selected stack.
+extern "C" void freezeWatchdogHardFaultHandler();
+extern volatile FreezeFaultRecord g_freezeFaultRecord;
 #endif
 
 // Call once, after Wire.begin() in setup(): from here on, any hang reboots.
@@ -144,12 +153,20 @@ static inline void freezeWatchdogArm()
 struct FreezeWatchdogReport
 {
     bool watchdogReset = false;
+    bool faultRecordValid = false;
     uint32_t phase = FW_NONE;
     uint32_t frozeAtMs = 0;
     uint32_t boots = 0;
     uint32_t steps = 0;
     uint32_t pc = 0;
     uint32_t lr = 0;
+    uint32_t cfsr = 0;
+    uint32_t hfsr = 0;
+    uint32_t mmfar = 0;
+    uint32_t bfar = 0;
+    uint32_t excReturn = 0;
+    uint32_t core = 0;
+    bool frameValid = false;
 };
 inline FreezeWatchdogReport previousFreeze;
 
@@ -165,10 +182,28 @@ static inline void freezeWatchdogPrintPreviousRun()
                   (unsigned long)previousFreeze.phase,
                   (unsigned long)previousFreeze.frozeAtMs,
                   (unsigned long)previousFreeze.steps);
-    if (previousFreeze.phase == FW_FAULT)
+    if (previousFreeze.phase == FW_FAULT || previousFreeze.faultRecordValid)
     {
-        Serial.printf("[FREEZE] captured fault PC=0x%lx LR=0x%lx\n",
+        const char *frameState = !previousFreeze.faultRecordValid
+                                     ? "unknown"
+                                     : (previousFreeze.frameValid ? "valid" : "unavailable");
+        Serial.printf("[FREEZE] captured fault frame=%s PC=0x%lx LR=0x%lx\n",
+                      frameState,
                       (unsigned long)previousFreeze.pc, (unsigned long)previousFreeze.lr);
+        if (previousFreeze.faultRecordValid)
+        {
+            const bool bfarValid = (previousFreeze.cfsr & (1u << 15)) != 0;
+            const bool mmfarValid = (previousFreeze.cfsr & (1u << 7)) != 0;
+            Serial.printf("[FREEZE] fault core=%lu EXC_RETURN=0x%lx CFSR=0x%lx HFSR=0x%lx BFAR=0x%lx(valid=%u) MMFAR=0x%lx(valid=%u)\n",
+                          (unsigned long)previousFreeze.core,
+                          (unsigned long)previousFreeze.excReturn,
+                          (unsigned long)previousFreeze.cfsr,
+                          (unsigned long)previousFreeze.hfsr,
+                          (unsigned long)previousFreeze.bfar,
+                          static_cast<unsigned>(bfarValid),
+                          (unsigned long)previousFreeze.mmfar,
+                          static_cast<unsigned>(mmfarValid));
+        }
     }
 }
 
@@ -177,10 +212,36 @@ static inline void freezeWatchdogBootCheck()
 {
     // The enable marker distinguishes our timeout from USB upload/reboot
     // requests, which also use the hardware watchdog to reset the chip.
-    previousFreeze = {watchdog_enable_caused_reboot(), watchdog_hw->scratch[0],
+    previousFreeze = {watchdog_enable_caused_reboot(), false, watchdog_hw->scratch[0],
                       watchdog_hw->scratch[1], watchdog_hw->scratch[2],
                       watchdog_hw->scratch[3], watchdog_hw->scratch[5],
                       watchdog_hw->scratch[6]};
+#if defined(__arm__)
+    if (previousFreeze.watchdogReset && g_freezeFaultRecord.magic == FREEZE_FAULT_RECORD_MAGIC)
+    {
+        previousFreeze.faultRecordValid = true;
+        // Keep the compact scratch PC/LR when the stacked frame was not
+        // trustworthy (for example, a stacking error). The status record is
+        // still valid in that case.
+        if (g_freezeFaultRecord.frameValid)
+        {
+            previousFreeze.pc = g_freezeFaultRecord.pc;
+            previousFreeze.lr = g_freezeFaultRecord.lr;
+        }
+        previousFreeze.cfsr = g_freezeFaultRecord.cfsr;
+        previousFreeze.hfsr = g_freezeFaultRecord.hfsr;
+        previousFreeze.mmfar = g_freezeFaultRecord.mmfar;
+        previousFreeze.bfar = g_freezeFaultRecord.bfar;
+        previousFreeze.excReturn = g_freezeFaultRecord.excReturn;
+        previousFreeze.core = g_freezeFaultRecord.core;
+        previousFreeze.frameValid = g_freezeFaultRecord.frameValid != 0;
+    }
+#endif
+#if defined(__arm__)
+    // Consume the NOINIT record once; a later watchdog timeout without a
+    // HardFault must not inherit the previous fault's status-register report.
+    g_freezeFaultRecord.magic = 0;
+#endif
     watchdog_hw->scratch[0] = FW_NONE;
     watchdog_hw->scratch[5] = 0;
     watchdog_hw->scratch[6] = 0;
