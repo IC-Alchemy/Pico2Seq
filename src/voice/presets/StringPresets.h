@@ -4,6 +4,10 @@
 #include "../VoiceParameters.h"
 
 namespace VoicePresets {
+// Plucked strings (Karplus-Strong): no envelope/filter — pitch and pick set
+// the tone, T60 sets how long it rings. Pluck = bright attack; Nylon = soft
+// mid pick, long dark tail; Bell = bridge pick + inharmonic stiffness;
+// Shimmer = wide-detuned course, very long tail.
   // Owned string lanes, centered on each preset's resting string. T60 is a
   // seconds control on an octave taper (banjo..harp character per span);
   // brightness and pick hardness stay linear and keep off the dead ends.

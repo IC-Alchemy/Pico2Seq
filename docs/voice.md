@@ -11,7 +11,11 @@ The voice module provides a comprehensive synthesizer voice system with multi-os
 The voice system consists of several key components:
 
 - **`Voice`**: Individual synthesizer voice encapsulating oscillators, a main filter (ladder or state-variable, per `filterType`), high-pass filter, ADSR envelope, overdrive waveshaper, and lock-free parameter/pitch staging.
-- **`VoiceManager`**: Manages multiple voices with allocation, deallocation, master volume scaling, per-voice mix levels, and unified block audio processing.
+<<<<<<< HEAD
+- **`VoiceManager`**: Manages multiple voices with allocation, deallocation, master volume scaling, per-voice mix levels, unified block audio processing, and the master-bus glue compressor (`rpdsp::Compressor`, last DSP before the DAC). The compressor is driven by the master macro knob (Shift + master-volume fader): 0 = Warm/Glue/Leveler, 0.5 = Neutral/Mild Glue, 1 = Punch/Smash/Pump (`settingsForMacro()`); the audio thread eases toward the fader target so moves never step the output. The macro position is performance state, not part of the session snapshot.
+=======
+- **`VoiceManager`**: Manages multiple voices with allocation, deallocation, per-voice mix levels and unified block audio processing. The summed bus passes through `MasterDelay`, master volume, then the glue compressor (`rpdsp::Compressor`, last DSP before the DAC). Fader 2 controls delay mix/time; fader 3 controls volume/compressor macro.
+>>>>>>> 0f944a136ae72671a4e32563225d44b056231147
 - **`VoiceSystem`**: Centralized structure consolidating voice IDs and control-core state snapshots into arrays for `MAX_VOICES = 4` voices.
 - **`VoicePresets`**: Registry of 29 presets, built from grouped preset headers and one `PresetBank.h` list. Fourteen recipe presets cover FM, phase distortion, DSF, formants, ring modulation, reversing sync and spectral/chaotic synthesis. See the [musical preset bank](../src/voice/README.md#musical-preset-bank) for the latest eight sounds and their controls.
 - **`VoiceOscillator`**: Variant-based dispatcher decoupling numeric waveform IDs from `rpdsp` oscillator classes.
@@ -395,7 +399,11 @@ the `wg*` config fields tune T60, loop brightness, pick position/hardness, stiff
 bypassed, velocity scales the pluck excitation itself (soft picks inject less energy,
 and the ringing tail is never rescaled by later velocity changes), and the string
 rings past gate fall on its own T60 (gate edges still arm plucks — see
-`handleGateEdges_()`).
+`handleGateEdges_()`). String tuning lands only on note starts: each gate
+rise (or retrigger) re-pushes the `wg*` bases with a small per-note
+humanization (±4% multiplicative, under the 5% musical ceiling; exact zeros
+stay zero so unison/dry settings never drift), and edits made while a note
+rings wait for the next gate-on instead of retuning the live loop.
 WgPluck/WgNylon keep a gentle 55/66 Hz high-pass to shed subsonic rumble that
 Karplus tails otherwise accumulate; WgBell/WgShimmer bypass the high-pass too.
 Preset 13 uses `engine = ENGINE_HYPERSAW`: one `rpdsp::Hypersaw` instance supplies
@@ -460,9 +468,26 @@ so no per-span arrays use Core 1's 2 KiB stack.
    triggers when the ADSR is bypassed. The ADSR then generates each sample.
 2. Apply deferred structural configuration if the gate is low.
 3. `planFilterUpdates_()` advances cutoff smoothing per sample. The target is
-   `filterFrequency * (env * filterEnvelopeAmount + filterEnvelopeFloor)`.
+   `filterFrequency * 2^(filterEnvOctaves_ * (env - filterEnvelopeRest))` -
+   exponential in pitch, like an analog VCF's V/oct input, recomputed at the
+   setFreq rate and smoothed per sample in between. At `env == filterEnvelopeRest`
+   the cutoff is exactly what the Filter lane dialed, so the sequenced cutoff
+   stays audible instead of being replaced by the contour. `filterEnvOctaves_`
+   is `filterEnvelopeOctaves` scaled +/-30% by the Filter lane, so one sweep
+   both raises the cutoff and deepens the envelope.
+   (Before 2026-09-19 this was linear: `env * amount + floor`, which dropped a
+   released note to a tenth of its cutoff and made voices inaudible unless the
+   gate was long.)
    Coefficient updates retain their every-eight-samples throttle and change
    threshold; their exact sample indices are recorded in fixed storage.
+**The Filter lane is the envelope amount, not the cutoff** (2026-09-19). The
+cutoff frequency comes from `filterCutoffBase` alone - the encoder's Filter
+target - and the sequenced lane scales `filterEnvelopeOctaves` from 0 (cutoff
+parked on the base) to the preset's full sweep. `filterEnvelopeRest` defaults to
+0, so the contour only opens upward from the base, the way an analog VCF's
+contour amount works. The OLED shows the lane as `<amount>% <peak Hz>` and the
+patch base as plain Hz (`MusicalValues::format(..., baseView)`).
+
 4. `renderSources_()` selects the engine once per span. With an envelope,
    samples at or below `0.001f` leave the source and pending pitch commit alone.
    Oscillator-bank pitch commits require a high gate; slides advance every

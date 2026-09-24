@@ -1,3 +1,5 @@
+// VoiceParameters.cpp — lane → config mapping (control thread; pure math,
+// no allocation, safe to call from tests).
 #include "VoiceParameters.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include <algorithm>
@@ -81,8 +83,8 @@ float mapCutoff(const VoiceParameterLayout &p, float normalized) noexcept
 
 void apply(VoiceConfig &config, const VoiceState &state) noexcept
 {
-  // Pitch, octave and timing retain their shared musical units. These six
-  // normalized lanes can address any float setting in a recipe/config.
+  // Pitch, octave and timing keep shared musical units; these six lanes may
+  // each retarget any float setting (recipe macros, string model, ...).
   for (ParamId id : {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Decay,
                      ParamId::Sustain, ParamId::Release})
   {
@@ -113,7 +115,15 @@ bool formatValue(const VoiceConfig &config, ParamId id, float normalized,
     return false;
   const auto &b = binding(config, id);
   if (id == ParamId::Filter && !b.target) {
-    std::snprintf(output, capacity, "%.0fHz", mapCutoff(layout(config), normalized));
+    // Target-less Filter lane: show envelope amount plus the cutoff peak it
+    // opens to, since a bare Hz readout would lie about what the lane does.
+    const auto &p = layout(config);
+    const float octaves = std::max(0.0f, config.filterEnvelopeOctaves) *
+                          std::clamp(normalized, 0.0f, 1.0f);
+    const float base = mapCutoff(p, config.filterCutoffBase);
+    const float peak = base * std::exp2(octaves * (1.0f - std::clamp(config.filterEnvelopeRest, 0.0f, 1.0f)));
+    std::snprintf(output, capacity, "%.0f%% %.0fHz", normalized * 100.0f, peak);
+    // "<amount>% <peak>": how far the contour opens, and the cutoff it reaches.
     return true;
   }
   const float value = b.map(normalized);

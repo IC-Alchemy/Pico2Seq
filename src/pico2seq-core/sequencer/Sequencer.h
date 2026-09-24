@@ -1,13 +1,13 @@
 #ifndef SEQUENCER_H
 #define SEQUENCER_H
+// Sequencer: one polymetric pattern (notes, tone, articulation per step).
+// Four instances make the 4-voice song; Core 0 advances steps, Core 1 renders.
 #include "SequencerDefs.h"
 #include "ParameterManager.h"
 
 /**
- * @brief Simple envelope controller for ADSR triggering
- *
- * Manages envelope trigger/release states for note events.
- * Uses stack allocation for embedded performance.
+ * @brief Gate flip-flop: retrigger a step's envelope, then release its tail.
+ * Stack-only; one per Sequencer, driven by gate on/off in processStep().
  */
 class EnvelopeController
 {
@@ -31,10 +31,8 @@ private:
 };
 
 /**
- * @brief Note duration tracker for gate timing
- *
- * Tracks note duration in sequencer pulses for precise gate timing.
- * Automatically deactivates when duration expires.
+ * @brief Gate-length countdown in clock ticks: how long a step holds (legato)
+ * vs. chokes (staccato). Expires to silent automatically at zero.
  */
 class NoteDurationTracker
 {
@@ -66,19 +64,12 @@ private:
 };
 
 /**
- * @brief Polyrhythmic step sequencer with independent parameter tracks
+ * @brief One voice's polymetric pattern: every ParamId loops at its own length.
  *
- * The Sequencer class implements the core sequencing logic for Pico2Seq.
- * Each parameter (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide,
- * Sustain, Release)
- * operates as an independent track with configurable step counts, enabling complex
- * polyrhythmic patterns that evolve over hundreds of steps.
- *
- * Key Features:
- * - Independent parameter track advancement (polyrhythmic sequencing)
- * - Real-time parameter recording via sensor input
- * - Thread-safe operation for dual-core architecture
- * - Dual voice support for layered compositions
+ * Musically this is what lets Note run 16 steps while Filter loops 8 — the
+ * phrase and the tone drift in and out of phase over many bars. Storage is
+ * fixed-size (no heap in the step path); transport runs on Core 0 and hands a
+ * VoiceState to the audio engine. One instance per voice (4 total).
  */
 class Sequencer
 {
@@ -87,145 +78,114 @@ public:
     Sequencer(uint8_t channel);
     ~Sequencer() = default;
 
-    // Parameter management
+    // Lane values and lengths
     void initializeParameters();
     void resetAllSteps();
 
     /**
-     * @brief Wipe the whole pattern back to fresh-boot state
-     *
-     * Clears every stored step value (all MAX_STEPS_COUNT slots per track,
-     * not just the active length), turns all gates and slides off and
-     * restores every track's default step count. In patch mode (playback
-     * transform set) modifier steps are neutralized around the preset base
-     * instead of receiving raw defaults. A sounding note is released.
-     * Transport state and voice configuration are untouched.
+     * @brief Restore fresh-boot pattern: defaults in all 64 slots, gates/slides
+     * off, 16-step lengths. In patch mode lanes neutralize around the patch
+     * base instead. Releases any sounding note; transport/voice config kept.
      */
     void clearPattern();
 
     /**
-     * @brief Play a specific step immediately (preview mode)
-     * @param stepIdx Step index to play (0-63)
-     * @param voiceState Output voice state structure
+     * @brief Audition one stored step now (pads/preview key); plays it as if
+     * the transport had landed on it.
+     * @param stepIdx Step to hear (0-63)
      */
     void playStepNow(uint8_t stepIdx, VoiceState *voiceState);
 
     /**
-     * @brief Preview active step using current independent polymetric parameter cursors
-     * @param voiceState Output voice state structure
+     * @brief Audition the currently sounding combination of lane cursors
+     * (each lane may sit on a different step under polymeter).
      */
     void previewActiveStep(VoiceState *voiceState);
 
     /**
-     * @brief Refresh a sounding voice from the current track cursors
-     *
-     * Copies velocity, filter and the four envelope lanes (plus note and octave while
-     * the gate is high) from getPlaybackStep(). Unlike previewActiveStep()
-     * it never retriggers and leaves the gate, slide and note lifecycle
-     * alone, so live edits can be heard without restarting the envelope.
-     * @param voiceState Voice state to update in place
+     * @brief Apply live lane edits to a sounding voice without retriggering.
+     * Pitch follows only while the gate is high, so tweaks never restart the
+     * envelope mid-note.
      */
     void refreshVoiceParameters(VoiceState *voiceState) const;
 
     /**
-     * @brief Toggle gate parameter for a specific step
-     * @param stepIdx Step index to toggle (0-63)
+     * @brief Flip a step between sounding and resting (gate on/off).
+     * @param stepIdx Step to flip (0-63)
      */
     void toggleStep(uint8_t stepIdx);
 
-    // Parameter access methods
+    // Lane values (wrapping read) and lengths
     float getStepParameterValue(ParamId id, uint8_t stepIdx) const;
     void setStepParameterValue(ParamId id, uint8_t stepIdx, float value);
     uint8_t getParameterStepCount(ParamId id) const;
     void setParameterStepCount(ParamId id, uint8_t steps);
-    // Persistence access: no gate-control rule, no modulo wrap on read, no
-    // clamp/round on write (values were normalized when the UI wrote them).
+    // Save/load path: unwrapped read, unclamped write (values were normalized
+    // at record time). Writes at/beyond the active length wrap — the codec
+    // grows to MAX first so restore never wraps.
     float getRawStepValue(ParamId id, uint8_t stepIdx) const;
     void setRawStepValue(ParamId id, uint8_t stepIdx, float value);
 
     /**
-     * @brief Record a live value into a lane's playing step
-     *
-     * Writes at the lane's own cursor (getCurrentStepForParameter()), the
-     * step the voice is sounding now. Note is written only while the playing
-     * Gate step is on, so silent steps keep their pitch. Shared by step-time
-     * recording in advanceStep() and live edits between steps.
-     * @return true when the stored value changed (after clamping/rounding)
+     * @brief Overdub one lane at its currently sounding cursor.
+     * Note lands only while the Gate lane's step sounds, so silent steps keep
+     * their pitch. Returns true when the stored value actually changed.
      */
     bool recordLiveValue(ParamId id, float value);
 
     /**
-     * @brief Write a step-edit value into one step
-     *
-     * Note is written only into a step whose own Gate is on; other lanes
-     * always take the value.
-     * @return true when the stored value changed (after clamping/rounding)
+     * @brief Edit one stored step; Note lands only on a sounding (gated) step.
+     * Returns true when the stored value actually changed.
      */
     bool editStepValue(ParamId id, uint8_t stepIdx, float value);
 
     /**
-     * @brief Return one step of an absolute lane to the patch value
-     *
-     * Only lanes with ParameterDefinition::patchDefault (Velocity, Filter,
-     * Attack, Decay, Sustain, Release) can follow the patch.
-     * @return true when the step had its own value before
+     * @brief Return one patch-following lane (Velocity/Filter/ADSR) to the patch.
+     * Returns true when the step held its own value before.
      */
     bool followPatch(ParamId id, uint8_t stepIdx);
 
-    // Composed value one step plays (the transform's output when one is set).
+    // What one step actually plays (through the patch transform when set).
     float getPlaybackValue(ParamId id, uint8_t stepIdx) const;
-    // What a step that follows the patch plays: the transform's value for
-    // LANE_FOLLOWS_PATCH, else the lane's CORE_PARAMETERS default.
+    // What a patch-following step plays: patch value, else the lane default.
     float patchValue(ParamId id) const;
 
-    // Sequencer control
+    // Transport
     void start() { running = true; }
     void stop() { running = false; }
     void reset();
     void randomizeParameters(uint8_t depthPercent = ParameterManager::kDefaultRandomizeDepth,
                              uint64_t seed = 0);
-    // Note/Envelope handling
+    // Note/gate lifecycle
     void startNote(uint8_t note, uint8_t velocity, uint16_t duration);
     void handleNoteOff(VoiceState *voiceState);
-    // Ticks the note-duration countdown; returns true on the tick where the
-    // gate length expired (handleNoteOff already ran), so callers can push
-    // the mid-step note-off to the audio voice.
+    // Mid-step gate-off: ticks the hold countdown; true on the expiring tick
+    // (note already released) so the caller can push it to the audio voice.
     bool tickNoteDuration(VoiceState *voiceState);
     bool isNotePlaying() const;
 
-    // MIDI callback function pointers for note-off events
+    // Legacy hook for external note-off routing; audio path uses VoiceState.
     void setMidiNoteOffCallback(void (*callback)(uint8_t note, uint8_t channel));
 
     /**
-     * @brief Advance sequencer by one step with polyrhythmic parameter tracking
+     * @brief Step the transport once: advance every lane cursor, overdub any
+     * held record buttons, then sound the resulting combination into voiceState.
      *
-     * This is the core sequencing method that implements independent parameter
-     * track advancement. Each parameter advances at its own configured step count,
-     * enabling complex polyrhythmic patterns.
+     * Each lane wraps on its own length (uclock_step % laneLength), so lanes of
+     * different lengths phase against each other. UINT8_MAX inside processStep
+     * means "use each lane's own cursor" rather than one shared step.
      *
-     * Data Flow:
-     * 1. Calculate currentStepPerParam[i] = uclock_step % paramStepCount[i] for each parameter
-     * 2. Handle real-time parameter recording if buttons are held
-     * 3. Process step using independent parameter positions
-     * 4. Update VoiceState with current parameter values
-     * 5. Apply magnetic encoder modifications (done in main loop)
-     *
-     * @param current_uclock_step Global step counter from UClock (full 32-bit range;
-     *                            truncated to uint8_t only after per-track modulo)
-     * @param mm_distance Distance sensor reading (0-400mm range)
-     * @param is_note_button_held Button 16 state for Note parameter recording
-     * @param is_velocity_button_held Button 17 state for Velocity parameter recording
-     * @param is_filter_button_held Button 18 state for Filter parameter recording
-     * @param is_attack_button_held Button 19 state for Attack parameter recording
-     * @param is_decay_button_held Button 20 state for Decay parameter recording
-     * @param is_octave_button_held Button 21 state for Octave parameter recording
-     * @param current_selected_step_for_edit Selected step for editing (-1 for real-time mode)
-     * @param voiceState Output voice state structure for audio synthesis
+     * @param current_uclock_step Global clock counter (full 32-bit; narrow only
+     *                            after per-lane modulo to avoid 256-step aliasing)
+     * @param mm_distance Hand distance in mm (0-400 musical zone; <0 disables)
+     * @param is_note_button_held etc: which lanes the held buttons overdub
+     * @param current_selected_step_for_edit Step-edit target, or -1 for live record
+     * @param voiceState Played-step output for the audio engine
      */
     void advanceStep(uint32_t current_uclock_step, int mm_distance,
                      bool is_note_button_held, bool is_velocity_button_held,
                      bool is_filter_button_held, bool is_attack_button_held,
-                     bool is_decay_button_held, bool is_octave_button_held,
+                     bool is_release_button_held, bool is_octave_button_held,
                      int current_selected_step_for_edit,
                      VoiceState *voiceState);
 
@@ -233,39 +193,36 @@ public:
     int8_t getCurrentNote() const { return currentNote; }
 
     /**
-     * @brief Get current step position for a specific parameter
-     * @param paramId Parameter to query
-     * @return Current step index for the parameter (0 to stepCount-1)
+     * @brief This lane's currently sounding step (0 to laneLength-1).
      */
     uint8_t getCurrentStepForParameter(ParamId paramId) const;
 
-    // Get step data
+    // Stored step data
     Step getStep(uint8_t stepIdx) const;
     void setStep(uint8_t stepIdx, const Step &step);
     void copyStep(uint8_t srcStep, uint8_t dstStep);
-    // Same composed values used by playback; UINT8_MAX follows independent tracks.
-    // Read-only: does not trigger gates, advance transport or alter note tails.
+    // Played values (through the patch transform); UINT8_MAX = lane cursors.
+    // Read-only: never triggers gates, moves transport, or cuts note tails.
     Step getPlaybackStep(uint8_t stepIdx = UINT8_MAX) const;
 
     // State
     bool isRunning() const { return running; }
 
-    // Optional control-thread playback mapping. Stored step data is never
-    // changed. The context must outlive this sequencer. No synth/UI dependency.
+    // Patch transform for patch mode: maps stored steps to played values without
+    // rewriting storage. Context must outlive this sequencer; no synth/UI types.
     using PlaybackTransform = float (*)(ParamId, float, const void *);
     using OctaveMapper = int8_t (*)(float);
     void setPlaybackTransform(PlaybackTransform transform, const void *context,
                               OctaveMapper octaveMapper = nullptr) noexcept
     { playbackTransform_ = transform; playbackContext_ = context; octaveMapper_ = octaveMapper; }
-    // Calibrated normalized recording input, consumed by the next advance.
+    // Hand-calibrated record input, consumed once by the next step.
     void setRecordingInput(float normalized) noexcept { recordingInput_ = normalized; }
-    // Initialization/reset only: unlike note recording this also initializes
-    // silent steps, so enabling a gate later reveals the neutral value. The
-    // value also fills steps a growing track adds.
+    // Init/reset helper: also seeds resting steps so unmuting a gate later
+    // reveals the neutral value; doubles as the fill for grown track tails.
     void fillModulationTrack(ParamId id, float value) { parameterManager.fillTrack(id, value); }
     bool usesPlaybackTransform() const noexcept { return playbackTransform_ != nullptr; }
-    // Neutral step in patch mode: absolute lanes follow the patch, Note and
-    // the offset lanes rest at no offset, Gate and Slide are off.
+    // Resting step in patch mode: patch lanes follow, offsets sit centered,
+    // Gate/Slide rest off.
     void resetModifierStep(uint8_t step) {
         if(step>=SequencerConstants::MAX_STEPS_COUNT) return;
         for(uint8_t i=0;i<PARAM_ID_COUNT;++i) {
@@ -289,7 +246,7 @@ private:
     }
     void (*midiNoteOffCallback)(uint8_t note, uint8_t channel) = nullptr;
 
-    // Envelope methods
+    // Envelope trigger/release driven by gate on/off
     void triggerEnvelope();
     void releaseEnvelope();
 
@@ -297,19 +254,18 @@ private:
     ParameterManager parameterManager;
     EnvelopeController envelope;
     bool running;
-    uint8_t currentStep;                                              // Global step counter (used for Gate parameter timing)
-    uint8_t currentStepPerParam[static_cast<size_t>(ParamId::Count)]; // Independent step counters for each parameter
+    uint8_t currentStep; // Bar position from the Gate lane (UI/LED cursor)
+    uint8_t currentStepPerParam[static_cast<size_t>(ParamId::Count)]; // Sounding step per lane
     int8_t lastNote;
     int8_t currentNote;
-    // currentNote's range includes negatives (note 0 with the -12 octave
-    // offset is -12), so a sign check cannot mean "no note"; this flag does.
+    // Separate flag (not a sentinel): transposed notes legitimately go negative.
     bool noteActive;
     uint16_t noteDurationCounter;
     uint8_t channel;
     NoteDurationTracker noteDuration;
-    bool previousStepHadSlide; // Track if previous step had slide enabled
+    bool previousStepHadSlide; // Lets a slide ring through a following rest
 
-    // Internal methods
+    // Step sound engine (not transport): gate/slide/note lifecycle + VoiceState out
     void processStep(uint8_t stepIdx, VoiceState *voiceState);
     bool gateIsOn(uint8_t stepIdx) const;
     bool writeStepValue(ParamId id, uint8_t stepIdx, float value);

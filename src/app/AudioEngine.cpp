@@ -10,14 +10,17 @@
 #include "../utils/SpscQueue.h"
 #include <atomic>
 
+// Core 1 render path: fill buffers from the published voices, duplicate mono to
+// stereo, and track timing so Core 0 can print dropouts without touching audio.
+
 static_assert(std::atomic<bool>::is_always_lock_free, "Audio readiness must not lock");
 static_assert(std::atomic<AudioEngine::Phase>::is_always_lock_free, "Audio diagnostics must not lock");
 static_assert(sizeof(AudioEngine::Heartbeat::voiceIds) == VoiceSystem::MAX_VOICES,
               "Heartbeat must cover the fixed voice collection");
 
 constexpr float SAMPLE_RATE = 48000.0f;
-// Four buffers retain the old effective depth (three queued + one DMA buffer),
-// without a separate set of consumer buffers or copies in the DMA interrupt.
+// Four buffers = three queued + one with DMA: the groove survives one late render
+// without a click, and no extra consumer copy is needed in the DMA IRQ.
 constexpr int NUM_AUDIO_BUFFERS = 4;
 constexpr int SAMPLES_PER_BUFFER = 256;
 static_assert(SAMPLES_PER_BUFFER <= static_cast<int>(VoiceManager::kMaxBlock));
@@ -31,10 +34,10 @@ constexpr uint16_t kStereoFrameBytes = kStereoChannels * sizeof(int16_t);
 std::atomic<AudioEngine::Phase> audioPhase{AudioEngine::Phase::NotStarted};
 std::atomic<uint32_t> completedBuffers{0};
 std::atomic<uint32_t> driverStage{0};
-bool audioStarted = false; // Core 1 only
+bool audioStarted = false; // Core 1 only; never read blindly from Core 0
 SpscQueue<AudioEngine::Heartbeat, kHeartbeatQueueCapacity> heartbeats;
 audio_buffer_pool_t *producer_pool = nullptr;
-std::array<float, SAMPLES_PER_BUFFER> mixBuffer{}; // Core 1 only
+std::array<float, SAMPLES_PER_BUFFER> mixBuffer{}; // Core 1 render scratch (2 KiB stack limit)
 
 
 
@@ -45,8 +48,8 @@ void PICO2SEQ_AUDIO_FUNC(fill_audio_buffer)(audio_buffer_t *buffer)
 
     if (!voicesReady.load(std::memory_order_acquire))
     {
-        // Core 0 may still be constructing the voices. Acquire their publication
-        // before even reading the manager pointer or its fixed collection.
+        // Core 0 still building voices: output silence rather than racing it.
+        // Acquire pairs with Core 0's publish before the manager is even read.
         for (int i = 0; i < N; ++i)
         {
             out[2 * i + 0] = 0;
@@ -56,7 +59,8 @@ void PICO2SEQ_AUDIO_FUNC(fill_audio_buffer)(audio_buffer_t *buffer)
         return;
     }
 
-    // Fixed scratch also bounds an unexpectedly larger producer buffer.
+    // Fixed scratch bounds even an oversized producer buffer; chunking keeps
+    // each VoiceManager block within kMaxBlock.
     for (int offset = 0; offset < N; offset += SAMPLES_PER_BUFFER)
     {
         const int count = std::min(N - offset, SAMPLES_PER_BUFFER);
@@ -82,8 +86,8 @@ bool setupI2SAudio(audio_format_t *audioFormat, audio_i2s_config_t *i2sConfig)
         return false;
     }
 
-    // Identical PCM16 stereo formats: give the DMA the rendered buffer itself.
-    // A zero consumer-buffer count selects the driver's pass-through connection.
+    // Identical PCM16 stereo formats, so DMA takes the rendered buffer directly.
+    // Zero consumer buffers selects the driver's pass-through connection.
     audioPhase.store(AudioEngine::Phase::I2SConnect, std::memory_order_relaxed);
     if (!audio_i2s_connect_extra(producer_pool, false, 0, SAMPLES_PER_BUFFER, nullptr))
     {
@@ -91,8 +95,8 @@ bool setupI2SAudio(audio_format_t *audioFormat, audio_i2s_config_t *i2sConfig)
         return false;
     }
 
-    // Queue the full initial reserve before starting the clocks. Otherwise the
-    // very first transfer necessarily underruns and substitutes silence.
+    // Pre-fill the full reserve before clocks start; otherwise the first DMA
+    // transfer underruns and the downbeat starts with silence.
     for (int i = 0; i < NUM_AUDIO_BUFFERS; ++i)
     {
         audioPhase.store(AudioEngine::Phase::InitialFill, std::memory_order_relaxed);
@@ -121,17 +125,16 @@ extern "C" void audio_i2s_debug_stage(uint32_t stage)
 
 void AudioEngine::begin()
 {
-    // Core 0 performs all control/voice initialization first. It never waits
-    // for audio during setup. A watchdog recovery boot leaves this flag low,
-    // so Core 1 cannot restart a failing hardware path behind the console.
+    // Core 0 owns control/voice setup and never waits for audio. A watchdog
+    // recovery boot leaves voicesReady low so Core 1 parks instead of reviving
+    // a failing hardware path behind the console.
     while (!voicesReady.load(std::memory_order_acquire))
 
 
-        // Wait until Core 0 has published the voice collection. Yield rather
-        // than busy-spinning so initialization and other system work can run.
+        // Wait for Core 0's voice publish. Yield so system work can proceed.
         delay(1);
 
-    // Configure audio format (48kHz, 16-bit stereo)
+    // 48 kHz 16-bit stereo; stride is one L+R frame (4 bytes).
     static audio_format_t audioFormat = {
         .sample_freq = static_cast<uint32_t>(SAMPLE_RATE),
         .format = AUDIO_BUFFER_FORMAT_PCM_S16,
@@ -143,18 +146,18 @@ void AudioEngine::begin()
         .sample_stride = kStereoFrameBytes
     };
 
-    // Create audio buffer pool
+    // Claim pool + I2S channel/SM via AUTO so coexisting DMA/PIO users survive.
     audioPhase.store(Phase::BufferPool, std::memory_order_relaxed);
     producer_pool = audio_new_producer_pool(&bufferFormat, NUM_AUDIO_BUFFERS, SAMPLES_PER_BUFFER);
 
-    // Configure I2S hardware interface
+    // I2S pins/channel/SM (see HardwarePins.h).
     audio_i2s_config_t i2sConfig = {
         .data_pin = PICO_AUDIO_I2S_DATA_PIN,
         .clock_pin_base = PICO_AUDIO_I2S_CLOCK_PIN_BASE,
         .dma_channel = PICO_AUDIO_I2S_DMA_CHANNEL_AUTO,
         .pio_sm = PICO_AUDIO_I2S_PIO_SM_AUTO};
 
-    // Initialize I2S audio system
+    // Bring up the I2S driver.
     audioPhase.store(Phase::I2SSetup, std::memory_order_relaxed);
     audioStarted = setupI2SAudio(&audioFormat, &i2sConfig);
     if (!audioStarted)
@@ -187,8 +190,8 @@ void PICO2SEQ_AUDIO_FUNC(AudioEngine::renderNextBuffer)()
         completedBuffers.fetch_add(1, std::memory_order_relaxed);
     }
 
-    // Keep the existing liveness probe, but hand its output to Core 0. A full
-    // diagnostic queue drops the new report rather than delaying audio.
+    // Liveness probe for Core 0's diagnostics. A full queue drops the report
+    // rather than stalling audio; loss here only thins the log.
     static uint32_t c1BufCount = 0;
     static uint32_t c1LastBeat = 0;
     c1BufCount++;

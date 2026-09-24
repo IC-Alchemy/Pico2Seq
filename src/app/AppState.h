@@ -1,5 +1,10 @@
 #pragma once
 
+// AppState: the live musical state shared across Core 0 modules.
+// Musical role: everything the performance is right now — UI focus, four patterns,
+// voices, and hand height. Technical role: single home for program-long objects so
+// control, playback, and session code share without extra globals.
+
 #include "../ui/UIState.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../voice/VoiceManager.h"
@@ -10,21 +15,23 @@
 #include <algorithm>
 #include "../sensors/SensorConstants.h"
 
-// Existing UI/sensor APIs refer to these objects by name. Keep their types and
-// program-long lifetimes; their mutable control state belongs to Core 0.
+// Legacy externs kept by name for existing UI/sensor call sites. Mutable control
+// state belongs to Core 0; Core 1 only reads the published voice collection.
 extern UIState uiState;
 extern std::unique_ptr<VoiceManager> voiceManager;
 extern VoiceSystem voiceSystem;
 extern uint8_t currentScale;
 extern bool isClockRunning;
 
-// Core 0 publishes the fixed voice collection after all control setup completes.
-// Recovery mode leaves this false, keeping Core 1 out of hardware startup.
+// Set once by Core 0 after control setup; Core 1 spins on it at boot, then
+// reads voices lock-free. Release/acquire pairing — never clear it afterwards.
+// Recovery boot leaves it false so Core 1 never restarts broken audio alone.
 extern std::atomic<bool> voicesReady;
 
 namespace AppState
 {
-// Non-owning, immutable routing table in musician-facing voice order (1-4).
+// Fixed voice order as the performer sees it (1-4). Non-owning, never null;
+// the table and sequencers must outlive every user.
 extern Sequencer *const sequencers[VoiceSystem::MAX_VOICES];
 extern const SequencerView sequencerView;
 struct PerformanceInput

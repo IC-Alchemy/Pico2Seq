@@ -1,7 +1,9 @@
 #pragma once
 #include <cstdint>
 
-// Core 0 only. Build the voices once, before the clock starts.
+// VoiceSetup: one-time voice construction before the downbeat.
+// Musical role: builds the four starting instruments from saved preset picks.
+// Core 0 only, before the clock starts and before voicesReady publishes.
 void initializeVoices();
-// Retained entry point used by the settings UI; indices are zero-based.
+// Preset switch kept for the settings UI; index is zero-based (0-3).
 void applyVoicePreset(uint8_t voiceIndex, uint8_t presetIndex);

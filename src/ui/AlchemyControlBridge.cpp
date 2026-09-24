@@ -14,7 +14,6 @@
 #include "../AlchemyUI/src/ButtonMap.h"
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
-#include "../pico2seq-core/sequencer/ShuffleTemplates.h"
 
 #include <uClock.h>
 
@@ -32,7 +31,6 @@ constexpr uint8_t kRandomChordNotes = 4;
 // Utility-fader ranges.
 constexpr float kTempoMinBpm = 45.0f;
 constexpr float kTempoMaxBpm = 200.0f;
-constexpr int8_t kSwingMaxTicks = 45; // half of a 120-tick 16th at PPQN 480
 } // namespace
 
 // Why re-resolve instead of caching once: tile slots are scan order, so a tile
@@ -127,6 +125,13 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
 
   // Shift (bit 7 of the button tile) is a plain level in both modes.
   uiState.shiftHeld = buttonAt(buttonSlot_, 7).held();
+  // Shift changes tempo to feedback, delay mix to time and volume to macro.
+  // Re-arm all three on either edge so their other targets keep their values.
+  if (uiState.shiftHeld != shiftWasHeld_)
+  {
+    shiftWasHeld_ = uiState.shiftHeld;
+    faders_.resetShiftTargets();
+  }
 
   // SliderModule buttons: voice select, or transport chords with Shift —
   // identical in both modes.
@@ -341,8 +346,13 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
     if (uiState.slideMode)
       continue;
 
-    // Bits 0-5 map straight onto ParamId Note..Octave (ButtonMap.h order).
-    const uint8_t paramId = bit;
+    // Bits 0-5 follow ButtonMap.h order. The 5th button is silkscreened Decay
+    // but records Release: Decay is a timbre lane on most presets, while
+    // Release shapes the tail on all of them.
+    static constexpr ParamId kButtonLanes[6] = {
+        ParamId::Note, ParamId::Velocity, ParamId::Filter,
+        ParamId::Attack, ParamId::Release, ParamId::Octave};
+    const uint8_t paramId = static_cast<uint8_t>(kButtonLanes[bit]);
     latch_.onParamButton(paramId, edges.pressEdge, uiState.shiftHeld);
     latch_.applyTo(uiState.parameterButtonHeld, PARAM_ID_COUNT);
     uiState.latchedParameter = latch_.latched();
@@ -651,11 +661,10 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
 // --- Faders ----------------------------------------------------------------------
 
 // Why faders fan out by assignment instead of by channel: the same four
-// physical faders mean Tempo/Swing/-/Gate in both strap positions, but the
+// physical faders mean Tempo/DelayMix/Volume/Gate in both strap positions, but the
 // selected step's Attack/Decay/Sustain/Release in Step Edit (ENV mode). The
 // deadband gate (accept()) stops a newly selected voice or step from
-// snapping to a stale fader position, and the shuffle buffer is static
-// because uClock retains the pointer for ISR ticks.
+// snapping to a stale fader position.
 void AlchemyControlBridge::handleFaders(UIState &uiState,
                                         const SequencerView &sequencers)
 {
@@ -723,25 +732,69 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
       uiState.envViewUntil = millis() + ENCODER_BASE_VIEW_MS;
       break;
 
-    case ControlSurface::FaderTarget::Tempo:
-      uClock.setTempo(kTempoMinBpm +
-                      normalized * (kTempoMaxBpm - kTempoMinBpm));
+    case ControlSurface::FaderTarget::MasterVolume:
+      // Plain move: lock-free global gain on Core 1's final mix (captured
+      // by the session). Shift + move: master macro knob instead — one
+      // 0..1 morph across the master-bus compressor's Warm/Glue/Punch curve.
+      if (voiceManager)
+      {
+        if (ControlSurface::masterFaderAction(uiState.shiftHeld) ==
+            ControlSurface::MasterFaderAction::Macro)
+        {
+          voiceManager->setMasterMacro(normalized);
+          uiState.oledNoticeKind = UIState::OledNoticeKind::Macro;
+          uiState.macroNoticePercent =
+              static_cast<uint8_t>(lroundf(normalized * 100.0f));
+          uiState.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
+        }
+        else
+        {
+          voiceManager->setGlobalVolume(normalized);
+        }
+      }
       break;
 
-    case ControlSurface::FaderTarget::SwingAmount:
-    {
-      // Continuous shuffle: delay every odd 16th by up to half a step.
-      // Use static storage duration because uClock stores this pointer for Core 0 ISR ticks.
-      static int8_t continuousShuffleTicks[SHUFFLE_TEMPLATE_SIZE];
-      const int8_t offset = static_cast<int8_t>(lroundf(normalized * kSwingMaxTicks));
-      for (int i = 0; i < SHUFFLE_TEMPLATE_SIZE; ++i)
+    case ControlSurface::FaderTarget::Tempo:
+      if (ControlSurface::tempoFaderAction(uiState.shiftHeld) ==
+          ControlSurface::TempoFaderAction::DelayFeedback)
       {
-        continuousShuffleTicks[i] = (i % 2 == 1) ? offset : 0;
+        if (voiceManager)
+          voiceManager->setDelayFeedback(normalized);
+        uiState.oledNoticeKind = UIState::OledNoticeKind::DelayFeedback;
+        uiState.oledNoticeValue =
+            static_cast<uint16_t>(lroundf(normalized * 100.0f));
+        uiState.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
       }
-      uClock.setShuffleTemplate(continuousShuffleTicks, SHUFFLE_TEMPLATE_SIZE);
-      uClock.setShuffle(offset > 0);
+      else
+      {
+        uClock.setTempo(kTempoMinBpm +
+                        normalized * (kTempoMaxBpm - kTempoMinBpm));
+      }
       break;
-    }
+
+    case ControlSurface::FaderTarget::DelayMix:
+      // One fader, two jobs: the wet mix on its own, and with Shift held the
+      // same fader sweeps delay time instead (the same move-time retarget
+      // shape as the ENV lanes' Shift reset). Both report on the OLED.
+      if (uiState.shiftHeld)
+      {
+        const float seconds = ControlSurface::delaySecondsForFader(normalized);
+        if (voiceManager)
+          voiceManager->setDelayTime(seconds);
+        uiState.oledNoticeKind = UIState::OledNoticeKind::DelayTime;
+        uiState.oledNoticeValue =
+            static_cast<uint16_t>(lroundf(seconds * 1000.0f));
+      }
+      else
+      {
+        if (voiceManager)
+          voiceManager->setDelayMix(normalized);
+        uiState.oledNoticeKind = UIState::OledNoticeKind::DelayMix;
+        uiState.oledNoticeValue =
+            static_cast<uint16_t>(lroundf(normalized * 100.0f));
+      }
+      uiState.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
+      break;
 
     case ControlSurface::FaderTarget::GateLength:
     {

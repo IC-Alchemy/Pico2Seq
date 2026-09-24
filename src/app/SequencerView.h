@@ -1,12 +1,16 @@
 #pragma once
 
+// SequencerView: the fixed 4-voice routing table as the performer sees it (1-4).
+// Musical role: guarantees a pad/knob gesture always lands on the intended voice.
+// Non-owning view: the table and sequencers must outlive it; copying never
+// copies pattern state. Core 0 only.
+
 #include "../voice/VoiceSystem.h"
 #include <cstddef>
 
 class Sequencer;
 
-// Non-owning view of the fixed voice routing table. The table and its non-null
-// sequencers must outlive the view; copying a view never copies sequencer state.
+// Non-owning view of the fixed voice routing table (see above).
 class SequencerView
 {
 public:
@@ -16,13 +20,13 @@ public:
     constexpr std::size_t size() const noexcept { return VoiceSystem::MAX_VOICES; }
     constexpr Sequencer *const *data() const noexcept { return sequencers_; }
 
-    // Control actions must reject invalid voice indices, not edit another voice.
+    // Invalid index: reject (nullptr) so controls never edit the wrong voice.
     constexpr Sequencer *get(std::size_t voice) const noexcept
     {
         return voice < size() ? sequencers_[voice] : nullptr;
     }
 
-    // Renderers historically display the last voice for an invalid selection.
+    // Renderers show the last voice for an invalid selection (legacy behavior).
     Sequencer &clamped(std::size_t voice) const noexcept
     {
         return *sequencers_[voice < size() ? voice : size() - 1];

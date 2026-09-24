@@ -42,9 +42,9 @@ class SequencerView;
  *     panel keeps Play/Session/Scale/Theme while Octave range, Re-sync and
  *     Randomize-chord take the step-only slots.
  *   - Faders: step-parameter recording in Param mode (same recording path
- *     as the lidar), tempo/swing/gate-length outside it; in Arpeggiator mode
- *     the same four faders set arp range, gate, swing and filter; Shift
- *     selects hits, rhythm length, rotation and accent
+ *     as the lidar), tempo/delay-mix/master-volume/gate-length otherwise;
+ *     in Arpeggiator mode the same four faders set arp range, gate, swing
+ *     and filter; Shift selects hits, rhythm length, rotation and accent
  *     (ControlSurface::FaderMap::arpAssignmentFor).
  */
 class AlchemyControlBridge
@@ -165,6 +165,8 @@ private:
   // the hold so the release cannot also clear a single voice.
   bool clearChordThisPress_ = false;
   bool clearAllLatch_ = false;
+  // Shift edges re-arm tempo/feedback, mix/time and volume/macro.
+  bool shiftWasHeld_ = false;
   uint8_t modeSwitchPin_ = 7; // GP7 default; setup1 sets PIN_ALCHEMY_MODE_SWITCH
   uint8_t lastVoiceIndex_ = 0;
   int lastStepForEdit_ = -1;

@@ -6,7 +6,9 @@
 #include <cstdio>
 #include <cstring>
 
-// Shared audio/display conversions. No UI state, allocation or hardware access.
+// MusicalValues.h — shared lane ↔ musical-unit conversions (note names,
+// envelope seconds, cutoff Hz) for audio and OLED. Pure math, no UI state,
+// no allocation, no hardware access; safe on either core and in tests.
 namespace MusicalValues {
 inline int midiNote(float note, int octave, int harmony, const int *row) noexcept {
   const int index = std::clamp(static_cast<int>(note) + harmony, 0, int(SCALE_STEPS) - 1);
@@ -15,12 +17,28 @@ inline int midiNote(float note, int octave, int harmony, const int *row) noexcep
 inline float envelopeSeconds(float normalized) noexcept {
   return 0.001f * std::pow(10000.0f, std::clamp(normalized, 0.0f, 1.0f));
 }
-// Attack lane: 1 ms..2 s, so lane 0.5 is ~45 ms. Inverse: VoiceEdit::attackNormalize.
+// Release lane: 10 ms .. 8 s. The four-decade envelopeSeconds() curve put
+// every usable release in the top tenth of the lane - lane 0.5 was 100 ms and
+// only ~0.85 upward rang for a bar - so a hand sweep felt like it did nothing.
+// Under three decades instead, lane 0.5 is 280 ms, 0.75 is 1.5 s, and the top
+// of the lane holds a note through 16 steps at any sane tempo.
+inline float releaseSeconds(float normalized) noexcept {
+  return 0.01f * std::pow(800.0f, std::clamp(normalized, 0.0f, 1.0f));
+}
+inline float releaseNormalized(float seconds) noexcept {
+  const float clamped = std::clamp(seconds, 0.01f, 8.0f);
+  return std::log(clamped / 0.01f) / std::log(800.0f);
+}
+// Attack lane: 1 ms..2 s, so lane 0.5 blooms in ~45 ms (snappy but click-free).
 inline float attackSeconds(float normalized) noexcept {
   return 0.001f * std::pow(VoiceEdit::kAttackMaxSeconds / 0.001f, std::clamp(normalized, 0.0f, 1.0f));
 }
 inline float laneSeconds(ParamId id, float normalized) noexcept {
-  return id == ParamId::Attack ? attackSeconds(normalized) : envelopeSeconds(normalized);
+  if (id == ParamId::Attack)
+    return attackSeconds(normalized);
+  if (id == ParamId::Release)
+    return releaseSeconds(normalized);
+  return envelopeSeconds(normalized);
 }
 inline void time(float seconds, char *out, size_t size) noexcept {
   if (seconds < 1.0f) std::snprintf(out, size, "%.1fms", seconds * 1000);
@@ -81,8 +99,12 @@ inline Step baseStep(const VoiceConfig &config) noexcept {
       SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS));
   return s;
 }
+// baseView: the value came from baseStep(), i.e. it is the patch base rather
+// than a step's own lane value. It matters for Filter, where the base is a
+// cutoff in Hz but the lane is an envelope amount.
 inline void format(ParamId id, const Step &step, const VoiceConfig &config,
-                   const int *row, float bpm, char *out, size_t size) noexcept {
+                   const int *row, float bpm, char *out, size_t size,
+                   bool baseView = false) noexcept {
   if (!out || !size) return;
   float normalized = 0;
   switch (id) {
@@ -109,10 +131,16 @@ inline void format(ParamId id, const Step &step, const VoiceConfig &config,
   if (id == ParamId::Filter && !binding.target && !config.hasFilter) {
     std::snprintf(out, size, "Bypass"); return;
   }
+  if (id == ParamId::Filter && !binding.target && baseView) {
+    // The patch cutoff: a frequency, and the floor the envelope opens from.
+    std::snprintf(out, size, "%.0fHz",
+                  VoiceParameters::mapCutoff(VoiceParameters::layout(config), normalized));
+    return;
+  }
   if ((id == ParamId::Sustain || id == ParamId::Release) && !binding.target) {
     if (!config.hasEnvelope) { std::snprintf(out, size, "Off"); return; }
     if (id == ParamId::Sustain) std::snprintf(out, size, "%.0f%%", normalized * 100.0f);
-    else time(envelopeSeconds(normalized), out, size);
+    else time(releaseSeconds(normalized), out, size);
     return;
   }
   if ((id == ParamId::Attack || id == ParamId::Decay) && !binding.target) {
@@ -127,7 +155,7 @@ inline void format(ParamId id, const Step &step, const VoiceConfig &config,
   }
   if (VoiceParameters::formatValue(config, id, normalized, out, size)) return;
   if (id == ParamId::Velocity) {
-    // Velocity is an amplitude multiplier, not a MIDI velocity byte.
+    // Velocity multiplies amplitude (0..1x gain), not a MIDI byte.
     std::snprintf(out, size, "%.2fx", normalized);
     return;
   }

@@ -3,14 +3,16 @@
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 class Sequencer;
 
-// Core 0 thread context only: no sequencer or voice mutation in the clock ISR.
+// StepPlayback: what each 16th-note tick does to the four voices.
+// Musical role: turns clock steps + hand height into sounding notes, and lets the
+// hand or faders overwrite the playing step live. Core 0 thread context only —
+// the clock ISR only stages steps, never mutates sequencers or voices.
 void processSequencerStep(uint32_t clockStep);
-// Shared recording entry point for the lidar and the ENV-mode faders: writes
-// a normalized value into the selected voice's lane (the selected step in
-// Step Edit, else the playing step) and refreshes the sounding voice.
+// Shared write entry for hand + ENV faders: normalized height into the lane's
+// selected step (Step Edit) or playing step (live), then refresh the voice.
 // Returns true when the stored value changed.
 bool recordParameter(ParamId id, float normalizedValue);
-// Step Edit only: the selected step's lane follows the patch again.
+// Step Edit only: drop the step's own value so it follows the patch again.
 // Returns true when the step had its own value.
 bool resetStepToPatch(ParamId id);
 void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq);

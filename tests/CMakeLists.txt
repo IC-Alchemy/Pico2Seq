@@ -30,6 +30,9 @@ add_executable(pico2seq_tests
   unit/test_recipe_optimization.cpp
   unit/test_voice_transfer.cpp
   unit/test_voice_block.cpp
+  unit/test_master_compressor.cpp
+  unit/test_master_bus.cpp
+  unit/test_master_delay.cpp
   unit/test_voiceoscillator.cpp
   unit/test_control_surface_logic.cpp
   unit/test_arpeggiator.cpp
@@ -110,6 +113,9 @@ add_executable(pico2seq_voice_tests
   unit/test_voiceoscillator.cpp
   unit/test_voice_transfer.cpp
   unit/test_voice_block.cpp
+  unit/test_master_compressor.cpp
+  unit/test_master_bus.cpp
+  unit/test_master_delay.cpp
   ${CORE_DIR}/scales/scales.cpp
   ${CORE_DIR}/sequencer/ParameterManager.cpp
   ${CORE_DIR}/sequencer/Sequencer.cpp

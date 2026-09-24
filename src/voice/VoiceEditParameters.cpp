@@ -1,3 +1,6 @@
+// VoiceEditParameters.cpp — editor model implementation (control thread).
+// Recipe choice borrows its first preset's lanes so the editor always shows
+// meaningful timbre rows for the picked algorithm.
 #include "VoiceEditParameters.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "presets/MusicalPresets.h"
@@ -31,7 +34,9 @@ constexpr Parameter kParameters[] = {
      nullptr, nullptr},
     {Id::Velocity, "Velocity", Group::Sequenced, Unit::Percent, 0.0f, 1.0f,
      false, nullptr, nullptr},
-    {Id::Cutoff, "Cutoff", Group::Sequenced, Unit::Percent, 0.0f, 1.0f, false,
+    // Sequenced Filter lane edits envelope amount (how far the contour opens
+    // the cutoff); the patch base itself is Id::StaticCutoff.
+    {Id::Cutoff, "FiltEnv", Group::Sequenced, Unit::Percent, 0.0f, 1.0f, false,
      nullptr, nullptr},
     {Id::Attack, "Attack", Group::Sequenced, Unit::Seconds, 0.001f,
      kAttackMaxSeconds, true, nullptr, nullptr},
@@ -485,22 +490,22 @@ constexpr Parameter kParameters[] = {
      +[](VoiceConfig &c, float v) {
        c.noiseChaosRate = static_cast<decltype(c.noiseChaosRate)>(v);
      }},
-    {Id::FilterEnvAmount, "Env amount", Group::Filter, Unit::Number, 0.0f, 2.0f,
+    {Id::FilterEnvAmount, "Env octaves", Group::Filter, Unit::Number, 0.0f, 4.0f,
      false,
      +[](const VoiceConfig &c) {
-       return static_cast<float>(c.filterEnvelopeAmount);
+       return static_cast<float>(c.filterEnvelopeOctaves);
      },
      +[](VoiceConfig &c, float v) {
-       c.filterEnvelopeAmount =
-           static_cast<decltype(c.filterEnvelopeAmount)>(v);
+       c.filterEnvelopeOctaves =
+           static_cast<decltype(c.filterEnvelopeOctaves)>(v);
      }},
-    {Id::FilterEnvFloor, "Env floor", Group::Filter, Unit::Number, 0.0f, 1.0f,
+    {Id::FilterEnvFloor, "Env rest", Group::Filter, Unit::Number, 0.0f, 1.0f,
      false,
      +[](const VoiceConfig &c) {
-       return static_cast<float>(c.filterEnvelopeFloor);
+       return static_cast<float>(c.filterEnvelopeRest);
      },
      +[](VoiceConfig &c, float v) {
-       c.filterEnvelopeFloor = static_cast<decltype(c.filterEnvelopeFloor)>(v);
+       c.filterEnvelopeRest = static_cast<decltype(c.filterEnvelopeRest)>(v);
      }},
 };
 static_assert(std::size(kParameters) == static_cast<size_t>(Id::Count));

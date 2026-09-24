@@ -1,11 +1,14 @@
 #pragma once
 
+// VoicePublication: header-only publish helpers shared by app tests and firmware.
+// Musical role: same as VoicePlayback — one queued update per gesture, retrigger
+// as a one-shot event. Control thread only; state may alias the stored copy.
+
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../voice/VoiceManager.h"
 #include "../voice/VoiceSystem.h"
 
-// Control-thread publication only. Queue the event once, then retain a steady
-// requested state: live refreshes and expiry must never replay a retrigger.
+// Control-thread publication only. Queue once, then retain a steady state.
 // state may alias the stored VoiceSystem state.
 inline bool publishVoiceState(VoiceSystem &voices, VoiceManager &manager,
                               uint8_t voiceIndex, const VoiceState &state)
@@ -19,8 +22,8 @@ inline bool publishVoiceState(VoiceSystem &voices, VoiceManager &manager,
     return true;
 }
 
-// Sequencer owns the only note-duration countdown. Publish on the expiry tick,
-// not the next step boundary; all four voices follow the same rule.
+// The sequencer owns the only note countdown; publish on the expiry tick so
+// gates end on time, not on the next step.
 inline void tickSequencerVoice(Sequencer &sequencer, VoiceSystem &voices,
                                VoiceManager &manager, uint8_t voiceIndex)
 {
@@ -36,8 +39,8 @@ inline void stopSequencerVoice(Sequencer &sequencer, VoiceSystem &voices,
     if (voiceIndex >= VoiceSystem::MAX_VOICES) return;
     sequencer.stop();
     auto &state = voices.getVoiceState(voiceIndex);
-    // End the sequencer note as well as its audio gate, so restart cannot slide
-    // from a stale active note. Pattern data and parameter cursors are retained.
+    // End the sequencer note and its audio gate together, so a restart never
+    // slides in from a stale note. Patterns and cursors are kept.
     sequencer.handleNoteOff(&state);
     state.isGateHigh = false;
     state.shouldRetrigger = false;

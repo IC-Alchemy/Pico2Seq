@@ -2,6 +2,7 @@
 #define CONTROL_SURFACE_LOGIC_H
 
 #include <cstdint>
+#include <cmath>
 
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 
@@ -74,7 +75,7 @@ constexpr ParamId stepEditParameter(ParamId held, ParamId toggled,
 
 /**
  * Live lidar recording between clock steps. Continuous lanes (Velocity,
- * Filter, Attack, Decay) follow the hand through the playing step; pitch
+ * Filter, Attack, Release) follow the hand through the playing step; pitch
  * lanes (Note, Octave) take one value per note on the clock step, so hand
  * jitter at a scale-step boundary cannot warble a sounding note.
  */
@@ -314,9 +315,10 @@ enum class FaderTarget : uint8_t
 {
   None,        // unassigned
   EnvLane,     // ENV mode: one envelope lane of the selected step
-  Tempo,       // uClock BPM
-  SwingAmount, // continuous shuffle depth
-  GateLength,  // gate length across the selected voice's steps
+  Tempo,        // uClock BPM (Shift + fader: delay feedback)
+  DelayMix,     // master delay wet mix (Shift + fader: delay time)
+  MasterVolume, // VoiceManager's global gain on Core 1's final mix
+  GateLength,   // gate length across the selected voice's steps
   // Arpeggiator mode replaces the whole step-oriented set: the same four
   // faders shape the arp's note range, length, swing and tone instead.
   ArpOctaves, // arp range in octaves
@@ -329,6 +331,50 @@ enum class FaderTarget : uint8_t
   ArpAccent,
 };
 
+/**
+ * What the master-volume fader does. Plain moves drive global volume;
+ * Shift + move drives the master macro knob (Warm/Glue/Punch morph of the
+ * master-bus compressor) instead, so one physical fader serves both.
+ */
+enum class MasterFaderAction : uint8_t { Volume, Macro };
+
+enum class TempoFaderAction : uint8_t { Tempo, DelayFeedback };
+
+constexpr TempoFaderAction tempoFaderAction(bool shiftHeld)
+{
+  return shiftHeld ? TempoFaderAction::DelayFeedback : TempoFaderAction::Tempo;
+}
+
+constexpr MasterFaderAction masterFaderAction(bool shiftHeld)
+{
+  return shiftHeld ? MasterFaderAction::Macro : MasterFaderAction::Volume;
+}
+
+/** Display zone of a 0..1 macro position: Warm below center, Punch above. */
+inline const char *masterMacroZoneName(float macro)
+{
+  if (macro < 0.5f)
+    return "WARM";
+  if (macro > 0.5f)
+    return "PUNCH";
+  return "GLUE";
+}
+
+// Delay time for the Shift + wet-mix-fader control: a log curve across the
+// range, so a short-throw fader spends its travel evenly over musical
+// distance. Pure so the host tests can pin the endpoints and the curve.
+inline constexpr float kDelayTimeMinSeconds = 0.010f;
+inline constexpr float kDelayTimeMaxSeconds = 0.750f;
+inline float delaySecondsForFader(float normalized)
+{
+  if (!(normalized > 0.0f))
+    return kDelayTimeMinSeconds;
+  if (normalized > 1.0f)
+    return kDelayTimeMaxSeconds;
+  return kDelayTimeMinSeconds *
+         std::pow(kDelayTimeMaxSeconds / kDelayTimeMinSeconds, normalized);
+}
+
 struct FaderAssignment
 {
   FaderTarget target = FaderTarget::None;
@@ -339,16 +385,23 @@ class FaderMap
 {
 public:
   static constexpr uint8_t kChannelCount = 4;
+  // Shift retargets the first three faders. Re-arm them on either edge
+  // so one parameter never snaps to the other parameter's rest position.
+  static constexpr uint8_t kTempoChannel = 0;
+  static constexpr uint8_t kDelayChannel = 1;
+  static constexpr uint8_t kMasterVolumeChannel = 2;
   static constexpr uint16_t kFaderMaxCounts = 4095;
-  // Movement smaller than this (in 12-bit counts) is not sent.
-  static constexpr uint16_t kDeadbandCounts = 8;
-  // An obvious move (in 12-bit counts) required to engage a fader after reset / mode flip.
-  static constexpr uint16_t kMoveThresholdCounts = 64;
+  // Movement smaller than this (in 12-bit counts) is not sent. 24 of 4095 is
+  // about 0.6% of travel, enough that a resting finger does not nudge a lane.
+  static constexpr uint16_t kDeadbandCounts = 24;
+  // An obvious move (in 12-bit counts) required to engage a fader after reset /
+  // mode flip. 192 is about 5% of travel: a deliberate push, not a brush.
+  static constexpr uint16_t kMoveThresholdCounts = 192;
 
   /**
    * Target of one fader channel (0..3). With a step selected (ENV mode) the
    * faders are that step's Attack, Decay, Sustain and Release lanes;
-   * otherwise Tempo, Swing, (unassigned), Gate length.
+   * otherwise Tempo, Delay mix, Master volume, Gate length.
    */
   static FaderAssignment assignmentFor(bool stepSelected, uint8_t channel);
 
@@ -371,6 +424,17 @@ public:
 
   /** Disarm all faders (e.g. on mode flip): faders must be moved before sending. */
   void resetDeadband();
+
+  /** Disarm one channel (e.g. the volume fader on shift edges). */
+  void resetChannel(uint8_t channel);
+
+  /** Re-arm tempo/feedback, mix/time and volume/macro on either Shift edge. */
+  void resetShiftTargets()
+  {
+    resetChannel(kTempoChannel);
+    resetChannel(kDelayChannel);
+    resetChannel(kMasterVolumeChannel);
+  }
 
   /** True if the channel has detected an obvious move and is actively tracking. */
   bool isEngaged(uint8_t channel) const;

@@ -1,3 +1,7 @@
+// VoiceEditParameters.h — patch editor model: stable Id per parameter (append
+// only; cursors persist by Id), groups for the UI pages, units/ranges for
+// display and clamping. available() hides engine-irrelevant rows (e.g. string
+// model on oscillator voices). Pure control-thread logic; no DSP here.
 #pragma once
 #include "VoiceParameters.h"
 #include <cstddef>
@@ -27,7 +31,7 @@ enum class Unit : uint8_t {
   Toggle,
   Choice
 };
-// Append new IDs; editor cursors refer to these stable IDs, never visible rows.
+// Append new IDs; editor cursors persist by these stable IDs, not visible rows.
 enum class Id : uint8_t {
   Note,
   Velocity,
@@ -130,8 +134,8 @@ Id nextParameter(Id current, int direction, const VoiceConfig &config,
                  bool changeGroup) noexcept;
 ParamId sequenceLane(Id id, const VoiceConfig &config) noexcept;
 
-// Attack lanes stop at 2 s so their travel stays on playable step attacks;
-// decay lanes keep the full 1 ms..10 s envelope range.
+// Attack lanes stop at 2 s so encoder travel stays on playable pluck-to-swell
+// attacks; decay keeps the full 1 ms..10 s envelope range.
 inline constexpr float kAttackMaxSeconds = 2.0f;
 
 // A lane's patch value, normalized the way the lane stores it.

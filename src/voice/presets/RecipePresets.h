@@ -4,8 +4,9 @@
 #include "../engines/RecipeSources.h"
 
 namespace VoicePresets {
-// Each patch owns the meaning, scaling, label and starting value of its three
-// timbre lanes. Note/Velocity/Octave/GateLength/Slide and Gate stay shared.
+// Recipe patches: three timbre lanes (Filter/Attack/Decay slots) with the
+// envelope from patch defaults — sequenced lanes play timbre, not ADSR.
+// Note/Velocity/Octave/GateLength/Slide and Gate stay shared.
 constexpr VoiceParameterLayout recipeLayout(VoiceParameterBinding color,
                                             VoiceParameterBinding shape,
                                             VoiceParameterBinding character)
@@ -25,8 +26,10 @@ constexpr VoiceParameterBinding macroLane(const char *name, float VoiceConfig::*
   return {name, macro, span.minimum, span.maximum, curve, unit, true, 0.5f, span.center};
 }
 
-// Every preset owns its layout object. Presets on the same recipe start from
-// one family builder, so retuning one preset never moves its siblings.
+// FM glass: breathy keys (high ratio, low feedback); FM bass: round sub with
+// a short pluck transient. PhaseMorph blends phase-distortion edge into
+// triangle fold; Spectral stacks DSF brightness over a sub; Prism/ChaosPrism
+// trade focused harmonics for drifting chorus.
 
 // FM: Bessel index stays vocal below ~0.5 and saw-like near 1; integer ratios
 // stay tonal, and 4.77 is Yamaha's documented metallic extreme; feedback past

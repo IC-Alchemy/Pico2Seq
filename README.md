@@ -8,7 +8,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **4 Independent Polyphonic Voices**: Each with a complete DSP chain (B-spline oscillator bank, resonant main filter, ADSR envelope, overdrive distortion)
 - **Five Sound Engines per Voice**: A classic oscillator bank (up to 3 oscillators, or raw noise), a Karplus-Strong **waveguide** engine for plucked/nylon/bell/shimmer strings, a **noise-FX texture** engine (prime-tap diffuser, regenerative allpass swarm, pitch-tracked Lorenz chaos growl), a native 7-voice **hypersaw** engine, and a **recipe** engine for modular rpdsp sound synthesis patches (FM, phase distortion, DSF, formant synthesis, ring modulation, reversing sync, spectral, and chaotic prisms)
 - **Two Filter Topologies**: A 24dB multi-mode ladder filter (LP12, LP24, BP12, BP24, HP12, HP24) with drive and passband gain compensation on the character voices, plus a clean modulation-stable state-variable filter (LP/BP/HP) everywhere else — including all three bass presets
-- **Effects Processing**: Per-voice overdrive distortion
+- **Effects Processing**: Per-voice overdrive distortion, followed by a master-bus analog-style delay and compressor. Shift + fader 1 sets feedback (0–100%). Fader 2 sets delay mix (Shift: time); fader 3 sets master volume (Shift: Warm/Glue/Punch compressor macro).
 - **ADSR Envelopes**: Fast, analog-modeled attack, decay, sustain, and release stages with microsecond accuracy
 - **29 Voice Presets**: Stored as `constexpr` tables in flash (.rodata), all on one browser page, covering classic subtractive, sub-bass, waveguide string, hypersaw, noise-texture, and 14 recipe/musical sounds
 
@@ -112,22 +112,45 @@ For a practical guide to changing the firmware, start with
     control core. Upstream 2.3.0 changed the callback API; re-verify before
     upgrading.)
 
+### Fresh GitHub clone and 150 MHz build
+
+For a new checkout, run these commands from an empty directory:
+
+```bash
+git clone --recurse-submodules https://github.com/IC-Alchemy/Pico2Seq.git
+cd Pico2Seq
+git switch DeCluttered
+git submodule update --init --recursive
+```
+
+The final submodule command is intentionally repeatable after switching branches. The helper
+never resets, cleans, or discards local work. If it reports stale or missing submodules, fix the
+checkout with the command above and review any local changes before retrying.
+
+On Windows with PowerShell, compile the stable firmware baseline explicitly at **150 MHz**:
+
+```powershell
+pwsh -NoProfile -File scripts/build_pico2seq.ps1 `
+  -CpuMHz 150 `
+  -BuildDirectory build/pico2seq-150 `
+  -NoWorkingCopy
+```
+
+The command writes `build/pico2seq-150/Pico2Seq.ino.uf2`, `.elf`, `.bin`, and `.map`. It compiles
+only; it does not upload or hardware-test the board. The optional
+`scripts/publish_uf2.ps1` rename/copy step is skipped when that developer helper is absent; the
+required UF2/ELF/BIN/MAP artifacts remain in the requested build directory. The helper's required
+submodule and source-marker checks remain hard errors.
+
 ### Installation & Flashing
 
-1. **Clone the repository with submodules:**
-   ```bash
-   git clone --recurse-submodules https://github.com/IC-Alchemy/Pico2Seq.git
-   cd Pico2Seq
-   ```
-   *(If cloned without `--recurse-submodules`, run `git submodule update --init --recursive`)*
-
-2. **Open in Arduino IDE:**
+1. **Open in Arduino IDE:**
    - Launch Arduino IDE
    - Open `Pico2Seq.ino`
    - Select board: **Raspberry Pi Pico 2** / **RP2350**
    - Ensure USB stack is set to **Adafruit TinyUSB**
 
-3. **Compile and Upload:**
+2. **Compile and Upload:**
    - Compile and flash to the Pico 2 board
    - Monitor the USB serial console (115200 baud) for startup diagnostics
 
@@ -171,7 +194,7 @@ Copy-StageTree -Source $repoRoot -Destination $stageSketch
 $boardOptions = @(
     'flash=4194304_65536'
     'arch=arm'
-    'freq=300'
+    'freq=150'
     'opt=Optimize3'
     'profile=Disabled'
     'rtti=Disabled'
@@ -231,7 +254,7 @@ MIDI, displays, sensors, or controls on physical hardware.
 6. **Real-time recording:** Hold (or Shift+tap to latch) a parameter button and touch step pads to record automation into the pattern.
 7. **Switch function sets:** Toggle the GP7 mode strap between **Param** (Note, Velocity, Filter, Attack, Decay, Octave, Slide, Shift) and **Utility** (Play/Stop, Session Save/Load, Scale, Swing, Theme, Encoder Target, Randomize, Shift).
 8. **Voice Editing mode:** Hold **Shift** and press slider button 4 to stop transport and edit any voice's sound parameters directly with the encoder (button tiles navigate groups/parameters; slider buttons 1–4 pick the voice). See [`docs/voice-edit.md`](docs/voice-edit.md).
-9. **Master volume:** In Utility mode, fader 3 sets the final output volume (applied on Core 1's final mix).
+9. **Delay & groove:** Fader 2 sets the master delay wet mix (hold **Shift** and move the same fader for delay time, 10–750 ms, with tape-style pitch glides). Fader 3 keeps master volume; **Shift + fader 3** morphs the compressor across Warm/Glue/Punch. Shuffle/swing comes from the 16 templates (Utility button 4).
 10. **Clear a voice / start fresh:** In Utility mode, **Shift + Randomize tap** wipes the selected voice's whole pattern (all step values, gates, slides and per-track lengths); **Shift + Randomize long-press** wipes all four voices the same way. Voice presets, tempo and transport state are kept.
 
 ### Preset System

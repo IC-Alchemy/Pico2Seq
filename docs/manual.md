@@ -112,9 +112,9 @@ the firmware only maps four faders.]** The mode switch does not change the fader
 
 | Fader | Controls |
 |---|---|
-| 1 | Master tempo (uClock BPM, 45–200) |
-| 2 | Swing amount (continuous shuffle depth) |
-| 3 | Unassigned (was Decay / Master volume; volume now comes from the saved session) |
+| 1 | Master tempo (uClock BPM, 45–200); Shift held: delay feedback (0–100%) |
+| 2 | Delay wet mix (Shift held: delay time, 10–750 ms — §3.5) |
+| 3 | Master volume (saved with the session); Shift held: compressor macro (Warm/Glue/Punch) |
 | 4 | Gate length across the selected voice's active steps |
 
 **ENV mode** — long-press a pad to select a step (Step Edit). The faders then edit **only
@@ -168,7 +168,7 @@ Eight buttons (ButtonModule8) change meaning with the **mode switch** on GPIO 7:
 | 2 | Velocity | Save / Load (tap: save session, hold: reload) |
 | 3 | Filter | Scale cycle |
 | 4 | Attack | Swing pattern cycle |
-| 5 | Decay | LED theme cycle |
+| 5 | Release | LED theme cycle |
 | 6 | Octave | Encoder target cycle |
 | 7 | Slide | Randomize |
 | 8 | Shift | Shift |
@@ -183,9 +183,9 @@ turn it slowly for ultra-fine single-step adjustments, quickly to sweep a whole 
 range. It edits whatever the **encoder target** is — cycle targets with the Utility-mode
 "Encoder target" button. The target order is:
 
-**Velocity → Filter → Attack → Decay → Note → Octave → Slide Time → (back to Velocity)**
+**Velocity → Filter → Attack → Release → Note → Octave → Slide Time → (back to Velocity)**
 
-- Voice targets (Velocity/Filter/Attack/Decay/Note) set that parameter's **base value for
+- Voice targets (Velocity/Filter/Attack/Release/Note) set that parameter's **base value for
   the selected voice** (its patch value). Steps that follow the patch play it; steps with
   their own recorded value keep theirs — see §9 and
   [`docs/voice-edit.md`](voice-edit.md).
@@ -215,10 +215,14 @@ your hand over the sensor, and the reading is recorded live into that parameter'
 at its currently playing step on the **selected voice** — e.g. sweep Filter over a pattern
 without touching anything. Hold several parameter buttons to record them all at once. Each
 parameter records at its own position, so a 5-step Filter track is written 5 steps round. Each new step starts from the hand's current height.
-Velocity, Filter, Attack and Decay keep recording while their step plays: the step follows
+Velocity, Filter, Attack and Release keep recording while their step plays: the step follows
 your hand, and the sounding note changes without retriggering — cutoff and velocity at
-once, attack and decay from the next note (a running attack or decay keeps its length, so
-live edits never click). Hand height **is** the value: near the sensor is the bottom of the
+once, attack and release from the next note (a running attack or release keeps its length, so
+live edits never click). The 5th button records **Release**, not Decay: on 20 of the 29
+presets the Decay lane is an engine control rather than an envelope stage, while Release
+reaches the envelope on every preset and is what sets how long a step rings (up to 10 s,
+enough for one downbeat note to cover 16 steps). Decay itself is still editable per step
+with the ENV-mode faders. Hand height **is** the value: near the sensor is the bottom of the
 parameter's range, 700 mm the top, whatever the voice's patch value. Note and Octave take one value per note, on the step, so hand
 jitter cannot warble a sounding pitch. With the transport stopped the hand writes the step
 each parameter is paused on. Pitch recording only
@@ -315,8 +319,9 @@ to audio on expiry. Nothing is transmitted over MIDI.
 7. **Try polymeter** — hold a parameter button (e.g. Filter) and tap pad 5: the Filter
    track is now 5 steps long and cycles against the 16-step Gate track.
 8. **Change key feel** — hold Shift and tap V3 to cycle through the 13 scales.
-9. **Groove** — fader 1 sets tempo and fader 2 swing (in either mode-switch position);
-   on **Utility**, button 4 cycles swing templates.
+9. **Groove & delay** — fader 1 sets tempo; on **Utility**, button 4 cycles the
+   swing templates. Fader 2 is the master delay wet mix, and **Shift + fader 2**
+   sweeps the delay time (§3.5).
 10. **Stop/start** — Utility button 1, or Shift + V1 from anywhere. Stopping opens the
     OLED **preset browser** ("Sound Buffet"); starting again resumes and closes it. A
     long-press of Play toggles the browser without stopping the transport.
@@ -442,7 +447,47 @@ Timing groove comes from **16 shuffle templates** (per-16th-note micro-timing of
 | 14 | Hip-Hop | Boom-bap asymmetric late swing |
 | 15 | Funk Groove | Syncopated funk pocket |
 
-Utility **fader 2** adds continuous swing amount on top of the selected template.
+Fader 2 no longer adds continuous swing — it is the master delay control
+(§3.5). Shuffle depth now comes only from the templates above.
+
+### 3.5 Master delay
+
+Fader 2 is a master-bus delay on the summed voice mix (both mode-switch
+positions; in ENV mode the faders are the selected step's envelope lanes
+instead, so the delay is unreachable there).
+
+- **Wet mix** — fader 2 position, 0 (dry) to 100 % added wet signal; dry stays present. The OLED shows
+  `DELAY MIX nn %` while you move it.
+- **Delay time** — hold **Shift** and move fader 2: 10 to 750 ms on a log
+  curve (`DELAY TIME nnn ms`). The read head glides to the new time, so the
+  repeats pitch-bend like a tape machine.
+- **Feedback** — hold **Shift** and move fader 1: 0–100%, shown as
+  `DELAY FB nn %`. Plain fader 1 still controls tempo. Feedback eases over
+  a 45 ms time constant and defaults to 85%. At 0%, there is one delayed
+  copy without regeneration. At 100%, the feedback coefficient is 1.0;
+  the existing lowpass, DC blocker and saturation still shape the repeats.
+  This is a free-running delay, not a freeze or tempo-sync mode.
+
+Delay controls are not saved in the session; reboot restores mix 0,
+time 300 ms and feedback 85%.
+
+### 3.6 Master compressor and volume
+
+The summed voices pass through the delay, then master volume, then the
+compressor. Dry sound and repeats share compression; master volume and
+transport mute control the whole result. With delay mix at zero, the
+compressor keeps its existing dry-bus behavior.
+
+- **Master volume** — fader 3; saved with the session.
+- **Compressor macro** — hold **Shift** and move fader 3. The existing curve
+  runs from Warm at 0 %, through Glue at 50 %, to Punch at 100 %. The OLED
+  shows `MACRO`, its zone and percentage. The macro resets to 50 % on reboot.
+- Pressing or releasing **Shift** re-arms faders 1–3. Move about 5 %
+  from their new resting positions before either sends a value, so changing
+  feedback leaves tempo intact, delay time leaves mix intact, and changing
+  the compressor leaves volume intact.
+- In **ENV mode**, all four faders retain their selected-step envelope
+  controls and Shift-reset gestures; master effects are not edited there.
 
 ---
 
@@ -487,13 +532,16 @@ Each voice runs a full synthesis chain at 48 kHz on the audio core:
  HIGH-PASS filter (per preset, tames lows)
         |
         v
- voice output level -> summed with the other 3 voices -> Stereo Out
+ voice output level -> summed with the other 3 voices
+ -> master delay -> master volume -> master compressor -> Stereo Out
 ```
 
-**The delay effect was removed** (2026-09-11): the global delay line, its boot
+**The old delay effect was removed** (2026-09-11): the global delay line, its boot
 parameters, and every control that drove it (Utility button 2, Shift + V4,
 Utility fader 3, and the encoder's Delay Time / Delay Feedback targets) are
 gone from the codebase, reclaiming ~338 KiB of RAM.
+The current master delay (§3.5) uses its own smaller buffer and fader 2;
+fader 3 controls master volume and the compressor macro (§3.6).
 
 Filter **mode** (LP24 … HP12) and **resonance** are cycled/set from the OLED Settings
 screen's voice-parameter page; envelope and overdrive can be switched off per voice there
@@ -569,9 +617,9 @@ Presets live in flash and are auditioned and applied per voice in the **preset b
 
 | Fader | No step selected (both modes) | Step Edit = ENV mode |
 |---|---|---|
-| 1 | Tempo (45–200 BPM) | Step's Attack (strings: Pick) |
-| 2 | Swing amount | Step's Decay (strings: T60) |
-| 3 | Unassigned | Step's Sustain (strings: Position) |
+| 1 | Tempo (45–200 BPM; Shift: delay feedback) | Step's Attack (strings: Pick) |
+| 2 | Delay wet mix (Shift: delay time) | Step's Decay (strings: T60) |
+| 3 | Master volume (Shift: compressor macro) | Step's Sustain (strings: Position) |
 | 4 | Gate length across active steps | Step's Release (strings: Stiffness) |
 
 In ENV mode the fader position is the step's absolute value; Shift + move returns that lane

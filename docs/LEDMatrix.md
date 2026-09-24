@@ -80,7 +80,7 @@ Centralized namespace declarations for timing, layout geometry, color categories
   - `BLINK_INTERVAL_MS = 500`
   - `VOICE_PARAM_TIMEOUT_MS = 3000`
   - `VOICE_PARAM_SETTINGS_TIMEOUT_MS = 5000`
-- **Color Blending Amounts:**
+- **Color Blending Amounts** (tuned against the historical 40 ms display slice; `frameBlend()` in `LEDMatrixFeedback.cpp` reinterprets each one for the frame's actual elapsed time, so a fade lasts the same wall-clock time at any refresh rate):
   - `TARGET_SMOOTHING_BLEND_AMOUNT = 180`
   - `STANDARD_BLEND_AMOUNT = 166`
   - `DIM_BLEND_AMOUNT = 122`
@@ -144,7 +144,13 @@ Implements the multi-mode sequencing and navigation visualizer:
 
 #### Display Modes
 1. **Idle Breathing Mode:** When sequencers are stopped, renders a smooth pulsing breathing wave across the matrix using `BREATHING_BLUE_BASE`.
-2. **Step Gate & Playhead Visualization:** Displays active gates for the current voice pair across band rows 0–1 (pair low voice) and 2–3 (pair high voice), with a distinct `playheadAccent` indicating the current 16th-note playhead position.
+2. **Step Gate & Playhead Visualization:** Displays active gates for the current voice pair across band rows 0–1 (pair low voice) and 2–3 (pair high voice). The playhead is a per-LED **trigger envelope** rather than a binary accent (`advanceStepEnergy()` / `applyStepGlow()`):
+   - A step trigger seeds the LED at `kTriggerSeedFraction` of its peak in the same frame (so a gate shorter than one frame still shows), then attacks to the peak over `kEnergyAttackTauMs`.
+   - The peak is scaled by that step's Velocity lane (`kVelocityPeakFloor` upward). A lane set to `LANE_FOLLOWS_PATCH` falls back to the voice's own level. Gate-off steps get no envelope at all (`kMutedStepPeak = 0`): a dim peak there lit every off pad as the playhead swept past, which read as the off-row flickering.
+   - The envelope is **not** tied to the voice's gate. A Gate Length hold was tried and removed: a short gate cut the light before the eye caught the step, and a long one was barely visible. Every step now reads as the same shape.
+   - Release starts as soon as the attack window (`kEnergyAttackWindowMs`) closes, on a time constant of `kEnergyReleaseFactor` × that voice's measured step interval (clamped to `kEnergyReleaseMinMs`..`kEnergyReleaseMaxMs`), so the tail reads the same at any tempo and each voice of a polymetric pair keeps its own trail length. Steps behind the playhead are still fading — that trail is the comet.
+   - Energy is read through `envelopeGammaTable` (gamma 2.2) before it drives the accent and white bloom, so the fade falls evenly instead of hanging at the bottom of the 8-bit PWM range. Theme palettes stay in linear PWM space, where they are hand-levelled.
+   - Energy is cleared when the visible voice pair changes or `resetStepsLightsFlag` is set, and decays in every UI mode so a view that does not draw it still fades out.
 3. **Polyrhythmic Track Overlays:** Visualizes independent parameter track step lengths and positions for Note, Velocity, and Filter tracks.
 4. **Parameter Edit Mode:** Shows step values, track lengths, and value adjustments when holding a parameter button or editing a step.
 5. **Settings & Preset Selection:** Lights every pad that holds a preset (pad N = preset N+1 in 1-based terms: pads 0–28 for the 29-preset bank, on one page) with bright pulsing on the selected voice's active preset and dim steady illumination on the others. Pads without a preset stay dark (29–31 today; pad 31 never holds one). The voice-parameter sub-mode instead shows the selected voice on pads 0–3.

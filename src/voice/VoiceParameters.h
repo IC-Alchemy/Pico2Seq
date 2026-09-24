@@ -1,3 +1,7 @@
+// VoiceParameters.h — how sequencer lanes (0..1) become sound: each binding maps
+// one lane to a VoiceConfig field with range, curve, and display unit. A null
+// target keeps shared pitch/gate/envelope behavior. Layouts are flash-resident
+// descriptors owned by preset headers; Voice never allocates them.
 #pragma once
 
 #include "VoiceConfig.h"
@@ -10,7 +14,7 @@ class Sequencer;
 
 enum class VoiceParameterUnit : uint8_t { Standard, Percent, Seconds, Semitones, Ratio, Hertz };
 
-// The same binding drives DSP values, preset seeding, and OLED formatting.
+// One binding drives DSP value, preset seeding, and OLED readout together.
 // A null target keeps the shared pitch/gate/envelope behavior for that lane.
 struct VoiceParameterBinding
 {
@@ -26,8 +30,9 @@ struct VoiceParameterBinding
   VoiceParameterUnit unit = VoiceParameterUnit::Standard;
   bool seed = false;
   float defaultNormalized = 0.5f; // used when seed=true and target=null
-  // Value at lane 0.5 (the sweet spot). Each half of the lane then follows
-  // the curve between that center and one range end.
+  // Lane midpoint's resting value; each lane half then follows the curve to
+  // one range end. kUncentered (lowest float, not NaN: -ffast-math assumes NaN
+  // never occurs) marks "no center".
   float center = kUncentered;
 
   constexpr bool isCentered() const noexcept { return center != kUncentered; }

@@ -5,8 +5,9 @@
 #include "../../rpdsp/src/rpdsp/DSPFunctions.h"
 
 namespace VoiceRecipes {
-// Prepared coefficients occupy unused recipe slots; all writes still happen
-// on the audio core through configure()/trigger(), never on the control core.
+// Patch wiring only: oscillator algorithms and state updates live in rpdsp.
+// Coefficients are precomputed into spare state slots on the audio core
+// (configure()/trigger()); the control core never writes here.
 inline void configurePhaseShape(float shape, float *s) noexcept
 {
   const auto c = rpdsp::make_osc_pdmorph_coefficients(shape);
@@ -27,7 +28,8 @@ inline rpdsp::PrismCoefficients prismWeights(const float *s) noexcept
 }
 inline float feedbackFm(float inc, const VoiceConfig &c, float *s) noexcept
 {
-  // Two feedback-FM operators: modulator state[0..2], carrier state[3..5].
+// Two-operator feedback FM: glassy keys at low index, brassy bite as the
+// index opens, noise past ~0.35 feedback (lanes stop before that).
   const float mod = rpdsp::osc_fbfm(inc * c.macro2, c.fmModFeedback, 0.0f, s);
   return rpdsp::osc_fbfm(inc, c.macro3, mod * c.macro1, s + 3);
 }
@@ -86,7 +88,7 @@ inline float PICO2SEQ_AUDIO_FUNC(silkPad)(float inc, const VoiceConfig &c, float
 }
 inline float PICO2SEQ_AUDIO_FUNC(hollowBell)(float inc, const VoiceConfig &c, float *s) noexcept
 {
-  // Multiplication connects two existing oscillators as a ring-modulator.
+  // Ring-mod connection: body * ring adds hollow metallic edge with macro3.
   const float body = rpdsp::osc_pdmorph(inc, phaseShape(s + 2), s);
   const float ring = rpdsp::osc_pdmorph(inc * c.macro1, 0.0f, s + 1);
   return body * (1.0f - c.macro3) + body * ring * c.macro3;
@@ -100,7 +102,7 @@ inline float PICO2SEQ_AUDIO_FUNC(syncLead)(float inc, const VoiceConfig &c, floa
 }
 inline float PICO2SEQ_AUDIO_FUNC(orbitPluck)(float inc, const VoiceConfig &c, float *s) noexcept
 {
-  // Sine modulator[0], through-zero FM carrier[1..2], clean body[3].
+  // Through-zero FM pluck: bell-like attack melting into a clean body.
   const float mod = rpdsp::osc_pdmorph(inc * c.macro2, 0.0f, s);
   const float fm = rpdsp::osc_tzfm(inc, mod * c.macro1, s + 1);
   const float body = rpdsp::osc_pdmorph(inc, 0.0f, s + 3);

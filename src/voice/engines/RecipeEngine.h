@@ -4,8 +4,11 @@
 #include <array>
 #include <cstddef>
 
-// Small rpdsp patches share one bounded state buffer. The callback and state
-// requirement are declared alongside each patch; no Voice switch is needed.
+// RecipeEngine.h — small rpdsp patches sharing one fixed 16-float state buffer
+// (no heap on Core 1). Each VoiceRecipe pairs a per-sample process callback
+// with an optional configure (sample-rate setup) plus resetOnTrigger: true
+// re-articulates every gate (plucks/leads), false lets phases ring across
+// gates (pads). No Voice switch needed to add a patch.
 struct VoiceRecipe
 {
   using Process = float (*)(float increment, const VoiceConfig &, float *state) noexcept;

@@ -1,3 +1,7 @@
+// Voice.h — one synth voice: sources → envelope gain → effects → velocity →
+// main filter → HPF. Control thread stages (updateParameters/setConfig), Core 1
+// renders spans of <=32 samples (2 KiB stack, no heap/blocking); staged edits
+// land after the next process(). Voice index is 0-based (0-3).
 #pragma once
 
 #include "VoiceConfig.h"
@@ -45,25 +49,32 @@ struct VoiceSlewParams
 };
 
 /**
- * @brief A complete synthesizer voice with oscillators, filter, envelope, and effects
+ * @brief One synth voice: oscillators/engines, envelope (note bloom → held
+ * loudness → release), filter (brightness), and effects.
  *
- * This class encapsulates all the audio processing components needed for a single voice,
- * making it easy to create multiple independent voices with different characteristics.
- *
- * Scale data access and testability:
- * - Voice no longer reads global scale variables directly. Instead, scale data is injected
- *   via setter methods (see setScaleTable and setCurrentScalePointer).
- * - This reduces global-state coupling and makes the class easier to unit test: tests can
- *   provide a mock scale table and a fixed/current scale index without relying on externs.
- * - If no scale data is injected, Voice falls back to chromatic mapping for note calculation.
+ * Scale data is injected (setScaleTable/setCurrentScalePointer) so Voice never
+ * reads globals: tests can pass a mock table, nullptr falls back to chromatic.
  */
 class Voice
 {
 public:
+  // Waveguide string tuning: configured base (waveguideSettings_) vs. last
+  // humanized values pushed to the DSP (waveguideApplied_, audio/tests only;
+  // `valid` is unused on that copy). Public so tests can read it back.
+  struct WaveguideSettings
+  {
+    float t60 = 0.0f;
+    float brightness = 0.0f;
+    float pickPosition = 0.0f;
+    float pickHardness = 0.0f;
+    float stiffness = 0.0f;
+    float detune = 0.0f;
+    bool valid = false;
+  };
   /**
    * @brief Construct a new Voice object
-   * @param id Unique identifier for this voice (0-7)
-   * @param config Configuration structure defining voice characteristics
+   * @param id Voice index (0-based, 0-3)
+   * @param config Patch defining this voice's sound
    */
   Voice(uint8_t id, const VoiceConfig &config);
 
@@ -99,6 +110,9 @@ public:
   // UI code reads these separate producer-owned copies instead.
   const VoiceConfig &getRequestedConfig() const noexcept { return controls_.config; }
   const VoiceState &getRequestedState() const noexcept { return controls_.state; }
+  // Last humanized waveguide values pushed to the string model (audio thread
+  // while rendering; tests may read it while audio is stopped).
+  const WaveguideSettings &getAppliedWaveguideParams() const noexcept { return waveguideApplied_; }
 
   // Control thread: retry a full queue and sample the control-owned scale index.
   // Call every loop even when no new knob/note events arrive.
@@ -120,21 +134,21 @@ public:
   void processBlock(float *out, uint32_t n) noexcept;
 
   /**
-   * @brief Update voice parameters from sequencer state
-   * @param newState New voice state from sequencer containing note, velocity, filter, envelope parameters
+   * @brief Update voice parameters from a sequencer step (staged; audible
+   * after the next process()). Attack = how fast the note blooms, sustain =
+   * held loudness, filter = brightness.
    */
   void updateParameters(const VoiceState &newState);
 
-  // Sequencer integration
+  // Sequencer attachment: unique_ptr takes ownership, raw pointer borrows
+  // (setup only; never while either core is using the voice).
   /**
-   * @brief Set the sequencer for this voice (takes ownership)
-   * @param seq Unique pointer to sequencer object
+   * @brief Attach a sequencer, taking ownership.
    */
   void setSequencer(std::unique_ptr<Sequencer> seq);
 
   /**
-   * @brief Set the sequencer for this voice (raw pointer, no ownership transfer)
-   * @param seq Raw pointer to sequencer object
+   * @brief Attach a sequencer without transferring ownership.
    */
   void setSequencer(Sequencer *seq);
 
@@ -172,8 +186,8 @@ public:
   const VoiceState &getState() const noexcept { return state; }
 
   /**
-   * @brief Set gate state for this voice
-   * @param gateState True for gate on (note triggered), false for gate off (note released)
+   * @brief Gate on/off: rising edge fires noteOn (pitch commits, envelope
+   * blooms), falling edge releases. Drives the event-style ADSR.
    */
   void setGate(bool gateState);
 
@@ -198,8 +212,7 @@ public:
 
   // Voice identification
   /**
-   * @brief Get voice ID
-   * @return uint8_t Voice identifier (0-7)
+   * @brief Get voice index (0-based, 0-3)
    */
   uint8_t getId() const noexcept { return voiceId; }
 
@@ -222,8 +235,8 @@ public:
   void setFrequency(float frequency);
 
   /**
-   * @brief Set slide time for frequency transitions
-   * @param slideTime Slide time in seconds (0.001-10.0)
+   * @brief Slide (portamento) time: how fast pitch glides between notes.
+   * @param slideTime Seconds (0.001-10.0); exponential time constant.
    */
   void setSlideTime(float slideTime);
 
@@ -294,16 +307,21 @@ private:
   rpdsp::PluckedStringVoice<kWaveguideCapacity> waveguide_;
   // Audio-owned cache: unchanged controls need no coefficient recalculation.
   // Invalidated whenever the string model is reset or prepared again.
-  struct WaveguideSettings
-  {
-    float t60 = 0.0f;
-    float brightness = 0.0f;
-    float pickPosition = 0.0f;
-    float pickHardness = 0.0f;
-    float stiffness = 0.0f;
-    float detune = 0.0f;
-    bool valid = false;
-  } waveguideSettings_;
+  // (Type moved to the public section for test introspection.)
+  WaveguideSettings waveguideSettings_;
+  // Per-note humanization: dedicated audio-thread PRNG plus the last
+  // humanized values actually pushed to the string model (audio/tests only;
+  // `valid` is unused on this copy). Reseeded per voice in
+  // resetAlternateEngines_(), so the sequence is scoped to the string-model
+  // lifetime: a fresh model rolls the same deterministic sequence for a
+  // given gate history (bit-exact reset/re-init tests rely on this).
+  static constexpr uint32_t kWaveguideHumanizeSeed = 0xC2B60A1Fu;
+  rpdsp::XorShift32 wgHumanizeRng_{kWaveguideHumanizeSeed};
+  WaveguideSettings waveguideApplied_;
+  // Humanization depth: ±4% multiplicative around each configured base,
+  // strictly under the 5% musical ceiling. Exact zeros stay zero, so an
+  // explicitly unison/dry setting (detune/stiffness 0) never drifts.
+  static constexpr float kWaveguideHumanize = 0.04f;
   // A Hypersaw itself contains the seven saw voices. Keep exactly one instance
   // per Voice rather than building a second unison stack from VoiceOscillator.
   rpdsp::Hypersaw hypersaw_;
@@ -347,6 +365,17 @@ private:
   // Cache of last applied cutoff to avoid redundant filter.SetFreq calls in the hotpath.
   // Initialized to -1.0f in ctor/init to guarantee first SetFreq occurs.
   float lastAppliedFilterCutoff = -1.0f;
+  // Filter envelope, exponential in pitch like an analog VCF's V/oct input:
+  //   cutoff = filterFrequency * 2^(octaves * (env - rest))
+  // At env == rest the cutoff is exactly the value the Filter lane dialed, so
+  // the sequenced cutoff stays the thing you hear.
+  float filterEnvOctaves_ = 0.0f;
+  float filterEnvRest_ = 0.35f;
+  // Envelope-modulated cutoff target, recomputed once per kFilterUpdateInterval
+  // (the rate setFreq runs at) and smoothed per sample in between.
+  float filterEnvTarget_ = 1000.0f;
+  // The Filter lane is the envelope amount, scaling filterEnvelopeOctaves from
+  // 0 (cutoff parked on the patch base) to the preset's full sweep.
   // Throttle expensive filter.setFreq() updates: coefficients are recomputed
   // at most once every kFilterUpdateInterval samples. Power of two so the
   // rolling counter wraps with a mask instead of a per-sample UDIV.
@@ -527,6 +556,7 @@ private:
   void applyParameters_(const VoiceState &newState) noexcept;
   void applyConfig_(const VoiceConfig &newConfig) noexcept;
   void refreshPitch_();
+  void refreshFilterEnvDepth_() noexcept;
   void applyFrequency_(float frequency);
   void applyStructuralConfig_() noexcept;
 
@@ -568,9 +598,27 @@ private:
 
   /**
    * @brief Apply engine-specific configuration (waveguide and Hypersaw tuning)
-   *        Called from init() and applyConfig_() at control rate.
+   *        Called from init() and applyConfig_() at control rate. Waveguide
+   *        string tuning is gate-gated (see pushWaveguideParams_()): edits
+   *        made while a note rings wait for the next gate-on.
    */
   void applyEngineConfig_();
+  /**
+   * @brief Push waveguide string tuning with per-note humanization
+   *
+   * Audio thread only. Scales each configured wg* base by ±kWaveguideHumanize
+   * and pushes the result to the string model, recording the pushed values
+   * in waveguideApplied_ (test introspection). Called on every gate rise and
+   * retrigger before the pluck; the base cache in waveguideSettings_ belongs
+   * to applyEngineConfig_(), so an edit made while gated still lands
+   * (re-humanized) on the next gate-on. A ringing Karplus loop is never
+   * retuned mid-note.
+   */
+  void pushWaveguideParams_() noexcept;
+  /**
+   * @brief Scale one waveguide base by ±kWaveguideHumanize (audio thread)
+   */
+  float wgHumanize_(float base) noexcept;
 
   /**
    * @brief Waveguide engine source stage: pluck on pending edges, process string

@@ -6,8 +6,12 @@
 #include <OneButton.h>
 
 /**
- * @brief Modular 32-button matrix scanning, debouncing, and event dispatch.
- * This module is self-contained and can be reused in any project with a compatible matrix.
+ * @brief 32-pad MPR121 touch step grid (Core 0, interrupt-gated).
+ *
+ * Pads are the step sequencer: tap toggles a gate, hold opens step-edit
+ * (see UIEventHandler). The MPR121 IRQ (GP8, active-low) only flags change;
+ * Matrix_scan() does the I2C read + dispatch in the control loop, never in
+ * the ISR. Reusable: needs only an MPR121 on Wire. See docs/matrix.md.
  */
 
 #define MATRIX_BUTTON_COUNT 32
@@ -16,25 +20,27 @@ extern const uint8_t MATRIX_ROW_INPUTS[4];
 extern const uint8_t MATRIX_COL_INPUTS[8];
 
 typedef struct {
-    uint8_t rowInput;
-    uint8_t colInput;
+    uint8_t rowInput; // MPR121 electrode for this row (0..3)
+    uint8_t colInput; // MPR121 electrode for this column (4..11)
 } MatrixButton;
 
 typedef enum {
-    MATRIX_BUTTON_PRESSED,
-    MATRIX_BUTTON_RELEASED
+    MATRIX_BUTTON_PRESSED,  // finger touched the pad
+    MATRIX_BUTTON_RELEASED  // finger left the pad
 } MatrixButtonEventType;
 
 typedef struct {
-    uint8_t buttonIndex;
-    MatrixButtonEventType type;
+    uint8_t buttonIndex;        // linear pad 0..31 (bank = index/16, step = index%16)
+    MatrixButtonEventType type; // press or release edge
 } MatrixButtonEvent;
 
-// Configures the MPR121 active-low interrupt input on PIN_MPR121_INT (GP8).
+// Bind the MPR121 and arm its GP8 interrupt; reads the initial pad state.
 void Matrix_init(Adafruit_MPR121 *sensor);
-// Reads MPR121 touch state and dispatches events only after an interrupt.
+// IRQ-gated scan: no-op until the ISR flags a change, then reads + dispatches.
 void Matrix_scan();
+// Current level of pad idx (false when out of range).
 bool Matrix_getButtonState(uint8_t idx);
+// Press/release callback (usually matrixEventHandler); rising-edge callback.
 void Matrix_setEventHandler(void (*handler)(const MatrixButtonEvent &));
 void Matrix_setRisingEdgeHandler(void (*handler)(uint8_t buttonIndex));
 void Matrix_printState();

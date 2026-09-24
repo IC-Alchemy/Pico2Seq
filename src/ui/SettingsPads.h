@@ -5,14 +5,17 @@
 #include <cmath>
 #include <cstdint>
 
-// Portable Settings policy shared by pad input, LEDs and the value notice.
+// SettingsPads.h — which voice-timbre pad does what (portable, no hardware).
+// Same 32-pad catalogue drives edits, LED levels, and OLED labels so the three
+// can never disagree. Pads are fixed banks (source/filter/env/output), never
+// remapped through the step PadBank. Shift = decrease/step-back.
 namespace SettingsPads {
 inline constexpr uint8_t kPadCount = 32;
 
 inline constexpr VoiceEdit::Id parameter(uint8_t pad) noexcept {
   using VoiceEdit::Id;
-  // Raw pads, in four banks of eight: source, filter/drive, envelope/filter,
-  // then output/glide/macros. Never remap these through a voice/step bank.
+  // Raw pad -> timbre parameter. Fixed order: source, filter/drive,
+  // envelope/filter, output/glide/macros. Out-of-range = Count (no-op).
   constexpr Id ids[kPadCount] = {
       Id::Enabled, Id::Gate, Id::Slide, Id::RecipeRetrigger,
       Id::FilterType, Id::Engine, Id::OscCount, Id::Recipe,
@@ -39,7 +42,8 @@ inline float choiceMaximum(VoiceEdit::Id id, const VoiceConfig &config) noexcept
 }
 } // namespace detail
 
-// True means handled, including a numeric edit already at its limit.
+// True = handled (even if already at the limit, so the OLED still confirms).
+// Toggles flip, choices wrap, numerics nudge; unavailable pads return false.
 inline bool apply(uint8_t pad, VoiceConfig &config, bool decrease) noexcept {
   const auto id = parameter(pad);
   if (!VoiceEdit::available(id, config))
@@ -59,12 +63,14 @@ inline bool apply(uint8_t pad, VoiceConfig &config, bool decrease) noexcept {
       VoiceEdit::setValue(VoiceEdit::Id::FilterMode, config,
                           VoiceEdit::value(VoiceEdit::Id::FilterMode, config));
   } else {
-    // Includes stepped numeric parameters such as oscillator count.
+    // Stepped numerics (e.g. osc count) nudge in 5% moves for encoder-like feel.
     VoiceEdit::adjust(id, config, decrease ? -0.05f : 0.05f);
   }
   return true;
 }
 
+// 0..1 LED/oled level for a pad: sequencer-bound lanes use the live binding,
+// others use their (log-aware) min/max mapping. NaN/unavailable reads as 0.
 inline float level(uint8_t pad, const VoiceConfig &config) noexcept {
   auto id = parameter(pad);
   if (!VoiceEdit::available(id, config))
@@ -94,6 +100,7 @@ inline float level(uint8_t pad, const VoiceConfig &config) noexcept {
   return (clamped - p.minimum) / (maximum - p.minimum);
 }
 
+// Notice window for the timbre banner; unsigned math survives millis() wrap.
 // Caller owns notice validity; unsigned subtraction survives millis() wrap.
 inline constexpr bool noticeActive(uint32_t now, uint32_t changedAt) noexcept {
   return static_cast<uint32_t>(now - changedAt) < 3000u;
