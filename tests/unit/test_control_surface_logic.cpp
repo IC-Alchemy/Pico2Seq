@@ -53,6 +53,25 @@ TEST_CASE("Parameter record buttons select their matching encoder base", "[contr
     }
 }
 
+TEST_CASE("Record button bits map to the intended parameter lanes", "[control_surface]")
+{
+    constexpr ParamId expected[] = {
+        ParamId::Note, ParamId::Velocity, ParamId::Filter,
+        ParamId::Attack, ParamId::Release, ParamId::Octave,
+    };
+    static_assert(sizeof(expected) / sizeof(expected[0]) == 6);
+
+    for (uint8_t bit = 0; bit < 6; ++bit)
+    {
+        CAPTURE(bit);
+        CHECK(recordParamForButtonBit(bit) == expected[bit]);
+    }
+
+    CHECK(recordParamForButtonBit(6) == ParamId::Count);
+    CHECK(recordParamForButtonBit(7) == ParamId::Count);
+    CHECK(recordParamForButtonBit(UINT8_MAX) == ParamId::Count);
+}
+
 TEST_CASE("Parameter descriptors distinguish recording, detents and toggles", "[control_surface][parameter_metadata]")
 {
     constexpr ParameterEditKind kinds[] = {
@@ -835,4 +854,22 @@ TEST_CASE("Between clock steps the lidar keeps writing only continuous lanes", "
     for (ParamId lane : {ParamId::GateLength, ParamId::Gate, ParamId::Slide, ParamId::Sustain,
                          ParamId::Decay, ParamId::Count})
         CHECK_FALSE(recordsBetweenSteps(lane));
+}
+
+TEST_CASE("Arp Shift faders expose only the rhythm layer", "[control_surface][arpeggiator]")
+{
+    using namespace ControlSurface;
+    CHECK(FaderMap::arpAssignmentFor(0, true).target == FaderTarget::ArpHits);
+    CHECK(FaderMap::arpAssignmentFor(1, true).target == FaderTarget::ArpLength);
+    CHECK(FaderMap::arpAssignmentFor(2, true).target == FaderTarget::ArpRotate);
+    CHECK(FaderMap::arpAssignmentFor(3, true).target == FaderTarget::ArpAccent);
+    CHECK(FaderMap::arpAssignmentFor(4, true).target == FaderTarget::None);
+    FaderMap faders;
+    CHECK_FALSE(faders.accept(0, 2000));
+    CHECK(faders.accept(0, 2300));
+    faders.resetDeadband(); // entering Shift
+    CHECK_FALSE(faders.accept(0, 2300));
+    CHECK(faders.accept(0, 2600));
+    faders.resetDeadband(); // leaving Shift
+    CHECK_FALSE(faders.accept(0, 2600));
 }

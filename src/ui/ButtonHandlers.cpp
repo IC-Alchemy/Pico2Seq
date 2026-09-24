@@ -204,8 +204,9 @@ void handleControlButton(int buttonId, UIState &state)
     if (isClockRunning)
     {
       uClock.stop();
-      // Stopping opens the preset browser: silence invites sound selection.
-      openSettingsMode(state);
+      // Arp players need the chord and rhythm ready while stopped. Presets
+      // remain available on Play-hold; the sequencer keeps stop-to-settings.
+      if (!state.arp.active()) openSettingsMode(state);
     }
     else
     {
@@ -220,6 +221,8 @@ void handleControlButton(int buttonId, UIState &state)
 
   case BUTTON_CHANGE_SCALE:
     currentScale = (currentScale + 1) % 13;
+    state.arp.setScaleNotesPerOctave(
+        scaleNotesPerOctave(scale[currentScale]));
     Serial.print("Scale changed to: ");
     Serial.print(currentScale);
     Serial.print(" (");

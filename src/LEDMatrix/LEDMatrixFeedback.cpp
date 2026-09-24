@@ -1042,15 +1042,18 @@ static void renderVoicePair(LEDMatrix &ledMatrix,
  * @brief Paint the 8x4 panel as the arp's 32-degree chord map.
  *
  * Arpeggiator mode reuses the panel the touch pads mirror: each LED is one
- * scale degree, so the grid shows the chord, where the scale's octaves fall and
- * which degree is sounding right now. Colour carries the state:
+ * physical scale position. Seven-note scales lay out one octave per row, with
+ * the first/last columns and row-boundary pads repeating the octave root. The
+ * grid therefore shows the chord, where the scale's octaves fall and which
+ * physical positions are sounding right now. Colour carries the state:
  *   - a finger on the pad: the arp voice's gate-on hue,
  *   - latched with the finger off: the same hue at gate-off brightness,
  *   - sounding: hue pushed toward the theme's playhead accent, brighter the
  *     higher the octave of range and the further the hand is from the sensor,
- *   - free: black, except a dim breathing marker on the scale's roots so the
- *     ladder is navigable in the dark,
- *   - no chord held at all: the whole panel breathes.
+ *   - free: a quiet shade of the selected voice hue, with roots at a brighter
+ *     shade so the ladder is navigable in the dark,
+ *   - roots, chord tones, and other scale degrees use three distinct shades
+ *     from the same theme palette.
  *
  * @param ledMatrix Reference to the LED matrix for output
  * @param uiState Current UI state, which owns the arp engine
@@ -1063,14 +1066,14 @@ static void renderArpPanel(LEDMatrix &ledMatrix, const UIState &uiState) {
                             : 0;
   const size_t scaleIndex = std::min<size_t>(currentScale, SCALES_COUNT - 1);
   const int *row = scale[scaleIndex];
+  const uint8_t notesPerOctave = scaleNotesPerOctave(row);
   const uint32_t now = millis();
-  const bool noChord = arp.chordCount() == 0;
   const float breathing = smoothBreathing(now);
   // Lidar dynamics: the same hand that sets note velocity brightens the note
   // that is sounding, so the panel shows the gesture that is being heard.
   const uint8_t dynamicScale =
       static_cast<uint8_t>(LEDConstants::MEDIUM_BRIGHTNESS +
-                           (arp.dynamics() * (LEDConstants::FULL_BRIGHTNESS -
+                           (arp.lastVelocityScale() * (LEDConstants::FULL_BRIGHTNESS -
                                               LEDConstants::MEDIUM_BRIGHTNESS)));
 
   for (uint8_t pad = 0; pad < Arpeggiator::kPadCount; ++pad) {
@@ -1078,31 +1081,36 @@ static void renderArpPanel(LEDMatrix &ledMatrix, const UIState &uiState) {
     if (ledIndex < 0) continue;
 
     CRGB target = CRGB::Black;
-    if (noChord) {
-      // Nothing entered yet: breathe so the panel reads as armed and waiting.
-      target = theme->idleBreathingBlue;
-      target.nscale8_video(static_cast<uint8_t>(
-          LEDColors::BREATHING_MIN_INTENSITY +
-          breathing * (LEDColors::BREATHING_MAX_INTENSITY -
-                       LEDColors::BREATHING_MIN_INTENSITY)));
-    } else if (arp.padInChord(pad)) {
+    if (arp.padInChord(pad)) {
       // Held or latched: the voice's hue, bright under a finger.
       target = getVoiceGateColor(*theme, voice, arp.padHeld(pad));
-    } else if (row[pad] % 12 == 0) {
-      // The scale's own roots (and octaves of them) as a dim landmark.
-      target = theme->idleBreathingBlue;
-      target.nscale8_video(static_cast<uint8_t>(LEDColors::BREATHING_MIN_INTENSITY +
-                                                breathing * 8.0f));
+    } else if ((notesPerOctave == Arpeggiator::kSevenNoteScale &&
+                Arpeggiator::scaleDegreeForPad(pad, notesPerOctave) %
+                        Arpeggiator::kSevenNoteScale == 0) ||
+               (notesPerOctave != Arpeggiator::kSevenNoteScale &&
+                row[pad] % 12 == 0)) {
+      // Root, chord, and free-note roles use three distinct brightnesses of
+      // the same selected-voice hue: root half, chord full, other one-eighth.
+      // Seven-note layouts also mark the repeated root at each row boundary,
+      // making the octave grid legible.
+      const uint8_t clampedVoice = voice < LED_THEME_VOICE_COUNT ? voice : 0;
+      target = scaleGateHue(theme->gateOn[clampedVoice], 1, 2);
+    } else {
+      // Non-root scale degrees use a quiet shade from the same voice hue, so
+      // the free scale ladder remains visible without competing with a chord.
+      const uint8_t clampedVoice = voice < LED_THEME_VOICE_COUNT ? voice : 0;
+      target = scaleGateHue(theme->gateOn[clampedVoice], 1, 4);
     }
 
-    if (arp.degreeSounding(pad)) {
+    if (isClockRunning && arp.padSounding(pad)) {
       // Sounding now: push the hue toward the playhead accent, harder for the
       // higher octaves of the range so a climbing arp reads as a climb.
       uint8_t octave = 0;
       for (uint8_t slot = 0; slot < Arpeggiator::kMaxSlots; ++slot) {
         uint8_t degree = 0;
         uint8_t slotOctave = 0;
-        if (arp.slotSounding(slot, degree, slotOctave) && degree == pad &&
+        if (arp.slotSounding(slot, degree, slotOctave) &&
+            degree == Arpeggiator::scaleDegreeForPad(pad, notesPerOctave) &&
             slotOctave > octave)
           octave = slotOctave;
       }

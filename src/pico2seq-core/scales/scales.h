@@ -15,4 +15,28 @@ extern int scale[SCALES_COUNT][SCALE_STEPS]; // Step -> semitone offset per scal
 extern const char* scaleNames[SCALES_COUNT]; // UI names, same order as tables
 extern uint8_t currentScale; // Selected scale index, 0..SCALES_COUNT-1
 
+/**
+ * Count the distinct pitch classes before the first octave in a scale row.
+ * The arpeggiator uses this to select its physical-pad layout: seven-note
+ * scales get one octave per 8-column row, while other scales keep the legacy
+ * linear 32-degree ladder.
+ */
+inline uint8_t scaleNotesPerOctave(const int *row) noexcept
+{
+  if (!row)
+    return 0;
+  bool seen[12] = {};
+  uint8_t count = 0;
+  for (uint8_t i = 0; i < 12; ++i)
+  {
+    const int pitchClass = row[i] % 12;
+    if (row[i] < 12 && !seen[pitchClass])
+    {
+      seen[pitchClass] = true;
+      ++count;
+    }
+  }
+  return count;
+}
+
 #endif // SCALES_H

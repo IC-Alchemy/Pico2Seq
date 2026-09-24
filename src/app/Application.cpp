@@ -9,6 +9,7 @@
 #include "AudioEngine.h"
 #include "../sensors/DistanceSensor.h"
 #include "../utils/FreezeWatchdog.h"
+#include "../utils/Debug.h"
 #include "../pico2seq-core/persistence/ProjectSnapshot.h"
 #include "../pico2seq-core/persistence/SnapshotFormat.h"
 #include "../ui/UIConstants.h"
@@ -36,6 +37,7 @@ persistence::ProjectSnapshot g_sessionSnapshot;
 bool g_bootSnapshotPending = false;
 
 // Core 0 Serial diagnostics only; Core 1 reports via the heartbeat queue below.
+#if AUG_DEBUG_COMPILED
 void printRuntimeDiagnostics(uint32_t currentMillis)
 {
     static uint32_t lastVoiceDiag = 0;
@@ -109,6 +111,7 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
         }
     }
 }
+#endif
 } // namespace
 
 void Application::begin()
@@ -335,7 +338,9 @@ void Application::update()
     freezeWatchdogFeed(FW_LOOP_CLOCK_EVENTS);
     processClockEvents();
     freezeWatchdogMark(FW_LOOP_DIAGNOSTICS);
+#if AUG_DEBUG_COMPILED
     printRuntimeDiagnostics(nowMs);
+#endif
     freezeWatchdogFeed(FW_LOOP_PPQN);
     processPendingGateTicks();
     ControlIO::scanControls(nowMs);

@@ -11,12 +11,14 @@
 // reports note starts and stops by slot, and src/app/ArpPlayback.cpp maps slots
 // onto voices and voices onto VoiceState.
 //
-// Pad indices are scale-table indices. The 8x4 touch panel becomes a 32-degree
-// ladder: pad 0 is the scale root (MIDI 48 through the voices' own mapping) and
-// pad 31 is 31 scale steps above it, so the same pads walk a major scale in
-// Ionian and a semitone run in Chromatic. Arp range climbs in whole
-// octaves through VoiceState::octaveOffset (+12 semitones per step of range),
-// not through a scale-table stride, so every scale gets true octaves.
+// Pad indices are physical positions on the 8x4 touch panel. For a seven-note
+// scale, each row is one octave: columns 0..6 are the seven scale degrees and
+// column 7 repeats the next octave's root; the first pad of the next row is the
+// same note as the last pad of the previous row. Other scales retain the
+// original linear 32-degree ladder. Arp range climbs in whole octaves through
+// VoiceState::octaveOffset (+12 semitones per step of range), not through a
+// scale-table stride, so every scale gets true octaves.
+
 //
 // Timing is in uClock's 480 PPQN ticks: the caller feeds one tick per output
 // pulse, the engine decides when the next note is due. Swing delays every
@@ -28,18 +30,41 @@ namespace Arpeggiator
 
 // --- Geometry and limits -----------------------------------------------------
 
-inline constexpr uint8_t kPadCount = 32;    // 8x4 touch pads = 32 scale degrees
+inline constexpr uint8_t kPadCount = 32;    // 8x4 touch pads = 32 physical positions
+inline constexpr uint8_t kPadColumns = 8;   // one panel row
 inline constexpr uint8_t kMaxSlots = 4;     // one voice per simultaneous note
+inline constexpr uint8_t kSevenNoteScale = 7;
+inline constexpr uint8_t kNoDegree = 0xFF;
+
+/**
+ * Map a physical pad to the scale degree it represents for a scale with
+ * `notesPerOctave` notes.  Seven-note scales use the full eight-column panel
+ * as an octave: columns 0..6 are the seven notes and column 7 is the next
+ * root.  The first pad of the following row therefore deliberately repeats
+ * the last pad of the preceding row. Other scales retain the original linear
+ * 32-degree ladder until they have a layout rule of their own.
+ */
+constexpr uint8_t scaleDegreeForPad(uint8_t pad, uint8_t notesPerOctave) noexcept
+{
+  if (pad >= kPadCount)
+    return kNoDegree;
+  if (notesPerOctave != kSevenNoteScale)
+    return pad;
+  const uint8_t row = pad / kPadColumns;
+  const uint8_t column = pad % kPadColumns;
+  return static_cast<uint8_t>(row * kSevenNoteScale +
+                             (column < kSevenNoteScale ? column : kSevenNoteScale));
+}
 inline constexpr uint8_t kMinOctaves = 1;
 inline constexpr uint8_t kMaxOctaves = 4;
+inline constexpr uint8_t kMaxRhythmSteps = 16;
+inline constexpr uint8_t kRhythmPresetCount = 6;
 // Note length as a fraction of the interval. The ceiling leaves a gap before
 // the next note so a mono pattern always retriggers instead of gliding.
 inline constexpr float kMinGate = 0.05f;
 inline constexpr float kMaxGate = 0.95f;
 // Slot 0 always plays the selected voice; the other slots take the remaining
 // voices in index order, so a Chord pattern spreads over the whole instrument.
-inline constexpr uint8_t kNoDegree = 0xFF;
-
 // --- Pattern and rate catalogue ---------------------------------------------
 
 enum class Pattern : uint8_t
@@ -98,6 +123,11 @@ uint8_t clampOctaves(uint8_t octaves) noexcept;
  */
 uint8_t octavesForFader(float normalized) noexcept;
 
+// Evenly distribute hits across a short repeating grid. Rotation moves the
+// entire rhythm right; zero hits is an intentional rest, not a stopped clock.
+bool rhythmHit(uint8_t step, uint8_t hits, uint8_t length, uint8_t rotation) noexcept;
+const char *rhythmPresetName(uint8_t preset) noexcept;
+
 /**
  * Voice behind one arp slot: slot 0 is the selected voice (the one the player
  * chose for the arp), the rest walk the other voices in index order. Chord
@@ -126,7 +156,14 @@ struct Settings
   float gate = 0.5f;             // note length as a fraction of the interval
   float swing = 0.0f;            // 0..1 of half an interval, applied to every second gap
   float filter = 0.5f;           // per-note Filter lane, composed with the patch
+  uint8_t hits = 8;
+  uint8_t length = 8;
+  uint8_t rotation = 0;
+  float accent = 0.0f;           // soften other hits relative to the rotated first hit
 };
+
+uint16_t intervalTicks(const Settings &settings, bool longGap) noexcept;
+uint16_t gateTicks(const Settings &settings, bool longGap) noexcept;
 
 // --- One tick's worth of note events ----------------------------------------
 
@@ -223,6 +260,19 @@ public:
   void setGate(float gate) noexcept;
   void setSwing(float swing) noexcept;
   void setFilter(float filter) noexcept;
+  void setRhythm(uint8_t hits, uint8_t length, uint8_t rotation) noexcept;
+  void setRhythmPreset(uint8_t preset) noexcept;
+  void setAccent(float accent) noexcept;
+  /** Shift-faders: hits, grid length, rotation, accent, in that order. */
+  void setRhythmFader(uint8_t channel, float normalized) noexcept;
+  bool rhythmHitAt(uint8_t step) const noexcept;
+  /** -1 for a custom grid, otherwise the matching starting point. */
+  int rhythmPreset() const noexcept;
+  uint8_t rhythmStep() const noexcept { return rhythmStep_; }
+  bool hasRhythmStep() const noexcept { return rhythmStarted_; }
+  /** Velocity multiplier captured at note-on, including hand and accent. */
+  float lastVelocityScale() const noexcept { return lastVelocityScale_; }
+  void resetRateMotion() noexcept { rateMotion_ = 0.0f; }
   /** Current rate name, for the OLED header. */
   const char *rateLabel() const noexcept { return rateName(settings_.rate); }
   /** Current pattern name, for the OLED header. */
@@ -252,6 +302,10 @@ public:
   bool slotSounding(uint8_t slot, uint8_t &degree, uint8_t &octave) const noexcept;
   /** True while any gated-on slot is playing this scale degree. */
   bool degreeSounding(uint8_t degree) const noexcept;
+  /** True while a physical pad is sounding, including duplicate octave pads. */
+  bool padSounding(uint8_t pad) const noexcept;
+  /** Select seven-note octave-row mapping; zero restores linear mapping. */
+  void setScaleNotesPerOctave(uint8_t notesPerOctave) noexcept;
   /** Note-on events since the last restart(), for the OLED step readout. */
   uint16_t stepCount() const noexcept { return stepCount_; }
   /** Scale degree of the most recent note-on, or kNoDegree before the first. */
@@ -294,7 +348,11 @@ private:
   uint16_t ticksToNext_ = 0;  // 0 = the next tick starts a note
   uint16_t gateTicksLeft_ = 0;
   bool stopPending_ = false;
-  uint16_t walk_ = 0;  // intervals scheduled since the last restart
+  uint32_t walk_ = 0;  // intervals scheduled since the last restart
+  uint8_t rhythmStep_ = 0;
+  uint8_t nextRhythmStep_ = 0;
+  bool rhythmStarted_ = false;
+  float lastVelocityScale_ = 1.0f;
 
   // Sounding slots
   uint8_t soundingMask_ = 0;
@@ -309,6 +367,7 @@ private:
 
   // Encoder motion left over from rate turning
   float rateMotion_ = 0.0f;
+  uint8_t scaleNotesPerOctave_ = 0;
   uint32_t rng_ = 0x9E3779B9ul;
 };
 

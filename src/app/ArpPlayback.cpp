@@ -28,7 +28,7 @@ void silenceVoice(uint8_t voice)
 // Start one arp note on one voice. The step comes from the voice's own patch, so
 // a preset keeps its engine, envelope and level; the arp only overrides what it
 // owns: pitch, its octave of range, lidar dynamics and the filter fader.
-void arpNoteOn(uint8_t voice, uint8_t degree, uint8_t octave)
+void arpNoteOn(uint8_t voice, uint8_t degree, uint8_t octave, bool primary)
 {
     if (!voiceManager || voice >= VoiceSystem::MAX_VOICES)
         return;
@@ -40,7 +40,7 @@ void arpNoteOn(uint8_t voice, uint8_t degree, uint8_t octave)
     VoiceState state;
     state.noteIndex = static_cast<float>(degree);
     state.octaveOffset = static_cast<int8_t>(12 * octave);
-    state.velocityLevel = std::clamp(base.velocityLevel * uiState.arp.velocityScale(), 0.0f, 1.0f);
+    state.velocityLevel = std::clamp(base.velocityLevel * uiState.arp.lastVelocityScale(), 0.0f, 1.0f);
     state.filterCutoff = VoiceEdit::composeLane(ParamId::Filter, uiState.arp.settings().filter, config);
     state.attackTimeSeconds = base.attackTimeSeconds;
     state.decayTimeSeconds = base.decayTimeSeconds;
@@ -51,12 +51,23 @@ void arpNoteOn(uint8_t voice, uint8_t degree, uint8_t octave)
     state.shouldRetrigger = true; // envelope restart; the voice's event path
     state.hasSlide = false;
     publishVoiceState(voice, state);
+    if (primary) {
+        Step played = base;
+        played.noteIndex = state.noteIndex;
+        played.octaveOffset = state.octaveOffset;
+        MusicalValues::format(ParamId::Note, played, *config,
+            scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)], 120.0f,
+            uiState.arpLastNotes, sizeof(uiState.arpLastNotes));
+    }
 }
 } // namespace
 
 void arpModeToggle(UIState &uiState)
 {
-    const bool entering = !uiState.arp.active();
+  const bool entering = !uiState.arp.active();
+  uiState.arp.setScaleNotesPerOctave(
+      scaleNotesPerOctave(scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)]));
+
 
     // Silence first, on both edges: the ticks that would end the sounding note
     // are about to come from the other mode's path.
@@ -101,7 +112,12 @@ void arpModeToggle(UIState &uiState)
 
 void arpTick()
 {
-    const Arpeggiator::Tick out = uiState.arp.tick();
+  // Scale selection is shared with the sequencer, so keep the ARP geometry in
+  // sync even when the scale is changed while the mode is already active.
+  uiState.arp.setScaleNotesPerOctave(
+      scaleNotesPerOctave(scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)]));
+  const Arpeggiator::Tick out = uiState.arp.tick();
+
     for (uint8_t slot = 0; slot < Arpeggiator::kMaxSlots; ++slot)
     {
         const uint8_t slotBit = static_cast<uint8_t>(1u << slot);
@@ -113,7 +129,7 @@ void arpTick()
         {
             const uint8_t voice = Arpeggiator::slotVoiceIndex(slot, uiState.selectedVoiceIndex);
             slotVoice[slot] = voice;
-            arpNoteOn(voice, out.degrees[slot], out.octaves[slot]);
+            arpNoteOn(voice, out.degrees[slot], out.octaves[slot], slot == 0);
         }
     }
 }
@@ -121,5 +137,8 @@ void arpTick()
 void arpTransportStart()
 {
     if (uiState.arp.active())
+    {
         uiState.arp.restart();
+        uiState.arpLastNotes[0] = 0;
+    }
 }

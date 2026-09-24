@@ -106,6 +106,8 @@ inline void focusPad(UIState &state, uint8_t voice, uint8_t step) noexcept
 inline void enterArpMode(UIState &state) noexcept
 {
     state.arp.setActive(true);
+    state.arpLastNotes[0] = 0;
+    state.arpControl = UIState::ArpControl::None;
     state.selectedStepForEdit = -1;
     state.currentEditParameter = ParamId::Count;
     state.slideMode = false;
@@ -126,6 +128,8 @@ inline void enterArpMode(UIState &state) noexcept
 inline void exitArpMode(UIState &state) noexcept
 {
     state.arp.setActive(false);
+    state.arpLastNotes[0] = 0;
+    state.arpControl = UIState::ArpControl::None;
     state.selectedStepForEdit = -1;
     state.currentEditParameter = ParamId::Count;
     state.gateSeqLengthMode = false;

@@ -23,6 +23,9 @@ static_assert(sizeof(kPatternNames) / sizeof(kPatternNames[0]) == kPatternCount,
 // Hand height to velocity: a hand close to the sensor plays a quarter of the
 // patch velocity, a raised hand plays all of it.
 constexpr float kDynamicsFloor = 0.25f;
+constexpr uint8_t kPresetHits[] = {8, 4, 3, 5, 5, 7};
+constexpr uint8_t kPresetLengths[] = {8, 8, 8, 8, 12, 16};
+const char *const kRhythmNames[] = {"All", "Pulse", "Tresillo", "Five", "Orbit", "Seven"};
 
 float clampUnit(float value) noexcept
 {
@@ -31,6 +34,21 @@ float clampUnit(float value) noexcept
   return value > 1.0f ? 1.0f : value;
 }
 } // namespace
+
+bool rhythmHit(uint8_t step, uint8_t hits, uint8_t length, uint8_t rotation) noexcept
+{
+  if (length == 0 || length > kMaxRhythmSteps || step >= length || hits == 0)
+    return false;
+  if (hits >= length)
+    return true;
+  const uint8_t phase = static_cast<uint8_t>((step + length - rotation % length) % length);
+  return (static_cast<uint16_t>(phase) * hits) % length < hits;
+}
+
+const char *rhythmPresetName(uint8_t preset) noexcept
+{
+  return preset < kRhythmPresetCount ? kRhythmNames[preset] : "Custom";
+}
 
 const char *patternName(Pattern pattern) noexcept
 {
@@ -114,6 +132,9 @@ void Engine::setActive(bool on) noexcept
   stopPending_ = false;
   rateMotion_ = 0.0f;
   walk_ = 0;
+  rhythmStep_ = nextRhythmStep_ = 0;
+  rhythmStarted_ = false;
+  lastVelocityScale_ = 1.0f;
   ticksToNext_ = 0;
   stepCount_ = 0;
   lastGateTicks_ = 0;
@@ -265,10 +286,23 @@ uint8_t Engine::effectiveCount() const noexcept
 {
   uint32_t mask = physicalMask_ | latchedMask_;
   uint8_t count = 0;
-  while (mask)
+  for (uint8_t pad = 0; pad < kPadCount; ++pad)
   {
-    mask &= mask - 1u;
-    ++count;
+    if (!(mask & padBit(pad)))
+      continue;
+    const uint8_t degree = scaleDegreeForPad(pad, scaleNotesPerOctave_);
+    bool duplicate = false;
+    for (uint8_t previous = 0; previous < pad; ++previous)
+    {
+      if ((mask & padBit(previous)) &&
+          scaleDegreeForPad(previous, scaleNotesPerOctave_) == degree)
+      {
+        duplicate = true;
+        break;
+      }
+    }
+    if (!duplicate)
+      ++count;
   }
   return count;
 }
@@ -281,8 +315,21 @@ uint8_t Engine::chordDegree(uint8_t index) const noexcept
   {
     if (!(mask & padBit(pad)))
       continue;
+    const uint8_t degree = scaleDegreeForPad(pad, scaleNotesPerOctave_);
+    bool duplicate = false;
+    for (uint8_t previous = 0; previous < pad; ++previous)
+    {
+      if ((mask & padBit(previous)) &&
+          scaleDegreeForPad(previous, scaleNotesPerOctave_) == degree)
+      {
+        duplicate = true;
+        break;
+      }
+    }
+    if (duplicate)
+      continue;
     if (seen == index)
-      return pad;
+      return degree;
     ++seen;
   }
   return kNoDegree;
@@ -290,7 +337,26 @@ uint8_t Engine::chordDegree(uint8_t index) const noexcept
 
 uint8_t Engine::orderDegree(uint8_t index) const noexcept
 {
-  return index < orderCount_ ? order_[index] : kNoDegree;
+  uint8_t seen = 0;
+  for (uint8_t i = 0; i < orderCount_; ++i)
+  {
+    const uint8_t degree = scaleDegreeForPad(order_[i], scaleNotesPerOctave_);
+    bool duplicate = false;
+    for (uint8_t previous = 0; previous < i; ++previous)
+    {
+      if (scaleDegreeForPad(order_[previous], scaleNotesPerOctave_) == degree)
+      {
+        duplicate = true;
+        break;
+      }
+    }
+    if (duplicate)
+      continue;
+    if (seen == index)
+      return degree;
+    ++seen;
+  }
+  return kNoDegree;
 }
 
 bool Engine::padInChord(uint8_t pad) const noexcept
@@ -392,6 +458,53 @@ void Engine::setFilter(float filter) noexcept
   settings_.filter = clampUnit(filter);
 }
 
+void Engine::setRhythm(uint8_t hits, uint8_t length, uint8_t rotation) noexcept
+{
+  settings_.length = length < 1 ? 1 : (length > kMaxRhythmSteps ? kMaxRhythmSteps : length);
+  settings_.hits = hits > settings_.length ? settings_.length : hits;
+  settings_.rotation = rotation % settings_.length;
+  nextRhythmStep_ %= settings_.length;
+  rhythmStep_ %= settings_.length;
+  // Keep the pending interval and gate intact while editing the grid.
+}
+
+void Engine::setRhythmPreset(uint8_t preset) noexcept
+{
+  if (preset < kRhythmPresetCount)
+    setRhythm(kPresetHits[preset], kPresetLengths[preset], 0);
+}
+
+void Engine::setAccent(float accent) noexcept { settings_.accent = clampUnit(accent); }
+
+void Engine::setRhythmFader(uint8_t channel, float normalized) noexcept
+{
+  const float value = clampUnit(normalized);
+  switch (channel)
+  {
+  case 0: setRhythm(static_cast<uint8_t>(lroundf(value * settings_.length)),
+                    settings_.length, settings_.rotation); break;
+  case 1: setRhythm(settings_.hits, static_cast<uint8_t>(1 + lroundf(value * (kMaxRhythmSteps - 1))),
+                    settings_.rotation); break;
+  case 2: setRhythm(settings_.hits, settings_.length,
+                    static_cast<uint8_t>(lroundf(value * (settings_.length - 1)))); break;
+  case 3: setAccent(value); break;
+  default: break;
+  }
+}
+
+bool Engine::rhythmHitAt(uint8_t step) const noexcept
+{
+  return rhythmHit(step, settings_.hits, settings_.length, settings_.rotation);
+}
+
+int Engine::rhythmPreset() const noexcept
+{
+  for (uint8_t i = 0; i < kRhythmPresetCount; ++i)
+    if (settings_.hits == kPresetHits[i] && settings_.length == kPresetLengths[i] && settings_.rotation == 0)
+      return i;
+  return -1;
+}
+
 // --- Dynamics ----------------------------------------------------------------
 
 void Engine::observeDynamics(bool handPresent, float handHeight) noexcept
@@ -412,6 +525,8 @@ float Engine::velocityScale() const noexcept
 void Engine::restart() noexcept
 {
   walk_ = 0;
+  rhythmStep_ = nextRhythmStep_ = 0;
+  rhythmStarted_ = false;
   ticksToNext_ = 0; // the very next tick starts a note
   stepCount_ = 0;
   lastGateTicks_ = 0;
@@ -492,8 +607,11 @@ void Engine::startNotes(Tick &out) noexcept
 {
   const uint8_t count = effectiveCount();
   const uint8_t octaves = clampOctaves(settings_.octaves);
+  rhythmStep_ = nextRhythmStep_;
+  nextRhythmStep_ = static_cast<uint8_t>((rhythmStep_ + 1) % settings_.length);
+  rhythmStarted_ = true;
 
-  if (count > 0)
+  if (count > 0 && rhythmHitAt(rhythmStep_))
   {
     if (settings_.pattern == Pattern::Chord)
     {
@@ -532,6 +650,10 @@ void Engine::startNotes(Tick &out) noexcept
 
     if (out.startMask != 0)
     {
+      // The rotated first hit keeps the patch's full dynamics; accent lowers
+      // other hits. Capture once so moving a hand cannot relabel a played note.
+      const float accentGain = rhythmStep_ == settings_.rotation ? 1.0f : 1.0f - 0.75f * settings_.accent;
+      lastVelocityScale_ = velocityScale() * accentGain;
       soundingMask_ = out.startMask;
       for (uint8_t slot = 0; slot < kMaxSlots; ++slot)
       {
@@ -548,35 +670,45 @@ void Engine::startNotes(Tick &out) noexcept
   scheduleNext();
 }
 
-void Engine::scheduleNext() noexcept
+uint16_t intervalTicks(const Settings &settings, bool longGap) noexcept
 {
-  const uint16_t interval = rateTicks(settings_.rate);
+  const uint16_t interval = rateTicks(settings.rate);
   // Swing: every second gap is long and its partner short by the same amount, so
   // a pair still lasts two intervals and the arp cannot drift against the
   // transport. Half an interval is the most a pair can take before the short gap
   // would collapse.
   int32_t swing = static_cast<int32_t>(
-      lroundf(clampUnit(settings_.swing) * 0.5f * static_cast<float>(interval)));
+      lroundf(clampUnit(settings.swing) * 0.5f * static_cast<float>(interval)));
   const int32_t maxSwing = static_cast<int32_t>(interval / 2) - 1;
   if (maxSwing <= 0)
     swing = 0;
   else if (swing > maxSwing)
     swing = maxSwing;
-  const bool longGap = (walk_ % 2) == 0;
   const int32_t gap = static_cast<int32_t>(interval) + (longGap ? swing : -swing);
-  const uint16_t finalGap = static_cast<uint16_t>(gap < 1 ? 1 : gap);
-  ticksToNext_ = finalGap;
+  return static_cast<uint16_t>(gap < 1 ? 1 : gap);
+}
 
+uint16_t gateTicks(const Settings &settings, bool longGap) noexcept
+{
+  const uint16_t finalGap = intervalTicks(settings, longGap);
   // The note lasts a fraction of the gap that follows it and always leaves a
   // sliver, so the next note retriggers from silence instead of gliding.
   uint16_t gate = static_cast<uint16_t>(
-      lroundf(clampGate(settings_.gate) * static_cast<float>(finalGap)));
+      lroundf(clampGate(settings.gate) * static_cast<float>(finalGap)));
   if (gate < 1)
     gate = 1;
   if (gate >= finalGap)
     gate = static_cast<uint16_t>(finalGap - 1);
-  gateTicksLeft_ = gate;
-  lastGateTicks_ = gate;
+  return gate;
+}
+
+void Engine::scheduleNext() noexcept
+{
+  const bool longGap = (walk_ % 2) == 0;
+  ticksToNext_ = intervalTicks(settings_, longGap);
+  gateTicksLeft_ = gateTicks(settings_, longGap);
+  if (soundingMask_ != 0)
+    lastGateTicks_ = gateTicksLeft_;
   ++walk_;
 }
 
@@ -597,6 +729,17 @@ bool Engine::degreeSounding(uint8_t degree) const noexcept
     if ((soundingMask_ & (1u << slot)) && soundingDegree_[slot] == degree)
       return true;
   return false;
+}
+
+bool Engine::padSounding(uint8_t pad) const noexcept
+{
+  return pad < kPadCount &&
+         degreeSounding(scaleDegreeForPad(pad, scaleNotesPerOctave_));
+}
+
+void Engine::setScaleNotesPerOctave(uint8_t notesPerOctave) noexcept
+{
+  scaleNotesPerOctave_ = notesPerOctave == kSevenNoteScale ? notesPerOctave : 0;
 }
 
 } // namespace Arpeggiator

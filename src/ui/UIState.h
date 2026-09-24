@@ -26,6 +26,18 @@ struct UIState
     // walk, so pads, tiles, encoder, LEDs, OLED and the playback layer all read
     // the same state (see src/pico2seq-core/arpeggiator/Arpeggiator.h).
     Arpeggiator::Engine arp;
+    enum class ArpControl : uint8_t {
+        None, Octaves, Gate, Swing, Filter, Hits, Length, Rotate, Accent,
+        Rate, Tempo, Rhythm, Latch, Restart
+    };
+    ArpControl arpControl = ArpControl::None;
+    uint32_t arpControlAt = 0;
+    // Primary arp voice's last composed pitch, captured when published.
+    char arpLastNotes[48] = {};
+    void showArpControl(ArpControl control, uint32_t now) noexcept {
+        arpControl = control;
+        arpControlAt = now;
+    }
     // --- Parameter Button States ---
     // Which step-parameter lane (Note/Velocity/...) the performer is holding.
     // Indexed by ParamId for direct lookup.

@@ -1,5 +1,15 @@
 # OLED Module Documentation
 
+## Arpeggiator play page
+
+[Arpeggiator mode](arpeggiator.md#oled) has an eight-row play page with a
+persistent preset band, transport/rate/latch status, scale-key summary,
+hit/rest strip, tempo, gate duration and swing ratio. Long chords use a `+N`
+summary; long names end in `~`. Shift reveals the rhythm controls. Recent
+control movement changes only the middle rows for 1.4 seconds. Formatting in
+`src/ui/ArpDisplay.h` is shared with host checks; hardware rendering remains in
+`OLEDDisplay::displayArpPage()`.
+
 ## Overview
 
 The `src/OLED/` subsystem manages the 128×64 monochrome OLED display for Pico2Seq using an **Adafruit SH1106G** driver over I2C (`Wire`, I2C0 @ 400 kHz, address `0x3C`).

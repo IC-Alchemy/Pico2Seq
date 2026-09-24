@@ -12,6 +12,8 @@
 #include <limits>
 #include <vector>
 
+#include "ui/ArpDisplay.h"
+
 using namespace Arpeggiator;
 using Catch::Matchers::WithinAbs;
 
@@ -82,6 +84,38 @@ void pressChord(Engine &engine, std::initializer_list<uint8_t> pads)
         engine.pressPad(pad);
 }
 } // namespace
+
+TEST_CASE("Seven-note pad layout makes each row an octave", "[arpeggiator]")
+{
+  // The eight columns show seven scale degrees plus the next root. The row
+  // boundary repeats the root deliberately, so a physical row is one octave.
+  CHECK(scaleDegreeForPad(0, 7) == 0);
+  CHECK(scaleDegreeForPad(6, 7) == 6);
+  CHECK(scaleDegreeForPad(7, 7) == 7);
+  CHECK(scaleDegreeForPad(8, 7) == 7);
+  CHECK(scaleDegreeForPad(14, 7) == 13);
+  CHECK(scaleDegreeForPad(15, 7) == 14);
+  CHECK(scaleDegreeForPad(16, 7) == 14);
+  CHECK(scaleDegreeForPad(31, 7) == 28);
+
+  // Non-seven-note scales retain the linear 32-degree ladder until they get a
+  // deliberately different layout rule.
+  CHECK(scaleDegreeForPad(7, 12) == 7);
+  CHECK(scaleDegreeForPad(8, 12) == 8);
+}
+
+TEST_CASE("Seven-note duplicate boundary pads share one chord tone", "[arpeggiator]")
+{
+  Engine engine;
+  engine.setScaleNotesPerOctave(7);
+  engine.pressPad(7);
+  engine.pressPad(8);
+  CHECK(engine.chordCount() == 1);
+  CHECK(engine.chordDegree(0) == 7);
+  CHECK(engine.orderDegree(0) == 7);
+  CHECK(engine.padInChord(7));
+  CHECK(engine.padInChord(8));
+}
 
 TEST_CASE("Arpeggiator rate table maps to PPQN note divisions", "[arpeggiator]")
 {
@@ -723,4 +757,175 @@ TEST_CASE("Arpeggiator drops held pads but keeps latched ones", "[arpeggiator]")
     CHECK(engine.chordDegree(0) == 2);
     CHECK(engine.chordDegree(1) == 6);
     CHECK(engine.orderDegree(1) == 6);
+}
+
+TEST_CASE("Rhythm grids keep the requested hit count through every rotation", "[arpeggiator][rhythm]")
+{
+    for (uint8_t length = 1; length <= kMaxRhythmSteps; ++length)
+        for (uint8_t hits = 0; hits <= length; ++hits)
+            for (uint8_t rotate = 0; rotate < length; ++rotate) {
+                unsigned count = 0;
+                for (uint8_t step = 0; step < length; ++step) {
+                    count += rhythmHit(step, hits, length, rotate);
+                    CHECK(rhythmHit(step, hits, length, rotate) ==
+                          rhythmHit((step + length - rotate) % length, hits, length, 0));
+                }
+                CHECK(count == hits);
+                if (hits) CHECK(rhythmHit(rotate, hits, length, rotate));
+            }
+    CHECK_FALSE(rhythmHit(0, 1, 0, 0));
+    CHECK_FALSE(rhythmHit(16, 8, 16, 0));
+}
+
+TEST_CASE("Tresillo leaves clocked rests and the note walk continues through them", "[arpeggiator][rhythm]")
+{
+    Recorder rec;
+    rec.engine.setActive(true);
+    pressChord(rec.engine, {0, 2, 4, 6});
+    rec.engine.setRhythmPreset(2);
+    rec.run(961);
+    CHECK(ticks(rec.notes) == std::vector<uint16_t>{1, 361, 721, 961});
+    CHECK(degrees(rec.notes) == std::vector<uint8_t>{0, 6, 4, 0});
+    CHECK(rec.engine.rhythmStep() == 0);
+    CHECK(rec.engine.stepCount() == 4);
+    REQUIRE(rec.stops.size() == 3);
+    CHECK(rec.stops[0].tick == 61);
+    CHECK(rec.stops[1].tick == 421);
+    CHECK(rec.stops[2].tick == 781);
+}
+
+TEST_CASE("Silent rhythm keeps phase and editing does not shorten a sounding gate", "[arpeggiator][rhythm]")
+{
+    Recorder rec;
+    rec.engine.setActive(true);
+    rec.engine.pressPad(0);
+    rec.run(1);
+    const uint16_t lastGate = rec.engine.lastGateTicks();
+    rec.engine.setRhythm(0, 8, 0);
+    rec.run(300);
+    REQUIRE(rec.notes.size() == 1);
+    REQUIRE(rec.stops.size() == 1);
+    CHECK(rec.stops[0].tick == 61);
+    CHECK(rec.engine.lastGateTicks() == lastGate);
+    CHECK(rec.engine.rhythmStep() == 2);
+    rec.engine.setRhythm(8, 8, 0);
+    rec.run(60);
+    REQUIRE(rec.notes.size() == 2);
+    CHECK(rec.notes[1].tick == 361);
+    CHECK(rec.engine.rhythmStep() == 3);
+}
+
+TEST_CASE("Swing and sparse chords keep distinct gates on the transport grid", "[arpeggiator][rhythm]")
+{
+    Recorder rec;
+    rec.engine.setActive(true);
+    rec.engine.setPattern(Pattern::Chord);
+    pressChord(rec.engine, {0, 2, 4, 6});
+    rec.engine.setRhythm(3, 8, 0);
+    rec.engine.setSwing(1.0f);
+    rec.engine.setGate(0.95f);
+    rec.run(961);
+    REQUIRE(rec.notes.size() == 16);
+    CHECK(rec.notes[0].tick == 1);
+    CHECK(rec.notes[4].tick == 420);
+    CHECK(rec.notes[8].tick == 721);
+    CHECK(rec.notes[12].tick == 961);
+    REQUIRE(rec.stops.size() == 12);
+    CHECK(rec.stops[0].tick < rec.notes[4].tick);
+    CHECK(rec.stops[4].tick < rec.notes[8].tick);
+    CHECK(rec.stops[8].tick < rec.notes[12].tick);
+}
+
+TEST_CASE("Accents and hand dynamics are captured together at note start", "[arpeggiator][rhythm]")
+{
+    Engine e;
+    e.setActive(true);
+    e.pressPad(0);
+    e.setRhythm(4, 8, 1);
+    e.setAccent(1.0f);
+    e.observeDynamics(true, 0.0f);
+    CHECK_FALSE(e.tick().started());
+    for (int i = 0; i < 120; ++i) e.tick();
+    CHECK_THAT(e.lastVelocityScale(), WithinAbs(0.25f, 0.0001f));
+    e.observeDynamics(false, 1.0f);
+    CHECK_THAT(e.lastVelocityScale(), WithinAbs(0.25f, 0.0001f));
+    for (int i = 0; i < 240; ++i) e.tick();
+    CHECK_THAT(e.lastVelocityScale(), WithinAbs(0.25f, 0.0001f));
+    e.setAccent(0.0f);
+    for (int i = 0; i < 240; ++i) e.tick();
+    CHECK_THAT(e.lastVelocityScale(), WithinAbs(1.0f, 0.0001f));
+}
+
+TEST_CASE("Rhythm presets and faders remain bounded and survive mode changes", "[arpeggiator][rhythm]")
+{
+    Engine e;
+    for (uint8_t i = 0; i < kRhythmPresetCount; ++i) {
+        e.setRhythmPreset(i);
+        CHECK(e.rhythmPreset() == i);
+    }
+    e.setRhythm(255, 255, 255);
+    CHECK(e.settings().hits == 16);
+    CHECK(e.settings().length == 16);
+    CHECK(e.settings().rotation == 15);
+    e.setRhythmFader(1, 0.0f);
+    CHECK(e.settings().hits == 1);
+    CHECK(e.settings().length == 1);
+    CHECK(e.settings().rotation == 0);
+    e.setRhythmFader(0, 0.0f);
+    CHECK(e.settings().hits == 0);
+    e.setRhythmFader(1, 1.0f);
+    e.setRhythmFader(0, 1.0f);
+    e.setRhythmFader(2, 1.0f);
+    e.setRhythmFader(3, 1.0f);
+    e.setActive(true);
+    e.tick();
+    e.restart();
+    CHECK_FALSE(e.hasRhythmStep());
+    e.tick();
+    CHECK(e.rhythmStep() == 0);
+    e.setActive(false);
+    e.setActive(true);
+    CHECK_FALSE(e.hasRhythmStep());
+    CHECK(e.settings().hits == 16);
+    CHECK(e.settings().rotation == 15);
+    CHECK(e.settings().accent == 1.0f);
+}
+
+TEST_CASE("OLED chord rows never wrap and report the omitted note count", "[arpeggiator][display]")
+{
+    Engine e;
+    ArpDisplay::Row row;
+    ArpDisplay::chord(e, nullptr, row);
+    CHECK(std::string(row) == "Touch pads for chord");
+    pressChord(e, {0, 4, 7});
+    ArpDisplay::chord(e, nullptr, row);
+    CHECK(std::string(row) == "KEYS C3 E3 G3");
+    for (uint8_t pad = 0; pad < 32; ++pad) e.pressPad(pad);
+    ArpDisplay::chord(e, nullptr, row);
+    CHECK(std::string(row) == "KEYS C3 C#3 D3 +29");
+    CHECK(std::strlen(row) <= ArpDisplay::kColumns);
+    e.clearChord();
+    pressChord(e, {7, 0, 4});
+    e.setPattern(Pattern::Order);
+    ArpDisplay::chord(e, nullptr, row);
+    CHECK(std::string(row) == "KEYS G3 C3 E3");
+    ArpDisplay::fit("A deliberately long preset name", row);
+    CHECK(std::strlen(row) == ArpDisplay::kColumns);
+    CHECK(row[20] == '~');
+}
+
+TEST_CASE("OLED gate durations use the engine's quantized swing intervals", "[arpeggiator][display]")
+{
+    Engine e;
+    e.setActive(true);
+    e.pressPad(0);
+    e.setSwing(1.0f);
+    e.tick();
+    CHECK(e.lastGateTicks() == gateTicks(e.settings(), true));
+    for (int i = 0; i < 179; ++i) e.tick();
+    CHECK(e.lastGateTicks() == gateTicks(e.settings(), false));
+    ArpDisplay::Row row;
+    ArpDisplay::gate(e.settings(), 120, row);
+    CHECK(std::string(row) == "32-94ms");
+    CHECK(ArpDisplay::swingLong(e.settings()) == 75);
 }

@@ -156,12 +156,18 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
   // Disarm the faders whenever what they edit changes: the selected voice, or
   // entering, leaving or moving Step Edit (ENV mode). A newly focused step or
   // voice must not snap to wherever the faders happen to rest. Arpeggiator mode
-  // has no steps, so there only a voice change redisarms them.
+  // has a second fader layer on Shift; both edges must re-arm from rest.
   const int stepForEdit = uiState.arp.active() ? lastStepForEdit_ : uiState.selectedStepForEdit;
-  if (uiState.selectedVoiceIndex != lastVoiceIndex_ || stepForEdit != lastStepForEdit_)
+  const bool arpShift = uiState.arp.active() && uiState.shiftHeld;
+  if (uiState.selectedVoiceIndex != lastVoiceIndex_ || stepForEdit != lastStepForEdit_ ||
+      arpShift != lastArpShift_ || uiState.arp.active() != lastArpActive_)
   {
+    if (uiState.selectedVoiceIndex != lastVoiceIndex_)
+      uiState.arpControl = UIState::ArpControl::None;
     lastVoiceIndex_ = uiState.selectedVoiceIndex;
     lastStepForEdit_ = stepForEdit;
+    lastArpShift_ = arpShift;
+    lastArpActive_ = uiState.arp.active();
     faders_.resetDeadband();
   }
 
@@ -343,15 +349,15 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
     // Bits 0-5 follow ButtonMap.h order. The 5th button is silkscreened Decay
     // but records Release: Decay is a timbre lane on most presets, while
     // Release shapes the tail on all of them.
-    static constexpr ParamId kButtonLanes[6] = {
-        ParamId::Note, ParamId::Velocity, ParamId::Filter,
-        ParamId::Attack, ParamId::Release, ParamId::Octave};
-    const uint8_t paramId = static_cast<uint8_t>(kButtonLanes[bit]);
-    latch_.onParamButton(paramId, edges.pressEdge, uiState.shiftHeld);
+    const ParamId paramId = ControlSurface::recordParamForButtonBit(bit);
+    if (paramId == ParamId::Count)
+      continue;
+    const uint8_t paramIdValue = static_cast<uint8_t>(paramId);
+    latch_.onParamButton(paramIdValue, edges.pressEdge, uiState.shiftHeld);
     latch_.applyTo(uiState.parameterButtonHeld, PARAM_ID_COUNT);
     uiState.latchedParameter = latch_.latched();
 
-    handleParameterButtonById(paramId, edges.pressEdge, uiState);
+    handleParameterButtonById(paramIdValue, edges.pressEdge, uiState);
   }
 }
 
@@ -437,13 +443,25 @@ void AlchemyControlBridge::handleArpPatternButtons(UIState &uiState)
 
     if (bit == 6)
     {
-      uiState.arp.toggleLatch();
+      if (uiState.shiftHeld) uiState.arp.restart();
+      else uiState.arp.toggleLatch();
+      uiState.showArpControl(uiState.shiftHeld ? UIState::ArpControl::Restart : UIState::ArpControl::Latch, millis());
       continue;
     }
 
+    if (uiState.shiftHeld)
+    {
+      uiState.arp.setRhythmPreset(bit);
+      uiState.showArpControl(UIState::ArpControl::Rhythm, millis());
+      faders_.resetDeadband();
+      continue;
+    }
     const Arpeggiator::Pattern pattern = Arpeggiator::patternForButtonBit(bit);
     if (pattern != Arpeggiator::Pattern::Count)
+    {
       uiState.arp.setPattern(pattern);
+      uiState.arpControl = UIState::ArpControl::None;
+    }
   }
 }
 
@@ -483,8 +501,11 @@ void AlchemyControlBridge::handleArpUtilityButtons(uint32_t nowMs, UIState &uiSt
 
     case 3: // Octave range cycle 1..4. The step sequencer's swing templates do
             // not apply here: the arp swings itself (Arpeggiator::scheduleNext).
-      if (edges.pressEdge)
+      if (edges.pressEdge) {
         uiState.arp.cycleOctaves();
+        uiState.showArpControl(UIState::ArpControl::Octaves, nowMs);
+        faders_.resetDeadband();
+      }
       break;
 
     case 4: // Theme cycle: the arp panel is painted from the same theme table.
@@ -501,6 +522,7 @@ void AlchemyControlBridge::handleArpUtilityButtons(uint32_t nowMs, UIState &uiSt
         uiState.arp.restart();
       else
         uiState.arp.toggleLatch();
+      uiState.showArpControl(uiState.shiftHeld ? UIState::ArpControl::Restart : UIState::ArpControl::Latch, nowMs);
       break;
 
     case 6: // Randomize the chord (tap); Shift + tap clears it.
@@ -658,7 +680,7 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
     // so the same four faders carry the arp's range, gate, swing and tone.
     const ControlSurface::FaderAssignment assignment =
         uiState.arp.active()
-            ? ControlSurface::FaderMap::arpAssignmentFor(channel)
+            ? ControlSurface::FaderMap::arpAssignmentFor(channel, uiState.shiftHeld)
             : ControlSurface::FaderMap::assignmentFor(uiState.selectedStepForEdit >= 0, channel);
 
     switch (assignment.target)
@@ -668,19 +690,36 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
 
     case ControlSurface::FaderTarget::ArpOctaves:
       uiState.arp.setOctaves(Arpeggiator::octavesForFader(normalized));
+      uiState.showArpControl(UIState::ArpControl::Octaves, millis());
       break;
 
     case ControlSurface::FaderTarget::ArpGate:
       uiState.arp.setGate(normalized);
+      uiState.showArpControl(UIState::ArpControl::Gate, millis());
       break;
 
     case ControlSurface::FaderTarget::ArpSwing:
       uiState.arp.setSwing(normalized);
+      uiState.showArpControl(UIState::ArpControl::Swing, millis());
       break;
 
     case ControlSurface::FaderTarget::ArpFilter:
       uiState.arp.setFilter(normalized);
+      uiState.showArpControl(UIState::ArpControl::Filter, millis());
       break;
+
+    case ControlSurface::FaderTarget::ArpHits:
+    case ControlSurface::FaderTarget::ArpLength:
+    case ControlSurface::FaderTarget::ArpRotate:
+    case ControlSurface::FaderTarget::ArpAccent:
+    {
+      uiState.arp.setRhythmFader(channel, normalized);
+      static constexpr UIState::ArpControl controls[] = {
+          UIState::ArpControl::Hits, UIState::ArpControl::Length,
+          UIState::ArpControl::Rotate, UIState::ArpControl::Accent};
+      uiState.showArpControl(controls[channel], millis());
+      break;
+    }
 
     case ControlSurface::FaderTarget::EnvLane:
       // The fader's position is the step's absolute value; Shift + move
