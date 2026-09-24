@@ -31,13 +31,26 @@ class SequencerView;
  *     raises the OLED banner flag.
  *   - SliderModule buttons: Voice1..4 direct select in both modes; with
  *     Shift held they become transport chords (Play/Stop, Randomize,
- *     Scale, Delay toggle).
+ *     Scale, Voice editor). Shift + hold Voice 4 toggles Arpeggiator mode
+ *     instead of opening the editor, so a tap and a hold never fire together.
  *   - ButtonModule8: parameter set (Note..Slide) or utility set (Play,
  *     Delay, Scale, Swing, Theme, Encoder, Randomize) per mode; Shift is
  *     bit 7 in both. In Utility mode, Shift + Randomize clears the selected
  *     voice's whole pattern (tap) or every voice's pattern (hold).
+ *   - Arpeggiator mode (docs/arpeggiator.md) replaces the step-shaped sets:
+ *     the Param panel is the six arp patterns plus Latch, and the Utility
+ *     panel keeps Play/Session/Scale/Theme while Octave range, Re-sync and
+ *     Randomize-chord take the step-only slots.
  *   - Faders: step-parameter recording in Param mode (same recording path
- *     as the lidar), tempo/delay-mix/master-volume/gate-length otherwise.
+<<<<<<< HEAD
+ *     as the lidar), tempo/delay-mix/master-volume/gate-length otherwise;
+ *     in Arpeggiator mode the same four faders set arp range, gate, swing
+ *     and filter (ControlSurface::FaderMap::arpAssignmentFor).
+=======
+ *     as the lidar), tempo/swing/gate-length outside it; in Arpeggiator mode
+ *     the same four faders set arp range, gate, swing and filter
+ *     (ControlSurface::FaderMap::arpAssignmentFor).
+>>>>>>> f93e3bf691631b6a65407f345dbf37e8c6115c41
  */
 class AlchemyControlBridge
 {
@@ -82,6 +95,19 @@ private:
   };
 
   /**
+   * One button's sampled state this pass. The transport and session handlers are
+   * shared by both utility panels, so they take this instead of a parameter list
+   * and a reference to the driver's button array.
+   */
+  struct ButtonState
+  {
+    bool pressEdge = false;
+    bool releaseEdge = false;
+    bool held = false;
+    uint32_t heldMs = 0;
+  };
+
+  /**
    * Re-resolve which driver slot holds the slider tile and which holds the
    * button tile. Slot order is scan order, so a tile that did not answer at
    * begin() shifts every slot after it — asking the driver by TYPE_ID keeps
@@ -98,10 +124,19 @@ private:
 
   void handleModeStrap(uint32_t nowMs, UIState &uiState);
   void onModeFlip(uint32_t nowMs, UIState &uiState);
-  void handleVoiceButtons(UIState &uiState);
+  void handleVoiceButtons(uint32_t nowMs, UIState &uiState);
   void handleParamButtons(UIState &uiState);
   void handleUtilityButtons(uint32_t nowMs, UIState &uiState,
                             const SequencerView &sequencers);
+  // Arpeggiator mode's two panels: patterns/Latch on the Param side, and the
+  // utility set with the step-only slots replaced on the Utility side.
+  void handleArpPatternButtons(UIState &uiState);
+  void handleArpUtilityButtons(uint32_t nowMs, UIState &uiState);
+  // Transport (Play/Stop, tap vs. settings hold) and Session (save, load on
+  // hold) are mode-independent; both utility panels call these so the two modes
+  // cannot drift on the two buttons that must never change meaning.
+  void handleTransportButton(const ButtonState &button, UIState &uiState);
+  void handleSessionButton(const ButtonState &button);
   void handleFaders(UIState &uiState, const SequencerView &sequencers);
 
   AlchemyPanel panel_;
@@ -126,6 +161,10 @@ private:
   ButtonEdges buttonEdges_[kRoleCount][kButtonBits]; // [role][bit]
   bool playSettingsOpenedThisPress_ = false;
   bool saveLoadLatch_ = false; // session button: hold consumed, release suppressed
+  // Voice 4 + Shift: a tap opens the voice editor, a hold toggles Arpeggiator
+  // mode, so the press defers its action to release/hold (like Play below).
+  bool editorHoldArmed_ = false;
+  bool editorHoldFired_ = false;
   // Randomize button Shift chord state: the press edge latched whether this
   // press is a clear chord (Shift held at press), and clearAllLatch_ consumes
   // the hold so the release cannot also clear a single voice.

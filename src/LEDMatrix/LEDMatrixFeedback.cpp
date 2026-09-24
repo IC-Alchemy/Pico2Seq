@@ -1,4 +1,6 @@
 #include "LEDMatrixFeedback.h"
+#include "../pico2seq-core/arpeggiator/Arpeggiator.h"
+#include "../pico2seq-core/scales/scales.h"
 #include <algorithm>
 #include <Arduino.h>
 #include <FastLED.h>
@@ -1036,6 +1038,170 @@ static void renderVoicePair(LEDMatrix &ledMatrix,
   }
 }
 
+/**
+ * @brief Paint the 8x4 panel as the arp's 32-degree chord map.
+ *
+ * Arpeggiator mode reuses the panel the touch pads mirror: each LED is one
+ * scale degree, so the grid shows the chord, where the scale's octaves fall and
+ * which degree is sounding right now. Colour carries the state:
+ *   - a finger on the pad: the arp voice's gate-on hue,
+ *   - latched with the finger off: the same hue at gate-off brightness,
+ *   - sounding: hue pushed toward the theme's playhead accent, brighter the
+ *     higher the octave of range and the further the hand is from the sensor,
+ *   - free: black, except a dim breathing marker on the scale's roots so the
+ *     ladder is navigable in the dark,
+ *   - no chord held at all: the whole panel breathes.
+ *
+ * @param ledMatrix Reference to the LED matrix for output
+ * @param uiState Current UI state, which owns the arp engine
+ */
+static void renderArpPanel(LEDMatrix &ledMatrix, const UIState &uiState) {
+  const LEDThemeColors *theme = getActiveThemeColors();
+  const Arpeggiator::Engine &arp = uiState.arp;
+  const uint8_t voice = uiState.selectedVoiceIndex < VoiceSystem::MAX_VOICES
+                            ? uiState.selectedVoiceIndex
+                            : 0;
+  const size_t scaleIndex = std::min<size_t>(currentScale, SCALES_COUNT - 1);
+  const int *row = scale[scaleIndex];
+  const uint32_t now = millis();
+  const bool noChord = arp.chordCount() == 0;
+  const float breathing = smoothBreathing(now);
+  // Lidar dynamics: the same hand that sets note velocity brightens the note
+  // that is sounding, so the panel shows the gesture that is being heard.
+  const uint8_t dynamicScale =
+      static_cast<uint8_t>(LEDConstants::MEDIUM_BRIGHTNESS +
+                           (arp.dynamics() * (LEDConstants::FULL_BRIGHTNESS -
+                                              LEDConstants::MEDIUM_BRIGHTNESS)));
+
+  for (uint8_t pad = 0; pad < Arpeggiator::kPadCount; ++pad) {
+    const int ledIndex = Arpeggiator::ledIndexForPad(pad);
+    if (ledIndex < 0) continue;
+
+    CRGB target = CRGB::Black;
+    if (noChord) {
+      // Nothing entered yet: breathe so the panel reads as armed and waiting.
+      target = theme->idleBreathingBlue;
+      target.nscale8_video(static_cast<uint8_t>(
+          LEDColors::BREATHING_MIN_INTENSITY +
+          breathing * (LEDColors::BREATHING_MAX_INTENSITY -
+                       LEDColors::BREATHING_MIN_INTENSITY)));
+    } else if (arp.padInChord(pad)) {
+      // Held or latched: the voice's hue, bright under a finger.
+      target = getVoiceGateColor(*theme, voice, arp.padHeld(pad));
+    } else if (row[pad] % 12 == 0) {
+      // The scale's own roots (and octaves of them) as a dim landmark.
+      target = theme->idleBreathingBlue;
+      target.nscale8_video(static_cast<uint8_t>(LEDColors::BREATHING_MIN_INTENSITY +
+                                                breathing * 8.0f));
+    }
+
+    if (arp.degreeSounding(pad)) {
+      // Sounding now: push the hue toward the playhead accent, harder for the
+      // higher octaves of the range so a climbing arp reads as a climb.
+      uint8_t octave = 0;
+      for (uint8_t slot = 0; slot < Arpeggiator::kMaxSlots; ++slot) {
+        uint8_t degree = 0;
+        uint8_t slotOctave = 0;
+        if (arp.slotSounding(slot, degree, slotOctave) && degree == pad &&
+            slotOctave > octave)
+          octave = slotOctave;
+      }
+      const uint8_t accent = static_cast<uint8_t>(
+          std::min<int>(200, 120 + (octave * 80) / (Arpeggiator::kMaxOctaves - 1)));
+      target = getVoiceGateColor(*theme, voice, true);
+      nblend(target, theme->playheadAccent, accent);
+      target.nscale8_video(dynamicScale);
+    }
+
+    nblend(smoothedTargetColorBuffer[ledIndex], target,
+           LEDConstants::TARGET_SMOOTHING_BLEND_AMOUNT);
+    nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex],
+           LEDConstants::STANDARD_BLEND_AMOUNT);
+  }
+}
+
+/**
+ * @brief Paint the 8x4 panel as the arp's 32-degree chord map.
+ *
+ * Arpeggiator mode reuses the panel the touch pads mirror: each LED is one
+ * scale degree, so the grid shows the chord, where the scale's octaves fall and
+ * which degree is sounding right now. Colour carries the state:
+ *   - a finger on the pad: the arp voice's gate-on hue,
+ *   - latched with the finger off: the same hue at gate-off brightness,
+ *   - sounding: hue pushed toward the theme's playhead accent, brighter the
+ *     higher the octave of range and the further the hand is from the sensor,
+ *   - free: black, except a dim breathing marker on the scale's roots so the
+ *     ladder is navigable in the dark,
+ *   - no chord held at all: the whole panel breathes.
+ *
+ * @param ledMatrix Reference to the LED matrix for output
+ * @param uiState Current UI state, which owns the arp engine
+ */
+static void renderArpPanel(LEDMatrix &ledMatrix, const UIState &uiState) {
+  const LEDThemeColors *theme = getActiveThemeColors();
+  const Arpeggiator::Engine &arp = uiState.arp;
+  const uint8_t voice = uiState.selectedVoiceIndex < VoiceSystem::MAX_VOICES
+                            ? uiState.selectedVoiceIndex
+                            : 0;
+  const size_t scaleIndex = std::min<size_t>(currentScale, SCALES_COUNT - 1);
+  const int *row = scale[scaleIndex];
+  const uint32_t now = millis();
+  const bool noChord = arp.chordCount() == 0;
+  const float breathing = smoothBreathing(now);
+  // Lidar dynamics: the same hand that sets note velocity brightens the note
+  // that is sounding, so the panel shows the gesture that is being heard.
+  const uint8_t dynamicScale =
+      static_cast<uint8_t>(LEDConstants::MEDIUM_BRIGHTNESS +
+                           (arp.dynamics() * (LEDConstants::FULL_BRIGHTNESS -
+                                              LEDConstants::MEDIUM_BRIGHTNESS)));
+
+  for (uint8_t pad = 0; pad < Arpeggiator::kPadCount; ++pad) {
+    const int ledIndex = Arpeggiator::ledIndexForPad(pad);
+    if (ledIndex < 0) continue;
+
+    CRGB target = CRGB::Black;
+    if (noChord) {
+      // Nothing entered yet: breathe so the panel reads as armed and waiting.
+      target = theme->idleBreathingBlue;
+      target.nscale8_video(static_cast<uint8_t>(
+          LEDColors::BREATHING_MIN_INTENSITY +
+          breathing * (LEDColors::BREATHING_MAX_INTENSITY -
+                       LEDColors::BREATHING_MIN_INTENSITY)));
+    } else if (arp.padInChord(pad)) {
+      // Held or latched: the voice's hue, bright under a finger.
+      target = getVoiceGateColor(*theme, voice, arp.padHeld(pad));
+    } else if (row[pad] % 12 == 0) {
+      // The scale's own roots (and octaves of them) as a dim landmark.
+      target = theme->idleBreathingBlue;
+      target.nscale8_video(static_cast<uint8_t>(LEDColors::BREATHING_MIN_INTENSITY +
+                                                breathing * 8.0f));
+    }
+
+    if (arp.degreeSounding(pad)) {
+      // Sounding now: push the hue toward the playhead accent, harder for the
+      // higher octaves of the range so a climbing arp reads as a climb.
+      uint8_t octave = 0;
+      for (uint8_t slot = 0; slot < Arpeggiator::kMaxSlots; ++slot) {
+        uint8_t degree = 0;
+        uint8_t slotOctave = 0;
+        if (arp.slotSounding(slot, degree, slotOctave) && degree == pad &&
+            slotOctave > octave)
+          octave = slotOctave;
+      }
+      const uint8_t accent = static_cast<uint8_t>(
+          std::min<int>(200, 120 + (octave * 80) / (Arpeggiator::kMaxOctaves - 1)));
+      target = getVoiceGateColor(*theme, voice, true);
+      nblend(target, theme->playheadAccent, accent);
+      target.nscale8_video(dynamicScale);
+    }
+
+    nblend(smoothedTargetColorBuffer[ledIndex], target,
+           LEDConstants::TARGET_SMOOTHING_BLEND_AMOUNT);
+    nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex],
+           LEDConstants::STANDARD_BLEND_AMOUNT);
+  }
+}
+
 void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
                     const UIState &uiState, int mm) {
   // Everything below fades on elapsed time, not on frame count.
@@ -1063,6 +1229,12 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
 
   if (uiState.hasVoiceParameterFeedback(millis())) {
     updateVoiceParameterLEDs(ledMatrix, uiState);
+    return;
+  }
+
+  // Arpeggiator mode owns the panel: it is the chord map, not the step grid.
+  if (uiState.arp.active()) {
+    renderArpPanel(ledMatrix, uiState);
     return;
   }
 

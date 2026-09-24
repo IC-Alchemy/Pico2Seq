@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include "VoiceEditControls.h"
+#include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
 
 /**
@@ -19,6 +20,12 @@ struct UIState
     // Wait for all pads/tiles to release before performance input resumes
     // (prevents a held pad from firing a step toggle on mode exit).
     bool controlsWaitRelease = false;
+
+    // --- Arpeggiator mode (Shift + hold Voice 4 toggles) ---
+    // The engine is the single owner of the mode flag, the chord and the note
+    // walk, so pads, tiles, encoder, LEDs, OLED and the playback layer all read
+    // the same state (see src/pico2seq-core/arpeggiator/Arpeggiator.h).
+    Arpeggiator::Engine arp;
     // --- Parameter Button States ---
     // Which step-parameter lane (Note/Velocity/...) the performer is holding.
     // Indexed by ParamId for direct lookup.
@@ -39,8 +46,13 @@ struct UIState
     // Per-pad press times for tap (toggle step) vs hold (edit step). Index is
     // the raw 0..31 pad; 0 = press was consumed by a mode, so release ignores it.
     unsigned long padPressTimestamps[SequencerConstants::MAX_STEPS_COUNT] = {0};
-    // --- Transient OLED notice (short confirmation banner, e.g. voice randomized) ---
-    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6, Macro = 7, DelayMix = 8, DelayTime = 9, DelayFeedback = 10 };
+<<<<<<< HEAD
+    // --- Transient OLED notice (short confirmation banner; replaces the old control-cluster LED flashes) ---
+    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6, Macro = 7, DelayMix = 8, DelayTime = 9, DelayFeedback = 10, ArpOn = 11, ArpOff = 12 };
+=======
+    // --- Transient OLED notice (replaces the old control-cluster LED flashes) ---
+    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6, ArpOn = 7, ArpOff = 8 };
+>>>>>>> f93e3bf691631b6a65407f345dbf37e8c6115c41
     volatile unsigned long oledNoticeUntil = 0;
     volatile OledNoticeKind oledNoticeKind = OledNoticeKind::None;
     volatile uint8_t oledNoticeVoice = 0; // 0-based voice, valid for Randomized and VoiceCleared

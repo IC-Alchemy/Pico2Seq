@@ -108,6 +108,13 @@ void updateEncoderBaseValues(UIState &uiState)
   // already drained those ticks, and the step and base paths accumulate them.
   const float delta=magEncoder.takeParameterIncrement(-1.0f,1.0f,3);
   if(delta==0.0f) return;
+  // Arpeggiator mode: the dial is the arp's rate. It is the one arp control
+  // that wants absolute, stepped access, and the four faders are already
+  // carrying range, gate, swing and tone.
+  if(uiState.arp.active()) {
+    uiState.arp.turnRate(delta, SensorConstants::MagneticEncoder::STEPPED_VALUE_DETENT);
+    return;
+  }
   if(!uiState.voiceEditor.active && editSelectedStep(uiState, delta)) return;
   VoiceEditor::encoder(delta);
 }

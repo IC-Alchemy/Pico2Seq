@@ -130,3 +130,66 @@ TEST_CASE("Tile voice selection and pad focus preserve different edit semantics"
     CHECK(state.selectedStepForEdit == 9);
     CHECK_FALSE(state.voiceSwitchTriggered);
 }
+
+TEST_CASE("Arpeggiator mode entry clears the sequencer's modal surface", "[control_surface][ui_transitions]")
+{
+    UIState state;
+    CHECK_FALSE(state.arp.active());
+
+    // Leave the sequencer in every mode that could reinterpret the next gesture.
+    state.selectedStepForEdit = 5;
+    state.currentEditParameter = ParamId::Velocity;
+    state.slideMode = true;
+    state.gateSeqLengthMode = true;
+    state.modGateParamSeqLengthsMode = true;
+    state.encoderControlWasPressed = true;
+    state.latchedParameter = static_cast<int8_t>(ParamId::Filter);
+    state.envFaderLane = ParamId::Attack;
+    state.envViewUntil = 1000;
+    state.settingsMode = true;
+    state.voiceParameterFeedbackPending = true;
+    state.parameterButtonHeld[static_cast<size_t>(ParamId::Note)] = true;
+    state.padPressTimestamps[3] = 42;
+    state.arp.pressPad(7); // a chord entered before the mode was on
+
+    UITransitions::enterArpMode(state);
+    CHECK(state.arp.active());
+    CHECK(state.selectedStepForEdit == -1);
+    CHECK(state.currentEditParameter == ParamId::Count);
+    CHECK_FALSE(state.slideMode);
+    CHECK_FALSE(state.gateSeqLengthMode);
+    CHECK_FALSE(state.modGateParamSeqLengthsMode);
+    CHECK_FALSE(state.encoderControlWasPressed);
+    CHECK(state.latchedParameter == -1);
+    CHECK(state.envFaderLane == ParamId::Count);
+    CHECK(state.envViewUntil == 0);
+    CHECK_FALSE(state.settingsMode);
+    CHECK_FALSE(state.voiceParameterFeedbackPending);
+    CHECK_FALSE(state.parameterButtonHeld[static_cast<size_t>(ParamId::Note)]);
+    CHECK(state.padPressTimestamps[3] == 0);
+    // The mode's own edges drop the chord, so nothing entered before the switch
+    // can sound in the new mode.
+    CHECK(state.arp.chordCount() == 0);
+
+    // Settings still opens from inside the mode (the preset browser is reachable
+    // while the arp plays), and exits without disturbing it.
+    UITransitions::openSettings(state);
+    CHECK(state.settingsMode);
+    CHECK(state.arp.active());
+    UITransitions::closeSettings(state);
+    CHECK_FALSE(state.settingsMode);
+    CHECK(state.arp.active());
+
+    // Leaving clears the sequencer-shaped leftovers too.
+    state.selectedStepForEdit = 2;
+    state.gateSeqLengthMode = true;
+    UITransitions::exitArpMode(state);
+    CHECK_FALSE(state.arp.active());
+    CHECK(state.selectedStepForEdit == -1);
+    CHECK_FALSE(state.gateSeqLengthMode);
+
+    // Voice selection is not the arp's business: it keeps working in both modes.
+    state.selectedVoiceIndex = 2;
+    CHECK(UITransitions::selectPerformanceVoice(state, 1));
+    CHECK(state.selectedVoiceIndex == 1);
+}
