@@ -12,6 +12,9 @@ void processSequencerStep(uint32_t clockStep);
 // selected step (Step Edit) or playing step (live), then refresh the voice.
 // Returns true when the stored value changed.
 bool recordParameter(ParamId id, float normalizedValue);
+// Control-pass half of lidar recording. Uses the same stored lanes and voice
+// publication as clock-step recording; absent hands leave the pattern alone.
+void recordHeldParameters();
 // Step Edit only: drop the step's own value so it follows the patch again.
 // Returns true when the step had its own value.
 bool resetStepToPatch(ParamId id);

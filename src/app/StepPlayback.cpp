@@ -1,9 +1,7 @@
 #include "StepPlayback.h"
 #include "AppState.h"
 #include "ClockService.h"
-#include "../sensors/SensorConstants.h"
-#include "../sensors/EncoderManager.h"
-#include "../ui/UIEventHandler.h"
+#include "../ui/ControlSurfaceLogic.h"
 #include "VoicePlayback.h"
 #include <algorithm>
 
@@ -13,6 +11,36 @@
 namespace
 {
 constexpr int kDistanceDisabled = -1;
+
+// UI adapter belongs to playback, alongside its only caller. The core keeps
+// primitive arguments so it remains independent of the firmware's UIState.
+void advanceSequencerStep(Sequencer &seq, uint32_t clockStep, int distance,
+                          const UIState &ui, VoiceState *state)
+{
+    seq.advanceStep(clockStep, distance,
+                    ui.parameterButtonHeld[static_cast<int>(ParamId::Note)],
+                    ui.parameterButtonHeld[static_cast<int>(ParamId::Velocity)],
+                    ui.parameterButtonHeld[static_cast<int>(ParamId::Filter)],
+                    ui.parameterButtonHeld[static_cast<int>(ParamId::Attack)],
+                    ui.parameterButtonHeld[static_cast<int>(ParamId::Release)],
+                    ui.parameterButtonHeld[static_cast<int>(ParamId::Octave)],
+                    ui.selectedStepForEdit, state);
+}
+}
+
+void recordHeldParameters()
+{
+    if (!AppState::performanceInput.handPresent || uiState.arp.active())
+        return;
+    const float hand = AppState::performanceInput.recordingValue();
+    const bool everyPass = !isClockRunning || uiState.selectedStepForEdit >= 0;
+    for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane)
+    {
+        const auto id = static_cast<ParamId>(lane);
+        if (uiState.parameterButtonHeld[lane] && CORE_PARAMETERS[lane].recordable &&
+            (everyPass || ControlSurface::recordsBetweenSteps(id)))
+            recordParameter(id, hand);
+    }
 }
 
 bool recordParameter(ParamId id, float normalizedValue)
@@ -67,25 +95,14 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
     // Refresh in place: re-running the step would retrigger the envelope every
     // pass (oscillators choked, waveguides re-plucked). Unplayed steps sound on arrival.
     VoiceState &activeVoiceState = voiceSystem.getVoiceState(voiceIndex);
-    if (isClockRunning)
-    {
-        // A Step Edit write names the selected step explicitly. Refreshing the
-        // lane cursors instead would display one step while retuning another,
-        // which made Filter/Release edits appear to do nothing.
-        activeSeq.refreshVoiceParameters(&activeVoiceState, stepIndex);
-    }
-    else
+    // One parameter-copy path while running or stopped. Step Edit explicitly
+    // names the step shown on the OLED, even if another step is sounding.
+    activeSeq.refreshVoiceParameters(&activeVoiceState, stepIndex);
+    if (!isClockRunning)
     {
         const Step values = activeSeq.getPlaybackStep(stepIndex < SequencerConstants::MAX_STEPS_COUNT ? stepIndex : UINT8_MAX);
-        activeVoiceState.velocityLevel = values.velocityLevel;
-        activeVoiceState.filterCutoff = values.filterCutoff;
-        activeVoiceState.attackTimeSeconds = values.attackTimeSeconds;
-        activeVoiceState.decayTimeSeconds = values.decayTimeSeconds;
-        activeVoiceState.sustainLevel = values.sustainLevel;
-        activeVoiceState.releaseTimeSeconds = values.releaseTimeSeconds;
         activeVoiceState.noteIndex = values.noteIndex;
         activeVoiceState.octaveOffset = values.octaveOffset;
-        activeVoiceState.shouldRetrigger = false;
     }
     publishVoiceState(voiceIndex, activeVoiceState);
 }

@@ -23,11 +23,13 @@ inline float envelopeSeconds(float normalized) noexcept {
 // Under three decades instead, lane 0.5 is 280 ms, 0.75 is 1.5 s, and the top
 // of the lane holds a note through 16 steps at any sane tempo.
 inline float releaseSeconds(float normalized) noexcept {
-  return 0.01f * std::pow(800.0f, std::clamp(normalized, 0.0f, 1.0f));
+  return VoiceEdit::kReleaseMinSeconds * std::pow(
+      VoiceEdit::kReleaseMaxSeconds / VoiceEdit::kReleaseMinSeconds, std::clamp(normalized, 0.0f, 1.0f));
 }
 inline float releaseNormalized(float seconds) noexcept {
-  const float clamped = std::clamp(seconds, 0.01f, 8.0f);
-  return std::log(clamped / 0.01f) / std::log(800.0f);
+  const float clamped = std::clamp(seconds, VoiceEdit::kReleaseMinSeconds, VoiceEdit::kReleaseMaxSeconds);
+  return std::log(clamped / VoiceEdit::kReleaseMinSeconds) /
+         std::log(VoiceEdit::kReleaseMaxSeconds / VoiceEdit::kReleaseMinSeconds);
 }
 // Attack lane: 1 ms..2 s, so lane 0.5 blooms in ~45 ms (snappy but click-free).
 inline float attackSeconds(float normalized) noexcept {
@@ -162,26 +164,6 @@ inline void format(ParamId id, const Step &step, const VoiceConfig &config,
   if (id == ParamId::Filter) {
     std::snprintf(out, size, "%.0fHz",
                   VoiceParameters::mapCutoff(VoiceParameters::layout(config), normalized));
-    return;
-  }
-  if (id == ParamId::Attack || id == ParamId::Decay) {
-    // Fallback envelope formatting: if a binding failed to format in VoiceParameters::formatValue,
-    // guarantee that Attack/Decay format as musical time (ms/s) rather than a raw float ("%.2f").
-    float seconds;
-    if (!VoiceParameters::layout(config).envelopeFromTracks)
-      // Synthesis engine disables track-driven envelopes (e.g. Waveguide/Hypersaw) -> show static patch default.
-      seconds = id == ParamId::Attack ? config.defaultAttack : config.defaultDecay;
-    else if (config.usePatchBases)
-      // Modern patch-base architecture: laneSeconds() applies percussive curve (Attack: 1ms..2s,
-      // ~45ms midpoint) or exponential curve (Decay: 1ms..10s).
-      seconds = laneSeconds(id, normalized);
-    else if (id == ParamId::Attack)
-      // Legacy linear attack mapping: 2 ms .. 750 ms.
-      seconds = dspmap::fmap(normalized, 0.002f, 0.75f, dspmap::Mapping::LINEAR);
-    else
-      // Legacy log decay mapping: 75 ms .. ~235 ms.
-      seconds = 0.075f + 0.32f * dspmap::fmap(normalized, 0.01f, 0.5f, dspmap::Mapping::LOG);
-    time(seconds, out, size);
     return;
   }
   std::snprintf(out, size, "%.2f", normalized);

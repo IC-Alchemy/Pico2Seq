@@ -2,6 +2,7 @@
 // Recipe choice borrows its first preset's lanes so the editor always shows
 // meaningful timbre rows for the picked algorithm.
 #include "VoiceEditParameters.h"
+#include "MusicalValues.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "presets/MusicalPresets.h"
 #include <algorithm>
@@ -206,7 +207,7 @@ constexpr Parameter kParameters[] = {
        c.defaultSustain =
            static_cast<std::remove_reference_t<decltype(c.defaultSustain)>>(v);
      }},
-    {Id::Release, "Release", Group::Envelope, Unit::Seconds, 0.001f, 10.0f,
+    {Id::Release, "Release", Group::Envelope, Unit::Seconds, kReleaseMinSeconds, kReleaseMaxSeconds,
      true,
      +[](const VoiceConfig &c) { return static_cast<float>(c.defaultRelease); },
      +[](VoiceConfig &c, float v) {
@@ -568,7 +569,7 @@ float laneBase(ParamId id, const VoiceConfig &c) noexcept {
   case ParamId::Sustain:
     return std::clamp(c.defaultSustain, 0.0f, 1.0f);
   case ParamId::Release:
-    return timeNormalize(c.defaultRelease);
+    return MusicalValues::releaseNormalized(c.defaultRelease);
   default:
     return 0.5f;
   }
@@ -699,6 +700,19 @@ ParamId sequenceLane(Id id, const VoiceConfig &c) noexcept {
       if (VoiceParameters::binding(c, lane).target == target)
         return lane;
   return ParamId::Count;
+}
+Id baseParameterForLane(ParamId lane, const VoiceConfig &c) noexcept {
+  if (lane <= ParamId::Slide)
+    return static_cast<Id>(lane);
+  // Resolve envelope lanes through the same bindings as playback, including
+  // the waveguide's Position/Stiffness controls.
+  if (lane == ParamId::Sustain || lane == ParamId::Release)
+    for (size_t i = static_cast<size_t>(Id::Slide) + 1; i < static_cast<size_t>(Id::Count); ++i) {
+      const auto id = static_cast<Id>(i);
+      if (sequenceLane(id, c) == lane)
+        return id;
+    }
+  return Id::Count;
 }
 const char *laneName(ParamId lane, const VoiceConfig &c) noexcept {
   if (lane <= ParamId::Slide)

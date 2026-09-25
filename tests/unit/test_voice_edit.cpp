@@ -427,7 +427,7 @@ TEST_CASE("Steps that follow the patch play each preset's own envelope",
     REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, kPatch, &c)) ==
             Approx(c.defaultDecay).epsilon(1e-3));
     REQUIRE(composeLane(ParamId::Sustain, kPatch, &c) == Approx(c.defaultSustain));
-    REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Release, kPatch, &c)) ==
+    REQUIRE(MusicalValues::releaseSeconds(composeLane(ParamId::Release, kPatch, &c)) ==
             Approx(c.defaultRelease).epsilon(1e-3));
     REQUIRE(MusicalValues::attackSeconds(composeLane(ParamId::Attack, 1.0f, &c)) == Approx(2.0f));
     REQUIRE(MusicalValues::envelopeSeconds(composeLane(ParamId::Decay, 1.0f, &c)) == Approx(10.0f));
@@ -706,25 +706,13 @@ TEST_CASE("Live parameter modulation with distance sensor produces distinct valu
   auto config = VoicePresets::getSubFunkVoice();
   enablePatch(config);
 
-  // Helper simulating live composed step calculation as done on the OLED
+  Sequencer seq;
+  seq.setPlaybackTransform(composeLane, &config, mapOctave);
+  seedModifiers(seq);
+  // OLED reads the real composed step; do not duplicate lane decoding here.
   auto composeLive = [&](ParamId id, float norm) -> Step {
-    Step s{};
-    const float stored = mapNormalizedValueToParamRange(id, norm);
-    const float composed = VoiceEdit::composeLane(id, stored, &config);
-    switch (id) {
-      case ParamId::Velocity: s.velocityLevel = composed; break;
-      case ParamId::Filter: s.filterCutoff = composed; break;
-      case ParamId::Attack: s.attackTimeSeconds = composed; break;
-      case ParamId::Decay: s.decayTimeSeconds = composed; break;
-      case ParamId::Note: s.noteIndex = composed; break;
-      case ParamId::Octave: s.octaveOffset = VoiceEdit::mapOctave(composed); break;
-      case ParamId::GateLength:
-        s.gateLengthTicks = static_cast<uint16_t>(std::max(1.0f,
-            composed * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS));
-        break;
-      default: break;
-    }
-    return s;
+    seq.recordLiveValue(id, mapNormalizedValueToParamRange(id, norm));
+    return seq.getPlaybackStep();
   };
 
   // Filter lane: envelope amount, and the cutoff the contour reaches with it.
@@ -814,7 +802,7 @@ TEST_CASE("Sustain and Release bases follow the patch envelope", "[voice_edit][a
   VoiceConfig c = VoicePresets::getSquareVoice();
   enablePatch(c);
   CHECK(laneBase(ParamId::Sustain, c) == Approx(c.defaultSustain));
-  CHECK(MusicalValues::envelopeSeconds(laneBase(ParamId::Release, c)) ==
+  CHECK(MusicalValues::releaseSeconds(laneBase(ParamId::Release, c)) ==
         Approx(c.defaultRelease).epsilon(1e-3));
   // Strings have no envelope: their Sustain/Release lanes shape the pluck.
   VoiceConfig wg = VoicePresets::getPresetConfig(static_cast<uint8_t>(VoicePresets::findPreset("WgPluck")));
@@ -1174,8 +1162,8 @@ TEST_CASE("A step's own sustain holds its note", "[voice_edit][envelope][live]")
 TEST_CASE("A step's own release shapes its tail", "[voice_edit][envelope][live]") {
   const uint8_t digital = static_cast<uint8_t>(VoicePresets::findPreset("Digital"));
   LiveVoice brief(digital), ringing(digital);
-  brief.editStep(ParamId::Release, 0, 0.0f);    // 1 ms
-  ringing.editStep(ParamId::Release, 0, 1.0f);  // 10 s
+  brief.editStep(ParamId::Release, 0, 0.0f);    // 10 ms
+  ringing.editStep(ParamId::Release, 0, 1.0f);  // 8 s
   brief.step(0);
   ringing.step(0);
   const int settle = brief.attackSamples() + decaySamples(brief) + 960;
