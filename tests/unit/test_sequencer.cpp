@@ -822,6 +822,29 @@ TEST_CASE("refreshVoiceParameters updates a sounding voice without retriggering"
     seq.refreshVoiceParameters(nullptr); // tolerated
 }
 
+TEST_CASE("Step Edit refresh uses the edited step instead of the playing cursor",
+          "[sequencer][step_edit]") {
+    Sequencer seq(0);
+    seq.setParameterStepCount(ParamId::Filter, 16);
+    seq.setParameterStepCount(ParamId::Release, 16);
+    seq.setStepParameterValue(ParamId::Gate, 0, 1.0f);
+    seq.setStepParameterValue(ParamId::Filter, 0, 0.0f);
+    seq.setStepParameterValue(ParamId::Filter, 4, 0.0f);
+    seq.setStepParameterValue(ParamId::Release, 0, 0.0f);
+    seq.setStepParameterValue(ParamId::Release, 4, 1.0f);
+    seq.start();
+
+    VoiceState state;
+    // Put the current lane cursors on step 0, then edit step 4.
+    seq.advanceStep(0, -1, false, false, false, false, false, false, -1, &state);
+    seq.editStepValue(ParamId::Filter, 4, 1.0f);
+    seq.editStepValue(ParamId::Release, 4, 0.25f);
+    seq.refreshVoiceParameters(&state, 4);
+
+    CHECK(state.filterCutoff == Catch::Approx(1.0f));
+    CHECK(state.releaseTimeSeconds == Catch::Approx(0.25f));
+}
+
 // ─── Live recording and step edits (lidar, faders, encoder) ──────────────────
 
 TEST_CASE("Live values land on each lane's own playing step", "[sequencer][recording]") {

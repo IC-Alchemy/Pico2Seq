@@ -468,13 +468,18 @@ void Sequencer::previewActiveStep(VoiceState *voiceState)
     processStep(UINT8_MAX, voiceState);
 }
 
-void Sequencer::refreshVoiceParameters(VoiceState *voiceState) const
+void Sequencer::refreshVoiceParameters(VoiceState *voiceState,
+                                        uint8_t stepIdx) const
 {
     if (!voiceState)
     {
         return;
     }
-    const Step values = getPlaybackStep();
+    // UINT8_MAX means the current per-lane cursors (the normal live-performance
+    // refresh). A concrete index is used by Step Edit so editing a selected
+    // step updates the same step that the OLED is showing, even when another
+    // step is currently sounding.
+    const Step values = getPlaybackStep(stepIdx);
     voiceState->velocityLevel = values.velocityLevel;
     voiceState->filterCutoff = values.filterCutoff;
     voiceState->attackTimeSeconds = values.attackTimeSeconds;
