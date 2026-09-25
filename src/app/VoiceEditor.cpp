@@ -157,7 +157,7 @@ void encoder(float delta) {
   // While playing, the sounding note takes the new base without retrigger, so
   // the OLED value matches what is heard.
   if (!editor.active)
-    updateActiveVoiceState(0, *AppState::sequencers[index]);
+    updateActiveVoiceState(UINT8_MAX, *AppState::sequencers[index]);
   // Outside the editor the OLED shows step values, which can mask a base change;
   // flash the base while the knob turns.
   if (!editor.active)

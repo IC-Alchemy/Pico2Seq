@@ -69,7 +69,10 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
     VoiceState &activeVoiceState = voiceSystem.getVoiceState(voiceIndex);
     if (isClockRunning)
     {
-        activeSeq.refreshVoiceParameters(&activeVoiceState);
+        // A Step Edit write names the selected step explicitly. Refreshing the
+        // lane cursors instead would display one step while retuning another,
+        // which made Filter/Release edits appear to do nothing.
+        activeSeq.refreshVoiceParameters(&activeVoiceState, stepIndex);
     }
     else
     {

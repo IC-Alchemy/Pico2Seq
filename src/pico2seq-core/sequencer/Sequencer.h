@@ -105,9 +105,11 @@ public:
     /**
      * @brief Apply live lane edits to a sounding voice without retriggering.
      * Pitch follows only while the gate is high, so tweaks never restart the
-     * envelope mid-note.
+     * envelope mid-note. `stepIdx` is UINT8_MAX for the current lane cursors;
+     * pass an explicit index when a UI edit is targeting a selected step.
      */
-    void refreshVoiceParameters(VoiceState *voiceState) const;
+    void refreshVoiceParameters(VoiceState *voiceState,
+                                uint8_t stepIdx = UINT8_MAX) const;
 
     /**
      * @brief Flip a step between sounding and resting (gate on/off).
