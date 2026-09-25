@@ -174,6 +174,21 @@ constexpr CutoffSpot kOscillatorCutoffs[] = {
     {"RubberSub", 90.0f, 320.0f, 1200.0f}};
 } // namespace
 
+TEST_CASE("Oscillator presets retain shared sequencer lanes", "[mapping][presets]") {
+    for (const auto &spot : kOscillatorCutoffs) {
+        INFO(spot.preset);
+        const auto config = VoicePresets::getPresetConfigByName(spot.preset);
+        for (ParamId id : {ParamId::Filter, ParamId::Attack, ParamId::Decay,
+                           ParamId::Octave, ParamId::GateLength, ParamId::Gate,
+                           ParamId::Slide, ParamId::Sustain, ParamId::Release}) {
+            INFO(static_cast<int>(id));
+            const auto &binding = VoiceParameters::binding(config, id);
+            REQUIRE(binding.target == nullptr);
+            REQUIRE_THAT(binding.map(0.37f), WithinAbs(0.37f, 1e-6f));
+        }
+    }
+}
+
 TEST_CASE("Oscillator presets own octave cutoff lanes centered on their resting cutoff", "[mapping][presets]") {
     for (const auto &spot : kOscillatorCutoffs) {
         INFO(spot.preset);
