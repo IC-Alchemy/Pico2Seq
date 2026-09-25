@@ -10,10 +10,15 @@ bool slideMode = false;
 uint8_t currentScale = 0;
 std::unique_ptr<VoiceManager> voiceManager;
 VoiceSystem voiceSystem;
+UIState uiState;
+bool isClockRunning = false;
+uint32_t g_processedStepCount = 0;
 namespace AppState {
+PerformanceInput performanceInput;
 namespace {
 Sequencer testSequencers[VoiceSystem::MAX_VOICES];
 }
 Sequencer *const sequencers[VoiceSystem::MAX_VOICES] = {
     &testSequencers[0], &testSequencers[1], &testSequencers[2], &testSequencers[3]};
+const SequencerView sequencerView{sequencers};
 }

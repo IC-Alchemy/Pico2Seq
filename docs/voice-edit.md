@@ -84,12 +84,20 @@ sustain-0 voice stays audible. Loading a preset replaces the bases without resee
 lanes.
 
 Note bases are scale steps; octave bases are quantized semitones in octaves from
--24 to +24. Attack uses a logarithmic 1 ms–2 s domain, Decay and Release 1 ms–10 s,
+-24 to +24. Attack uses a logarithmic 1 ms–2 s domain, Decay 1 ms–10 s and Release 10 ms–8 s,
 Sustain is a 0–100% level. Engine-specific lanes retain their own curves and units,
 including Hard Sync's Slave lane, string T60, and FM ratio. Strings have no envelope,
 so their Sustain and Release lanes bind to pick Position and Stiffness. Hypersaw,
 NoiseStorm and the recipes keep their Attack/Decay lanes for engine controls; their
 Sustain/Release lanes still drive the real envelope.
+
+On oscillator voices such as Digital and Square, hold the third parameter button
+to record filter-envelope amount with lidar; the OLED shows the amount and peak
+cutoff. Hold the fifth button (silkscreened Decay) to record Release. Release takes
+effect when the gate closes; a new note retriggers the envelope. Its encoder base
+uses the same time curve as playback. Waveguide keeps Bright and Stiffness on
+these buttons. The held-button OLED reads recorded playback values directly,
+including the selected step in Step Edit, rather than calculating a sensor preview.
 
 Gate remains a trigger pattern: its base enables/disables the pattern. Slide's
 base can enable slide throughout the pattern, otherwise the recorded Slide bits

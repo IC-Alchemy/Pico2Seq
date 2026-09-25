@@ -168,14 +168,10 @@ VoiceEdit::Id encoderTarget() {
   if (uiState.currentEncoderParameter == EncoderParameterMode::SlideTime)
     return Id::SlideTime; // Voice-only knob target, not the sequencer Slide toggle.
   const ParamId lane = parameterForEncoderMode(uiState.currentEncoderParameter);
-  // VoiceEdit's leading IDs mirror ParamId by design (see sequenceLane());
-  // keep the bridge here so core descriptors stay editor-agnostic.
-  static_assert(static_cast<uint8_t>(Id::Note) == static_cast<uint8_t>(ParamId::Note) &&
-                static_cast<uint8_t>(Id::Velocity) == static_cast<uint8_t>(ParamId::Velocity) &&
-                static_cast<uint8_t>(Id::Cutoff) == static_cast<uint8_t>(ParamId::Filter) &&
-                static_cast<uint8_t>(Id::Attack) == static_cast<uint8_t>(ParamId::Attack) &&
-                static_cast<uint8_t>(Id::Decay) == static_cast<uint8_t>(ParamId::Decay) &&
-                static_cast<uint8_t>(Id::Octave) == static_cast<uint8_t>(ParamId::Octave));
-  return lane == ParamId::Count ? Id::Velocity : static_cast<Id>(lane);
+  const auto index = uiState.selectedVoiceIndex;
+  const auto *config = voiceManager && index < VoiceSystem::MAX_VOICES
+      ? voiceManager->getVoiceConfig(voiceSystem.getVoiceId(index)) : nullptr;
+  const auto target = config ? VoiceEdit::baseParameterForLane(lane, *config) : Id::Count;
+  return target == Id::Count ? Id::Velocity : target;
 }
 } // namespace VoiceEditor
