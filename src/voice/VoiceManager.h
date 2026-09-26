@@ -51,7 +51,7 @@ public:
 
     // Audio Processing
     void init(float sampleRate);
-    float processAllVoices();
+    float processAllVoices() noexcept;
     float processVoice(uint8_t voiceId);
 
     // Voice Control
@@ -65,7 +65,6 @@ public:
     std::vector<uint8_t> getActiveVoiceIds() const;
 
     // Memory Management
-    size_t getMemoryUsage() const;
     bool hasAvailableSlots() const { return voices.size() < maxVoiceCount; }
 
     // Callbacks
@@ -80,16 +79,9 @@ public:
     void setGlobalVolume(float volume) { globalVolume = volume; }
     float getGlobalVolume() const { return globalVolume; }
 
+    // Per-Voice Parameters
     void setVoiceMix(uint8_t voiceId, float mix);
     float getVoiceMix(uint8_t voiceId) const;
-
-    // Voice Routing
-    void setVoiceOutput(uint8_t voiceId, uint8_t outputChannel);
-    uint8_t getVoiceOutput(uint8_t voiceId) const;
-
-    // Voice Parameter Control
-    void setVoiceVolume(uint8_t voiceId, float volume);
-    void setVoiceFrequency(uint8_t voiceId, float frequency);
     void setVoiceSlide(uint8_t voiceId, float slideTime);
 
 private:
@@ -99,10 +91,9 @@ private:
         uint8_t id;
         bool enabled;
         float mixLevel;
-        uint8_t outputChannel;
 
         ManagedVoice(std::unique_ptr<Voice> v, uint8_t voiceId)
-            : voice(std::move(v)), id(voiceId), enabled(true), mixLevel(1.0f), outputChannel(0) {}
+            : voice(std::move(v)), id(voiceId), enabled(true), mixLevel(1.0f) {}
     };
 
     std::vector<std::unique_ptr<ManagedVoice>> voices;

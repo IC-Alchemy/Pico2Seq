@@ -19,6 +19,7 @@ add_executable(pico2seq_tests
   unit/test_scales.cpp
   unit/test_sequencer.cpp
   unit/test_voice.cpp
+  unit/test_voicemanager.cpp
 
   # DSP sources (no hardware deps)
   ${SRC_DIR}/dsp/adsr.cpp
@@ -29,6 +30,7 @@ add_executable(pico2seq_tests
   ${SRC_DIR}/dsp/wavefolder.cpp
   ${SRC_DIR}/dsp/dcblock.cpp
   ${SRC_DIR}/dsp/tremolo.cpp
+  ${SRC_DIR}/dsp/compressor.cpp
 
   # Scale data
   ${LIB_DIR}/scales/scales.cpp
@@ -40,6 +42,10 @@ add_executable(pico2seq_tests
   # Voice synthesis
   ${SRC_DIR}/voice/Voice.cpp
   ${SRC_DIR}/voice/VoicePresets.cpp
+  ${SRC_DIR}/voice/VoiceManager.cpp
+
+  # Utilities
+  ${SRC_DIR}/utils/Debug.cpp
 )
 
 # Stub headers must come first so they shadow Arduino.h / Wire.h / pico/sync.h
@@ -51,6 +57,10 @@ target_include_directories(pico2seq_tests PRIVATE
 )
 
 target_link_libraries(pico2seq_tests PRIVATE Catch2::Catch2WithMain)
+
+if(WIN32)
+  target_compile_definitions(pico2seq_tests PRIVATE _USE_MATH_DEFINES)
+endif()
 
 target_compile_options(pico2seq_tests PRIVATE
   -Wall

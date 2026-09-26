@@ -223,7 +223,6 @@ public:
     std::vector<uint8_t> getActiveVoiceIds() const;
 
     // Memory Management
-    size_t getMemoryUsage() const;
     bool hasAvailableSlots() const;
 
     // Callbacks
@@ -237,10 +236,10 @@ public:
     // Global Voice Parameters
     void setGlobalVolume(float volume);
     float getGlobalVolume() const;
+
+    // Per-Voice Parameters
     void setVoiceMix(uint8_t voiceId, float mix);
     float getVoiceMix(uint8_t voiceId) const;
-    void setVoiceVolume(uint8_t voiceId, float volume);
-    void setVoiceFrequency(uint8_t voiceId, float frequency);
     void setVoiceSlide(uint8_t voiceId, float slideTime);
 };
 ```
@@ -541,7 +540,6 @@ if (seq) {
 float voiceOutput = voiceManager.processVoice(voiceId);
 
 // Control individual voice parameters
-voiceManager.setVoiceVolume(voiceId, 0.7f);
 voiceManager.setVoiceMix(voiceId, 0.8f);
 voiceManager.setVoiceSlide(voiceId, 0.1f);  // 100ms slide time
 
@@ -553,9 +551,6 @@ voiceManager.disableVoice(voiceId);
 ### Memory Management
 
 ```cpp
-// Check memory usage
-size_t memoryUsed = voiceManager.getMemoryUsage();
-
 // Check available slots
 if (voiceManager.hasAvailableSlots()) {
     // Add more voices

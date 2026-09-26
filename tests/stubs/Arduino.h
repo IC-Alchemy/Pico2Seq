@@ -40,6 +40,7 @@ inline long constrain(long x, long lo, long hi) {
 using String = std::string;
 
 // Arduino F() macro (returns string literal unchanged on host)
+using __FlashStringHelper = char;
 #define F(s) (s)
 
 // Serial stub
@@ -50,5 +51,6 @@ struct HardwareSerial {
     template<typename T>             void println(T)  {}
     template<typename T, typename U> void print(T, U) {}
     void println() {}
+    explicit operator bool() const { return true; }
 };
 inline HardwareSerial Serial;

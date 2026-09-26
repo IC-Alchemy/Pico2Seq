@@ -593,6 +593,18 @@ VoiceManager::ManagedVoice *VoiceManager::findVoice(uint8_t voiceId)
     return nullptr;
 }
 
+const VoiceManager::ManagedVoice *VoiceManager::findVoice(uint8_t voiceId) const
+{
+    for (const auto &voice : voices)
+    {
+        if (voice->id == voiceId)
+        {
+            return voice.get();
+        }
+    }
+    return nullptr;
+}
+
 /**
  * Private helper: generates unique voice IDs
  *
@@ -681,3 +693,42 @@ void VoiceManager::setVoiceSlide(uint8_t voiceId, float slideTime)
     }
     DBG_VERBOSE("VoiceManager: setVoiceSlide id=%u t=%.3f", voiceId, slideTime);
 }
+
+/**
+ * Sets the mix level for an individual voice
+ * Controls voice contribution to the mixed audio output
+ *
+ * @param voiceId Voice to control
+ * @param mix Mix level (multiplied into audio output, typically 0.0 to 1.0)
+ */
+void VoiceManager::setVoiceMix(uint8_t voiceId, float mix)
+{
+    ManagedVoice *managedVoice = findVoice(voiceId);
+    if (managedVoice)
+    {
+        managedVoice->mixLevel = mix;
+        DBG_VERBOSE("VoiceManager: setVoiceMix id=%u mix=%.3f", voiceId, mix);
+    }
+    else
+    {
+        DBG_WARN("VoiceManager: setVoiceMix failed id=%u", voiceId);
+    }
+}
+
+/**
+ * Retrieves the current mix level for an individual voice
+ *
+ * @param voiceId Voice to query
+ * @return float Current mix level, or 0.0f if voice not found
+ */
+float VoiceManager::getVoiceMix(uint8_t voiceId) const
+{
+    const ManagedVoice *managedVoice = findVoice(voiceId);
+    if (managedVoice)
+    {
+        return managedVoice->mixLevel;
+    }
+    DBG_WARN("VoiceManager: getVoiceMix id=%u not found", voiceId);
+    return 0.0f;
+}
+
