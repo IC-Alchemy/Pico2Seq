@@ -1,0 +1,1310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pico2Seq — User Manual</title>
+<style>
+  :root{
+    --bg:#0c1016; --panel:#131a24; --panel2:#182230; --ink:#e8eef5; --muted:#96a4b4;
+    --line:#24303f; --amber:#ffb454; --teal:#46c8b2; --violet:#b48cff; --red:#ff7a70;
+    --blue:#5cb2ff; --green:#7dd88a; --code:#0a0e14; --top:52px; --side:264px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;}
+  a{color:var(--teal);text-decoration:none}
+  a:hover{text-decoration:underline}
+  h1,h2,h3,h4{line-height:1.25;margin:0 0 .5em}
+  code,kbd,.mono{font-family:ui-monospace,"Cascadia Mono",Consolas,Menlo,monospace}
+  code{background:var(--code);border:1px solid var(--line);border-radius:5px;
+    padding:1px 6px;font-size:.86em;color:#ffd9a0}
+  kbd{display:inline-block;background:var(--panel2);border:1px solid #3a4a5e;border-bottom-width:2px;
+    border-radius:6px;padding:0 8px;font-size:.82em;font-weight:600;color:var(--ink);white-space:nowrap}
+  .p-kbd kbd{border-color:#5a4a33;background:#241d12;color:var(--amber)}
+  .u-kbd kbd{border-color:#2f5a52;background:#12211e;color:var(--teal)}
+
+  /* ---- top bar ---- */
+  .topbar{position:fixed;inset:0 0 auto 0;height:var(--top);z-index:50;display:flex;align-items:center;
+    gap:14px;padding:0 18px;background:rgba(12,16,22,.92);backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--line)}
+  .brand{font-weight:800;letter-spacing:.06em;font-size:15px;white-space:nowrap}
+  .brand .seq{color:var(--amber)}
+  .chip{font-size:11.5px;color:var(--muted);border:1px solid var(--line);border-radius:99px;
+    padding:2px 10px;white-space:nowrap}
+  .chip b{color:var(--teal);font-weight:600}
+  #search{margin-left:auto;background:var(--panel);border:1px solid var(--line);color:var(--ink);
+    border-radius:8px;padding:6px 12px;width:min(320px,34vw);font-size:13.5px;outline:none}
+  #search:focus{border-color:var(--teal)}
+
+  /* ---- layout ---- */
+  .layout{display:flex;padding-top:var(--top)}
+  nav#toc{position:fixed;top:var(--top);bottom:0;left:0;width:var(--side);overflow-y:auto;
+    padding:18px 10px 40px;border-right:1px solid var(--line);background:var(--panel)}
+  nav#toc .grp{font-size:10.5px;letter-spacing:.14em;color:var(--muted);margin:16px 10px 4px}
+  nav#toc a{display:block;padding:4.5px 12px;border-radius:7px;color:#c4cfda;font-size:13.5px;
+    border-left:2px solid transparent}
+  nav#toc a:hover{background:var(--panel2);text-decoration:none;color:var(--ink)}
+  nav#toc a.on{background:var(--panel2);color:var(--amber);border-left-color:var(--amber)}
+  nav#toc a .n{display:inline-block;width:20px;color:var(--muted);font-size:11px}
+  main{flex:1;margin-left:var(--side);padding:30px clamp(18px,4vw,56px) 80px;max-width:1060px}
+  section{margin-bottom:58px;scroll-margin-top:calc(var(--top) + 14px)}
+
+  /* ---- headings ---- */
+  h2{display:flex;align-items:center;gap:12px;font-size:24px;padding-bottom:10px;
+    border-bottom:1px solid var(--line);margin-bottom:20px}
+  h2 .num{flex:none;width:34px;height:34px;border-radius:9px;display:grid;place-items:center;
+    background:linear-gradient(135deg,#2a2113,#1a2330);border:1px solid #4a3b22;
+    color:var(--amber);font-size:15px;font-weight:800}
+  h3{font-size:17px;margin-top:28px;color:#ffd9a0}
+  h3 .tag{font-size:11px;vertical-align:2px;margin-left:8px;color:var(--bg);background:var(--teal);
+    border-radius:5px;padding:1px 7px;font-weight:700;letter-spacing:.05em}
+  h4{font-size:14.5px;margin-top:20px;color:var(--blue)}
+
+  /* ---- blocks ---- */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:16px 20px;margin:14px 0}
+  .card.amber{border-left:3px solid var(--amber)}
+  .card.teal{border-left:3px solid var(--teal)}
+  .card.red{border-left:3px solid var(--red)}
+  .note{background:#141b26;border:1px solid #2a3648;border-left:3px solid var(--blue);
+    border-radius:10px;padding:12px 16px;margin:14px 0;color:#c9d5e1;font-size:14px}
+  .warn{background:#1d1512;border:1px solid #3d2a22;border-left:3px solid var(--red);
+    border-radius:10px;padding:12px 16px;margin:14px 0;color:#e8cfc9;font-size:14px}
+  .tip{background:#101d1a;border:1px solid #1e3a33;border-left:3px solid var(--teal);
+    border-radius:10px;padding:12px 16px;margin:14px 0;color:#c6ded8;font-size:14px}
+  .lead{font-size:16.5px;color:#d4dee8;max-width:80ch}
+  .muted{color:var(--muted)}
+  .small{font-size:13px}
+  .unverified{color:var(--red);font-weight:600}
+
+  /* ---- tables ---- */
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.8px}
+  th,td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#cdd9e5;font-size:12.5px;letter-spacing:.03em;white-space:nowrap}
+  tbody tr:nth-child(odd){background:rgba(255,255,255,.015)}
+  td .mono{font-size:.92em}
+  .tbl-wrap{overflow-x:auto}
+
+  /* ---- spec chips ---- */
+  .specs{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}
+  .spec{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:120px}
+  .spec b{display:block;font-size:19px;color:var(--amber);font-family:ui-monospace,Consolas,monospace}
+  .spec span{font-size:11.5px;color:var(--muted);letter-spacing:.04em}
+
+  /* ---- diagrams ---- */
+  .diagram{background:var(--code);border:1px solid var(--line);border-radius:12px;padding:18px;
+    margin:16px 0;overflow-x:auto}
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0}
+  .flow .node{background:var(--panel2);border:1px solid #31415a;border-radius:8px;padding:7px 12px;
+    font-size:12.5px;text-align:center}
+  .flow .node b{display:block;color:var(--amber);font-size:12.5px}
+  .flow .arr{color:var(--muted);font-size:15px}
+  .padgrid{display:grid;grid-template-columns:repeat(8,minmax(52px,1fr));gap:6px;max-width:640px}
+  .pad{aspect-ratio:1;border-radius:8px;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;font-size:12px;background:var(--panel2);border:1px solid #2c3a4c;color:#c9d5e1}
+  .pad .pd{font-size:9.5px;color:var(--muted)}
+  .pad.root{border-color:#4a3b22;background:#241d12;color:var(--amber)}
+  .pad.rootov{border-color:#7a5a2e;background:#2e2313;color:var(--amber);box-shadow:inset 0 -3px 0 #7a5a2e}
+  .pad.hi{border-color:#2f5a52;background:#12211e;color:var(--teal)}
+  .pad.gap{visibility:hidden}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;font-size:12px;color:var(--muted)}
+  .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+  /* ---- details ---- */
+  details{border:1px solid var(--line);border-radius:10px;margin:12px 0;background:var(--panel)}
+  summary{cursor:pointer;padding:10px 16px;font-weight:600;color:#d4dee8}
+  summary:hover{color:var(--amber)}
+  details[open] summary{border-bottom:1px solid var(--line)}
+  details>*:not(summary){padding:4px 18px}
+
+  .pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.06em;border-radius:5px;
+    padding:1px 8px;margin-right:6px;vertical-align:1px}
+  .pill.p{background:#3a2c12;color:var(--amber)}
+  .pill.u{background:#12312b;color:var(--teal)}
+  .pill.b{background:#2b2440;color:var(--violet)}
+
+  ul.tight li,ol.tight li{margin:.35em 0}
+  .cols2{columns:2;gap:34px}
+  @media(max-width:900px){.cols2{columns:1}}
+
+  #noresult{display:none;padding:40px;color:var(--muted);text-align:center}
+  @media(max-width:920px){
+    .layout{display:block}
+    nav#toc{position:static;width:auto;height:auto;border-right:0;border-bottom:1px solid var(--line);
+      padding:10px;display:flex;flex-wrap:wrap;gap:4px}
+    nav#toc .grp{display:none}
+    nav#toc a{border-left:none;border:1px solid var(--line)}
+    nav#toc a.on{border-color:var(--amber)}
+    nav#toc a .n{display:none}
+    main{margin-left:0;padding-top:18px}
+    .padgrid{grid-template-columns:repeat(8,minmax(38px,1fr))}
+  }
+  @media print{
+    .topbar,nav#toc,#search{display:none}
+    main{margin:0;max-width:none}
+    body{background:#fff;color:#111}
+    .card,.note,.tip,.diagram{border-color:#bbb;background:#fff}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">🎛️ PICO<span class="seq">2</span>SEQ <span style="color:var(--muted);font-weight:500">— User Manual</span></div>
+  <span class="chip">firmware <b>DeCluttered</b> · incl. Arpeggiator mode · 2026-09-24</span>
+  <input id="search" type="search" placeholder="Search the manual…  (e.g. swing, latch, ENV)" aria-label="Search manual">
+</header>
+
+<div class="layout">
+<nav id="toc" aria-label="Table of contents">
+  <div class="grp">GETTING STARTED</div>
+  <a href="#overview"><span class="n">1</span> Overview &amp; Panel</a>
+  <a href="#quickstart"><span class="n">2</span> Quick Start</a>
+  <div class="grp">PLAYING SURFACE</div>
+  <a href="#pads"><span class="n">3</span> Touch Pads &amp; Banks</a>
+  <a href="#faders"><span class="n">4</span> Faders</a>
+  <a href="#buttons"><span class="n">5</span> Buttons &amp; Mode Switch</a>
+  <a href="#encoder"><span class="n">6</span> Magnetic Encoder</a>
+  <a href="#lidar"><span class="n">7</span> Distance Sensor</a>
+  <a href="#oled"><span class="n">8</span> OLED Display</a>
+  <a href="#leds"><span class="n">9</span> LED Matrix &amp; Themes</a>
+  <div class="grp">MAKING MUSIC</div>
+  <a href="#sequencing"><span class="n">10</span> Sequencing Concepts</a>
+  <a href="#voices"><span class="n">11</span> Voices &amp; 29 Presets</a>
+  <a href="#voiceedit"><span class="n">12</span> Voice Editing Mode</a>
+  <a href="#arp"><span class="n">13</span> Arpeggiator Mode</a>
+  <div class="grp">SYSTEM</div>
+  <a href="#persistence"><span class="n">14</span> Sessions &amp; Persistence</a>
+  <a href="#connectivity"><span class="n">15</span> Connectivity &amp; Clock</a>
+  <a href="#troubleshooting"><span class="n">16</span> Troubleshooting</a>
+  <a href="#glossary"><span class="n">17</span> Glossary</a>
+  <a href="#appendix"><span class="n">18</span> Appendix</a>
+</nav>
+
+<main>
+<div id="noresult">No sections match your search.</div>
+
+<!-- ============================================================ 1 -->
+<section id="overview">
+  <h2><span class="num">1</span>Overview &amp; Panel</h2>
+  <p class="lead">Pico2Seq is a <b>4-voice polyphonic step sequencer and synthesizer</b> built around a
+  Raspberry&nbsp;Pi&nbsp;Pico&nbsp;2 (RP2350) in a laser-cut wooden chassis. Each of the four synthesizer voices is
+  driven by its own independent step sequencer, and every sound parameter — pitch, velocity, filter,
+  envelopes, octave, gate, slide — can run on its <b>own step length</b>, so patterns drift against each
+  other polymetrically instead of staying locked in lockstep. One button combination turns the whole
+  instrument into a <a href="#arp">chord arpeggiator</a>.</p>
+
+  <div class="specs">
+    <div class="spec"><b>4</b><span>SYNTH VOICES</span></div>
+    <div class="spec"><b>32</b><span>TOUCH PADS</span></div>
+    <div class="spec"><b>29</b><span>FACTORY PRESETS</span></div>
+    <div class="spec"><b>13</b><span>SCALES</span></div>
+    <div class="spec"><b>16</b><span>SWING TEMPLATES</span></div>
+    <div class="spec"><b>480</b><span>PPQN CLOCK</span></div>
+    <div class="spec"><b>48 kHz</b><span>AUDIO OUT</span></div>
+    <div class="spec"><b>10</b><span>LED THEMES</span></div>
+  </div>
+
+  <h3>1.1 Panel at a glance</h3>
+  <div class="diagram"><pre class="mono" style="margin:0;font-size:12.5px;line-height:1.35;color:#c9d5e1">
+ +-------------------------------------------------------------------------------+
+ |                 PICO2SEQ — control panel (schematic, not to scale)            |
+ |                                                                               |
+ |   (o) TMAG5273           +----------------+          . . . . . . .            |
+ |    magnetic encoder   o  |    OLED 128x64 |   o      . LED matrix .   ||||     |
+ |    (rotate)           o  |     display    |   o      .  8 wide  x  .   ||||  5  |
+ |                          +----------------+   o      .  4 rows     .   ||||  ver- |
+ |                           4 rows x 8 cols    o      . (pad mirror) .   ||||  tical|
+ |   [ ] Mode switch          . . . . . . . .                            ||||  slider|
+ |   Param / Utility          .  32 capacitive  .   [ButtonModule8]       ||||  slots |
+ |   (GPIO 7 strap)           .  touch pads    .    8 function buttons     ||||      |
+ |                             . . . . . . . .                                ||||      |
+ |   (o) VL53L1X distance-sensor window                 V1 V2 V3 V4            ||||      |
+ |                                                       (voice buttons)       ||||      |
+ +-------------------------------------------------------------------------------+
+ |   o    o    o    o    o    o    o    o     <- bottom edge: jacks / mounting    |
+ +-------------------------------------------------------------------------------</pre></div>
+  <p class="muted small">Placement of the OLED, encoder and sensor window is approximate — the firmware
+  defines their wiring, not their exact panel position. The jack labels, LED grid, pad grid and slider
+  slots match the physical panel.</p>
+
+  <h3>1.2 Signal path</h3>
+  <div class="flow">
+    <div class="node"><b>4 × Voice</b>engine → env → drive → filter</div><span class="arr">→</span>
+    <div class="node"><b>Voice mix</b>summed mono</div><span class="arr">→</span>
+    <div class="node"><b>Master delay</b>fader 2</div><span class="arr">→</span>
+    <div class="node"><b>Master volume</b>fader 3</div><span class="arr">→</span>
+    <div class="node"><b>Compressor</b>Warm/Glue/Punch</div><span class="arr">→</span>
+    <div class="node"><b>Stereo Out</b>48 kHz I2S</div>
+  </div>
+
+  <h3>1.3 Connectors</h3>
+  <div class="tbl-wrap"><table>
+    <tr><th>Connector</th><th>Function</th></tr>
+    <tr><td><b>Stereo Out</b></td><td>Main audio: 48 kHz, 16-bit stereo I2S (BCLK GP10, LRCK GP11, DATA GP12) to a PCM5102A-class DAC. All four voices are mixed here (mono mix duplicated to both channels).</td></tr>
+    <tr><td><b>Gate Input</b></td><td><span class="unverified">[unverified]</span> No gate/external-clock input is referenced in the firmware. Treat this panel hole as non-functional.</td></tr>
+    <tr><td><b>USB</b> (Pico 2)</td><td>Power + serial diagnostics console at 115200 baud (USB CDC only — there is no MIDI).</td></tr>
+    <tr><td><b>Bottom jack row</b></td><td>Wiring positions for the I2S DAC, I²C buses and tile bus (build-time wiring — see the wiring table in the <a href="#appendix">appendix</a>).</td></tr>
+  </table></div>
+
+  <div class="note">There are <b>no hardware gate outputs</b>: the old GPIO gate/clock pins were reassigned to
+  the I2S audio output. "Gate" now means the internal gate timing only — each sequencer owns its note
+  duration and publishes gate-off to audio on expiry. Nothing is transmitted over MIDI.</div>
+</section>
+
+<!-- ============================================================ 2 -->
+<section id="quickstart">
+  <h2><span class="num">2</span>Quick Start</h2>
+  <ol class="tight">
+    <li><b>Connect &amp; power.</b> Stereo Out to a mixer/amp (or headphones via an amp), then plug in USB.
+    The OLED runs its startup animation; the serial console (115200) prints boot diagnostics.</li>
+    <li><b>The transport starts running by default at 90 BPM</b> — nothing plays yet because every step
+    starts with its gate off.</li>
+    <li><b>Factory boot sounds:</b> Voice 1 = <b>Square</b>, Voice 2 = <b>Bass</b>, Voice 3 = <b>Digital</b>,
+    Voice 4 = <b>Percussion</b>.</li>
+    <li><b>Select a voice</b> — press <kbd>V1</kbd>–<kbd>V4</kbd> next to the faders.</li>
+    <li><b>Program a pattern</b> — tap pads in the bank rows for that voice (§3). Lit pads are active
+    steps; the LED playhead shows where you are.</li>
+    <li><b>Shape the sound</b> — turn the magnetic encoder (Velocity target by default; cycle targets with
+    Utility button 6). To shape one step's envelope, long-press its pad and use faders 1–4.</li>
+    <li><b>Try polymeter</b> — hold a parameter button (e.g. Filter) and tap pad 5: the Filter track is now
+    5 steps long and cycles against the 16-step Gate track.</li>
+    <li><b>Change key feel</b> — hold <kbd>Shift</kbd> + tap <kbd>V3</kbd> to cycle the 13 scales.</li>
+    <li><b>Groove &amp; delay</b> — fader 1 sets tempo; Utility button 4 cycles the swing templates; fader 2
+    is the master delay mix (<kbd>Shift</kbd> + fader 2 sweeps delay time).</li>
+    <li><b>Stop / start</b> — Utility button 1, or <kbd>Shift</kbd>+<kbd>V1</kbd> from anywhere. Stopping
+    opens the OLED preset browser ("Sound Buffet"); a long-press of Play toggles it without stopping.</li>
+    <li><b>Edit the sound itself</b> — hold <kbd>Shift</kbd>+<kbd>V4</kbd> and release to enter
+    <a href="#voiceedit">Voice Editing mode</a>: the transport stops, slider buttons pick a voice, and the
+    encoder changes the selected parameter base.</li>
+    <li><b>Arpeggiate</b> — hold <kbd>Shift</kbd> and hold <kbd>V4</kbd> for 400&nbsp;ms to toggle
+    <a href="#arp">Arpeggiator mode</a>: the pads become a scale-degree keyboard and the panel plays your
+    chord for you. (<kbd>Shift</kbd> + a <i>tap</i> of V4 opens Voice Editing instead.)</li>
+  </ol>
+</section>
+
+<!-- ============================================================ 3 -->
+<section id="pads">
+  <h2><span class="num">3</span>Touch Pads &amp; Banks</h2>
+  <p>A green MPR121 capacitive-touch board behind the wooden panel senses a <b>4 row × 8 column grid of
+  32 pads</b>. Every pad is a sequencer step — there are no mode/menu functions on the pads. The grid is
+  organized as <b>two 16-step banks</b>:</p>
+
+  <div class="diagram">
+    <div class="padgrid" aria-hidden="true">
+      <div class="pad">1<span class="pd">step 1</span></div><div class="pad">2<span class="pd">2</span></div><div class="pad">3<span class="pd">3</span></div><div class="pad">4<span class="pd">4</span></div><div class="pad">5<span class="pd">5</span></div><div class="pad">6<span class="pd">6</span></div><div class="pad">7<span class="pd">7</span></div><div class="pad">8<span class="pd">8</span></div>
+      <div class="pad">9<span class="pd">9</span></div><div class="pad">10<span class="pd">10</span></div><div class="pad">11<span class="pd">11</span></div><div class="pad">12<span class="pd">12</span></div><div class="pad">13<span class="pd">13</span></div><div class="pad">14<span class="pd">14</span></div><div class="pad">15<span class="pd">15</span></div><div class="pad">16<span class="pd">16</span></div>
+      <div class="pad hi">1<span class="pd">step 1</span></div><div class="pad hi">2<span class="pd">2</span></div><div class="pad hi">3<span class="pd">3</span></div><div class="pad hi">4<span class="pd">4</span></div><div class="pad hi">5<span class="pd">5</span></div><div class="pad hi">6<span class="pd">6</span></div><div class="pad hi">7<span class="pd">7</span></div><div class="pad hi">8<span class="pd">8</span></div>
+      <div class="pad hi">9<span class="pd">9</span></div><div class="pad hi">10<span class="pd">10</span></div><div class="pad hi">11<span class="pd">11</span></div><div class="pad hi">12<span class="pd">12</span></div><div class="pad hi">13<span class="pd">13</span></div><div class="pad hi">14<span class="pd">14</span></div><div class="pad hi">15<span class="pd">15</span></div><div class="pad hi">16<span class="pd">16</span></div>
+    </div>
+    <div class="legend">
+      <span><i style="background:#182230;border:1px solid #2c3a4c"></i>LOW bank = pads 1–16</span>
+      <span><i style="background:#12211e;border:1px solid #2f5a52"></i>HIGH bank = pads 17–32</span>
+    </div>
+  </div>
+
+  <p>Which voices the two banks address depends on the currently selected voice — the panel always shows
+  the <b>selected voice pair</b> (the selected voice stays on its own bank, its pair partner takes the
+  other). This mirrors exactly onto the LED matrix.</p>
+  <div class="tbl-wrap"><table>
+    <tr><th>Selected voice</th><th>Low bank (pads 1–16)</th><th>High bank (pads 17–32)</th></tr>
+    <tr><td>Voice 1 or Voice 2</td><td>Voice 1, steps 1–16</td><td>Voice 2, steps 1–16</td></tr>
+    <tr><td>Voice 3 or Voice 4</td><td>Voice 3, steps 1–16</td><td>Voice 4, steps 1–16</td></tr>
+  </table></div>
+
+  <h3>3.1 Pad gestures (sequencer mode)</h3>
+  <div class="tbl-wrap"><table>
+    <tr><th>Gesture</th><th>Result</th></tr>
+    <tr><td><kbd>Tap a pad</kbd></td><td>Toggle that step's gate on the pad's bank voice.</td></tr>
+    <tr><td><kbd>Long-press a pad</kbd> (~0.4 s)</td><td>Enter <b>Step Edit mode</b> for that step — the faders switch to <b>ENV mode</b> and edit only that step's envelope, the OLED shows its Attack / Decay / Sustain / Release, and the encoder edits the step's selected parameter.</td></tr>
+    <tr><td><kbd>Hold a parameter button</kbd> + <kbd>tap a pad</kbd></td><td>Set that parameter track's <b>length</b> to the pad number (pad 5 = 5 steps). This is how you make polymetric tracks.</td></tr>
+    <tr><td><kbd>Shift</kbd> + <kbd>pad</kbd></td><td>Clear that step (gate off, parameters back to defaults).</td></tr>
+    <tr><td><kbd>Pad</kbd> while Gate Length mode is held</td><td>Set the selected voice's <b>Gate track length</b> instead of toggling a step (§6.2).</td></tr>
+    <tr><td><kbd>Tap a pad</kbd> while the preset browser is open</td><td>Apply that pad's preset to the selected voice — pads 0–28 hold the 29 presets (pads 0–30 are slots; pad 31 unassigned). <kbd>V1</kbd>–<kbd>V4</kbd> switch the target voice.</td></tr>
+  </table></div>
+</section>
+
+<!-- ============================================================ 4 -->
+<section id="faders">
+  <h2><span class="num">4</span>Faders</h2>
+  <p>The panel carries five vertical slider slots; the firmware exposes <b>four fader channels</b> on the
+  SliderModule tile (12-bit resolution). <span class="unverified">[unverified: the fifth slot's function —
+  the firmware only maps four faders.]</span> The mode switch does not change the faders.</p>
+
+  <h3>4.1 Normal mode <span class="muted small">(no step selected — both mode-switch positions)</span></h3>
+  <div class="tbl-wrap"><table>
+    <tr><th>Fader</th><th>Default</th><th>With <kbd>Shift</kbd> held</th></tr>
+    <tr><td><b>1</b></td><td>Master tempo (uClock BPM, 45–200)</td><td>Delay feedback, 0–100 % (<code>DELAY FB nn %</code>)</td></tr>
+    <tr><td><b>2</b></td><td>Delay wet mix, 0–100 % (<code>DELAY MIX nn %</code>)</td><td>Delay time, 10–750 ms (<code>DELAY TIME nnn ms</code>) — §10.6</td></tr>
+    <tr><td><b>3</b></td><td>Master volume (saved with the session)</td><td>Compressor macro Warm → Glue → Punch — §10.7</td></tr>
+    <tr><td><b>4</b></td><td colspan="2">Gate length across the selected voice's active steps</td></tr>
+  </table></div>
+
+  <h3>4.2 ENV mode <span class="muted small">(a step is selected via Step Edit)</span></h3>
+  <p>Long-press a pad to select a step. The faders then edit <b>only that voice and that step</b>:</p>
+  <div class="tbl-wrap"><table>
+    <tr><th>Fader</th><th>Voices with an envelope</th><th>Strings (no envelope)</th></tr>
+    <tr><td><b>1</b></td><td>Attack</td><td>Pick hardness</td></tr>
+    <tr><td><b>2</b></td><td>Decay</td><td>T60 (ring time)</td></tr>
+    <tr><td><b>3</b></td><td>Sustain level</td><td>Pick position</td></tr>
+    <tr><td><b>4</b></td><td>Release</td><td>Stiffness</td></tr>
+  </table></div>
+  <p>Hypersaw, NoiseStorm and the recipe voices use faders 1–2 for the engine controls their
+  Attack/Decay lanes already carry (Detune / Mix, Regen / Chaos, recipe macros); faders 3–4 are their
+  real Sustain and Release.</p>
+  <ul class="tight">
+    <li>The fader position <b>is</b> the step's value (absolute): bottom = shortest time / zero level,
+    top = longest / full. Values are heard the next time the step plays; a sounding note keeps its running
+    stage, so edits never click.</li>
+    <li>A step you have not touched <b>follows the patch</b> (the preset's own envelope). The OLED shows
+    such values in parentheses. <kbd>Shift</kbd> + move a fader returns that lane of the step to the patch
+    value.</li>
+    <li>A fader only takes over after an obvious move (a small dead-zone of travel), so selecting a step
+    never snaps its values to wherever the faders rest. The same applies after changing voice or leaving
+    Step Edit, and after pressing or releasing Shift.</li>
+    <li>Faders never set voice bases or record live — use the encoder for bases (§6) and the distance
+    sensor for live recording (§7).</li>
+  </ul>
+</section>
+
+<!-- ============================================================ 5 -->
+<section id="buttons">
+  <h2><span class="num">5</span>Buttons &amp; Mode Switch</h2>
+  <p>Eight buttons (ButtonModule8) change meaning with the <b>mode switch</b> on GPIO 7:
+  <span class="pill p">PARAM (LOW)</span><span class="pill u">UTILITY (HIGH)</span> Bit 7 is
+  <b>Shift</b> in both modes. When the switch flips, holds and latches are cleared and a brief
+  <code>PARAM</code> / <code>UTIL</code> banner appears on the OLED.</p>
+
+  <div class="tbl-wrap"><table>
+    <tr><th>#</th><th><span class="pill p">PARAM</span> mode</th><th><span class="pill u">UTILITY</span> mode</th></tr>
+    <tr><td>1</td><td>Note</td><td>Play / Stop</td></tr>
+    <tr><td>2</td><td>Velocity</td><td>Save / Load (tap: save session, hold: reload)</td></tr>
+    <tr><td>3</td><td>Filter</td><td>Scale cycle</td></tr>
+    <tr><td>4</td><td>Attack</td><td>Swing pattern cycle</td></tr>
+    <tr><td>5</td><td>Release</td><td>LED theme cycle</td></tr>
+    <tr><td>6</td><td>Octave</td><td>Encoder target cycle</td></tr>
+    <tr><td>7</td><td>Slide</td><td>Randomize</td></tr>
+    <tr><td>8</td><td>Shift</td><td>Shift</td></tr>
+  </table></div>
+
+  <h3>5.1 <span class="pill p">PARAM</span> parameter buttons</h3>
+  <ul class="tight">
+    <li><b>Hold</b> Note / Velocity / Filter / Attack / Release / Octave to arm real-time recording for
+    that parameter (distance sensor / encoder); holding auto-selects it as the encoder target. Button 5
+    arms <b>Release</b>, not Decay — on most presets Decay is a timbre control rather than an envelope
+    stage, while Release reaches the envelope on every preset.</li>
+    <li><kbd>Shift</kbd> + tap a parameter <b>latches</b> the hold (no finger needed). One latch at a
+    time: pressing another parameter moves the latch; tapping the latched one clears it.</li>
+    <li><b>Slide</b> toggles slide/portamento mode (clears conflicting edit modes).</li>
+    <li><kbd>Shift</kbd> is the modifier for latches and voice-button chords.</li>
+  </ul>
+
+  <h3>5.2 <span class="pill u">UTILITY</span> buttons</h3>
+  <div class="tbl-wrap"><table>
+    <tr><th>Button</th><th>Action</th></tr>
+    <tr><td><b>1 Play / Stop</b></td><td>Start/stop the transport (and all 4 sequencers). Stopping opens the OLED Settings/preset browser; starting closes it. <b>Long-press</b> toggles Settings without stopping.</td></tr>
+    <tr><td><b>2 Save / Load</b></td><td><b>Tap:</b> save everything to flash (the transport pauses ~0.5 s for the write, then resumes). <b>Long-press (≥ 0.4 s):</b> reload the last saved session. OLED shows <code>SAVED</code> / <code>LOADED</code> / <code>LOAD ERR</code>.</td></tr>
+    <tr><td><b>3 Scale</b></td><td>Cycle forward through the 13 scales.</td></tr>
+    <tr><td><b>4 Swing</b></td><td>Cycle through the 16 shuffle templates.</td></tr>
+    <tr><td><b>5 Theme</b></td><td>Cycle the 10 LED matrix color themes.</td></tr>
+    <tr><td><b>6 Encoder target</b></td><td>Short press: cycle encoder target (§6.1). <b>Hold</b>: enter Gate Sequence Length mode (§6.2).</td></tr>
+    <tr><td><b>7 Randomize</b></td><td>Short press (&lt; 1 s): randomize the selected voice. Long press (≥ 1 s): reset it. <kbd>Shift</kbd> + tap: clear the selected voice's whole pattern (values, gates, track lengths — OLED <code>CLEARED</code>). <kbd>Shift</kbd> + long-press: clear <b>all four voices</b> (<code>ALL CLEAR</code>). Presets, tempo and transport state are kept by the clear gestures.</td></tr>
+    <tr><td><b>8 Shift</b></td><td>Modifier for transport/utility chords.</td></tr>
+  </table></div>
+
+  <h3>5.3 Voice buttons <span class="muted small">(both modes)</span></h3>
+  <div class="tbl-wrap"><table>
+    <tr><th>Gesture</th><th>Result</th></tr>
+    <tr><td><kbd>Tap V1–V4</kbd></td><td>Select voice 1–4 — the voice all voice-scoped controls act on, and the voice the preset browser edits.</td></tr>
+    <tr><td><kbd>Shift</kbd>+<kbd>V1</kbd></td><td>Play / Stop transport.</td></tr>
+    <tr><td><kbd>Shift</kbd>+<kbd>V2</kbd></td><td>Randomize the selected voice.</td></tr>
+    <tr><td><kbd>Shift</kbd>+<kbd>V3</kbd></td><td>Cycle musical scale.</td></tr>
+    <tr><td><kbd>Shift</kbd>+<kbd>V4</kbd> (tap)</td><td>Enter <b>Voice Editing mode</b> — hold both, then release.</td></tr>
+    <tr><td><kbd>Shift</kbd>+<kbd>V4</kbd> (hold 400 ms)</td><td>Toggle <b>Arpeggiator mode</b> — §13.</td></tr>
+  </table></div>
+</section>
+
+<!-- ============================================================ 6 -->
+<section id="encoder">
+  <h2><span class="num">6</span>Magnetic Encoder <span class="muted small">(TMAG5273)</span></h2>
+  <p>A 3D hall-effect sensor read as a rotation dial with <b>velocity-sensitive acceleration</b>: turn it
+  slowly for ultra-fine single-step adjustments, quickly to sweep a whole parameter range. It edits
+  whatever the <b>encoder target</b> is.</p>
+
+  <h3>6.1 Encoder targets</h3>
+  <p>Cycle targets with the <span class="pill u">UTILITY</span> "Encoder target" button (button 6). The
+  target order is:</p>
+  <p class="mono" style="font-size:13.5px;color:var(--amber)">
+  Velocity → Filter → Attack → Release → Note → Octave → Slide Time → (back to Velocity)</p>
+  <ul class="tight">
+    <li><b>Voice targets</b> (Velocity / Filter / Attack / Release / Note) set that parameter's
+    <b>base value for the selected voice</b> (its patch value). Steps that follow the patch play it; steps
+    with their own recorded value keep theirs.</li>
+    <li><b>Note and Octave</b> move one step per short turn; continuous targets follow turn speed.</li>
+    <li><b>Slide Time</b> sets the portamento glide time.</li>
+    <li>In <b>Step Edit mode</b> the encoder edits the <b>selected step's value</b> instead: the held
+    parameter, else the toggled edit parameter, else the encoder target's lane (named at the bottom of the
+    OLED's ENV page). A step that follows the patch starts from the patch value. Note and Octave move one
+    step per detent.</li>
+    <li>While the transport runs, a base change reaches the sounding note at once without retriggering it.</li>
+    <li>The OLED normally shows the playing step's composed value of the encoder target (or, while a
+    parameter button is held, of that parameter — the value live recording writes and the voice plays).
+    For 1.5 s after an encoder turn it shows the edited <b>base</b> instead, marked <code>Base</code> on
+    the home screen and <code>BASE</code> on a parameter screen. A held parameter also shows the current
+    lidar reading in mm.</li>
+  </ul>
+
+  <h3>6.2 Gate Sequence Length mode</h3>
+  <p><b>Hold</b> the <span class="pill u">UTILITY</span> encoder button (about a second) to enter
+  <b>Gate Sequence Length mode</b>: the LEDs show a blinking band on the selected voice's rows, and
+  touching pads 1–16 sets that voice's <b>Gate track length</b> (2–16 steps). The Gate track's length is
+  the whole pattern length for the voice (§10.2). Release the button to exit.</p>
+</section>
+
+<!-- ============================================================ 7 -->
+<section id="lidar">
+  <h2><span class="num">7</span>Distance Sensor <span class="muted small">(VL53L1X)</span></h2>
+  <p>A laser time-of-flight sensor with a usable range of <b>55–700 mm</b> above the panel. It is the
+  <b>hands-free performance controller</b>: hold (or Shift+latch) a parameter button, then move your hand
+  over the sensor, and the reading is recorded live into that parameter's sequence at its currently
+  playing step on the <b>selected voice</b> — e.g. sweep Filter over a pattern without touching anything.
+  Hold several parameter buttons to record them all at once; each parameter records at its own track
+  position.</p>
+  <ul class="tight">
+    <li><b>Hand height is the value.</b> The calibrated 55–700 mm window maps straight onto the lane's
+    0–1 range: near the sensor is the bottom of the parameter's range, 700 mm the top — whatever the
+    voice's patch value. (Since 2026-09-19 these lanes store <b>absolute values</b>, not offsets: a base
+    at the end of its range no longer swallows half the hand window.)</li>
+    <li><b>Continuous lanes.</b> Velocity, Filter, Attack and Release keep recording while their step
+    plays — the step follows your hand, and the sounding note changes without retriggering (cutoff and
+    velocity land at once; a running attack/release keeps its length, so live edits never click).</li>
+    <li><b>Note and Octave take one value per note</b>, on the step, so hand jitter cannot warble a
+    sounding pitch. Pitch recording only lands while the playing gate is ON.</li>
+    <li><b>Recordable set:</b> Note, Velocity, Filter, Attack, Octave and Release have record buttons.
+    <b>Decay has no record button</b> — on many presets it is a timbre control; reach it per step with the
+    ENV-mode faders. GateLength, Gate, Slide and Sustain are not lidar lanes.</li>
+    <li><b>Out of range pauses recording.</b> Moving your hand out of the window (above about 740 mm, or
+    no reading at all) pauses recording: steps keep their values instead of jumping to the minimum.</li>
+    <li>While a parameter button is held, the OLED parameter screen shows the sensor's current reading in
+    mm: plain (<code>412mm</code>) inside the recording window, in parentheses (<code>(812mm)</code>)
+    outside it, and <code>--mm</code> with no measurement. A held parameter's screen takes priority over
+    the settings and sequence-length screens.</li>
+    <li>In <b>Step Edit mode</b> the sensor records into the selected step instead.</li>
+    <li>In <b>Arpeggiator mode</b> the sensor sets note <b>dynamics</b> instead of recording — §13.10.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ 8 -->
+<section id="oled">
+  <h2><span class="num">8</span>OLED Display <span class="muted small">(128×64 SH1106G)</span></h2>
+  <p>The OLED renders the highest-priority active view. From highest to lowest priority:</p>
+  <div class="tbl-wrap"><table>
+    <tr><th>#</th><th>View</th><th>Shows</th></tr>
+    <tr><td>1</td><td><b>Mode banner</b></td><td>Transient <code>PARAM</code> / <code>UTIL</code> splash when the mode switch flips (and <code>ARP ON</code> / <code>ARP OFF</code> for the arpeggiator).</td></tr>
+    <tr><td>2</td><td><b>Settings &amp; presets</b></td><td>The preset browser for the selected voice (current name in large type, <code>&lt;</code>/<code>&gt;</code> neighbors, the "Sound Buffet" list of all four voices' presets) and voice-architecture toggles (envelope on/off, overdrive on/off, filter mode, filter resonance). Opened by stopping the transport or by long-pressing Play — preset applies are staged and click-safe while running.</td></tr>
+    <tr><td>3</td><td><b>Gate length gauge</b></td><td>While Gate Length mode is held: voice number, length value, proportional bar.</td></tr>
+    <tr><td>4</td><td><b>Parameter edit screens</b></td><td>When a parameter button is held/latched or a step is in edit: parameter name, voice and step indicators, the formatted value at the playing (or selected) step, <code>LIVE</code>/<code>STEP</code> and <code>NOTE</code>/<code>REST</code>, and the distance-sensor reading in mm. A held parameter outranks tiers 2 and 3.</td></tr>
+    <tr><td>5</td><td><b>Voice Editing screens</b></td><td>While Voice Editing mode is active: <code>EDIT V1</code>–<code>EDIT V4</code>, a modified marker (<code>*</code>), the parameter name and units, and whether a sequencer lane modifies that base.</td></tr>
+    <tr><td>6</td><td><b>Status screen</b> (default)</td><td>Scale name, shuffle template name, selected voice (shown 0-based as <code>Voice: 0</code>–<code>Voice: 3</code>), and a beat-synchronized playhead dot row.</td></tr>
+  </table></div>
+  <p>Transient confirmations (<code>RANDOMIZED</code>, <code>CLEARED</code>, <code>ALL CLEAR</code>,
+  <code>SAVED</code>, <code>LOADED</code>, <code>LOAD ERR</code>) also appear here, as does the
+  <code>ENC: &lt;param&gt; &lt;value&gt;</code> line while the encoder is active.</p>
+  <div class="note">Voice numbering: the panel and this manual say <b>Voice 1–4</b>; the firmware and some
+  OLED screens use 0-based <b>0–3</b> for the same voices.</div>
+  <p>In <a href="#arp">Arpeggiator mode</a> the status screen is replaced by a dedicated 8-row arp page
+  (§13.11).</p>
+</section>
+
+<!-- ============================================================ 9 -->
+<section id="leds">
+  <h2><span class="num">9</span>LED Matrix &amp; Themes <span class="muted small">(8×4 WS2812B)</span></h2>
+  <p>An 8 column × 4 row RGB matrix behind the panel's hole grid. It <b>mirrors the touch pads
+  pad-for-pad</b>: LED rows 1–2 are the pair's low-voice band, rows 3–4 the high-voice band. It shows:</p>
+  <ul class="tight">
+    <li><b>Step gates</b> for the visible voice pair (lit = gate on), with a distinct <b>playhead
+    accent</b> stepping through the 16th-note grid while the transport runs.</li>
+    <li>A slow <b>breathing animation</b> across the grid when the transport is stopped.</li>
+    <li><b>Polymetric overlays</b> — tinted accents show where the Note, Velocity and Filter tracks are
+    within their (different) lengths.</li>
+    <li><b>Parameter edit / settings / preset selection</b> feedback while those modes are active.</li>
+    <li>In Gate Length mode, a blinking band up to the selected Gate length.</li>
+    <li>In Arpeggiator mode, the <b>chord map</b> (§13.12).</li>
+  </ul>
+
+  <h3>9.1 The 10 color themes</h3>
+  <p>Cycle with <span class="pill u">UTILITY</span> button 5.</p>
+  <div class="tbl-wrap"><table>
+    <tr><th>#</th><th>Firmware name</th><th>Character</th></tr>
+    <tr><td>0</td><td><code>DEFAULT</code> — Standard</td><td>Classic blue/green palette</td></tr>
+    <tr><td>1</td><td><code>OCEANIC</code></td><td>Deep ocean blues, cyan and teal</td></tr>
+    <tr><td>2</td><td><code>VOLCANIC</code></td><td>Intense reds, fiery oranges, warm ambers</td></tr>
+    <tr><td>3</td><td><code>FOREST</code></td><td>Earthy greens, moss, warm browns</td></tr>
+    <tr><td>4</td><td><code>NEON</code></td><td>Vibrant magenta, purple, electric cyan</td></tr>
+    <tr><td>5</td><td><code>MODERN</code></td><td>Refined muted tones, high legibility</td></tr>
+    <tr><td>6</td><td><code>DARK_NOCTIS</code></td><td>Low-light stealth, cool midnight blue</td></tr>
+    <tr><td>7</td><td><code>DARK_EMBER</code></td><td>Low-light, warm glowing ember</td></tr>
+    <tr><td>8</td><td><code>BLUE</code> — Blue Contrast</td><td>High-contrast monochrome blue</td></tr>
+    <tr><td>9</td><td><code>GREEN</code> — Green Contrast</td><td>High-contrast monochrome green</td></tr>
+  </table></div>
+  <p class="muted small">Firmware caps LED brightness at 120/255; the matrix wants a 5 V rail capable of
+  ~1.5 A for full white.</p>
+</section>
+
+<!-- ============================================================ 10 -->
+<section id="sequencing">
+  <h2><span class="num">10</span>Sequencing Concepts</h2>
+
+  <h3>10.1 One sequencer per voice</h3>
+  <p>Each voice has its own completely independent <code>Sequencer</code> instance (<code>seq1</code>–
+  <code>seq4</code>). All four are advanced by the same uClock 16th-note tick (480 PPQN internal
+  resolution, 120 ticks per 16th-note step, default tempo 90 BPM), but their patterns, lengths and
+  parameters are entirely separate. This is what makes polymetry possible: Voice 1 can run a 16-step
+  pattern while Voice 4 runs 13 steps, and they realign only every 208 steps.</p>
+
+  <h3>10.2 Eleven parameter tracks, each with its own length</h3>
+  <p>Each voice's sequencer holds <b>eleven independent parameter tracks</b>, one per automatable
+  parameter, each with its own step count (default 16, settable from the pads 1–16; the core supports
+  2–64). Every track wraps on its own length (step modulo track length), so a 16-step Gate track with an
+  8-step Filter track, a 5-step Velocity track and a 3-step Octave track all run simultaneously and evolve
+  over a common cycle.</p>
+  <div class="tbl-wrap"><table>
+    <tr><th>#</th><th>Parameter</th><th>Range / default</th><th>What it does</th></tr>
+    <tr><td>0</td><td><b>Note</b></td><td>scale steps 0–36</td><td>Scale-degree index for pitch (three chromatic octaves of steps; quantized into the current scale at play time). Gate-protected: can't be written into a gate-off step.</td></tr>
+    <tr><td>1</td><td><b>Velocity</b></td><td>0–100 % (default 50 %)</td><td>Voice amplitude.</td></tr>
+    <tr><td>2</td><td><b>Filter</b></td><td>0–100 % (default 50 %)</td><td>Filter cutoff (mapped exponentially, ~20 Hz–20 kHz).</td></tr>
+    <tr><td>3</td><td><b>Attack</b></td><td>0–1 s (log 1 ms–2 s)</td><td>Envelope attack time.</td></tr>
+    <tr><td>4</td><td><b>Decay</b></td><td>0–1 s (1 ms–10 s)</td><td>Envelope decay time — on many presets a timbre control; no record button.</td></tr>
+    <tr><td>5</td><td><b>Octave</b></td><td>−2 / −1 / 0 / +1 / +2</td><td>Quantized octave shift (stored 0.00/0.25/0.50/0.75/1.00 → −24/−12/0/+12/+24 semitones).</td></tr>
+    <tr><td>6</td><td><b>GateLength</b></td><td>10–100 % of a step (default 80 %)</td><td>How long each note is held.</td></tr>
+    <tr><td>7</td><td><b>Gate</b></td><td>on / off</td><td>Whether the step triggers at all.</td></tr>
+    <tr><td>8</td><td><b>Slide</b></td><td>on / off</td><td>Portamento into that step (no envelope retrigger; pitch glides).</td></tr>
+    <tr><td>9</td><td><b>Sustain</b></td><td>0–100 % (default 50 %)</td><td>Envelope sustain level (ENV fader 3).</td></tr>
+    <tr><td>10</td><td><b>Release</b></td><td>0–100 % (default 40 %; up to 10 s)</td><td>Envelope release time (ENV fader 4; owns the 5th record button) — sets how long a step rings.</td></tr>
+  </table></div>
+
+  <div class="card amber">
+    <b>The Gate track defines the pattern length.</b> The sequencer's master position is
+    <code>clockStep modulo Gate track length</code>, so the <b>Gate track's step count is the whole
+    pattern length for that voice</b> — make it 16 for a standard bar, 13 for polymetric madness. Set it
+    from the pads while Gate Length mode is held (§6.2), or by holding a parameter button and tapping a
+    pad for that lane's length.
+  </div>
+
+  <h4>Absolute lanes and "follows the patch"</h4>
+  <p>Velocity, Filter, Attack, Decay, Sustain and Release are <b>absolute</b> lanes: a step either holds
+  its own 0–1 value (played as stored, whatever the patch says) or holds the <i>follow-the-patch</i>
+  sentinel and plays the voice's patch/base value. Fresh, cleared and reset steps follow the patch, so an
+  untouched pattern plays each preset exactly as designed. Note, Octave and GateLength are
+  <b>offsets</b> on top of the patch (recorded scale steps add to the base note; octave adds whole
+  octaves; gate length spreads around the patch gate length).</p>
+
+  <h4>Slide / portamento</h4>
+  <p>When a step has Slide on, the ADSR envelope is <b>not</b> retriggered — the pitch slews smoothly into
+  the new note over the Slide Time set by the encoder. A gate-off step right after a slide step lets the
+  note ring out instead of choking it.</p>
+
+  <h3>10.3 Randomize &amp; clear</h3>
+  <ul class="tight">
+    <li><b>Randomize</b> (<span class="pill u">UTILITY</span> button 7 short press, or
+    <kbd>Shift</kbd>+<kbd>V2</kbd>) shuffles the selected voice's steps for instant variation. The
+    <b>rhythm is yours</b>: gates and slides are never rewritten, and lanes whose randomize amount is 0
+    are left alone. Note gets fresh scale degrees (quantized into the current scale at play time), Octave
+    and Gate Length return to their neutral midpoints, and the level/time lanes get a triangular spread —
+    most steps hug the middle, a few wander toward the edges (default depth 35 %). The OLED confirms with
+    <code>RANDOMIZED</code> + voice number.</li>
+    <li><b>Long-press</b> Randomize (≥ 1 s) resets the selected voice's parameters instead.</li>
+    <li><kbd>Shift</kbd> + <b>tap</b> clears the selected voice completely: every stored step value, all
+    gates and slides off, all track lengths back to their 16-step defaults (<code>CLEARED</code>).</li>
+    <li><kbd>Shift</kbd> + <b>long-press</b> clears <b>all four voices</b> the same way — the whole
+    project starts fresh with no values and no gates (<code>ALL CLEAR</code>). Presets, tempo and
+    transport state are kept.</li>
+  </ul>
+
+  <h3>10.4 Scales</h3>
+  <p>Pitch is quantized to one of <b>13 built-in scales</b>, each a 48-step (4-octave) semitone table;
+  the Note parameter (0–36) indexes into it. Internal synthesis is voiced around C3. Cycle scales with
+  <kbd>Shift</kbd>+<kbd>V3</kbd> or <span class="pill u">UTILITY</span> button 3:</p>
+  <div class="tbl-wrap"><table>
+    <tr><th>#</th><th>Scale</th><th>Character</th><th>#</th><th>Scale</th><th>Character</th></tr>
+    <tr><td>0</td><td>Ionian Major</td><td>Bright, standard major</td><td>7</td><td>Pentatonic Minor</td><td>Blues/rock</td></tr>
+    <tr><td>1</td><td>Dorian</td><td>Jazzy minor, raised 6th</td><td>8</td><td>Phrygian Dominant</td><td>Middle Eastern / flamenco</td></tr>
+    <tr><td>2</td><td>Phrygian</td><td>Dark, Spanish flat-2nd</td><td>9</td><td>Lydian Dominant</td><td>Acoustic / overtone</td></tr>
+    <tr><td>3</td><td>Lydian</td><td>Dreamy, raised 4th</td><td>10</td><td>Harmonic Minor</td><td>Dramatic classical minor</td></tr>
+    <tr><td>4</td><td>Mixolydian</td><td>Bluesy rock, flat 7th</td><td>11</td><td>Wholetone</td><td>Symmetrical, impressionistic</td></tr>
+    <tr><td>5</td><td>Aeolian Minor</td><td>Natural minor</td><td>12</td><td>Chromatic</td><td>All 12 semitones, 1:1</td></tr>
+    <tr><td>6</td><td>Locrian</td><td>Tense, unstable</td><td colspan="3" class="muted">Voices read the live scale table at pitch time — scale changes apply to subsequent notes on all voices.</td></tr>
+  </table></div>
+
+  <h3>10.5 Shuffle / swing</h3>
+  <p>Timing groove comes from <b>16 shuffle templates</b> (per-16th-note micro-timing offsets at 480 PPQN;
+  positive = late, negative = early). Cycle with <span class="pill u">UTILITY</span> button 4:</p>
+  <details open><summary>The 16 shuffle templates</summary>
+  <div class="tbl-wrap"><table>
+    <tr><th>#</th><th>Name</th><th>Feel</th></tr>
+    <tr><td>0</td><td>No Shuffle</td><td>Straight 16ths</td></tr>
+    <tr><td>1</td><td>Teeny Swing</td><td>Subtle humanized micro-swing</td></tr>
+    <tr><td>2</td><td>Lil' Swing (53%)</td><td>Classic light groove</td></tr>
+    <tr><td>3</td><td>Neg' Swing (53%)</td><td>Pushed / rushed upbeats</td></tr>
+    <tr><td>4</td><td>CornBread</td><td>Asymmetric organic groove</td></tr>
+    <tr><td>5</td><td>Swing (55%)</td><td>Medium standard swing</td></tr>
+    <tr><td>6</td><td>Swing (56%)</td><td>Moderate jazz/house swing</td></tr>
+    <tr><td>7</td><td>Swing (57%)</td><td>Pronounced dance swing</td></tr>
+    <tr><td>8</td><td>Swing (60%)</td><td>Triplet-feel swing</td></tr>
+    <tr><td>9</td><td>Big Swang (60%)</td><td>Heavy laid-back swing</td></tr>
+    <tr><td>10</td><td>Phatty Swang</td><td>Deep MPC-style swing</td></tr>
+    <tr><td>11</td><td>Big Swang (62%)</td><td>Extreme hard swing</td></tr>
+    <tr><td>12</td><td>Humanize 1</td><td>Micro-timing drummer variation</td></tr>
+    <tr><td>13</td><td>Humanize 2</td><td>Loose unquantized live feel</td></tr>
+    <tr><td>14</td><td>Hip-Hop</td><td>Boom-bap asymmetric late swing</td></tr>
+    <tr><td>15</td><td>Funk Groove</td><td>Syncopated funk pocket</td></tr>
+  </table></div>
+  </details>
+
+  <h3>10.6 Master delay</h3>
+  <p>Fader 2 is a master-bus delay on the summed voice mix (both mode-switch positions; in ENV mode the
+  faders are the selected step's envelope lanes instead, so the delay is unreachable there).</p>
+  <ul class="tight">
+    <li><b>Wet mix</b> — fader 2, 0 (dry) to 100 % added wet; dry stays present.</li>
+    <li><b>Delay time</b> — <kbd>Shift</kbd> + fader 2: 10–750 ms on a log curve. The read head
+    <b>glides</b> to the new time, so the repeats pitch-bend like a tape machine.</li>
+    <li><b>Feedback</b> — <kbd>Shift</kbd> + fader 1: 0–100 %. Feedback eases over a 45 ms time constant
+    and defaults to 85 %. At 0 % there is one delayed copy without regeneration; at 100 % the coefficient
+    is 1.0 and the existing lowpass, DC blocker and saturation still shape the repeats. Plain fader 1
+    still controls tempo. This is a free-running delay, not a freeze or tempo-sync mode.</li>
+    <li><b>Not saved in the session</b> — reboot restores mix 0, time 300 ms, feedback 85 %.</li>
+  </ul>
+
+  <h3>10.7 Master compressor and volume</h3>
+  <p>The summed voices pass through the delay, then master volume, then the compressor. Dry sound and
+  repeats share compression; master volume and transport mute control the whole result.</p>
+  <ul class="tight">
+    <li><b>Master volume</b> — fader 3; saved with the session.</li>
+    <li><b>Compressor macro</b> — <kbd>Shift</kbd> + fader 3: the curve runs from <b>Warm</b> at 0 %,
+    through <b>Glue</b> at 50 %, to <b>Punch</b> at 100 %. The OLED shows <code>MACRO</code>, its zone and
+    percentage. The macro resets to 50 % on reboot.</li>
+    <li>Pressing or releasing <kbd>Shift</kbd> re-arms faders 1–3: move a few percent from the new resting
+    position before either sends a value, so changing feedback leaves tempo intact, delay time leaves mix
+    intact, and changing the compressor leaves volume intact.</li>
+    <li>In <b>ENV mode</b>, all four faders keep their selected-step envelope controls; master effects are
+    not edited there.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ 11 -->
+<section id="voices">
+  <h2><span class="num">11</span>Voices &amp; the 29 Presets</h2>
+
+  <h3>11.1 The DSP chain</h3>
+  <div class="diagram">
+    <div class="flow">
+      <div class="node"><b>SOURCE</b>one of five engines</div><span class="arr">→</span>
+      <div class="node"><b>ADSR ENV</b>pre-filter VCA</div><span class="arr">→</span>
+      <div class="node"><b>OVERDRIVE</b>per-preset, optional</div><span class="arr">→</span>
+      <div class="node"><b>MAIN FILTER</b>ladder or SVF</div><span class="arr">→</span>
+      <div class="node"><b>HIGH-PASS</b>per preset</div><span class="arr">→</span>
+      <div class="node"><b>VOICE LEVEL</b>→ master bus</div>
+    </div>
+  </div>
+  <p>Each voice runs this chain at 48 kHz on the audio core. The <b>five source engines</b>, chosen by
+  the preset:</p>
+  <ul class="tight">
+    <li><b>Oscillator bank</b> — up to 3 oscillators: band-limited B-spline saw/pulse, band-limited
+    hard-sync saw (master/slave pair), sine, triangle, naive saw/square, or raw white noise; per-osc
+    detune (semitones) and harmony (scale steps).</li>
+    <li><b>Waveguide</b> — Karplus-Strong plucked string (T60 tail, brightness, pick position/hardness,
+    stiffness, two-string detune).</li>
+    <li><b>Noise-FX texture</b> — noise + pitch-tracked Lorenz chaos growl through a prime-tap diffuser
+    and a regenerative allpass swarm.</li>
+    <li><b>Hypersaw</b> — one native seven-voice detuned saw stack; detune and mix driven by the
+    re-purposed sequencer slots.</li>
+    <li><b>Recipe engine</b> — fixed-state modular rpdsp synthesis patches with up to three mapped timbre
+    controls (FM, phase distortion, DSF, formant synthesis, ring modulation, reversing sync, spectral and
+    chaotic prisms).</li>
+  </ul>
+  <p>Filter <b>mode</b> (LP24, LP12, BP24, BP12, HP24, HP12) and <b>resonance</b> are cycled/set from the
+  OLED Settings screen's voice-parameter page; envelope and overdrive can be switched off per voice there
+  too. A 24 dB multi-mode <b>ladder filter</b> (with drive and passband gain compensation) runs on the
+  character voices; a clean modulation-stable <b>state-variable filter</b> (LP/BP/HP) runs everywhere
+  else — including all three bass presets.</p>
+
+  <h3>11.2 The 29 factory presets</h3>
+  <p>The sound bank is held as <code>constexpr</code> tables in flash, all on <b>one browser page</b> in
+  Settings mode. Preset <i>n</i> sits on pad <i>n</i>−1. The "Timbre controls" column is what the
+  Filter / Attack / Decay lanes re-map to on that voice.</p>
+  <div class="tbl-wrap"><table>
+    <tr><th>Pad</th><th>Preset</th><th>Engine</th><th>Character</th><th>Timbre controls (Filter / Attack / Decay)</th></tr>
+    <tr><td>0</td><td><b>Analog</b></td><td>osc</td><td>Band-limited hard-sync saw (master/slave) through a 24 dB ladder filter</td><td>Cutoff / Attack / Decay (Velocity = Slave pitch)</td></tr>
+    <tr><td>1</td><td><b>Digital</b></td><td>osc</td><td>Dual band-limited square pair (near-unison detune), sharp 12 dB lowpass</td><td>Cutoff / Attack / Decay</td></tr>
+    <tr><td>2</td><td><b>Bass</b></td><td>osc</td><td>Sub-octave sine + triangle bass with subtle overdrive</td><td>Cutoff / Attack / Decay</td></tr>
+    <tr><td>3</td><td><b>Lead</b></td><td>osc</td><td>Dual-saw lead with a scale-harmony layer on the second oscillator</td><td>Cutoff / Attack / Decay</td></tr>
+    <tr><td>4</td><td><b>Square</b></td><td>osc</td><td>Narrow PWM pulse (20 % width) with resonant bite; no sustain</td><td>Cutoff / Attack / Decay</td></tr>
+    <tr><td>5</td><td><b>Pad</b></td><td>osc</td><td>Atmospheric 3-oscillator chord pad (harmonies 0/+4/+9), slow attack &amp; release</td><td>Cutoff / Attack / Decay</td></tr>
+    <tr><td>6</td><td><b>Percussion</b></td><td>osc</td><td>Fast-decaying noise-textured hit (no oscillators, pure noise burst)</td><td>Cutoff / Attack / Decay</td></tr>
+    <tr><td>7</td><td><b>SubFunk</b></td><td>osc</td><td>Sub-octave sine/triangle sub bass with warm overdrive grit</td><td>Cutoff / Attack / Decay</td></tr>
+    <tr><td>8</td><td><b>RubberSub</b></td><td>osc</td><td>Rubbery sub bass: sub-octave square under resonant BP honk, snappy drive</td><td>Cutoff / Attack / Decay</td></tr>
+    <tr><td>9</td><td><b>WgPluck</b></td><td>waveguide</td><td>Classic Karplus-Strong plucked string; bright burst, natural tail</td><td>Brightness / Pick hardness / T60 tail</td></tr>
+    <tr><td>10</td><td><b>WgNylon</b></td><td>waveguide</td><td>Dark, felt-soft nylon string; heavily damped, long sympathetic tail</td><td>Brightness / Pick hardness / T60 tail</td></tr>
+    <tr><td>11</td><td><b>WgBell</b></td><td>waveguide</td><td>Stiff dispersive waveguide; inharmonic bell/kalimba partials, quick tail</td><td>Brightness / Pick hardness / T60 tail</td></tr>
+    <tr><td>12</td><td><b>WgShimmer</b></td><td>waveguide</td><td>Wide-detuned two-string course; slow chorusing sustain, pad-like tail</td><td>Brightness / Pick hardness / T60 tail</td></tr>
+    <tr><td>13</td><td><b>Hypersaw</b></td><td>hypersaw</td><td>Native seven-voice saw stack; wide detune range, mild overdrive glue</td><td>Cutoff / Detune / Center-Side Mix</td></tr>
+    <tr><td>14</td><td><b>NoiseStorm</b></td><td>noise-FX</td><td>Noise + Lorenz chaos growl through prime-tap diffuser and allpass swarm</td><td>Swarm color / Swarm regen / Chaos level</td></tr>
+    <tr><td>15</td><td><b>FMGlass</b></td><td>recipe</td><td>2-operator FM glass chime: carrier/modulator with feedback</td><td>Index / Ratio / Feedback</td></tr>
+    <tr><td>16</td><td><b>FMBass</b></td><td>recipe</td><td>Punchy FM bass with tight transient snap and modulated body</td><td>Index / Ratio / Feedback</td></tr>
+    <tr><td>17</td><td><b>PhaseMorph</b></td><td>recipe</td><td>Phase-distortion morphing oscillator sweeping between waveshapes</td><td>Morph / Depth / Drive</td></tr>
+    <tr><td>18</td><td><b>Spectral</b></td><td>recipe</td><td>Spectral harmonic oscillator stack with animated formants</td><td>Shift / Spread / Focus</td></tr>
+    <tr><td>19</td><td><b>Prism</b></td><td>recipe</td><td>Dispersive multi-partial prism cluster with crystalline timbre</td><td>Spread / Damping / Color</td></tr>
+    <tr><td>20</td><td><b>ChaosPrism</b></td><td>recipe</td><td>Chaotic non-linear prism texture with pitch-tracked divergence</td><td>Chaos / Spread / Edge</td></tr>
+    <tr><td>21</td><td><b>VelvetKeys</b></td><td>recipe</td><td>Soft electric keys: dual <code>osc_fbfm</code> operators at 2:1, warm release</td><td>Index / Ratio / Feedback</td></tr>
+    <tr><td>22</td><td><b>CopperBass</b></td><td>recipe</td><td>Rounded DSF bass: harmonic spacing with a sub sine from <code>osc_pdmorph</code></td><td>Bright / Spacing / Sub</td></tr>
+    <tr><td>23</td><td><b>ReedPipe</b></td><td>recipe</td><td>Held acoustic reed tone: <code>osc_formant</code> bursts blended with sine fundamental</td><td>Formant / Bloom / Body</td></tr>
+    <tr><td>24</td><td><b>SilkPad</b></td><td>recipe</td><td>Slow orchestral swell: two detuned <code>osc_pdmorph</code> voices, 1.25 s release</td><td>Silk / Detune / Blend</td></tr>
+    <tr><td>25</td><td><b>HollowBell</b></td><td>recipe</td><td>Hollow metallic bell: dual <code>osc_pdmorph</code> ring-modulated at 2:1, zero sustain</td><td>Ratio / Edge / Ring</td></tr>
+    <tr><td>26</td><td><b>SyncLead</b></td><td>recipe</td><td>Aggressive sync lead: <code>osc_revsync</code> blended with pitched <code>osc_pdmorph</code> body</td><td>Sync / Edge / Bite</td></tr>
+    <tr><td>27</td><td><b>OrbitPluck</b></td><td>recipe</td><td>Metallic pluck: sine-modulated <code>osc_tzfm</code> with clean fundamental body</td><td>Index / Ratio / Body</td></tr>
+    <tr><td>28</td><td><b>AirChime</b></td><td>recipe</td><td>Ethereal harmonic chime: <code>osc_prism</code> blended with octave sine, slow decay</td><td>Focus / Spread / OctMix</td></tr>
+  </table></div>
+
+  <h3>11.3 The preset browser <span class="muted small">("Sound Buffet")</span></h3>
+  <ul class="tight">
+    <li><b>Open it:</b> stop the transport, or long-press Play to toggle it without stopping. Closing it:
+    press Play (or start the transport).</li>
+    <li><b>Apply a preset:</b> touch pads 0–28 to instantly assign that preset to the active voice.
+    There are no pages. Pad applies are staged and click-safe while running.</li>
+    <li><b>Switch the target voice:</b> press SliderModule <kbd>V1</kbd>–<kbd>V4</kbd>. Pads never change
+    the voice while Settings is open.</li>
+    <li><b>Voice-parameter toggles:</b> pressing the encoder button toggles the Settings screen between
+    the preset browser and the voice-parameter page (envelope on/off, overdrive on/off, filter mode,
+    filter resonance).</li>
+    <li>Loading a preset replaces the voice's edit bases without reseeding the sequencer lanes.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ 12 -->
+<section id="voiceedit">
+  <h2><span class="num">12</span>Voice Editing Mode</h2>
+  <p class="lead">Hold <kbd>Shift</kbd>, press <kbd>V4</kbd>, then release both. All four sequencers stop
+  and audio is muted. This mode edits the <b>actual sound</b> — every numeric setting has a per-voice
+  <b>base</b> (the patch value) that the encoder changes directly, independent of any sequenced lane.</p>
+
+  <h3>12.1 Controls</h3>
+  <p>Slider buttons 1–4 select the voice being edited (each voice remembers its parameter cursor). The
+  button tile navigates:</p>
+  <div class="tbl-wrap"><table>
+    <tr><th>Button tile</th><th>Action</th></tr>
+    <tr><td><b>1 / 2</b></td><td>Previous / next parameter <b>group</b></td></tr>
+    <tr><td><b>3 / 4</b></td><td>Previous / next <b>parameter</b> within the group</td></tr>
+    <tr><td><b>5</b>, held</td><td>Fine encoder adjustment</td></tr>
+    <tr><td><b>6</b>, held 700 ms</td><td>Reset the selected base to the loaded preset's value</td></tr>
+    <tr><td><b>7</b></td><td>Toggle the control guide</td></tr>
+    <tr><td><b>8</b></td><td>Exit — retaining edits and leaving the transport stopped (press Play to resume)</td></tr>
+  </table></div>
+  <p>Groups and parameters are filtered by the active engine and enabled processors, so you only see what
+  applies. During Voice Edit, faders, the lidar, touch pads, transport chords and the GP7 mode switch do
+  not change the patch or sequence. A tap of <kbd>Shift</kbd>+<kbd>V4</kbd> (without the hold) is what
+  enters — a 400 ms hold toggles Arpeggiator mode instead (§13.2).</p>
+
+  <h3>12.2 Patch values and step values</h3>
+  <ul class="tight">
+    <li>The encoder edits these requested values <b>including outside the editor</b> when a sequenced
+    parameter is selected. With a step selected for editing, it edits that step's value instead. The
+    faders never edit patch values.</li>
+    <li><b>Absolute lanes</b> (Velocity, Filter, Attack, Decay, Sustain, Release): a step holds its own
+    0–1 value or follows the patch. The lidar, the encoder in Step Edit and the ENV-mode faders all write
+    absolute values. <kbd>Shift</kbd> + ENV fader move, Shift+pad clear and Shift+Randomize return steps
+    to the patch value.</li>
+    <li><b>Offset lanes</b> (Note, Octave, GateLength) stay offsets on top of the patch: Note clamps
+    <code>recordedScaleStep + baseNote</code> to 0–36, so the whole recording range writes a melody even
+    with the default zero transpose.</li>
+    <li><b>Live edits refresh the sounding note in place</b> — they never retrigger it. Cutoff, velocity
+    and pitch apply at once; envelope stages land when the current stage ends or at the next note-on.</li>
+    <li>Randomization spreads absolute lanes around each voice's patch value and keeps randomized attacks
+    short enough that a short gate on a sustain-0 voice stays audible.</li>
+  </ul>
+
+  <h3>12.3 Readouts</h3>
+  <ul class="tight">
+    <li>The step OLED and normal encoder screen show <b>composed playback values</b> — after preset
+    bases, clamping, quantization and engine-specific mapping: the value the voice actually plays. For
+    1.5 s after an encoder turn they show the edited <b>base</b> instead (<code>Base</code> /
+    <code>BASE</code>).</li>
+    <li>Note displays note names and octaves, including oscillator harmonies/detuning (Bass starts at
+    <code>C2/C3</code>); unpitched percussion reads <code>Noise</code>. Envelope and gate durations use
+    ms/s, cutoff uses Hz, octave uses signed octaves, FM/spacing use ratios. <code>REST</code>
+    distinguishes a stored target on an inactive step from a new sounding note.</li>
+    <li>The preset name stays in the header while editing; <code>*</code> marks changes to the loaded
+    preset. Selecting hard-sync waveforms re-maps the Velocity lane to Slave tuning; SVF offers LP/BP/HP,
+    ladder filters offer the six native responses.</li>
+  </ul>
+
+  <h3>12.4 Parameter coverage</h3>
+  <p>The catalogue covers sequenced bases; engine and recipe selection; oscillator count and each
+  oscillator's waveform, level, tuning, pulse width and harmony; ADSR; main-filter topology, response,
+  cutoff, resonance, drive, compensation and envelope amount/floor; high-pass cutoff/resonance;
+  overdrive; glide; voice enable and output level; all waveguide, Hypersaw and Noise-FX settings; recipe
+  macros and additional FM feedback, triangle drive, spectral sub-source ratio/shape, and Prism
+  chaos/reset-on-gate controls. Unsupported or inactive settings are hidden. Oscillator phases, random
+  seeds, buffer sizes and DSP callback pointers are engine implementation state, not editable patch
+  values.</p>
+  <div class="tip"><b>Persistence:</b> patches persist across power cycles — every session save captures
+  the live <code>VoiceConfig</code> control copy per voice, and each boot restores it. Loading a factory
+  preset still replaces the bases; saved patches ride in the session snapshot, not the preset bank.
+  Edits not saved with the session are lost at power-off.</div>
+</section>
+
+<!-- ============================================================ 13 -->
+<section id="arp">
+  <h2><span class="num">13</span>Arpeggiator Mode</h2>
+  <p class="lead"><b>Arpeggiator mode turns the whole performance surface into a chord arpeggiator.</b>
+  The 32 touch pads become a scale-degree keyboard, the LED panel becomes the chord map, the four faders
+  set range / gate / swing / tone, the dial sets the rate, the distance sensor sets note dynamics, and
+  the twelve buttons switch patterns, latch the chord and drive the transport. Hold Shift to reveal
+  rhythm presets and four rhythm faders; Shift + dial changes tempo.</p>
+  <div class="warn">It is a <b>mode</b>, not a second sequencer: while it is on, the four step sequencers
+  do <b>not</b> advance, and the pads neither toggle steps nor open the Step Edit pages. Everything the
+  sequencer keeps — 4 voices, 29 presets, the scale table, the session snapshot, transport, LED themes —
+  is <b>shared</b> with it. Each voice still sounds through its own patch, and Chord pattern spreads a
+  chord over the voices.</div>
+
+  <h3>13.1 First minute with the arp</h3>
+  <ol class="tight">
+    <li><b>Shift + hold Voice 4</b> enters ARP. Release Shift.</li>
+    <li>Touch three pads — for example the first, third and fifth in Major. Press <b>Latch</b> before
+    lifting your fingers if you want the chord to keep going.</li>
+    <li>Tap <b>Play</b> (or Shift + Voice 1). Turn the dial for rate; try the six pattern buttons. Voice
+    buttons select the patch you play through.</li>
+    <li>Hold <b>Shift</b>, then press the third pattern button for <b>Tresillo</b>. The strip shows three
+    hits spaced across eight steps. Release Shift.</li>
+    <li>Hold Shift and move fader 3 to slide those hits around the beat. Move fader 4 to make the first
+    hit stand out. Shift + dial adjusts tempo.</li>
+  </ol>
+  <p>Touch a new chord after lifting all fingers to replace a latched chord. <b>Shift + Latch
+  restarts</b> the walk in either panel position. A short Play tap stops without hiding the arp screen;
+  <b>hold Play</b> opens/closes the sound browser.</p>
+
+  <h3>13.2 Entering and leaving</h3>
+  <ul class="tight">
+    <li><b>Shift + hold Voice 4</b> (the fourth SliderModule button) for <b>400 ms</b> toggles the mode,
+    in either direction. A <b>tap</b> on that same combination still opens Voice Editing mode — the press
+    defers its action until release or hold, the same rule the Play button uses for its tap-vs-hold.</li>
+    <li>The OLED shows <code>ARP ON</code> / <code>ARP OFF</code> with a subtitle for 800 ms; the serial
+    log prints <code>[ARP] mode on</code> plus the current settings.</li>
+    <li>Both edges <b>reset the performance state</b>: chord, latch, octave walk and step counter are
+    dropped (settings are kept), the sequencers' note tracking is ended and all four voices are gated
+    off, so nothing bleeds across the switch.</li>
+    <li><b>Leaving the mode restarts the sequencers</b> if the clock is still running, so a mode flip
+    during playback cannot leave them silent.</li>
+    <li>Settings survive on purpose — they describe how the player wants the arp to behave, not one
+    performance. But the mode itself is <b>not persisted</b> (§13.14).</li>
+  </ul>
+
+  <h3>13.3 The pads are scale-degree positions</h3>
+  <p>Pad index is a physical position on the 8×4 panel. For a <b>seven-note scale</b>, each row is one
+  octave: columns 0–6 are the seven scale degrees and column 7 is the next octave's root. The first pad
+  of the next row <b>repeats</b> the last pad of the preceding row, so the panel shows four octave rows
+  with intentional root overlaps. For example, in Major, pad 0 is C, pads 1–6 are D–B, pad 7 is the
+  following C, and pad 8 is that same C. Other scale families keep the linear 32-position ladder until a
+  layout rule is defined for them.</p>
+
+  <div class="diagram">
+    <div class="padgrid" aria-hidden="true">
+      <div class="pad root">C<span class="pd">pad 0</span></div><div class="pad">D<span class="pd">1</span></div><div class="pad">E<span class="pd">2</span></div><div class="pad">F<span class="pd">3</span></div><div class="pad">G<span class="pd">4</span></div><div class="pad">A<span class="pd">5</span></div><div class="pad">B<span class="pd">6</span></div><div class="pad rootov">C↑<span class="pd">7 = 8</span></div>
+      <div class="pad root">C<span class="pd">pad 8</span></div><div class="pad">D<span class="pd">9</span></div><div class="pad">E<span class="pd">10</span></div><div class="pad">F<span class="pd">11</span></div><div class="pad">G<span class="pd">12</span></div><div class="pad">A<span class="pd">13</span></div><div class="pad">B<span class="pd">14</span></div><div class="pad rootov">C↑<span class="pd">15 = 16</span></div>
+      <div class="pad root">C<span class="pd">pad 16</span></div><div class="pad">D<span class="pd">17</span></div><div class="pad">E<span class="pd">18</span></div><div class="pad">F<span class="pd">19</span></div><div class="pad">G<span class="pd">20</span></div><div class="pad">A<span class="pd">21</span></div><div class="pad">B<span class="pd">22</span></div><div class="pad rootov">C↑<span class="pd">23 = 24</span></div>
+      <div class="pad root">C<span class="pd">pad 24</span></div><div class="pad">D<span class="pd">25</span></div><div class="pad">E<span class="pd">26</span></div><div class="pad">F<span class="pd">27</span></div><div class="pad">G<span class="pd">28</span></div><div class="pad">A<span class="pd">29</span></div><div class="pad">B<span class="pd">30</span></div><div class="pad rootov">C↑<span class="pd">31</span></div>
+    </div>
+    <div class="legend">
+      <span><i style="background:#241d12;border:1px solid #4a3b22"></i>scale root</span>
+      <span><i style="background:#182230;border:1px solid #2c3a4c"></i>scale degree</span>
+      <span><i style="background:#2e2313;border:1px solid #7a5a2e"></i>root overlap: last column of a row = first pad of the next</span>
+      <span>Shown in Major — the same geometry holds for every seven-note scale.</span>
+    </div>
+  </div>
+
+  <p><b>Multi-touch chord entry is the whole pad vocabulary</b> in this mode: touching a pad adds its
+  degree to the chord, releasing it drops it again. There is no step selection, no long-press-to-edit and
+  no Shift+pad clearing.</p>
+
+  <h4>Latch</h4>
+  <p><b>Latch</b> (Param panel bit 6, or Utility panel bit 5) keeps the notes of a chord after the fingers
+  leave. With Latch on and nothing held, the <i>next</i> press starts a <b>new chord</b> — the classic
+  latch gesture, so a latched chord is replaced just by playing the next one. Turning Latch off lets the
+  latched notes go and keeps whatever is still under a finger.</p>
+
+  <h3>13.4 <span class="pill p">PARAM</span> panel — patterns</h3>
+  <div class="tbl-wrap"><table>
+    <tr><th>Bit</th><th>Control</th><th>Effect</th></tr>
+    <tr><td>0</td><td><b>Up</b></td><td>Low to high, climbing the octave range after the whole chord.</td></tr>
+    <tr><td>1</td><td><b>Down</b></td><td>High to low.</td></tr>
+    <tr><td>2</td><td><b>Up-Dn</b></td><td>Up then down without repeating the turning points.</td></tr>
+    <tr><td>3</td><td><b>Rnd</b></td><td>Uniform random over the chord-and-octave list.</td></tr>
+    <tr><td>4</td><td><b>Order</b></td><td>As played (press order), also through the octave range.</td></tr>
+    <tr><td>5</td><td><b>Chord</b></td><td>Up to four chord notes at once, one per voice; the range steps up once per chord.</td></tr>
+    <tr><td>6</td><td><b>Latch</b></td><td>Toggle: hold the chord after release; Shift + tap restarts.</td></tr>
+    <tr><td>7</td><td><b>Shift</b></td><td>Level, as everywhere else.</td></tr>
+  </table></div>
+  <p>Patterns are a single-select group, not latchable holds: the arp stays in the pattern you last
+  pressed. Changing pattern <b>keeps the walk's phase</b>, so flipping patterns mid-performance does not
+  lose the beat.</p>
+
+  <h3>13.5 Shift + pattern buttons — rhythm starting points</h3>
+  <p>The OLED numbers these six buttons <b>1 through 6</b>, left to right in the same order as Up, Down,
+  Up-Dn, Rnd, Order, Chord. These choices change <b>rhythm</b> without changing the note pattern, chord,
+  rate, swing or accent.</p>
+  <div class="tbl-wrap"><table>
+    <tr><th>Button</th><th>Rhythm</th><th>Hits / steps</th><th>Try it with</th></tr>
+    <tr><td>1</td><td><b>All</b></td><td>8 / 8</td><td>The original continuous arpeggio</td></tr>
+    <tr><td>2</td><td><b>Pulse</b></td><td>4 / 8</td><td>Chord for repeated stabs</td></tr>
+    <tr><td>3</td><td><b>Tresillo</b></td><td>3 / 8</td><td>Up-Dn for a bouncing phrase</td></tr>
+    <tr><td>4</td><td><b>Five</b></td><td>5 / 8</td><td>Order for a broken melody</td></tr>
+    <tr><td>5</td><td><b>Orbit</b></td><td>5 / 12</td><td>Three held notes, then change the octave range</td></tr>
+    <tr><td>6</td><td><b>Seven</b></td><td>7 / 16</td><td>Rnd for sparse, shifting lines</td></tr>
+  </table></div>
+  <ul class="tight">
+    <li>Hits are spaced as evenly as possible. On the OLED strip, bright cells are hits and dots are
+    rests; the underline follows <b>every step</b>, including rests.</li>
+    <li>The note walk keeps moving through rests, so changing density can reveal different notes in the
+    same chord.</li>
+    <li>Rhythm length is independent of chord size and octave range. Edits keep the pending interval and
+    gate intact. Restart explicitly (Shift + Latch) when you want the next clock pulse to begin again at
+    step 1.</li>
+  </ul>
+
+  <h3>13.6 <span class="pill u">UTILITY</span> panel</h3>
+  <p>Play/Stop, Session and Theme keep their positions because they mean the same thing in both modes;
+  the step-only slots become arp functions.</p>
+  <div class="tbl-wrap"><table>
+    <tr><th>Bit</th><th>Control</th><th>Effect</th></tr>
+    <tr><td>0</td><td><b>Play / Stop</b></td><td>Tap starts/stops while keeping the arp page; hold toggles the preset browser.</td></tr>
+    <tr><td>1</td><td><b>Session</b></td><td>Tap saves, hold loads the flash session — the <i>session</i> (voices, presets, patterns), not the arp.</td></tr>
+    <tr><td>2</td><td><b>Scale</b></td><td>Cycle the 13 scales the arp plays.</td></tr>
+    <tr><td>3</td><td><b>Octaves</b></td><td>Cycle the octave range 1 → 2 → 3 → 4 → 1.</td></tr>
+    <tr><td>4</td><td><b>Theme</b></td><td>Cycle the 10 LED themes.</td></tr>
+    <tr><td>5</td><td><b>Latch</b></td><td>Same toggle as the Param panel, so latching needs no strap change; Shift + tap re-syncs the walk to the chord root.</td></tr>
+    <tr><td>6</td><td><b>Chord</b></td><td>Tap draws a random four-note chord (and engages Latch so it keeps playing); Shift + tap clears the chord.</td></tr>
+    <tr><td>7</td><td><b>Shift</b></td><td>Level.</td></tr>
+  </table></div>
+
+  <h3>13.7 Voice buttons <span class="muted small">(SliderModule, both panel positions)</span></h3>
+  <p>A tap selects the voice the arp plays through — the same direct voice select as the sequencer uses,
+  so the arp inherits whatever patch that voice holds. Shift + tap gives the transport chords
+  (Play/Stop, Randomize voice, Scale), and Shift + hold Voice 4 toggles the mode.</p>
+
+  <h3>13.8 Faders</h3>
+  <div class="tbl-wrap"><table>
+    <tr><th>Fader</th><th>Default layer</th><th>Range</th></tr>
+    <tr><td><b>1</b></td><td><b>Octaves</b></td><td>Arp range 1–4 octaves, quantized from the fader position</td></tr>
+    <tr><td><b>2</b></td><td><b>Gate</b></td><td>Note length 5–95 % of the interval</td></tr>
+    <tr><td><b>3</b></td><td><b>Swing</b></td><td>0 to half an interval on every second gap</td></tr>
+    <tr><td><b>4</b></td><td><b>Filter</b></td><td>Per-note filter lane, composed with each voice's patch</td></tr>
+  </table></div>
+  <p>Hold <b>Shift</b> to use the second fader layer (in either panel position):</p>
+  <div class="tbl-wrap"><table>
+    <tr><th>Fader</th><th>Shift layer</th><th>What it does</th></tr>
+    <tr><td><b>1</b></td><td><b>Hits</b></td><td>0..Length hits, spaced evenly; zero intentionally makes silence</td></tr>
+    <tr><td><b>2</b></td><td><b>Length</b></td><td>1–16 steps; reducing length also caps Hits and wraps Rotate</td></tr>
+    <tr><td><b>3</b></td><td><b>Rotate</b></td><td>Moves the rhythm right by 0..Length−1 steps</td></tr>
+    <tr><td><b>4</b></td><td><b>Accent</b></td><td>First rotated hit stays full; other hits soften from 1.00× to 0.25×</td></tr>
+  </table></div>
+  <ul class="tight">
+    <li><b>Accent</b> multiplies hand dynamics and patch velocity; it never boosts above the patch's
+    level. At zero accent all hits have equal weight.</li>
+    <li>Moving a fader shows its name and value for 1.4 s without hiding the rhythm strip or preset.
+    Gate displays milliseconds (a short-to-long range when swung), Swing shows the long:short timing
+    ratio, and Filter uses the patch's actual mapped unit.</li>
+    <li>Faders <b>re-arm</b> on voice/mode changes, both Shift edges, rhythm preset selection and
+    octave-button changes. Move from the resting position to engage; no pickup against a saved value is
+    required.</li>
+  </ul>
+
+  <h3>13.9 Encoder <span class="muted small">(TMAG5273)</span></h3>
+  <p>Turn = <b>rate</b>: 1/4, 1/4T, 1/8, 1/8T, 1/16, 1/16T, 1/32, 1/32T — one detent per division. Slow
+  turns accumulate until a detent is reached, and reversing direction answers immediately instead of
+  unwinding motion from the other way. The TMAG5273 board has no switch on this rig, so the mode uses the
+  dial only; re-sync lives on Shift + Latch in either panel position.</p>
+  <p><b>Shift + turn = tempo</b>, 45–200 BPM, in one-BPM detents. Motion left over from Rate never
+  carries into Tempo or back. The voice editor keeps ownership of the dial when open.</p>
+
+  <h3>13.10 Distance sensor — dynamics</h3>
+  <p>Hand height inside the 55–700 mm window scales the <b>velocity</b> of every note the arp starts:
+  from a quarter of the patch's velocity with the hand close to the sensor, up to the full patch value
+  with the hand raised. With <b>no hand in range nothing is attenuated</b>, so a chord left alone sounds
+  as the preset was designed. The LED panel brightens each sounding note using its captured dynamics and
+  accent together. Moving the hand changes subsequent notes.</p>
+  <p>In this mode the sensor <b>never records into steps</b> — there are no steps to write.</p>
+
+  <h3>13.11 The arp OLED page</h3>
+  <p>The 128×64 play page uses eight fixed rows, with no scrolling or auto paging. Holding Shift reveals
+  the six rhythm choices (Param panel), the Shift-fader assignments and the tempo-dial hint; the Utility
+  side shows Restart/Clear instead. On-screen button numbers are one-based; the hardware tables above use
+  zero-based bits. Control feedback replaces only the middle three rows.</p>
+  <div class="tbl-wrap"><table>
+    <tr><th>Row</th><th>Content</th></tr>
+    <tr><td>1</td><td>ARP, running/stopped, selected voice, rate, HOLD or LIVE</td></tr>
+    <tr><td>2</td><td>Persistent preset name in a bright band</td></tr>
+    <tr><td>3</td><td>Note pattern, octave range, scale</td></tr>
+    <tr><td>4</td><td>KEYS: scale-key names, or a touch-pads prompt; <code>+N</code> counts omitted keys</td></tr>
+    <tr><td>5</td><td>Hits/length, rhythm name (<code>Custom</code> after edits), tempo</td></tr>
+    <tr><td>6</td><td>Hit/rest strip and current-step underline</td></tr>
+    <tr><td>7</td><td>Gate duration in ms and swing ratio</td></tr>
+    <tr><td>8</td><td>Last composed pitch of the primary arp voice and Shift hint; Play help when stopped</td></tr>
+  </table></div>
+  <p>KEYS names describe the pad ladder. Last pitch is captured when the primary arp voice receives a
+  note, including its patch harmonies/detuning; Chord mode also plays the other voices. <code>~</code>
+  marks clipped long text. The stopped page has no moving playhead. The preset browser still takes
+  priority when opened.</p>
+
+  <h3>13.12 The LED panel is the chord map</h3>
+  <p>The 8×4 panel mirrors the touch pads, so each LED is one physical scale position. For seven-note
+  scales the first/last column of each row and the row-boundary pads are the same octave-root relationship
+  described in §13.3.</p>
+  <div class="tbl-wrap"><table>
+    <tr><th>State</th><th>Colour</th></tr>
+    <tr><td>Finger on the pad</td><td>The arp voice's gate-on hue for the current theme</td></tr>
+    <tr><td>Latched, finger off</td><td>The same hue at gate-off brightness</td></tr>
+    <tr><td>Sounding now</td><td>Hue pushed toward the theme's playhead accent — harder for higher octaves of the range — scaled by captured lidar dynamics and accent</td></tr>
+    <tr><td>Free</td><td>A quiet one-eighth shade of the selected voice hue; scale roots use a distinct half-strength shade</td></tr>
+    <tr><td>No chord held</td><td>The same root/free shades remain visible, so the scale ladder is ready for chord entry</td></tr>
+  </table></div>
+
+  <h3>13.13 Under the hood <span class="muted small">(for the curious)</span></h3>
+  <ul class="tight">
+    <li>The arp is driven by uClock's <b>480 PPQN</b> output-pulse ticks — the same counter the sequencer
+    drains for note-offs — so every rate lines up with the transport grid instead of drifting against it.
+    Swing delays every second gap and shortens its partner by the same amount, so a pair still lasts two
+    intervals and no drift accumulates.</li>
+    <li>The engine reports note starts/stops by <b>slot</b> (0–3); slot 0 maps to the selected voice and
+    slots 1–3 to the remaining voices in index order, so Chord pattern sounds on up to four different
+    patches. The slot→voice memory survives voice changes until each gate closes.</li>
+    <li>Notes start from each patch's own base: engine, envelope and levels come from the voice's patch;
+    the arp overrides only pitch, its octave of range, the dynamics velocity and the filter fader.
+    Envelope retrigger uses the same event the step sequencer publishes — no DSP path is special-cased.</li>
+    <li>Hard rules: <b>a release always reaches the chord</b> (modal states that swallow edges call
+    <code>releaseAllHeldPads()</code>, which drops held pads and keeps latched ones); <b>a gate always
+    stops before the next note on the same tick</b>, so a mono pattern retriggers from silence instead of
+    gliding; <b>an empty chord leaves rests</b>, not a rhythm that stops and restarts out of time.</li>
+  </ul>
+
+  <h3>13.14 Defaults &amp; persistence</h3>
+  <div class="card red">
+    <b>The mode and its settings are runtime state.</b> The session snapshot is untouched, so a power
+    cycle boots into the step sequencer with the arp at its defaults: <b>Up</b> pattern, <b>1/16</b>
+    rate, <b>1</b> octave, <b>50 %</b> gate, no swing, filter 0.5, rhythm <b>All 8/8</b>, rotation 0,
+    accent off. Session load/save in this mode still saves and restores the <i>session</i> — voices,
+    presets and patterns — it just does not carry the arp.
+  </div>
+  <div class="tip"><b>Checking it on hardware:</b> host tests prove the logic; they cannot prove the
+  sound. Bench-check a held chord against the transport, rate changes while running, latch on/off,
+  Chord pattern across four voices, the lidar dynamics, and that leaving the mode returns the pads and
+  the sequencer intact.</div>
+</section>
+
+<!-- ============================================================ 14 -->
+<section id="persistence">
+  <h2><span class="num">14</span>Sessions &amp; Persistence</h2>
+  <ul class="tight">
+    <li><b>Save:</b> <span class="pill u">UTILITY</span> button 2 <b>tap</b> writes everything to flash;
+    the transport pauses ~0.5 s for the write, then resumes. OLED: <code>SAVED</code>.</li>
+    <li><b>Load:</b> button 2 <b>long-press</b> (≥ 0.4 s) reloads the last saved session.
+    OLED: <code>LOADED</code> / <code>LOAD ERR</code>.</li>
+    <li><b>Autosave:</b> edits are also saved automatically about a second after you press Stop (only if
+    something changed).</li>
+    <li><b>Watchdog recovery:</b> after a watchdog freeze the unit restores the live session by itself —
+    no power-cycle needed.</li>
+  </ul>
+  <h3>14.1 What gets saved</h3>
+  <ul class="tight">
+    <li>All four voices' patterns — every parameter lane, including polymetric lengths.</li>
+    <li>Each voice's patch: preset + all Voice Edit adjustments (the live <code>VoiceConfig</code>
+    control copy).</li>
+    <li>Tempo, master volume, scale, shuffle template, LED theme, selected voice, and the recorded
+    encoder-modifier state.</li>
+  </ul>
+  <h3>14.2 What is <i>not</i> saved</h3>
+  <ul class="tight">
+    <li>Delay controls — reboot restores mix 0, time 300 ms, feedback 85 %.</li>
+    <li>Compressor macro — resets to 50 % on reboot.</li>
+    <li><b>Arpeggiator mode and its settings</b> — the arp is runtime state (§13.14).</li>
+  </ul>
+  <p>Everything you program survives power-off.</p>
+</section>
+
+<!-- ============================================================ 15 -->
+<section id="connectivity">
+  <h2><span class="num">15</span>Connectivity &amp; Clock</h2>
+  <h3>15.1 No MIDI</h3>
+  <p>Pico2Seq does <b>not</b> transmit or receive any MIDI. The USB port enumerates as a CDC serial device
+  (Adafruit TinyUSB stack) and carries power plus the 115200-baud diagnostics console only. There is no
+  CC output, no MIDI clock, and no MIDI-in feature.</p>
+  <h3>15.2 Clock &amp; timing internals</h3>
+  <p>uClock runs at <b>480 PPQN</b> (120 ticks per 16th-note step); each 16th note advances all four
+  sequencers, ticks gate timers and drives the internal note lifecycle. Default tempo 90 BPM, range
+  45–200. The uClock timer ISR fires on core 0 (the control core), which is why audio synthesis lives
+  entirely on core 1.</p>
+  <h3>15.3 Dual-core split</h3>
+  <div class="tbl-wrap"><table>
+    <tr><th>Core 0 — control</th><th>Core 1 — audio</th></tr>
+    <tr><td>1 ms sensor poll (encoder, lidar) · MPR121 32-pad scan · Alchemy tile polling (I²C1) ·
+    50 Hz OLED &amp; LED updates · uClock step ticking &amp; PPQN gate drains · USB CDC console</td>
+    <td>48 kHz <code>VoiceManager::processBlock()</code> · 4-voice synthesis chain ·
+    <code>FloatToPcm16()</code> · non-blocking I2S DMA. Never allocates heap, never blocks on I²C,
+    never touches USB.</td></tr>
+  </table></div>
+  <p>Core 0 stages parameter changes through atomic generation counters and lock-free SPSC queues, so the
+  audio core never sees a half-written config.</p>
+  <h3>15.4 Gate I/O</h3>
+  <p>There is no hardware gate input or output in the current firmware, and with USB MIDI gone there is
+  no built-in way to gate external gear. The panel's "Gate Input" label is a leftover from the hardware
+  design <span class="unverified">[unverified]</span>.</p>
+</section>
+
+<!-- ============================================================ 16 -->
+<section id="troubleshooting">
+  <h2><span class="num">16</span>Troubleshooting &amp; Gotchas</h2>
+
+  <h3>16.1 Behavioral gotchas (by design, verified in code)</h3>
+  <div class="tbl-wrap"><table>
+    <tr><th>Symptom</th><th>Explanation</th></tr>
+    <tr><td>Can't program a pitch into a step</td><td>Note edits (sensor, encoder step edit) are <b>rejected on gate-off steps</b>. Toggle the step on first.</td></tr>
+    <tr><td>Lidar or fader seems to record nowhere</td><td>The OLED ENV page (Attack/Decay/Sustain/Release rows) means a step is in Step Edit, so recording goes to that step only. Long-press the same pad again (or tap any pad) to leave Step Edit.</td></tr>
+    <tr><td>Pad does something unexpected</td><td>Check the context: a held parameter button turns pad presses into track-length setting; Gate Length mode turns them into Gate length; Shift turns them into clear-step. All pads are step pads — there is no pad "menu".</td></tr>
+    <tr><td>Stopping the transport opens the preset browser</td><td>Intentional (and a Play long-press toggles it without stopping). Press Play to leave it.</td></tr>
+    <tr><td>ToF recorded value stuck at one end</td><td>The raw distance is rebased by 55 mm and normalized over the 645 mm span, so the nearest usable position (55 mm) records the bottom of the range and 700 mm the top. Readings more than 40 mm outside the window count as no hand and pause recording.</td></tr>
+    <tr><td>A voice goes silent on some steps</td><td>Check those steps' Attack and Decay on the ENV page. A voice with sustain 0 (Square, Percussion) ends at the attack peak, so a very short decay or an attack longer than the gate barely sounds. Shift + move the fader to return the lane to the patch value.</td></tr>
+    <tr><td>Fader "jumps" when it takes over</td><td>After a mode flip, voice change, Shift edge, or entering/leaving Step Edit, a fader does nothing until it moves a small dead-zone of travel; the value then jumps to where the fader is.</td></tr>
+    <tr><td>No sound after editing</td><td>Voice Editing mode leaves the transport stopped when you exit — press Play to resume.</td></tr>
+    <tr><td>Voice numbers look off</td><td>The OLED shows 0-based <code>Voice: 0</code>–<code>Voice: 3</code>; the voice buttons and this manual say V1–V4 for the same voices.</td></tr>
+    <tr><td>Arp settings vanished after power cycle</td><td>By design: the arp is runtime state and boots at its defaults (§13.14). Sessions save/load the step-sequencer session only.</td></tr>
+  </table></div>
+
+  <h3>16.2 Hardware checks</h3>
+  <div class="tbl-wrap"><table>
+    <tr><th>Symptom</th><th>Check</th></tr>
+    <tr><td>MPR121 pads unresponsive (I²C <code>0x5A</code>)</td><td>GP4/GP5 wiring and the address jumper; avoid touching pads during boot.</td></tr>
+    <tr><td>TMAG5273 not detected (I²C <code>0x35</code>)</td><td>3.3 V, pull-ups, and that the diametric magnet sits on-axis ~1–3 mm above the sensor. Erratic readings = off-axis magnet.</td></tr>
+    <tr><td>VL53L1X init fails (I²C <code>0x29</code>)</td><td>Bus wiring and the 50 ms stabilization delay.</td></tr>
+    <tr><td>OLED blank (I²C <code>0x3C</code>)</td><td><code>Wire</code> (GP4/GP5) shared bus.</td></tr>
+    <tr><td>Audio distortion / clicks</td><td>The output is a mono mix duplicated to both I²S channels at 48 kHz; excessive per-voice overdrive + preset output levels can clip the 16-bit converter.</td></tr>
+    <tr><td>LED matrix dim / flickering</td><td>The 8×4 WS2812B matrix on GP1 wants a 5 V rail capable of ~1.5 A for full white; firmware caps brightness at 120/255.</td></tr>
+    <tr><td>Distance sensor dead / jittery</td><td>It is used across 55–700 mm only. Bright sunlight or the LED matrix at full brightness can cause optical jitter. The <code>[DIAG C0]</code> serial line reports <code>lidar=&lt;mm&gt; st=&lt;status&gt;</code> every 2 s.</td></tr>
+  </table></div>
+</section>
+
+<!-- ============================================================ 17 -->
+<section id="glossary">
+  <h2><span class="num">17</span>Glossary</h2>
+  <div class="tbl-wrap"><table>
+    <tr><th>Term</th><th>Meaning</th></tr>
+    <tr><td><b>Absolute lane</b></td><td>A parameter track (Velocity, Filter, Attack, Decay, Sustain, Release) whose steps store their own 0–1 value, or the follow-the-patch sentinel.</td></tr>
+    <tr><td><b>Bank</b></td><td>One of the two 16-pad halves of the touch grid; banks map to the selected voice pair.</td></tr>
+    <tr><td><b>Base + modifier</b></td><td>Parameters combine a per-voice base value (encoder/voice-edit) with sequenced or recorded values on top.</td></tr>
+    <tr><td><b>ENV mode</b></td><td>Step Edit's fader layout: faders 1–4 edit the selected step's Attack / Decay / Sustain / Release (strings: Pick / T60 / Position / Stiffness).</td></tr>
+    <tr><td><b>Follows the patch</b></td><td>A step with no value of its own on an absolute lane; it plays the voice's preset/base value.</td></tr>
+    <tr><td><b>Gate</b></td><td>The on/off trigger state of a step; also the Gate track whose length defines the voice's whole pattern length.</td></tr>
+    <tr><td><b>GateLength</b></td><td>Fraction of a 16th-note step a note is held (10–100 %).</td></tr>
+    <tr><td><b>Latch (Shift latch)</b></td><td>Shift + parameter tap keeps the parameter "held" without finger contact; one latch at a time. In ARP mode, Latch holds the chord after release.</td></tr>
+    <tr><td><b>Offset lane</b></td><td>Note, Octave and GateLength: recorded values are offsets on top of the patch (recorded scale steps + base note, etc.).</td></tr>
+    <tr><td><b>Pad-mirror</b></td><td>The LED matrix displays exactly the touch grid's (band, step) positions.</td></tr>
+    <tr><td><b>Param / Utility mode</b></td><td>The GP7 mode switch's two button function sets on the 8-button tile.</td></tr>
+    <tr><td><b>Polymetric / polymeter</b></td><td>Parameter tracks of different lengths cycling against each other on the same voice.</td></tr>
+    <tr><td><b>PPQN</b></td><td>Pulses per quarter note; the internal clock runs at 480 PPQN (no MIDI clock is transmitted).</td></tr>
+    <tr><td><b>Preset</b></td><td>One of the 29 factory voice configurations (§11.2).</td></tr>
+    <tr><td><b>Shuffle template</b></td><td>One of 16 per-16th-note micro-timing groove tables.</td></tr>
+    <tr><td><b>Slide</b></td><td>Per-step portamento flag: no envelope retrigger, pitch glides over the Slide Time.</td></tr>
+    <tr><td><b>Sound Buffet</b></td><td>The OLED overview of all four voices' current presets, shown in the Settings screen.</td></tr>
+    <tr><td><b>Step Edit mode</b></td><td>Long-press a pad to select that step; the encoder and sensor edit its parameters and the faders its envelope (ENV mode).</td></tr>
+    <tr><td><b>Voice Editing mode</b></td><td>Shift + V4: stop transport and edit any voice's sound parameters directly (encoder + button tiles).</td></tr>
+    <tr><td><b>Waveguide engine</b></td><td>Karplus-Strong physical modeling of a plucked string (presets 10–13).</td></tr>
+  </table></div>
+</section>
+
+<!-- ============================================================ 18 -->
+<section id="appendix">
+  <h2><span class="num">18</span>Appendix</h2>
+
+  <h3>18.1 Hardware wiring reference</h3>
+  <div class="tbl-wrap"><table>
+    <tr><th>Peripheral</th><th>Bus</th><th>Pins</th><th>Notes</th></tr>
+    <tr><td>I2S Audio DAC</td><td>PIO I2S</td><td>GP10 BCLK, GP11 LRCK, GP12 DATA</td><td>48 kHz stereo DMA output</td></tr>
+    <tr><td>MPR121 Touch Matrix</td><td><code>Wire</code> (I2C0)</td><td>GP4 SDA, GP5 SCL</td><td>Address <code>0x5A</code> — 32 step pads</td></tr>
+    <tr><td>SH1106G OLED</td><td><code>Wire</code> (I2C0)</td><td>GP4 SDA, GP5 SCL</td><td>Address <code>0x3C</code> — 128×64 mono</td></tr>
+    <tr><td>TMAG5273A Encoder</td><td><code>Wire</code> (I2C0)</td><td>GP4 SDA, GP5 SCL</td><td>Address <code>0x35</code></td></tr>
+    <tr><td>VL53L1X Distance Sensor</td><td><code>Wire</code> (I2C0)</td><td>GP4 SDA, GP5 SCL</td><td>Address <code>0x29</code></td></tr>
+    <tr><td>Alchemy UI tiles</td><td><code>Wire1</code> (I2C1)</td><td>GP14 SDA, GP15 SCL</td><td>400 kHz — SliderModule &amp; ButtonModule8</td></tr>
+    <tr><td>Mode strap switch</td><td>GPIO</td><td>GP7</td><td>LOW = Param mode, HIGH = Utility mode</td></tr>
+    <tr><td>WS2812B LED matrix</td><td>FastLED</td><td>GP1</td><td>8×4 RGB, brightness capped 120/255</td></tr>
+  </table></div>
+
+  <h3>18.2 About this manual</h3>
+  <p>This manual was compiled from the firmware source and the repository documentation
+  (<code>docs/</code>) on branch <b>DeCluttered</b> @ <code>a4c0e7c</code> (2026-09-24), including
+  Arpeggiator mode (PR #54) and the absolute-lane live-recording model. The code is authoritative;
+  anything that could not be verified against the code is explicitly marked
+  <span class="unverified">[unverified]</span>.</p>
+  <ul class="tight">
+    <li>Engineering detail: <code>README.md</code>, <code>docs/architecture.md</code>,
+    <code>docs/sequencer.md</code>, <code>docs/arpeggiator.md</code>, <code>docs/voice-edit.md</code>,
+    <code>docs/voice.md</code>, <code>docs/scales.md</code>, <code>docs/sensors.md</code>,
+    <code>docs/oled.md</code>, <code>docs/LEDMatrix.md</code>, <code>docs/persistence.md</code>,
+    <code>docs/matrix.md</code>, <code>docs/ButtonHandlers.md</code>.</li>
+    <li>Interactive companions in <code>docs/</code>: <code>PICO2SEQplayground.html</code>,
+    <code>pico2seqinteractive_explainer.html</code>, <code>synth_layout.html</code>,
+    <code>voice_edit_playground.html</code>, <code>preset_atlas.html</code>.</li>
+    <li>Firmware: Arduino sketch (<code>Pico2Seq.ino</code>) for Raspberry Pi Pico 2 (RP2350), USB stack
+    Adafruit TinyUSB. The host test suite (Catch2 v3, 315 tests across 4 executables) builds via CMake —
+    see <code>docs/testing.md</code>.</li>
+  </ul>
+  <p class="muted small" style="margin-top:30px;border-top:1px solid var(--line);padding-top:14px">
+  Pico2Seq — 4 voices, 32 pads, infinite polymeter. MIT License.</p>
+</section>
+
+</main>
+</div>
+
+<script>
+(function(){
+  // ---- scrollspy ----
+  var links = Array.prototype.slice.call(document.querySelectorAll('nav#toc a'));
+  var map = {};
+  links.forEach(function(a){ map[a.getAttribute('href').slice(1)] = a; });
+  var sections = Array.prototype.slice.call(document.querySelectorAll('main section'));
+  var current = null;
+  function pick(){
+    var best = null, bestTop = -1e9;
+    var line = window.innerHeight * 0.28;
+    sections.forEach(function(s){
+      var r = s.getBoundingClientRect();
+      if (r.top <= line && r.top > bestTop){ bestTop = r.top; best = s; }
+    });
+    if (!best) best = sections[0];
+    if (best && best.id !== current){
+      current = best.id;
+      links.forEach(function(a){ a.classList.remove('on'); });
+      if (map[current]){ map[current].classList.add('on');
+        map[current].scrollIntoView({block:'nearest'}); }
+    }
+  }
+  window.addEventListener('scroll', pick, {passive:true});
+  window.addEventListener('resize', pick);
+  pick();
+
+  // ---- search filter ----
+  var input = document.getElementById('search');
+  var noresult = document.getElementById('noresult');
+  input.addEventListener('input', function(){
+    var q = input.value.trim().toLowerCase();
+    var any = false;
+    sections.forEach(function(sec){
+      if (!q){ sec.style.display = ''; return; }
+      var hit = sec.textContent.toLowerCase().indexOf(q) !== -1;
+      sec.style.display = hit ? '' : 'none';
+      if (hit) any = true;
+    });
+    noresult.style.display = (q && !any) ? 'block' : 'none';
+  });
+})();
+</script>
+</body>
+</html>
