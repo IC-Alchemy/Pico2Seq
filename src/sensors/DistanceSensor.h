@@ -62,7 +62,4 @@ private:
 // Legacy global (existing call sites); prefer the instance.
 extern DistanceSensor distanceSensor;
 
-// Legacy poll entry; prefer distanceSensor.update().
-void updateDistanceSensor();
-
 #endif // DISTANCE_SENSOR_H

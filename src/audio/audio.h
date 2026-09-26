@@ -174,17 +174,6 @@ audio_buffer_t *take_audio_buffer(audio_buffer_pool_t *ac, bool block);
  *  \ingroup pico_audio
  *
  */
-static inline void release_audio_buffer(audio_buffer_pool_t *ac, audio_buffer_t *buffer) {
-    buffer->sample_count = 0;
-    give_audio_buffer(ac, buffer);
-}
-
-/*! \brief \todo
- *  \ingroup pico_audio
- *
- * todo we are currently limited to 4095+1 input samples
- * step is fraction of an input sample per output sample * 0x1000 and should be < 0x1000 i.e. we we are up-sampling (otherwise results are undefined)
- */
 void audio_upsample(int16_t *input, int16_t *output, uint output_count, uint32_t step);
 
 /*! \brief \todo

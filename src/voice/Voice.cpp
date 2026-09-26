@@ -755,12 +755,6 @@ void PICO2SEQ_AUDIO_FUNC(Voice::applyEffects)(float &signal)
   // Level adjustments removed from here; handled in renderSpan_
 }
 
-// Provide a wrapper to maintain API compatibility
-void Voice::processEffectsChain(float &signal)
-{
-  applyEffects(signal);
-}
-
 // -------- Alternate engines (waveguide / Hypersaw / noise-FX) --------
 
 void Voice::applyEngineConfig_()

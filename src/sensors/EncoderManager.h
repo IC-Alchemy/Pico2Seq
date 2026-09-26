@@ -15,23 +15,6 @@
 // Forward declarations
 struct VoiceState;
 
-// Flash zones: how close a lane is to its min/max edge (0 = mid, 1 = edge).
-enum class FlashSpeedZone : uint8_t {
-  Normal = 0,   // Normal operation range (0.0 to 0.65 proximity factor)
-  Warning = 1,  // Warning zone (0.65 to 0.8375 proximity factor)
-  Critical = 2  // Critical zone (0.8375 to 1.0 proximity factor)
-};
-
-// Proximity-to-limit zones: the LEDs flash faster as a value nears its edge.
-struct FlashSpeedConfig {
-  float speedMultiplier;  // Flash speed multiplier for this zone
-  float thresholdStart;   // Proximity factor where this zone starts (0.0-1.0)
-  float thresholdEnd;     // Proximity factor where this zone ends (0.0-1.0)
-};
-
-// Global flash speed zone configuration array
-extern const FlashSpeedConfig FLASH_SPEED_ZONES[];
-
 // Jog the focused target: selected-step lane if one is targeted, else the
 // encoder's patch base via VoiceEditor. Drops ticks while controlsWaitRelease.
 void updateEncoderBaseValues(UIState& uiState);
@@ -40,9 +23,6 @@ void updateEncoderBaseValues(UIState& uiState);
 float getParameterMinValueForParamId(ParamId paramId);
 
 float getParameterMaxValueForParamId(ParamId paramId);
-
-// Restore preset bases (current voice, or all four).
-void resetEncoderBaseValues(UIState& uiState, bool currentVoiceOnly = true);
 
 // Discard pending encoder motion; preset setup owns initial patch bases.
 void initEncoderBaseValues();

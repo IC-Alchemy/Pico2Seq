@@ -148,15 +148,11 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 13 | `tests/unit/test_freeze_watchdog.cpp` | `FreezeWatchdog` (`pico2seq_watchdog_tests`) | Watchdog scratch evidence, boot vs late-serial reconnect, no stale reports on normal boot (`[watchdog]`, isolated `tests/watchdog_stubs/`) |
 | 14 | `tests/unit/test_voice_recipes.cpp` | Recipe/engine voices | Preset registry coherence (29 presets across core, recipes, and musical presets), waveguide tails across engine resets, recipe timbre lanes, envelope gate/retrigger behavior (`[voice][presets][waveguide][recipes]`) |
 | 15 | `tests/unit/test_voice_edit.cpp` | Voice Editing mode | Base vs lidar-modifier independence, neutral-modifier preset round-trip, parameter catalogue reachability/clamping per engine, editor release semantics, muted-editor queue draining (`[voice_edit][recording]`) |
-| 16 | `tests/unit/test_persistence.cpp` | Session persistence (`src/pico2seq-core/persistence/`, `src/voice/PatchCodec.*`) | CRC32 vector, frame magic/version/size/CRC rejection, locked 10,312-byte snapshot layout, snapshot validation bounds, pattern round-trip incl. raw tails, patch codec pointer re-derivation, golden full-project round-trip, watchdog resume decision table, retained-store validity (`[persistence]`) |
+| 16 | `tests/unit/test_persistence.cpp` | Session persistence (`src/pico2seq-core/persistence/`, `src/voice/PatchCodec.*`) | CRC32 vector, frame magic/version/size/CRC rejection, locked snapshot layout (10,312 bytes format 1, 12,400 bytes format 2), snapshot validation bounds, pattern round-trip incl. raw tails, patch codec pointer re-derivation, golden full-project round-trip, watchdog resume decision table, retained-store validity (`[persistence]`) |
 | 17 | `tests/unit/test_recipe_optimization.cpp` | `rpdsp` Recipe CPU Optimizations | Prepared oscillator phase/spectra, cached coefficient survival across edits/triggers, feedback operator history (`[optimization][recipes][voice]`) |
-<<<<<<< HEAD
 | 18 | `tests/unit/test_master_compressor.cpp` | Master-bus macro knob (`VoiceManager`) | `rpdsp::Compressor` Warm/Glue/Punch curve anchors, gain reduction on high-amplitude streams, Punch squeezes harder than Warm to DAC-safe levels, gradual (not instant) morphs, silence passthrough (`[master][compressor]`, also in `pico2seq_voice_tests`) |
-=======
-| 18 | `tests/unit/test_master_compressor.cpp` | Master-bus compressor (`VoiceManager`) | `rpdsp::Compressor` gain reduction on high-amplitude streams, hot 4-voice mix limited to DAC-safe levels, silence passthrough (`[master][compressor]`, also in `pico2seq_voice_tests`) |
 | 19 | `tests/unit/test_master_delay.cpp` | Master-bus delay | Fractional reads, filtered repeats, feedback bounds and mix smoothing (`[master_delay]`) |
 | 20 | `tests/unit/test_master_bus.cpp` | Combined delay and compressor | Bus order, dry bypass, tails, mute, volume and audible fader range (`[master_bus]`) |
->>>>>>> 0f944a136ae72671a4e32563225d44b056231147
 
 ---
 

@@ -160,63 +160,9 @@ float getParameterMaxValueForParamId(ParamId paramId)
   }
   return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
 }
-
-// Bipolar trim of a 0-1 lane: +offset lifts the floor, -offset lowers the
-// ceiling; the lane keeps its shape inside. Stays in 0-1.
-float shiftAndScale(float seqValue, float encoderOffset)
-{
-  float finalValue;
-  if (encoderOffset >= 0.0f)
-  {
-    // When the encoder offset is positive, it sets the minimum value,
-    // and the sequencer value is scaled to fit the remaining range up to 1.0.
-    finalValue = encoderOffset + (seqValue * (1.0f - encoderOffset));
-  }
-  else
-  {
-    // When the encoder offset is negative, it reduces the maximum value,
-    // and the sequencer value is scaled to fit the range from 0.0 up to that new maximum.
-    finalValue = seqValue * (1.0f + encoderOffset);
-  }
-  return std::max(0.0f, std::min(finalValue, 1.0f));
-}
-
-// Encoder target's patch value in 0-1, for LED/OLED feedback brightness.
-float getEncoderParameterValue()
-{
-  if(!voiceManager || uiState.selectedVoiceIndex>=4) return 0.0f;
-  const auto *config=voiceManager->getVoiceConfig(voiceSystem.getVoiceId(uiState.selectedVoiceIndex));
-  return config?VoiceEdit::value(VoiceEditor::encoderTarget(),*config):0.0f;
-}
-
 void initEncoderBaseValues()
 {
   // VoiceSetup initializes each patch's bases from its preset. The old
   // encoderBaseValues array was removed with that ownership change.
-  VoiceEditor::clearEncoder();
-}
-
-void resetEncoderBaseValues(UIState &uiState, bool currentVoiceOnly)
-{
-  if(!voiceManager) return;
-  for(uint8_t index=0;index<4;++index) {
-    if(currentVoiceOnly && index!=uiState.selectedVoiceIndex) continue;
-    const auto *requested=voiceManager->getVoiceConfig(voiceSystem.getVoiceId(index));
-    if(!requested) continue;
-    VoiceConfig next=*requested;
-    VoiceConfig defaults=VoicePresets::getPresetConfig(uiState.voicePresetIndices[index]);
-    if(defaults.engine!=next.engine) VoiceEdit::setValue(VoiceEdit::Id::Engine,defaults,next.engine);
-    if(next.engine==ENGINE_RECIPE) VoiceEdit::setValue(VoiceEdit::Id::Recipe,defaults,VoiceEdit::value(VoiceEdit::Id::Recipe,next));
-    // Editor IDs Note..Slide match the lanes; Sustain/Release bases are
-    // the envelope page's own IDs.
-    for(uint8_t lane=0;lane<=static_cast<uint8_t>(ParamId::Slide);++lane) {
-      const auto id=static_cast<VoiceEdit::Id>(lane);
-      VoiceEdit::setValue(id,next,VoiceEdit::value(id,defaults));
-    }
-    for(const auto id:{VoiceEdit::Id::Sustain,VoiceEdit::Id::Release})
-      VoiceEdit::setValue(id,next,VoiceEdit::value(id,defaults));
-    next.slideSeconds=defaults.slideSeconds;
-    VoiceEditor::publish(index,next);
-  }
   VoiceEditor::clearEncoder();
 }

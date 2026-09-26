@@ -1,0 +1,1916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pico2Seq — Interactive Codebase Map</title>
+<style>
+:root{
+  --bg:#0e1116; --bg2:#151a22; --bg3:#1c232e; --line:#2b3543; --line2:#3a4757;
+  --fg:#e7edf5; --fg2:#aab6c6; --fg3:#7d8b9c;
+  --input:#3b82f6; --ui:#eab308; --seq:#22c55e; --voice:#f97316; --audio:#ef4444; --persist:#94a3b8;
+  --core1:#ef4444; --ok:#22c55e; --warn:#f59e0b;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 var(--sans)}
+a{color:#6cb6ff;text-decoration:none;border-bottom:1px solid rgba(108,182,255,.3)}
+a:hover{border-bottom-color:#6cb6ff}
+code{font-family:var(--mono);font-size:.87em;background:#0b0f14;border:1px solid var(--line);border-radius:4px;padding:1px 5px;white-space:nowrap}
+.sub{font-family:var(--mono);font-size:.85em;color:var(--fg3);border:1px dashed var(--line2);border-radius:4px;padding:1px 5px;white-space:nowrap}
+h1,h2,h3,h4{line-height:1.25;margin:0}
+
+/* ---------- header + nav ---------- */
+header{padding:34px 26px 22px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#131963 0%,#0e1116 100%);background:linear-gradient(180deg,#16202c 0%,#0e1116 100%)}
+header h1{font-size:30px;letter-spacing:.2px}
+header p.lead{color:var(--fg2);max-width:74ch;margin:12px 0 0}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.chip{font-family:var(--mono);font-size:12px;color:var(--fg2);background:var(--bg3);border:1px solid var(--line);border-radius:999px;padding:3px 10px}
+nav.toc{position:sticky;top:0;z-index:40;display:flex;flex-wrap:wrap;gap:4px;padding:9px 26px;background:rgba(14,17,22,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+nav.toc a{font-size:13px;color:var(--fg2);border:1px solid transparent;border-radius:6px;padding:4px 9px;border-bottom:1px solid transparent}
+nav.toc a:hover{background:var(--bg3);color:var(--fg);border-color:var(--line)}
+section{padding:38px 26px;border-bottom:1px solid var(--line);max-width:1720px;margin:0 auto}
+section h2{font-size:23px;display:flex;align-items:center;gap:10px}
+section h2 .num{font-family:var(--mono);font-size:13px;color:var(--fg3);border:1px solid var(--line);border-radius:6px;padding:2px 7px}
+section>p.intro{color:var(--fg2);max-width:88ch;margin:12px 0 0}
+
+/* ---------- generic bits ---------- */
+.note{border-left:3px solid var(--warn);background:#1d1a12;padding:11px 14px;border-radius:0 8px 8px 0;margin:14px 0;color:#f0dfbd;font-size:14px}
+.note.info{border-left-color:var(--input);background:#111b28;color:#cfe3ff}
+.note.good{border-left-color:var(--ok);background:#111d16;color:#c9efd6}
+.badge{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;border-radius:4px;padding:2px 6px;border:1px solid var(--line2);color:var(--fg3)}
+.badge.core0{border-color:#3b82f6aa;color:#9dc4ff;background:#122236}
+.badge.core1{border-color:#ef4444aa;color:#ffb3b3;background:#2a1414}
+.badge.isr{border-color:#eab308aa;color:#ffe08a;background:#2a2410}
+.badge.portable{border-color:#22c55eaa;color:#a8e9bd;background:#12241a}
+.badge.hw{border-color:#94a3b8aa;color:#c8d3e0;background:#1b222c}
+.mono{font-family:var(--mono)}
+.muted{color:var(--fg3)}
+small.f{color:var(--fg3);display:block;font-size:12.5px}
+
+/* ---------- graph ---------- */
+#mapWrap{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:16px;margin-top:18px}
+@media(max-width:1180px){#mapWrap{grid-template-columns:minmax(0,1fr)}}
+#graphShell{position:relative;background:#0a0d12;border:1px solid var(--line);border-radius:12px;overflow:hidden;height:min(78vh,900px)}
+#graph{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+#graph.dragging{cursor:grabbing}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px}
+.toolbar .grp{display:flex;flex-wrap:wrap;gap:5px;align-items:center;padding:4px 8px;background:var(--bg2);border:1px solid var(--line);border-radius:9px}
+.toolbar .grp>span.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--fg3)}
+button{font:inherit;font-size:13px;color:var(--fg2);background:var(--bg3);border:1px solid var(--line);border-radius:7px;padding:5px 10px;cursor:pointer}
+button:hover{color:var(--fg);border-color:var(--line2)}
+button.on{color:#0b0f14;font-weight:600}
+button[data-layer].on{background:var(--c);border-color:var(--c)}
+button.ghost.on{background:#3a4757;color:#fff}
+#search{font:inherit;font-size:13px;background:#0b0f14;border:1px solid var(--line);border-radius:7px;padding:6px 10px;color:var(--fg);min-width:230px}
+#search:focus{outline:none;border-color:#6cb6ff}
+#hits{font-size:12px;color:var(--fg3);font-family:var(--mono)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:12px;font-size:12.5px;color:var(--fg2)}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+#panel{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:16px 16px 20px;overflow-y:auto;max-height:min(78vh,900px)}
+#panel h3{font-size:17px;margin-bottom:6px}
+#panel h4{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--fg3);margin:16px 0 6px}
+#panel p{margin:8px 0;color:var(--fg2);font-size:14px}
+#panel ul{margin:6px 0;padding-left:19px;color:var(--fg2);font-size:13.5px}
+#panel li{margin:3px 0}
+.kv{display:grid;grid-template-columns:78px 1fr;gap:4px 10px;font-size:13px;margin-top:8px}
+.kv dt{color:var(--fg3);font-family:var(--mono);font-size:12px;padding-top:2px}
+.kv dd{margin:0;color:var(--fg2)}
+#panel .empty{color:var(--fg3);font-style:italic}
+
+/* ---------- swim lanes ---------- */
+.lanes{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+@media(max-width:980px){.lanes{grid-template-columns:1fr}}
+.lane{background:var(--bg2);border:1px solid var(--line);border-top:3px solid var(--c);border-radius:12px;padding:16px}
+.lane h3{font-size:18px;margin-bottom:2px}
+.lane .when{font-family:var(--mono);font-size:12px;color:var(--fg3)}
+.card{background:#0b0f14;border:1px solid var(--line);border-radius:9px;padding:11px 13px;margin-top:10px}
+.card b{font-family:var(--mono);font-size:12.5px;color:#cfe3ff}
+.card p{margin:5px 0 0;font-size:13.5px;color:var(--fg2)}
+.lane.core1 .card b{color:#ffb3b3}
+.handoff{margin-top:22px;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:16px;overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--fg3);border-bottom:1px solid var(--line2);white-space:nowrap}
+tbody tr:hover{background:#151b24}
+td.mono,th.mono{font-family:var(--mono);font-size:12.5px}
+td .pill{font-family:var(--mono);font-size:11px;border:1px solid var(--line2);border-radius:4px;padding:1px 5px;white-space:nowrap;display:inline-block}
+td .pill.v{border-color:#eab308aa;color:#ffe08a}
+td .pill.a{border-color:#3b82f6aa;color:#9dc4ff}
+td .pill.q{border-color:#22c55eaa;color:#a8e9bd}
+td .pill.i{border-color:#94a3b8aa;color:#c8d3e0}
+
+/* ---------- trace ---------- */
+#traceBar{display:flex;gap:0;overflow-x:auto;margin-top:20px;padding-bottom:8px}
+.step{flex:0 0 auto;min-width:132px;max-width:172px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:10px 11px;margin-right:28px;position:relative;cursor:pointer;transition:.15s}
+.step:after{content:"\25B6";position:absolute;right:-22px;top:50%;transform:translateY(-50%);color:var(--line2);font-size:13px}
+.step:last-child{margin-right:0}
+.step:last-child:after{content:""}
+.step .n{font-family:var(--mono);font-size:11px;color:var(--fg3)}
+.step .t{font-size:13.5px;font-weight:600;margin-top:3px;line-height:1.35}
+.step .mine{font-size:11.5px;color:var(--fg3);margin-top:4px;font-family:var(--mono)}
+.step:hover{border-color:var(--line2)}
+.step.on{background:#16202c;border-color:#6cb6ff;box-shadow:0 0 0 1px #6cb6ff55}
+.step.on .t{color:#cfe3ff}
+#traceDetail{margin-top:20px;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:18px}
+#traceDetail h3{font-size:19px;margin-bottom:4px}
+#traceDetail .where{font-family:var(--mono);font-size:12.5px;color:var(--fg3);margin-bottom:10px}
+#traceDetail .cols{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:12px}
+@media(max-width:900px){#traceDetail .cols{grid-template-columns:1fr}}
+#traceDetail .box{background:#0b0f14;border:1px solid var(--line);border-radius:9px;padding:12px}
+#traceDetail .box h4{margin-top:0}
+.exval{font-family:var(--mono);font-size:12.5px;color:#ffe08a;background:#241f10;border:1px solid #4a3f1c;border-radius:6px;padding:9px 11px;white-space:pre-wrap;display:block;margin-top:6px;line-height:1.55}
+
+/* ---------- structures ---------- */
+#structs{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}
+@media(max-width:1100px){#structs{grid-template-columns:1fr}}
+details.card2{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:0;overflow:hidden}
+details.card2>summary{cursor:pointer;padding:14px 16px;font-weight:600;font-size:15px;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px}
+details.card2>summary::-webkit-details-marker{display:none}
+details.card2>summary:after{content:"+";font-family:var(--mono);color:var(--fg3)}
+details.card2[open]>summary:after{content:"–"}
+details.card2[open]>summary{border-bottom:1px solid var(--line)}
+details.card2 .body{padding:4px 16px 18px}
+details.card2 .body p{color:var(--fg2);font-size:14px}
+.diagram{background:#0b0f14;border:1px solid var(--line);border-radius:12px;padding:8px;margin-top:14px}
+.diagram svg{width:100%;height:auto;display:block}
+.diagTitle{font-family:var(--mono);font-size:12px;color:var(--fg3);padding:6px 10px 2px}
+
+/* ---------- honesty ---------- */
+.split{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+@media(max-width:1100px){.split{grid-template-columns:1fr}}
+.panelbox{background:var(--bg2);border:1px solid var(--line);border-top:3px solid var(--c);border-radius:12px;padding:16px}
+.panelbox h3{font-size:17px;margin-bottom:6px}
+.panelbox ul{padding-left:19px;color:var(--fg2);font-size:13.5px}
+.panelbox li{margin:6px 0}
+footer{padding:30px 26px 60px;color:var(--fg3);font-size:13px;max-width:1720px;margin:0 auto}
+.marks{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.hl{outline:2px solid #ffe08a;outline-offset:2px;border-radius:6px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Pico2Seq — interactive codebase map</h1>
+  <p class="lead">A 4-voice polymetric step sequencer and synth for the Raspberry Pi Pico&nbsp;2 (RP2350).
+  It is an Arduino sketch, not a desktop app: there is no <code>main()</code>, and most code only makes sense
+  in terms of the two cores — <b>Core&nbsp;0</b> touches the player and keeps time, <b>Core&nbsp;1</b> makes sound.
+  This map is a way in: every box, arrow and claim points at a real line in this repository.</p>
+  <div class="chips">
+    <span class="chip">branch DeCluttered @ 229079b</span>
+    <span class="chip">4 voices</span>
+    <span class="chip">480 PPQN · 90 BPM default</span>
+    <span class="chip">48 kHz · 256-frame buffers</span>
+    <span class="chip">Core 1 spans ≤ 32 samples</span>
+    <span class="chip">Core 1 stack 2 KiB</span>
+    <span class="chip">no heap in the audio path</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <a href="#map">1 · Bird's-eye graph</a>
+  <a href="#cores">2 · Two cores</a>
+  <a href="#trace">3 · Input → sound</a>
+  <a href="#edges">4 · Every arrow</a>
+  <a href="#structures">5 · Central structures</a>
+  <a href="#losts">6 · I'm lost — where does X happen?</a>
+  <a href="#honesty">7 · Codebase honesty</a>
+</nav>
+
+<section id="map">
+  <h2><span class="num">01</span> Bird's-eye view</h2>
+  <p class="intro">The whole instrument as a graph. Colour is the <b>layer</b>; a red dashed outline marks code that
+  runs on <b>Core&nbsp;1</b>. Click any box for what it does, where it lives, what it reads and writes, and which core
+  it runs on. Click any arrow for what triggers it, what data crosses, how often, and how the two sides stay safe.</p>
+
+  <div class="toolbar">
+    <div class="grp">
+      <span class="lbl">Search</span>
+      <input id="search" type="search" placeholder="file, function or module…" autocomplete="off">
+      <span id="hits"></span>
+    </div>
+    <div class="grp" id="layerBtns"><span class="lbl">Layer</span></div>
+    <div class="grp" id="coreBtns"><span class="lbl">Core</span></div>
+    <div class="grp" id="pathBtns"><span class="lbl">Path</span></div>
+    <div class="grp">
+      <span class="lbl">View</span>
+      <button id="zIn" title="Zoom in">Zoom +</button>
+      <button id="zOut" title="Zoom out">Zoom −</button>
+      <button id="zFit" title="Fit the whole graph">Fit</button>
+      <button id="zReset" title="Reset pan and zoom">Reset</button>
+    </div>
+    <div class="grp"><span class="lbl">Jump to</span><span id="jumpSel"></span></div>
+  </div>
+
+  <div class="legend" id="legend"></div>
+
+  <div id="mapWrap">
+    <div id="graphShell">
+      <svg id="graph" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#5b6a7d"></path>
+          </marker>
+          <marker id="ahHot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#6cb6ff"></path>
+          </marker>
+          <marker id="ahX" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#ef4444"></path>
+          </marker>
+        </defs>
+        <g id="viewport"></g>
+      </svg>
+    </div>
+    <aside id="panel"></aside>
+  </div>
+  <div id="orphanNote"></div>
+</section>
+
+<section id="cores">
+  <h2><span class="num">02</span> The two cores, side by side</h2>
+  <p class="intro">This split is the single most important thing to know before changing anything. The audio core is
+  real-time: nothing there may block, allocate, or wait on a display. The control core may be slow, but it must never
+  stall for long — a watchdog reboots it after two seconds.</p>
+  <div class="lanes" id="lanes"></div>
+  <div class="handoff">
+    <h3 style="font-size:17px;margin-bottom:4px">Cross-core handoffs, explicitly</h3>
+    <p class="muted" style="font-size:13.5px;margin:6px 0 12px">There are no mutexes anywhere in this firmware. Every crossing uses one of these four shapes.</p>
+    <div id="handoffTable"></div>
+  </div>
+  <div class="note info" id="renamedBox"></div>
+  <div class="note" id="rtRules"></div>
+</section>
+
+<section id="trace">
+  <h2><span class="num">03</span> How a gesture becomes sound</h2>
+  <p class="intro">Click a stage to see what happens there, with example values carried through one real step.
+  Use <b>Next</b> / <b>Animate</b> to walk the whole path.</p>
+  <div class="toolbar">
+    <div class="grp">
+      <button id="tPrev">◀ Previous</button>
+      <button id="tNext">Next ▶</button>
+      <button id="tAuto">▶ Animate</button>
+      <button id="tAlly" class="ghost">Show all links</button>
+    </div>
+    <div class="grp"><span class="lbl">Stage</span><span id="tCount" class="mono muted" style="font-size:12.5px"></span></div>
+  </div>
+  <div id="traceBar"></div>
+  <div id="traceDetail"></div>
+</section>
+
+<section id="edges">
+  <h2><span class="num">04</span> Every arrow, in detail</h2>
+  <p class="intro">The same arrows the graph draws, written out: who calls whom (or which interrupt fires),
+  exactly what data crosses, how often, and what keeps the two sides from corrupting each other.</p>
+  <div class="toolbar"><div class="grp"><span class="lbl">Filter</span>
+    <button class="ghost on" data-ef="all">All</button>
+    <button class="ghost" data-ef="core1">Crosses to Core 1</button>
+    <button class="ghost" data-ef="isr">Touches an interrupt</button>
+    <button class="ghost" data-ef="perstep">Per step</button>
+    <button class="ghost" data-ef="perbuf">Per buffer</button>
+  </div></div>
+  <div class="handoff"><div id="edgeTable"></div></div>
+</section>
+
+<section id="structures">
+  <h2><span class="num">05</span> The five structures that matter</h2>
+  <p class="intro">Most of the firmware's behaviour is decided by five data structures. Read these and the rest of
+  the graph becomes predictable.</p>
+  <div id="structs"></div>
+  <div class="diagram"><div class="diagTitle">One sequencer step, end to end (Core 0)</div><div id="seqDiag"></div></div>
+  <div class="diagram"><div class="diagTitle">One audio buffer render (Core 1)</div><div id="bufDiag"></div></div>
+</section>
+
+<section id="losts">
+  <h2><span class="num">06</span> I'm lost — where does X happen?</h2>
+  <p class="intro">Each button answers a question in one click, then highlights the answer on the graph.</p>
+  <div class="toolbar" id="lostsBar" style="gap:8px"></div>
+</section>
+
+<section id="honesty">
+  <h2><span class="num">07</span> Codebase honesty: what is proven, and what is not</h2>
+  <p class="intro">A host test proves logic. It cannot prove I2C timing, PIO/DMA behaviour, or that the board sounds
+  good. This section separates the two, so nobody mistakes a green test run for a working instrument.</p>
+  <div class="split">
+    <div class="panelbox" style="--c:var(--persist)">
+      <h3>Hardware-bound glue — not host-tested by design</h3>
+      <p class="muted" style="font-size:13px">Compiled by the Arduino build only. Validated by bench work and the serial
+      diagnostics, never by CTest.</p>
+      <div id="untestedBox"></div>
+    </div>
+    <div class="panelbox" style="--c:var(--ok)">
+      <h3>Host-tested portable code</h3>
+      <p class="muted" style="font-size:13px">Compiled and run on the dev machine with Catch2 v3.5.2, using header stubs so no
+      hardware is needed.</p>
+      <div id="testedBox"></div>
+    </div>
+  </div>
+  <div class="note good" id="portRule"></div>
+  <div class="note" id="driftBox"></div>
+  <div class="note info" id="submoduleBox"></div>
+</section>
+
+<footer>
+  <p>Generated by reading the repository at branch <code>DeCluttered</code> (commit <code>229079b</code>).
+  Where a connection could not be confirmed from source, it is labelled <b>inferred — verify</b> rather than guessed.
+  Submodule sources (<code>src/rpdsp</code>, <code>src/VelocityEncoder</code>) are not checked out in this worktree,
+  so their files are named but not linked.</p>
+</footer>
+
+<script>
+/* =========================================================================
+   Pico2Seq interactive map — data
+   Every claim below cites a file and line in this repository.
+   ========================================================================= */
+const WT = `f01395ca-c72d-4c97-a611-0ce9dd5b7307`;
+const SUBMODULE_PREFIXES = [`src/rpdsp`, `src/VelocityEncoder`];
+
+const LAYERS = {
+  input:   {name:`Input / Hardware (Core 0)`, color:`#3b82f6`},
+  ui:      {name:`UI / State`,                color:`#eab308`},
+  seq:     {name:`Sequencer brain`,           color:`#22c55e`},
+  voice:   {name:`Voice / sound engine`,      color:`#f97316`},
+  audio:   {name:`Audio output (Core 1 I2S)`, color:`#ef4444`},
+  persist: {name:`Persistence / Utils`,       color:`#94a3b8`}
+};
+
+const CX = [20, 245, 470, 695, 920, 1145];
+const RY = [20, 96, 172, 248, 324, 400, 476, 552, 628, 780];
+const BOXW = 170, BOXH = 54;
+const CANVAS = {w: 1345, h: 870};
+
+const NODES = [
+/* ---------------------------------------------------------------- Core 0 glue */
+{id:`app0`, label:`Application + ControlIO`, sub:`the Core 0 loop`, layer:`ui`, col:0, row:0,
+ core:`Core 0 · thread context`, paths:[`ui`],
+ what:`The control loop. Application::begin() runs the boot order — storage, buses, sensors, display, voices, clock — and Application::update() then runs the same short slices every pass: drain the clock, drain note-off ticks, poll controls, refresh LEDs, refresh the OLED.`,
+ files:[[`Pico2Seq.ino`,10,`setup() → Application::begin()`],[`Pico2Seq.ino`,15,`loop() → Application::update()`],[`src/app/Application.cpp`,117,`Application::begin() — the whole boot order`],[`src/app/Application.cpp`,203,`Application::update() — the fixed slice order`],[`src/app/ControlIO.cpp`,208,`scanControls() — the 1 ms slice`],[`src/app/ControlIO.cpp`,259,`refreshLeds() — 13 ms`],[`src/app/ControlIO.cpp`,272,`refreshOled() — 40 ms`]],
+ reads:`UIState, AppState::performanceInput, the clock queues, buttons and sensors.`,
+ writes:`Everything on Core 0 that the slices touch: UIState, sequencers, VoiceStates, displays, and the save/load it executes for the UI.`,
+ note:`Load-bearing detail: heavy flash I/O is never done in an event handler. Handlers only set Session::PendingAction; the loop executes it, and stops the transport first (Application.cpp:252-304).`},
+
+/* ------------------------------------------------------------------- hardware */
+{id:`mpr121`, label:`MPR121 touch pads`, sub:`32 step pads`, layer:`input`, col:0, row:1,
+ core:`Core 0 · I2C0 + GP8 interrupt`, paths:[`ui`],
+ what:`The 32 step pads the player taps. The chip notices a finger moving and pulls an interrupt line; the interrupt handler only sets a flag, and the control loop then reads the chip over I2C and dispatches press/release events.`,
+ files:[[`src/matrix/Matrix.cpp`,26,`static volatile bool mpr121InterruptPending`],[`src/matrix/Matrix.cpp`,113,`attachInterrupt(... onMpr121Interrupt, FALLING)`],[`src/matrix/Matrix.cpp`,124,`Matrix_scan() — the only I2C read + dispatch, in loop context`],[`src/matrix/Matrix.h`,38,`Matrix_init() — bind the sensor, arm the interrupt`],[`src/matrix/Matrix.h`,32,`struct MatrixButtonEvent — {buttonIndex, press|release}`]],
+ reads:`MPR121 touch status over Wire (GP4/GP5, address 0x5A).`,
+ writes:`A volatile flag from the ISR; then MatrixButtonEvent callbacks into the UI layer.`,
+ note:`Retained behaviour: a missing MPR121 hangs the boot in a deliberate wait loop (ControlIO.cpp:130) so a dead pad row cannot look like a working instrument.`},
+
+{id:`tiles`, label:`Alchemy tiles`, sub:`faders + buttons`, layer:`input`, col:0, row:2,
+ core:`Core 0 · I2C1 (Wire1)`, paths:[`ui`],
+ what:`The performance surface: four faders, eight function buttons and four voice-select buttons on their own I2C bus. Faders set tempo, delay mix, master volume — and their Shift meanings — while buttons pick voices, patterns, presets and transport.`,
+ files:[[`src/ui/AlchemyControlBridge.cpp`,96,`AlchemyControlBridge::update() — one pass over the tiles`],[`src/ui/AlchemyControlBridge.cpp`,668,`handleFaders() — fader position to a musical target`],[`src/ui/AlchemyControlBridge.cpp`,316,`handleParamButtons()`],[`src/ui/AlchemyControlBridge.cpp`,227,`handleVoiceButtons()`],[`src/AlchemyUI/src/AlchemyTiles.cpp`,89,`AlchemyTiles::update(nowMs) — polls at most one due tile per pass`],[`src/AlchemyUI/src/AlchemyProto.h`,31,`namespace alchemy — the wire format (pure C++, host-tested)`]],
+ reads:`Tile registers over Wire1 (GP14/GP15, 100 kHz) plus the GP7 Param/Utility strap.`,
+ writes:`UIState (parameter holds, Shift latch, mode, notices) and voice/sequencer settings.`,
+ note:`Bus deliberately held at 100 kHz: 400 kHz stalled transfers on this rig (ControlIO.cpp:24, 179-181).`},
+
+{id:`lidx`, label:`VL53L1X hand distance`, sub:`the theremin hand`, layer:`input`, col:0, row:3,
+ core:`Core 0 · I2C0`, paths:[`ui`],
+ what:`The left hand above the panel. Held over a lane button it records that lane live; it also sets the octave zone, and in arpeggiator mode it drives each note's dynamics.`,
+ files:[[`src/sensors/DistanceSensor.cpp`,72,`DistanceSensor::update() — non-blocking poll`],[`src/sensors/DistanceSensor.cpp`,130,`getRawDistanceMm()`],[`src/app/AppState.h`,45,`PerformanceInput::observeDistance() — window and edge clamp`],[`src/app/AppState.h`,55,`recordingValue() — 0..1 across the window`],[`src/sensors/SensorConstants.h`,35,`MIN/MAX_DISTANCE_HEIGHT_MM = 55 / 700`],[`src/sensors/SensorConstants.h`,39,`EDGE_TOLERANCE_MM = 40, INVALID_DISTANCE_MM = -1`]],
+ reads:`VL53L1X range over Wire (address 0x29).`,
+ writes:`AppState::performanceInput — handPresent plus a 0..1 recording value.`,
+ note:`Readings 55..700 mm are rebased by 55 mm and normalized over the 645 mm span. No hand present means recording pauses and steps keep their values — that clamp is pinned by tests/unit/test_app_runtime.cpp.`},
+
+{id:`enc`, label:`TMAG5273 encoder`, sub:`the one knob`, layer:`input`, col:0, row:4,
+ core:`Core 0 · I2C0`, paths:[`ui`],
+ what:`Jogs the focused target: a lane value on the selected step, or the voice's patch base when nothing is in step-edit. Slow turns move in fine steps, fast spins jump.`,
+ files:[[`src/sensors/EncoderManager.h`,37,`updateEncoderBaseValues(uiState)`],[`src/sensors/EncoderManager.cpp`,108,`implementation: focused lane vs patch base`],[`src/sensors/EncoderManager.cpp`,192,`initEncoderBaseValues()`],[`src/app/VoiceEditor.cpp`,122,`VoiceEditor::encoder(delta) — editor target vs base target`],[`src/sensors/EncoderManager.h`,53,`extern MagEncoder magEncoder — driver from the VelocityEncoder submodule`]],
+ reads:`TMAG5273 rotation over Wire (address 0x35 — ControlIO.cpp:110), through the submodule driver.`,
+ writes:`Sequencer lane values, or a new VoiceConfig base published through VoiceEditor.`,
+ note:`Ticks are dropped while uiState.controlsWaitRelease is set, so a gesture that ended in a modal exit cannot leak into the next target.`},
+
+/* ------------------------------------------------------------------ UI / state */
+{id:`appstate`, label:`AppState`, sub:`the shared live state`, layer:`ui`, col:1, row:0,
+ core:`Core 0 · definitions only`, paths:[`ui`],
+ what:`One place that declares the objects the whole control side shares: the UI state, the four sequencers, the voice manager and the voice system. Every module reaches them through extern declarations instead of owning a copy.`,
+ files:[[`src/app/AppState.h`,20,`extern uiState / voiceManager / voiceSystem / currentScale / isClockRunning`],[`src/app/AppState.h`,29,`extern std::atomic<bool> voicesReady — the Core 0 → Core 1 publish flag`],[`src/app/AppState.h`,35,`AppState::sequencers[4] — immutable routing table of borrowed pointers`],[`src/app/AppState.cpp`,10,`seq1..seq4 are constructed here, in voice order`],[`src/app/SequencerView.h`,14,`SequencerView — that table as the performer sees it`],[`src/app/Application.cpp`,195,`voicesReady.store(true, release) — the one-way publish`]],
+ reads:`Nothing; it is definitions and one atomic flag.`,
+ writes:`Defines uiState, voiceManager, voiceSystem, currentScale, isClockRunning, voicesReady and performanceInput.`,
+ note:`SequencerView::get() returns nullptr for an invalid voice so a control can never edit the wrong one; clamped() shows the last voice, which is the legacy display behaviour (SequencerView.h:24-33).`},
+
+{id:`uievent`, label:`Event funnels + held polling`, sub:`gesture → musical decision`, layer:`ui`, col:1, row:1,
+ core:`Core 0 · thread context`, paths:[`ui`],
+ what:`Turns a raw pad, tile or knob event into which voice, which step and which lane. Since the Alchemy migration this is the single funnel for all 32 pads, whichever surface produced the event.`,
+ files:[[`src/ui/UIEventHandler.cpp`,148,`matrixEventHandler() — one funnel for every pad event`],[`src/ui/UIEventHandler.cpp`,294,`handleStepButtonEvent() — gate toggle vs step edit vs clear`],[`src/ui/UIEventHandler.cpp`,238,`handleParameterButtonById() — the parameter edge, keyed by ParamId`],[`src/ui/UIEventHandler.cpp`,553,`pollUIHeldButtons() — long-press work, safe to call every pass`],[`src/ui/UIEventHandler.cpp`,714,`advanceSequencerStep() — the only UI → sequencer adapter`],[`src/ui/ButtonHandlers.cpp`,88,`handleVoiceParameterButton()`],[`src/ui/ButtonManager.cpp`,89,`isLongPress() — the shared tap/hold threshold`]],
+ reads:`MatrixButtonEvent, tile button states, UIState, SequencerView.`,
+ writes:`Sequencer step values and lane lengths, UIState selection and edit state, and save/load requests.`,
+ note:`advanceSequencerStep() exists purely to keep src/pico2seq-core/ UI-agnostic: it unpacks UIState fields here so the portable core never includes UIState (UIEventHandler.cpp:711-713).`},
+
+{id:`uistate`, label:`UIState`, sub:`single source of UI truth`, layer:`ui`, col:1, row:2,
+ core:`Core 0 · thread context`, paths:[`ui`],
+ what:`One struct holding every mode flag, hold, debounce timestamp and transient notice. Handlers write it; the LEDs, the screen and the playback layer read it. There are no loose UI globals by rule.`,
+ files:[[`src/ui/UIState.h`,17,`struct UIState`],[`src/ui/UIState.h`,28,`Arpeggiator::Engine arp — arp state lives inside UIState too`],[`src/ui/UIState.h`,44,`parameterButtonHeld[PARAM_ID_COUNT] — which lane the hand records into`],[`src/ui/UIState.h`,51,`selectedVoiceIndex — 0-based; every voice-dependent view derives from it`],[`src/ui/UIState.h`,62,`oledNoticeKind / oledNoticeUntil — transient banners`],[`src/ui/UIState.h`,126,`isPresetSelection() / isVoiceParameterSettings() — derived, not mirrored`]],
+ reads:`Nothing; it is the state.`,
+ writes:`Mutated by handlers and by UITransitions; read by every Core 0 consumer.`,
+ note:`To add UI state, extend this struct and reset it in initButtonManager() — never add a new global (UIState.h:9-16).`},
+
+{id:`csl`, label:`ControlSurfaceLogic`, sub:`surface decision rules`, layer:`ui`, col:1, row:3,
+ core:`Core 0 · pure, inline`, paths:[`ui`],
+ what:`The decisions behind the surface, written as pure logic with no Arduino and no Wire: debouncing the Param/Utility strap, mapping a pad to its voice and step, folding Shift into held parameters, deadbanding faders, accumulating encoder motion.`,
+ files:[[`src/ui/ControlSurfaceLogic.h`,122,`class ModeStabilizer — debounced strap flips`],[`src/ui/ControlSurfaceLogic.h`,165,`class PadBank — pad index → (voice, step)`],[`src/ui/ControlSurfaceLogic.cpp`,82,`PadBank::resolve() — the implementation`],[`src/ui/ControlSurfaceLogic.h`,292,`class ShiftLatch — Shift-latched parameters`],[`src/ui/ControlSurfaceLogic.h`,400,`class FaderMap — fader deadband and Shift re-arm`],[`src/ui/ControlSurfaceLogic.h`,485,`class EncoderMotion — detent vs continuous`],[`src/ui/ControlSurfaceLogic.cpp`,98,`ShiftLatch::reset()`],[`tests/unit/test_control_surface_logic.cpp`,18,`host tests: 875 lines, no hardware`]],
+ reads:`Raw pad indices, button bits, fader counts, the Shift level.`,
+ writes:`Decisions only — callers apply them to UIState.`,
+ note:`Also where LedLayout lives (ControlSurfaceLogic.h:226), which is why the LED renderer and the pads cannot drift apart geometrically.`},
+
+{id:`uitrans`, label:`UITransitions`, sub:`pure mode policies`, layer:`ui`, col:1, row:4,
+ core:`Core 0 · pure, inline`, paths:[`ui`],
+ what:`The only place that mutates UI mode state. Every transition leaves no modal residue, so the pads always come back to a known grid after leaving slide, settings or the editor.`,
+ files:[[`src/ui/UITransitions.h`,11,`clearStepEdit()`],[`src/ui/UITransitions.h`,19,`openSettings()`],[`src/ui/UITransitions.h`,28,`closeSettings()`],[`src/ui/UITransitions.h`,9,`namespace UITransitions — add new mode switches here, not inline in handlers`],[`tests/unit/test_ui_transitions.cpp`,6,`host tests, including timer-wrap cases`]],
+ reads:`UIState.`,
+ writes:`UIState mode fields only; callers own the side effects (no OLED or LED writes).`,
+ note:`Host-tested as part of the focused UI target: pico2seq_ui_tests (tests/CMakeLists.txt:96).`},
+
+{id:`voiceeditor`, label:`Voice editor`, sub:`patch mode`, layer:`ui`, col:1, row:5,
+ core:`Core 0 · thread context`, paths:[`ui`],
+ what:`Shift + fader 4 opens patch editing: the transport parks, the knob walks a catalogue of parameters that the running engine actually has, and each change is published to the voice. Entering clears performance holds so a stuck gate cannot drone underneath.`,
+ files:[[`src/app/VoiceEditor.cpp`,50,`VoiceEditor::enter() — stop the clock, clear performance holds`],[`src/app/VoiceEditor.cpp`,61,`publish() — VoiceConfig → VoiceManager`],[`src/app/VoiceEditor.cpp`,122,`encoder(delta) — fine vs coarse, stepped vs continuous`],[`src/voice/VoiceEditParameters.cpp`,1014,`composeLane() — the lane transform used at playback`],[`src/voice/VoiceEditParameters.cpp`,1055,`mapOctave() — Octave lane → semitones`],[`src/ui/VoiceEditControls.h`,23,`struct Controls — UIState::voiceEditor`],[`tests/unit/test_voice_edit.cpp`,16,`host tests for the catalogue and release semantics`]],
+ reads:`The current VoiceConfig, encoder motion, tile buttons.`,
+ writes:`A new VoiceConfig on the voice, and UIState::voiceEditor.`,
+ note:`Patch bases live on the control core. Recorded lanes hold offsets or modifiers, and only the composed playback state crosses to Core 1 (VoiceConfig.h:71-74).`},
+
+{id:`arp`, label:`Arpeggiator engine`, sub:`pattern mode`, layer:`seq`, col:1, row:6,
+ core:`Core 0 · portable C++`, paths:[`ui`],
+ what:`An alternative note engine for the same instrument: hold a chord on the pads and it walks those notes at a chosen rate and pattern, spreading a chord across all four voices and their four patches. It replaces the step paths rather than adding a second sequencer.`,
+ files:[[`src/pico2seq-core/arpeggiator/Arpeggiator.h`,198,`class Arpeggiator::Engine`],[`src/pico2seq-core/arpeggiator/Arpeggiator.h`,178,`struct Tick — per-slot start/stop masks plus degrees and octaves`],[`src/pico2seq-core/arpeggiator/Arpeggiator.h`,70,`enum class Pattern — Up / Down / UpDown / Random / Order / Chord`],[`src/pico2seq-core/arpeggiator/Arpeggiator.h`,81,`enum class Rate — quarter through 1/32 triplet`],[`src/app/ArpPlayback.cpp`,113,`arpTick() — the only place arp notes become VoiceState`],[`src/app/ArpPlayback.cpp`,31,`arpNoteOn() — pitch, gate and dynamics from the voice patch`],[`tests/unit/test_arpeggiator.cpp`,88,`host tests, driven tick by tick`]],
+ reads:`Held pads, lidar dynamics, scale geometry, PPQN ticks, the selected voice.`,
+ writes:`UIState::arp (mode flag, chord, note walk) and, through ArpPlayback, VoiceState.`,
+ note:`The engine decides note timing; only src/app/ArpPlayback.cpp turns that into voice updates (firmware-structure.md:67-74).`},
+
+{id:`oled`, label:`OLED status screen`, sub:`128x64 SH1106`, layer:`input`, col:1, row:7,
+ core:`Core 0 · I2C0, 40 ms cadence`, paths:[`ui`],
+ what:`The screen: the held lane's value, the ENV page, preset menus and the arp page. It only pushes the pages that changed, so a static screen costs no I2C traffic at all.`,
+ files:[[`src/OLED/oled.cpp`,212,`OLEDDisplay::update(uiState, sequencers, voiceManager)`],[`src/OLED/oled.cpp`,129,`commitFrame() — page-diffed push`],[`src/OLED/oled.cpp`,514,`displayArpPage()`],[`src/OLED/oled.cpp`,659,`displayEnvelopePage()`],[`src/app/ControlIO.cpp`,286,`the 40 ms call site`],[`src/app/ControlIO.cpp`,157,`registered as VoiceManager's update observer`]],
+ reads:`UIState, the sequencer routing table, VoiceManager configs and VoiceStates.`,
+ writes:`The panel over Wire (address 0x3C). Nothing else — it is a pure reader.`,
+ note:`The arp page and the ENV page are the two places where the screen outranks the normal parameter display; both are priority-ordered, one view per frame (oled.h:34-36).`},
+
+{id:`led`, label:`LED matrix`, sub:`8x4 stage mirror`, layer:`input`, col:1, row:8,
+ core:`Core 0 · PIO + DMA, 13 ms cadence`, paths:[`ui`],
+ what:`The RGB panel under the pads: the sounding step blooms white, gated steps glow in their voice's colour, rests stay dark. It runs at three times the screen's rate because the transfer is cheap and fades settle faster.`,
+ files:[[`src/LEDMatrix/LEDMatrixFeedback.cpp`,1131,`updateStepLEDs()`],[`src/LEDMatrix/LEDmatrix.cpp`,42,`LEDMatrix::show() — hand the frame to the driver`],[`src/LEDMatrix/LEDMatrixFeedback.cpp`,768,`setLEDTheme()`],[`src/LEDMatrix/LEDMatrixFeedback.h`,21,`enum class LEDTheme — 10 palettes, saved by index`],[`src/app/ControlIO.cpp`,23,`kLedIntervalMs = 13 (about 77 fps)`],[`src/app/ControlIO.cpp`,267,`the render + show pair`]],
+ reads:`UIState, the sequencer routing table, note conversions for hue.`,
+ writes:`WS2812B pixels over the FastLED PIO+DMA driver (about 1 ms on the wire, no interrupt blackout).`,
+ note:`Fades are wall-clock based (frameBlend), never frame-counted, so tempo and loop load cannot change the look (LEDMatrixFeedback.h:15-17).`},
+
+/* -------------------------------------------------------- sequencer / brain */
+{id:`clock`, label:`uClock + event staging`, sub:`the heartbeat`, layer:`seq`, col:2, row:0,
+ core:`Core 0 · ISR stages, loop drains`, paths:[`audio`],
+ what:`uClock's interrupt runs on Core 0 and does almost nothing: it stamps the step number into a 16-deep ring and bumps a tick counter. The control loop drains both, so no real musical work ever happens inside the interrupt.`,
+ files:[[`src/app/ClockService.cpp`,31,`onStepCallback() — ISR: steps.tryPush(), drop newest when full`],[`src/app/ClockService.cpp`,40,`onOutputPPQNCallback() — ISR: ppqnTicksPending++`],[`src/app/ClockService.cpp`,71,`processClockEvents() — the loop-side step drain`],[`src/app/ClockService.cpp`,99,`processPendingGateTicks() — tick-precise note-off`],[`src/app/ClockService.cpp`,85,`initializeClock() — 90 BPM, 480 PPQN, shuffle on`],[`src/app/ClockService.cpp`,121,`stopClockForEditor()`],[`src/app/ClockService.cpp`,19,`kQueuedStepCapacity = 16`]],
+ reads:`uClock callbacks only.`,
+ writes:`SpscQueue<uint32_t,16> steps; volatile ppqnTicksPending; volatile droppedSteps.`,
+ note:`A stale warning you can ignore: firmware-structure.md:123-127 says the PPQN counter has a read/modify/write race that can lose a tick. The current drain takes and clears the count entirely inside an IRQ-disabled window (ClockService.cpp:103-106) and then does the per-tick work on a local copy, so no tick can be lost — an increment lands either before the read or after the clear. docs/next-steps.md item 8 already asks for that text to be verified and corrected.`},
+
+{id:`seqstep`, label:`Step playback + recording`, sub:`step → four voices`, layer:`seq`, col:2, row:1,
+ core:`Core 0 · thread context`, paths:[`audio`],
+ what:`Where one clock step becomes four musical decisions: advance every sequencer in order, give the hand only to the selected voice, then publish four VoiceStates. Also where a held lane records the hand into the playing step.`,
+ files:[[`src/app/StepPlayback.cpp`,93,`processSequencerStep() — all four voices, in voice order`],[`src/app/StepPlayback.cpp`,105,`the per-voice loop; only the selected voice hears the sensor`],[`src/app/StepPlayback.cpp`,18,`recordParameter() — live record and step-edit record`],[`src/app/StepPlayback.cpp`,51,`updateActiveVoiceState() — refresh in place, never retrigger`],[`src/app/StepPlayback.cpp`,38,`resetStepToPatch() — Shift+pad returns a lane to the patch`]],
+ reads:`Staged clock steps, UIState holds and selection, AppState::performanceInput, the four sequencers.`,
+ writes:`VoiceSystem::voiceStates[4] and, through publishVoiceState(), VoiceManager.`,
+ note:`Refreshing a sounding voice deliberately never re-runs the step: re-running it would retrigger the envelope every pass and choke the oscillators (StepPlayback.cpp:67-68).`},
+
+{id:`seq`, label:`Sequencer ×4`, sub:`the score`, layer:`seq`, col:2, row:2,
+ core:`Core 0 · portable C++`, paths:[`audio`],
+ what:`One polymetric pattern per voice. Every lane loops at its own length, so Note can run 16 steps while Filter loops 8 and the phrase and the tone drift in and out of phase over many bars. Four instances make the four-part song.`,
+ files:[[`src/pico2seq-core/sequencer/Sequencer.cpp`,245,`advanceStep() — advance every lane cursor, then sound the combination`],[`src/pico2seq-core/sequencer/Sequencer.cpp`,323,`processStep() — gate, slide and note lifecycle into a VoiceState`],[`src/pico2seq-core/sequencer/Sequencer.cpp`,444,`tickNoteDuration() — the sole note-length authority`],[`src/pico2seq-core/sequencer/Sequencer.cpp`,151,`recordLiveValue()`],[`src/pico2seq-core/sequencer/Sequencer.cpp`,165,`editStepValue()`],[`src/pico2seq-core/sequencer/Sequencer.cpp`,512,`decodeStep() — the one stored/preview/played decode path`],[`src/pico2seq-core/sequencer/Sequencer.h`,74,`class Sequencer`]],
+ reads:`Lane storage, the patch transform, clock step numbers.`,
+ writes:`Lane values, lane cursors, and the output VoiceState.`,
+ note:`Portable by rule: no Arduino, no UIState, no hardware includes. See section 7.`},
+
+{id:`parammgr`, label:`ParameterManager`, sub:`the eleven lanes`, layer:`seq`, col:2, row:3,
+ core:`Core 0 · portable C++`, paths:[`audio`],
+ what:`Owns the eleven lanes inside one sequencer and the rule for writing them. Lane storage is fixed-size, so nothing on the step path allocates.`,
+ files:[[`src/pico2seq-core/sequencer/ParameterManager.h`,12,`class ParameterManager`],[`src/pico2seq-core/sequencer/ParameterManager.cpp`,1,`lane storage, wrapping writes, fill and randomize`],[`src/pico2seq-core/sequencer/SequencerDefs.h`,89,`PARAM_ID_COUNT = ParamId::Count — the lane count`]],
+ reads:`Value + ParamId + step from the sequencer.`,
+ writes:`The lane tracks; clamps and rounds on write.`,
+ note:`setRawStepValue() is the save/load path: unwrapped read and unclamped write, used only by the codec (Sequencer.h:125-129).`},
+
+{id:`paramtrack`, label:`ParameterTrack<N>`, sub:`the polymetric block`, layer:`seq`, col:2, row:4,
+ core:`Core 0 · header-only, portable`, paths:[`audio`],
+ what:`The piece that makes polymeter work: a fixed-size array of values with its own loop length and a wrapping read. “Note over 16 steps, Filter over 8” is simply two of these with different lengths.`,
+ files:[[`src/pico2seq-core/sequencer/SequencerDefs.h`,148,`template <uint8_t MAX_SIZE> using ParameterTrack = rpdsp::ParameterTrack<float, MAX_SIZE>`],[`src/pico2seq-core/sequencer/SequencerDefs.h`,188,`CORE_PARAMETERS[] — the eleven lanes: range, edit feel, default length, recordable`],[`src/pico2seq-core/sequencer/SequencerDefs.h`,168,`struct ParameterDefinition`],[`src/pico2seq-core/sequencer/SequencerDefs.h`,17,`MAX_STEPS_COUNT = 64, DEFAULT_STEPS_COUNT = 16`],[`src/rpdsp/src/rpdsp/parameter_track.h`,0,`the implementation, in the rpdsp submodule`],[`tests/unit/test_sequencer.cpp`,12,`host tests for wrapping and lengths`]],
+ reads:`Nothing.`,
+ writes:`Nothing — pure storage with a wrapping read.`,
+ note:`Two deliberate differences from the float-only track that used to live here: init() defaults to 64 steps, and resize() clamps into [1, MaxSteps] instead of ignoring out-of-range input (SequencerDefs.h:141-145).`},
+
+{id:`scales`, label:`Scale tables`, sub:`degree → semitone`, layer:`seq`, col:2, row:5,
+ core:`Core 0 · portable data`, paths:[`audio`],
+ what:`Thirteen scales, each a row of 48 step-to-semitone entries. A note lane stores a scale degree; this table turns that degree into a semitone, and the voice turns that into a frequency.`,
+ files:[[`src/pico2seq-core/scales/scales.cpp`,23,`int scale[13][48] — the rows`],[`src/pico2seq-core/scales/scales.cpp`,25,`Ionian Major: {0, 2, 4, 5, 7, 9, 11, ...}`],[`src/pico2seq-core/scales/scales.h`,9,`SCALES_COUNT = 13, SCALE_STEPS = 48`],[`src/pico2seq-core/scales/scales.h`,24,`scaleNotesPerOctave() — the arp geometry probe`],[`src/voice/MusicalValues.h`,13,`midiNote() — 48 + row[degree] + octave`],[`src/voice/Voice.cpp`,1031,`Voice::calculateNoteFrequency()`],[`tests/unit/test_scales.cpp`,5,`host tests: monotonicity, roots at 0, MIDI bounds`]],
+ reads:`Nothing.`,
+ writes:`Nothing — it is data.`,
+ note:`Voices never read these globals. The table is injected with setScaleTable()/setCurrentScalePointer() (VoiceManager.cpp:69-70), and passing nullptr exercises a chromatic fallback so DSP stays testable.`},
+
+{id:`spsc`, label:`SpscQueue`, sub:`the lock-free handoff`, layer:`persist`, col:2, row:6,
+ core:`either core · one producer, one consumer`, paths:[`audio`],
+ what:`The only mechanism that moves values between the two cores apart from atomics and one publish flag: a ring buffer with plain-data payloads and lock-free 32-bit indices. Neither side ever blocks or allocates.`,
+ files:[[`src/utils/SpscQueue.h`,12,`class SpscQueue<T, Capacity>`],[`src/utils/SpscQueue.h`,21,`tryPush() — a full queue leaves input and occupied slots intact`],[`src/utils/SpscQueue.h`,33,`consumerEmpty()`],[`src/utils/SpscQueue.h`,40,`tryPop() — copy the payload, then release the slot`],[`src/utils/SpscQueue.h`,57,`slots_[Capacity + 1] — one sentinel distinguishes full from empty`],[`src/voice/Voice.h`,469,`SpscQueue<ControlUpdate, CONTROL_QUEUE_CAPACITY> controlQueue_`],[`src/app/ClockService.cpp`,23,`SpscQueue<uint32_t, 16> steps`],[`tests/unit/test_voice_transfer.cpp`,32,`host tests: FIFO order, no torn payloads under concurrency`]],
+ reads:`Nothing.`,
+ writes:`Its own two indices, published with acquire/release ordering.`,
+ note:`A published slot belongs to the consumer until its payload copy has finished. Capacity + 1 slots means Capacity entries are usable.`},
+
+/* ------------------------------------------------------ handoff + voice mgmt */
+{id:`presets`, label:`Presets + voice factory`, sub:`29 sounds`, layer:`voice`, col:3, row:0,
+ core:`Core 0 · setup only`, paths:[`audio`],
+ what:`The named sounds, and the one-shot setup that builds four voices from the saved preset picks, links each voice to its sequencer, and seeds its lanes.`,
+ files:[[`src/app/VoiceSetup.cpp`,11,`initializeVoices() — four voices, sequencer links, lane seeding`],[`src/app/VoiceSetup.cpp`,34,`applyVoicePreset()`],[`src/voice/VoicePresets.h`,11,`namespace VoicePresets — the registry API`],[`src/voice/VoicePresets.cpp`,17,`kPresets[] — 29 presets across oscillator, recipe, string, texture and musical groups`],[`src/voice/presets/PresetBank.h`,6,`the single preset list — append only, never reorder`],[`src/voice/VoiceEditParameters.cpp`,1059,`seedModifiers() — a fresh pattern neutral around the patch`]],
+ reads:`uiState.voicePresetIndices (from the loaded session or the defaults).`,
+ writes:`VoiceManager (addVoice, attachSequencer), VoiceSystem voice IDs, and each sequencer's playback transform.`,
+ note:`Voice index is 0-based internally; the serial line here deliberately prints it with a comment noting the UI shows 1-based (VoiceSetup.cpp:59).`},
+
+{id:`vplay`, label:`VoiceState publication`, sub:`the one door to Core 1`, layer:`voice`, col:3, row:1,
+ core:`Core 0 · thread context`, paths:[`audio`],
+ what:`The single path a note takes from the control core to the audio core. It copies the state, retains a snapshot in VoiceSystem, and queues the update to the voice. Retrigger is treated as an event and is deliberately not retained.`,
+ files:[[`src/app/VoicePlayback.cpp`,7,`publishVoiceState() — copy, retain, queue`],[`src/app/VoicePlayback.cpp`,21,`tickSequencerVoices() — publish a note-off on its exact tick`],[`src/app/VoicePlayback.cpp`,31,`stopSequencerVoice() — always clears gate, slide and retrigger`],[`tests/unit/test_voice_playback.cpp`,48,`host tests — this is the one src/app file compiled into the suite`]],
+ reads:`A VoiceState from a sequencer or from ArpPlayback, plus VoiceSystem voice IDs.`,
+ writes:`VoiceSystem::voiceStates[i], then VoiceManager → the Voice control queue.`,
+ note:`Copy-then-retain is not decoration: callers are allowed to pass the retained state itself (VoicePlayback.cpp:12-13).`},
+
+{id:`vsys`, label:`VoiceSystem`, sub:`ID tags + snapshot`, layer:`voice`, col:3, row:2,
+ core:`Core 0 · thread context`, paths:[`audio`],
+ what:`Voice ID tags plus one control snapshot each. That is all it holds now — no gate flags, no timers, no MIDI lifecycle tracking. The sequencer owns note length, and the VoiceState owns gate truth.`,
+ files:[[`src/voice/VoiceSystem.h`,15,`struct VoiceSystem`],[`src/voice/VoiceSystem.h`,17,`MAX_VOICES = 4`],[`src/voice/VoiceSystem.h`,28,`getVoiceId() — returns 0 (invalid) when out of range`],[`src/voice/VoiceSystem.h`,47,`getVoiceState() — clamps an out-of-range index to voice 0`],[`docs/firmware-structure.md`,60,`“VoiceSystem holds only IDs and control snapshots”`],[`docs/VoiceSystem.md`,0,`the design note for the change that removed the parallel arrays`]],
+ reads:`Nothing.`,
+ writes:`voiceIds[4] and voiceStates[4], both index-clamped on access.`,
+ note:`Accessors clamp rather than assert, so a bad index plays voice 0 instead of corrupting memory — always go through them, never index the arrays directly.`},
+
+{id:`vman`, label:`VoiceManager`, sub:`the mixing desk`, layer:`voice`, col:3, row:3,
+ core:`Core 1 renders · Core 0 configures`, paths:[`audio`],
+ what:`Owns the voices, sums them into one bus, and applies the master chain in order: delay, then master volume, then the glue compressor as the last DSP before the DAC.`,
+ files:[[`src/voice/VoiceManager.cpp`,310,`processBlock() — voices → delay → gain → compressor`],[`src/voice/VoiceManager.cpp`,180,`updateVoiceState() — the control-core entry point`],[`src/voice/VoiceManager.cpp`,559,`flushControlUpdates() — deliver a pending gate-off on an idle pass`],[`src/voice/VoiceManager.h`,59,`kMaxBlock = 256`],[`src/voice/VoiceManager.h`,127,`setGlobalVolume() — a lock-free atomic target`],[`src/voice/VoiceManager.h`,165,`voiceScratch_ — mixer scratch kept off Core 1 2 KiB stack`],[`src/voice/VoiceManager.cpp`,370,`advanceMasterGain_() — eases so fader moves never step the output`]],
+ reads:`VoiceStates from the control core, and atomic targets for volume, macro and delay.`,
+ writes:`One mono mix buffer, plus its own voiceScratch_ inside.`,
+ note:`Master volume is applied here, not at the DAC: the target is read once per block and the smoother advances every sample (VoiceManager.cpp:324-341).`},
+
+/* --------------------------------------------------------------------- DSP */
+{id:`voice`, label:`Voice`, sub:`one player`, layer:`voice`, col:4, row:1,
+ core:`Core 1 · real-time`, core1:true, paths:[`audio`],
+ what:`One synth voice: sources → envelope → pre-filter effects → velocity → main filter → high-pass → output level. Control changes are staged and cross by queue; the audio core applies one update per sample while any are queued, then renders up to 32 samples.`,
+ files:[[`src/voice/Voice.cpp`,369,`renderSpan_() — the whole chain, steps 1 to 10`],[`src/voice/Voice.cpp`,344,`processBlock() — one update per sample, otherwise a ≤32-sample span`],[`src/voice/Voice.cpp`,298,`applyControlUpdate_() — the audio-side queue drain`],[`src/voice/Voice.cpp`,1095,`updateParameters() — control-side staging`],[`src/voice/Voice.cpp`,258,`flushControlUpdates() — the coalescing publish`],[`src/voice/Voice.cpp`,736,`applyEffects() — overdrive and the noise-FX inserts`],[`src/voice/Voice.h`,131,`kMaxSpan = 32`],[`src/voice/Voice.h`,469,`SpscQueue<ControlUpdate, CONTROL_QUEUE_CAPACITY> controlQueue_`]],
+ reads:`Its control queue, its own DSP history, and the injected scale table.`,
+ writes:`Its output span and audio-owned DSP state only.`,
+ note:`A staged setter does not take effect until the next process() — checking getState() straight after updateParameters() sees the old value (docs/testing.md gotcha 1).`},
+
+{id:`vosc`, label:`VoiceOscillator`, sub:`waveform dispatch`, layer:`voice`, col:4, row:0,
+ core:`Core 1 · real-time`, core1:true, paths:[`audio`],
+ what:`Maps the waveform id in the patch to one of rpdsp's oscillator classes through a variant, dispatching once per span rather than per sample. An unknown id falls back to the band-limited saw.`,
+ files:[[`src/voice/VoiceOscillator.h`,25,`class VoiceOscillator`],[`src/voice/VoiceOscillator.h`,34,`setWaveform() — swap class, carry pitch and pulse width`],[`src/voice/VoiceOscillator.h`,77,`renderAdd() — one dispatch adds a whole span`],[`src/voice/VoiceOscillator.h`,106,`the variant of eight rpdsp oscillator types`],[`src/voice/VoiceOscillator.h`,137,`makeOscillator() — id to class`],[`tests/unit/test_voiceoscillator.cpp`,31,`host tests: dispatch, band limiting, PWM`]],
+ reads:`Waveform id, frequency, pulse width, slave frequency (hard sync only).`,
+ writes:`A summed contribution into the voice's span buffer.`,
+ note:`Amplitude stays with the caller: mix-time gains come from oscAmplitudes[], and the render loop is SRAM-resident so std::visit cannot pull it into flash (VoiceOscillator.h:86-92).`},
+
+{id:`rpdsp`, label:`rpdsp`, sub:`DSP library (submodule)`, layer:`voice`, col:4, row:2,
+ core:`either · header-only`, paths:[`audio`],
+ what:`Every DSP algorithm in the instrument: oscillators, ladder and state-variable filters, ADSR, effects, hypersaw, waveguide, the recipe engines, the compressor and the parameter track.`,
+ files:[[`src/rpdsp`,0,`submodule github.com/IC-Alchemy/RPDSP at 25b3549 — not checked out in this worktree`],[`src/voice/Voice.h`,10,`includes ladder.h, filter.h, envelope.h, effects.h, hypersaw.h, waveguide.h, DSPFunctions.h`],[`src/voice/VoiceManager.h`,10,`dynamics.h — rpdsp::Compressor`],[`src/pico2seq-core/sequencer/SequencerDefs.h`,146,`parameter_track.h — the lane storage`],[`src/voice/engines/RecipeEngine.h`,21,`class RecipeEngine — the recipe layer on top of rpdsp`],[`docs/architecture.md`,251,`the DSP pipeline section`]],
+ reads:`DSP parameters and audio-owned state.`,
+ writes:`Processed samples.`,
+ note:`This is the safe place to add a new DSP effect — the algorithms are portable, host-testable, and independent of Arduino. See section 7.`},
+
+{id:`mdelay`, label:`MasterDelay`, sub:`the tail`, layer:`voice`, col:4, row:3,
+ core:`Core 1 · real-time`, core1:true, paths:[`audio`],
+ what:`The master delay on the summed bus: a 48,000-float line (~187.5 KiB) read fractionally with cubic interpolation, and a DC blocker, one-pole low-pass and tanh bound inside the feedback loop.`,
+ files:[[`src/voice/MasterDelay.h`,17,`class MasterDelay`],[`src/voice/VoiceManager.cpp`,334,`targets read once per block; the delay eases per sample`],[`src/voice/VoiceManager.h`,189,`std::atomic<float> delayMix / delayTime / delayFeedback`],[`src/ui/ControlSurfaceLogic.h`,382,`kDelayTimeMinSeconds 0.010 / Max 0.750`],[`tests/unit/test_master_delay.cpp`,47,`host tests: fractional timing, darkening repeats, bounds`]],
+ reads:`Its atomic targets, once per block.`,
+ writes:`The delayed signal; its line and filters are audio-thread-only state.`,
+ note:`The old global delay was removed entirely in 2026-09-11, reclaiming about 338 KiB; this is the redesigned one that rides the summed block inside VoiceManager::processBlock().`},
+
+{id:`mcomp`, label:`Master compressor`, sub:`Warm → Punch macro`, layer:`voice`, col:4, row:4,
+ core:`Core 1 · real-time`, core1:true, paths:[`audio`],
+ what:`The last DSP before the DAC. One macro knob morphs all six compressor parameters along a Warm → Neutral → Punch curve, and the audio thread eases toward the fader so a move never steps the output.`,
+ files:[[`src/voice/VoiceManager.cpp`,349,`compressor.process() — last DSP before the DAC`],[`src/voice/VoiceManager.h`,92,`settingsForMacro() — the piecewise-linear morph`],[`src/voice/VoiceManager.h`,76,`kMacroWarm / kMacroCenter / kMacroPunch anchors`],[`src/voice/VoiceManager.cpp`,292,`applyMasterCompSettings_() — setters only, never a reset on the audio thread`],[`tests/unit/test_master_compressor.cpp`,76,`host tests: the curve anchors and gain reduction`]],
+ reads:`The macro target (lock-free atomic) and the audio.`,
+ writes:`Gain-reduced, limited output.`,
+ note:`Coefficient updates run at most once per block, never per sample — the gain-reduction smoother hides the motion (VoiceManager.cpp:342-355).`},
+
+/* ------------------------------------------------------------------- output */
+{id:`aengine`, label:`AudioEngine`, sub:`Core 1 render loop`, layer:`audio`, col:5, row:1,
+ core:`Core 1 · real-time`, core1:true, paths:[`audio`],
+ what:`Core 1's entire job: wait for a free buffer, fill it from the published voices, duplicate the mono mix to both channels, hand it back for DMA. That blocking wait is what paces the 48 kHz clock.`,
+ files:[[`Pico2Seq.ino`,22,`setup1() → AudioEngine::begin()`],[`Pico2Seq.ino`,27,`loop1() → AudioEngine::renderNextBuffer()`],[`src/app/AudioEngine.cpp`,167,`renderNextBuffer() — the entire Core 1 loop body`],[`src/app/AudioEngine.cpp`,44,`fill_audio_buffer() — render and convert`],[`src/app/AudioEngine.cpp`,176,`take_audio_buffer(pool, true) — the pacing point`],[`src/app/AudioEngine.cpp`,131,`spins on voicesReady before starting, so a recovery boot parks instead of reviving audio`]],
+ reads:`The published voices, the buffer pool, voicesReady.`,
+ writes:`Filled PCM16 buffers handed to DMA, plus timing counters for the heartbeat.`,
+ note:`Nothing else may run here. There is no UI, sensor or Serial work on this core — adding any would break the groove (Pico2Seq.ino:20-21).`},
+
+{id:`pcm`, label:`PCM16 conversion`, sub:`the hard ceiling`, layer:`audio`, col:5, row:0,
+ core:`Core 1 · real-time`, core1:true, paths:[`audio`],
+ what:`Float to 16-bit: clamp to ±1, scale by 32768, truncate toward zero, then ARM's SSAT saturate instruction. It deliberately does not round — rounding would shift quiet tails by one LSB.`,
+ files:[[`src/app/Pcm16.h`,15,`AudioSamples::toPcm16()`],[`src/app/AudioEngine.cpp`,70,`called per sample; the result is copied to both channels`],[`src/app/AudioEngine.cpp`,112,`the mono mix is converted once, not twice`],[`tests/unit/test_app_runtime.cpp`,6,`host tests every level including clipping and truncation`]],
+ reads:`One float sample from the mix buffer.`,
+ writes:`One int16 PCM word.`,
+ note:`Branchless, no allocation, no rounding — the host build mirrors ARM __SSAT exactly so the conversion tests mean something (Pcm16.h:23-25).`},
+
+{id:`pool`, label:`Audio buffer pool`, sub:`4 × 256 frames`, layer:`audio`, col:5, row:2,
+ core:`Core 1 · producer side`, core1:true, paths:[`audio`],
+ what:`Four producer buffers of 256 stereo frames each. Four means three queued plus one playing, so one late render does not click — and no consumer sample copy is needed inside the DMA interrupt.`,
+ files:[[`src/audio/audio.h`,117,`audio_new_producer_pool()`],[`src/audio/audio.h`,171,`take_audio_buffer(pool, block)`],[`src/audio/audio.h`,163,`give_audio_buffer()`],[`src/app/AudioEngine.cpp`,24,`NUM_AUDIO_BUFFERS = 4, SAMPLES_PER_BUFFER = 256`],[`src/app/AudioEngine.cpp`,100,`all four are pre-filled before I2S is enabled`],[`tests/unit/test_audio_i2s.cpp`,8,`host tests: ownership and starvation recovery against DMA/PIO doubles`]],
+ reads:`Nothing.`,
+ writes:`Buffer free/full lists, guarded so the DMA interrupt and loop1() cannot corrupt them.`,
+ note:`256 frames at 48 kHz is a 5.33 ms real-time budget per buffer. The pool and driver logic are host-tested; real I2S timing is not.`},
+
+{id:`i2s`, label:`I2S output`, sub:`PIO + DMA`, layer:`audio`, col:5, row:3,
+ core:`Core 1 · PIO + DMA`, core1:true, paths:[`audio`],
+ what:`Sends the buffers to the DAC over I2S — data GP12, BCLK GP10, LRCK GP11 — with the DMA channel and PIO state machine claimed automatically so any other DMA or PIO user survives.`,
+ files:[[`src/audio/audio_i2s.h`,128,`audio_i2s_setup()`],[`src/audio/audio_i2s.h`,157,`audio_i2s_connect_extra(producer, false, 0, 256, nullptr)`],[`src/audio/audio_i2s.h`,164,`audio_i2s_set_enabled()`],[`src/audio/audio_i2s.h`,167,`audio_i2s_underrun_count() / tx_stall_count()`],[`src/audio/audio_i2s.pio.h`,21,`the PIO program instructions`],[`src/app/AudioEngine.cpp`,92,`zero consumer buffers selects the driver pass-through connect`],[`src/app/HardwarePins.h`,20,`the wiring map — I2S data GP12, clock base GP10`]],
+ reads:`Filled buffers from the pool, handed straight to DMA.`,
+ writes:`The I2S bit clock, word select and data lines.`,
+ note:`Underrun and transmit-stall counters are reported through the Core 1 heartbeat every two seconds, so a dropout is visible in the log without audio code ever printing.`},
+
+/* --------------------------------------------------------- persistence/utils */
+{id:`session`, label:`Session capture & apply`, sub:`song ↔ plain data`, layer:`persist`, col:0, row:9,
+ core:`Core 0 · thread context`, paths:[`ui`],
+ what:`Turns the live instrument into a plain-data snapshot and back again, in three ordered stages, because voices must exist before their patterns can land and the clock must exist before tempo does.`,
+ files:[[`src/app/Session.cpp`,38,`captureSession()`],[`src/app/Session.cpp`,65,`applyBeforeVoices() — preset picks first`],[`src/app/Session.cpp`,77,`applyAfterVoices() — patterns and patches`],[`src/app/Session.cpp`,128,`applyAfterClock() — tempo, swing, scale, theme`],[`src/app/Session.cpp`,23,`g_pending — save/load requested by the UI, executed by the loop`],[`src/app/Application.cpp`,306,`autosave on transport stop, debounced one second`]],
+ reads:`Sequencers, VoiceManager patches and volume, UIState cursors, uClock tempo.`,
+ writes:`A ProjectSnapshot; and on a load, the whole live state.`,
+ note:`The three-stage split is why a load can be requested while playing: the transport is stopped first and restarted after, so nothing is half-applied mid-step (Application.cpp:252-302).`},
+
+{id:`sstore`, label:`SessionStorage`, sub:`LittleFS`, layer:`persist`, col:1, row:9,
+ core:`Core 0 · flash I/O`, paths:[`ui`],
+ what:`Reads and writes the song to flash, with the frame header and the payload CRC-checked separately so a truncated or half-written file can never load. A save writes a temp file and renames it.`,
+ files:[[`src/app/SessionStorage.cpp`,16,`begin() — mount; format only when needed, and log the wait`],[`src/app/SessionStorage.cpp`,32,`load()`],[`src/app/SessionStorage.cpp`,72,`save() — temp file, then rename`],[`src/app/SessionStorage.cpp`,11,`two ~12.4 KB static buffers — deliberately not stack`],[`docs/architecture.md`,457,`the save policy and its XIP-stall rule`]],
+ reads:`A ProjectSnapshot to write; the flash filesystem.`,
+ writes:`/session.p2s, via /session.tmp.`,
+ note:`Two 12.4 KB snapshot buffers are static because they would overflow the Core 0 loop stack — that failure mode hard-faulted within seconds (Application.cpp:33-35, SessionStorage.cpp:11-13).`},
+
+{id:`snap`, label:`Snapshot format`, sub:`the locked layout`, layer:`persist`, col:2, row:9,
+ core:`either · portable C++`, paths:[`ui`],
+ what:`The byte-exact song layout: four patterns, four patches, settings and the envelope lanes. Its size is locked by static_asserts, and a format-1 file still loads as the prefix of a format-2 one, so old files keep working.`,
+ files:[[`src/pico2seq-core/persistence/ProjectSnapshot.h`,105,`struct ProjectSnapshot (format 2)`],[`src/pico2seq-core/persistence/ProjectSnapshot.h`,122,`static_assert(sizeof(ProjectSnapshot) == 12400)`],[`src/pico2seq-core/persistence/ProjectSnapshot.h`,116,`the locked-layout asserts — these are the contract`],[`src/pico2seq-core/persistence/ProjectSnapshot.h`,128,`upgradeFromV1()`],[`src/pico2seq-core/persistence/SnapshotFormat.cpp`,8,`persistence::crc32()`],[`src/pico2seq-core/persistence/PatternCodec.cpp`,22,`capturePattern()`],[`src/voice/PatchCodec.cpp`,21,`voicecodec::capturePatch() — flash-resident pointers are re-derived at load, never stored`],[`tests/unit/test_persistence.cpp`,15,`host tests: CRC vector, layout, golden round-trip`]],
+ reads:`Nothing.`,
+ writes:`Nothing — it is the format.`,
+ note:`Validate bounds rather than trusting: tempo 45..200 BPM, 13 scales, 16 grooves, 10 themes (ProjectSnapshot.h:130-132).`},
+
+{id:`retained`, label:`Retained-RAM mirror`, sub:`survive a watchdog reboot`, layer:`persist`, col:3, row:9,
+ core:`Core 0 · thread context`, paths:[`ui`],
+ what:`A CRC-guarded copy of the song in RAM that survives a watchdog reboot, so a glitch does not cost the performance. After three failed resumes it stops trying and halts for inspection instead of boot-looping.`,
+ files:[[`src/app/RetainedSession.cpp`,9,`__uninitialized_ram — not cleared by a warm reset`],[`src/app/RetainedSession.cpp`,20,`bootInit()`],[`src/app/RetainedSession.cpp`,26,`resumeAllowed() — one decision per boot`],[`src/app/RetainedSession.cpp`,40,`refresh() — checkpoint the live song`],[`src/app/RetainedSession.cpp`,48,`markBootCompleted() — a healthy loop grants three fresh resumes`],[`src/pico2seq-core/persistence/RetainedSessionLogic.h`,49,`decideResume() — the decision table`],[`src/app/Application.cpp`,231,`1 Hz refresh caps resume loss at one second`]],
+ reads:`A ProjectSnapshot to mirror; the retained RAM region.`,
+ writes:`The retained store; on a recovery boot it hands the song back to Session.`,
+ note:`A watchdog reset with an invalid or exhausted store parks instead of continuing: peripherals and voices stay untouched so the console can reconnect. A power cycle retries (Application.cpp:135-144).`},
+
+{id:`wd`, label:`Freeze watchdog`, sub:`PC / LR forensics`, layer:`persist`, col:4, row:9,
+ core:`Core 0 · hardware watchdog + fault handler`, paths:[`ui`],
+ what:`A two-second hardware watchdog plus a breadcrumb trail. Every setup stage and loop slice records the phase it is about to run; after a reboot the firmware prints which phase never finished — and for a hard fault it prints the stacked PC and LR so the crash can be decoded against the exact ELF.`,
+ files:[[`src/utils/FreezeWatchdog.h`,138,`freezeWatchdogArm() — arm 2 s, install the fault handler`],[`src/utils/FreezeWatchdog.h`,123,`freezeWatchdogFeed(phase) — breadcrumb then watchdog_update()`],[`src/utils/FreezeWatchdog.h`,211,`freezeWatchdogBootCheck() — save the evidence before anything overwrites it`],[`src/utils/FreezeWatchdog.h`,175,`freezeWatchdogPrintPreviousRun()`],[`src/utils/FreezeWatchdog.cpp`,16,`the naked handler: tst lr,#4 then mrs msp or mrs psp`],[`src/utils/FreezeWatchdog.cpp`,29,`freezeWatchdogCaptureHardFault()`],[`src/utils/FreezeWatchdog.cpp`,64,`record.pc = frame[6]; record.lr = frame[5]`],[`src/utils/FreezeWatchdog.h`,16,`scratch registers: [5] PC, [6] LR; [4] is reserved by pico-sdk`],[`tests/unit/test_freeze_watchdog.cpp`,22,`host tests against isolated stubs`]],
+ reads:`The watchdog scratch registers and the SCB fault status registers (CFSR, HFSR, BFAR, MMFAR).`,
+ writes:`A NOINIT-RAM fault record plus the scratch summary; then a serial report on the next boot.`,
+ note:`Two honest limits. The handler is installed on Core 0 only, so a Core-1-only hang is not caught. And a reported PC/LR is only meaningful against the ELF produced by that exact failing build — addresses are link-layout specific.`},
+
+{id:`log`, label:`Debug logging`, sub:`serial diagnostics`, layer:`persist`, col:5, row:9,
+ core:`Core 0 prints · Core 1 queues`, paths:[`ui`],
+ what:`Lightweight logging macros used by the voice and DSP code, plus the two-second diagnostic line. Core 1 never prints: it pushes a heartbeat into a small queue and Core 0 writes the message.`,
+ files:[[`src/utils/Debug.h`,36,`DBG_INFO / DBG_VERBOSE / DBG_WARN`],[`src/utils/Debug.cpp`,35,`Debug::vlogf() — the implementation`],[`src/app/Application.cpp`,40,`AUG_DEBUG_COMPILED gates the diagnostics; the host build sets it to 0`],[`src/app/Application.cpp`,97,`Core 0 drains the heartbeat queue and prints`],[`src/app/AudioEngine.cpp`,214,`Core 1 pushes a Heartbeat — a full queue drops the report rather than stalling audio`]],
+ reads:`Log calls from the control thread; heartbeat structs from Core 1.`,
+ writes:`USB CDC serial text.`,
+ note:`The heartbeat queue is four entries deep and lossy on purpose: a lost log line must never cost a sample (AudioEngine.cpp:216-220).`}
+];
+
+/* ======================= EDGES =======================
+ kind: call | cross (Core 0→1 or 1→0) | isr | owns
+tag:  core1 | isr | perstep | perbuf
+*/
+const EDGES = [
+/* --- the control loop drives its slices --- */
+{id:`e-app-matrix`, from:`app0`, to:`mpr121`, kind:`call`, label:`1 ms slice`, tags:[],
+ trigger:`ControlIO::scanControls() on its 1 ms due-check, called from Application::update()`,
+ data:`none inbound; the call and the due-check are the trigger`,
+ freq:`about every 1 ms (a minimum interval, not a deadline)`,
+ disc:`Nothing shared: the interrupt only sets a volatile flag, and the I2C read happens here in thread context.`},
+{id:`e-app-tiles`, from:`app0`, to:`tiles`, kind:`call`, label:`1 ms slice`, tags:[],
+ trigger:`ControlIO::scanControls() → AlchemyControlBridge::update(nowMs, uiState, view)`,
+ data:`none inbound`,
+ freq:`about every 1 ms`,
+ disc:`Tiles are polled at most one due tile per pass, so a slow tile cannot stretch the loop by more than one transfer pair (AlchemyControlBridge.cpp:99).`},
+{id:`e-app-enc`, from:`app0`, to:`enc`, kind:`call`, label:`1 ms slice`, tags:[],
+ trigger:`ControlIO::scanControls() → magEncoder.update() then updateEncoderBaseValues(uiState)`,
+ data:`none inbound; the encoder accumulates internally`,
+ freq:`about every 1 ms`,
+ disc:`Pending ticks are dropped while uiState.controlsWaitRelease is set, so a mode exit cannot let stale motion land on a new target.`},
+{id:`e-app-lidx`, from:`app0`, to:`lidx`, kind:`call`, label:`1 ms slice`, tags:[],
+ trigger:`ControlIO::scanControls() → distanceSensor.update()`,
+ data:`none inbound`,
+ freq:`about every 1 ms; the sensor itself paces its own reads`,
+ disc:`update() never blocks, and an invalid reading clears handPresent rather than being clamped to a value.`},
+{id:`e-app-uievent`, from:`app0`, to:`uievent`, kind:`call`, label:`every pass`, tags:[],
+ trigger:`ControlIO::pollHeldButtons() → pollUIHeldButtons(uiState, sequencers)`,
+ data:`UIState, SequencerView`,
+ freq:`every loop pass (so a hold is promoted without blocking)`,
+ disc:`Core 0 thread context only; holds live in UIState, so nothing crosses a core boundary.`},
+{id:`e-app-clock`, from:`app0`, to:`clock`, kind:`call`, label:`drain each pass`, tags:[`isr`],
+ trigger:`processClockEvents() then processPendingGateTicks(), in that fixed order`,
+ data:`uint32_t step numbers from the ring; a tick count for note-off`,
+ freq:`every loop pass, drained to empty; one step per 16th note (~166.7 ms at 90 BPM)`,
+ disc:`Steps cross through SpscQueue<uint32_t,16>; the tick count is volatile and is taken and cleared with interrupts disabled, then consumed from a local copy — so no tick is lost, only delayed to the next pass.`},
+{id:`e-app-vman`, from:`app0`, to:`vman`, kind:`call`, label:`flush every pass`, tags:[],
+ trigger:`voiceManager->flushControlUpdates() at the top of every update pass, even with no new input`,
+ data:`none`,
+ freq:`every pass`,
+ disc:`Control thread only. This is what guarantees a final gate-off is delivered on an otherwise idle pass.`},
+{id:`e-app-led`, from:`app0`, to:`led`, kind:`call`, label:`13 ms`, tags:[],
+ trigger:`ControlIO::refreshLeds() on its 13 ms due-check → updateStepLEDs() then ledMatrix.show()`,
+ data:`none`,
+ freq:`about 77 fps`,
+ disc:`Third of the old shared cadence; safe because show() hands the frame to PIO+DMA instead of bit-banging it (ControlIO.cpp:19-23).`},
+{id:`e-app-oled`, from:`app0`, to:`oled`, kind:`call`, label:`40 ms`, tags:[],
+ trigger:`ControlIO::refreshOled() on its 40 ms due-check`,
+ data:`none`,
+ freq:`about 25 fps`,
+ disc:`commitFrame() pushes only changed pages, so a static screen costs no I2C traffic.`},
+{id:`e-app-session`, from:`app0`, to:`session`, kind:`call`, label:`deferred I/O`, tags:[],
+ trigger:`Session::consumePendingAction() — the UI only requests, the loop executes`,
+ data:`Session::PendingAction (None / Save / Load)`,
+ freq:`on request, plus an autosave one second after the transport stops`,
+ disc:`Never in ISR or uClock context. A save while running stops the clock first and restarts it after, and the watchdog is re-armed because a flash write can take seconds (Application.cpp:303, 306-327).`},
+{id:`e-app-retained`, from:`app0`, to:`retained`, kind:`call`, label:`1 Hz`, tags:[],
+ trigger:`captureSession(g_sessionSnapshot) then RetainedSession::refresh() once per second`,
+ data:`A ProjectSnapshot`,
+ freq:`1 Hz — zero flash wear`,
+ disc:`Caps what a watchdog reboot can lose at one second. The give-up counter is preserved across a refresh (RetainedSession.cpp:42-45).`},
+{id:`e-app-wd`, from:`app0`, to:`wd`, kind:`call`, label:`feed every slice`, tags:[],
+ trigger:`freezeWatchdogFeed(phase) before each slice; freezeWatchdogMark() inside the control slice`,
+ data:`a FreezePhase id, plus millis() and the processed-step count`,
+ freq:`every slice — the phase recorded is the work about to run, so a hang names the phase that never finished`,
+ disc:`Scratch registers survive a watchdog or warm reset but not a power cycle. Scratch[4] is reserved by pico-sdk's watchdog_enable marker and must not be used (FreezeWatchdog.h:19-20).`},
+{id:`e-app-aengine`, from:`app0`, to:`aengine`, kind:`cross`, label:`voicesReady publish`, tags:[`core1`],
+ trigger:`Application::begin() stores voicesReady true after the voices exist; AudioEngine::begin() spins until it is set`,
+ data:`one std::atomic<bool>`,
+ freq:`once at boot, then never cleared`,
+ disc:`Release ordering on Core 0, acquire on Core 1 — a lock-free one-way publish. A recovery boot leaves it false on purpose so Core 1 parks instead of restarting a broken audio path alone.`},
+
+/* --- hardware into the UI --- */
+{id:`e-matrix-uievent`, from:`mpr121`, to:`uievent`, kind:`isr`, label:`pad press / release`, tags:[`isr`],
+ trigger:`the MPR121 interrupt sets a volatile flag; Matrix_scan() then reads the chip and calls the registered handler`,
+ data:`MatrixButtonEvent {buttonIndex 0..31, press or release}`,
+ freq:`on event; the scan itself is polled at up to 1 ms`,
+ disc:`The ISR does no I2C and no dispatch. Reading touched() in Matrix_scan() is what clears the chip's interrupt (Matrix.cpp:110).`},
+{id:`e-tiles-uievent`, from:`tiles`, to:`uievent`, kind:`call`, label:`button edges`, tags:[],
+ trigger:`AlchemyControlBridge::update() → handleParamButtons() / handleVoiceButtons() / handleTransportButton()`,
+ data:`a ParamId-keyed button edge, or a voice/transport bit`,
+ freq:`on edge, once per control pass at most`,
+ disc:`Shift-latch semantics are folded into parameterButtonHeld[] before the handler runs, so the rest of the behaviour is shared with the pad path (UIEventHandler.cpp:222-237).`},
+{id:`e-tiles-csl`, from:`tiles`, to:`csl`, kind:`call`, label:`raw levels`, tags:[],
+ trigger:`buttonAt(slot, bit).held() and panel_.tiles().faderRaw(channel)`,
+ data:`button bits, fader raw counts, the GP7 strap level`,
+ freq:`every control pass; edges are taken through a history object so a bounce cannot become two actions`,
+ disc:`ModeStabilizer debounces the strap in software because it is a bare physical switch (AlchemyControlBridge.cpp:179-181).`},
+{id:`e-enc-voiceeditor`, from:`enc`, to:`voiceeditor`, kind:`call`, label:`knob motion`, tags:[],
+ trigger:`updateEncoderBaseValues(uiState) routes accumulated ticks to the editor or to the focused lane`,
+ data:`a float increment, or whole detents for stepped parameters`,
+ freq:`per control pass while the knob moves`,
+ disc:`EncoderMotion belongs to one (voice, parameter, mode) triple and resets when that triple changes, so motion never leaks into a different target (VoiceEditor.cpp:129-133).`},
+{id:`e-lidx-appstate`, from:`lidx`, to:`appstate`, kind:`call`, label:`hand height`, tags:[],
+ trigger:`ControlIO::scanControls() → AppState::performanceInput.observeDistance(rawMm)`,
+ data:`int mm; becomes handPresent plus a 0..1 recording value`,
+ freq:`every control pass; a 55..700 mm window with a 40 mm edge tolerance`,
+ disc:`Invalid or out-of-window readings clear handPresent instead of clamping to the window minimum, so an absent hand cannot write a -50% modifier into a step (AppState.h:38-44).`},
+
+/* --- UI internals --- */
+{id:`e-uievent-uistate`, from:`uievent`, to:`uistate`, kind:`call`, label:`mutates mode + holds`, tags:[],
+ trigger:`every handler that changes selection, an edit mode, a hold or a notice`,
+ data:`bools, indices, timestamps`,
+ freq:`on event`,
+ disc:`UIState is Core-0-only state; there is no cross-core access to it at all — Core 1 only ever sees a VoiceState.`},
+{id:`e-uievent-uitrans`, from:`uievent`, to:`uitrans`, kind:`call`, label:`mode changes`, tags:[],
+ trigger:`handlers call UITransitions instead of writing mode fields inline`,
+ data:`UIState&`,
+ freq:`on mode change`,
+ disc:`One writer for mode state means no modal residue: the pads always return to a known grid.`},
+{id:`e-uitrans-uistate`, from:`uitrans`, to:`uistate`, kind:`call`, label:`pure transitions`, tags:[],
+ trigger:`UITransitions::clearStepEdit / openSettings / closeSettings / enterArpMode / toggleSlide`,
+ data:`UIState& only`,
+ freq:`on mode change`,
+ disc:`Pure functions with no hardware and no display writes — callers own side effects, which is what makes them host-testable.`},
+{id:`e-uievent-seq`, from:`uievent`, to:`seq`, kind:`call`, label:`gate + lane edits`, tags:[],
+ trigger:`handleStepButtonEvent() → toggleStep() / setStepParameterValue() / setParameterStepCount()`,
+ data:`a step index and a float lane value, or a toggle`,
+ freq:`on tap or hold of a pad`,
+ disc:`Pad indices resolve to (voice, step) through ControlSurface::PadBank, so a gesture always lands on the intended voice rather than whichever is selected (UIEventHandler.cpp:626-628).`},
+{id:`e-uievent-session`, from:`uievent`, to:`session`, kind:`call`, label:`save / load request`, tags:[],
+ trigger:`a transport chord calls Session::requestSave() / requestLoad()`,
+ data:`Session::PendingAction`,
+ freq:`on request`,
+ disc:`The handler only sets a flag; the loop performs the flash I/O. That is the whole reason the request/execute split exists.`},
+{id:`e-uistate-csl`, from:`uistate`, to:`csl`, kind:`call`, label:`mode + selection`, tags:[],
+ trigger:`the bridge and handlers read UIState to decide what a gesture means`,
+ data:`selectedVoiceIndex, settingsMode, slideMode, latches`,
+ freq:`every control pass`,
+ disc:`Derived queries (isPresetSelection(), isVoiceParameterSettings()) replaced the old mirrored booleans, so there is one source of truth for a view (UIState.h:94-97 in firmware-structure.md).`},
+{id:`e-csl-uievent`, from:`csl`, to:`uievent`, kind:`call`, label:`resolved decisions`, tags:[],
+ trigger:`PadBank::resolve(), ShiftLatch::applyTo(), isAnyParameterButtonHeld()`,
+ data:`PadAddress {voice, step}, a held-parameter array`,
+ freq:`on event`,
+ disc:`No state of its own beyond the stabilizers and latch histories it owns; safe to call from either the pad path or the tile path.`},
+{id:`e-uistate-oled`, from:`uistate`, to:`oled`, kind:`call`, label:`what to show`, tags:[],
+ trigger:`ControlIO::refreshOled() or a voice-switch notice`,
+ data:`the whole UIState plus the routing table and voice configs`,
+ freq:`about every 40 ms`,
+ disc:`Read-only. The screen never mutates UIState, which is why a slow panel can only delay pixels, never change behaviour.`},
+{id:`e-uistate-led`, from:`uistate`, to:`led`, kind:`call`, label:`what to light`, tags:[],
+ trigger:`ControlIO::refreshLeds()`,
+ data:`UIState, the routing table, note conversions`,
+ freq:`about every 13 ms`,
+ disc:`Read-only, same as the screen. Fades are wall-clock based so loop load cannot change the look.`},
+{id:`e-csl-oled`, from:`csl`, to:`oled`, kind:`call`, label:`shared layout`, tags:[],
+ trigger:`the renderer uses ControlSurface::LedLayout and the surface value formatters`,
+ data:`layout constants only`,
+ freq:`per frame`,
+ disc:`Sharing one layout source is what stops the pad grid and the LED grid drifting apart geometrically.`},
+{id:`e-csl-led`, from:`csl`, to:`led`, kind:`call`, label:`shared layout`, tags:[],
+ trigger:`updateStepLEDs() resolves pad geometry through the same layout`,
+ data:`layout constants only`,
+ freq:`per frame (13 ms)`,
+ disc:`Same source of truth as the screen and the arp pad mapping.`},
+{id:`e-voiceeditor-uistate`, from:`voiceeditor`, to:`uistate`, kind:`call`, label:`editor state`, tags:[],
+ trigger:`enter(), exit(), buttons() and encoder()`,
+ data:`voiceEditor.active, cursor per voice, fine flag`,
+ freq:`on knob turn or button press`,
+ disc:`Entering also clears every performance hold, so a stuck gate cannot drone under the editor (VoiceEditor.cpp:27-47).`},
+{id:`e-voiceeditor-vman`, from:`voiceeditor`, to:`vman`, kind:`call`, label:`publish patch`, tags:[],
+ trigger:`VoiceEditor::publish() → setVoiceConfig() (and setVoiceSlide() only when it moved)`,
+ data:`a whole VoiceConfig`,
+ freq:`on change`,
+ disc:`Config staging is applied by the voice only while its gate is low, so a live preset swap can never click a held note or cut a ringing tail (Voice.h:475-477).`},
+
+/* --- clock and the sequencer brain --- */
+{id:`e-clock-spsc`, from:`clock`, to:`spsc`, kind:`isr`, label:`stage the step`, tags:[`isr`],
+ trigger:`onStepCallback() runs in the uClock interrupt on Core 0`,
+ data:`uint32_t step number`,
+ freq:`one per 16th note`,
+ disc:`The ISR only enqueues. A full ring drops the newest step and counts it into droppedSteps rather than overwriting an occupied slot — 16 usable entries (ClockService.cpp:19, 33-37).`},
+{id:`e-clock-seqstep`, from:`clock`, to:`seqstep`, kind:`isr`, label:`drain the ring`, tags:[`isr`,`perstep`],
+ trigger:`processClockEvents() pops the ring in thread context and calls processSequencerStep(step)`,
+ data:`uint32_t step number`,
+ freq:`per step, drained to empty`,
+ disc:`Same core as the ISR, and the queue is SPSC, so plain lock-free indexing is enough. Sequencer state is never touched in interrupt context.`},
+{id:`e-clock-vplay`, from:`clock`, to:`vplay`, kind:`call`, label:`PPQN ticks → note-off`, tags:[`isr`,`perstep`],
+ trigger:`processPendingGateTicks() loops once per pending tick and calls tickSequencerVoices()`,
+ data:`a count of pending ticks (uint32_t)`,
+ freq:`one per PPQN tick — 480 per quarter note`,
+ disc:`The count is snapshotted under save_and_disable_interrupts() so the drain cannot race the ISR's increment. Note-off is published on the exact tick, not deferred to the next step.`},
+{id:`e-clock-arp`, from:`clock`, to:`arp`, kind:`call`, label:`ticks when arp is on`, tags:[`isr`,`perstep`],
+ trigger:`processPendingGateTicks() calls arpTick() instead of the sequencer duration path while uiState.arp.active()`,
+ data:`nothing — one call per pending tick`,
+ freq:`one per PPQN tick`,
+ disc:`A mode switch, not a second clock: the step drain still pops its ring (so it cannot back up) but skips the step work entirely (ClockService.cpp:80, 114-117).`},
+{id:`e-seqstep-seq`, from:`seqstep`, to:`seq`, kind:`call`, label:`advance each voice`, tags:[`perstep`],
+ trigger:`processSequencerStep() loops voices 0..3 and calls advanceSequencerStep() → Sequencer::advanceStep()`,
+ data:`the uClock step number, a hand distance (only for the selected voice), six held-lane booleans, the step-edit target, and a VoiceState to write into`,
+ freq:`once per clock step, per voice`,
+ disc:`The adapter call exists so the portable core never includes UIState. A temporary array of four VoiceStates is taken first and published afterwards, so no voice sees a half-updated set.`},
+{id:`e-seq-parammgr`, from:`seq`, to:`parammgr`, kind:`owns`, label:`lane storage`, tags:[],
+ trigger:`composition: one ParameterManager per Sequencer`,
+ data:`nothing`,
+ freq:`n/a — lifetime ownership`,
+ disc:`Fixed-size arrays inside; no allocation on the step path.`},
+{id:`e-parammgr-track`, from:`parammgr`, to:`paramtrack`, kind:`owns`, label:`11 lanes`, tags:[],
+ trigger:`composition: one ParameterTrack<MAX_STEPS> per ParamId`,
+ data:`nothing`,
+ freq:`n/a — lifetime ownership`,
+ disc:`Each lane keeps its own currentStepCount, which is exactly what makes the pattern polymetric.`},
+{id:`e-seq-vplay`, from:`seq`, to:`vplay`, kind:`call`, label:`the sounding state`, tags:[`perstep`],
+ trigger:`processSequencerStep() → publishVoiceState(voiceIndex, state)`,
+ data:`a VoiceState — note index, velocity, ADSR, filter, octave offset, gate length, gate, slide, retrigger`,
+ freq:`once per step per voice, plus once per expiring note duration`,
+ disc:`Copy-then-retain: shouldRetrigger is an event that must never be retained, or every later edit would re-fire the envelope (VoicePlayback.cpp:12-16).`},
+{id:`e-vplay-vsys`, from:`vplay`, to:`vsys`, kind:`call`, label:`retain snapshot`, tags:[],
+ trigger:`publishVoiceState() writes voiceSystem.getVoiceState(voiceIndex)`,
+ data:`a VoiceState copy`,
+ freq:`once per publication`,
+ disc:`The retained copy is the control-side truth the UI reads back; the audio side never reads these arrays.`},
+{id:`e-vplay-seq`, from:`vplay`, to:`seq`, kind:`call`, label:`note length ticks`, tags:[`perstep`],
+ trigger:`tickSequencerVoices() calls Sequencer::tickNoteDuration() on all four sequencers each pending tick`,
+ data:`VoiceState& in/out; a bool saying whether the note just expired`,
+ freq:`one per PPQN tick`,
+ disc:`Sequencer::tickNoteDuration() is the sole note-length authority — no parallel timers exist anywhere (firmware-structure.md:60-63).`},
+{id:`e-vplay-vman`, from:`vplay`, to:`vman`, kind:`call`, label:`queue the update`, tags:[`core1`],
+ trigger:`publishVoiceState() → voiceManager->updateVoiceState(voiceId, state)`,
+ data:`a VoiceState copy plus a voice id`,
+ freq:`once per step, plus one per expiring note duration`,
+ disc:`No audio-owned state is read or changed on this path (VoiceManager.cpp:186); the state is staged and queued to the voice.`},
+{id:`e-appstate-uistate`, from:`appstate`, to:`uistate`, kind:`owns`, label:`the one UIState`, tags:[],
+ trigger:`definition: UIState uiState; in AppState.cpp`,
+ data:`nothing`,
+ freq:`n/a — program lifetime`,
+ disc:`One instance for the whole program. Handlers borrow it; nothing copies it across cores.`},
+{id:`e-appstate-seq`, from:`appstate`, to:`seq`, kind:`owns`, label:`routing table`, tags:[],
+ trigger:`AppState::sequencers[4] is a const table of borrowed pointers, built in voice order`,
+ data:`nothing`,
+ freq:`n/a — program lifetime`,
+ disc:`The table and the sequencers must outlive every user. SequencerView::get() rejects an out-of-range voice so a control cannot edit the wrong pattern.`},
+{id:`e-appstate-vsys`, from:`appstate`, to:`vsys`, kind:`owns`, label:`the one VoiceSystem`, tags:[],
+ trigger:`definition: VoiceSystem voiceSystem; in AppState.cpp`,
+ data:`nothing`,
+ freq:`n/a — program lifetime`,
+ disc:`Written and read on Core 0 only.`},
+{id:`e-appstate-vman`, from:`appstate`, to:`vman`, kind:`owns`, label:`the publisher flag`, tags:[],
+ trigger:`std::unique_ptr<VoiceManager> voiceManager, plus std::atomic<bool> voicesReady`,
+ data:`nothing`,
+ freq:`n/a — program lifetime`,
+ disc:`Core 0 allocates the voice collection once during setup and publishes voicesReady after initialization. Never add or remove voices, replace the manager, or destroy these objects during playback (firmware-structure.md:100-106).`},
+
+/* --- scales and notes --- */
+{id:`e-scales-voice`, from:`scales`, to:`voice`, kind:`call`, label:`injected table`, tags:[],
+ trigger:`VoiceManager::addVoice() calls voice->setScaleTable(scale, SCALES_COUNT) and setCurrentScalePointer(&currentScale)`,
+ data:`const int (*)[48] plus a count, and a const uint8_t* to the index`,
+ freq:`once at voice creation; the index is re-read on each control flush so a scale change crosses as a queued update`,
+ disc:`Deliberate injection instead of a global read: DSP stays testable and decoupled, and passing nullptr exercises a chromatic fallback (VoiceManager.cpp:69-70, docs/scales.md:19).`},
+{id:`e-scales-arp`, from:`scales`, to:`arp`, kind:`call`, label:`geometry`, tags:[],
+ trigger:`arpModeToggle() and arpTick() call scaleNotesPerOctave(scale[currentScale])`,
+ data:`a uint8_t count of notes per octave`,
+ freq:`on mode toggle and on every tick — so a scale change mid-mode is picked up`,
+ disc:`Kept in sync every tick rather than cached once, because the scale is shared with the sequencer and can change while the mode is on (ArpPlayback.cpp:115-118).`},
+
+/* --- into and through the voice --- */
+{id:`e-vman-voice`, from:`vman`, to:`voice`, kind:`cross`, label:`staged control updates`, tags:[`core1`],
+ trigger:`the control core stages into Voice::controls_, then flushControlUpdates() publishes; Core 1 pops in Voice::processBlock()`,
+ data:`a ControlUpdate (a VoiceState, a VoiceConfig, the scale pointer, slide/bend/mod, filter Hz, and a change bitmask)`,
+ freq:`queued once per change; drained one update per sample while any are queued`,
+ disc:`SpscQueue<ControlUpdate, 8> with release/acquire on the indices. If the queue is full, the pending update is retained and coalesced instead of overwriting an occupied slot (Voice.h:465-469).`},
+{id:`e-presets-vman`, from:`presets`, to:`vman`, kind:`call`, label:`build four voices`, tags:[],
+ trigger:`initializeVoices() → addVoice(config), attachSequencer(), setVoiceConfig()`,
+ data:`a VoiceConfig per voice; a borrowed Sequencer* per voice`,
+ freq:`once at boot`,
+ disc:`Setup only, on Core 0, before voicesReady is published. The sequencers stay owned by AppState, so the voice only borrows a pointer.`},
+{id:`e-voice-vosc`, from:`voice`, to:`vosc`, kind:`call`, label:`render a span`, tags:[`core1`],
+ trigger:`renderSources_() calls VoiceOscillator::renderAdd(mix, env, n, amp, gateBySilence)`,
+ data:`a float mix buffer, the span's envelope values, a length and an amplitude`,
+ freq:`once per span (≤32 samples), not per sample`,
+ disc:`One variant dispatch per span keeps the hot loop tight; the loop body is pinned to SRAM so std::visit cannot move it into flash.`},
+{id:`e-vosc-rpdsp`, from:`vosc`, to:`rpdsp`, kind:`call`, label:`oscillator class`, tags:[`core1`],
+ trigger:`setWaveform() constructs the class; process()/renderAdd() drive it`,
+ data:`frequency, pulse width, slave frequency`,
+ freq:`per span for dispatch, per sample inside the class`,
+ disc:`Audio-thread-only object. Never allocate here: the variant is a value type held by the voice (VoiceOscillator.h:25).`},
+{id:`e-voice-rpdsp`, from:`voice`, to:`rpdsp`, kind:`call`, label:`filter, envelope, fx`, tags:[`core1`],
+ trigger:`renderSpan_() steps 2, 6, 8 and 9 process the ADSR, the pre-filter effects, the main filter and the high-pass`,
+ data:`per-sample floats; filter target frequencies are throttled by ShouldApplyFilterFreq_()`,
+ freq:`per sample within a span`,
+ disc:`Envelope and high-pass are advanced on local copies and written back, which keeps state in registers across the span.`},
+{id:`e-voice-spsc`, from:`voice`, to:`spsc`, kind:`cross`, label:`control queue`, tags:[`core1`],
+ trigger:`the control side pushes in flushControlUpdates(); the audio side pops in processBlock()`,
+ data:`ControlUpdate — plain data, trivially copyable`,
+ freq:`push on change; pop one per sample while non-empty`,
+ disc:`A published slot belongs to Core 1 until its payload copy has finished. This is the only state a note crosses on.`},
+{id:`e-vman-rpdsp`, from:`vman`, to:`rpdsp`, kind:`call`, label:`master compressor`, tags:[`core1`],
+ trigger:`processBlock() calls compressor.process(sample) as the last DSP before the DAC`,
+ data:`one float per sample; settings updated at most once per block`,
+ freq:`per sample; coefficient updates at most once per block`,
+ disc:`Configure/re-set is control-thread only; the audio thread only ever calls setters, never reset (VoiceManager.h:208-211).`},
+{id:`e-vman-mdelay`, from:`vman`, to:`mdelay`, kind:`call`, label:`summed block`, tags:[`core1`,`perbuf`],
+ trigger:`processBlock() calls masterDelay_.process(sample) on the summed bus`,
+ data:`one float per sample; mix/time/feedback are lock-free atomic targets`,
+ freq:`targets read once per block (≤256 frames); the delay eases toward them every sample`,
+ disc:`Delay/filter history belongs to Core 1. Core 0 only writes targets, so no lock is ever needed.`},
+{id:`e-mdelay-mcomp`, from:`mdelay`, to:`mcomp`, kind:`call`, label:`dry + wet`, tags:[`core1`],
+ trigger:`the master-bus order inside processBlock()`,
+ data:`one float per sample`,
+ freq:`per sample`,
+ disc:`Order matters and is pinned by tests/unit/test_master_bus.cpp: voices, delay, master gain, then compressor — so both the dry signal and the repeats share the same gain reduction.`},
+{id:`e-vman-aengine`, from:`vman`, to:`aengine`, kind:`cross`, label:`processBlock(mix, 256)`, tags:[`core1`,`perbuf`],
+ trigger:`fill_audio_buffer() calls voiceManager->processBlock(mixBuffer.data(), count) once per chunk`,
+ data:`a float buffer and a frame count (≤256 per call)`,
+ freq:`once per buffer, 256 frames = 5.33 ms`,
+ disc:`One Core-1 consumer. The manager is published once via voicesReady and never replaced, so no pointer ever races a render.`},
+{id:`e-vman-oled`, from:`vman`, to:`oled`, kind:`call`, label:`voice-update callback`, tags:[],
+ trigger:`ControlIO::observeVoiceChanges() registers the screen as VoiceManager's update observer`,
+ data:`a voice id and a VoiceState`,
+ freq:`on voice parameter change`,
+ disc:`Observer callbacks run on Core 0 and borrow objects with program-long lifetimes (ControlIO.cpp:150-167).`},
+
+/* --- audio output --- */
+{id:`e-aengine-pool`, from:`aengine`, to:`pool`, kind:`call`, label:`take / give`, tags:[`core1`],
+ trigger:`renderNextBuffer(): take_audio_buffer(pool, true), fill, then give_audio_buffer()`,
+ data:`an audio_buffer_t pointer`,
+ freq:`once per 256-frame buffer`,
+ disc:`The blocking take is deliberately the pacing mechanism for the whole core; the pool's list guards mask interrupts so the DMA IRQ and loop1() cannot corrupt each other.`},
+{id:`e-aengine-pcm`, from:`aengine`, to:`pcm`, kind:`call`, label:`convert per sample`, tags:[`core1`,`perbuf`],
+ trigger:`fill_audio_buffer() calls AudioSamples::toPcm16(mixBuffer[i]) in the copy loop`,
+ data:`a float sample in, an int16 out`,
+ freq:`per sample, 256 per buffer, once per buffer (not per channel)`,
+ disc:`Clamp, truncate toward zero, then SSAT. Mono is converted once and copied to left and right, so both channels are bit-identical by construction.`},
+{id:`e-pool-i2s`, from:`pool`, to:`i2s`, kind:`call`, label:`DMA takes buffers`, tags:[`core1`],
+ trigger:`audio_i2s_connect_extra(producer, false, 0, 256, nullptr) wires the pool straight to DMA`,
+ data:`PCM16 stereo frames`,
+ freq:`continuous; start-up pre-fills all four buffers before the clocks start`,
+ disc:`Zero consumer buffers selects the driver's pass-through path, so there is no consumer copy inside the DMA interrupt. Identical PCM16 formats on both sides are what make that legal.`},
+{id:`e-aengine-log`, from:`aengine`, to:`log`, kind:`cross`, label:`2 s heartbeat`, tags:[`core1`],
+ trigger:`every two seconds Core 1 fills a Heartbeat and heartbeats.tryPush()es it; Core 0 pops and prints`,
+ data:`buffer count, average/max render µs, over-budget count, underruns, transmit stalls, voice ids`,
+ freq:`every 2 s`,
+ disc:`A four-entry SPSC queue, lossy on purpose: if it is full the report is dropped rather than delaying audio. Core 1 never calls Serial.`},
+
+/* --- persistence --- */
+{id:`e-session-snap`, from:`session`, to:`snap`, kind:`call`, label:`capture / apply`, tags:[],
+ trigger:`capturePattern(), voicecodec::capturePatch(), applyPattern(), voicecodec::applyPatch()`,
+ data:`PatternSnapshot / EnvelopeTracksSnapshot / PatchSnapshot per voice, plus SettingsSnapshot`,
+ freq:`on save, on load, and once per second for the retained mirror`,
+ disc:`Portable code with no Arduino or hardware includes, so the whole format is host-testable. Patch pointers are re-derived at load and never stored.`},
+{id:`e-sstore-snap`, from:`sstore`, to:`snap`, kind:`call`, label:`frame + CRC`, tags:[],
+ trigger:`SessionStorage::load()/save() use persistence::readFrameHeader(), writeFrameHeader() and crc32()`,
+ data:`a 12-byte frame header and a CRC32 over the payload`,
+ freq:`on save or load`,
+ disc:`Header and payload are CRC-checked separately so a truncated file is rejected before its contents are trusted.`},
+{id:`e-session-sstore`, from:`session`, to:`sstore`, kind:`call`, label:`flash I/O`, tags:[],
+ trigger:`the loop calls SessionStorage::save()/load() only after consuming a PendingAction`,
+ data:`a ProjectSnapshot reference`,
+ freq:`on request, plus an autosave one second after the transport stops`,
+ disc:`Never from an ISR or a handler. The transport is stopped for the duration and the watchdog is re-armed afterwards, because a flash write can take seconds.`},
+{id:`e-session-retained`, from:`session`, to:`retained`, kind:`call`, label:`1 Hz checkpoint`, tags:[],
+ trigger:`captureSession() then RetainedSession::refresh(g_sessionSnapshot)`,
+ data:`a ProjectSnapshot`,
+ freq:`1 Hz, and again during boot`,
+ disc:`A CRC-guarded copy with a monotonic generation counter, so a torn update is detectable rather than replayable.`},
+{id:`e-retained-snap`, from:`retained`, to:`snap`, kind:`owns`, label:`the stored song`, tags:[],
+ trigger:`struct RetainedStore { header; ProjectSnapshot snapshot; uint32_t crc32; }`,
+ data:`nothing`,
+ freq:`n/a — lifetime ownership`,
+ disc:`Lives in __uninitialized_ram, which is NOT cleared by the SDK startup code on a watchdog or warm reset — and is lost on a power cycle.`},
+{id:`e-vman-log`, from:`vman`, to:`log`, kind:`call`, label:`diagnostics`, tags:[],
+ trigger:`DBG_VERBOSE / DBG_WARN calls on the control thread`,
+ data:`formatted text`,
+ freq:`on change`,
+ disc:`Host tests compile with AUG_DEBUG_COMPILED=0, so logging never affects the tested behaviour.`}
+];
+
+/* ======================= DATA-FLOW TRACE ======================= */
+const TRACE = [
+{id:`t1`, title:`Hands on the panel`, mine:`Core 0 · hardware`, tags:[`input`],
+ where:[[`src/app/ControlIO.cpp`,208,`scanControls() — the 1 ms slice`],[`src/matrix/Matrix.cpp`,124,`Matrix_scan()`],[`src/ui/AlchemyControlBridge.cpp`,96,`AlchemyControlBridge::update()`],[`src/sensors/DistanceSensor.cpp`,72,`DistanceSensor::update()`]],
+ what:`Four hardware surfaces report at once: a pad somewhere on the 8×4 grid, a tile button or fader, and the hand's height above the panel. The MPR121 interrupt only flags that something changed; the control loop then reads it. Nothing here decides anything musical.`,
+ example:`hand at 300 mm above the panel\n  → rebased: 300 - 55 = 245 mm\n  → normalized: 245 / 645 = 0.38\n\npads: MPR121 IRQ flags a change on GP8\ntiles: one due tile polled on Wire1 @ 100 kHz`,
+ exampleNote:`Derived from AppState::observeDistance() and SensorConstants::DistanceSensor (55..700 mm).`},
+{id:`t2`, title:`Events become decisions`, mine:`Core 0 · thread context`, tags:[`ui`,`input`],
+ where:[[`src/ui/UIEventHandler.cpp`,148,`matrixEventHandler() — the single pad funnel`],[`src/ui/UIEventHandler.cpp`,294,`handleStepButtonEvent()`],[`src/ui/UIEventHandler.cpp`,238,`handleParameterButtonById()`],[`src/ui/ControlSurfaceLogic.h`,180,`PadBank::resolve() — pad → (voice, step)`],[`src/ui/UIEventHandler.cpp`,553,`pollUIHeldButtons()`]],
+ what:`A raw event becomes which voice, which step and which lane. Taps toggle gates, holds open step edit, a held parameter button arms live recording, and Shift changes what the same tile means. This is also where the arp chord and slide mode claim the pads.`,
+ example:`pad index 19 pressed, voice 2 selected\n  → PadBank resolves it to a (voice, step) pair\n\ntile button 0 pressed with Shift latched\n  → parameterButtonHeld[Velocity] = true\n\nthis is the one funnel for all 32 pads`,
+ exampleNote:`The exact (voice, step) a given pad index resolves to depends on the selected voice bank — illustrative here; the resolve call is UIEventHandler.cpp:626-628.`},
+{id:`t3`, title:`UIState`, mine:`Core 0 · single source of truth`, tags:[`ui`],
+ where:[[`src/ui/UIState.h`,17,`struct UIState`],[`src/ui/UIState.h`,44,`parameterButtonHeld[]`],[`src/ui/UIState.h`,51,`selectedVoiceIndex`],[`src/ui/UITransitions.h`,9,`the only place mode state is mutated`]],
+ what:`Everything the gesture meant, in one struct: the selected voice, the step under edit, which lane the hand is recording into, which mode owns the pads. Every later stage reads from here rather than from the hardware.`,
+ example:`selectedVoiceIndex   = 1      (0-based; the UI shows 2)\nselectedStepForEdit  = 3\nparameterButtonHeld  = { Velocity: true, others: false }\narp.active()         = false\nslideMode            = false`,
+ exampleNote:`Internal APIs are 0-based (0..3) by rule; only some display and log text is 1-based (CLAUDE.md conventions, VoiceSetup.cpp:59).`},
+{id:`t4`, title:`A clock step arrives`, mine:`Core 0 · interrupt stages, loop drains`, tags:[`seq`,`audio`],
+ where:[[`src/app/ClockService.cpp`,31,`onStepCallback() — the ISR`],[`src/app/ClockService.cpp`,71,`processClockEvents() — the drain`],[`src/app/ClockService.cpp`,40,`onOutputPPQNCallback()`],[`src/app/ClockService.cpp`,85,`initializeClock() — 90 BPM, 480 PPQN`]],
+ what:`uClock's interrupt runs on Core 0 and does nothing but stamp the step number into a 16-deep ring. The control loop drains it and does the musical work. Note length is ticked separately on the PPQN path, so a short gate ends exactly on its tick instead of waiting for the next step.`,
+ example:`90 BPM, 480 PPQN\n  → quarter note  = 480 ticks = 666.7 ms\n  → 16th step     = 120 ticks = 166.7 ms (SequencerDefs.h:13-14)\n\nuClock reports step 137\n  → steps.tryPush(137)`,
+ exampleNote:`Derived from kStartingTempoBpm = 90 (ClockService.cpp:20) and PULSES_PER_SEQUENCER_STEP_TICKS (SequencerDefs.h:14).`},
+{id:`t5`, title:`4 × Sequencer (the score)`, mine:`Core 0 · portable core`, tags:[`seq`,`audio`],
+ where:[[`src/app/StepPlayback.cpp`,93,`processSequencerStep()`],[`src/pico2seq-core/sequencer/Sequencer.cpp`,245,`advanceStep()`],[`src/pico2seq-core/sequencer/Sequencer.cpp`,323,`processStep()`],[`src/app/ArpPlayback.cpp`,113,`arpTick() — the alternative when arp mode is on`]],
+ what:`Each of the four voices advances its own pattern. Every lane wraps on its own length, so the bar cursor and each lane cursor can sit on different steps — that is the polymetric behaviour, not a bug. Then the sounding combination is decoded into one step's values.`,
+ example:`voice 1 → seq2, Gate lane length 16, Note lane length 16, Filter lane length 8\n  bar cursor      = 137 % 16 = 9\n  Note cursor     = 137 % 16 = 9\n  Filter cursor   = 137 %  8 = 1   ← different lane, different step`,
+ exampleNote:`Wrap is applied per lane in advanceStep() (Sequencer.cpp:270-283). Different Filter length is a configuration choice, not the default.`},
+{id:`t6`, title:`VoiceState`, mine:`Core 0 · plain data`, tags:[`seq`,`voice`],
+ where:[[`src/pico2seq-core/sequencer/SequencerDefs.h`,260,`struct VoiceState`],[`src/pico2seq-core/sequencer/Sequencer.cpp`,382,`the fields processStep() writes`],[`src/pico2seq-core/sequencer/Sequencer.cpp`,512,`decodeStep()`]],
+ what:`One step's sounding values, as plain numbers: pitch as a scale degree, velocity, the four envelope times, filter brightness, octave offset, how long the gate holds, and two event flags. This is the complete contract between the score and the sound engine.`,
+ example:`noteIndex       = 5.0      (scale degree, quantized in the voice)\nvelocityLevel   = 0.5\nfilterCutoff    = 0.5      (this step follows the patch)\nattackTime      = 0.01 s\ndecayTime       = 0.1 s\nsustainLevel    = 0.5\nreleaseTime     = 0.3 s\noctaveOffset    = 0\ngateLengthTicks = 93       = 0.775  a step × 120 ticks\nisGateHigh      = true\nhasSlide        = false\nshouldRetrigger = true     ← an event, not a resting state`,
+ exampleNote:`gateLengthTicks = max(1, lane × 120) (Sequencer.cpp:526). 0.775 is the composed default: the lane sits at 0.55 and the patch base is 0.75 (VoiceConfig.h:81, VoiceEditParameters.cpp:1041-1053) — treat it as an example, not a fixed value.`},
+{id:`t7`, title:`VoiceSystem`, mine:`Core 0 · ID tags + snapshot`, tags:[`voice`],
+ where:[[`src/app/VoicePlayback.cpp`,7,`publishVoiceState()`],[`src/voice/VoiceSystem.h`,15,`struct VoiceSystem`],[`src/voice/VoiceSystem.h`,47,`getVoiceState() — clamps the index`]],
+ what:`The one door from the control core to the audio core. It copies the state, keeps a snapshot on the control side, and hands the copy on. Retrigger is cleared in the retained copy because it is an event, not a state.`,
+ example:`voiceSystem.getVoiceId(1)     = 2\nvoiceStates[1] = the VoiceState above, with\n  shouldRetrigger forced to false in the retained copy\n\nthen → voiceManager->updateVoiceState(2, update)`,
+ exampleNote:`Important correction to older documentation: VoiceSystem holds only IDs and control snapshots now — no gate flags, no gate timers, no MidiNoteManager. Note length lives in Sequencer::tickNoteDuration() (docs/firmware-structure.md:60-63).`},
+{id:`t8`, title:`VoiceManager`, mine:`Core 1 renders · Core 0 configures`, tags:[`voice`,`audio`],
+ where:[[`src/voice/VoiceManager.cpp`,180,`updateVoiceState()`],[`src/voice/VoiceManager.cpp`,310,`processBlock() — sum, delay, gain, compressor`],[`src/voice/Voice.cpp`,1095,`Voice::updateParameters() — staging`],[`src/voice/VoiceManager.cpp`,370,`advanceMasterGain_()`]],
+ what:`The update is queued onto that voice's own lock-free queue. On the audio side the manager sums the four voices, then applies the master chain: delay, master volume, and the compressor last. Master volume is applied here — not at the DAC.`,
+ example:`queue:  Voice::controlQueue_ (SpscQueue<ControlUpdate, 8>)\nmix:    4 voices × mixLevel summed into one mono buffer\ndelay:  mix 0.25, time 0.35 s, feedback 0.30\ngain:   eases toward globalVolume from the smoothed value\ncomp:   macro 0.5 → threshold -10 dB, ratio 1.8, knee 6 dB`,
+ exampleNote:`The gain eases with a 15 ms time constant so a fader move cannot step the output (VoiceManager.cpp:18-19, 337-341). Compressor numbers are the kMacroCenter anchor (VoiceManager.h:77).`},
+{id:`t9`, title:`Voice spans`, mine:`Core 1 · real-time`, tags:[`voice`,`audio`],
+ where:[[`src/voice/Voice.cpp`,344,`Voice::processBlock()`],[`src/voice/Voice.cpp`,369,`renderSpan_() — the ten steps of the chain`],[`src/voice/Voice.cpp`,414,`VCA, then pre-filter effects`],[`src/voice/Voice.cpp`,423,`main filter, then the high-pass`],[`src/voice/VoiceOscillator.h`,77,`renderAdd() — one dispatch per span`]],
+ what:`The per-voice chain: sources → envelope gain → pre-filter effects → velocity → main filter → high-pass → output level. While any control update is queued the voice applies exactly one and renders a single sample; otherwise it renders up to 32 samples before checking the queue again.`,
+ example:`In Ionian Major, degree 5 → row[5] = 9 semitones\n  midiNote = 48 + 9 + 0 = 57  → A3  (MusicalValues.h:13-16)\n  frequency = 220 Hz          (440 × 2^((57-69)/12))\n\ngate holds ≈ 93 ticks ≈ 129 ms at 90 BPM\nspan = 32 samples = 0.67 ms at 48 kHz`,
+ exampleNote:`midiNote() is exact; the 220 Hz figure is the equal-temperament conversion of MIDI 57, and the voice looks it up in a precomputed table (Voice.cpp:56-66).`},
+{id:`t10`, title:`fill_audio_buffer()`, mine:`Core 1 · real-time`, tags:[`audio`],
+ where:[[`src/app/AudioEngine.cpp`,44,`fill_audio_buffer()`],[`src/app/AudioEngine.cpp`,49,`silence until voicesReady`],[`src/app/Pcm16.h`,15,`toPcm16()`],[`src/app/AudioEngine.cpp`,64,`the chunking loop keeps every block within kMaxBlock`]],
+ what:`The rendered mono mix is converted to 16-bit and copied to both channels. Until Core 0 has published its voices, this deliberately outputs silence rather than racing setup.`,
+ example:`float 0.42 → clamp → × 32768 = 13762 → SSAT → int16 13762\nout[2i] = 13762   (left)\nout[2i+1] = 13762 (right)\n\n256 frames per buffer = 5.33 ms of audio`,
+ exampleNote:`Clamp, truncate toward zero, then saturate — deliberately not round-to-nearest (Pcm16.h:11-14, docs/firmware-structure.md:112-113).`},
+{id:`t11`, title:`I2S output`, mine:`Core 1 · PIO + DMA`, tags:[`audio`],
+ where:[[`src/app/AudioEngine.cpp`,176,`take_audio_buffer(pool, true) — the pacing point`],[`src/app/AudioEngine.cpp`,189,`give_audio_buffer() — hand it to DMA`],[`src/audio/audio_i2s.h`,157,`audio_i2s_connect_extra(...)`],[`src/app/AudioEngine.cpp`,187,`over-budget counter — SAMPLES_PER_BUFFER budget`]],
+ what:`The filled buffer goes straight to DMA, which plays it as I2S. Four buffers means three are queued while one plays, so one late render does not produce a click. The blocking wait for a free buffer is what paces everything upstream.`,
+ example:`pool:     4 × 256 stereo frames (3 queued + 1 playing)\nrate:     48 000 Hz, PCM16 stereo, stride 4 bytes\nbudget:   256 × 1e6 / 48000 = 5333 µs per buffer\noutputs:  data GP12, BCLK GP10, LRCK GP11\n\nmaster volume was already applied upstream at stage 8`,
+ exampleNote:`Over-budget renders are counted and reported in the two-second heartbeat, so a dropout shows up as a number rather than a guess (AudioEngine.cpp:187, 102-110 in Application.cpp).`}
+];
+
+/* ======================= STRUCTURE CARDS ======================= */
+const STRUCTS = [
+{title:`VoiceSystem — ID tags plus one snapshot each`, open:true, files:[[`src/voice/VoiceSystem.h`,15,`struct VoiceSystem`]], html:`
+<p><b>Musical analogy:</b> the conductor's score markings — which voice is which, and what each is currently being told to play. It does not make sound and it does not keep time.</p>
+<ul>
+<li><code>MAX_VOICES = 4</code> (<a href="worktree://${WT}/src/voice/VoiceSystem.h#L17">VoiceSystem.h:17</a>). Four because the instrument is four-part; there is no dynamic voice count in the firmware.</li>
+<li>Two arrays: <code>voiceIds[4]</code> (opaque handles from VoiceManager, 0 meaning invalid) and <code>voiceStates[4]</code> (ControlUpdate snapshots).</li>
+<li><b>Accessors clamp.</b> <code>getVoiceState(9)</code> returns voice 0, and <code>getVoiceId(9)</code> returns 0. That is deliberate: a bad index plays the wrong voice rather than reading out of bounds. Always use the accessors — never index the arrays directly.</li>
+<li><b>0-based internally, occasionally 1-based in display.</b> Every internal API is 0..3; some serial text and screen labels print 1..4 (<a href="worktree://${WT}/src/app/VoiceSetup.cpp#L59">VoiceSetup.cpp:59</a> notes it explicitly). Do not conflate them.</li>
+<li><b>What it no longer holds:</b> per-voice gate flags, gate timers, or MIDI note lifecycle tracking. Those were removed; <code>Sequencer::tickNoteDuration()</code> is now the sole note-length authority and the <code>VoiceState</code> owns gate truth (<a href="worktree://${WT}/docs/firmware-structure.md#L60">firmware-structure.md:60-63</a>).</li>
+<li><b>Never read from Core 1.</b> Audio state crosses only through each voice's control queue.</li>
+</ul>`},
+
+{title:`UIState — the single source of UI truth`, open:true, files:[[`src/ui/UIState.h`,17,`struct UIState`]], html:`
+<p><b>Musical analogy:</b> the performer's current intention — which voice is in focus, which step is being edited, which modifier is held down.</p>
+<ul>
+<li><b>The no-loose-globals rule:</b> every mode flag, hold, debounce timestamp and transient notice lives here. Adding UI state means extending this struct and resetting it in <code>initButtonManager()</code>, never adding a new global file-scope variable (<a href="worktree://${WT}/src/ui/UIState.h#L9">UIState.h:9-16</a>).</li>
+<li><b>Derived, not mirrored:</b> <code>isPresetSelection()</code> and <code>isVoiceParameterSettings()</code> are computed from <code>settingsMode</code> and <code>currentSubMode</code>. The old mirror booleans are gone on purpose, so two views cannot disagree.</li>
+<li><b>The arpeggiator lives inside it.</b> <code>UIState::arp</code> is a whole note engine, placed here so that pads, tiles, encoder, LEDs and the OLED all read the same chord and walk (<a href="worktree://${WT}/src/ui/UIState.h#L28">UIState.h:28</a>).</li>
+<li><b>Mode state has exactly one writer:</b> <code>UITransitions</code>. Handlers call it rather than assigning mode fields, which is what stops modal residue after leaving slide, settings or the editor.</li>
+<li><b>Core 0 only.</b> Core 1 never sees this struct; it sees a <code>VoiceState</code>.</li>
+</ul>`},
+
+{title:`Sequencer::ParameterTrack&lt;N&gt; — the polymetric building block`, open:false, files:[[`src/pico2seq-core/sequencer/SequencerDefs.h`,148,`the alias`]], html:`
+<p><b>Musical analogy:</b> one instrument's part in a score, where a repeat mark can say “loop this bar twice while the drums loop theirs four times”.</p>
+<ul>
+<li>A fixed-size array of values plus its own <code>currentStepCount</code>, read through a wrapping index: <code>uclock_step % laneLength</code>.</li>
+<li><b>This is the whole polymeter mechanism.</b> &ldquo;Note over 16 steps, Filter over 8&rdquo; is just two tracks with different lengths — legal, and the reason phrases and tone drift in and out of phase. Wrapping is applied per lane at <a href="worktree://${WT}/src/pico2seq-core/sequencer/Sequencer.cpp#L270">Sequencer.cpp:270-283</a>.</li>
+<li>Eleven lanes exist, one per <code>ParamId</code>: Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide, Sustain, Release (<a href="worktree://${WT}/src/pico2seq-core/sequencer/SequencerDefs.h#L188">SequencerDefs.h:188</a>).</li>
+<li>Lengths run 2..64 steps with 16 as the boot default (<a href="worktree://${WT}/src/pico2seq-core/sequencer/SequencerDefs.h#L17">SequencerDefs.h:17-19</a>).</li>
+<li>Storage is static on purpose: no <code>std::vector</code> and no <code>new</code> is reachable from the step path.</li>
+<li>The implementation comes from the rpdsp submodule (<code>parameter_track.h</code>), with two deliberate differences: <code>init()</code> defaults to 64 steps and <code>resize()</code> clamps into range instead of ignoring out-of-range input (<a href="worktree://${WT}/src/pico2seq-core/sequencer/SequencerDefs.h#L141">SequencerDefs.h:141-145</a>).</li>
+</ul>`},
+
+{title:`Voice and VoiceManager — one player, one mixing desk`, open:false, files:[[`src/voice/Voice.h`,58,`class Voice`]], html:`
+<p><b>Musical analogy:</b> <code>Voice</code> is one player with one instrument; <code>VoiceManager</code> is the desk that balances four players and adds the master effects.</p>
+<ul>
+<li><b>The voice chain, in order</b> (<a href="worktree://${WT}/src/voice/Voice.cpp#L369">Voice.cpp:369-439</a>): gate edges → ADSR envelope → sources → VCA and pre-filter effects → velocity → main filter → high-pass → output level.</li>
+<li><b>Staging is a real trap.</b> <code>updateParameters()</code> writes into a pending <code>controls_</code> struct and publishes it to the queue; the audio side applies it in <code>applyControlUpdate_()</code>. Reading <code>getState()</code> immediately after <code>updateParameters()</code> still shows the old value — the change lands on the next <code>process()</code> (<a href="worktree://${WT}/docs/testing.md#L254">docs/testing.md, gotcha 1</a>).</li>
+<li><b>Span discipline:</b> while updates are queued, exactly one update is applied and exactly one sample rendered. When the queue is empty, up to <code>kMaxSpan = 32</code> samples are rendered before probing again, so a concurrent publish can wait at most 0.67 ms at 48 kHz (<a href="worktree://${WT}/src/voice/Voice.h#L131">Voice.h:131</a>).</li>
+<li><b>Master chain:</b> voices → MasterDelay → master gain → compressor. The macro knob morphs the compressor along Warm (m=0) → Neutral (m=0.5) → Punch (m=1) and the audio thread eases toward the target (<a href="worktree://${WT}/src/voice/VoiceManager.h#L92">VoiceManager.h:92-98</a>).</li>
+<li><b>Solo tap:</b> <code>processVoice()</code> bypasses both master effects and never advances their state, so a solo does not disturb the delay tail (<a href="worktree://${WT}/src/voice/VoiceManager.h#L195">VoiceManager.h:195-197</a>).</li>
+<li><b>Ownership:</b> <code>std::unique_ptr</code> is used for setup-time ownership only. Never add or remove voices during playback.</li>
+</ul>`},
+
+{title:`ParameterManager — the eleven lanes and how writes are treated`, open:false, files:[[`src/pico2seq-core/sequencer/ParameterManager.h`,12,`class ParameterManager`]], html:`
+<p><b>Musical analogy:</b> the paper the part is written on, plus the rule that says a pencil mark is quantized to the nearest sensible value before it is stored.</p>
+<ul>
+<li>Owns one <code>ParameterTrack</code> per lane and the write rules: clamp to the lane's declared range, round stepped lanes, store booleans in the float domain (<a href="worktree://${WT}/src/pico2seq-core/sequencer/SequencerDefs.h#L168">ParameterDefinition</a>).</li>
+<li><b>Two read paths.</b> <code>getStepParameterValue()</code> is wrapped to the active loop length for playback and display; <code>getRawStepValue()</code> is unwrapped so the codec can save and restore a lane's whole tail even when the loop is short.</li>
+<li><b>Patch-following lanes.</b> Velocity, Filter, Attack, Decay, Sustain and Release can each hold their own value or store <code>LANE_FOLLOWS_PATCH</code> (-1), meaning &ldquo;play the patch value&rdquo;. That single rule is what lets a preset change re-voice a whole pattern without rewriting every step (<a href="worktree://${WT}/src/pico2seq-core/sequencer/SequencerDefs.h#L53">SequencerDefs.h:53-56</a>).</li>
+<li><b>Offsets vs absolutes.</b> Note, Octave and GateLength are offset lanes around a patch base; the patch-default lanes are absolute. <code>VoiceEdit::composeLane()</code> is the one place that resolves both (<a href="worktree://${WT}/src/voice/VoiceEditParameters.cpp#L1014">VoiceEditParameters.cpp:1014</a>).</li>
+<li><b>Recording is separate from editing.</b> <code>recordLiveValue()</code> overdubs whatever lane cursor is sounding; <code>editStepValue()</code> targets an explicit step. Note accepts a live write only on a sounding step, so silent steps keep their pitch (<a href="worktree://${WT}/src/pico2seq-core/sequencer/Sequencer.cpp#L151">Sequencer.cpp:151-176</a>).</li>
+</ul>`}
+];
+
+/* ======================= SEQUENCE DIAGRAMS ======================= */
+const SEQ_DIAG = {
+ actors:[`uClock ISR`,`ClockService`,`StepPlayback`,`Sequencer ×4`,`VoicePlayback`,`Core 1 queue`],
+ self:[`Core 0`,`Core 0`,`Core 0`,`Core 0`,`Core 0`,`crosses`],
+ messages:[
+  {a:0,b:1,t:`onStepCallback(137) → steps.tryPush()`,d:`ISR: enqueue only, drop newest when the 16-deep ring is full`},
+  {a:1,b:2,t:`processClockEvents(): tryPop → processSequencerStep(137)`,d:`thread context, drained to empty`},
+  {a:2,b:3,t:`advanceSequencerStep() → advanceStep(137, dist, 6 holds, stepEdit)`,d:`per voice, in voice order; only the selected voice hears the hand`},
+  {a:3,b:3,t:`processStep(): gate on → shouldRetrigger = true`,d:`lane cursors are per lane, so polymeter falls out here`},
+  {a:3,b:4,t:`publishVoiceState(v, state)`,d:`copy, retain in VoiceSystem, clear the retained retrigger flag`},
+  {a:4,b:5,t:`Voice::updateParameters() → flushControlUpdates() → tryPush()`,d:`SpscQueue<ControlUpdate,8>; Core 1 pops one per sample`}
+ ]
+};
+
+const BUF_DIAG = {
+ actors:[`loop1()`,`AudioEngine`,`VoiceManager`,`Voice ×4`,`Pcm16`,`DMA / I2S`],
+ self:[`Core 1`,`Core 1`,`Core 1`,`Core 1`,`Core 1`,`Core 1`],
+ messages:[
+  {a:0,b:1,t:`renderNextBuffer()`,d:`the entire body of the Core 1 loop`},
+  {a:1,b:1,t:`take_audio_buffer(pool, true)`,d:`this blocking wait IS the 48 kHz pacing — do not add work around it`},
+  {a:1,b:2,t:`processBlock(mix, 256)`,d:`chunked so no block exceeds kMaxBlock = 256`},
+  {a:2,b:3,t:`voice->processBlock(scratch, 256) × 4`,d:`one control update per sample while queued, else ≤32-sample spans`},
+  {a:2,b:2,t:`delay → master gain → compressor`,d:`targets read once per block; gain and delay ease per sample`},
+  {a:1,b:4,t:`toPcm16() per sample, mono copied to L and R`,d:`clamp, truncate toward zero, then SSAT`},
+  {a:1,b:5,t:`give_audio_buffer()`,d:`straight to DMA — no consumer copy inside the interrupt`}
+ ]
+};
+
+/* ======================= HANDOFF TABLE ======================= */
+const HANDOFFS = [
+{shape:`std::atomic<bool>`, what:`voicesReady — the one-way boot publish`,
+ where:`src/app/AppState.h:29`, detail:`Core 0 stores true with <code>memory_order_release</code> after the voices exist; Core 1 spins with <code>acquire</code> in <code>AudioEngine::begin()</code>, then reads the manager lock-free. Never cleared afterwards — a recovery boot leaves it false so Core 1 parks instead of restarting a broken audio path alone.`},
+{shape:`SpscQueue<ControlUpdate, 8>`, what:`live voice changes, per voice`,
+ where:`src/voice/Voice.h:469`, detail:`Core 0 stages and pushes; Core 1 pops <b>one update per sample</b> while any are queued. A published slot belongs to Core 1 until its payload copy is finished. When the queue is full the producer retains and coalesces its pending update rather than overwriting a slot.`},
+{shape:`SpscQueue<uint32_t, 16>`, what:`clock steps`,
+ where:`src/app/ClockService.cpp:23`, detail:`Same core, ISR → loop. 16 usable entries; a full ring drops the newest step and counts it. No locking, because both sides are on Core 0 and it is single-producer/single-consumer.`},
+{shape:`ClockEvents::ppqnTicksPending`, what:`pending PPQN ticks (file-static volatile, not a global)`,
+ where:`src/app/ClockService.cpp:26`, detail:`Lives in an anonymous namespace inside <code>ClockEvents</code>, so it is not reachable from other translation units at all. The ISR increments it; the loop takes and clears it with interrupts disabled (<a href="worktree://${WT}/src/app/ClockService.cpp#L103">ClockService.cpp:103-106</a>) and then consumes the local copy, so no tick can be lost — an increment lands either before the read or after the clear. The warning about a lost tick in <a href="worktree://${WT}/docs/firmware-structure.md#L123">firmware-structure.md:123-127</a> describes an older shape and is stale.`},
+{shape:`SpscQueue<Heartbeat, 4>`, what:`Core 1 → Core 0 diagnostics`,
+ where:`src/app/AudioEngine.cpp:38`, detail:`Core 1 never prints. It pushes a heartbeat every two seconds; a full queue drops the report rather than delaying audio. Core 0 drains and writes the serial line.`},
+{shape:`std::atomic<float>`, what:`master volume, compressor macro, delay mix / time / feedback`,
+ where:`src/voice/VoiceManager.h:184-192`, detail:`Core 0 writes targets only. Core 1 reads them once per block and its smoothers ease per sample, so a fader move never steps the output. All are asserted lock-free with <code>static_assert</code>.`},
+{shape:`nullptr per-voice commit during setup`, what:`the voices themselves`,
+ where:`src/app/VoiceSetup.cpp:11`, detail:`Core 0 allocates the voice collection once during setup and publishes the flag after initialization. Do not add or remove voices, replace the manager, or destroy these objects during playback.`}
+];
+
+const RENAMED = `
+<b>Three names you may have seen before no longer exist — don't go looking for them.</b>
+<table style="margin-top:10px"><thead><tr><th>Older name</th><th>Where it went</th></tr></thead><tbody>
+<tr><td class="mono">VoiceSystem::gates</td><td><code>VoiceSystem</code> holds only <code>voiceIds[]</code> and <code>voiceStates[]</code> now. Per-voice gates, gate timers and the internal <code>MidiNoteManager</code> note lifecycle were all removed; <code>Sequencer::tickNoteDuration()</code> is the sole note-length authority and <code>VoiceState::isGateHigh</code> owns gate truth (<a href="worktree://${WT}/src/voice/VoiceSystem.h#L15">VoiceSystem.h:15-23</a>, <a href="worktree://${WT}/docs/firmware-structure.md#L60">firmware-structure.md:60-63</a>).</td></tr>
+<tr><td class="mono">stepQueue</td><td>Now <code>clockEvents.steps</code> — still an <code>SpscQueue&lt;uint32_t, 16&gt;</code>, in <a href="worktree://${WT}/src/app/ClockService.cpp#L21">ClockService.cpp:21-28</a>. docs/architecture.md still uses the old name.</td></tr>
+<tr><td class="mono">ppqnTicksPending</td><td>Still exists, but not as a global: it is <code>ClockEvents::ppqnTicksPending</code>, a file-static volatile in an anonymous namespace (<a href="worktree://${WT}/src/app/ClockService.cpp#L26">ClockService.cpp:26</a>).</td></tr>
+</tbody></table>`;
+
+const RT_RULES = `
+<b>Real-time rules that shape this code (each one is enforced somewhere real):</b>
+<ul style="margin:10px 0 0;padding-left:20px">
+<li><b>Core 1 renders at most 32 samples at a time.</b> <code>kMaxSpan = 32</code> — 0.67 ms at 48 kHz. While control updates are queued it applies exactly one update and renders exactly one sample (<a href="worktree://${WT}/src/voice/Voice.cpp#L344">Voice.cpp:344-360</a>).</li>
+<li><b>No heap, no <code>new</code>, no <code>std::vector</code> in the audio or step path.</b> Lane storage is fixed-size; <code>VoiceManager</code> is one of the few places using <code>std::unique_ptr</code>, and only for setup-time ownership.</li>
+<li><b>Core 1's stack is 2 KiB.</b> Span buffers and mixer scratch are members or static storage, never stack locals (<a href="worktree://${WT}/src/app/AudioEngine.cpp#L40">AudioEngine.cpp:40</a>, <a href="worktree://${WT}/src/voice/VoiceManager.h#L165">VoiceManager.h:165</a>).</li>
+<li><b>Nothing on Core 1 blocks except the buffer wait.</b> That blocking <code>take_audio_buffer(pool, true)</code> is <i>deliberately</i> the pacing mechanism for everything upstream (<a href="worktree://${WT}/src/app/AudioEngine.cpp#L176">AudioEngine.cpp:176</a>).</li>
+<li><b>No locks anywhere.</b> Cross-core state uses atomics and SPSC queues only. There is not a single mutex in this firmware.</li>
+<li><b>One control update per span, then recheck.</b> The queue is re-probed at the next span boundary, so a publish waits at most 0.67 ms.</li>
+<li><b>Core 0 must not stall either.</b> The watchdog reboots after two seconds; every setup stage and loop slice feeds it with the phase about to run.</li>
+</ul>`;
+
+/* ======================= LOST HELPERS ======================= */
+const LOSTS = [
+{q:`How does a button press become sound?`, nav:`#trace`, node:`seqstep`, stage:`t2`, a:`Show the whole path`},
+{q:`Where does a note actually get born?`, node:`seq`, stage:`t5`, a:`Sequencer::processStep() decides gate, slide and pitch for one step`},
+{q:`Where is volume applied?`, node:`vman`, a:`In <code>VoiceManager::processBlock()</code> — not at the DAC. The target is read once per block and the gain eases every sample so a fader move cannot step the output.`},
+{q:`Where does the freeze watchdog save PC and LR?`, node:`wd`, a:`The naked handler selects the stack from EXC_RETURN, then <code>freezeWatchdogCaptureHardFault()</code> records <code>frame[6]</code> as PC and <code>frame[5]</code> as LR into a NOINIT-RAM record, and mirrors them into scratch[5]/scratch[6]. Decode them against the ELF from that exact failing build.`},
+{q:`Where do I add a new DSP effect safely?`, node:`rpdsp`, stage:`t9`, a:`Write the algorithm in <code>src/rpdsp/</code> (header-only, portable, host-testable), then wire it into the voice chain in <code>Voice::renderSpan_()</code> or <code>applyEffects()</code> — or onto the master bus in <code>VoiceManager::processBlock()</code> if it should hear all four voices. Never add it to Core 1 as anything that allocates, blocks or locks.`},
+{q:`Where is the song saved and restored?`, node:`session`, a:`Session captures and applies in three stages; SessionStorage does the flash I/O; the byte layout is the portable snapshot format; and RetainedSession mirrors it in RAM so a watchdog reboot does not cost the performance.`},
+{q:`Where does the clock live, and what does its interrupt do?`, node:`clock`, a:`uClock's ISR only enqueues a step number and bumps a tick counter. All the musical work happens in the Core 0 loop, in <code>processClockEvents()</code> and <code>processPendingGateTicks()</code>.`},
+{q:`Where does a scale degree become a frequency?`, node:`voice`, stage:`t9`, a:`<code>MusicalValues::midiNote()</code> turns the degree through the scale row into a MIDI note; the voice looks the frequency up in a 128-entry table built at startup. The scale table is injected, never read as a global.`},
+{q:`Where does the arpeggiator live?`, node:`arp`, a:`The engine is portable C++ in <code>src/pico2seq-core/arpeggiator/</code>; its state sits inside UIState; and <code>src/app/ArpPlayback.cpp</code> is the only place that turns its notes into VoiceState updates.`},
+{q:`Where do the four voices get created?`, node:`presets`, a:`<code>initializeVoices()</code> runs once at boot from the saved preset picks, then links each voice to its sequencer and gives each lane its patch-relative transform.`},
+{q:`Where does the hand move a parameter?`, node:`lidx`, stage:`t1`, a:`The sensor updates every control pass into <code>AppState::performanceInput</code>; a held lane button then routes that value into the playing step (or the selected step in Step Edit) through <code>recordParameter()</code>.`},
+{q:`What runs on Core 1, exactly?`, nav:`#cores`, node:`aengine`, a:`<code>AudioEngine::renderNextBuffer()</code> and nothing else. No UI, no sensors, no Serial, no flash.`},
+{q:`Why did my note not retrigger?`, node:`voice`, a:`Most likely the voice is still applying a queued update — a staged change lands on the next <code>process()</code>, not the setter. Or the step had no gate, or slide carried it legato from the previous step.`}
+];
+
+/* ======================= HONESTY ======================= */
+const UNTESTED = [
+{t:`PIO / DMA I2S driver`, files:`src/audio/audio_i2s.c, src/audio/audio_i2s.pio.h, src/audio/audio.cpp, src/audio/buffer.h`, note:`The pool and driver logic <i>is</i> host-tested, because tests/unit/test_audio_i2s.cpp <code>#include</code>s audio.cpp and audio_i2s.c directly against deterministic PIO/DMA/IRQ doubles in tests/audio_stubs/. What no host test can answer is real bit timing, DMA latency and PIO scheduling on the chip. Underrun and transmit-stall counters exist because the host cannot.`},
+{t:`LED matrix (WS2812B)`, files:`src/LEDMatrix/LEDmatrix.cpp, src/LEDMatrix/LEDMatrixFeedback.cpp`, note:`GPIO/PIO register work and colour rendering. 1382 lines of feedback logic, validated only by eye and by the bench checklist.`},
+{t:`OLED (I2C SH1106)`, files:`src/OLED/oled.cpp`, note:`I2C transport and page-diffed pushes. A headless panel leaves the firmware running, so a failure here degrades gracefully rather than crashing.`},
+{t:`Touch matrix (MPR121)`, files:`src/matrix/Matrix.cpp`, note:`IRQ arming and I2C reads. A missing chip blocks boot deliberately, so a dead pad row cannot masquerade as a working instrument.`},
+{t:`Sensors (VL53L1X, TMAG5273)`, files:`src/sensors/DistanceSensor.cpp, src/sensors/EncoderManager.cpp`, note:`Bus timing and device quirks. SensorConstants.h is pure constants and <i>is</i> covered, and the calibration arithmetic on top of the readings is host-tested in test_app_runtime.cpp — but the readings themselves are not. The knob driver also lives behind the src/VelocityEncoder submodule.`},
+{t:`Tile bus (Alchemy)`, files:`src/ui/AlchemyControlBridge.cpp, src/AlchemyUI/src/AlchemyTiles.cpp`, note:`Wire1 transport and slot discovery (both Wire-bound, both absent from CMakeLists). The <i>wire format</i> (AlchemyProto.h, TileButton.h) and the <i>decision logic</i> (ControlSurfaceLogic) are host-tested; the bus is not.`},
+{t:`App startup and control glue`, files:`src/app/Application.cpp, src/app/ControlIO.cpp, src/app/AudioEngine.cpp, src/app/ClockService.cpp, src/app/StepPlayback.cpp`, note:`The Arduino build compiles these; host CMake does not. The single exception is src/app/VoicePlayback.cpp, which is compiled into the host suite.`},
+{t:`UI event handling (pad and tile glue)`, files:`src/ui/UIEventHandler.cpp, src/ui/ButtonHandlers.cpp, src/ui/ButtonManager.cpp`, note:`None of these appear in tests/CMakeLists.txt: they need Arduino.h, millis(), Serial and the UIState wiring. The <i>pure</i> decisions they call into — ControlSurfaceLogic and UITransitions — are host-tested, which is the deliberate split.`},
+{t:`Debug logging`, files:`src/utils/Debug.cpp`, note:`Needs Serial and <code>__FlashStringHelper</code>. No test file includes Debug.h at all, and host tests compile with AUG_DEBUG_COMPILED=0, so logging never runs under test.`},
+{t:`Watchdog fault handler`, files:`src/utils/FreezeWatchdog.cpp`, note:`The report <i>logic</i> in the header is host-tested (pico2seq_watchdog_tests, against isolated stubs), but the naked handler and the SCB fault-register capture are <code>#if defined(__arm__)</code>. Only a real Crash on hardware exercises them.`},
+{t:`MIDI`, files:`src/midi/README.md`, note:`There is no MIDI transport. The module was removed; the directory holds a removal notice. USB is TinyUSB CDC-only for serial diagnostics. Optional MIDI note-off callbacks remain in the portable sequencer for other applications, and the firmware never calls them.`}
+];
+
+const TESTED = [
+{g:`Portable core (all host-tested, no hardware)`, items:[
+ {t:`rpdsp DSP extensions and recipes`, files:`tests/unit/test_rpdsp_additions.cpp, test_dsp_recipe_regressions.cpp, test_recipe_optimization.cpp`, target:`pico2seq_tests / pico2seq_voice_tests`},
+ {t:`Scale tables`, files:`tests/unit/test_scales.cpp`, target:`pico2seq_tests`},
+ {t:`Sequencer + ParameterManager`, files:`tests/unit/test_sequencer.cpp`, target:`pico2seq_tests`},
+ {t:`Arpeggiator engine`, files:`tests/unit/test_arpeggiator.cpp`, target:`pico2seq_tests / pico2seq_ui_tests`},
+ {t:`Session + patch persistence`, files:`tests/unit/test_persistence.cpp`, target:`pico2seq_tests`}
+]},
+{g:`Voice and audio engine`, items:[
+ {t:`Voice, staged parameters, presets`, files:`tests/unit/test_voice.cpp`, target:`pico2seq_tests / pico2seq_voice_tests`},
+ {t:`VoiceOscillator dispatch`, files:`tests/unit/test_voiceoscillator.cpp`, target:`pico2seq_voice_tests`},
+ {t:`Control → audio transfer (SpscQueue)`, files:`tests/unit/test_voice_transfer.cpp`, target:`pico2seq_voice_tests`},
+ {t:`VoiceState publication`, files:`tests/unit/test_voice_playback.cpp`, target:`pico2seq_tests — compiles the real src/app/VoicePlayback.cpp`},
+ {t:`Master delay, compressor, combined bus`, files:`tests/unit/test_master_delay.cpp, test_master_compressor.cpp, test_master_bus.cpp`, target:`pico2seq_voice_tests`},
+ {t:`Voice editing mode`, files:`tests/unit/test_voice_edit.cpp`, target:`pico2seq_tests`}
+]},
+{g:`UI decision logic (pure C++)`, items:[
+ {t:`ControlSurfaceLogic, UITransitions, arp policy`, files:`tests/unit/test_control_surface_logic.cpp, test_ui_transitions.cpp`, target:`pico2seq_ui_tests`},
+ {t:`Alchemy tile wire format`, files:`tests/unit/test_alchemy_proto.cpp`, target:`pico2seq_tests`},
+ {t:`Settings pad handling`, files:`tests/unit/test_settings_pads.cpp`, target:`pico2seq_tests`}
+]},
+{g:`App helpers and infrastructure`, items:[
+ {t:`PCM16 conversion and lidar recording calibration`, files:`tests/unit/test_app_runtime.cpp`, target:`pico2seq_tests ([app])`},
+ {t:`Freeze watchdog report code`, files:`tests/unit/test_freeze_watchdog.cpp`, target:`pico2seq_watchdog_tests`},
+ {t:`Audio pool + I2S driver vs doubles`, files:`tests/unit/test_audio_i2s.cpp`, target:`pico2seq_audio_tests`}
+]}
+];
+
+const PORT_RULE = `
+<b>Portability rule for <code>src/pico2seq-core/</code> — keep it clean.</b>
+Never add <code>Arduino.h</code>, <code>UIState</code>, or any hardware/UI include into <code>src/pico2seq-core/</code>. That folder must stay plain, portable C++ so it can be reused in other projects and driven by host tests.
+<ul style="margin:10px 0 0;padding-left:20px">
+<li>The three include-guard comments say so directly: <a href="worktree://${WT}/src/pico2seq-core/sequencer/SequencerDefs.h#L9">SequencerDefs.h:9</a>, <a href="worktree://${WT}/src/pico2seq-core/scales/scales.h#L8">scales.h:8</a>, <a href="worktree://${WT}/src/pico2seq-core/persistence/ProjectSnapshot.h#L3">ProjectSnapshot.h:3</a>.</li>
+<li>When firmware code needs to bridge the core to UI types, the bridge lives in <code>src/</code> — <code>advanceSequencerStep()</code> in <code>src/ui/UIEventHandler.cpp</code> exists for exactly this reason (<a href="worktree://${WT}/src/ui/UIEventHandler.cpp#L711">UIEventHandler.cpp:711-713</a>).</li>
+<li>Corollary: if a portable file starts needing a UI type, that is a design smell. Add an adapter in <code>src/</code> instead.</li>
+</ul>`;
+
+const DRIFT = `
+<b>Repository state you should know about before trusting the docs.</b>
+<ul style="margin:10px 0 0;padding-left:20px">
+<li><b>Merge-conflict markers have been resolved.</b> docs/testing.md and docs/voice.md previously carried committed <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt; HEAD</code> blocks. Both are cleaned up now, and docs/testing.md lists all 20 registered test files.</li>
+<li><b>One documented bug no longer exists.</b> <a href="worktree://${WT}/docs/firmware-structure.md#L123">firmware-structure.md:123-127</a> warns of a PPQN read/modify/write race that can lose a tick. The current drain takes and clears the count inside an IRQ-disabled window (<a href="worktree://${WT}/src/app/ClockService.cpp#L103">ClockService.cpp:103-106</a>) and does the per-tick work on a local copy, so no tick can be lost. <code>docs/next-steps.md</code> item 8 already asks for this text to be verified rather than assumed current.</li>
+<li><b>docs/architecture.md has drifted.</b> It still describes a <code>stepQueue</code> name, a 20 ms/50 Hz display cadence, and MIDI read bookkeeping. The current code uses <code>clockEvents.steps</code> (ClockService.cpp:23), a 13 ms LED and 40 ms OLED cadence (ControlIO.cpp:14-23), and has no MIDI read at all. Treat <a href="worktree://${WT}/docs/firmware-structure.md#L1">docs/firmware-structure.md</a> as the current guide.</li>
+<li><b>Two docs disagree about the scale rank cache.</b> docs/scales.md describes precomputed rank caches; docs/voice.md says they were removed. The code matches the removal: <code>setScaleTable()</code> only stores the pointer and queues a change (<a href="worktree://${WT}/src/voice/Voice.cpp#L243">Voice.cpp:243-249</a>).</li>
+<li><b>CLAUDE.md is stale where it matters most.</b> It describes <code>gates[]</code>/<code>gateTimers[]</code> and <code>MidiNoteManager</code> in VoiceSystem, and a <code>stepQueue</code>, none of which exist (<a href="worktree://${WT}/CLAUDE.md#L191">CLAUDE.md:191-207</a>). Its tested-vs-untested list also predates the arpeggiator, master-bus, UI-transition and settings-pad suites. Since agents read it first, it is worth correcting.</li>
+<li><b>This map follows the code, not the docs,</b> wherever the two disagree — and says so where it matters, for example in stage 7 of the trace.</li>
+</ul>`;
+
+const SUBMODULES = `
+<b>Submodules are declared but not checked out in this worktree.</b>
+<code>git submodule status</code> reports <code>src/rpdsp</code> (@ 25b3549) and <code>src/VelocityEncoder</code> (@ a8ed15d) as missing, and both show as deleted in <code>git status</code>. Run <code>git submodule update --init --recursive</code> before expecting either the Arduino build or the host test suite to compile here — tests/CMakeLists.txt:15 points its include path straight into <code>src/rpdsp/src</code>.
+<br><br>
+For orientation, <code>src/rpdsp/src/rpdsp/</code> is flat: 33 header-only files in namespace <code>rpdsp</code>, no subdirectories, reached from the firmware through <code>VoiceOscillator.h</code> and <code>Voice.h</code>. Its <code>src/rpdsp.h</code> exists only so Arduino's library resolver can find the library.
+<br><br>
+Consequence for this map: files under <code>src/rpdsp/</code> and <code>src/VelocityEncoder/</code> are named and cited by path, but deliberately <b>not</b> rendered as links, because they would not resolve. Everything else links to a real line.
+`;
+
+/* =========================================================================
+   Rendering + interaction
+   ========================================================================= */
+const NS = `http://www.w3.org/2000/svg`;
+const byId = (id) => document.getElementById(id);
+const SHORT = {input:`Input / hardware`, ui:`UI / state`, seq:`Sequencer brain`,
+               voice:`Voice / DSP`, audio:`Audio out`, persist:`Persistence / utils`};
+
+function esc(s){ return String(s).replace(/&/g,`&amp;`).replace(/</g,`&lt;`).replace(/>/g,`&gt;`).replace(/"/g,`&quot;`); }
+function isSub(p){ return SUBMODULE_PREFIXES.some(pre => p.startsWith(pre)); }
+
+/* A file reference. Submodule paths are shown but not linked: they are not
+   checked out in this worktree, so a link would not resolve. */
+function ref(p, l, text){
+  const label = text || (p + (l ? `:` + l : ``));
+  if (isSub(p)) return `<span class="sub" title="submodule file, not checked out in this worktree">` + esc(label) + `</span>`;
+  const href = `worktree://` + WT + `/` + p + (l ? `#L` + l : ``);
+  return `<a href="` + href + `">` + esc(label) + `</a>`;
+}
+function fileList(files){
+  if (!files || !files.length) return ``;
+  return `<ul>` + files.map(f => `<li>` + ref(f[0], f[1], f[2]) + `</li>`).join(``) + `</ul>`;
+}
+
+const NODE_BY_ID = {};
+NODES.forEach(n => { NODE_BY_ID[n.id] = n; n.x = CX[n.col]; n.y = RY[n.row]; });
+NODES.forEach(n => {
+  n.coreKind = n.core1 ? `core1` : (/either/i.test(n.core) ? `both` : `core0`);
+  n.paths = n.paths || [];
+  n.degree = 0;
+});
+EDGES.forEach(e => {
+  if (NODE_BY_ID[e.from]) NODE_BY_ID[e.from].degree += 1;
+  if (NODE_BY_ID[e.to])   NODE_BY_ID[e.to].degree   += 1;
+  e.tags = e.tags || [];
+});
+
+/* ===================== graph ===================== */
+const state = {
+  sel: null, query: ``, hiddenLayers: new Set(), core: `all`, path: `all`,
+  labels: `key`, view: {x: 0, y: 0, k: 1}
+};
+
+const gv = byId(`viewport`);
+const svg = byId(`graph`);
+const shell = byId(`graphShell`);
+
+function el(tag, attrs, text){
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) if (attrs[k] !== null && attrs[k] !== undefined) e.setAttribute(k, attrs[k]);
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function wrapText(s, max){
+  const words = String(s).split(/\s+/);
+  const lines = []; let cur = ``;
+  words.forEach(w => {
+    const cand = cur ? cur + ` ` + w : w;
+    if (cand.length > max && cur) { lines.push(cur); cur = w; } else cur = cand;
+  });
+  if (cur) lines.push(cur);
+  return lines.slice(0, 2);
+}
+function clipToBox(cx, cy, tx, ty, w, h){
+  const dx = tx - cx, dy = ty - cy;
+  if (dx === 0 && dy === 0) return {x: cx, y: cy};
+  const sx = dx === 0 ? Infinity : (w / 2) / Math.abs(dx);
+  const sy = dy === 0 ? Infinity : (h / 2) / Math.abs(dy);
+  const s = Math.min(sx, sy);
+  return {x: cx + dx * s, y: cy + dy * s};
+}
+/* Search scoring. A bare subsequence across every field matches almost
+   anything, so each field is scored on its own, and a scattered match only
+   counts when its letters stay inside a short window. */
+const MATCH_WINDOW = 4, MATCH_PAD = 8;
+function scoreField(field, q){
+  if (!field) return 0;
+  const f = String(field).toLowerCase();
+  const at = f.indexOf(q);
+  if (at >= 0) return 1000 - Math.min(at, 200); // a real substring wins
+  let best = 0;
+  for (let start = 0; start < f.length; ++start) {
+    if (f[start] !== q[0]) continue;
+    let i = start, k = 0;
+    while (i < f.length && k < q.length) { if (f[i] === q[k]) ++k; ++i; }
+    if (k !== q.length) break;
+    const span = i - start;
+    if (span <= Math.max(q.length * MATCH_WINDOW, q.length + MATCH_PAD)) best = Math.max(best, 600 - span);
+  }
+  return best;
+}
+function bump(score, weight){ return score > 0 ? score + weight : 0; }
+function matchScore(n){
+  const q = state.query.toLowerCase();
+  if (!q) return 1;
+  let best = 0;
+  best = Math.max(best, bump(scoreField(n.id, q), 400), bump(scoreField(n.label, q), 400), bump(scoreField(n.sub, q), 250));
+  (n.files || []).forEach(f => {
+    best = Math.max(best, bump(scoreField(f[0], q), 150), scoreField(f[2] || '', q));
+  });
+  best = Math.max(best, scoreField(n.what, q), scoreField(n.reads, q), scoreField(n.writes, q), scoreField(n.core, q));
+  return best;
+}
+function visible(n){
+  if (state.hiddenLayers.has(n.layer)) return false;
+  if (state.core === `core0` && n.coreKind === `core1`) return false;
+  if (state.core === `core1` && n.coreKind === `core0`) return false;
+  if (state.path !== `all` && !n.paths.includes(state.path)) return false;
+  return true;
+}
+function matches(n){ return !state.query || matchScore(n) > 0; }
+function rankedHits(){ return NODES.filter(matches).sort((a, b) => matchScore(b) - matchScore(a)); }
+
+const edgeEls = {}, nodeEls = {};
+
+function draw(){
+  while (gv.firstChild) gv.removeChild(gv.firstChild);
+  for (const k in edgeEls) delete edgeEls[k];
+  for (const k in nodeEls) delete nodeEls[k];
+
+  const selected = state.sel && state.sel.type === `node` ? state.sel.id : null;
+  const incident = {};
+  if (selected) EDGES.forEach(e => { if (e.from === selected || e.to === selected) incident[e.id] = true; });
+
+  const gEdges = el(`g`, {class: `edges`});
+  const gNodes = el(`g`, {class: `nodes`});
+  gv.appendChild(gEdges); gv.appendChild(gNodes);
+
+  EDGES.forEach(e => {
+    const a = NODE_BY_ID[e.from], b = NODE_BY_ID[e.to];
+    if (!a || !b) return;
+    if (!(visible(a) && visible(b) && matches(a) && matches(b))) return;
+    const acx = a.x + BOXW / 2, acy = a.y + BOXH / 2;
+    const bcx = b.x + BOXW / 2, bcy = b.y + BOXH / 2;
+    const p1 = clipToBox(acx, acy, bcx, bcy, BOXW, BOXH);
+    const p2 = clipToBox(bcx, bcy, acx, acy, BOXW, BOXH);
+    let stroke = `#4a5666`, dash = null, marker = `ah`;
+    if (e.kind === `cross`) { stroke = `#c2410c`; dash = `6 4`; marker = `ahX`; }
+    else if (e.kind === `isr`) { stroke = `#a16207`; dash = `3 3`; }
+    else if (e.kind === `owns`) { stroke = `#3f4a59`; dash = `1 4`; }
+    let op = 0.85, width = 1.4;
+    if (selected) {
+      if (incident[e.id]) { stroke = `#6cb6ff`; op = 1; width = 2.4; }
+      else op = 0.12;
+    }
+    if (state.sel && state.sel.type === `edge`) {
+      if (state.sel.id === e.id) { stroke = `#ffe08a`; op = 1; width = 3; dash = null; marker = `ahHot`; }
+      else if (op > 0.5) op = 0.16;
+    }
+    const attrs = {d: `M` + p1.x + ` ` + p1.y + ` L` + p2.x + ` ` + p2.y,
+                   stroke: stroke, 'stroke-width': width, fill: `none`,
+                   opacity: op, 'marker-end': `url(#` + marker + `)`};
+    if (dash) attrs[`stroke-dasharray`] = dash;
+    const line = el(`path`, attrs);
+    line.appendChild(el(`title`, {}, e.from + ` to ` + e.to + ` · ` + e.label));
+    line.style.cursor = `pointer`;
+    line.addEventListener(`click`, ev => { ev.stopPropagation(); select(`edge`, e.id); });
+    gEdges.appendChild(line);
+    edgeEls[e.id] = line;
+
+    const showLabel = state.labels === `all`
+      || (state.labels === `key` && (e.kind === `cross` || e.kind === `isr`))
+      || (state.sel && (state.sel.type === `edge` ? state.sel.id === e.id : incident[e.id]));
+    if (showLabel && op > 0.3) {
+      const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2 - 5;
+      const hot = state.sel && state.sel.type === `edge` && state.sel.id === e.id;
+      gEdges.appendChild(el(`text`, {x: mx, y: my, fill: hot ? `#ffe08a` : `#93a2b5`,
+        'font-size': 8.4, 'text-anchor': `middle`,
+        'font-family': `ui-monospace,Menlo,Consolas,monospace`, opacity: op, 'pointer-events': `none`}, e.label));
+    }
+  });
+
+  NODES.forEach(n => {
+    if (!visible(n)) return;
+    const dim = state.query && !matches(n);
+    const g = el(`g`, {transform: `translate(` + n.x + `,` + n.y + `)`, opacity: dim ? 0.18 : 1});
+    const col = LAYERS[n.layer].color;
+    const isSel = state.sel && state.sel.type === `node` && state.sel.id === n.id;
+    if (isSel) g.appendChild(el(`rect`, {x: -5, y: -5, width: BOXW + 10, height: BOXH + 10, rx: 12, fill: `none`, stroke: `#6cb6ff`, 'stroke-width': 2.4}));
+    const rectAttrs = {x: 0, y: 0, width: BOXW, height: BOXH, rx: 9, fill: `#141a23`, stroke: col, 'stroke-width': 1.8};
+    if (n.core1) { rectAttrs[`stroke-dasharray`] = `5 3`; rectAttrs[`stroke-width`] = 2.2; }
+    g.appendChild(el(`rect`, rectAttrs));
+    g.appendChild(el(`rect`, {x: 0, y: 0, width: 4, height: BOXH, rx: 2, fill: col}));
+    const lines = wrapText(n.label, 21);
+    const y0 = lines.length > 1 ? 20 : 24;
+    lines.forEach((ln, i) => g.appendChild(el(`text`, {x: 12, y: y0 + i * 13, fill: `#e7edf5`, 'font-size': 11.4,
+      'font-weight': 600, 'font-family': `system-ui,Segoe UI,Roboto,sans-serif`}, ln)));
+    g.appendChild(el(`text`, {x: 12, y: (lines.length > 1 ? 46 : 41), fill: `#8c9aab`, 'font-size': 9,
+      'font-family': `ui-monospace,Menlo,Consolas,monospace`}, n.sub));
+    g.style.cursor = `pointer`;
+    g.appendChild(el(`title`, {}, n.label + ` — ` + n.core));
+    g.addEventListener(`click`, ev => { ev.stopPropagation(); select(`node`, n.id); });
+    gNodes.appendChild(g);
+    nodeEls[n.id] = g;
+  });
+
+  applyView();
+}
+
+function select(type, id){ state.sel = {type, id}; draw(); renderPanel(); }
+function clearSel(){ state.sel = null; draw(); renderPanel(); }
+
+/* ===================== side panel ===================== */
+function kindBadge(kind){
+  const names = {call: `call`, cross: `cross-core`, isr: `interrupt`, owns: `composition`};
+  return `<span class="badge" style="border-color:#6cb6ff88;color:#9dc4ff">` + esc(names[kind] || kind) + `</span>`;
+}
+function renderPanel(){
+  const p = byId(`panel`);
+  if (!state.sel) {
+    p.innerHTML = `<h3>Nothing selected yet</h3><p class="empty">Click a module for what it does, where it lives, what it reads and writes, and which core it runs on. Click an arrow for what triggers it, what data crosses, how often, and how the two sides stay safe.</p>
+      <h4>Reading the arrows</h4><ul>
+      <li><span class="mono" style="color:#c2410c">dashed orange</span> — crosses to the other core</li>
+      <li><span class="mono" style="color:#a16207">fine dashes</span> — an interrupt is involved</li>
+      <li><span class="mono" style="color:#4a5666">dotted</span> — lifetime ownership, not a call</li>
+      <li><span class="mono" style="color:#4a5666">solid</span> — a plain call or a value handoff on one core</li></ul>
+      <h4>Two things worth knowing immediately</h4>
+      <p>Core 1 exists to make sound and does nothing else. Core 0 does everything the player touches, plus keeping time.</p>
+      <p>A dashed red outline marks a box whose code runs on Core 1.</p>`;
+    return;
+  }
+  if (state.sel.type === `node`) {
+    const n = NODE_BY_ID[state.sel.id];
+    const ins = EDGES.filter(e => e.to === n.id), outs = EDGES.filter(e => e.from === n.id);
+    p.innerHTML = `<h3>` + esc(n.label) + `</h3>
+      <div class="muted mono" style="font-size:12px">` + esc(n.sub) + `</div>
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+        <span class="badge" style="border-color:` + LAYERS[n.layer].color + `99;color:` + LAYERS[n.layer].color + `">` + esc(LAYERS[n.layer].name) + `</span>
+        <span class="badge ` + (n.core1 ? `core1` : n.coreKind === `both` ? `` : `core0`) + `">` + esc(n.core) + `</span></div>
+      <h4>What it does</h4><p>` + esc(n.what) + `</p>
+      <h4>Key files and functions</h4>` + fileList(n.files) + `
+      <h4>Reads</h4><p>` + esc(n.reads) + `</p>
+      <h4>Writes</h4><p>` + esc(n.writes) + `</p>
+      ` + (n.note ? `<h4>Worth knowing</h4><p>` + esc(n.note) + `</p>` : ``) + `
+      <h4>Connections (` + (ins.length + outs.length) + `)</h4><ul>` +
+      outs.map(e => `<li>→ <a href="#" data-edge="` + e.id + `">` + esc(NODE_BY_ID[e.to].label) + `</a> <span class="muted">· ` + esc(e.label) + `</span></li>`).join(``) +
+      ins.map(e => `<li>← <a href="#" data-edge="` + e.id + `">` + esc(NODE_BY_ID[e.from].label) + `</a> <span class="muted">· ` + esc(e.label) + `</span></li>`).join(``) + `</ul>`;
+  } else {
+    const e = EDGES.find(x => x.id === state.sel.id);
+    const a = NODE_BY_ID[e.from], b = NODE_BY_ID[e.to];
+    const tags = e.tags.map(t => `<span class="badge" style="border-color:#22c55e88;color:#a8e9bd">` + esc(t) + `</span>`).join(` `);
+    p.innerHTML = `<h3>` + esc(a.label) + ` → ` + esc(b.label) + `</h3>
+      <div class="muted mono" style="font-size:12px">arrow: ` + esc(e.label) + `</div>
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">` + kindBadge(e.kind) + ` ` + tags + `</div>
+      <h4>Trigger — who calls whom</h4><p>` + esc(e.trigger) + `</p>
+      <h4>Data crossing</h4><p>` + esc(e.data) + `</p>
+      <h4>Frequency</h4><p>` + esc(e.freq) + `</p>
+      <h4>Shared-state discipline</h4><p>` + esc(e.disc) + `</p>
+      <h4>Ends</h4><ul>
+        <li><a href="#" data-node="` + a.id + `">` + esc(a.label) + `</a> <span class="muted">· ` + esc(a.core) + `</span></li>
+        <li><a href="#" data-node="` + b.id + `">` + esc(b.label) + `</a> <span class="muted">· ` + esc(b.core) + `</span></li></ul>`;
+  }
+}
+byId(`panel`).addEventListener(`click`, ev => {
+  const dn = ev.target.closest(`[data-node]`), de = ev.target.closest(`[data-edge]`);
+  if (dn) { ev.preventDefault(); select(`node`, dn.getAttribute(`data-node`)); }
+  if (de) { ev.preventDefault(); select(`edge`, de.getAttribute(`data-edge`)); }
+});
+
+/* ===================== pan / zoom ===================== */
+function applyView(){ gv.setAttribute(`transform`, `translate(` + state.view.x + `,` + state.view.y + `) scale(` + state.view.k + `)`); }
+function fit(){
+  const r = shell.getBoundingClientRect();
+  const k = Math.min(r.width / CANVAS.w, r.height / CANVAS.h) * 0.98;
+  state.view = {k: k, x: (r.width - CANVAS.w * k) / 2, y: (r.height - CANVAS.h * k) / 2};
+  applyView();
+}
+function zoomAt(factor, cx, cy){
+  const k2 = Math.max(0.15, Math.min(4, state.view.k * factor));
+  const r = state.view;
+  state.view = {k: k2, x: cx - (cx - r.x) * (k2 / r.k), y: cy - (cy - r.y) * (k2 / r.k)};
+  applyView();
+}
+function centerOn(n){
+  const r = shell.getBoundingClientRect();
+  const k = Math.max(state.view.k, 0.85);
+  state.view = {k: k, x: r.width / 2 - (n.x + BOXW / 2) * k, y: r.height / 2 - (n.y + BOXH / 2) * k};
+  applyView();
+}
+let drag = null;
+svg.addEventListener(`pointerdown`, ev => {
+  drag = {x: ev.clientX, y: ev.clientY, vx: state.view.x, vy: state.view.y, moved: false};
+  svg.classList.add(`dragging`);
+  try { svg.setPointerCapture(ev.pointerId); } catch (err) {}
+});
+svg.addEventListener(`pointermove`, ev => {
+  if (!drag) return;
+  const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+  state.view.x = drag.vx + dx; state.view.y = drag.vy + dy;
+  applyView();
+});
+svg.addEventListener(`pointerup`, ev => {
+  svg.classList.remove(`dragging`);
+  if (drag && !drag.moved && ev.target === svg) clearSel();
+  drag = null;
+});
+svg.addEventListener(`wheel`, ev => {
+  ev.preventDefault();
+  const r = shell.getBoundingClientRect();
+  zoomAt(ev.deltaY < 0 ? 1.12 : 1 / 1.12, ev.clientX - r.left, ev.clientY - r.top);
+}, {passive: false});
+byId(`zIn`).onclick  = () => { const r = shell.getBoundingClientRect(); zoomAt(1.25, r.width / 2, r.height / 2); };
+byId(`zOut`).onclick = () => { const r = shell.getBoundingClientRect(); zoomAt(1 / 1.25, r.width / 2, r.height / 2); };
+byId(`zFit`).onclick = fit;
+byId(`zReset`).onclick = () => { state.view = {x: 0, y: 0, k: 1}; applyView(); };
+
+/* ===================== toolbar ===================== */
+const layerBtns = byId(`layerBtns`);
+Object.keys(LAYERS).forEach(k => {
+  const b = document.createElement(`button`);
+  b.className = `on`; b.dataset.layer = k; b.textContent = SHORT[k];
+  b.style.setProperty(`--c`, LAYERS[k].color);
+  b.onclick = () => {
+    if (state.hiddenLayers.has(k)) { state.hiddenLayers.delete(k); b.classList.add(`on`); }
+    else { state.hiddenLayers.add(k); b.classList.remove(`on`); }
+    draw();
+  };
+  layerBtns.appendChild(b);
+});
+const coreBtns = byId(`coreBtns`);
+[[`all`, `All`], [`core0`, `Core 0 only`], [`core1`, `Core 1 only`]].forEach((pair, i) => {
+  const v = pair[0], label = pair[1];
+  const b = document.createElement(`button`);
+  b.className = `ghost` + (i === 0 ? ` on` : ``); b.textContent = label;
+  b.onclick = () => {
+    state.core = v;
+    Array.prototype.forEach.call(coreBtns.querySelectorAll(`button`), x => x.classList.remove(`on`));
+    b.classList.add(`on`); draw();
+  };
+  coreBtns.appendChild(b);
+});
+const pathBtns = byId(`pathBtns`);
+[[`all`, `Everything`], [`audio`, `Audio path`], [`ui`, `UI path`]].forEach((pair, i) => {
+  const v = pair[0], label = pair[1];
+  const b = document.createElement(`button`);
+  b.className = `ghost` + (i === 0 ? ` on` : ``); b.textContent = label;
+  b.onclick = () => {
+    state.path = v;
+    Array.prototype.forEach.call(pathBtns.querySelectorAll(`button`), x => x.classList.remove(`on`));
+    b.classList.add(`on`); draw();
+  };
+  pathBtns.appendChild(b);
+});
+const viewGrp = byId(`zIn`).parentElement;
+const labGrp = document.createElement(`div`);
+labGrp.className = `grp`;
+labGrp.innerHTML = `<span class="lbl">Arrows</span>`;
+[[`key`, `Key labels`], [`all`, `All labels`], [`off`, `No labels`]].forEach((pair, i) => {
+  const v = pair[0], label = pair[1];
+  const b = document.createElement(`button`);
+  b.className = `ghost` + (i === 0 ? ` on` : ``); b.textContent = label;
+  b.onclick = () => {
+    state.labels = v;
+    Array.prototype.forEach.call(labGrp.querySelectorAll(`button`), x => x.classList.remove(`on`));
+    b.classList.add(`on`); draw();
+  };
+  labGrp.appendChild(b);
+});
+viewGrp.parentElement.insertBefore(labGrp, viewGrp);
+
+const jumpSel = document.createElement(`select`);
+jumpSel.style.cssText = `font:inherit;font-size:13px;background:#0b0f14;border:1px solid #2b3543;border-radius:7px;padding:5px 8px;color:#e7edf5`;
+jumpSel.innerHTML = `<option value="">jump to a module…</option>` + NODES.map(n => `<option value="` + n.id + `">` + esc(n.label) + `</option>`).join(``);
+jumpSel.onchange = () => { const n = NODE_BY_ID[jumpSel.value]; if (n) { centerOn(n); select(`node`, n.id); } jumpSel.value = ``; };
+byId(`jumpSel`).appendChild(jumpSel);
+
+const searchEl = byId(`search`);
+searchEl.addEventListener(`input`, () => {
+  state.query = searchEl.value.trim().toLowerCase();
+  const hits = state.query ? rankedHits() : [];
+  byId(`hits`).textContent = state.query
+    ? (hits.length + (hits.length === 1 ? ` match · ` : ` matches · `) + hits.slice(0, 3).map(n => n.label).join(`, `))
+    : ``;
+  draw();
+});
+searchEl.addEventListener(`keydown`, ev => {
+  if (ev.key !== `Enter`) return;
+  const hit = rankedHits()[0];
+  if (hit) { centerOn(hit); select(`node`, hit.id); }
+});
+
+byId(`legend`).innerHTML = Object.keys(LAYERS).map(k =>
+  `<span><i style="background:` + LAYERS[k].color + `"></i>` + esc(LAYERS[k].name) + `</span>`).join(``) +
+  `<span><i style="background:#141a23;border:2px dashed #ef4444"></i>runs on Core 1</span>`;
+
+/* ===================== swim lanes ===================== */
+const LANES = [
+{core: `core0`, title: `Core 0 — the player's side`, c: `#3b82f6`, when: `setup() then loop(), forever`, items: [
+ {h: `Boot order (once)`, p: `Storage first, before the watchdog is armed, because a first-boot format takes seconds. Then the main I2C bus and LED matrix, the sensors, the touch pads, the display, voice creation, the OLED observer, the matrix and tiles, and finally uClock at 90 BPM / 480 PPQN with shuffle on.`, f: [[`src/app/Application.cpp`,117,`Application::begin()`]]},
+ {h: `1 ms — controls`, p: `Scan the 32 pads (only when the chip's interrupt flags a change), poll the tiles, read the knob, read the hand distance, and record a held lane from the hand.`, f: [[`src/app/ControlIO.cpp`,208,`scanControls()`]]},
+ {h: `Every pass — clock`, p: `Drain queued steps into processSequencerStep(), print diagnostics, then drain PPQN ticks so a short gate ends exactly on its tick. The order is fixed: steps, diagnostics, gate ticks, controls, LEDs, OLED.`, f: [[`src/app/ClockService.cpp`,71,`processClockEvents()`],[`src/app/ClockService.cpp`,99,`processPendingGateTicks()`]]},
+ {h: `Every pass — voice flush`, p: `Retry queued voice updates even with no new input, so a final gate-off always lands.`, f: [[`src/app/Application.cpp`,218,`flushControlUpdates()`]]},
+ {h: `13 ms — LED matrix`, p: `Render the step frame and hand it to the FastLED PIO+DMA driver: about 1 ms on the wire and no interrupt blackout, which is why it runs three times faster than the screen.`, f: [[`src/app/ControlIO.cpp`,259,`refreshLeds()`]]},
+ {h: `40 ms — OLED`, p: `One view per frame by priority, and only the changed pages go out on the bus.`, f: [[`src/app/ControlIO.cpp`,272,`refreshOled()`]]},
+ {h: `On request — flash I/O`, p: `Handlers only set a pending save/load flag. The loop stops the transport, writes or reads the session, and re-arms the watchdog afterwards.`, f: [[`src/app/Application.cpp`,252,`the deferred flash block`]]},
+ {h: `1 Hz — crash insurance`, p: `Checkpoint the live song into retained RAM, which survives a watchdog reboot. This caps what a glitch can cost at one second of playing.`, f: [[`src/app/Application.cpp`,231,`retained-RAM mirror refresh`]]}
+]},
+{core: `core1`, title: `Core 1 — the sound`, c: `#ef4444`, when: `setup1() then loop1(), forever`, items: [
+ {h: `Startup`, p: `Spin until Core 0 publishes voicesReady, then create the four-buffer pool, bring up the I2S driver, and pre-fill all four buffers before enabling the clocks — otherwise the first DMA transfer underruns and the downbeat starts in silence.`, f: [[`src/app/AudioEngine.cpp`,126,`AudioEngine::begin()`]]},
+ {h: `The loop body, in full`, p: `renderNextBuffer(): take a free buffer, fill it, hand it back. There is no other code on this core.`, f: [[`Pico2Seq.ino`,27,`loop1()`],[`src/app/AudioEngine.cpp`,167,`renderNextBuffer()`]]},
+ {h: `Pacing = blocking on a buffer`, p: `take_audio_buffer(pool, true) blocks until DMA is finished with a buffer. That blocking wait is the 48 kHz clock for everything upstream — it is the design, not a problem to fix.`, f: [[`src/app/AudioEngine.cpp`,176,`the pacing point`]]},
+ {h: `Render`, p: `voiceManager->processBlock(mix, 256) per chunk, then convert each sample to PCM16 and copy it to both channels.`, f: [[`src/app/AudioEngine.cpp`,44,`fill_audio_buffer()`],[`src/app/Pcm16.h`,15,`toPcm16()`]]},
+ {h: `Per voice: at most 32 samples`, p: `While control updates are queued, exactly one update is applied and exactly one sample rendered. Otherwise up to 32 samples before re-checking the queue.`, f: [[`src/voice/Voice.cpp`,344,`Voice::processBlock()`]]},
+ {h: `Diagnostics (every 2 s)`, p: `Push a heartbeat into a four-entry SPSC queue; a full queue drops the report rather than delaying audio. Core 0 does the printing.`, f: [[`src/app/AudioEngine.cpp`,214,`heartbeats.tryPush()`]]},
+ {h: `Never here`, p: `No UI, no sensors, no Serial, no flash, no allocation, no locks, and no waiting on anything except a buffer.`, f: [[`Pico2Seq.ino`,20,`the comment that states the rule`]]}
+]}];
+byId(`lanes`).innerHTML = LANES.map(l =>
+  `<div class="lane ` + l.core + `" style="--c:` + l.c + `">
+    <h3>` + esc(l.title) + `</h3><div class="when">` + esc(l.when) + `</div>` +
+    l.items.map(it => `<div class="card"><b>` + esc(it.h) + `</b><p>` + esc(it.p) + `</p><div>` +
+      it.f.map(f => ref(f[0], f[1], f[2])).join(` `) + `</div></div>`).join(``) + `
+  </div>`).join(``);
+
+byId(`handoffTable`).innerHTML = `<table><thead><tr><th>Shape</th><th>What crosses</th><th>Where</th><th>Discipline</th></tr></thead><tbody>` +
+  HANDOFFS.map(h => {
+    const parts = h.where.split(`:`);
+    return `<tr><td class="mono">` + esc(h.shape) + `</td><td><b>` + esc(h.what) + `</b></td><td class="mono">` + ref(parts[0], parts[1]) + `</td><td>` + h.detail + `</td></tr>`;
+  }).join(``) + `</tbody></table>`;
+byId(`renamedBox`).innerHTML = RENAMED;
+byId(`rtRules`).innerHTML = RT_RULES;
+
+/* ===================== trace ===================== */
+let traceIdx = 0, traceTimer = null, showAllLinks = false;
+byId(`traceBar`).innerHTML = TRACE.map((s, i) =>
+  `<div class="step" data-i="` + i + `" style="border-top:3px solid ` + LAYERS[s.tags[0]].color + `">
+    <div class="n">` + (i + 1) + ` / ` + TRACE.length + `</div>
+    <div class="t">` + esc(s.title) + `</div>
+    <div class="mine">` + esc(s.mine) + `</div>
+  </div>`).join(``);
+byId(`traceBar`).addEventListener(`click`, ev => {
+  const s = ev.target.closest(`.step`);
+  if (s) setTrace(parseInt(s.dataset.i, 10));
+});
+function setTrace(i){
+  if (!Number.isFinite(i)) return;
+  const n = TRACE.length;
+  traceIdx = ((Math.trunc(i) % n) + n) % n;
+  Array.prototype.forEach.call(byId(`traceBar`).children, (c, j) => c.classList.toggle(`on`, j === traceIdx));
+  byId(`tCount`).textContent = (traceIdx + 1) + ` of ` + TRACE.length;
+  renderTraceDetail();
+}
+function renderTraceDetail(){
+  const s = TRACE[traceIdx];
+  byId(`traceDetail`).innerHTML = `<h3>` + esc(s.title) + `</h3>
+    <div class="where">stage ` + (traceIdx + 1) + ` of ` + TRACE.length + ` · ` + esc(s.mine) + `</div>
+    <p>` + esc(s.what) + `</p>
+    <div class="cols">
+      <div class="box"><h4>Example values</h4><code class="exval">` + esc(s.example) + `</code>
+        <p class="muted" style="font-size:12.5px;margin-top:8px">` + esc(s.exampleNote) + `</p></div>
+      <div class="box"><h4>Code</h4><ul style="margin:0">` +
+        s.where.map(w => `<li>` + ref(w[0], w[1], w[2]) + `</li>`).join(``) + `</ul></div>
+    </div>` +
+    (showAllLinks ? `<h4 style="margin-top:18px">Every stage, every link</h4><ul>` +
+      TRACE.map(t => `<li><b>` + esc(t.title) + `</b> — ` + t.where.map(w => ref(w[0], w[1])).join(`, `) + `</li>`).join(``) + `</ul>` : ``);
+}
+byId(`tPrev`).onclick = () => setTrace(traceIdx - 1);
+byId(`tNext`).onclick = () => setTrace(traceIdx + 1);
+byId(`tAlly`).onclick = () => { showAllLinks = !showAllLinks; byId(`tAlly`).classList.toggle(`on`, showAllLinks); renderTraceDetail(); };
+byId(`tAuto`).onclick = () => {
+  const b = byId(`tAuto`);
+  if (traceTimer) { clearInterval(traceTimer); traceTimer = null; b.textContent = `▶ Animate`; b.classList.remove(`on`); return; }
+  b.textContent = `⏸ Pause`; b.classList.add(`on`);
+  traceTimer = setInterval(() => setTrace(traceIdx + 1), 2600);
+};
+setTrace(0);
+
+/* ===================== edge table ===================== */
+let edgeFilter = `all`;
+function renderEdgeTable(){
+  const rows = EDGES.filter(e => {
+    if (edgeFilter === `all`) return true;
+    if (edgeFilter === `core1`) return e.tags.includes(`core1`) || e.kind === `cross`;
+    if (edgeFilter === `isr`) return e.tags.includes(`isr`) || e.kind === `isr`;
+    return e.tags.includes(edgeFilter);
+  });
+  byId(`edgeTable`).innerHTML = `<p class="muted" style="font-size:13px;margin:0 0 10px">Showing ` + rows.length + ` of ` + EDGES.length + ` arrows.</p>
+    <table><thead><tr><th>Arrow</th><th>Kind</th><th>Trigger — who calls whom</th><th>Data crossing</th><th>Frequency</th><th>Shared-state discipline</th></tr></thead><tbody>` +
+    rows.map(e => `<tr data-edge="` + e.id + `" style="cursor:pointer">
+      <td><b>` + esc(NODE_BY_ID[e.from].label) + `</b><br><span class="muted">→ ` + esc(NODE_BY_ID[e.to].label) + `</span><br><span class="mono muted" style="font-size:11.5px">` + esc(e.label) + `</span></td>
+      <td>` + kindBadge(e.kind) + e.tags.map(t => ` <span class="pill" style="border-color:#22c55e88;color:#a8e9bd">` + esc(t) + `</span>`).join(``) + `</td>
+      <td>` + esc(e.trigger) + `</td><td>` + esc(e.data) + `</td><td>` + esc(e.freq) + `</td><td>` + esc(e.disc) + `</td></tr>`).join(``) + `</tbody></table>`;
+}
+byId(`edges`).addEventListener(`click`, ev => {
+  const f = ev.target.closest(`[data-ef]`);
+  if (f) {
+    edgeFilter = f.dataset.ef;
+    Array.prototype.forEach.call(byId(`edges`).querySelectorAll(`[data-ef]`), x => x.classList.toggle(`on`, x === f));
+    renderEdgeTable();
+    return;
+  }
+  const tr = ev.target.closest(`tr[data-edge]`);
+  if (tr) {
+    select(`edge`, tr.getAttribute(`data-edge`));
+    byId(`map`).scrollIntoView({behavior: `smooth`});
+  }
+});
+renderEdgeTable();
+
+/* ===================== structures ===================== */
+byId(`structs`).innerHTML = STRUCTS.map(s =>
+  `<details class="card2"` + (s.open ? ` open` : ``) + `><summary>` + s.title + `</summary><div class="body">` + s.html + `</div></details>`).join(``);
+
+/* ===================== sequence diagrams ===================== */
+function renderSeqDiagram(host, cfg){
+  const AW = 158, GAP = 10, PADL = 18, TOP = 10;
+  const n = cfg.actors.length;
+  const W = PADL * 2 + n * AW + (n - 1) * GAP;
+  const rowH = 52;
+  const H = 118 + cfg.messages.length * rowH + 24;
+  const cxOf = i => PADL + i * (AW + GAP) + AW / 2;
+  const s = el(`svg`, {viewBox: `0 0 ` + W + ` ` + H});
+  s.appendChild(el(`rect`, {x: 0, y: 0, width: W, height: H, fill: `#0b0f14`}));
+  cfg.actors.forEach((a, i) => {
+    const x = PADL + i * (AW + GAP);
+    s.appendChild(el(`rect`, {x: x, y: TOP, width: AW, height: 40, rx: 7, fill: `#16202c`, stroke: `#3a4757`}));
+    const wrapped = wrapText(a, 20);
+    wrapped.forEach((ln, j) => s.appendChild(el(`text`, {x: x + AW / 2, y: TOP + (wrapped.length > 1 ? 18 + j * 12 : 25),
+      fill: `#e7edf5`, 'font-size': 11, 'text-anchor': `middle`, 'font-weight': 600,
+      'font-family': `system-ui,Segoe UI,Roboto,sans-serif`}, ln)));
+    s.appendChild(el(`text`, {x: x + AW / 2, y: TOP + 56, fill: `#8c9aab`, 'font-size': 9.2, 'text-anchor': `middle`,
+      'font-family': `ui-monospace,Menlo,Consolas,monospace`}, cfg.self[i]));
+    s.appendChild(el(`line`, {x1: x + AW / 2, y1: TOP + 62, x2: x + AW / 2, y2: H - 14, stroke: `#2b3543`, 'stroke-dasharray': `3 4`}));
+  });
+  cfg.messages.forEach((m, i) => {
+    const y = 122 + i * rowH;
+    const xa = cxOf(m.a), xb = cxOf(m.b);
+    if (m.a === m.b) {
+      s.appendChild(el(`path`, {d: `M` + (xa + 6) + ` ` + (y - 12) + ` h36 v22 h-36`, fill: `none`, stroke: `#6cb6ff`, 'marker-end': `url(#ahHot)`}));
+    } else {
+      s.appendChild(el(`line`, {x1: xa, y1: y, x2: xb, y2: y, stroke: `#6cb6ff`, 'marker-end': `url(#ahHot)`}));
+    }
+    s.appendChild(el(`circle`, {cx: xa, cy: y, r: 3, fill: `#6cb6ff`}));
+    const mid = m.a === m.b ? Math.min(xa + 44, W - 12) : (xa + xb) / 2;
+    s.appendChild(el(`text`, {x: mid, y: y - 22, fill: `#cfe3ff`, 'font-size': 10.4, 'text-anchor': `middle`,
+      'font-family': `ui-monospace,Menlo,Consolas,monospace`}, m.t));
+    s.appendChild(el(`text`, {x: mid, y: y + 15, fill: `#8c9aab`, 'font-size': 10, 'text-anchor': `middle`}, m.d));
+  });
+  host.innerHTML = ``;
+  host.appendChild(s);
+}
+renderSeqDiagram(byId(`seqDiag`), SEQ_DIAG);
+renderSeqDiagram(byId(`bufDiag`), BUF_DIAG);
+
+/* ===================== I'm lost ===================== */
+byId(`lostsBar`).innerHTML = LOSTS.map((l, i) => `<button data-lost="` + i + `">` + esc(l.q) + `</button>`).join(``);
+byId(`lostsBar`).addEventListener(`click`, ev => {
+  const b = ev.target.closest(`[data-lost]`);
+  if (!b) return;
+  const l = LOSTS[parseInt(b.dataset.lost, 10)];
+  if (l.stage) setTrace(TRACE.findIndex(t => t.id === l.stage));
+  if (l.node) { const n = NODE_BY_ID[l.node]; centerOn(n); select(`node`, n.id); }
+  const target = l.nav || `#map`;
+  const node = document.querySelector(target);
+  if (node) node.scrollIntoView({behavior: `smooth`});
+  if (l.a && l.node) byId(`panel`).insertAdjacentHTML(`afterbegin`, `<div class="note info" style="margin-top:0">` + l.a + `</div>`);
+});
+
+/* ===================== honesty ===================== */
+byId(`untestedBox`).innerHTML = `<ul>` + UNTESTED.map(u =>
+  `<li><b>` + esc(u.t) + `</b><br><span class="mono muted" style="font-size:12px">` + esc(u.files) + `</span><br>` + u.note + `</li>`).join(``) + `</ul>`;
+byId(`testedBox`).innerHTML = TESTED.map(g =>
+  `<h4 style="font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:#8c9aab;margin:14px 0 4px">` + esc(g.g) + `</h4><ul>` +
+  g.items.map(it => `<li><b>` + esc(it.t) + `</b><br><span class="mono muted" style="font-size:12px">` + esc(it.files) + `</span><br><span class="muted" style="font-size:12.5px">runs as ` + esc(it.target) + `</span></li>`).join(``) + `</ul>`).join(``);
+byId(`portRule`).innerHTML = PORT_RULE;
+byId(`driftBox`).innerHTML = DRIFT;
+byId(`submoduleBox`).innerHTML = SUBMODULES;
+
+/* ===================== self-check ===================== */
+(function selfCheck(){
+  const problems = [];
+  const seen = new Set();
+  NODES.forEach(n => { if (seen.has(n.id)) problems.push(`duplicate module id: ` + n.id); seen.add(n.id); });
+  EDGES.forEach(e => {
+    if (!NODE_BY_ID[e.from]) problems.push(`arrow ` + e.id + ` has an unknown source ` + e.from);
+    if (!NODE_BY_ID[e.to]) problems.push(`arrow ` + e.id + ` has an unknown target ` + e.to);
+    ['trigger', 'data', 'freq', 'disc', 'label', 'kind'].forEach(k => {
+      if (!e[k]) problems.push(`arrow ` + e.id + ` is missing its ` + k);
+    });
+  });
+  NODES.forEach(n => {
+    if (!n.files || !n.files.length) problems.push(`module ` + n.id + ` cites no files`);
+    if (!n.what || !n.reads || !n.writes || !n.core) problems.push(`module ` + n.id + ` is missing a required panel field`);
+  });
+  const orphans = NODES.filter(n => n.degree === 0).map(n => n.label);
+  if (orphans.length) problems.push(`orphan modules with no arrows: ` + orphans.join(`, `));
+  const wrongCore = NODES.filter(n => n.core1 && !/Core 1/.test(n.core)).map(n => n.label);
+  if (wrongCore.length) problems.push(`Core 1 placement mismatch: ` + wrongCore.join(`, `));
+  const badLayer = NODES.filter(n => !LAYERS[n.layer]).map(n => n.label);
+  if (badLayer.length) problems.push(`module without a layer colour: ` + badLayer.join(`, `));
+  const box = byId(`orphanNote`);
+  if (problems.length) {
+    box.innerHTML = `<div class="note"><b>Self-check found ` + problems.length + ` problem(s):</b><ul style="margin:6px 0 0;padding-left:20px">` +
+      problems.map(p => `<li>` + esc(p) + `</li>`).join(``) + `</ul></div>`;
+  } else {
+    box.innerHTML = `<div class="note good" style="margin-bottom:0"><b>Self-check passed.</b> ` + NODES.length + ` modules, ` + EDGES.length + ` arrows: every module carries at least one arrow, every arrow resolves at both ends, every module has a layer colour, and every Core 1 box is labelled Core 1. Drag to pan, scroll to zoom, click anything.</div>`;
+  }
+})();
+
+/* Boot */
+draw();
+renderPanel();
+fit();
+</script>
+</body>
+</html>

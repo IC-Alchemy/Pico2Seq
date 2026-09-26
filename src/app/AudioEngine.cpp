@@ -8,6 +8,7 @@
 #include "../../diagnostic.h"
 #include "Pcm16.h"
 #include "../utils/SpscQueue.h"
+#include <algorithm>
 #include <atomic>
 
 // Core 1 render path: fill buffers from the published voices, duplicate mono to
@@ -129,10 +130,10 @@ void AudioEngine::begin()
     // recovery boot leaves voicesReady low so Core 1 parks instead of reviving
     // a failing hardware path behind the console.
     while (!voicesReady.load(std::memory_order_acquire))
-
-
+    {
         // Wait for Core 0's voice publish. Yield so system work can proceed.
         delay(1);
+    }
 
     // 48 kHz 16-bit stereo; stride is one L+R frame (4 bytes).
     static audio_format_t audioFormat = {

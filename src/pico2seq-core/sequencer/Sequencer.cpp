@@ -421,7 +421,8 @@ void Sequencer::handleNoteOff(VoiceState *voiceState)
 {
     if (noteActive)
     {
-        // Optional external note-off routing (legacy MIDI hook).
+        // Optional external note-off routing for other applications. Never
+        // set by this firmware, so the branch is dead here by design.
         if (midiNoteOffCallback)
         {
             midiNoteOffCallback(static_cast<uint8_t>(currentNote), channel);

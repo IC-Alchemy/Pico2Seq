@@ -166,7 +166,13 @@ public:
     bool tickNoteDuration(VoiceState *voiceState);
     bool isNotePlaying() const;
 
-    // Legacy hook for external note-off routing; audio path uses VoiceState.
+    /**
+     * @brief Optional note-off hook for other applications that reuse this
+     * portable core. The Pico2Seq firmware has no MIDI transport and never
+     * calls this, so the callback stays null and the branch in handleNoteOff()
+     * is dead in the firmware build — see src/midi/README.md. Kept as library
+     * surface for reuse, not as a firmware feature.
+     */
     void setMidiNoteOffCallback(void (*callback)(uint8_t note, uint8_t channel));
 
     /**

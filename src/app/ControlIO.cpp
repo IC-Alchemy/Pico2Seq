@@ -189,14 +189,11 @@ void ControlIO::beginMatrixAndTiles()
     controls.alchemyBridge.begin(Wire1, /*bankB=*/nullptr, millis());
     printAlchemyTileScanReport();
 
-    // Forward pad presses/releases into the shared UI event handler.
+    // Forward pad presses/releases into the shared UI event handler. This is
+    // the only dispatch: the scan path prints nothing, because a Serial write
+    // per gesture would add milliseconds to the 1 ms control slice.
     Matrix_setEventHandler([](const MatrixButtonEvent &evt)
-                           {
-        Serial.print("Matrix event: button ");
-        Serial.print(evt.buttonIndex);
-        Serial.print(evt.type == MATRIX_BUTTON_PRESSED ? " pressed" : " released");
-        Serial.println();
-        matrixEventHandler(evt, uiState, AppState::sequencerView); });
+                           { matrixEventHandler(evt, uiState, AppState::sequencerView); });
 }
 
 void ControlIO::pollHeldButtons()

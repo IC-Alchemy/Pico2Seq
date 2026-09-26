@@ -38,11 +38,7 @@ typedef struct {
 void Matrix_init(Adafruit_MPR121 *sensor);
 // IRQ-gated scan: no-op until the ISR flags a change, then reads + dispatches.
 void Matrix_scan();
-// Current level of pad idx (false when out of range).
-bool Matrix_getButtonState(uint8_t idx);
-// Press/release callback (usually matrixEventHandler); rising-edge callback.
+// Press/release callback: the single dispatch, normally matrixEventHandler.
 void Matrix_setEventHandler(void (*handler)(const MatrixButtonEvent &));
-void Matrix_setRisingEdgeHandler(void (*handler)(uint8_t buttonIndex));
-void Matrix_printState();
 
 #endif // MATRIX_H

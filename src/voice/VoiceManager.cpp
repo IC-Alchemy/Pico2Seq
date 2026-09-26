@@ -112,16 +112,6 @@ bool VoiceManager::removeVoice(uint8_t voiceId)
 }
 
 /**
- * Removes all voices (control thread, setup-time).
- */
-void VoiceManager::removeAllVoices()
-{
-    voices.clear();
-    DBG_INFO("VoiceManager: all voices removed");
-    notifyVoiceCountChanged();
-}
-
-/**
  * Reconfigures a voice (queued for the audio thread).
  */
 bool VoiceManager::setVoiceConfig(uint8_t voiceId, const VoiceConfig &config)
@@ -367,39 +357,6 @@ float PICO2SEQ_AUDIO_FUNC(VoiceManager::processAllVoices)() noexcept
     return sample;
 }
 
-float PICO2SEQ_AUDIO_FUNC(VoiceManager::advanceMasterGain_)() noexcept
-{
-    // Audio-thread-only state: eases the master gain toward the requested
-    // volume (or zero when transport-muted) so slider moves and transport
-    // start/stop never step the output abruptly.
-    const float target = transportMuted_.load(std::memory_order_relaxed)
-                             ? 0.0f
-                             : globalVolume.load(std::memory_order_relaxed);
-    masterGain_ += masterGainAlpha_ * (target - masterGain_);
-    return masterGain_;
-}
-
-/**
- * Processes a single voice and returns its output
- * Individual voice processing for solo monitoring or per-voice effects
- *
- * @param voiceId Voice to process
- * @return float Audio output from specified voice (-1.0 to 1.0 range)
- *
- * Returns 0.0f if voice not found, disabled, or invalid
- * Applies individual mix level and global volume scaling
- */
-float VoiceManager::processVoice(uint8_t voiceId)
-{
-    ManagedVoice *managedVoice = findVoice(voiceId);
-    if (managedVoice && managedVoice->voice)
-    {
-        return managedVoice->voice->process() * managedVoice->mixLevel.load(std::memory_order_relaxed) *
-               advanceMasterGain_();
-    }
-    return 0.0f;
-}
-
 /**
  * Enables or disables a voice for processing
  * Controls whether voice contributes to audio output without removing it
@@ -437,24 +394,6 @@ bool VoiceManager::isVoiceEnabled(uint8_t voiceId) const
 {
     const ManagedVoice *managedVoice = findVoice(voiceId);
     return managedVoice ? managedVoice->enabled : false;
-}
-
-/** IDs of all enabled voices (control thread; reserve() avoids reallocation). */
-std::vector<uint8_t> VoiceManager::getActiveVoiceIds() const
-{
-    // Reserve the max possible size to avoid reallocation.
-    std::vector<uint8_t> activeIds;
-    activeIds.reserve(voices.size()); // Reserve maximum possible size
-
-    for (const auto &managedVoice : voices)
-    {
-        if (managedVoice->enabled)
-        {
-            activeIds.push_back(managedVoice->id);
-        }
-    }
-
-    return activeIds;
 }
 
 /** All preset names, lowercased (setup/UI helper; never called by audio). */

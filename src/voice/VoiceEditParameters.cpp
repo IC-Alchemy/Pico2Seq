@@ -521,9 +521,6 @@ float timeNormalize(float seconds) noexcept {
   return std::log(std::clamp(seconds, kTimeMin, kTimeMax) / kTimeMin) /
          std::log(kTimeMax / kTimeMin);
 }
-float timeMap(float n) noexcept {
-  return kTimeMin * std::pow(kTimeMax / kTimeMin, std::clamp(n, 0.0f, 1.0f));
-}
 float attackNormalize(float seconds) noexcept {
   return std::log(std::clamp(seconds, kTimeMin, kAttackMaxSeconds) / kTimeMin) /
          std::log(kAttackMaxSeconds / kTimeMin);
