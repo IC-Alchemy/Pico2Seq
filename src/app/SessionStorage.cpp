@@ -8,8 +8,7 @@ namespace
 constexpr const char *kSavePath = "/session.p2s";
 constexpr const char *kTempPath = "/session.tmp";
 
-// Static, not stack: ~12.4 KB each, beyond what the Core 0 loop stack can hold.
-persistence::ProjectSnapshot g_saveBuffer;
+// Static, not stack: ~12.4 KB, beyond what the Core 0 loop stack can hold.
 persistence::ProjectSnapshot g_loadBuffer;
 } // namespace
 
@@ -71,18 +70,19 @@ SessionStorage::LoadResult SessionStorage::load(persistence::ProjectSnapshot &ou
 
 bool SessionStorage::save(const persistence::ProjectSnapshot &snap)
 {
-    g_saveBuffer = snap;
-    const uint32_t crc = persistence::crc32(
-        reinterpret_cast<const uint8_t *>(&g_saveBuffer), sizeof(g_saveBuffer));
+    // Callers pass a file-static snapshot (e.g. Application::g_sessionSnapshot)
+    // that cannot change during this call, so it is CRC'd and written in place.
+    const uint32_t crc = persistence::crc32(reinterpret_cast<const uint8_t *>(&snap),
+                                            sizeof(snap));
     uint8_t header[12];
-    persistence::writeFrameHeader(header, sizeof(g_saveBuffer), crc);
+    persistence::writeFrameHeader(header, sizeof(snap), crc);
 
     File f = LittleFS.open(kTempPath, "w");
     if (!f)
         return false;
     const bool wrote = f.write(header, 12) == 12 &&
-                       f.write(reinterpret_cast<const uint8_t *>(&g_saveBuffer),
-                               sizeof(g_saveBuffer)) == sizeof(g_saveBuffer);
+                       f.write(reinterpret_cast<const uint8_t *>(&snap), sizeof(snap)) ==
+                           sizeof(snap);
     f.close();
     if (!wrote)
         return false;

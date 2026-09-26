@@ -313,10 +313,12 @@ does; the retained path relies on CRC + the same check at apply time.
 
 ## 7. Gotchas (read before changing anything)
 
-1. **10 KB buffers are static, never stack.** `SessionStorage` keeps
-   `g_saveBuffer`/`g_loadBuffer` (~10.1 KB each) as file-static — Core 0's
-   Arduino loop stack cannot hold them. `Application` keeps one more
-   `g_pendingBootSnapshot` for the deferred 3-phase boot apply.
+1. **12 KB buffers are static, never stack.** `SessionStorage` keeps
+   `g_loadBuffer` (~12.4 KB) as file-static — Core 0's Arduino loop stack
+   cannot hold it. `save()` needs no buffer: callers pass a file-static
+   snapshot (e.g. `Application::g_sessionSnapshot`) that it CRCs and writes
+   in place. `Application` also keeps a `g_bootSnapshotPending` flag for the
+   deferred 3-phase boot apply.
 2. **Never do flash I/O in ISR / uClock callback / input-scan context.**
    Use `Session::requestSave/requestLoad` → `consumePendingAction` in
    `Application::update()`. `g_pending` is a Core-0 single-writer flag.
