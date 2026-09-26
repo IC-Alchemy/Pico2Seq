@@ -381,25 +381,22 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
     // Previews may pass null; sounding steps need a VoiceState to write into.
     if (voiceState)
     {
-        // Tone always follows the step; pitch only on gated steps so a resting
-        // step never steals the ringing note — it fades on its own pitch.
-        voiceState->filterCutoff = filterVal;
-        voiceState->attackTimeSeconds = attackVal;
-        voiceState->decayTimeSeconds = decayVal;
-        voiceState->sustainLevel = sustainVal;
-        voiceState->releaseTimeSeconds = releaseVal;
-        voiceState->velocityLevel = velocityVal;
         voiceState->isGateHigh = gateOn;
-        voiceState->hasSlide = slideVal;
-        voiceState->gateLengthTicks = noteDurationTicks;
-
-        // Gate off: keep the old pitch so the tail rings instead of jumping.
+        // A rest only closes the gate. Keep every setting from the note that
+        // triggered the envelope, especially its release, through the tail.
         if (gateOn)
         {
+            voiceState->filterCutoff = filterVal;
+            voiceState->attackTimeSeconds = attackVal;
+            voiceState->decayTimeSeconds = decayVal;
+            voiceState->sustainLevel = sustainVal;
+            voiceState->releaseTimeSeconds = releaseVal;
+            voiceState->velocityLevel = velocityVal;
+            voiceState->hasSlide = slideVal;
+            voiceState->gateLengthTicks = noteDurationTicks;
             voiceState->noteIndex = noteVal; // Raw scale degree; audio quantizes it
             voiceState->octaveOffset = octaveOffset;
         }
-        // When gate is LOW, preserve the previous note and octave values
     }
 
     // Remember slide-through-rests for the next step.
@@ -421,7 +418,8 @@ void Sequencer::handleNoteOff(VoiceState *voiceState)
 {
     if (noteActive)
     {
-        // Optional external note-off routing (legacy MIDI hook).
+        // Optional external note-off routing for other applications. Never
+        // set by this firmware, so the branch is dead here by design.
         if (midiNoteOffCallback)
         {
             midiNoteOffCallback(static_cast<uint8_t>(currentNote), channel);
@@ -475,10 +473,19 @@ void Sequencer::refreshVoiceParameters(VoiceState *voiceState,
     {
         return;
     }
-    // UINT8_MAX means the current per-lane cursors (the normal live-performance
-    // refresh). A concrete index is used by Step Edit so editing a selected
-    // step updates the same step that the OLED is showing, even when another
-    // step is currently sounding.
+    // While running, only the currently gated note can take live changes.
+    // A selected step elsewhere remains stored for when playback reaches it;
+    // each lane can have a different current cursor under polymeter.
+    if (running)
+    {
+        if (!voiceState->isGateHigh || !getPlaybackStep(UINT8_MAX).isGateActive)
+        {
+            voiceState->shouldRetrigger = false;
+            return;
+        }
+        stepIdx = UINT8_MAX;
+    }
+    // With transport stopped, an explicit index previews the selected step.
     const Step values = getPlaybackStep(stepIdx);
     voiceState->velocityLevel = values.velocityLevel;
     voiceState->filterCutoff = values.filterCutoff;
@@ -486,8 +493,7 @@ void Sequencer::refreshVoiceParameters(VoiceState *voiceState,
     voiceState->decayTimeSeconds = values.decayTimeSeconds;
     voiceState->sustainLevel = values.sustainLevel;
     voiceState->releaseTimeSeconds = values.releaseTimeSeconds;
-    // Pitch tracks only a held gate, matching processStep(): released tails
-    // keep their pitch instead of jumping to the next step.
+    // Pitch tracks only a held gate, matching processStep().
     if (voiceState->isGateHigh)
     {
         voiceState->noteIndex = values.noteIndex;

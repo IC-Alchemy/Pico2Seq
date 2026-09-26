@@ -141,9 +141,3 @@ bool DistanceSensor::isConnected() const
 {
   return sensorConnected;
 }
-
-// Legacy entry; prefer distanceSensor.update().
-void updateDistanceSensor()
-{
-  distanceSensor.update();
-}

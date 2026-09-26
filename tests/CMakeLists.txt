@@ -14,6 +14,20 @@ set(SRC_DIR   ${PROJECT_SOURCE_DIR}/src)
 set(CORE_DIR  ${SRC_DIR}/pico2seq-core)
 set(RPDSP_DIR ${SRC_DIR}/rpdsp/src)
 
+# Fail loudly instead of drowning a fresh clone in missing-header errors:
+# src/rpdsp and src/VelocityEncoder are git submodules and are empty until
+# they are checked out. Same trap on the Arduino build, which needs them too.
+if(NOT EXISTS "${RPDSP_DIR}/rpdsp/parameter_track.h")
+  message(FATAL_ERROR
+    "src/rpdsp submodule is not checked out. Run:\n"
+    "  git submodule update --init --recursive")
+endif()
+if(NOT EXISTS "${SRC_DIR}/VelocityEncoder/src/MagEncoder.h")
+  message(FATAL_ERROR
+    "src/VelocityEncoder submodule is not checked out. Run:\n"
+    "  git submodule update --init --recursive")
+endif()
+
 add_executable(pico2seq_tests
   unit/test_helpers.cpp
   unit/test_rpdsp_additions.cpp

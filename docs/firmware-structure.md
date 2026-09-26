@@ -26,8 +26,10 @@ work during each control-loop pass.
 | Step lengths, scales or sequencer rules | Portable `src/pico2seq-core/` |
 
 The app modules connect existing subsystems. USB is TinyUSB CDC-only; the
-firmware has no MIDI transport or dormant MIDI tracker. Optional MIDI callbacks
-remain in the portable sequencer for other applications. See [MIDI status](midi.md).
+firmware has no MIDI transport or dormant MIDI tracker. The portable sequencer
+keeps one optional note-off hook (`setMidiNoteOffCallback()`) as reuse surface
+for other projects; the firmware never calls it, so that branch stays dead here.
+See [MIDI status](midi.md).
 
 Sketch-level persistence lives in `src/app/Session*` (capture/apply, save/load
 requests), `src/app/SessionStorage*` (LittleFS file I/O), and
@@ -121,10 +123,17 @@ without delaying sound. Reports can be delayed by Core 0 work.
 See [audio performance](audio-performance.md) for counter meanings and hardware checks.
 
 uClock's Core 0 ISR only stages steps and PPQN ticks. The step queue retains
-16 usable entries and drops new steps when full. PPQN pending state is now
-explicitly `volatile` for ISR visibility, but its **existing read/modify/write
-race remains**: an interrupt between a decrement's load and store can lose a
-tick. A separate counter-policy fix needs timing regression and bench tests.
+16 usable entries and drops new steps when full.
+
+PPQN pending state is `volatile` for ISR visibility and the counter is **not**
+racy: `processPendingGateTicks()` takes and clears the count inside an
+interrupt-disabled window (`save_and_disable_interrupts()` in
+[ClockService.cpp](../src/app/ClockService.cpp)), then consumes that local copy
+tick by tick. An increment therefore lands either before the read (counted) or
+after the clear (handled on the next pass) — no tick can be lost. An earlier
+revision decremented the shared counter from the loop side without masking,
+which could lose a tick; that shape is gone, so do not "fix" a race that is no
+longer there.
 
 The global delay effect was removed entirely (2026-09-11) — its DSP, defaults,
 control globals, and the `src/FeatureConfig.h` switch are gone from the tree,

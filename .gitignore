@@ -24,3 +24,6 @@ build_test_ninja/
 build_clang/
 build_desktop/*
 build*
+
+# Golden firmware images live in GitHub Releases, not in git.
+WorkingUF2/

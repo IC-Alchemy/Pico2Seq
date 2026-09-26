@@ -263,7 +263,7 @@ public:
   void setRhythm(uint8_t hits, uint8_t length, uint8_t rotation) noexcept;
   void setRhythmPreset(uint8_t preset) noexcept;
   void setAccent(float accent) noexcept;
-  /** Shift-faders: hits, grid length, rotation, accent, in that order. */
+  /** Unshifted arp faders: hits, grid length, rotation, accent, in that order. */
   void setRhythmFader(uint8_t channel, float normalized) noexcept;
   bool rhythmHitAt(uint8_t step) const noexcept;
   /** -1 for a custom grid, otherwise the matching starting point. */

@@ -535,6 +535,57 @@ TEST_CASE("Sequencer::processStep triggers envelope on initial slide note", "[se
     REQUIRE(seq.isNotePlaying());
 }
 
+TEST_CASE("Rest steps leave the triggering note's voice settings intact", "[sequencer][envelope]") {
+    Sequencer seq(0);
+    seq.start();
+    seq.setStepParameterValue(ParamId::Gate, 0, 1.0f);
+    seq.setStepParameterValue(ParamId::Note, 0, 7.0f);
+    seq.setStepParameterValue(ParamId::Velocity, 0, 0.9f);
+    seq.setStepParameterValue(ParamId::Filter, 0, 0.8f);
+    seq.setStepParameterValue(ParamId::Attack, 0, 0.7f);
+    seq.setStepParameterValue(ParamId::Decay, 0, 0.6f);
+    seq.setStepParameterValue(ParamId::Sustain, 0, 0.5f);
+    seq.setStepParameterValue(ParamId::Release, 0, 1.0f);
+    seq.setStepParameterValue(ParamId::GateLength, 0, 1.0f);
+
+    seq.setStepParameterValue(ParamId::Gate, 1, 0.0f);
+    seq.setStepParameterValue(ParamId::Note, 1, 12.0f);
+    seq.setStepParameterValue(ParamId::Velocity, 1, 0.1f);
+    seq.setStepParameterValue(ParamId::Filter, 1, 0.1f);
+    seq.setStepParameterValue(ParamId::Attack, 1, 0.1f);
+    seq.setStepParameterValue(ParamId::Decay, 1, 0.1f);
+    seq.setStepParameterValue(ParamId::Sustain, 1, 0.1f);
+    seq.setStepParameterValue(ParamId::Release, 1, 0.0f);
+    seq.setStepParameterValue(ParamId::GateLength, 1, 0.1f);
+
+    VoiceState state;
+    seq.advanceStep(0, -1, false, false, false, false, false, false, -1, &state);
+    REQUIRE(state.isGateHigh);
+    REQUIRE(state.shouldRetrigger);
+    const VoiceState triggered = state;
+
+    seq.advanceStep(1, -1, false, false, false, false, false, false, -1, &state);
+    CHECK_FALSE(state.isGateHigh);
+    CHECK_FALSE(state.shouldRetrigger);
+    CHECK(state.noteIndex == triggered.noteIndex);
+    CHECK(state.octaveOffset == triggered.octaveOffset);
+    CHECK(state.velocityLevel == triggered.velocityLevel);
+    CHECK(state.filterCutoff == triggered.filterCutoff);
+    CHECK(state.attackTimeSeconds == triggered.attackTimeSeconds);
+    CHECK(state.decayTimeSeconds == triggered.decayTimeSeconds);
+    CHECK(state.sustainLevel == triggered.sustainLevel);
+    CHECK(state.releaseTimeSeconds == 1.0f);
+    CHECK(state.gateLengthTicks == triggered.gateLengthTicks);
+    CHECK(state.hasSlide == triggered.hasSlide);
+
+    seq.setStepParameterValue(ParamId::Gate, 2, 1.0f);
+    seq.setStepParameterValue(ParamId::Release, 2, 0.0f);
+    seq.advanceStep(2, -1, false, false, false, false, false, false, -1, &state);
+    CHECK(state.isGateHigh);
+    CHECK(state.shouldRetrigger);
+    CHECK(state.releaseTimeSeconds == 0.0f);
+}
+
 TEST_CASE("Polyrhythmic advanceStep checks sounding gate step for Note recording", "[sequencer]") {
     Sequencer seq(0);
     seq.start();
@@ -812,22 +863,28 @@ TEST_CASE("refreshVoiceParameters updates a sounding voice without retriggering"
     CHECK_FALSE(state.shouldRetrigger);
     CHECK(seq.isNotePlaying() == wasPlaying);
 
-    // A released note keeps its pitch through the tail.
+    // A released note keeps every setting through the tail, including release.
     state.isGateHigh = false;
     seq.setStepParameterValue(ParamId::Note, 0, 3.0f);
+    seq.setStepParameterValue(ParamId::Filter, 0, 1.0f);
+    seq.setStepParameterValue(ParamId::Release, 0, 0.0f);
+    const float release = state.releaseTimeSeconds;
     seq.refreshVoiceParameters(&state);
     CHECK(state.noteIndex == 9.0f);
+    CHECK(state.filterCutoff == Catch::Approx(0.2f));
+    CHECK(state.releaseTimeSeconds == release);
     CHECK_FALSE(state.isGateHigh);
 
     seq.refreshVoiceParameters(nullptr); // tolerated
 }
 
-TEST_CASE("Step Edit refresh uses the edited step instead of the playing cursor",
+TEST_CASE("Step Edit waits for a selected future step while transport runs",
           "[sequencer][step_edit]") {
     Sequencer seq(0);
     seq.setParameterStepCount(ParamId::Filter, 16);
     seq.setParameterStepCount(ParamId::Release, 16);
     seq.setStepParameterValue(ParamId::Gate, 0, 1.0f);
+    seq.setStepParameterValue(ParamId::Gate, 4, 1.0f);
     seq.setStepParameterValue(ParamId::Filter, 0, 0.0f);
     seq.setStepParameterValue(ParamId::Filter, 4, 0.0f);
     seq.setStepParameterValue(ParamId::Release, 0, 0.0f);
@@ -841,6 +898,9 @@ TEST_CASE("Step Edit refresh uses the edited step instead of the playing cursor"
     seq.editStepValue(ParamId::Release, 4, 0.25f);
     seq.refreshVoiceParameters(&state, 4);
 
+    CHECK(state.filterCutoff == Catch::Approx(0.0f));
+    CHECK(state.releaseTimeSeconds == Catch::Approx(0.0f));
+    seq.advanceStep(4, -1, false, false, false, false, false, false, -1, &state);
     CHECK(state.filterCutoff == Catch::Approx(1.0f));
     CHECK(state.releaseTimeSeconds == Catch::Approx(0.25f));
 }

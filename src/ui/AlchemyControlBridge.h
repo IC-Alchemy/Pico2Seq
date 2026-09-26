@@ -43,8 +43,8 @@ class SequencerView;
  *     Randomize-chord take the step-only slots.
  *   - Faders: step-parameter recording in Param mode (same recording path
  *     as the lidar), tempo/delay-mix/master-volume/gate-length otherwise;
- *     in Arpeggiator mode the same four faders set arp range, gate, swing
- *     and filter; Shift selects hits, rhythm length, rotation and accent
+ *     in Arpeggiator mode the same four faders set hits, rhythm length,
+ *     rotation and accent; Shift selects arp range, gate, swing and filter
  *     (ControlSurface::FaderMap::arpAssignmentFor).
  */
 class AlchemyControlBridge

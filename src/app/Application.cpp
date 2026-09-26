@@ -110,6 +110,33 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
                           static_cast<unsigned long>(heartbeat.txStalls));
         }
     }
+
+    // Core-1 stall watch. The watchdog only covers Core 0, so a wedged audio
+    // core is otherwise silent: the loop keeps feeding and nothing reboots.
+    // Detection is deliberately narrow — the phase must claim the render loop
+    // is live (BufferWait/Render/Submit) and the completed-buffer count must not
+    // have moved across a full diagnostic interval. Boot, a failed I2S setup and
+    // a parked recovery boot all report other phases, so they cannot trip this.
+    // Log only: never reset or reboot from here.
+    static uint32_t lastAudioBufs = 0;
+    static bool haveAudioBaseline = false;
+    {
+        const uint32_t bufs = AudioEngine::completedBufferCount();
+        const auto phase = AudioEngine::phase();
+        const bool renderingPhase = phase == AudioEngine::Phase::BufferWait ||
+                                    phase == AudioEngine::Phase::Render ||
+                                    phase == AudioEngine::Phase::Submit;
+        if (renderingPhase && haveAudioBaseline && bufs == lastAudioBufs && Serial)
+        {
+            Serial.printf("[DIAG C1] STALLED phase=%s i2sstage=%lu bufs=%lu (unchanged for %lums) - Core 1 is not rendering\n",
+                          AudioEngine::phaseName(phase),
+                          static_cast<unsigned long>(AudioEngine::driverSetupStage()),
+                          static_cast<unsigned long>(bufs),
+                          static_cast<unsigned long>(kDiagnosticIntervalMs));
+        }
+        lastAudioBufs = bufs;
+        haveAudioBaseline = renderingPhase;
+    }
 }
 #endif
 } // namespace

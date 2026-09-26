@@ -104,16 +104,24 @@ void processPendingGateTicks()
     uint32_t pending=clockEvents.ppqnTicksPending;
     clockEvents.ppqnTicksPending=0;
     restore_interrupts(irqState);
-    if (!isClockRunning || uiState.voiceEditor.active) return;
-    while (pending-- > 0)
+    // Core 0 loop context: none of these flags can change mid-drain, so sample
+    // once instead of re-testing per tick (up to 480 ticks per quarter note).
+    const bool clockRunning = isClockRunning;
+    const bool editorActive = uiState.voiceEditor.active;
+    const bool arpActive = uiState.arp.active();
+    if (!clockRunning || editorActive) return;
+    // Sequencer mode publishes note-off at its exact PPQN tick rather than
+    // at the next step boundary. Arpeggiator mode owns the tick instead: the
+    // engine decides when its notes start and end, and the sequencers'
+    // duration counters stay put.
+    if (arpActive)
     {
-        // Sequencer mode publishes note-off at its exact PPQN tick rather than
-        // at the next step boundary. Arpeggiator mode owns the tick instead: the
-        // engine decides when its notes start and end, and the sequencers'
-        // duration counters stay put.
-        if (uiState.arp.active())
+        while (pending-- > 0)
             arpTick();
-        else
+    }
+    else
+    {
+        while (pending-- > 0)
             tickSequencerVoices();
     }
 }

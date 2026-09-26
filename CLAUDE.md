@@ -126,31 +126,44 @@ code with **no hardware dependencies**, using header stubs in `tests/stubs/` (e.
 `Wire.h`, `pico/sync.h`) to satisfy `#include`s without real hardware. `tests/stubs/` mirrors
 real header paths exactly — a stub for `pico/sync.h` must live at `tests/stubs/pico/sync.h`.
 
-What's tested vs. not, per `tests/CMakeLists.txt`:
+What's tested vs. not, per `tests/CMakeLists.txt` (four focused targets: `pico2seq_tests`,
+`pico2seq_ui_tests`, `pico2seq_voice_tests`, `pico2seq_watchdog_tests`, `pico2seq_audio_tests`):
 - **Tested**: `src/rpdsp/` additions via
   `tests/unit/test_rpdsp_additions.cpp`, `test_dsp_recipe_regressions.cpp`,
   and `test_recipe_optimization.cpp`,
   `src/voice/VoiceOscillator.h` via `test_voiceoscillator.cpp`,
   `src/pico2seq-core/scales/scales.cpp`,
-  `src/pico2seq-core/sequencer/{ParameterManager,Sequencer}.cpp`,
-  `src/voice/{Voice,VoicePresets,VoiceManager}.cpp` (incl. the `SpscQueue`
-  control handoff via `test_voice_transfer.cpp`; recipes via
-  `test_voice_recipes.cpp`; voice editing via `test_voice_edit.cpp`;
-  focused ownership via `pico2seq_voice_tests`),
+  `src/pico2seq-core/arpeggiator/Arpeggiator.cpp` via `test_arpeggiator.cpp`,
+  `src/pico2seq-core/sequencer/{ParameterManager,Sequencer}.cpp` via
+  `test_sequencer.cpp`,
+  `src/voice/{Voice,VoicePresets,VoiceParameters,VoiceEditParameters,VoiceManager}.cpp`
+  (incl. the `SpscQueue` control handoff via `test_voice_transfer.cpp`; recipes via
+  `test_voice_recipes.cpp`; voice editing via `test_voice_edit.cpp`; the master
+  delay/compressor/bus via `test_master_delay.cpp`, `test_master_compressor.cpp`
+  and `test_master_bus.cpp`; focused ownership via `pico2seq_voice_tests`),
   session and patch serialization (`src/pico2seq-core/persistence/*`,
   `src/voice/PatchCodec.cpp`) via `test_persistence.cpp`,
-  `src/ui/ControlSurfaceLogic.cpp` via `tests/unit/test_control_surface_logic.cpp`,
+  `src/ui/ControlSurfaceLogic.cpp` and `src/ui/UITransitions.h` via
+  `test_control_surface_logic.cpp` / `test_ui_transitions.cpp`
+  (`pico2seq_ui_tests`),
   `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` via `tests/unit/test_alchemy_proto.cpp`,
+  `src/app/VoicePlayback.cpp` via `test_voice_playback.cpp` (the one `src/app`
+  file in the host suite, plus `src/app/SequencerView.h` via `test_sequencer_view.cpp`),
   `src/audio/{audio_i2s,audio}.cpp` via `pico2seq_audio_tests` (against
   `tests/audio_stubs/` — keep driver logic in those testable functions),
   `src/utils/FreezeWatchdog.h` via `pico2seq_watchdog_tests`
   (against `tests/watchdog_stubs/`), and app runtime helpers (PCM16
   conversion, lidar calibration) via `test_app_runtime.cpp`.
 - **Not tested, by design** (hardware-bound glue — keep logic out of these):
-  the PIO/DMA register-level parts of `src/audio/`, `src/LEDMatrix/`
-  (WS2812B GPIO/DMA), `src/OLED/` (I2C display), `src/midi/` (TinyUSB stack),
-  `src/matrix/`, `src/sensors/`, and the Wire-bound parts of
-  `src/ui/AlchemyControlBridge.cpp`.
+  the PIO/DMA register-level parts of `src/audio/` (the pool/driver *logic* is
+  covered against doubles, the real timing is not), `src/LEDMatrix/`
+  (WS2812B GPIO/DMA), `src/OLED/` (I2C display), `src/matrix/`,
+  `src/sensors/` (bus drivers — `SensorConstants.h` is tested, the reads are not),
+  the Wire-bound parts of `src/ui/AlchemyControlBridge.cpp`,
+  `src/ui/{UIEventHandler,ButtonHandlers,ButtonManager}.cpp`, the rest of
+  `src/app/` (`Application`, `ControlIO`, `AudioEngine`, `ClockService`,
+  `StepPlayback`, `SessionStorage`), and `src/utils/Debug.cpp`.
+  There is no `src/midi/` module any more: it holds a removal notice only.
 
 When adding a new module to be tested:
 1. Check its `#include` chain for new hardware headers; add a minimal stub under `tests/stubs/`
@@ -180,19 +193,24 @@ sensors,ButtonHandlers}.md` cover each subsystem. The essentials:
 
 - **Core 0** (`setup()`/`loop()`): everything else — USB CDC serial, TMAG5273 magnetic encoder and VL53L1X, distance sensor polling, MPR121 touch matrix scanning, `uClock` sequencer step ticking, LED matrix and OLED updates, UI state.
 - **Core 1** (`setup1()`/`loop1()` in `Pico2Seq.ino`): audio synthesis only. Pulls a buffer, calls `voiceManager->processBlock()` for each 256-frame buffer, writes I2S output. Nothing else should run here — this is real-time critical and must never block or allocate.
-- Cross-core communication is via `volatile` globals (e.g. `VoiceSystem::gates`,
-  `ppqnTicksPending`) — there are no mutexes. When touching shared state, check whether it's
-  read/written from both cores and keep the existing `volatile` discipline.
+- Cross-core communication is via lock-free primitives — there are no mutexes anywhere:
+  an `std::atomic<bool>` publish flag (`voicesReady`), `std::atomic` control targets
+  (volume, macro, delay), and `SpscQueue` rings for voice control updates and the Core 1
+  heartbeat. `ClockService` also uses a file-static `volatile` tick count for its
+  same-core ISR→loop handoff. When touching shared state, check whether it is read or
+  written from both cores and use one of those shapes — see `docs/architecture.md`
+  section 3.
 
-### `VoiceSystem` — the central data structure
+### `VoiceSystem` — ID tags plus one control snapshot each
 
 `src/voice/VoiceSystem.h` replaced what used to be parallel global arrays (`voice1Id`,
 `voice2Id`, ...) with array-based, bounds-checked access for `MAX_VOICES = 4` voices:
-`voiceIds[]`, `voiceStates[]` (one `VoiceState` per voice), `gates[]`/`gateTimers[]` (all
-4 voices have software gates and duration timers; voices 0–1 additionally participate in
-internal `MidiNoteManager` tracking). Always go through its accessors (`getVoiceState`,
-`getVoiceId`, `getGate`, `getGateTimer`) rather than indexing arrays directly — they clamp
-out-of-range indices.
+`voiceIds[]` and `voiceStates[]` (one `VoiceState` per voice). That is **all** it holds —
+the per-voice `gates[]`/`gateTimers[]` arrays and the internal `MidiNoteManager` note
+lifecycle are gone. Note length now lives in `Sequencer::tickNoteDuration()`, which is the
+sole duration authority, and gate truth lives in `VoiceState::isGateHigh`. Always go
+through the accessors (`getVoiceState`, `getVoiceId`) rather than indexing the arrays
+directly — they clamp out-of-range indices.
 
 ### Data flow (input → sound)
 
@@ -202,10 +220,9 @@ Matrix/TMAG5273/VL53L1X input  (Core 0)
   → 4 independent Sequencer instances (seq1..seq4, one per voice, polymetric: each
     ParamId track can have its own step count, e.g. Note:16 steps, Filter:8 steps)
   → VoiceState produced per step (the uClock ISR only stages the step into
-    the stepQueue SpscQueue; loop() drains it via processClockEvents() and
-    runs processSequencerStep)
-  → VoiceSystem (gate timing, internal note lifecycle via MidiNoteManager — nothing
-    has been transmitted since USB MIDI was removed 2026-09-06) → VoiceManager
+    clockEvents.steps, an SpscQueue<uint32_t,16>; loop() drains it via
+    processClockEvents() and runs processSequencerStep)
+  → VoiceSystem (ID tags + the published VoiceState snapshot) → VoiceManager
   → Voice spans (sources → envelope gain → effects → velocity → main filter → HPF)
   → fill_audio_buffer()  (Core 1)  → I2S @ 48kHz (final mix includes the master
     volume from `VoiceManager::setGlobalVolume()`, restored from the session and

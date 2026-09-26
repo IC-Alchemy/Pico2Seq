@@ -544,12 +544,6 @@ private:
   std::unique_ptr<Sequencer> sequencerOwned;
 
   // Private helper methods
-  /**
-   * @brief Process the effects chain on the input signal
-   * @param signal Reference to signal to process (modified in place, -1.0 to +1.0)
-   */
-  void processEffectsChain(float &signal);
-
   // Cross-core application helpers. process() pops into audioUpdate_ before
   // calling applyControlUpdate_(), so empty queues need no out-of-line call.
   void applyControlUpdate_() noexcept;

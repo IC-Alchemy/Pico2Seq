@@ -94,8 +94,9 @@ Sustain/Release lanes still drive the real envelope.
 On oscillator voices such as Digital and Square, hold the third parameter button
 to record filter-envelope amount with lidar; the OLED shows the amount and peak
 cutoff. Hold the fifth button (silkscreened Decay) to record Release. Release takes
-effect when the gate closes; a new note retriggers the envelope. Its encoder base
-uses the same time curve as playback. Waveguide keeps Bright and Stiffness on
+effect when the gate closes; a new note retriggers the envelope. Rest steps keep
+the previous note's release and other voice settings while its tail rings. Its
+encoder base uses the same time curve as playback. Waveguide keeps Bright and Stiffness on
 these buttons. The held-button OLED reads recorded playback values directly,
 including the selected step in Step Edit, rather than calculating a sensor preview.
 
@@ -107,8 +108,11 @@ The step OLED and normal encoder screen show composed playback values, after
 preset bases, clamping, quantization and engine-specific mapping: the value the voice
 plays. For 1.5 s after an encoder turn they show the edited base instead
 (`Base` / `BASE`), since a step's own value can otherwise hide the change. Live edits
-(lidar, ENV faders, encoder) refresh the sounding note in place through
-`Sequencer::refreshVoiceParameters()`; they never retrigger it. The ADSR's stages are
+(lidar, ENV faders, encoder) refresh the currently gated note in place through
+`Sequencer::refreshVoiceParameters()`; they never retrigger it. While playing,
+edits to other steps wait until those steps sound, and edits during a rest leave
+the release tail alone. With transport stopped, Step Edit previews its selected step.
+The ADSR's stages are
 linear ramps counted in samples, so `Voice` holds a new attack (decay, release) length
 while that stage runs, and a new sustain level while decay or sustain runs; each lands
 when its stage ends or at the next note-on. Cutoff, velocity and pitch apply at once. A patch publish glides the cutoff smoother

@@ -15,10 +15,9 @@ const uint8_t MATRIX_COL_INPUTS[8] = {4, 5, 6, 7, 8, 9, 10, 11};
 // Linear pad -> (row, col) electrodes; current finger level per pad.
 static MatrixButton matrixButtons[MATRIX_BUTTON_COUNT];
 static bool buttonState[MATRIX_BUTTON_COUNT];
-// MPR121 instance (set in Matrix_init) + UI dispatch callbacks.
+// MPR121 instance (set in Matrix_init) + UI dispatch callback.
 static Adafruit_MPR121 *mpr121 = nullptr;
 static void (*eventHandler)(const MatrixButtonEvent &) = nullptr;
-static void (*risingEdgeHandler)(uint8_t buttonIndex) = nullptr;
 
 // The MPR121 INT output is active-low and open-drain. The ISR only records
 // that a status change occurred; the control loop performs the I2C read and
@@ -66,31 +65,8 @@ static bool scanMatrixButton(const MatrixButton &btn, uint16_t touchBits)
 }
 
 // Diff all pads against last state; dispatch press/release edges on change.
-
-static void updateButtonStates(uint16_t touchBits)
-{
-    for (uint8_t i = 0; i < MATRIX_BUTTON_COUNT; ++i)
-    {
-        bool prev = buttonState[i];
-        bool curr = scanMatrixButton(matrixButtons[i], touchBits);
-        if (curr != prev)
-        {
-            buttonState[i] = curr;
-            if (curr && risingEdgeHandler)
-            {
-                risingEdgeHandler(i);
-            }
-            // Rise-then-press ordering: rising edge first, then the event.
-            if (eventHandler)
-            {
-                MatrixButtonEvent evt;
-                evt.buttonIndex = i;
-                evt.type = curr ? MATRIX_BUTTON_PRESSED : MATRIX_BUTTON_RELEASED;
-                eventHandler(evt);
-            }
-        }
-    }
-}
+// The one dispatch path: Matrix_scan() inlines this loop so the quiet fast
+// path stays a single flag check.
 
 // Bind the sensor, build the pad map, arm the GP8 interrupt.
 // No Heavy init here: the MPR121 begin() belongs to the caller (setup).
@@ -101,7 +77,6 @@ void Matrix_init(Adafruit_MPR121 *sensor)
     setupMatrixMapping();
     memset(buttonState, 0, sizeof(buttonState));
     eventHandler = nullptr;
-    risingEdgeHandler = nullptr;
     mpr121InterruptPending = false;
 
     if (mpr121)
@@ -159,54 +134,18 @@ void Matrix_scan()
         if (isPressed != wasPressed)
         {
             buttonState[i] = isPressed; // Commit first so re-entrant reads agree.
-            Serial.printf("Button %d state changed to: %s\n", i, isPressed ? "PRESSED" : "RELEASED");
 
             if (eventHandler)
             {
                 MatrixButtonEvent evt = {i, isPressed ? MATRIX_BUTTON_PRESSED : MATRIX_BUTTON_RELEASED};
                 eventHandler(evt);
             }
-
-            if (isPressed && risingEdgeHandler)
-            {
-                risingEdgeHandler(i);
-            }
         }
     }
-}
-
-// Level read for pad idx (out-of-range reads as released, never crashes).
-bool Matrix_getButtonState(uint8_t idx)
-{
-    if (idx >= MATRIX_BUTTON_COUNT)
-        return false;
-    return buttonState[idx];
 }
 
 // Attach the press/release dispatch (single owner: the UI funnel).
 void Matrix_setEventHandler(void (*handler)(const MatrixButtonEvent &))
 {
     eventHandler = handler;
-}
-
-// Attach the press-only dispatch (optional secondary listener).
-void Matrix_setRisingEdgeHandler(void (*handler)(uint8_t buttonIndex))
-{
-    risingEdgeHandler = handler;
-}
-
-// Serial debug dump of the 4x8 pad grid (1 = touched).
-void Matrix_printState()
-{
-    Serial.println("Button Matrix State (1=pressed, 0=not pressed):");
-    for (uint8_t row = 0; row < 4; ++row)
-    {
-        for (uint8_t col = 0; col < 8; ++col)
-        {
-            uint8_t idx = row * 8 + col;
-            Serial.print(buttonState[idx] ? "1 " : "0 ");
-        }
-        Serial.println();
-    }
-    Serial.println();
 }

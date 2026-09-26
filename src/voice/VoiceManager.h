@@ -30,12 +30,11 @@ public:
     VoiceManager(uint8_t maxVoices = 8);
     ~VoiceManager() = default;
 
-    // Add/remove voices (control thread, setup-time; never on Core 1).
+    // Add a voice (control thread, setup-time; never on Core 1).
     // Returns the new voice ID, or 0 when full.
     uint8_t addVoice(const VoiceConfig &config);
     uint8_t addVoice(const std::string &presetName);
     bool removeVoice(uint8_t voiceId);
-    void removeAllVoices();
 
     // Voice Configuration
     bool setVoiceConfig(uint8_t voiceId, const VoiceConfig &config);
@@ -98,7 +97,6 @@ public:
     }
     // Audio thread only. Overwrites n samples, splitting larger calls into blocks.
     void processBlock(float *out, uint32_t n) noexcept;
-    float processVoice(uint8_t voiceId);
 
     // Voice Control
     void enableVoice(uint8_t voiceId, bool enabled = true);
@@ -108,10 +106,8 @@ public:
     // Voice Information
     uint8_t getVoiceCount() const { return static_cast<uint8_t>(voices.size()); }
     uint8_t getMaxVoices() const { return maxVoiceCount; }
-    std::vector<uint8_t> getActiveVoiceIds() const;
 
     // Memory Management
-    size_t getMemoryUsage() const;
     bool hasAvailableSlots() const { return voices.size() < maxVoiceCount; }
 
     // Callbacks
@@ -142,25 +138,17 @@ public:
     void setDelayFeedback(float feedback) { delayFeedback.store(feedback, std::memory_order_relaxed); }
     float getDelayFeedback() const { return delayFeedback.load(std::memory_order_relaxed); }
 
-    void setVoiceMix(uint8_t voiceId, float mix);
     void setTransportMuted(bool muted) noexcept { transportMuted_.store(muted, std::memory_order_relaxed); }
-    float getVoiceMix(uint8_t voiceId) const;
-
-    // Voice Routing
-    void setVoiceOutput(uint8_t voiceId, uint8_t outputChannel);
-    uint8_t getVoiceOutput(uint8_t voiceId) const;
 
     // Voice Parameter Control
-    void setVoiceVolume(uint8_t voiceId, float volume);
-    void setVoiceFrequency(uint8_t voiceId, float frequency);
     void setVoiceSlide(uint8_t voiceId, float slideTime);
 
 private:
     std::atomic<bool> transportMuted_{false};
 
     // Master-bus gain smoothing (audio thread only). globalVolume and
-    // transportMuted_ are targets; advanceMasterGain_() eases toward them so
-    // volume moves and transport mute don't step the output (zipper/click).
+    // transportMuted_ are targets; processBlock() eases toward them per sample
+    // so volume moves and transport mute don't step the output (zipper/click).
     float masterGain_ = 0.0f;
     std::array<float, kMaxBlock> voiceScratch_{}; // Core 1 scratch; keep off its 2 KiB stack
     float masterGainAlpha_ = 1.0f;
@@ -171,10 +159,9 @@ private:
         uint8_t id;
         bool enabled; // control-thread status; Voice queues the audio enable state
         std::atomic<float> mixLevel;
-        uint8_t outputChannel;
 
         ManagedVoice(std::unique_ptr<Voice> v, uint8_t voiceId)
-            : voice(std::move(v)), id(voiceId), enabled(true), mixLevel(1.0f), outputChannel(0) {}
+            : voice(std::move(v)), id(voiceId), enabled(true), mixLevel(1.0f) {}
     };
 
     std::vector<std::unique_ptr<ManagedVoice>> voices;
@@ -193,8 +180,7 @@ private:
     MasterDelay masterDelay_;
 
     // Master-bus compressor follows delay and master gain, so both dry audio
-    // and repeats share its gain reduction. processVoice() is a solo tap
-    // that bypasses both effects and never advances their state.
+    // and repeats share its gain reduction.
     rpdsp::Compressor compressor;
     // Macro morph state: macroTarget_ is the lock-free control-thread target;
     // macroCurrent_/macroApplied_ are audio-thread only. Setters (never
@@ -220,7 +206,6 @@ private:
     uint8_t generateVoiceId();
     void notifyVoiceCountChanged();
     void notifyVoiceUpdated(uint8_t voiceId, const VoiceState &state);
-    float advanceMasterGain_() noexcept;
 };
 
 /**

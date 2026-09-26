@@ -5,8 +5,10 @@
 [Arpeggiator mode](arpeggiator.md#oled) has an eight-row play page with a
 persistent preset band, transport/rate/latch status, scale-key summary,
 hit/rest strip, tempo, gate duration and swing ratio. Long chords use a `+N`
-summary; long names end in `~`. Shift reveals the rhythm controls. Recent
-control movement changes only the middle rows for 1.4 seconds. Formatting in
+summary; long names end in `~`. Without Shift the faders shape rhythm; holding
+Shift swaps them to range/gate/swing/tone and also reveals the rhythm choices
+and tempo-dial hint. Recent control movement changes only the middle rows for
+1.4 seconds. Formatting in
 `src/ui/ArpDisplay.h` is shared with host checks; hardware rendering remains in
 `OLEDDisplay::displayArpPage()`.
 

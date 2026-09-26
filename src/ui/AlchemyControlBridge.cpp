@@ -113,8 +113,10 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
       buttonEdges_[kButtonRole][bit].take(buttonAt(buttonSlot_,bit));
       buttonEdges_[kSliderRole][bit].take(buttonAt(sliderSlot_,bit));
     }
-    for(uint8_t channel=0;channel<4;++channel)
-      faders_.accept(channel,panel_.tiles().faderRaw(channel));
+    if (panel_.tiles().sliderFrameChanged()) {
+      for(uint8_t channel=0;channel<4;++channel)
+        faders_.accept(channel,panel_.tiles().faderRaw(channel));
+    }
     latch_.reset(); playSettingsOpenedThisPress_=false;
     if(uiState.voiceEditor.active) VoiceEditor::buttons(buttons,voices,nowMs);
     else if(buttons==0 && voices==0) uiState.controlsWaitRelease=false;
@@ -156,7 +158,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
   // Disarm the faders whenever what they edit changes: the selected voice, or
   // entering, leaving or moving Step Edit (ENV mode). A newly focused step or
   // voice must not snap to wherever the faders happen to rest. Arpeggiator mode
-  // has a second fader layer on Shift; both edges must re-arm from rest.
+  // swaps its two fader layers on Shift; both edges must re-arm from rest.
   const int stepForEdit = uiState.arp.active() ? lastStepForEdit_ : uiState.selectedStepForEdit;
   const bool arpShift = uiState.arp.active() && uiState.shiftHeld;
   if (uiState.selectedVoiceIndex != lastVoiceIndex_ || stepForEdit != lastStepForEdit_ ||
@@ -663,11 +665,17 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
 // Why faders fan out by assignment instead of by channel: the same four
 // physical faders mean Tempo/DelayMix/Volume/Gate in both strap positions, but the
 // selected step's Attack/Decay/Sustain/Release in Step Edit (ENV mode). The
-// deadband gate (accept()) stops a newly selected voice or step from
-// snapping to a stale fader position.
+// The median + deadband gate (accept()) stops a newly selected voice or step
+// from snapping to a stale fader position. Feed it only a fresh checksum-valid
+// slider frame, then use its median-filtered value rather than the raw sample.
 void AlchemyControlBridge::handleFaders(UIState &uiState,
                                         const SequencerView &sequencers)
 {
+  if (!panel_.tiles().sliderFrameChanged())
+  {
+    return;
+  }
+
   for (uint8_t channel = 0; channel < ControlSurface::FaderMap::kChannelCount; ++channel)
   {
     const uint16_t rawCounts = panel_.tiles().faderRaw(channel);
@@ -675,9 +683,11 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
     {
       continue;
     }
-    const float normalized = ControlSurface::FaderMap::normalize(rawCounts);
+    const float normalized =
+        ControlSurface::FaderMap::normalize(faders_.filtered(channel));
     // Arpeggiator mode replaces the whole fader set: no steps are edited there,
-    // so the same four faders carry the arp's range, gate, swing and tone.
+    // so unshifted faders carry rhythm and Shift carries range, gate, tone.
+
     const ControlSurface::FaderAssignment assignment =
         uiState.arp.active()
             ? ControlSurface::FaderMap::arpAssignmentFor(channel, uiState.shiftHeld)

@@ -1,4 +1,5 @@
 #include "LEDMatrixFeedback.h"
+#include "ArpLedPalette.h"
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/scales/scales.h"
 #include <algorithm>
@@ -1046,29 +1047,34 @@ static void renderVoicePair(LEDMatrix &ledMatrix,
  * the first/last columns and row-boundary pads repeating the octave root. The
  * grid therefore shows the chord, where the scale's octaves fall and which
  * physical positions are sounding right now. Colour carries the state:
- *   - a finger on the pad: the arp voice's gate-on hue,
- *   - latched with the finger off: the same hue at gate-off brightness,
- *   - sounding: hue pushed toward the theme's playhead accent, brighter the
- *     higher the octave of range and the further the hand is from the sensor,
+ *   - a finger on the pad: a related pitch hue at gate-on brightness,
+ *   - latched with the finger off: that pitch hue at gate-off brightness,
+ *   - sounding: the same pitch hue with a small white core, brighter for higher
+ *     octaves and for the captured hand dynamics,
  *   - free: a quiet shade of the selected voice hue, with roots at a brighter
- *     shade so the ladder is navigable in the dark,
- *   - roots, chord tones, and other scale degrees use three distinct shades
- *     from the same theme palette.
+ *     shade so the ladder is navigable in the dark.
+ *
+ * Pitch classes use one stable, bounded hue rotation around the selected voice
+ * colour. Neighbouring semitones stay related, scale tones remain distinct, and
+ * the same note keeps its colour in every octave.
  *
  * @param ledMatrix Reference to the LED matrix for output
  * @param uiState Current UI state, which owns the arp engine
  */
 static void renderArpPanel(LEDMatrix &ledMatrix, const UIState &uiState) {
+  static constexpr uint8_t kOctaveBrightnessStep = 8;
+  static constexpr uint8_t kSoundingWhiteCore = 16;
+
   const LEDThemeColors *theme = getActiveThemeColors();
   const Arpeggiator::Engine &arp = uiState.arp;
   const uint8_t voice = uiState.selectedVoiceIndex < VoiceSystem::MAX_VOICES
                             ? uiState.selectedVoiceIndex
                             : 0;
+  const uint8_t clampedVoice = voice < LED_THEME_VOICE_COUNT ? voice : 0;
   const size_t scaleIndex = std::min<size_t>(currentScale, SCALES_COUNT - 1);
   const int *row = scale[scaleIndex];
   const uint8_t notesPerOctave = scaleNotesPerOctave(row);
-  const uint32_t now = millis();
-  const float breathing = smoothBreathing(now);
+
   // Lidar dynamics: the same hand that sets note velocity brightens the note
   // that is sounding, so the panel shows the gesture that is being heard.
   const uint8_t dynamicScale =
@@ -1076,49 +1082,61 @@ static void renderArpPanel(LEDMatrix &ledMatrix, const UIState &uiState) {
                            (arp.lastVelocityScale() * (LEDConstants::FULL_BRIGHTNESS -
                                               LEDConstants::MEDIUM_BRIGHTNESS)));
 
+  // Keep the active theme's saturation/value and rotate only hue by pitch class.
+  // This makes notes visually distinct without replacing the selected voice's
+  // theme identity with a second global palette.
+  const CHSV voiceHsv =
+      rgb2hsv_approximate(getVoiceGateColor(*theme, clampedVoice, true));
+  const uint8_t voiceHue = voiceHsv.h;
+  const uint8_t voiceSaturation = voiceHsv.s;
+  const uint8_t voiceValue = voiceHsv.v;
+
   for (uint8_t pad = 0; pad < Arpeggiator::kPadCount; ++pad) {
     const int ledIndex = Arpeggiator::ledIndexForPad(pad);
     if (ledIndex < 0) continue;
 
+    const uint8_t degree = Arpeggiator::scaleDegreeForPad(pad, notesPerOctave);
+    const uint8_t pitchClass = ArpLedPalette::classifySemitone(row[degree]);
+    const uint8_t noteHue = static_cast<uint8_t>(
+        voiceHue + ArpLedPalette::hueOffsetSteps(pitchClass));
+
     CRGB target = CRGB::Black;
     if (arp.padInChord(pad)) {
-      // Held or latched: the voice's hue, bright under a finger.
-      target = getVoiceGateColor(*theme, voice, arp.padHeld(pad));
+      // Held or latched: reveal the note's eventual playing colour. Brightness,
+      // not another hue change, carries the physical-finger state.
+      const uint8_t chordValue = arp.padHeld(pad)
+                                     ? voiceValue
+                                     : scaleGateChannel(voiceValue, 1, GATE_OFF_DIVISOR);
+      target = hsv2rgb_rainbow(CHSV(noteHue, voiceSaturation, chordValue));
     } else if ((notesPerOctave == Arpeggiator::kSevenNoteScale &&
-                Arpeggiator::scaleDegreeForPad(pad, notesPerOctave) %
-                        Arpeggiator::kSevenNoteScale == 0) ||
+                degree % Arpeggiator::kSevenNoteScale == 0) ||
                (notesPerOctave != Arpeggiator::kSevenNoteScale &&
                 row[pad] % 12 == 0)) {
-      // Root, chord, and free-note roles use three distinct brightnesses of
-      // the same selected-voice hue: root half, chord full, other one-eighth.
       // Seven-note layouts also mark the repeated root at each row boundary,
-      // making the octave grid legible.
-      const uint8_t clampedVoice = voice < LED_THEME_VOICE_COUNT ? voice : 0;
+      // making the octave grid legible without painting the whole free ladder
+      // with every pitch colour.
       target = scaleGateHue(theme->gateOn[clampedVoice], 1, 2);
     } else {
-      // Non-root scale degrees use a quiet shade from the same voice hue, so
-      // the free scale ladder remains visible without competing with a chord.
-      const uint8_t clampedVoice = voice < LED_THEME_VOICE_COUNT ? voice : 0;
       target = scaleGateHue(theme->gateOn[clampedVoice], 1, 4);
     }
 
     if (isClockRunning && arp.padSounding(pad)) {
-      // Sounding now: push the hue toward the playhead accent, harder for the
-      // higher octaves of the range so a climbing arp reads as a climb.
+      // The pitch hue remains the identity channel. Octave range and lidar
+      // velocity add smaller brightness cues, while the neutral core gives the
+      // eye an immediate attack without washing every note toward one accent.
       uint8_t octave = 0;
       for (uint8_t slot = 0; slot < Arpeggiator::kMaxSlots; ++slot) {
-        uint8_t degree = 0;
+        uint8_t slotDegree = 0;
         uint8_t slotOctave = 0;
-        if (arp.slotSounding(slot, degree, slotOctave) &&
-            degree == Arpeggiator::scaleDegreeForPad(pad, notesPerOctave) &&
-            slotOctave > octave)
+        if (arp.slotSounding(slot, slotDegree, slotOctave) &&
+            slotDegree == degree && slotOctave > octave)
           octave = slotOctave;
       }
-      const uint8_t accent = static_cast<uint8_t>(
-          std::min<int>(200, 120 + (octave * 80) / (Arpeggiator::kMaxOctaves - 1)));
-      target = getVoiceGateColor(*theme, voice, true);
-      nblend(target, theme->playheadAccent, accent);
-      target.nscale8_video(dynamicScale);
+      const uint8_t brightness = static_cast<uint8_t>(std::min<int>(
+          255, dynamicScale + (octave * kOctaveBrightnessStep)));
+      target = hsv2rgb_rainbow(CHSV(noteHue, voiceSaturation, voiceValue));
+      nblend(target, CRGB::White, kSoundingWhiteCore);
+      target.nscale8_video(brightness);
     }
 
     nblend(smoothedTargetColorBuffer[ledIndex], target,

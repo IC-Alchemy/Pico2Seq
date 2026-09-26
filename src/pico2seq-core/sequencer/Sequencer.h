@@ -103,10 +103,10 @@ public:
     void previewActiveStep(VoiceState *voiceState);
 
     /**
-     * @brief Apply live lane edits to a sounding voice without retriggering.
-     * Pitch follows only while the gate is high, so tweaks never restart the
-     * envelope mid-note. `stepIdx` is UINT8_MAX for the current lane cursors;
-     * pass an explicit index when a UI edit is targeting a selected step.
+     * @brief Apply live lane edits to a gated voice without retriggering.
+     * While running, use the current lane cursors and leave release tails
+     * untouched. With transport stopped, an explicit stepIdx previews that
+     * selected step; UINT8_MAX uses the current cursors.
      */
     void refreshVoiceParameters(VoiceState *voiceState,
                                 uint8_t stepIdx = UINT8_MAX) const;
@@ -166,7 +166,13 @@ public:
     bool tickNoteDuration(VoiceState *voiceState);
     bool isNotePlaying() const;
 
-    // Legacy hook for external note-off routing; audio path uses VoiceState.
+    /**
+     * @brief Optional note-off hook for other applications that reuse this
+     * portable core. The Pico2Seq firmware has no MIDI transport and never
+     * calls this, so the callback stays null and the branch in handleNoteOff()
+     * is dead in the firmware build — see src/midi/README.md. Kept as library
+     * surface for reuse, not as a firmware feature.
+     */
     void setMidiNoteOffCallback(void (*callback)(uint8_t note, uint8_t channel));
 
     /**
