@@ -38,7 +38,9 @@ add_executable(pico2seq_tests
   unit/test_sequencer.cpp
   unit/test_sequencer_view.cpp
   unit/test_voice_playback.cpp
+  unit/test_lidar_recording.cpp
   ${SRC_DIR}/app/VoicePlayback.cpp
+  ${SRC_DIR}/app/StepPlayback.cpp
   unit/test_voice.cpp
   unit/test_voice_recipes.cpp
   unit/test_recipe_optimization.cpp

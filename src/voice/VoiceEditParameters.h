@@ -133,10 +133,15 @@ void format(Id id, const VoiceConfig &config, char *text,
 Id nextParameter(Id current, int direction, const VoiceConfig &config,
                  bool changeGroup) noexcept;
 ParamId sequenceLane(Id id, const VoiceConfig &config) noexcept;
+// Inverse mapping for the panel's encoder target. Sustain/Release were added
+// after the original lane IDs and do not share the editor enum's indices.
+Id baseParameterForLane(ParamId lane, const VoiceConfig &config) noexcept;
 
 // Attack lanes stop at 2 s so encoder travel stays on playable pluck-to-swell
 // attacks; decay keeps the full 1 ms..10 s envelope range.
 inline constexpr float kAttackMaxSeconds = 2.0f;
+inline constexpr float kReleaseMinSeconds = 0.01f;
+inline constexpr float kReleaseMaxSeconds = 8.0f;
 
 // A lane's patch value, normalized the way the lane stores it.
 float laneBase(ParamId id, const VoiceConfig &config) noexcept;

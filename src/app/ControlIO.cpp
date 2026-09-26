@@ -239,16 +239,7 @@ void ControlIO::scanControls(uint32_t nowMs)
         else if (AppState::performanceInput.handPresent)
         {
             freezeWatchdogMark(FW_LOOP_RECORD);
-            const float hand = AppState::performanceInput.recordingValue();
-            const bool everyPass = !isClockRunning || uiState.selectedStepForEdit >= 0;
-            for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane)
-            {
-                const auto id = static_cast<ParamId>(lane);
-                // Same lanes advanceStep() records: those with a record button.
-                if (uiState.parameterButtonHeld[lane] && CORE_PARAMETERS[lane].recordable &&
-                    (everyPass || ControlSurface::recordsBetweenSteps(id)))
-                    recordParameter(id, hand);
-            }
+            recordHeldParameters();
         }
     }
 }

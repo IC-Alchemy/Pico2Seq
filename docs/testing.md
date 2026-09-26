@@ -19,6 +19,13 @@ checks every PCM16 level, clipping/truncation and hand-distance recording
 calibration (`[app]`). The Arduino build checks the hardware-bound app `.cpp`
 files; host CMake does not compile that startup/I2S/control glue.
 
+`test_lidar_recording.cpp` compiles the real `StepPlayback.cpp` recording and
+publication path. Run `pico2seq_tests.exe '[lidar]'` to check held/latched Filter
+and Release buttons, calibrated distance, independent lane lengths, selected-step
+edits while running/stopped, voice isolation, patch reset, encoder targets, and
+Digital/Square rendered filter contours and release tails. These are host logic
+and DSP checks; physical lidar, OLED and listening still need a hardware check.
+
 ```
                      PICO2SEQ CODEBASE
                              |

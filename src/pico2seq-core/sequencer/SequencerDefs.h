@@ -203,7 +203,7 @@ constexpr ParameterDefinition CORE_PARAMETERS[] = {
     {"Sustain", 0.5f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, true},
     // Release owns the 5th record button and the encoder base that Decay had.
     // It reaches the envelope on every preset, so it is what shapes how long a
-    // step rings - up to 10 s, enough for one downbeat note to cover 16 steps.
+    // step rings - up to 8 s, enough for one downbeat note to cover 16 steps.
     {"Release", 0.4f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Release, true}
 };
 

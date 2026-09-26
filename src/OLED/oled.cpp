@@ -347,40 +347,9 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
   {
     const uint8_t targetStep = selected ? static_cast<uint8_t>(uiState.selectedStepForEdit)
                                         : sequence.getCurrentStepForParameter(held);
-    Step liveStep = sequence.getPlaybackStep(selected ? targetStep : UINT8_MAX);
-    if (AppState::performanceInput.handPresent)
-    {
-      const float norm = AppState::performanceInput.recordingValue();
-      const float stored = mapNormalizedValueToParamRange(held, norm);
-      const float composed = config ? VoiceEdit::composeLane(held, stored, config) : stored;
-      switch (held)
-      {
-        case ParamId::Velocity:
-          liveStep.velocityLevel = composed;
-          break;
-        case ParamId::Filter:
-          liveStep.filterCutoff = composed;
-          break;
-        case ParamId::Attack:
-          liveStep.attackTimeSeconds = composed;
-          break;
-        case ParamId::Decay:
-          liveStep.decayTimeSeconds = composed;
-          break;
-        case ParamId::Note:
-          liveStep.noteIndex = composed;
-          break;
-        case ParamId::Octave:
-          liveStep.octaveOffset = VoiceEdit::mapOctave(composed);
-          break;
-        case ParamId::GateLength:
-          liveStep.gateLengthTicks = static_cast<uint16_t>(std::max(1.0f,
-              composed * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS));
-          break;
-        default:
-          break;
-      }
-    }
+    // Read the same stored/composed step that playback consumes. A separate
+    // sensor preview can hide a failed write and previously omitted Release.
+    const Step liveStep = sequence.getPlaybackStep(selected ? targetStep : UINT8_MAX);
     displayParameterInfo(held, liveStep, uiState,
                          targetStep, config, selected, true, false);
     commitFrame();

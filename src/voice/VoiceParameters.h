@@ -9,6 +9,7 @@
 #include "../utils/DspMapping.h"
 #include <array>
 #include <limits>
+#include <utility>
 
 class Sequencer;
 
@@ -40,11 +41,23 @@ struct VoiceParameterBinding
   float normalize(float value) const noexcept;
 };
 
+namespace voice_parameter_detail {
+template <size_t... Index>
+constexpr std::array<VoiceParameterBinding, sizeof...(Index)> unboundSlots(
+    std::index_sequence<Index...>) noexcept
+{
+  // Explicitly construct every element. The RP2350 compiler emitted zeroed
+  // tail elements for slots{}; zero is a valid data-member pointer, not null.
+  return {{(static_cast<void>(Index), VoiceParameterBinding{})...}};
+}
+} // namespace voice_parameter_detail
+
 struct VoiceParameterLayout
 {
   // Eight controls plus Gate. Indexed by ParamId so every engine receives
   // the same sequencer contract, including Octave, GateLength, and Slide.
-  std::array<VoiceParameterBinding, PARAM_ID_COUNT> slots{};
+  std::array<VoiceParameterBinding, PARAM_ID_COUNT> slots =
+      voice_parameter_detail::unboundSlots(std::make_index_sequence<PARAM_ID_COUNT>{});
   bool envelopeFromTracks = true;
   bool velocityToAmplitude = true;
   // Main-filter cutoff in Hz for a target-less Filter lane, or for

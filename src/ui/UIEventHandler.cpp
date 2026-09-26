@@ -707,20 +707,3 @@ void clearAllSequencerVoices(UIState &uiState, const SequencerView &sequencers)
   uiState.selectedStepForEdit = -1;
   uiState.currentEditParameter = ParamId::Count;
 }
-
-// Why: pico2seq-core stays UI-agnostic (no UIState include) for reuse in other
-// projects, so this thin adapter unpacks the held-parameter/edit-step fields
-// here — keeping the StepPlayback call site to one line and the core portable.
-void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_distance,
-                          const UIState &uiState, VoiceState *voiceState)
-{
-  seq.advanceStep(current_uclock_step, mm_distance,
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Note)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Velocity)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Filter)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Attack)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Release)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Octave)],
-                  uiState.selectedStepForEdit,
-                  voiceState);
-}

@@ -58,7 +58,7 @@ The Sequencer module is the core rhythmic and melodic engine of the Pico2Seq syn
 1. **Portable `pico2seq-core/` Isolation**:
    The sequencer logic in `src/pico2seq-core/sequencer/` (`Sequencer`, `ParameterManager`, `SequencerDefs.h`, `ShuffleTemplates.h`) is clean, portable C++ with **no dependency on `UIState` or UI types**. This allows the sequencer engine to be compiled and unit-tested on host machines via CMake (`tests/unit/test_sequencer.cpp`).
 2. **UI Adapter Pattern (`advanceSequencerStep`)**:
-   Because `Sequencer::advanceStep()` accepts only primitive types (integers, floats, booleans), the firmware bridges the rich `UIState` struct via the adapter function `advanceSequencerStep()` located in `src/ui/UIEventHandler.h` and `src/ui/UIEventHandler.cpp`.
+   Because `Sequencer::advanceStep()` accepts only primitive types (integers, floats, booleans), the firmware bridges the rich `UIState` struct via the private adapter function `advanceSequencerStep()` in `src/app/StepPlayback.cpp`.
 3. **Polymetric Parameter Tracks**:
    Rather than advancing all synthesis parameters in lockstep, every parameter (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide, Sustain, Release) operates on an independent `ParameterTrack<64>` with its own step count (2–64 steps). This allows patterns such as a 16-step melody, an 8-step filter pattern, and a 5-step velocity cycle to run simultaneously on a single voice.
 4. **Dual-Core Execution**:
@@ -268,7 +268,7 @@ When `advanceStep()` is called on each 16th note clock tick:
    If `mm_distance >= 0` and not in step-edit mode (`current_selected_step_for_edit == -1`):
    - Normalizes the hand: the calibrated value from `setRecordingInput()` (55–700 mm window), else `clamp(mm_distance / 1100.0f, 0.0f, 1.0f)`.
    - For each held parameter button, maps the value to the parameter's range and calls `recordLiveValue(paramId, value)`, which writes the lane's own playing step (`currentStepPerParam[paramId]`). For `ParamId::Note` it writes only while the playing Gate step is HIGH.
-   - This is the step-boundary half of live recording: the new step starts from the hand's current height. Between steps the firmware keeps recording the continuous lanes (Velocity, Filter, Attack, Decay; `ControlSurface::recordsBetweenSteps()`) through the same `recordLiveValue()` every control pass (`recordParameter()` in `src/app/StepPlayback.cpp`) and refreshes the sounding note with `refreshVoiceParameters()`, so the voice follows the hand without waiting for the next step. Note and Octave stay one value per note.
+   - This is the step-boundary half of live recording: the new step starts from the hand's current height. Between steps the firmware keeps recording the continuous lanes (Velocity, Filter, Attack, Release; `ControlSurface::recordsBetweenSteps()`) through the same `recordLiveValue()` every control pass (`recordHeldParameters()` and `recordParameter()` in `src/app/StepPlayback.cpp`) and refreshes the sounding note with `refreshVoiceParameters()`, so the voice follows the hand without waiting for the next step. Note and Octave stay one value per note.
 6. **Step Processing (`processStep`)**:
    Calls `processStep(UINT8_MAX, voiceState)` to populate the output `VoiceState`:
    - Extracts all parameter values at their respective `currentStepPerParam[id]` indices.
@@ -288,7 +288,7 @@ When `advanceStep()` is called on each 16th note clock tick:
 
 ### 4.1 Adapter Function (`advanceSequencerStep`)
 
-The bridge between `UIState` and `Sequencer` is declared in `src/ui/UIEventHandler.h` and implemented in `src/ui/UIEventHandler.cpp`:
+The bridge between `UIState` and `Sequencer` is private to `src/app/StepPlayback.cpp`, alongside its caller:
 
 ```cpp
 void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_distance,
@@ -299,7 +299,7 @@ void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_d
                   uiState.parameterButtonHeld[static_cast<int>(ParamId::Velocity)],
                   uiState.parameterButtonHeld[static_cast<int>(ParamId::Filter)],
                   uiState.parameterButtonHeld[static_cast<int>(ParamId::Attack)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Decay)],
+                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Release)],
                   uiState.parameterButtonHeld[static_cast<int>(ParamId::Octave)],
                   uiState.selectedStepForEdit,
                   voiceState);
@@ -449,4 +449,4 @@ When a step has `hasSlide = true`:
 | `VoiceState` | `src/pico2seq-core/sequencer/SequencerDefs.h` | Control snapshot emitted on steps and note-duration expiry to configure `Voice` DSP |
 | `Step` | `src/pico2seq-core/sequencer/SequencerDefs.h` | Internal parameter snapshot for step editing and inspection |
 | `ShuffleTemplate` | `src/pico2seq-core/sequencer/ShuffleTemplates.h` | 16-step microtiming offsets for 480 PPQN groove templates |
-| `advanceSequencerStep` | `src/ui/UIEventHandler.h/.cpp` | Firmware UI adapter bridging `UIState` to `Sequencer::advanceStep` |
+| `advanceSequencerStep` | `src/app/StepPlayback.cpp` | Private firmware UI adapter bridging `UIState` to `Sequencer::advanceStep` |
