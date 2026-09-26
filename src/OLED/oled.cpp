@@ -479,7 +479,8 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
 }
 
 // Eight fixed rows; the rhythm strip uses one row. No marquee or automatic
-// page switching while playing. Shift reveals the controls in physical order.
+// page switching while playing. Shift reveals the pattern choices and swaps
+// the four faders from rhythm shaping to range/gate/swing/tone.
 void OLEDDisplay::displayArpPage(const UIState &state)
 {
   const auto &arp = state.arp;
@@ -517,7 +518,7 @@ void OLEDDisplay::displayArpPage(const UIState &state)
       line(24, "6:Restart 7:Clear");
       line(32, "PARAM: rhythm presets");
     }
-    line(48, "1Hits 2Len 3Rot 4Acc");
+    line(48, "1Oct 2Gate 3Sw 4Tone");
     snprintf(text, sizeof(text), "Dial:tempo %.0fbpm", bpm);
     line(56, text);
   } else {
@@ -536,7 +537,7 @@ void OLEDDisplay::displayArpPage(const UIState &state)
     const unsigned swing = ArpDisplay::swingLong(settings);
     snprintf(text, sizeof(text), "G%s Sw%u:%u", gate, swing, 100 - swing);
     line(48, text);
-    line(56, !isClockRunning ? "Play:start Hold:sound" : "Shift:rhythm + tempo");
+    line(56, !isClockRunning ? "Play:start Hold:sound" : "Faders:rhythm S:tempo");
     if (isClockRunning && arp.lastDegree() != Arpeggiator::kNoDegree && state.arpLastNotes[0]) {
       displayHardware.fillRect(0, 56, 128, 8, SH110X_BLACK);
       char note[8];
@@ -571,14 +572,14 @@ void OLEDDisplay::displayArpPage(const UIState &state)
     case Control::Octaves:
       label = "1 RANGE"; snprintf(value, sizeof(value), "%u oct", unsigned(settings.octaves)); break;
     case Control::Gate:
-      label = "2 GATE length"; ArpDisplay::gate(settings, bpm, value); break;
+      label = "S 2 GATE length"; ArpDisplay::gate(settings, bpm, value); break;
     case Control::Swing: {
-      label = "3 SWING long:short";
+      label = "S 3 SWING long:short";
       const unsigned amount = ArpDisplay::swingLong(settings);
       snprintf(value, sizeof(value), "%u:%u", amount, 100 - amount); break;
     }
     case Control::Filter: {
-      label = "4 TONE";
+      label = "S 4 TONE";
       const VoiceConfig *config = voiceManager ? voiceManager->getVoiceConfig(voiceSystem.getVoiceId(voice)) : nullptr;
       if (config) {
         Step step = MusicalValues::baseStep(*config);
@@ -588,14 +589,14 @@ void OLEDDisplay::displayArpPage(const UIState &state)
       break;
     }
     case Control::Hits:
-      label = "SHIFT 1 HITS"; snprintf(value, sizeof(value), "%u / %u", unsigned(settings.hits), unsigned(settings.length));
+      label = "1 HITS"; snprintf(value, sizeof(value), "%u / %u", unsigned(settings.hits), unsigned(settings.length));
       hint = settings.hits ? "Hits spread evenly" : "Silent: raise Hits"; break;
     case Control::Length:
-      label = "SHIFT 2 LENGTH"; snprintf(value, sizeof(value), "%u steps", unsigned(settings.length)); break;
+      label = "2 LENGTH"; snprintf(value, sizeof(value), "%u steps", unsigned(settings.length)); break;
     case Control::Rotate:
-      label = "SHIFT 3 ROTATE"; snprintf(value, sizeof(value), "+%u", unsigned(settings.rotation)); break;
+      label = "3 ROTATE"; snprintf(value, sizeof(value), "+%u", unsigned(settings.rotation)); break;
     case Control::Accent:
-      label = "SHIFT 4 ACCENT";
+      label = "4 ACCENT";
       snprintf(value, sizeof(value), "1:%.2f", 1.0f - 0.75f * settings.accent);
       hint = "First hit : others"; break;
     case Control::Rate:
@@ -603,7 +604,7 @@ void OLEDDisplay::displayArpPage(const UIState &state)
     case Control::Tempo:
       label = "SHIFT DIAL TEMPO"; snprintf(value, sizeof(value), "%.0f BPM", bpm); break;
     case Control::Rhythm:
-      label = "RHYTHM"; snprintf(value, sizeof(value), "%s", rhythm); hint = "Shift+faders: reshape"; break;
+      label = "RHYTHM"; snprintf(value, sizeof(value), "%s", rhythm); hint = "Faders: reshape"; break;
     case Control::Latch:
       label = "HOLD CHORD"; snprintf(value, sizeof(value), "%s", arp.latchEnabled() ? "On" : "Off");
       hint = arp.latchEnabled() ? "New touch replaces it" : "Release lets notes go"; break;

@@ -18,8 +18,8 @@
 //   classifyPadRelease — pad press time + release time -> ignore/tap/hold.
 //   ShiftLatch     — shift level + param edges -> parameterButtonHeld state
 //                    with Shift+tap latching.
-//   FaderMap       — Step Edit + fader channel -> control target, with a send
-//                    deadband so steady faders stay quiet.
+//   FaderMap       — Step Edit + fader channel -> control target, with a
+//                    median window, pickup threshold and send deadband.
 //   recordParamForButtonBit — physical record button -> recorded parameter.
 //   encoderBaseModeForRecordParam — record button -> encoder base target.
 //   EncoderMotion  — encoder increments carried between sensor reads.
@@ -401,18 +401,24 @@ class FaderMap
 {
 public:
   static constexpr uint8_t kChannelCount = 4;
-  // Shift retargets the first three faders. Re-arm them on either edge
-  // so one parameter never snaps to the other parameter's rest position.
+  // In the sequencer modes Shift retargets the first three faders; Arp mode
+  // swaps all four layers. Re-arm on either edge so one parameter never snaps
+  // to the other parameter's rest position.
   static constexpr uint8_t kTempoChannel = 0;
   static constexpr uint8_t kDelayChannel = 1;
   static constexpr uint8_t kMasterVolumeChannel = 2;
   static constexpr uint16_t kFaderMaxCounts = 4095;
-  // Movement smaller than this (in 12-bit counts) is not sent. 24 of 4095 is
-  // about 0.6% of travel, enough that a resting finger does not nudge a lane.
-  static constexpr uint16_t kDeadbandCounts = 24;
+  // Each accepted value is the median of a rolling three-frame window. A lone
+  // ADC/I2C spike therefore cannot engage a lane or move an already live one.
+  static constexpr uint8_t kFilterWindowSamples = 3;
+  // Movement smaller than this (in 12-bit counts) is not sent. 48 of 4095 is
+  // about 1.2% of travel, so resting noise and one-count encoding jitter stay
+  // quiet without making deliberate fader motion feel coarse.
+  static constexpr uint16_t kDeadbandCounts = 48;
   // An obvious move (in 12-bit counts) required to engage a fader after reset /
-  // mode flip. 192 is about 5% of travel: a deliberate push, not a brush.
-  static constexpr uint16_t kMoveThresholdCounts = 192;
+  // mode flip. 384 is about 9.4% of travel: a deliberate pickup gesture, not a
+  // brush or a settling tile value.
+  static constexpr uint16_t kMoveThresholdCounts = 384;
 
   /**
    * Target of one fader channel (0..3). With a step selected (ENV mode) the
@@ -422,10 +428,10 @@ public:
   static FaderAssignment assignmentFor(bool stepSelected, uint8_t channel);
 
   /**
-   * Target of one fader channel (0..3) in Arpeggiator mode: octave range, gate
-   * length, swing depth, filter; Shift selects hits, length, rotate, accent.
-   * Step selection is meaningless there, so this
-   * set applies in both step-edit states; the strap does not change it.
+   * Target of one fader channel (0..3) in Arpeggiator mode: hits, rhythm length,
+   * rotation and accent without Shift; Shift selects octave range, gate length,
+   * swing depth and filter. Step selection is meaningless there, so this set
+   * applies in both step-edit states; the strap does not change it.
    */
   static FaderAssignment arpAssignmentFor(uint8_t channel, bool shift = false);
 
@@ -433,10 +439,15 @@ public:
   static float normalize(uint16_t rawCounts);
 
   /**
-   * Deadband and motion filter: returns true only after an obvious move has
-   * engaged the fader, and subsequent moves exceed the deadband.
+   * Median, deadband and motion filter. Feed this only fresh, coherent slider
+   * frames (not repeated copies of the driver's last value). Returns true only
+   * after an obvious move has engaged the fader, and subsequent filtered moves
+   * exceed the deadband. When true, read the value to apply with filtered().
    */
   bool accept(uint8_t channel, uint16_t rawCounts);
+
+  /** Median-filtered 12-bit value from the most recent full sample window. */
+  uint16_t filtered(uint8_t channel) const;
 
   /** Disarm all faders (e.g. on mode flip): faders must be moved before sending. */
   void resetDeadband();
@@ -458,6 +469,10 @@ public:
 private:
   uint16_t baseline_[kChannelCount] = {0, 0, 0, 0};
   uint16_t lastSent_[kChannelCount] = {0, 0, 0, 0};
+  uint16_t filtered_[kChannelCount] = {0, 0, 0, 0};
+  uint16_t sampleWindow_[kChannelCount][kFilterWindowSamples] = {};
+  uint8_t sampleCursor_[kChannelCount] = {0, 0, 0, 0};
+  uint8_t sampleCount_[kChannelCount] = {0, 0, 0, 0};
   bool hasBaseline_[kChannelCount] = {false, false, false, false};
   bool engaged_[kChannelCount] = {false, false, false, false};
 };

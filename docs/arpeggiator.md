@@ -2,10 +2,11 @@
 
 Arpeggiator mode turns the whole performance surface into a chord arpeggiator:
 the 32 touch pads become a scale-degree keyboard, the LED panel becomes the
-chord map, the four faders set its range / gate / swing / tone, the dial sets
-the rate, the distance sensor sets note dynamics, and the twelve buttons switch
-patterns, latch the chord and drive the transport. Hold Shift to reveal rhythm
-presets and four rhythm faders; Shift + dial changes tempo. It is a *mode*, not a second
+chord map, the four faders set its rhythm hits / length / rotation / accent, the
+dial sets the rate, the distance sensor sets note dynamics, and the twelve
+buttons switch patterns, latch the chord and drive the transport. Hold Shift to
+reveal the six rhythm presets and the range / gate / swing / tone fader layer;
+Shift + dial changes tempo. It is a *mode*, not a second
 sequencer: while it is on, the four step sequencers do not advance, and the pads
 neither toggle steps nor open the Step Edit pages.
 
@@ -22,8 +23,8 @@ sounds through its own patch, and Chord pattern spreads a chord over the voices.
    pattern buttons. Voice buttons select the patch you play through.
 4. Hold **Shift**, then press the third pattern button for **Tresillo**.
    The strip shows three hits spaced across eight steps. Release Shift.
-5. Hold Shift and move fader 3 to slide those hits around the beat. Move
-   fader 4 to make the first hit stand out. Shift + dial adjusts tempo.
+5. With Shift released, move fader 3 to slide those hits around the beat. Move
+   fader 4 to make the first hit stand out. Hold Shift + dial to adjust tempo.
 
 Touch a new chord after lifting all fingers to replace a latched chord.
 **Shift + Latch restarts** the walk in either panel position. A short Play tap
@@ -138,14 +139,7 @@ the sequencer uses, so the arp inherits whatever patch that voice holds. Shift
 
 ### Faders
 
-| Fader | Control | Range |
-|---|---|---|
-| 1 | Octaves | Arp range 1..4 octaves, quantized from the fader position |
-| 2 | Gate | Note length 5%..95% of the interval |
-| 3 | Swing | 0..half an interval on every second gap |
-| 4 | Filter | Per-note filter lane, composed with each voice's patch |
-
-Hold **Shift** to use the second fader layer (in either panel position):
+With **Shift released** (in either panel position), the faders shape rhythm:
 
 | Fader | Control | What it does |
 |---|---|---|
@@ -153,6 +147,15 @@ Hold **Shift** to use the second fader layer (in either panel position):
 | 2 | Length | 1..16 steps; reducing length also caps Hits and wraps Rotate |
 | 3 | Rotate | Moves the rhythm right by 0..Length-1 steps |
 | 4 | Accent | First rotated hit stays full; other hits soften from 1.00x to 0.25x |
+
+Hold **Shift** to swap to the continuous arp layer:
+
+| Fader | Control | Range |
+|---|---|---|
+| 1 | Octaves | Arp range 1..4 octaves, quantized from the fader position |
+| 2 | Gate | Note length 5%..95% of the interval |
+| 3 | Swing | 0..half an interval on every second gap |
+| 4 | Filter | Per-note filter lane, composed with each voice's patch |
 
 Accent multiplies hand dynamics and patch velocity; it does not boost above the
 patch's level. At zero accent all hits have equal weight. Moving a fader shows
@@ -162,7 +165,10 @@ long:short timing ratio, and Tone uses the patch's actual mapped unit.
 
 Faders re-arm on voice/mode changes, both Shift edges, rhythm preset selection,
 and octave-button changes. Move from the resting position to engage; no pickup
-against a saved value is required.
+against a saved value is required. The filter uses a rolling median and a
+larger pickup movement (about 9.4% of travel) so resting ADC/I2C noise cannot
+edit a parameter. After pickup, changes smaller than about 1.2% of travel are
+ignored.
 
 ### Encoder (TMAG5273)
 
@@ -207,8 +213,9 @@ arp voice receives a note, including its patch harmonies/detuning; Chord mode
 also plays the other voices. `~` marks clipped long text. The stopped page has
 no moving playhead. The preset browser still takes priority when opened.
 
-Holding Shift reveals the six rhythm choices (Param panel), the Shift-fader
-assignments, and the tempo-dial hint. The Utility side shows Restart/Clear
+Holding Shift reveals the six rhythm choices (Param panel), swaps the faders to
+range / gate / swing / tone, and changes the dial to tempo. With Shift released,
+the faders remain the rhythm layer. The Utility side shows Restart/Clear
 instead. On-screen button numbers are one-based; the hardware tables above
 use zero-based bits. Control feedback replaces only the middle three rows.
 
@@ -218,11 +225,16 @@ The 8x4 WS2812B panel mirrors the touch pads, so each LED is one physical scale 
 
 | State | Colour |
 |---|---|
-| Finger on the pad | The arp voice's gate-on hue for the current theme |
-| Latched, finger off | The same hue at gate-off brightness |
-| Sounding now | Hue pushed toward the theme's playhead accent — harder for higher octaves of the range — scaled by captured lidar dynamics and accent |
+| Finger on the pad | The note's related pitch hue at the selected voice's gate-on brightness |
+| Latched, finger off | The same pitch hue at gate-off brightness |
+| Sounding now | The same pitch hue with a small white core, brighter for higher octaves and captured lidar dynamics |
 | Free | A quiet one-eighth shade of the selected voice hue; scale roots use a distinct half-strength shade |
 | No chord held | The same root/free shades remain visible, so the scale ladder is ready for chord entry |
+
+Pitch classes use a stable, related hue rotation around the selected voice's
+theme colour. Neighbouring semitones stay close, while scale tones and the
+active notes remain visually distinct; a pitch class keeps the same colour in
+every octave.
 
 ## How it is built
 

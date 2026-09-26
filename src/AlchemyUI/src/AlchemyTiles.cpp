@@ -44,6 +44,7 @@ void AlchemyTiles::begin(TwoWire& bankA, TwoWire* bankB, std::uint32_t now) {
     }
   }
   for (std::uint16_t& fader : faders_) fader = 0;
+  sliderFrameChanged_ = false;
 
   // Two passes so the layout is deterministic: the slider tile (there is at
   // most one — the rig has four faders) claims slot 0, then every button tile
@@ -87,6 +88,11 @@ void AlchemyTiles::begin(TwoWire& bankA, TwoWire* bankB, std::uint32_t now) {
 }
 
 void AlchemyTiles::update(std::uint32_t now) {
+  // This is a per-call freshness flag, not a sticky "data exists" bit. Without
+  // clearing it, a 1 kHz consumer would feed the same cached fader value into
+  // its median filter several times between 4 ms tile polls.
+  sliderFrameChanged_ = false;
+
   // Round-robin: service at most one due tile per call so a 1 kHz loop pays
   // at most one transaction pair (~1.9 ms at 100 kHz) per pass.
   for (int step = 0; step < kMaxTiles; ++step) {
@@ -225,6 +231,12 @@ void AlchemyTiles::pollTile(int slot, std::uint32_t now) {
     ++tile.checksumErrors;  // keep the last good frame's data
     return;
   }
+
+  // Only checksum-valid frames reach the consumers. This is deliberately after
+  // the checksum check: a corrupt I2C read must not count as a fader sample.
+  sliderFrameChanged_ =
+      tile.identity.typeId == alchemy::kTypeSliderButton &&
+      dataLen >= alchemy::kSliderDataLen;
 
   const std::uint8_t* data = frame_ + 1;
   if (tile.identity.typeId == alchemy::kTypeSliderButton &&

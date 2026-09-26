@@ -108,7 +108,8 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, and system contr
   plus the real Sustain and Release.
 - The bridge re-arms every fader (`FaderMap::resetDeadband()`) whenever the selected
   voice or the selected step changes, including entering and leaving Step Edit, so a
-  fader only writes after an obvious move.
+  fader only writes after an obvious move. Only fresh checksum-valid slider frames
+  enter the rolling median filter; a cached read cannot count as another sample.
 - Faders no longer edit voice bases or live-record: the encoder edits bases, the
   distance sensor records. Master volume is fader 3 in Utility mode, and is saved with the session (default 0.75).
 
@@ -181,11 +182,13 @@ Maintains momentary button holds and single-parameter Shift latching.
 - `reset()`: Flushes all momentary holds and latches (called automatically on mode flip).
 
 ### 4. `FaderMap`
-Fader target assignment, 12-bit ADC normalization (0–4095 to 0.0–1.0), and deadband filtering.
-- `kDeadbandCounts = 8`: Suppresses jitter and spurious I2C updates once engaged.
-- `kMoveThresholdCounts = 64`: Movement threshold (~1.5% of throw) required to engage a fader after reset / mode flip.
-- `accept(uint8_t channel, uint16_t rawCounts)`: Returns `true` only when an obvious move ($\ge 64$ counts) engages the fader, and subsequent moves exceed the deadband. Does not send on the initial sample after mode flip.
-- `assignmentFor(bool stepSelected, uint8_t channel)`: Maps channel index to `FaderAssignment{target, paramId}`: Tempo / Swing / None / GateLength, or the four envelope lanes (`FaderTarget::EnvLane`) with a step selected.
+Fader target assignment, 12-bit ADC normalization (0–4095 to 0.0–1.0), and a
+three-frame median filter plus deadband.
+- `kFilterWindowSamples = 3`: Filters one-frame ADC/I2C spikes before engagement or dispatch.
+- `kDeadbandCounts = 48`: Suppresses remaining jitter and small I2C changes once engaged (~1.2% of throw).
+- `kMoveThresholdCounts = 384`: Filtered movement required to engage a fader after reset / mode flip (~9.4% of throw).
+- `accept(uint8_t channel, uint16_t rawCounts)`: Feed only a fresh coherent slider frame. Returns `true` only after the filtered move engages the fader, or after a subsequent filtered move exceeds the deadband. `filtered(channel)` returns the value to dispatch.
+- `assignmentFor(bool stepSelected, uint8_t channel)`: Maps channel index to `FaderAssignment{target, paramId}`: Tempo / DelayMix / MasterVolume / GateLength, or the four envelope lanes (`FaderTarget::EnvLane`) with a step selected. Arpeggiator mode uses the separate `arpAssignmentFor()` table: unshifted rhythm faders, Shift range/gate/swing/filter faders.
 
 ---
 

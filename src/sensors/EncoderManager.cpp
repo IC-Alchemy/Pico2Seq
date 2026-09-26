@@ -120,8 +120,8 @@ void updateEncoderBaseValues(UIState &uiState)
   }
   if(delta==0.0f) return;
   // Arpeggiator mode: the dial is the arp's rate. It is the one arp control
-  // that wants absolute, stepped access, and the four faders are already
-  // carrying range, gate, swing and tone.
+  // that wants absolute, stepped access; unshifted faders carry rhythm, while
+  // Shift swaps them to range, gate, swing and tone.
   if(arpOwnsDial) {
     if (uiState.shiftHeld) {
       arpTempoMotion.add(delta);
