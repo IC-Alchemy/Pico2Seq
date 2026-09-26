@@ -5,8 +5,6 @@
  */
 
 #if (defined ARDUINO_ARCH_RP2040) || (defined ARDUINO_ARCH_RP2350)
-#include <stdio.h>
-
 #include "audio_i2s.h"
 #include "audio_i2s.pio.h"
 #include "hardware/pio.h"
@@ -257,8 +255,6 @@ bool audio_i2s_connect(audio_buffer_pool_t *producer) {
 
 bool audio_i2s_connect_extra(audio_buffer_pool_t *producer, bool buffer_on_give, uint buffer_count,
                                  uint samples_per_buffer, audio_connection_t *connection) {
-    printf("Connecting PIO I2S audio\n");
-
     // todo we need to pick a connection based on the frequency - e.g. 22050 can be more simply upsampled to 44100
     assert(producer->format->format == AUDIO_BUFFER_FORMAT_PCM_S16);
     pio_i2s_consumer_format.format = AUDIO_BUFFER_FORMAT_PCM_S16;
@@ -287,85 +283,13 @@ bool audio_i2s_connect_extra(audio_buffer_pool_t *producer, bool buffer_on_give,
 #else
 #if PICO_AUDIO_I2S_MONO_OUTPUT
             panic("trying to play stereo thru mono not yet supported");
-#else
-            printf("Copying stereo to stereo at %d Hz\n", (int) producer->format->sample_freq);
 #endif
-#endif
-        } else {
-#if PICO_AUDIO_I2S_MONO_OUTPUT
-            printf("Copying mono to mono at %d Hz\n", (int) producer->format->sample_freq);
-#else
-            printf("Converting mono to stereo at %d Hz\n", (int) producer->format->sample_freq);
 #endif
         }
         if (!buffer_count)
             connection = &audio_i2s_pass_thru_connection.core;
         else
             connection = buffer_on_give ? &m2s_audio_i2s_pg_connection.core : &m2s_audio_i2s_ct_connection.core;
-    }
-    audio_complete_connection(connection, producer, audio_i2s_consumer);
-    return true;
-}
-
-static struct buffer_copying_on_consumer_take_connection m2s_audio_i2s_connection_s8 = {
-        .core = {
-#if PICO_AUDIO_I2S_MONO_OUTPUT
-                .consumer_pool_take = mono_s8_to_mono_consumer_take,
-#else
-                .consumer_pool_take = mono_s8_to_stereo_consumer_take,
-#endif
-                .consumer_pool_give = consumer_pool_give_buffer_default,
-                .producer_pool_take = producer_pool_take_buffer_default,
-                .producer_pool_give = producer_pool_give_buffer_default,
-        }
-};
-
-bool audio_i2s_connect_s8(audio_buffer_pool_t *producer) {
-    printf("Connecting PIO I2S audio (U8)\n");
-
-    // todo we need to pick a connection based on the frequency - e.g. 22050 can be more simply upsampled to 44100
-    assert(producer->format->format == AUDIO_BUFFER_FORMAT_PCM_S8);
-    pio_i2s_consumer_format.format = AUDIO_BUFFER_FORMAT_PCM_S16;
-    // todo we could do mono
-    // todo we can't match exact, so we should return what we can do
-    pio_i2s_consumer_format.sample_freq = producer->format->sample_freq;
-#if PICO_AUDIO_I2S_MONO_OUTPUT
-    pio_i2s_consumer_format.channel_count = 1;
-    pio_i2s_consumer_buffer_format.sample_stride = 2;
-#else
-    pio_i2s_consumer_format.channel_count = 2;
-    pio_i2s_consumer_buffer_format.sample_stride = 4;
-#endif
-
-    // we do this on take so should do it quickly...
-    uint samples_per_buffer = 256;
-    // todo with take we really only need 1 buffer
-    audio_i2s_consumer = audio_new_consumer_pool(&pio_i2s_consumer_buffer_format, 2, samples_per_buffer);
-
-    // todo we need a method to calculate this in clocks
-    uint32_t system_clock_frequency = clock_get_hz(clk_sys);
-//    uint32_t divider = system_clock_frequency * 256 / producer->format->sample_freq * 16 * 4;
-    uint32_t divider = system_clock_frequency * 4 / producer->format->sample_freq; // avoid arithmetic overflow
-    pio_sm_set_clkdiv_int_frac(audio_pio, shared_state.pio_sm, divider >> 8u, divider & 0xffu);
-
-    // todo cleanup threading
-    __mem_fence_release();
-
-    audio_connection_t *connection;
-    if (producer->format->channel_count == 2) {
-#if PICO_AUDIO_I2S_MONO_OUTPUT
-        panic("trying to play stereo thru mono not yet supported");
-#endif
-        // todo we should support pass thru option anyway
-        printf("TODO... not completing stereo audio connection properly!\n");
-        connection = &m2s_audio_i2s_connection_s8.core;
-    } else {
-#if PICO_AUDIO_I2S_MONO_OUTPUT
-        printf("Copying mono to mono at %d Hz\n", (int) producer->format->sample_freq);
-#else
-        printf("Converting mono to stereo at %d Hz\n", (int) producer->format->sample_freq);
-#endif
-        connection = &m2s_audio_i2s_connection_s8.core;
     }
     audio_complete_connection(connection, producer, audio_i2s_consumer);
     return true;
@@ -437,13 +361,6 @@ static bool audio_enabled;
 
 void audio_i2s_set_enabled(bool enabled) {
     if (enabled != audio_enabled) {
-#ifndef NDEBUG
-        if (enabled)
-        {
-            puts("Enabling PIO I2S audio\n");
-            printf("(on core %d\n", get_core_num());
-        }
-#endif
         irq_set_enabled(DMA_IRQ_0 + PICO_AUDIO_I2S_DMA_IRQ, enabled);
 
         if (enabled) {
