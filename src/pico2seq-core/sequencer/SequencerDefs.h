@@ -194,7 +194,7 @@ constexpr ParameterDefinition CORE_PARAMETERS[] = {
     {"Attack", 0.01f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Attack, true},
     // Decay has no record button: on many presets it is a timbre control, not an
     // envelope stage — reach it per step with the ENV-mode faders.
-    {"Decay", 0.3f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, true},
+    {"Decay", 0.3f, 0.1f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, true},
     {"Octave", 0.5f, 0.0f, 1.0f, ParameterEditKind::Stepped, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Octave, false},
     {"GateLength", 0.8f, 0.1f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, false},
     {"Gate", false, false, true, ParameterEditKind::Toggle, SequencerConstants::DEFAULT_STEPS_COUNT, false, EncoderParameterMode::COUNT, false},
@@ -204,7 +204,7 @@ constexpr ParameterDefinition CORE_PARAMETERS[] = {
     // Release owns the 5th record button and the encoder base that Decay had.
     // It reaches the envelope on every preset, so it is what shapes how long a
     // step rings - up to 8 s, enough for one downbeat note to cover 16 steps.
-    {"Release", 0.4f, 0.0f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Release, true}
+    {"Release", 0.3f, 0.01f, 1.0f, ParameterEditKind::Continuous, SequencerConstants::DEFAULT_STEPS_COUNT, true, EncoderParameterMode::Release, true}
 };
 
 static_assert(sizeof(CORE_PARAMETERS) / sizeof(CORE_PARAMETERS[0]) == PARAM_ID_COUNT,
@@ -264,7 +264,7 @@ struct VoiceState
   float velocityLevel = 0.5f;
   float filterCutoff = 0.37f; // Brightness 0.0-1.0 (dark..open)
   float attackTimeSeconds = 0.01f; // Pluck-like default; higher softens the front
-  float decayTimeSeconds = 0.1f; // Time to fall toward sustain
+  float decayTimeSeconds = 0.2f; // Time to fall toward sustain
   float sustainLevel = 0.5f; // Held level while the gate stays high
   float releaseTimeSeconds = 0.3f; // Ring-out after gate off (normalized)
   int8_t octaveOffset = 0; // Transpose in semitones from the Octave lane
