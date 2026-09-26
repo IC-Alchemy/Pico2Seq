@@ -95,8 +95,13 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
     // Refresh in place: re-running the step would retrigger the envelope every
     // pass (oscillators choked, waveguides re-plucked). Unplayed steps sound on arrival.
     VoiceState &activeVoiceState = voiceSystem.getVoiceState(voiceIndex);
-    // One parameter-copy path while running or stopped. Step Edit explicitly
-    // names the step shown on the OLED, even if another step is sounding.
+    // A rest or expired gate leaves the release tail on its previous settings.
+    // Edits still reach the stored step and will sound on its next gated turn.
+    if (isClockRunning &&
+        (!activeVoiceState.isGateHigh || !activeSeq.getPlaybackStep().isGateActive))
+        return;
+    // During playback the sequencer reads the current cursor of each lane.
+    // With transport stopped, Step Edit previews the selected step instead.
     activeSeq.refreshVoiceParameters(&activeVoiceState, stepIndex);
     if (!isClockRunning)
     {
