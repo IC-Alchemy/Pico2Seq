@@ -268,7 +268,7 @@ When `advanceStep()` is called on each 16th note clock tick:
    If `mm_distance >= 0` and not in step-edit mode (`current_selected_step_for_edit == -1`):
    - Normalizes the hand: the calibrated value from `setRecordingInput()` (55–700 mm window), else `clamp(mm_distance / 1100.0f, 0.0f, 1.0f)`.
    - For each held parameter button, maps the value to the parameter's range and calls `recordLiveValue(paramId, value)`, which writes the lane's own playing step (`currentStepPerParam[paramId]`). For `ParamId::Note` it writes only while the playing Gate step is HIGH.
-   - This is the step-boundary half of live recording: the new step starts from the hand's current height. Between steps the firmware keeps recording the continuous lanes (Velocity, Filter, Attack, Release; `ControlSurface::recordsBetweenSteps()`) through the same `recordLiveValue()` every control pass (`recordHeldParameters()` and `recordParameter()` in `src/app/StepPlayback.cpp`) and refreshes the sounding note with `refreshVoiceParameters()`, so the voice follows the hand without waiting for the next step. Note and Octave stay one value per note.
+   - This is the step-boundary half of live recording: the new step starts from the hand's current height. Between steps the firmware keeps recording the continuous lanes (Velocity, Filter, Attack, Release; `ControlSurface::recordsBetweenSteps()`) through the same `recordLiveValue()` every control pass (`recordHeldParameters()` and `recordParameter()` in `src/app/StepPlayback.cpp`). It refreshes the voice while its gate is high; edits on rests remain stored until a gated step plays. Note and Octave stay one value per note.
 6. **Step Processing (`processStep`)**:
    Calls `processStep(UINT8_MAX, voiceState)` to populate the output `VoiceState`:
    - Extracts all parameter values at their respective `currentStepPerParam[id]` indices.
@@ -280,7 +280,7 @@ When `advanceStep()` is called on each 16th note clock tick:
       - Stored `0.75` &rarr; `+12` semitones (+1 oct)
       - Stored `1.00` &rarr; `+24` semitones (+2 oct)
     - Slide Handling: If `!slideVal || !noteActive`, envelope retriggers (`voiceState->shouldRetrigger = true`). If sliding from an already active note (`slideVal && noteActive`), `shouldRetrigger = false` and note frequency transitions smoothly via slewing in `Voice`.
-   - Gate-Controlled Note Output: If Gate is LOW, previous `noteIndex` and `octaveOffset` are retained in `VoiceState`, allowing sustaining/releasing notes to fade out naturally without glitching.
+   - Gate-Controlled Voice Output: If Gate is LOW, the previous note, envelope, tone, and other voice settings are retained in `VoiceState`. Only the gate closes, allowing the release tail to finish with the triggering step's settings.
 
 ---
 

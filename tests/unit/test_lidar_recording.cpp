@@ -95,6 +95,8 @@ TEST_CASE("Lidar button lanes reach stored steps, OLED values and published voic
         uiState.selectedVoiceIndex = 2;
         f.seq().setParameterStepCount(ParamId::Filter, 3);
         f.seq().setParameterStepCount(ParamId::Release, 5);
+        f.seq().setStepParameterValue(ParamId::Gate, 7, 1.0f);
+        f.seq().setStepParameterValue(ParamId::Gate, 8, 1.0f);
         f.press(2);
         f.press(4, true); // Shift latch must also retain the appended Release ID.
         f.release(4);
@@ -106,7 +108,7 @@ TEST_CASE("Lidar button lanes reach stored steps, OLED values and published voic
         const auto releaseLow = f.oled(ParamId::Release);
 
         f.hand(1.0f);
-        recordHeldParameters(); // Real between-step application path, on a rest too.
+        recordHeldParameters(); // Real between-step application on a gated note.
         CHECK(f.seq().getStepParameterValue(ParamId::Filter, 1) == 1.0f);
         CHECK(f.seq().getStepParameterValue(ParamId::Release, 2) == 1.0f);
         CHECK(f.requested().filterCutoff == 1.0f);
@@ -134,12 +136,15 @@ TEST_CASE("Lidar button lanes reach stored steps, OLED values and published voic
     }
 }
 
-TEST_CASE("Selected-step lidar edits publish the selected Filter and Release while running or stopped", "[lidar][app]") {
+TEST_CASE("Selected-step lidar edits wait for playback or preview with transport stopped", "[lidar][app]") {
     for (bool running : {true, false}) {
         LidarFixture f("Digital");
         f.seq().setStepParameterValue(ParamId::Gate, 0, 1.0f);
+        f.seq().setStepParameterValue(ParamId::Gate, 6, 1.0f);
         processSequencerStep(0);
+        const VoiceState playing = f.requested();
         isClockRunning = running;
+        if (!running) f.seq().stop();
         uiState.selectedStepForEdit = 6;
         f.press(2);
         f.press(4);
@@ -149,9 +154,14 @@ TEST_CASE("Selected-step lidar edits publish the selected Filter and Release whi
         CHECK(f.seq().getStepParameterValue(ParamId::Release, 6) == 1.0f);
         CHECK(followsPatch(f.seq().getStepParameterValue(ParamId::Filter, 0)));
         CHECK(followsPatch(f.seq().getStepParameterValue(ParamId::Release, 0)));
-        CHECK(f.requested().filterCutoff == 1.0f);
-        CHECK(f.requested().releaseTimeSeconds == 1.0f);
+        CHECK(f.requested().filterCutoff == (running ? playing.filterCutoff : 1.0f));
+        CHECK(f.requested().releaseTimeSeconds == (running ? playing.releaseTimeSeconds : 1.0f));
         CHECK(f.oled(ParamId::Release, 6) == "8.00s");
+        if (running) {
+            processSequencerStep(6);
+            CHECK(f.requested().filterCutoff == 1.0f);
+            CHECK(f.requested().releaseTimeSeconds == 1.0f);
+        }
         CHECK(resetStepToPatch(ParamId::Release));
         CHECK(MusicalValues::releaseSeconds(f.requested().releaseTimeSeconds) == Approx(f.config().defaultRelease));
     }
@@ -207,4 +217,36 @@ TEST_CASE("Real lidar recording changes Digital and Square filter contours and r
         CHECK(energy(tails[0]) < 1e-6);
         CHECK(energy(tails[1]) > 1e-4);
     }
+}
+
+TEST_CASE("A rest with a short release leaves the previous long tail sounding",
+          "[lidar][audio][envelope]") {
+    const auto tailAfterRest = [](float restRelease) {
+        LidarFixture f("Digital");
+        f.seq().setStepParameterValue(ParamId::Gate, 0, 1.0f);
+        f.seq().setStepParameterValue(ParamId::Attack, 0, 0.0f);
+        f.seq().setStepParameterValue(ParamId::Sustain, 0, 1.0f);
+        f.seq().setStepParameterValue(ParamId::Release, 0, 1.0f);
+        f.seq().setStepParameterValue(ParamId::Gate, 1, 0.0f);
+        f.seq().setStepParameterValue(ParamId::Release, 1, restRelease);
+        f.seq().setStepParameterValue(ParamId::Filter, 1, 0.0f);
+        processSequencerStep(0);
+        REQUIRE(f.requested().isGateHigh);
+        f.render(4800);
+        processSequencerStep(1);
+        CHECK_FALSE(f.requested().isGateHigh);
+        CHECK(f.requested().releaseTimeSeconds == 1.0f);
+        return f.render(9600);
+    };
+
+    const auto unchanged = tailAfterRest(1.0f);
+    const auto shortRest = tailAfterRest(0.0f);
+    double signal = 0.0, error = 0.0;
+    for (size_t i = 0; i < unchanged.size(); ++i) {
+        signal += unchanged[i] * unchanged[i];
+        const double delta = unchanged[i] - shortRest[i];
+        error += delta * delta;
+    }
+    CHECK(signal / unchanged.size() > 1e-5);
+    CHECK(error < signal * 1e-4);
 }
