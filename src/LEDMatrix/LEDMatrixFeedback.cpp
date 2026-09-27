@@ -1166,6 +1166,29 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
     const_cast<UIState &>(uiState).resetStepsLightsFlag = false;
   }
 
+  if (uiState.voiceEnvelope.active) {
+    const uint8_t band = ControlSurface::LedLayout::bandOfVoiceInPair(uiState.selectedVoiceIndex);
+    const Sequencer &sequence = sequencers.clamped(uiState.selectedVoiceIndex);
+    for (uint8_t b = 0; b < ControlSurface::LedLayout::kBandCount; ++b) {
+      for (uint8_t step = 0; step < ControlSurface::LedLayout::kStepsPerBand; ++step) {
+        const int index = ControlSurface::LedLayout::linearIndex(b, step);
+        CRGB color = CRGB::Black;
+        if (b == band) {
+          const bool gate = uiState.arp.active()
+              ? voiceSystem.getVoiceState(uiState.selectedVoiceIndex).isGateHigh
+              : sequence.getStep(step).isGateActive;
+          color = getVoiceGateColor(*getActiveThemeColors(), uiState.selectedVoiceIndex, gate);
+          if (!uiState.arp.active())
+            applyStepGlow(color, *getActiveThemeColors(), stepEnergy[index], gate);
+        }
+        // Other voices go fully dark immediately, without a stale fade tail.
+        smoothedTargetColorBuffer[index] = color;
+        ledMatrix.getLeds()[index] = color;
+      }
+    }
+    return;
+  }
+
   if (uiState.settingsMode) {
     updateSettingsModeLEDs(ledMatrix, uiState);
     return;

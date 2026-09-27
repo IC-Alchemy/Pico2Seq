@@ -257,6 +257,30 @@ MIDI, displays, sensors, or controls on physical hardware.
 9. **Delay & groove:** Fader 2 sets the master delay wet mix (hold **Shift** and move the same fader for delay time, 10–750 ms, with tape-style pitch glides). Fader 3 keeps master volume; **Shift + fader 3** morphs the compressor across Warm/Glue/Punch. Shuffle/swing comes from the 16 templates (Utility button 4).
 10. **Clear a voice / start fresh:** In Utility mode, **Shift + Randomize tap** wipes the selected voice's whole pattern (all step values, gates, slides and per-track lengths); **Shift + Randomize long-press** wipes all four voices the same way. Voice presets, tempo and transport state are kept.
 
+### Live voice ADSR sliders
+
+Hold **Shift (button 8)**, then **button 6** (Octave / Encoder), and press
+**Voice 1–4**. Release the buttons. This opens a persistent **SEQ ADSR** or
+**ARP ADSR** page without stopping playback. Press **Shift** to leave; plain
+voice buttons select another voice while the page is open.
+
+Faders 1–4 control **Attack / Decay / Sustain / Release**, using the existing
+movement pickup, median filter and deadband. Entering, leaving, or selecting a
+voice re-arms pickup. Only a moved stage changes. Attack spans 1 ms–2 s, decay
+1 ms–10 s, sustain 0–100%, and release 10 ms–8 s.
+
+In sequencer mode, the moved envelope lane follows the new patch value across
+**all stored steps**, including steps outside the current track length. In arp
+mode the patch and sounding voice update without rewriting the sequence.
+Updates reach held notes and release tails without retriggering. Timbre macros
+on repurposed lanes are preserved. A patch with its amplitude envelope disabled
+keeps that setting; the OLED says **Env OFF**.
+
+The OLED shows the selected voice, ADSR values, and last moved stage. Only that
+voice's LED band is lit. Sequence pads and the encoder are inactive on this page;
+arp pads still play chords. **Shift + button 6** without a voice press performs
+its existing short action on release; use unshifted button 6 for its normal hold.
+
 ### Preset System
 
 Each synthesizer voice supports 29 built-in sound presets (held as `constexpr` tables in flash) accessible through a single-page selection browser in Settings mode (preset *n* sits on pad *n*−1):

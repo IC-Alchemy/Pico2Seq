@@ -42,7 +42,7 @@ public:
     const VoiceConfig *getVoiceConfig(uint8_t voiceId);
 
     // Voice State Management
-    bool updateVoiceState(uint8_t voiceId, const VoiceState &state);
+    bool updateVoiceState(uint8_t voiceId, const VoiceState &state, uint8_t liveEnvelopeMask = 0);
     const VoiceState *getVoiceState(uint8_t voiceId);
     void flushControlUpdates(); // control thread, every loop including idle passes
 

@@ -13,6 +13,11 @@ To enable rapid, automated regression testing, Pico2Seq employs a **host-side un
 
 ## Testing Strategy & Module Classification
 
+`pico2seq_tests '[voice_envelope]'` covers the live ADSR page's entry/exit
+gesture, release suppression, movement pickup, all-step scope, arp publication,
+voice isolation, repurposed timbre lanes, and audible sustain/release changes
+without retriggering. OLED/LED layout and tile timing still need a hardware check.
+
 Application glue lives in `src/app/`; see the
 [firmware structure guide](firmware-structure.md). `test_app_runtime.cpp`
 checks every PCM16 level, clipping/truncation and hand-distance recording

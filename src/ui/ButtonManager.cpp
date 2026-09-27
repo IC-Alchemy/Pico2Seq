@@ -47,6 +47,7 @@ ParamId paramIdFromName(const char *name)
  */
 void initButtonManager(UIState &uiState)
 {
+  uiState.voiceEnvelope = {};
   // Reset all parameter button hold states (no stuck lanes after boot).
   for (int paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
   {

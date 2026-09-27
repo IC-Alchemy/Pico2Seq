@@ -33,6 +33,9 @@ class SequencerView;
  *     Shift held they become transport chords (Play/Stop, Randomize,
  *     Scale, Voice editor). Shift + hold Voice 4 toggles Arpeggiator mode
  *     instead of opening the editor, so a tap and a hold never fire together.
+ *   - Shift + button 6 + Voice1..4 opens the live voice ADSR fader page.
+ *     Voice buttons select its target; Shift exits. Shift+6 alone defers its
+ *     existing short action until release so the chord has no side effects.
  *   - ButtonModule8: parameter set (Note..Slide) or utility set (Play,
  *     Delay, Scale, Swing, Theme, Encoder, Randomize) per mode; Shift is
  *     bit 7 in both. In Utility mode, Shift + Randomize clears the selected
