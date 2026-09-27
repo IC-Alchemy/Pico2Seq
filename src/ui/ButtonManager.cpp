@@ -54,9 +54,9 @@ void initButtonManager(UIState &uiState)
   }
 
   // Clear pad timers so no boot-time release reads as a hold.
-  for (int stepIndex = 0; stepIndex < SequencerConstants::MAX_STEPS_COUNT; ++stepIndex)
+  for (int padIndex = 0; padIndex < NUMBER_OF_STEP_PADS; ++padIndex)
   {
-    uiState.padPressTimestamps[stepIndex] = 0;
+    uiState.padPressTimestamps[padIndex] = 0;
   }
 
   // Initialize UI mode states

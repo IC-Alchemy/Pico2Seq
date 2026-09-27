@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include "VoiceEditControls.h"
+#include "UIConstants.h" // For NUMBER_OF_STEP_PADS
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
 
@@ -57,7 +58,7 @@ struct UIState
     // --- Timing States ---
     // Per-pad press times for tap (toggle step) vs hold (edit step). Index is
     // the raw 0..31 pad; 0 = press was consumed by a mode, so release ignores it.
-    unsigned long padPressTimestamps[SequencerConstants::MAX_STEPS_COUNT] = {0};
+    unsigned long padPressTimestamps[NUMBER_OF_STEP_PADS] = {0};
     // --- Transient OLED notice (short confirmation banner; replaces the old control-cluster LED flashes) ---
     enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6, Macro = 7, DelayMix = 8, DelayTime = 9, DelayFeedback = 10, ArpOn = 11, ArpOff = 12 };
     volatile unsigned long oledNoticeUntil = 0;
