@@ -227,6 +227,11 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     displayVoiceEditor(uiState,voiceManager);
     return;
   }
+  if (uiState.voiceEnvelope.active) {
+    displayVoiceEnvelopePage(uiState, voiceManager);
+    commitFrame();
+    return;
+  }
   // PARAM/UTIL strap flip: fullscreen banner for a short window.
   if (uiState.alchemyModeBannerUntil != 0 && millis() < uiState.alchemyModeBannerUntil)
   {
@@ -623,6 +628,37 @@ void OLEDDisplay::displayArpPage(const UIState &state)
     }
   }
   displayHardware.setTextSize(1);
+  displayHardware.setTextWrap(true);
+}
+
+void OLEDDisplay::displayVoiceEnvelopePage(const UIState &state, VoiceManager *manager)
+{
+  displayHardware.setTextWrap(false);
+  displayHardware.setCursor(2, 0);
+  displayHardware.print(state.arp.active() ? "ARP ADSR  V" : "SEQ ADSR  V");
+  displayHardware.print(state.selectedVoiceIndex + 1);
+  displayHardware.drawFastHLine(2, 10, 124, SH110X_WHITE);
+  const auto *config = manager && state.selectedVoiceIndex < VoiceSystem::MAX_VOICES
+      ? manager->getVoiceConfig(voiceSystem.getVoiceId(state.selectedVoiceIndex)) : nullptr;
+  constexpr ParamId lanes[] = {ParamId::Attack, ParamId::Decay, ParamId::Sustain, ParamId::Release};
+  constexpr const char *labels[] = {"1 Attack", "2 Decay", "3 Sustain", "4 Release"};
+  for (uint8_t i = 0; i < 4; ++i) {
+    const int y = 13 + 10 * i;
+    displayHardware.setCursor(0, y);
+    displayHardware.print(state.envFaderLane == lanes[i] ? ">" : " ");
+    displayHardware.print(labels[i]);
+    char value[16] = "--";
+    if (config) {
+      if (i == 2) snprintf(value, sizeof(value), "%.0f%%", config->defaultSustain * 100.0f);
+      else MusicalValues::time(i == 0 ? config->defaultAttack :
+          i == 1 ? config->defaultDecay : config->defaultRelease, value, sizeof(value));
+    }
+    displayHardware.setCursor(126 - 6 * static_cast<int>(strlen(value)), y);
+    displayHardware.print(value);
+  }
+  displayHardware.setCursor(0, 56);
+  displayHardware.print(config && !config->hasEnvelope ? "Env OFF Shift:exit" :
+      state.arp.active() ? "Live    Shift:exit" : "All steps Shift:exit");
   displayHardware.setTextWrap(true);
 }
 

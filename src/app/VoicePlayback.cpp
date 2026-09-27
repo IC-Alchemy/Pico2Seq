@@ -4,7 +4,7 @@
 // Single publish path for steps, live edits, and note-offs (see header).
 // Copy-then-retain: callers may pass the retained state itself. Core 0 only.
 
-void publishVoiceState(uint8_t voiceIndex, const VoiceState &state)
+void publishVoiceState(uint8_t voiceIndex, const VoiceState &state, uint8_t liveEnvelopeMask)
 {
     if (voiceIndex >= VoiceSystem::MAX_VOICES)
         return;
@@ -15,7 +15,7 @@ void publishVoiceState(uint8_t voiceIndex, const VoiceState &state)
     retained = update;
     retained.shouldRetrigger = false;
     if (voiceManager)
-        voiceManager->updateVoiceState(voiceSystem.getVoiceId(voiceIndex), update);
+        voiceManager->updateVoiceState(voiceSystem.getVoiceId(voiceIndex), update, liveEnvelopeMask);
 }
 
 void tickSequencerVoices()

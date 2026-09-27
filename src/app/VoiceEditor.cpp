@@ -48,6 +48,7 @@ void clearPerformanceControls() {
 } // namespace
 namespace VoiceEditor {
 void enter() {
+  uiState.voiceEnvelope = {};
   stopClockForEditor();
   clearPerformanceControls();
   uiState.voiceEditor.enter();
@@ -120,6 +121,8 @@ void clearEncoder() {
   encoderMotion.reset();
 }
 void encoder(float delta) {
+  if (uiState.voiceEnvelope.active || uiState.voiceEnvelope.chordPending ||
+      uiState.voiceEnvelope.waitRelease) return;
   const auto &editor = uiState.voiceEditor;
   const auto index = uiState.selectedVoiceIndex;
   if (!voiceManager || index >= VoiceSystem::MAX_VOICES ||

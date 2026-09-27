@@ -138,7 +138,9 @@ public:
    * after the next process()). Attack = how fast the note blooms, sustain =
    * held loudness, filter = brightness.
    */
-  void updateParameters(const VoiceState &newState);
+  // liveEnvelopeMask: one-shot A/D/S/R bits for deliberate live slider edits.
+  // Normal sequencer updates retain the existing stage-safe timing policy.
+  void updateParameters(const VoiceState &newState, uint8_t liveEnvelopeMask = 0);
 
   // Sequencer attachment: unique_ptr takes ownership, raw pointer borrows
   // (setup only; never while either core is using the voice).
@@ -461,6 +463,7 @@ private:
     float frequency = 440.0f;
     float filterHz = 1000.0f;
     uint32_t changes = 0;
+    uint8_t liveEnvelopeMask = 0;
   };
   // Only the control thread touches controls_ / currentScalePtr_. If full,
   // pending changes coalesce here without touching any published queue slot.
@@ -671,7 +674,7 @@ private:
   // held in pending*_; applyPendingEnvelopeTimes_() lands them.
   void setEnvelopeTimes_(float attackSeconds, float decaySeconds) noexcept;
   void setEnvelopeShape_(float sustainLevel, float releaseSeconds) noexcept;
-  void applyPendingEnvelopeTimes_(bool noteOn) noexcept;
+  void applyPendingEnvelopeTimes_(bool noteOn, uint8_t liveMask = 0) noexcept;
   bool envelopeChangePending_() const noexcept
   {
     return pendingAttackSeconds_ >= 0.0f || pendingDecaySeconds_ >= 0.0f ||

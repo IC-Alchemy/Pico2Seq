@@ -167,12 +167,12 @@ const VoiceConfig *VoiceManager::getVoiceConfig(uint8_t voiceId)
  * thread; never touches live DSP state. A full queue keeps pending controls
  * for flushControlUpdates() to retry.
  */
-bool VoiceManager::updateVoiceState(uint8_t voiceId, const VoiceState &state)
+bool VoiceManager::updateVoiceState(uint8_t voiceId, const VoiceState &state, uint8_t liveEnvelopeMask)
 {
     ManagedVoice *managedVoice = findVoice(voiceId);
     if (managedVoice && managedVoice->voice)
     {
-        managedVoice->voice->updateParameters(state);
+        managedVoice->voice->updateParameters(state, liveEnvelopeMask);
         // No audio-owned state is read or changed on this path.
         DBG_VERBOSE("VoiceManager: updateVoiceState id=%u note=%.1f vel=%.2f gate=%d filt=%.2f", voiceId, state.noteIndex, state.velocityLevel, state.isGateHigh ? 1 : 0, state.filterCutoff);
         notifyVoiceUpdated(voiceId, state);

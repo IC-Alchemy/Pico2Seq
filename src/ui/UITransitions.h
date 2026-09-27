@@ -14,6 +14,27 @@ inline void clearStepEdit(UIState &state) noexcept
     state.currentEditParameter = ParamId::Count;
 }
 
+// The ADSR page is live: only clear competing UI gestures, never transport.
+inline void openVoiceEnvelope(UIState &state, uint8_t voice) noexcept
+{
+    if (voice >= UIState::MAX_VOICES) return;
+    state.voiceEnvelope.active = true;
+    state.selectedVoiceIndex = voice;
+    clearStepEdit(state);
+    state.settingsMode = state.slideMode = false;
+    state.gateSeqLengthMode = state.modGateParamSeqLengthsMode = false;
+    state.encoderControlWasPressed = false;
+    state.latchedParameter = -1;
+    for (auto &held : state.parameterButtonHeld) held = false;
+    for (auto &held : state.randomizeWasPressed) held = false;
+    for (auto &time : state.padPressTimestamps) time = 0;
+    state.envFaderLane = ParamId::Count;
+    state.envViewUntil = state.encoderBaseViewUntil = 0;
+    state.voiceParameterFeedbackPending = false;
+    state.alchemyModeBannerUntil = state.oledNoticeUntil = 0;
+    state.voiceSwitchTriggered = state.resetStepsLightsFlag = true;
+}
+
 // Open the preset browser on the selected voice; always starts at presets so
 // the grid and the screen agree. Safe while playing (apply is staged).
 inline void openSettings(UIState &state) noexcept
@@ -105,6 +126,7 @@ inline void focusPad(UIState &state, uint8_t voice, uint8_t step) noexcept
 // stays in ArpPlayback::arpModeToggle, which calls these.
 inline void enterArpMode(UIState &state) noexcept
 {
+    state.voiceEnvelope = {};
     state.arp.setActive(true);
     state.arpLastNotes[0] = 0;
     state.arpControl = UIState::ArpControl::None;
@@ -127,6 +149,7 @@ inline void enterArpMode(UIState &state) noexcept
 
 inline void exitArpMode(UIState &state) noexcept
 {
+    state.voiceEnvelope = {};
     state.arp.setActive(false);
     state.arpLastNotes[0] = 0;
     state.arpControl = UIState::ArpControl::None;
