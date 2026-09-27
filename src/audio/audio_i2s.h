@@ -143,11 +143,6 @@ bool audio_i2s_connect_thru(audio_buffer_pool_t *producer, audio_connection_t *c
 bool audio_i2s_connect(audio_buffer_pool_t *producer);
 
 
-/** \brief Connect an 8-bit producer pool to I2S (unused by Pico2Seq)
- * \ingroup pico_audio_i2s
- */
-bool audio_i2s_connect_s8(audio_buffer_pool_t *producer);
-
 /** \brief Connect with an explicit consumer pool (buffer_on_give path)
  * \ingroup pico_audio_i2s
  *
