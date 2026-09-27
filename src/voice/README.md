@@ -96,8 +96,8 @@ constexpr VoiceConfig makeMellowFM() noexcept
 {
     auto c = makeFmGlass();
     c.macro1 = 0.12f; // Index, in the binding's mapped units
-    c.macro2 = 2.0f;  // Modulator/carrier ratio
-    c.macro3 = 0.04f; // Feedback
+    c.macro2 = 2.001f;  // Modulator/carrier ratio
+    c.macro3 = 0.08f; // Feedback
     c.defaultRelease = 0.35f;
     return c;
 }
