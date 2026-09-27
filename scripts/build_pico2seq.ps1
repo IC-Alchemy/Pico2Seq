@@ -2,7 +2,7 @@
 param(
     [string]$ArduinoCli = 'arduino-cli',
     [string]$BuildDirectory,
-    [ValidateSet(150, 225, 300)] [int]$CpuMHz = 150,
+    [ValidateSet(150, 225, 300)] [int]$CpuMHz = 225,
     [switch]$AudioInFlash,
     [switch]$KeepStage,
     # User-facing build name (first prompt of build.ps1). publish_uf2.ps1
