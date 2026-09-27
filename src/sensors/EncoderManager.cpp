@@ -111,6 +111,8 @@ void updateEncoderBaseValues(UIState &uiState)
   // Every read's increment is forwarded, however small: the driver has
   // already drained those ticks, and the step and base paths accumulate them.
   const float delta=magEncoder.takeParameterIncrement(-1.0f,1.0f,3);
+  if (uiState.voiceEnvelope.active || uiState.voiceEnvelope.chordPending ||
+      uiState.voiceEnvelope.waitRelease) return;
   const bool arpOwnsDial = uiState.arp.active() && !uiState.voiceEditor.active;
   if (arpOwnsDial != arpDialActive || uiState.shiftHeld != arpDialShift) {
     arpTempoMotion.reset();

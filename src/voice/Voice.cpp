@@ -142,6 +142,7 @@ void Voice::init(float sr)
   while (controlQueue_.tryPop(unused)) {}
   controls_.scaleIndex = currentScalePtr_ ? *currentScalePtr_ : 0;
   controls_.changes = 0;
+  controls_.liveEnvelopeMask = 0;
   config = controls_.config;
   velocityToAmplitude_ = VoiceParameters::velocityToAmplitude(config);
   state = controls_.state;
@@ -268,6 +269,7 @@ bool Voice::flushControlUpdates() noexcept
   if (!controlQueue_.tryPush(controls_))
     return false; // keep the producer-owned update for the next control pass
   controls_.changes = 0;
+  controls_.liveEnvelopeMask = 0;
   controls_.state.shouldRetrigger = false; // event belongs to the published copy
   return true;
 }
@@ -323,7 +325,12 @@ void PICO2SEQ_AUDIO_FUNC(Voice::applyControlUpdate_)() noexcept
   if (changes & ConfigChanged)
     applyConfig_(update.config);
   if (changes & ParametersChanged)
+  {
     applyParameters_(update.state);
+    // The ADSR page explicitly edits the running stage, without noteOn/off.
+    if (update.liveEnvelopeMask)
+      applyPendingEnvelopeTimes_(false, update.liveEnvelopeMask);
+  }
   else if (changes & GateChanged)
   {
     gate = update.state.isGateHigh;
@@ -984,17 +991,17 @@ void Voice::setEnvelopeShape_(float sustainLevel, float releaseSeconds) noexcept
   applyPendingEnvelopeTimes_(false);
 }
 
-void PICO2SEQ_AUDIO_FUNC(Voice::applyPendingEnvelopeTimes_)(bool noteOn) noexcept
+void PICO2SEQ_AUDIO_FUNC(Voice::applyPendingEnvelopeTimes_)(bool noteOn, uint8_t liveMask) noexcept
 {
-  // A stage not running (or restarting at a note-on) can take a new length
-  // without a level step; the running one keeps its length until it ends.
+  // Sequenced edits wait until the stage ends. The live ADSR page opts only
+  // the moved stage into immediate adjustment; it never retriggers the note.
   const auto stage = envelope.stage();
-  if (pendingAttackSeconds_ >= 0.0f && (noteOn || stage != rpdsp::ADSR::Stage::kAttack))
+  if (pendingAttackSeconds_ >= 0.0f && (noteOn || (liveMask & 1u) || stage != rpdsp::ADSR::Stage::kAttack))
   {
     envelope.setAttack(pendingAttackSeconds_);
     pendingAttackSeconds_ = -1.0f;
   }
-  if (pendingDecaySeconds_ >= 0.0f && (noteOn || stage != rpdsp::ADSR::Stage::kDecay))
+  if (pendingDecaySeconds_ >= 0.0f && (noteOn || (liveMask & 2u) || stage != rpdsp::ADSR::Stage::kDecay))
   {
     envelope.setDecay(pendingDecaySeconds_);
     pendingDecaySeconds_ = -1.0f;
@@ -1002,12 +1009,12 @@ void PICO2SEQ_AUDIO_FUNC(Voice::applyPendingEnvelopeTimes_)(bool noteOn) noexcep
   // Decay ramps toward the sustain level and sustain holds it, so a new
   // level in either stage steps the output.
   if (pendingSustain_ >= 0.0f &&
-      (noteOn || (stage != rpdsp::ADSR::Stage::kDecay && stage != rpdsp::ADSR::Stage::kSustain)))
+      (noteOn || (liveMask & 4u) || (stage != rpdsp::ADSR::Stage::kDecay && stage != rpdsp::ADSR::Stage::kSustain)))
   {
     envelope.setSustain(pendingSustain_);
     pendingSustain_ = -1.0f;
   }
-  if (pendingReleaseSeconds_ >= 0.0f && (noteOn || stage != rpdsp::ADSR::Stage::kRelease))
+  if (pendingReleaseSeconds_ >= 0.0f && (noteOn || (liveMask & 8u) || stage != rpdsp::ADSR::Stage::kRelease))
   {
     envelope.setRelease(pendingReleaseSeconds_);
     pendingReleaseSeconds_ = -1.0f;
@@ -1086,7 +1093,7 @@ void Voice::setSlideTime(float slideTime)
   flushControlUpdates();
 }
 
-void Voice::updateParameters(const VoiceState &newState)
+void Voice::updateParameters(const VoiceState &newState, uint8_t liveEnvelopeMask)
 {
   // Only unpublished updates can coalesce. Preserve a pending retrigger while
   // its gate stays high; a later gate-off always wins during overload.
@@ -1096,6 +1103,7 @@ void Voice::updateParameters(const VoiceState &newState)
   controls_.state.shouldRetrigger = newState.isGateHigh &&
                                    (newState.shouldRetrigger || pendingRetrigger);
   controls_.changes |= ParametersChanged;
+  controls_.liveEnvelopeMask |= liveEnvelopeMask & 0x0f;
   flushControlUpdates();
 }
 

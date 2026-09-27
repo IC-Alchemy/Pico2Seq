@@ -6,7 +6,7 @@
 // Musical role: every gate on/off and tweak reaches audio without clicks or stuck
 // notes. Retain a steady state, send one queued update; retrigger is an event that
 // must never be retained for later edits.
-void publishVoiceState(uint8_t voiceIndex, const VoiceState &state);
+void publishVoiceState(uint8_t voiceIndex, const VoiceState &state, uint8_t liveEnvelopeMask = 0);
 
 // Note length lives in the sequencer; expiry publishes like a step so gates end on time.
 void tickSequencerVoices();

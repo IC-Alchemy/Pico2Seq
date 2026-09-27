@@ -294,6 +294,8 @@ void handleParameterButtonById(uint8_t paramId, bool pressed, UIState &uiState)
 static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
                                   UIState &uiState, const SequencerView &sequencers)
 {
+  if (uiState.voiceEnvelope.active || uiState.voiceEnvelope.chordPending ||
+      uiState.voiceEnvelope.waitRelease) return true;
   // Pads outside the 32-step grid have no voice; ignore them.
   if (evt.buttonIndex >= NUMBER_OF_STEP_PADS)
   {

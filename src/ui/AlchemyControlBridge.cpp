@@ -6,11 +6,13 @@
 #include "../app/Session.h"
 #include "../app/StepPlayback.h"
 #include "../app/VoiceEditor.h"
+#include "../app/VoiceEnvelope.h"
 
 #include "ButtonHandlers.h"
 #include "ButtonManager.h"
 #include "UIConstants.h"
 #include "UIEventHandler.h"
+#include "UITransitions.h"
 #include "../AlchemyUI/src/ButtonMap.h"
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
@@ -124,6 +126,65 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
   }
 
   handleModeStrap(nowMs, uiState);
+
+  // Reserve Shift + button 6 before any single-button or Shift+voice action.
+  // Keep histories current through the complete chord and its release tail.
+  const auto envelopeInput = uiState.voiceEnvelope.poll(buttons, voices);
+  if (envelopeInput.consumed) {
+    for (uint8_t bit = 0; bit < 8; ++bit) {
+      buttonEdges_[kButtonRole][bit].take(buttonAt(buttonSlot_, bit));
+      buttonEdges_[kSliderRole][bit].take(buttonAt(sliderSlot_, bit));
+    }
+    if (uiState.voiceEnvelope.active || envelopeInput.exit) latch_.reset();
+    for (auto &held : uiState.parameterButtonHeld) held = false;
+    uiState.latchedParameter = -1;
+    uiState.encoderControlWasPressed = false;
+    for (auto &held : uiState.randomizeWasPressed) held = false;
+    playSettingsOpenedThisPress_ = saveLoadLatch_ = false;
+    clearChordThisPress_ = clearAllLatch_ = false;
+    editorHoldArmed_ = editorHoldFired_ = false;
+    uiState.shiftHeld = shiftWasHeld_ = (buttons & VoiceEnvelope::Controls::kShift) != 0;
+    if (envelopeInput.voice >= 0) {
+      UITransitions::openVoiceEnvelope(uiState, static_cast<uint8_t>(envelopeInput.voice));
+      VoiceEditor::clearEncoder();
+      faders_.resetDeadband();
+    }
+    if (envelopeInput.exit) {
+      uiState.envFaderLane = ParamId::Count;
+      uiState.resetStepsLightsFlag = uiState.voiceSwitchTriggered = true;
+      VoiceEditor::clearEncoder();
+    }
+    if (envelopeInput.modifierTap) {
+      // Shift+6 alone still selects rhythm 6 / re-syncs the arp, latches
+      // Octave, or cycles the encoder. Defer it until the chord is ruled out.
+      if (uiState.arp.active()) {
+        if (uiState.alchemyMode == UIState::AlchemyMode::Param) {
+          uiState.arp.setRhythmPreset(5);
+          uiState.showArpControl(UIState::ArpControl::Rhythm, nowMs);
+        } else {
+          uiState.arp.restart();
+          uiState.showArpControl(UIState::ArpControl::Restart, nowMs);
+        }
+      } else if (uiState.alchemyMode == UIState::AlchemyMode::Param && !uiState.slideMode) {
+        const auto lane = static_cast<uint8_t>(ControlSurface::recordParamForButtonBit(5));
+        latch_.onParamButton(lane, true, true);
+        latch_.onParamButton(lane, false, false);
+        latch_.applyTo(uiState.parameterButtonHeld, PARAM_ID_COUNT);
+        uiState.latchedParameter = latch_.latched();
+        handleParameterButtonById(lane, true, uiState);
+      } else if (uiState.alchemyMode == UIState::AlchemyMode::Utility) {
+        beginEncoderControlHold(uiState);
+        endEncoderControlHold(uiState);
+      }
+    }
+    if (!uiState.voiceEnvelope.active || uiState.voiceEnvelope.waitRelease ||
+        uiState.voiceEnvelope.chordPending) {
+      faders_.resetDeadband();
+      return;
+    }
+    handleFaders(uiState, sequencers);
+    return;
+  }
 
   // Shift (bit 7 of the button tile) is a plain level in both modes.
   uiState.shiftHeld = buttonAt(buttonSlot_, 7).held();
@@ -685,6 +746,11 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
     }
     const float normalized =
         ControlSurface::FaderMap::normalize(faders_.filtered(channel));
+    if (uiState.voiceEnvelope.active) {
+      if (VoiceEnvelope::set(uiState.selectedVoiceIndex, channel, normalized, uiState.arp.active()))
+        uiState.envFaderLane = ControlSurface::FaderMap::assignmentFor(true, channel).paramId;
+      continue;
+    }
     // Arpeggiator mode replaces the whole fader set: no steps are edited there,
     // so unshifted faders carry rhythm and Shift carries range, gate, tone.
 

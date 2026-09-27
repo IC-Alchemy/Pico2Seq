@@ -67,6 +67,14 @@ whatever is still under a finger.
 
 ## Controls
 
+For live amplitude-envelope editing, hold **Shift + button 6**, then press
+**Voice 1–4** and release the buttons. The **ARP ADSR** page maps faders 1–4 to
+Attack, Decay, Sustain and Release with the normal movement pickup. Plain voice
+buttons change the target; **Shift** exits. The OLED shows values and only the
+selected voice's LED band lights. Chord pads and playback keep working. See
+[Live voice ADSR sliders](../README.md#live-voice-adsr-sliders) for ranges and
+sequencer behavior. Shift+6 alone keeps its previous short action on release.
+
 ### Touch pads (32)
 
 | Action | Effect |

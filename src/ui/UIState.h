@@ -3,7 +3,7 @@
 
 #include <cstdint>
 #include "VoiceEditControls.h"
-#include "UIConstants.h" // For NUMBER_OF_STEP_PADS
+#include "VoiceEnvelopeControls.h"
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
 
@@ -18,6 +18,7 @@
 struct UIState
 {
     VoiceEdit::Controls voiceEditor;
+    VoiceEnvelope::Controls voiceEnvelope;
     // Wait for all pads/tiles to release before performance input resumes
     // (prevents a held pad from firing a step toggle on mode exit).
     bool controlsWaitRelease = false;
