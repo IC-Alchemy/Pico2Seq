@@ -17,7 +17,7 @@ struct VoiceState;
 
 // Jog the focused target: selected-step lane if one is targeted, else the
 // encoder's patch base via VoiceEditor. Drops ticks while controlsWaitRelease.
-void updateEncoderBaseValues(UIState& uiState);
+void updateEncoderTarget(UIState& uiState);
 
 // Lane bounds for clamping a turn (from CORE_PARAMETERS).
 float getParameterMinValueForParamId(ParamId paramId);
@@ -25,7 +25,7 @@ float getParameterMinValueForParamId(ParamId paramId);
 float getParameterMaxValueForParamId(ParamId paramId);
 
 // Discard pending encoder motion; preset setup owns initial patch bases.
-void initEncoderBaseValues();
+void initEncoderTarget();
 
 // Global magnetic encoder driver (TMAG5273 on the Velocity Encoder board).
 // Defined in EncoderManager.cpp; the main sketch accesses it through this

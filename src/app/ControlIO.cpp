@@ -117,8 +117,8 @@ void ControlIO::beginPerformanceSensors()
         Serial.println("TMAG5273 magnetic encoder initialized successfully");
     }
 
-    // Encoder base values give the knob somewhere sensible to start from.
-    initEncoderBaseValues();
+    // Clear any stale knob motion before the first control scan.
+    initEncoderTarget();
 }
 
 void ControlIO::beginTouchPads()
@@ -220,7 +220,7 @@ void ControlIO::scanControls(uint32_t nowMs)
         // Knob motion for the base-parameter target.
         freezeWatchdogMark(FW_LOOP_ENCODER);
         magEncoder.update();
-        updateEncoderBaseValues(uiState);
+        updateEncoderTarget(uiState);
 
         // Hand height for live recording; absent hand freezes recording below.
         freezeWatchdogMark(FW_LOOP_DISTANCE);
