@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 #include "voice/VoiceManager.h"
 #include "ui/ControlSurfaceLogic.h"
 #include "scales/scales.h"
@@ -8,6 +9,7 @@
 #include <memory>
 
 namespace {
+using Catch::Approx;
 constexpr float kSampleRate = 48000.0f;
 
 VoiceConfig busPatch()
@@ -166,4 +168,21 @@ TEST_CASE("Delay fader time matches the audible range at 48 kHz", "[master][mast
         delay->setDelaySeconds(seconds);
         CHECK(std::fabs(delay->delaySamplesTarget() / kSampleRate - seconds) < 1e-6f);
     }
+}
+
+TEST_CASE("Synced delay follows the live clock and preserves the millisecond setting", "[master][delay_sync]")
+{
+    VoiceManager manager(1);
+    manager.setDelayTime(0.240f);
+    manager.setDelayNoteIndex(DelayTiming::kDefaultNoteIndex);
+    manager.setDelayTempoBpm(120.0f);
+    CHECK(manager.getEffectiveDelayTime() == Approx(0.240f));
+    manager.setDelaySynced(true);
+    CHECK(manager.getEffectiveDelayTime() == Approx(0.5f));
+    manager.setDelayTempoBpm(60.0f);
+    CHECK(manager.getEffectiveDelayTime() == Approx(1.0f));
+    manager.setDelayNoteIndex(0);
+    CHECK(manager.getEffectiveDelayTime() == Approx(4.0f));
+    manager.setDelaySynced(false);
+    CHECK(manager.getEffectiveDelayTime() == Approx(0.240f));
 }

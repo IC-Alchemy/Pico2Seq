@@ -77,7 +77,8 @@ function Copy-StageTree {
 
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     foreach ($item in Get-ChildItem -LiteralPath $Source -Force) {
-        if ($IsRepositoryRoot -and $item.Name -in @('.git', 'build', 'build_test', 'vendor')) {
+        if ($IsRepositoryRoot -and ($item.Name -in @('.git', 'build', 'build_test', 'vendor') -or
+                                    $item.Name -like 'build_*')) {
             continue
         }
 
@@ -159,6 +160,11 @@ try {
 } finally {
     if (-not $KeepStage) {
         if (Test-Path -LiteralPath $stageRoot) {
+            $resolvedStage = (Resolve-Path -LiteralPath $stageRoot).Path
+            $resolvedTemp = (Resolve-Path -LiteralPath ([IO.Path]::GetTempPath())).Path.TrimEnd('\')
+            if (-not $resolvedStage.StartsWith($resolvedTemp + '\Pico2Seq-arduino-stage-', [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Refusing to remove a stage outside the expected temporary directory: $resolvedStage"
+            }
             Remove-Item -LiteralPath $stageRoot -Recurse -Force
         }
     } elseif ($buildSucceeded) {

@@ -112,13 +112,15 @@ Bench regression checklist (host tests cannot verify the physical tile/LED/OLED 
 delay and compressor processing in the order: voices, delay, master gain,
 compressor. It covers dry bypass, all three compressor anchors, block sizes
 through 513 samples, tails after voices go silent, transport mute, zero
-master volume, and the 10–750 ms fader range at 48 kHz. The block suite also
+master volume, the 10–750 ms fader range, and synced time following BPM at 48 kHz. The block suite also
 compares scalar and block rendering while delay mix/time change.
 
 `test_master_delay.cpp` retains fractional timing, repeat darkening, bounded
-feedback and mix smoothing checks. `test_control_surface_logic.cpp` checks
+feedback and mix smoothing checks, plus a 45 BPM whole-note echo and safe
+mode switches. `test_master_compressor.cpp` checks that a four-voice mix
+changes the PCM16 samples delivered to I2S. `test_control_surface_logic.cpp` checks
 faders 1–3 re-arm on Shift edges while gate length stays engaged,
-and retains the step-envelope assignments and compressor macro gesture.
+the 19 note divisions and retains the step-envelope assignments and compressor macro gesture.
 
 ```powershell
 cmake --build build_test --parallel
@@ -126,7 +128,8 @@ cmake --build build_test --parallel
 ctest --test-dir build_test -C Release --output-on-failure
 ```
 
-On hardware, check fader 1 tempo/feedback, fader 2 mix/time and fader 3 volume/macro independently,
+On hardware, check fader 1 tempo/feedback, fader 2 mix/time in both ms and sync modes,
+Shift + Utility Delay/Session toggling the mode, and fader 3 volume/macro independently,
 their OLED notices, both Shift edges, and all four ENV sliders. Listen to
 delay tails with different compressor settings; inspect underrun counters
 while all four voices play. Host tests and firmware compilation do not

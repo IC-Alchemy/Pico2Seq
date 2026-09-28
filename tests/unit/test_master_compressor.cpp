@@ -2,9 +2,12 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include "voice/Voice.h"
 #include "voice/VoiceManager.h"
+#include "app/Pcm16.h"
+#include "scales/scales.h"
 #include <rpdsp/dynamics.h>
 #include <array>
 #include <cmath>
+#include <memory>
 
 using namespace Catch::Matchers;
 
@@ -159,6 +162,46 @@ TEST_CASE("Punch end of the macro squeezes harder than Warm", "[master][compress
     REQUIRE(punchPeak < warmPeak); // 6:1 smashes harder than 2.5:1 leveling
     REQUIRE(punchPeak <= 1.0f);    // ...down to DAC-safe levels
     REQUIRE(punchPeak > 0.01f);    // ...while makeup keeps it alive
+}
+
+TEST_CASE("Master compressor changes the PCM sent to the DAC for a four-voice mix", "[master][compressor]")
+{
+    auto manager = std::make_unique<VoiceManager>(4);
+    std::array<std::unique_ptr<Voice>, 4> dry;
+    for (uint8_t i = 0; i < 4; ++i)
+    {
+        const auto id = manager->addVoice(hotConfig());
+        dry[i] = std::make_unique<Voice>(id, hotConfig());
+        dry[i]->setScaleTable(scale, SCALES_COUNT);
+        dry[i]->setCurrentScalePointer(&currentScale);
+        dry[i]->init(48000.0f);
+        const auto note = hotNote(24.0f + i * 4.0f);
+        manager->updateVoiceState(id, note);
+        dry[i]->updateParameters(note);
+    }
+    manager->setMasterMacro(1.0f);
+    manager->setGlobalVolume(0.8f);
+    manager->init(48000.0f);
+
+    double beforeEnergy = 0.0, afterEnergy = 0.0;
+    unsigned changedPcmSamples = 0;
+    for (int n = 0; n < 57600; ++n)
+    {
+        float before = 0.0f;
+        for (auto &voice : dry) before += voice->process();
+        before *= 0.8f;
+        const float after = manager->processAllVoices();
+        if (n < 48000) continue; // detector and note phases have settled
+        const int16_t beforePcm = AudioSamples::toPcm16(before);
+        const int16_t afterPcm = AudioSamples::toPcm16(after);
+        beforeEnergy += static_cast<double>(beforePcm) * beforePcm;
+        afterEnergy += static_cast<double>(afterPcm) * afterPcm;
+        if (std::abs(static_cast<int>(afterPcm) - beforePcm) > 1000)
+            ++changedPcmSamples;
+    }
+    REQUIRE(beforeEnergy > 0.0);
+    CHECK(afterEnergy < beforeEnergy * 0.85);
+    CHECK(changedPcmSamples > 1000);
 }
 
 TEST_CASE("Macro moves morph the mix gradually, not instantly", "[master][compressor]")

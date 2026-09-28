@@ -6,6 +6,7 @@
 
 #include "Voice.h"
 #include "MasterDelay.h"
+#include "DelayTiming.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../rpdsp/src/rpdsp/dynamics.h"
 #include <vector>
@@ -137,6 +138,17 @@ public:
     float getDelayTime() const { return delayTime.load(std::memory_order_relaxed); }
     void setDelayFeedback(float feedback) { delayFeedback.store(feedback, std::memory_order_relaxed); }
     float getDelayFeedback() const { return delayFeedback.load(std::memory_order_relaxed); }
+    void setDelaySynced(bool synced) { delaySynced.store(synced, std::memory_order_relaxed); }
+    bool getDelaySynced() const { return delaySynced.load(std::memory_order_relaxed); }
+    void setDelayNoteIndex(uint8_t index) { delayNoteIndex.store(DelayTiming::clampIndex(index), std::memory_order_relaxed); }
+    uint8_t getDelayNoteIndex() const { return delayNoteIndex.load(std::memory_order_relaxed); }
+    void setDelayTempoBpm(float bpm) { delayTempoBpm.store(bpm, std::memory_order_relaxed); }
+    float getEffectiveDelayTime() const
+    {
+        return getDelaySynced()
+                   ? DelayTiming::secondsForIndex(getDelayNoteIndex(), delayTempoBpm.load(std::memory_order_relaxed))
+                   : getDelayTime();
+    }
 
     void setTransportMuted(bool muted) noexcept { transportMuted_.store(muted, std::memory_order_relaxed); }
 
@@ -176,7 +188,12 @@ private:
     std::atomic<float> delayMix{0.0f};
     std::atomic<float> delayTime{MasterDelay::kDefaultDelaySeconds};
     std::atomic<float> delayFeedback{MasterDelay::kDefaultFeedback};
+    std::atomic<bool> delaySynced{false};
+    std::atomic<uint8_t> delayNoteIndex{DelayTiming::kDefaultNoteIndex};
+    std::atomic<float> delayTempoBpm{90.0f};
     static_assert(std::atomic<float>::is_always_lock_free, "Delay controls must be lock-free");
+    static_assert(std::atomic<bool>::is_always_lock_free && std::atomic<uint8_t>::is_always_lock_free,
+                  "Delay mode and division must be lock-free");
     MasterDelay masterDelay_;
 
     // Master-bus compressor follows delay and master gain, so both dry audio

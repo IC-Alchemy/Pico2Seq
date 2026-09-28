@@ -5,6 +5,7 @@
 #include "UIConstants.h"
 #include "VoiceEditControls.h"
 #include "VoiceEnvelopeControls.h"
+#include "../voice/DelayTiming.h"
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
 
@@ -50,6 +51,9 @@ struct UIState
     // Mutually exclusive step-edit modes: only one may own the pads at a time.
     bool modGateParamSeqLengthsMode = false;
     bool slideMode = false; // pads toggle legato per step instead of gates
+    // Shift + Utility Delay button toggles the master delay time scale.
+    bool delaySynced = false;
+    uint8_t delayNoteIndex = DelayTiming::kDefaultNoteIndex;
     // Selected voice index 0..3; all voice-dependent UI derives from this.
     uint8_t selectedVoiceIndex = 0;
     int selectedStepForEdit = -1;
@@ -62,7 +66,7 @@ struct UIState
     // the raw 0..31 pad; 0 = press was consumed by a mode, so release ignores it.
     unsigned long padPressTimestamps[NUMBER_OF_STEP_PADS] = {0};
     // --- Transient OLED notice (short confirmation banner; replaces the old control-cluster LED flashes) ---
-    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6, Macro = 7, DelayMix = 8, DelayTime = 9, DelayFeedback = 10, ArpOn = 11, ArpOff = 12 };
+    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6, Macro = 7, DelayMix = 8, DelayTime = 9, DelayFeedback = 10, ArpOn = 11, ArpOff = 12, DelaySync = 13, DelayMsMode = 14 };
     volatile unsigned long oledNoticeUntil = 0;
     volatile OledNoticeKind oledNoticeKind = OledNoticeKind::None;
     volatile uint8_t oledNoticeVoice = 0; // 0-based voice, valid for Randomized and VoiceCleared

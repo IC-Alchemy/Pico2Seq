@@ -217,6 +217,7 @@ void Application::begin()
     initializeClock();
     if (g_bootSnapshotPending)
         Session::applyAfterClock(g_sessionSnapshot);
+    voiceManager->setDelayTempoBpm(uClock.getTempo());
     Serial.println("[VOICE EDIT] Patch bases + lidar modifiers; Shift + slider 4 opens editor");
     Serial.println("[CORE0] Setup complete!");
     voicesReady.store(true, std::memory_order_release);
@@ -371,6 +372,9 @@ void Application::update()
     freezeWatchdogFeed(FW_LOOP_PPQN);
     processPendingGateTicks();
     ControlIO::scanControls(nowMs);
+    // The clock can change from the tempo fader, the arp dial, or a loaded
+    // session. Publish its current BPM every pass so synced echoes follow it.
+    voiceManager->setDelayTempoBpm(uClock.getTempo());
     ControlIO::refreshLeds(nowMs);
     ControlIO::refreshOled(nowMs);
 }
