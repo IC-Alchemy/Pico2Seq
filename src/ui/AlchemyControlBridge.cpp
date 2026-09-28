@@ -16,6 +16,7 @@
 #include "../AlchemyUI/src/ButtonMap.h"
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
+#include "../voice/DelayTiming.h"
 
 #include <uClock.h>
 
@@ -140,7 +141,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
     uiState.latchedParameter = -1;
     uiState.encoderControlWasPressed = false;
     for (auto &held : uiState.randomizeWasPressed) held = false;
-    playSettingsOpenedThisPress_ = saveLoadLatch_ = false;
+    playSettingsOpenedThisPress_ = saveLoadLatch_ = delayTogglePress_ = false;
     clearChordThisPress_ = clearAllLatch_ = false;
     editorHoldArmed_ = editorHoldFired_ = false;
     uiState.shiftHeld = shiftWasHeld_ = (buttons & VoiceEnvelope::Controls::kShift) != 0;
@@ -487,6 +488,39 @@ void AlchemyControlBridge::handleSessionButton(const ButtonState &button)
   }
 }
 
+void AlchemyControlBridge::handleSessionOrDelayButton(const ButtonState &button,
+                                                      UIState &uiState)
+{
+  if (button.pressEdge)
+  {
+    delayTogglePress_ = uiState.shiftHeld;
+    if (delayTogglePress_)
+    {
+      uiState.delaySynced = !uiState.delaySynced;
+      if (voiceManager)
+      {
+        voiceManager->setDelayNoteIndex(uiState.delayNoteIndex);
+        voiceManager->setDelaySynced(uiState.delaySynced);
+      }
+      uiState.oledNoticeKind = uiState.delaySynced
+                                   ? UIState::OledNoticeKind::DelaySync
+                                   : UIState::OledNoticeKind::DelayMsMode;
+      uiState.oledNoticeValue = voiceManager
+                                    ? static_cast<uint16_t>(lroundf(voiceManager->getDelayTime() * 1000.0f))
+                                    : 300;
+      uiState.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
+      faders_.resetShiftTargets();
+      return;
+    }
+  }
+  if (delayTogglePress_)
+  {
+    if (button.releaseEdge) delayTogglePress_ = false;
+    return;
+  }
+  handleSessionButton(button);
+}
+
 // --- ButtonModule8, Arpeggiator mode --------------------------------------------
 
 // Why patterns are a single-select group rather than latchable holds: a step
@@ -553,8 +587,8 @@ void AlchemyControlBridge::handleArpUtilityButtons(uint32_t nowMs, UIState &uiSt
       handleTransportButton(state, uiState);
       break;
 
-    case 1: // Session save (tap) / load last saved (long-press)
-      handleSessionButton(state);
+    case 1: // Session; Shift + Delay toggles ms / tempo sync.
+      handleSessionOrDelayButton(state, uiState);
       break;
 
     case 2: // Scale cycle: the arp plays the same scale table as the sequencer.
@@ -646,8 +680,8 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
       handleTransportButton(state, uiState);
       break;
 
-    case 1: // Session save (tap) / load last saved (long-press)
-      handleSessionButton(state);
+    case 1: // Session; Shift + Delay toggles ms / tempo sync.
+      handleSessionOrDelayButton(state, uiState);
       break;
 
     case 2: // Scale cycle
@@ -854,12 +888,22 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
       // shape as the ENV lanes' Shift reset). Both report on the OLED.
       if (uiState.shiftHeld)
       {
-        const float seconds = ControlSurface::delaySecondsForFader(normalized);
-        if (voiceManager)
-          voiceManager->setDelayTime(seconds);
-        uiState.oledNoticeKind = UIState::OledNoticeKind::DelayTime;
-        uiState.oledNoticeValue =
-            static_cast<uint16_t>(lroundf(seconds * 1000.0f));
+        if (uiState.delaySynced)
+        {
+          uiState.delayNoteIndex = DelayTiming::indexForFader(normalized);
+          if (voiceManager)
+            voiceManager->setDelayNoteIndex(uiState.delayNoteIndex);
+          uiState.oledNoticeKind = UIState::OledNoticeKind::DelaySync;
+        }
+        else
+        {
+          const float seconds = ControlSurface::delaySecondsForFader(normalized);
+          if (voiceManager)
+            voiceManager->setDelayTime(seconds);
+          uiState.oledNoticeKind = UIState::OledNoticeKind::DelayTime;
+          uiState.oledNoticeValue =
+              static_cast<uint16_t>(lroundf(seconds * 1000.0f));
+        }
       }
       else
       {

@@ -135,6 +135,7 @@ private:
   // cannot drift on the two buttons that must never change meaning.
   void handleTransportButton(const ButtonState &button, UIState &uiState);
   void handleSessionButton(const ButtonState &button);
+  void handleSessionOrDelayButton(const ButtonState &button, UIState &uiState);
   void handleFaders(UIState &uiState, const SequencerView &sequencers);
 
   AlchemyPanel panel_;
@@ -159,6 +160,7 @@ private:
   ButtonEdges buttonEdges_[kRoleCount][kButtonBits]; // [role][bit]
   bool playSettingsOpenedThisPress_ = false;
   bool saveLoadLatch_ = false; // session button: hold consumed, release suppressed
+  bool delayTogglePress_ = false; // Shift held at press: consume session hold/release
   // Voice 4 + Shift: a tap opens the voice editor, a hold toggles Arpeggiator
   // mode, so the press defers its action to release/hold (like Play below).
   bool editorHoldArmed_ = false;

@@ -4,6 +4,7 @@
 
 #include "LEDMatrix/ArpLedPalette.h"
 #include "ui/ControlSurfaceLogic.h"
+#include "voice/DelayTiming.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -535,6 +536,31 @@ TEST_CASE("Delay time fader mapping spans 10 ms to 750 ms on a log curve", "[con
         CHECK(seconds > previous);
         previous = seconds;
     }
+}
+
+TEST_CASE("Tempo delay divisions cover whole through dotted and triplet 64ths", "[control_surface][delay_sync]")
+{
+    REQUIRE(DelayTiming::kNoteCount == 19);
+    CHECK(DelayTiming::indexForFader(0.0f) == 18);
+    CHECK(DelayTiming::indexForFader(1.0f) == 0);
+    CHECK(DelayTiming::indexForFader(-1.0f) == 18);
+    CHECK(DelayTiming::indexForFader(2.0f) == 0);
+    CHECK(std::string(DelayTiming::labelForIndex(0)) == "WHOLE");
+    CHECK(std::string(DelayTiming::labelForIndex(18)) == "1/64 TRIPLET");
+
+    float previous = 100.0f;
+    for (uint8_t index = 0; index < DelayTiming::kNoteCount; ++index)
+    {
+        const float seconds = DelayTiming::secondsForIndex(index, 120.0f);
+        CAPTURE(index);
+        CHECK(seconds < previous); // fader divisions are in audible time order
+        previous = seconds;
+    }
+    CHECK(DelayTiming::secondsForIndex(0, 45.0f) == Approx(256000.0f / 48000.0f));
+    CHECK(DelayTiming::secondsForIndex(3, 120.0f) == Approx(0.75f)); // dotted quarter
+    CHECK(DelayTiming::secondsForIndex(4, 120.0f) == Approx(2.0f / 3.0f)); // half triplet
+    CHECK(DelayTiming::secondsForIndex(DelayTiming::kDefaultNoteIndex, 120.0f) == Approx(0.5f));
+    CHECK(DelayTiming::secondsForIndex(18, 200.0f) == Approx(0.0125f));
 }
 
 TEST_CASE("FaderMap: a selected step turns the faders into its envelope lanes", "[control_surface][fader]")

@@ -196,9 +196,12 @@ Core 1 heartbeat diagnostics use a separate four-entry SPSC queue and are
 printed on Core 0. The existing PPQN counter lost-increment window is
 documented in the
 [application guide](firmware-structure.md#ownership-and-real-time-rules).
-The master delay (rebuilt 2026-09-20) does not share the removed global
-delay's races: Core 0 publishes mix, time and feedback through lock-free atomics
-on `VoiceManager`, and Core 1 reads them once per block.
+The master delay does not share the removed global delay's races: Core 0
+publishes mix, time mode, note division, BPM and feedback through lock-free
+atomics on `VoiceManager`, and Core 1 reads them once per block. Millisecond
+mode keeps the original full-rate 10–750 ms path. Tempo mode stores a
+low-passed 6 kHz, 16-bit repeat line so a whole note at 45 BPM fits in SRAM;
+the live uClock tempo changes its target time without moving the fader.
 
 ---
 

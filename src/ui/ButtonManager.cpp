@@ -63,6 +63,8 @@ void initButtonManager(UIState &uiState)
   // Initialize UI mode states
   uiState.modGateParamSeqLengthsMode = false;
   uiState.slideMode = false;
+  uiState.delaySynced = false;
+  uiState.delayNoteIndex = DelayTiming::kDefaultNoteIndex;
   uiState.selectedVoiceIndex = 0;
   uiState.selectedStepForEdit = -1;
 

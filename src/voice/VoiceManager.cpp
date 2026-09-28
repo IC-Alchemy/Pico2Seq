@@ -258,7 +258,12 @@ void VoiceManager::init(float sr)
 
     masterDelay_.prepare(sampleRate);
     masterDelay_.setMix(delayMix.load(std::memory_order_relaxed));
-    masterDelay_.setDelaySeconds(delayTime.load(std::memory_order_relaxed));
+    const bool synced = delaySynced.load(std::memory_order_relaxed);
+    masterDelay_.setSynced(synced);
+    masterDelay_.setDelaySeconds(synced
+        ? DelayTiming::secondsForIndex(delayNoteIndex.load(std::memory_order_relaxed),
+                                       delayTempoBpm.load(std::memory_order_relaxed))
+        : delayTime.load(std::memory_order_relaxed));
     masterDelay_.setFeedback(delayFeedback.load(std::memory_order_relaxed));
     masterDelay_.reset();
 
@@ -322,7 +327,12 @@ void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noe
         // Delay targets are read once per block; the delay eases toward them
         // per sample, the same contract as the master gain above.
         masterDelay_.setMix(delayMix.load(std::memory_order_relaxed));
-        masterDelay_.setDelaySeconds(delayTime.load(std::memory_order_relaxed));
+        const bool synced = delaySynced.load(std::memory_order_relaxed);
+        masterDelay_.setSynced(synced);
+        masterDelay_.setDelaySeconds(synced
+            ? DelayTiming::secondsForIndex(delayNoteIndex.load(std::memory_order_relaxed),
+                                           delayTempoBpm.load(std::memory_order_relaxed))
+            : delayTime.load(std::memory_order_relaxed));
         masterDelay_.setFeedback(delayFeedback.load(std::memory_order_relaxed));
         for (uint32_t k = 0; k < count; ++k)
         {

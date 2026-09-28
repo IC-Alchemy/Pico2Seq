@@ -3,6 +3,7 @@
 #include "../voice/Voice.h"
 #include "../voice/VoicePresets.h"
 #include "../voice/MusicalValues.h"
+#include "../voice/DelayTiming.h"
 #include "../app/VoiceEditor.h"
 #include "../app/AppState.h"
 #include "../voice/VoiceSystem.h" // voice id -> slot lookup
@@ -264,6 +265,8 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     case UIState::OledNoticeKind::Macro:        line1 = "MACRO"; break;
     case UIState::OledNoticeKind::DelayMix:     line1 = "DELAY MIX"; break;
     case UIState::OledNoticeKind::DelayTime:    line1 = "DELAY TIME"; break;
+    case UIState::OledNoticeKind::DelaySync:    line1 = "DELAY SYNC"; break;
+    case UIState::OledNoticeKind::DelayMsMode:  line1 = "DELAY MS"; break;
     case UIState::OledNoticeKind::DelayFeedback: line1 = "DELAY FB"; break;
     case UIState::OledNoticeKind::ArpOn:
       line1 = "ARP ON";
@@ -306,14 +309,19 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     }
     else if (uiState.oledNoticeKind == UIState::OledNoticeKind::DelayMix ||
              uiState.oledNoticeKind == UIState::OledNoticeKind::DelayTime ||
+             uiState.oledNoticeKind == UIState::OledNoticeKind::DelaySync ||
+             uiState.oledNoticeKind == UIState::OledNoticeKind::DelayMsMode ||
              uiState.oledNoticeKind == UIState::OledNoticeKind::DelayFeedback)
     {
       displayHardware.setTextSize(1);
       char valueLine[14];
-      if (uiState.oledNoticeKind != UIState::OledNoticeKind::DelayTime)
-        snprintf(valueLine, sizeof(valueLine), "%u %%", static_cast<unsigned>(uiState.oledNoticeValue));
-      else
+      if (uiState.oledNoticeKind == UIState::OledNoticeKind::DelaySync)
+        snprintf(valueLine, sizeof(valueLine), "%s", DelayTiming::labelForIndex(uiState.delayNoteIndex));
+      else if (uiState.oledNoticeKind == UIState::OledNoticeKind::DelayTime ||
+               uiState.oledNoticeKind == UIState::OledNoticeKind::DelayMsMode)
         snprintf(valueLine, sizeof(valueLine), "%u ms", static_cast<unsigned>(uiState.oledNoticeValue));
+      else
+        snprintf(valueLine, sizeof(valueLine), "%u %%", static_cast<unsigned>(uiState.oledNoticeValue));
       const uint8_t valueLineWidth = static_cast<uint8_t>(strlen(valueLine) * 6);
       displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - valueLineWidth) / 2, 44);
       displayHardware.print(valueLine);
