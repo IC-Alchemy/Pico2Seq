@@ -14,6 +14,57 @@ inline void clearStepEdit(UIState &state) noexcept
     state.currentEditParameter = ParamId::Count;
 }
 
+inline void cancelGateLengthHold(UIState &state) noexcept
+{
+    if (state.gateSeqLengthMode) state.resetStepsLightsFlag = true;
+    state.gateSeqLengthMode = false;
+    state.gateSeqLengthVoice = -1;
+}
+
+// Only a fresh, unmodified voice press can arm length entry. Modal exits and
+// Shift changes cannot resurrect an old hold before the next press edge.
+inline void beginGateLengthHold(UIState &state, uint8_t voice) noexcept
+{
+    cancelGateLengthHold(state);
+    if (voice >= UIState::MAX_VOICES || state.shiftHeld || state.settingsMode ||
+        state.arp.active() || state.voiceEditor.active || state.controlsWaitRelease ||
+        state.voiceEnvelope.active || state.voiceEnvelope.chordPending ||
+        state.voiceEnvelope.waitRelease) return;
+    state.gateSeqLengthVoice = static_cast<int8_t>(voice);
+}
+
+// Returns true only on entry, so the tile bridge can also clear its latch.
+inline bool updateGateLengthHold(UIState &state, uint8_t voice, bool held,
+                                 uint32_t heldMs, uint32_t thresholdMs) noexcept
+{
+    if (state.gateSeqLengthVoice != static_cast<int8_t>(voice)) return false;
+    if (!held || state.shiftHeld || state.settingsMode || state.arp.active() ||
+        state.voiceEditor.active || state.controlsWaitRelease ||
+        state.voiceEnvelope.active || state.voiceEnvelope.chordPending ||
+        state.voiceEnvelope.waitRelease || state.selectedVoiceIndex != voice)
+    {
+        cancelGateLengthHold(state);
+        return false;
+    }
+    if (state.gateSeqLengthMode || heldMs < thresholdMs) return false;
+    state.gateSeqLengthMode = true;
+    state.slideMode = state.modGateParamSeqLengthsMode = false;
+    state.latchedParameter = -1;
+    for (auto &parameterHeld : state.parameterButtonHeld) parameterHeld = false;
+    for (auto &pressedAt : state.padPressTimestamps) pressedAt = 0;
+    clearStepEdit(state);
+    state.resetStepsLightsFlag = true;
+    return true;
+}
+
+// The dark partner bank must not edit another voice behind the length screen.
+inline uint8_t gateLengthForPad(const UIState &state, uint8_t voice, uint8_t step) noexcept
+{
+    if (!state.gateSeqLengthMode || state.gateSeqLengthVoice != voice || step >= 16)
+        return 0;
+    return step == 0 ? 2 : static_cast<uint8_t>(step + 1);
+}
+
 // The ADSR page is live: only clear competing UI gestures, never transport.
 inline void openVoiceEnvelope(UIState &state, uint8_t voice) noexcept
 {
@@ -22,8 +73,8 @@ inline void openVoiceEnvelope(UIState &state, uint8_t voice) noexcept
     state.selectedVoiceIndex = voice;
     clearStepEdit(state);
     state.settingsMode = state.slideMode = false;
-    state.gateSeqLengthMode = state.modGateParamSeqLengthsMode = false;
-    state.encoderControlWasPressed = false;
+    cancelGateLengthHold(state);
+    state.modGateParamSeqLengthsMode = false;
     state.latchedParameter = -1;
     for (auto &held : state.parameterButtonHeld) held = false;
     for (auto &held : state.randomizeWasPressed) held = false;
@@ -39,6 +90,7 @@ inline void openVoiceEnvelope(UIState &state, uint8_t voice) noexcept
 // the grid and the screen agree. Safe while playing (apply is staged).
 inline void openSettings(UIState &state) noexcept
 {
+    cancelGateLengthHold(state);
     state.settingsMode = true;
     state.currentSubMode = UIState::SettingsSubMode::PRESET_SELECTION;
     state.voiceParameterFeedbackPending = false;
@@ -86,9 +138,8 @@ inline void toggleSlide(UIState &state) noexcept
         held = false;
     state.latchedParameter = -1;
     state.modGateParamSeqLengthsMode = false;
-    state.gateSeqLengthMode = false;
+    cancelGateLengthHold(state);
     // A pre-slide hold/release must not re-enter length mode or select a step.
-    state.encoderControlWasPressed = false;
     for (auto &pressedAt : state.padPressTimestamps)
         pressedAt = 0;
 }
@@ -99,6 +150,7 @@ inline bool selectPerformanceVoice(UIState &state, uint8_t voice) noexcept
 {
     if (voice >= UIState::MAX_VOICES)
         return false;
+    cancelGateLengthHold(state);
     state.selectedVoiceIndex = voice;
     clearStepEdit(state);
     state.voiceSwitchTriggered = true;
@@ -133,9 +185,8 @@ inline void enterArpMode(UIState &state) noexcept
     state.selectedStepForEdit = -1;
     state.currentEditParameter = ParamId::Count;
     state.slideMode = false;
-    state.gateSeqLengthMode = false;
+    cancelGateLengthHold(state);
     state.modGateParamSeqLengthsMode = false;
-    state.encoderControlWasPressed = false;
     state.latchedParameter = -1;
     state.envFaderLane = ParamId::Count;
     state.envViewUntil = 0;
@@ -155,8 +206,7 @@ inline void exitArpMode(UIState &state) noexcept
     state.arpControl = UIState::ArpControl::None;
     state.selectedStepForEdit = -1;
     state.currentEditParameter = ParamId::Count;
-    state.gateSeqLengthMode = false;
-    state.encoderControlWasPressed = false;
+    cancelGateLengthHold(state);
     for (auto &pressedAt : state.padPressTimestamps)
         pressedAt = 0;
 }

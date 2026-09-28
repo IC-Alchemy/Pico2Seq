@@ -399,12 +399,12 @@ I2S Stereo Audio Out (GP10 / GP11 / GP12)
 
 ## 9. Gate Sequence Length Mode
 
-- **Activation**: Long-hold the encoder control button (Utility mode bit 5) to enter Gate Sequence Length Mode.
-- **Behavior**: Step pads 1–16 set the Gate track length (2–16 steps) for the active voice via `Sequencer::setParameterStepCount(ParamId::Gate, ...)`.
+- **Activation**: Hold a SliderModule voice button without Shift for 400 ms in Param or Utility mode. A press selects the voice immediately; the hold opens Gate Sequence Length Mode. Settings, Voice Editing, voice-envelope controls, and Arpeggiator mode suppress this gesture.
+- **Behavior**: Step pads 1–16 in the held voice's bank set its Gate track length (2–16 steps) via `Sequencer::setParameterStepCount(ParamId::Gate, ...)`. The other bank is ignored, and pad releases cannot toggle gates or enter step editing.
 - **Visual Feedback**:
   - **LED Matrix**: Renders a blinking band along the selected voice row up to the active Gate length; non-selected rows dim.
-  - **OLED**: Displays "Gate Len Mode", the active voice number, length value, and a proportional horizontal gauge.
-- **Exit**: Release the encoder button or toggle slide mode.
+  - **OLED**: Displays "Sequence length", the active voice number, length value, and a proportional horizontal gauge.
+- **Exit**: Release the voice button, switch voices/panel modes, press Shift, or enter a conflicting mode. A new voice press is required to re-arm the hold.
 
 ---
 

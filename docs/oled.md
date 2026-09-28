@@ -74,7 +74,7 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
                                     v
 +-------------------------------------------------------------------------+
 | Priority 5: Gate Sequence Length Gauge                                  |
-| (Active when uiState.gateSeqLengthMode == true - holding encoder)       |
+| (Active when uiState.gateSeqLengthMode == true - holding a voice button) |
 +-------------------------------------------------------------------------+
                                     | (if inactive)
                                     v
@@ -141,11 +141,11 @@ name (e.g. Bright/Pick/T60 on a waveguide voice, via `VoicePresets::getSequencer
 and formats the value in its own unit (%, seconds for T60, semitones for detune) via `MusicalValues::format`.
 
 #### 5. Gate Sequence Length Gauge (Priority 5)
-Activated when `uiState.gateSeqLengthMode` is active (holding the encoder while rotating):
-- Header: `"Sequence Length"`
+Activated when `uiState.gateSeqLengthMode` is active (holding Voice 1–4 without Shift for 400 ms, in either panel mode):
+- Header: `"Sequence length"`
 - Voice: `1..4` (1-based display)
-- Length: Numeric sequence length (1–64) displayed in size-2 font.
-- Visual Gauge: Proportional horizontal bar across the bottom displaying length relative to 64 steps.
+- Length: Gate sequence length (2–16) displayed in size-2 font; set it with a pad in the held voice's lit bank.
+- Visual Gauge: Proportional horizontal bar across the bottom displaying length relative to 16 steps. Release the voice button to exit.
 
 #### 6. Parameter Edit Screen (Priority 3b when held, 6 in Step Edit)
 Displayed when a parameter button is held (`heldParamId`) or a step is selected for editing (`selectedStepForEdit`).

@@ -87,7 +87,7 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, and system contr
 | **2** | `Scale Cycle` | Cycles forward through the 13 musical scales |
 | **3** | `Swing Pattern` | Cycles through the 16 groove/shuffle templates in `ShuffleTemplates.h` |
 | **4** | `Theme Cycle` | Cycles visual LED color themes across `LEDTheme` presets |
-| **5** | `Encoder Target` | Short press cycles encoder target; hold enters Gate Sequence Length mode |
+| **5** | `Encoder Target` | Press cycles encoder target (or toggles the Settings page) |
 | **6** | `Randomize` | Short press randomizes selected voice; long press (>1000 ms) resets voice. Shift + tap clears the selected voice's whole pattern (`clearSequencerVoice` → `Sequencer::clearPattern`); Shift + long-press clears all four voices (`clearAllSequencerVoices`) |
 | **7** | `Shift` | Modifier for transport and utility chords |
 
@@ -124,6 +124,7 @@ The 4 buttons on the SliderModule tile act as direct Voice 1–4 selectors in bo
   - Button 1: Select Voice 2 (`selectedVoiceIndex = 1`)
   - Button 2: Select Voice 3 (`selectedVoiceIndex = 2`)
   - Button 3: Select Voice 4 (`selectedVoiceIndex = 3`)
+- **Long Press (400 ms, without Shift)**: Enter Gate Sequence Length mode for that voice in either panel mode. Keep holding and tap a pad in its lit bank to set 2–16 steps; the partner bank is ignored. The existing OLED length gauge and blinking LED band show the value. Release the voice button to exit. Settings, Voice Editing, voice-envelope controls, and Arpeggiator mode retain their own controls.
 - **Shift + Voice Button Chords** (Held Shift + Slider Button):
   - `Shift + Voice 1`: Play / Stop toggle
   - `Shift + Voice 2`: Randomize selected voice (short-press randomize only — the poll-driven long-press reset never triggers from a chord)
@@ -156,7 +157,7 @@ PadAddress addr = ControlSurface::PadBank::resolve(padIndex, uiState.selectedVoi
   - Bank 0 (Pads 0–15): Voice 3 steps 0–15
   - Bank 1 (Pads 16–31): Voice 4 steps 0–15
 
-All step actions (gate toggle, long-press step selection for editing, parameter-hold step entry, gate sequence length adjustment, and slide toggling) resolve to the pad's bank-mapped voice rather than assuming the single global selected voice.
+Step actions resolve to the pad's bank-mapped voice. Gate sequence length entry accepts only the held voice's bank; gate toggles, step selection, parameter-length entry, and slide toggles can address either visible voice.
 
 ---
 
@@ -304,9 +305,8 @@ struct UIState {
     // isPresetSelection() derives the active view from currentSubMode.
     uint8_t voicePresetIndices[4] = {4, 2, 1, 6};
 
-    // Encoder Hold / Gate Seq Length
-    unsigned long encoderControlPressTime = 0;
-    bool encoderControlWasPressed = false;
+    // Voice Button Hold / Gate Sequence Length
+    int8_t gateSeqLengthVoice = -1;
     bool gateSeqLengthMode = false;
 
     // Alchemy Tile State (GP7 Mode Strap & Shift Latch)
