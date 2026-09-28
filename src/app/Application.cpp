@@ -49,7 +49,7 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
             freezeWatchdogPrintPreviousRun();
             // lidar=-1: no recent reading. st is the ST range status: 0 valid,
             // 1 sigma fail (still used), 2 signal fail, 4 out of bounds, 255 none.
-            Serial.printf("[DIAG C0] ids=%u,%u,%u,%u mgrVoices=%u warmBoots=%lu steps=%lu audioBufs=%lu audio=%s i2sstage=%lu lidar=%dmm st=%u\n",
+            Serial.printf("[DIAG C0] ids=%u,%u,%u,%u mgrVoices=%u warmBoots=%lu steps=%lu audioBufs=%lu audio=%s err=%u i2sstage=%lu lidar=%dmm st=%u\n",
                           voiceSystem.getVoiceId(0), voiceSystem.getVoiceId(1),
                           voiceSystem.getVoiceId(2), voiceSystem.getVoiceId(3),
                           (unsigned)(voiceManager ? voiceManager->getVoiceCount() : 0),
@@ -57,6 +57,7 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
                           (unsigned long)g_processedStepCount,
                           (unsigned long)AudioEngine::completedBufferCount(),
                           AudioEngine::phaseName(AudioEngine::phase()),
+                          static_cast<unsigned>(g_errorState),
                           (unsigned long)AudioEngine::driverSetupStage(),
                           distanceSensor.getRawDistanceMm(),
                           static_cast<unsigned>(distanceSensor.getLastRangeStatus()));
