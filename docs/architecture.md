@@ -88,10 +88,10 @@ disabled; TinyUSB CDC remains available for the serial console.
     `uClock.setShuffle(true)` using templates from `ShuffleTemplates.h`.
   - Initialized in `setup()` on Core 0, so the timer ISR fires on Core 0.
   - ISR-context callbacks stage events only — no work (2026-09-05 deferral refactor):
-    `onStepCallback` enqueues the 16th-note step number into a 16-deep SPSC ring
-    `stepQueue`, a `SpscQueue<uint32_t, 16>` from `src/utils/`; a full ring drops the
-    new step and counts into `droppedStepCount`); `onOutputPPQNCallback` increments
-    `ppqnTicksPending`. The firmware sends **no MIDI realtime clock output** — no Clock,
+    `onStepCallback` enqueues the 16th-note step number into `clockEvents.steps`,
+    a 16-deep `SpscQueue<uint32_t, 16>` in `src/app/ClockService.cpp`; a full ring
+    drops the new step and increments `clockEvents.droppedSteps`. `onOutputPPQNCallback`
+    increments `clockEvents.ppqnTicksPending`. The firmware sends **no MIDI realtime clock output** — no Clock,
     Start, or Stop bytes go out over USB MIDI.
   - Thread-context callbacks: `onClockStart` / `onClockStop` keep their full bodies
     inline — `uClock.start()/stop()` are called from `setup()`/UI handlers (thread),
@@ -236,7 +236,7 @@ extern VoiceSystem voiceSystem;
 ### 4.2 Voice Count & Subsystem Capabilities
 - **4 Polyphonic Voices (`MAX_VOICES = 4`)**: All 4 voices are fully synthesized in real time on Core 1 via `voiceManager->processBlock()`.
 - **One duration authority per voice**: Each sequencer owns note duration.
-  `ClockService::processPendingGateTicks()` calls `tickNoteDuration()` and
+  `processPendingGateTicks()` calls `tickNoteDuration()` and
   publishes expiry to audio via `VoiceManager` for every voice. The redundant
   `VoiceSystem` gates, gate timers and `GateTimer` type are removed, as is the
   dormant firmware MIDI module.
