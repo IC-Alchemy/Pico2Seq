@@ -66,12 +66,9 @@ void handleParameterButtonById(uint8_t paramId, bool pressed, UIState &uiState);
 void handleSlideModePress(UIState &uiState);
 
 /**
- * @brief Encoder-control tile button hold tracking (gate seq length mode).
- * begin on press; pollUIHeldButtons promotes a long hold into
- * gateSeqLengthMode; call end on release.
+ * @brief Encoder-control tile press: cycle target, or toggle Settings page.
  */
-void beginEncoderControlHold(UIState &uiState);
-void endEncoderControlHold(UIState &uiState);
+void handleEncoderControlPress(UIState &uiState);
 
 /**
  * @brief Direct voice selection (SliderModule Voice1..4 buttons, both modes).

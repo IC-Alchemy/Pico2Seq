@@ -34,7 +34,7 @@ void clearPerformanceControls() {
   for (auto &timestamp : uiState.padPressTimestamps)
     timestamp = 0;
   UITransitions::closeSettings(uiState);
-  uiState.encoderControlWasPressed = uiState.gateSeqLengthMode = false;
+  UITransitions::cancelGateLengthHold(uiState);
   uiState.modGateParamSeqLengthsMode = uiState.slideMode = false;
   uiState.playStopWasPressed = uiState.voiceSwitchWasPressed = false;
   uiState.selectedStepForEdit = -1;

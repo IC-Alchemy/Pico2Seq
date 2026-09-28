@@ -2,6 +2,7 @@
 #define UI_STATE_H
 
 #include <cstdint>
+#include "UIConstants.h"
 #include "VoiceEditControls.h"
 #include "VoiceEnvelopeControls.h"
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
@@ -110,12 +111,11 @@ struct UIState
     unsigned long playStopPressTime = 0;
     bool playStopWasPressed = false;
 
-    // --- Encoder Control Hold / Gate Seq Length Mode ---
-    // One overloaded tile button: tap cycles the encoder target, hold turns
-    // pads into Gate-track-length entry (2..16). Tracked non-blocking via millis().
-    unsigned long encoderControlPressTime = 0;
-    bool encoderControlWasPressed = false;
-    bool gateSeqLengthMode = false; // When true, step buttons set Gate track length (per selected voice)
+    // --- Voice Button Hold / Gate Sequence Length Mode ---
+    // A plain voice press selects immediately; holding it opens length entry
+    // for that voice until release. -1 means no armed/active voice hold.
+    int8_t gateSeqLengthVoice = -1;
+    bool gateSeqLengthMode = false;
 
     // --- Transient parameter feedback (independent of the settings page) ---
     bool voiceParameterFeedbackPending = false;

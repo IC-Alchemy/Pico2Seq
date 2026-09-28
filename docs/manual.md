@@ -99,7 +99,7 @@ What pads do, per situation:
 - **Hold a parameter button + tap a pad** — sets that parameter track's **length** to the
   pad number (pad 5 = 5 steps). This is how you make polymetric tracks (§3.2).
 - **Shift + pad** — clears that step (gate off, all parameters back to defaults).
-- **While Gate Length mode is active** (hold the Utility-mode encoder button) — a pad sets
+- **While Gate Length mode is active** (hold a voice button for 400 ms) — a pad in that voice's lit bank sets
   the selected voice's **Gate track length** (2–16 steps) instead of toggling a step.
 
 ### 1.3 Faders (slider slots)
@@ -203,9 +203,13 @@ range. It edits whatever the **encoder target** is — cycle targets with the Ut
   **base** instead, marked `Base` on the home screen and `BASE` on a parameter screen. A
   held parameter also shows the current lidar reading in mm.
 
-**Hold** the Utility-mode encoder button (about a second) to enter **Gate Sequence Length
-mode**: the LEDs show a blinking band on the selected voice's rows, and touching pads 1–16
-sets that voice's Gate track length (2–16 steps). Release the button to exit.
+**Hold Voice 1-4 without Shift for 400 ms** in either Param or Utility mode to enter
+**Gate Sequence Length mode** for that voice. The LEDs show a blinking band on its
+rows. Keep holding and touch pads 1–16 in that voice's lit bank to set its Gate track
+length (2–16 steps); the other bank is ignored.
+The same OLED length gauge shows the value; release the voice button to exit. A short
+press still selects immediately. Settings, Voice Editing, voice-envelope controls,
+and Arpeggiator mode retain their own controls.
 
 ### 1.7 VL53L1X distance sensor
 
@@ -610,7 +614,7 @@ Presets live in flash and are auditioned and applied per voice in the **preset b
 | Long-press a pad (~0.4 s) | Enter Step Edit mode for that step (encoder/faders/sensor edit it; OLED shows values) |
 | Shift + pad | Clear that step (gate off, parameters to defaults) |
 | Hold a parameter button + tap pad | Set that parameter track's length to the pad number |
-| Pad press while Gate Length mode is held | Set the selected voice's Gate track length (2–16 steps) |
+| Pad press in the lit bank while a voice button is long-held | Set the selected voice's Gate track length (2–16 steps) |
 | Tap a pad while the preset browser is open | Apply that preset to the selected voice — pads 0–28 = presets 1–29 (pads 0–30 are preset slots); V1–V4 switch the target voice |
 
 ### Faders
@@ -643,7 +647,7 @@ of the step to the patch value. See §1.3.
 | 3 Scale | Cycle forward through the 13 scales |
 | 4 Swing | Cycle through the 16 shuffle templates |
 | 5 Theme | Cycle the 10 LED matrix color themes |
-| 6 Encoder target | Short press: cycle encoder target. Hold: enter Gate Sequence Length mode (pads set the Gate track length) |
+| 6 Encoder target | Press: cycle encoder target (or toggle the Settings page) |
 | 7 Randomize | Short press (< 1 s): randomize the selected voice. Long press (≥ 1 s): reset it. **Shift + tap**: clear the selected voice's whole pattern (values, gates, track lengths). **Shift + long-press**: clear all four voices |
 | 8 Shift | Modifier for transport/utility chords |
 
@@ -715,7 +719,7 @@ voices: [`docs/arpeggiator.md`](arpeggiator.md).
 |---|---|
 | Turn magnetic encoder | Adjust the active encoder target; slow = fine, fast = coarse (velocity-sensitive) |
 | Utility button 6 | Change encoder target (Velocity → Filter → Attack → Decay → Note → Octave → Slide Time) |
-| Hold Utility button 6 | Gate Sequence Length mode |
+| Hold Voice 1-4 without Shift (400 ms) | Gate Sequence Length mode for that voice, in Param or Utility mode; release to exit |
 | Move hand over VL53L1X while a parameter is armed | Hands-free live recording of a relative modifier into that parameter's sequence at its playing step on the selected voice, continuously while held and heard at once (midpoint ≈ neutral) |
 | Mode switch (GPIO 7) | Select Param (LOW) or Utility (HIGH) button set; shows a banner on flip |
 | Shift + V4 (hold, release) | Enter Voice Editing mode (transport stops; see above) |
