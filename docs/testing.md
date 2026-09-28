@@ -93,9 +93,16 @@ Bench regression checklist (host tests cannot verify the physical tile/LED/OLED 
 - Open settings after leaving its parameter page: presets appear and pad taps apply presets.
 - Select each voice through tiles and pad holds: tiles exit step editing; pad holds keep
   the parameter target and focus the held step without ending sounding notes.
-- Enter slide with a Shift-latched parameter, pending pad hold, or encoder length hold:
+- Enter slide with a Shift-latched parameter, pending pad hold, or voice length hold:
   old holds/latches cannot reappear on release. Both slide toggles leave step editing clear.
 - Press/release parameter tiles while sliding, then leave slide: no stale latch returns.
+- Hold each voice button for 400 ms in both panel modes: the existing OLED length gauge
+  and blinking band should identify that voice. Tap its lit bank to set 2–16 steps;
+  the partner bank must do nothing. Release the voice and pads in either order:
+  no gate toggles or step selection should leak through. Short voice taps and Shift
+  chords retain their actions; holding Utility button 6 must not open length entry.
+  Host coverage for timing, ownership, and modal cancellation is tagged `[gate_length]`
+  in `test_ui_transitions.cpp`; physical controls and display behavior need hardware checks.
 - Editor voice selection keeps per-voice cursors; session restore retains the saved voice
   without invoking live tile-selection note cleanup.
 

@@ -110,6 +110,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
   for(uint8_t bit=0;bit<8;++bit) if(buttonAt(buttonSlot_,bit).held()) buttons|=1u<<bit;
   for(uint8_t bit=0;bit<4;++bit) if(buttonAt(sliderSlot_,bit).held()) voices|=1u<<bit;
   if(uiState.voiceEditor.active || uiState.controlsWaitRelease) {
+    UITransitions::cancelGateLengthHold(uiState);
     // Keep physical histories current even while their performance actions are
     // suppressed. No release can become a new action after leaving the editor.
     for(uint8_t bit=0;bit<8;++bit) {
@@ -139,7 +140,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
     if (uiState.voiceEnvelope.active || envelopeInput.exit) latch_.reset();
     for (auto &held : uiState.parameterButtonHeld) held = false;
     uiState.latchedParameter = -1;
-    uiState.encoderControlWasPressed = false;
+    UITransitions::cancelGateLengthHold(uiState);
     for (auto &held : uiState.randomizeWasPressed) held = false;
     playSettingsOpenedThisPress_ = saveLoadLatch_ = delayTogglePress_ = false;
     clearChordThisPress_ = clearAllLatch_ = false;
@@ -174,8 +175,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
         uiState.latchedParameter = latch_.latched();
         handleParameterButtonById(lane, true, uiState);
       } else if (uiState.alchemyMode == UIState::AlchemyMode::Utility) {
-        beginEncoderControlHold(uiState);
-        endEncoderControlHold(uiState);
+        handleEncoderControlPress(uiState);
       }
     }
     if (!uiState.voiceEnvelope.active || uiState.voiceEnvelope.waitRelease ||
@@ -197,7 +197,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
     faders_.resetShiftTargets();
   }
 
-  // SliderModule buttons: voice select, or transport chords with Shift —
+  // SliderModule buttons: voice select/length hold, or transport chords with Shift —
   // identical in both modes.
   handleVoiceButtons(nowMs, uiState);
   if(uiState.voiceEditor.active) return;
@@ -267,6 +267,7 @@ void AlchemyControlBridge::handleModeStrap(uint32_t nowMs, UIState &uiState)
 // this is the only point that knows a settled change just happened.
 void AlchemyControlBridge::onModeFlip(uint32_t nowMs, UIState &uiState)
 {
+  UITransitions::cancelGateLengthHold(uiState);
   // Nothing sticks across a mode change: drop the latch and every derived
   // hold, snap the fader deadband so the new mode's controls engage, and
   // raise the OLED banner flag.
@@ -295,15 +296,21 @@ void AlchemyControlBridge::handleVoiceButtons(uint32_t nowMs, UIState &uiState)
   {
     const TileButton &tileButton = buttonAt(sliderSlot_, voice);
     ButtonEdges &edges = buttonEdges_[kSliderRole][voice];
-    // An armed editor/arp press keeps being polled while it is held, so the
-    // long press is reachable; every other button acts on its press edge only.
+    const bool changed = edges.take(tileButton);
+    // Plain voice holds run in both panel modes, including passes with no
+    // edge. Release (or a missing tile) cancels only that voice's own hold.
+    if (UITransitions::updateGateLengthHold(uiState, voice, tileButton.held(),
+          tileButton.heldMilliseconds(nowMs), UITimingConstants::LONG_PRESS_THRESHOLD_MS))
+      latch_.reset();
+
+    // Shift+Voice 4 retains its editor tap / arpeggiator hold gesture.
     const bool actsWhileHeld = voice == 3 && editorHoldArmed_ && !editorHoldFired_;
-    if (!edges.take(tileButton) && !(actsWhileHeld && tileButton.held()))
+    if (!changed && !(actsWhileHeld && tileButton.held()))
     {
       continue;
     }
 
-    if (voice == 3 && (shift || editorHoldArmed_))
+    if (voice == 3 && ((edges.pressEdge && shift) || editorHoldArmed_))
     {
       if (edges.pressEdge)
       {
@@ -339,6 +346,7 @@ void AlchemyControlBridge::handleVoiceButtons(uint32_t nowMs, UIState &uiState)
     {
       // Direct voice select (also switches the pad banks via PadBank).
       selectVoice(uiState, voice);
+      UITransitions::beginGateLengthHold(uiState, voice);
       continue;
     }
 
@@ -408,6 +416,11 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
     }
 
     if (uiState.slideMode)
+      continue;
+
+    // Length entry owns the pads and OLED until the voice button is released.
+    // Still consume tile edges so no parameter press leaks out afterwards.
+    if (uiState.gateSeqLengthMode)
       continue;
 
     // Bits 0-5 follow ButtonMap.h order. The 5th button is silkscreened Decay
@@ -699,15 +712,9 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
         handleControlButton(BUTTON_CHANGE_THEME, uiState);
       break;
 
-    case 5: // Encoder-control target cycle; hold enters gate seq length mode
+    case 5: // Encoder target / Settings page; length entry uses voice holds.
       if (edges.pressEdge)
-      {
-        beginEncoderControlHold(uiState);
-      }
-      else if (edges.releaseEdge)
-      {
-        endEncoderControlHold(uiState);
-      }
+        handleEncoderControlPress(uiState);
       break;
 
     case 6: // Randomize selected voice (long-press reset via pollUIHeldButtons).

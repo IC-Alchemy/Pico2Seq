@@ -1,5 +1,6 @@
 #include "ui/UITransitions.h"
 #include "ui/ControlSurfaceLogic.h"
+#include "ui/ButtonManager.h"
 #include <catch2/catch_test_macros.hpp>
 #include <limits>
 
@@ -70,7 +71,7 @@ TEST_CASE("Slide entry clears conflicting controls and consumes pending holds", 
     state.settingsMode = true; // slide does not control transport or settings
     state.modGateParamSeqLengthsMode = true;
     state.gateSeqLengthMode = true;
-    state.encoderControlWasPressed = true;
+    state.gateSeqLengthVoice = 3;
     state.selectedStepForEdit = 5;
     state.currentEditParameter = ParamId::Attack;
     state.latchedParameter = static_cast<int8_t>(ParamId::Attack);
@@ -82,7 +83,7 @@ TEST_CASE("Slide entry clears conflicting controls and consumes pending holds", 
     CHECK(state.currentEditParameter == ParamId::Count);
     CHECK_FALSE(state.modGateParamSeqLengthsMode);
     CHECK_FALSE(state.gateSeqLengthMode);
-    CHECK_FALSE(state.encoderControlWasPressed);
+    CHECK(state.gateSeqLengthVoice == -1);
     CHECK(state.latchedParameter == -1);
     for (const auto held : state.parameterButtonHeld) CHECK_FALSE(held);
     for (const auto time : state.padPressTimestamps)
@@ -142,7 +143,7 @@ TEST_CASE("Arpeggiator mode entry clears the sequencer's modal surface", "[contr
     state.slideMode = true;
     state.gateSeqLengthMode = true;
     state.modGateParamSeqLengthsMode = true;
-    state.encoderControlWasPressed = true;
+    state.gateSeqLengthVoice = 0;
     state.latchedParameter = static_cast<int8_t>(ParamId::Filter);
     state.envFaderLane = ParamId::Attack;
     state.envViewUntil = 1000;
@@ -159,7 +160,7 @@ TEST_CASE("Arpeggiator mode entry clears the sequencer's modal surface", "[contr
     CHECK_FALSE(state.slideMode);
     CHECK_FALSE(state.gateSeqLengthMode);
     CHECK_FALSE(state.modGateParamSeqLengthsMode);
-    CHECK_FALSE(state.encoderControlWasPressed);
+    CHECK(state.gateSeqLengthVoice == -1);
     CHECK(state.latchedParameter == -1);
     CHECK(state.envFaderLane == ParamId::Count);
     CHECK(state.envViewUntil == 0);
@@ -192,4 +193,134 @@ TEST_CASE("Arpeggiator mode entry clears the sequencer's modal surface", "[contr
     state.selectedVoiceIndex = 2;
     CHECK(UITransitions::selectPerformanceVoice(state, 1));
     CHECK(state.selectedVoiceIndex == 1);
+}
+
+namespace {
+bool pollVoiceHold(UIState &state, uint8_t voice, bool held, uint32_t heldMs)
+{
+    return UITransitions::updateGateLengthHold(state, voice, held, heldMs,
+                                               UITimingConstants::LONG_PRESS_THRESHOLD_MS);
+}
+}
+
+TEST_CASE("Voice holds edit only their own gate bank in either panel mode", "[control_surface][ui_transitions][gate_length]")
+{
+    for (const auto mode : {UIState::AlchemyMode::Param, UIState::AlchemyMode::Utility})
+    for (uint8_t voice = 0; voice < UIState::MAX_VOICES; ++voice)
+    {
+        UIState state;
+        state.alchemyMode = mode;
+        CAPTURE(voice, static_cast<int>(mode));
+        UITransitions::selectPerformanceVoice(state, voice);
+        UITransitions::beginGateLengthHold(state, voice);
+        CHECK(state.selectedVoiceIndex == voice); // immediate selection, before hold
+        CHECK_FALSE(pollVoiceHold(state, voice, true, 399));
+        CHECK_FALSE(state.gateSeqLengthMode);
+        CHECK(pollVoiceHold(state, voice, true, 400));
+        CHECK(state.gateSeqLengthMode);
+        CHECK_FALSE(pollVoiceHold(state, voice, true, 900)); // one entry per press
+        for (uint8_t index = 0; index < 32; ++index)
+        {
+            const auto pad = ControlSurface::PadBank::resolve(index, voice);
+            const uint8_t expected = pad.voice != voice ? 0 : (pad.step == 0 ? 2 : pad.step + 1);
+            CHECK(UITransitions::gateLengthForPad(state, pad.voice, pad.step) == expected);
+        }
+        CHECK(UITransitions::gateLengthForPad(state, voice, 16) == 0);
+        // Another voice's release cannot close the held voice's editor.
+        CHECK_FALSE(pollVoiceHold(state, (voice + 1) % 4, false, 0));
+        CHECK(state.gateSeqLengthMode);
+        state.resetStepsLightsFlag = false;
+        CHECK_FALSE(pollVoiceHold(state, voice, false, 0));
+        CHECK_FALSE(state.gateSeqLengthMode);
+        CHECK(state.gateSeqLengthVoice == -1);
+        CHECK(state.resetStepsLightsFlag);
+        CHECK(UITransitions::gateLengthForPad(state, voice, 7) == 0);
+    }
+}
+
+TEST_CASE("Short voice taps and unarmed levels never open length entry", "[control_surface][ui_transitions][gate_length]")
+{
+    UIState state;
+    CHECK_FALSE(pollVoiceHold(state, 0, true, 1000)); // held through boot / editor exit
+    CHECK_FALSE(state.gateSeqLengthMode);
+    UITransitions::selectPerformanceVoice(state, 2);
+    UITransitions::beginGateLengthHold(state, 2);
+    CHECK_FALSE(pollVoiceHold(state, 2, false, 399));
+    CHECK(state.selectedVoiceIndex == 2);
+    CHECK(state.gateSeqLengthVoice == -1);
+    CHECK_FALSE(state.gateSeqLengthMode);
+}
+
+TEST_CASE("Gate length entry clears competing edits and pending pad releases", "[control_surface][ui_transitions][gate_length]")
+{
+    UIState state;
+    UITransitions::beginGateLengthHold(state, 0);
+    state.slideMode = state.modGateParamSeqLengthsMode = true;
+    state.selectedStepForEdit = 5;
+    state.currentEditParameter = ParamId::Attack;
+    state.latchedParameter = static_cast<int8_t>(ParamId::Attack);
+    for (auto &held : state.parameterButtonHeld) held = true;
+    for (auto &time : state.padPressTimestamps) time = 100;
+    REQUIRE(pollVoiceHold(state, 0, true, 400));
+    CHECK_FALSE(state.slideMode);
+    CHECK_FALSE(state.modGateParamSeqLengthsMode);
+    CHECK(state.latchedParameter == -1);
+    CHECK(state.selectedStepForEdit == -1);
+    CHECK(state.currentEditParameter == ParamId::Count);
+    for (const auto held : state.parameterButtonHeld) CHECK_FALSE(held);
+    // Release after leaving length mode must not toggle a previously held pad.
+    pollVoiceHold(state, 0, false, 0);
+    for (const auto time : state.padPressTimestamps)
+        CHECK(ControlSurface::classifyPadRelease(time, 1000, 400) == ControlSurface::PadRelease::Ignore);
+}
+
+TEST_CASE("Shift and modal gestures cannot become voice length holds", "[control_surface][ui_transitions][gate_length]")
+{
+    for (uint8_t blocker = 0; blocker < 8; ++blocker)
+    for (const bool alreadyArmed : {false, true})
+    {
+        UIState state;
+        CAPTURE(blocker, alreadyArmed);
+        if (alreadyArmed) UITransitions::beginGateLengthHold(state, 0);
+        switch (blocker)
+        {
+        case 0: state.shiftHeld = true; break;
+        case 1: state.settingsMode = true; break;
+        case 2: state.arp.setActive(true); break;
+        case 3: state.voiceEditor.active = true; break;
+        case 4: state.controlsWaitRelease = true; break;
+        case 5: state.voiceEnvelope.active = true; break;
+        case 6: state.voiceEnvelope.chordPending = true; break;
+        case 7: state.voiceEnvelope.waitRelease = true; break;
+        }
+        if (!alreadyArmed) UITransitions::beginGateLengthHold(state, 0);
+        CHECK_FALSE(pollVoiceHold(state, 0, true, 400));
+        CHECK_FALSE(state.gateSeqLengthMode);
+        CHECK(state.gateSeqLengthVoice == -1);
+        state.shiftHeld = state.settingsMode = state.voiceEditor.active = false;
+        state.controlsWaitRelease = false;
+        state.voiceEnvelope = {};
+        state.arp.setActive(false);
+        CHECK_FALSE(pollVoiceHold(state, 0, true, 1000)); // release + fresh press required
+    }
+}
+
+TEST_CASE("Voice switches and modal transitions cancel length ownership", "[control_surface][ui_transitions][gate_length]")
+{
+    UIState state;
+    UITransitions::beginGateLengthHold(state, 0);
+    REQUIRE(pollVoiceHold(state, 0, true, 400));
+    UITransitions::selectPerformanceVoice(state, 3);
+    UITransitions::beginGateLengthHold(state, 3);
+    CHECK_FALSE(pollVoiceHold(state, 0, false, 0));
+    CHECK(state.gateSeqLengthVoice == 3);
+    REQUIRE(pollVoiceHold(state, 3, true, 400));
+    SECTION("Settings") { UITransitions::openSettings(state); }
+    SECTION("Slide") { UITransitions::toggleSlide(state); }
+    SECTION("Arpeggiator") { UITransitions::enterArpMode(state); }
+    SECTION("Voice envelope") { UITransitions::openVoiceEnvelope(state, 2); }
+    SECTION("Mode strap") { UITransitions::cancelGateLengthHold(state); }
+    CHECK_FALSE(state.gateSeqLengthMode);
+    CHECK(state.gateSeqLengthVoice == -1);
+    CHECK_FALSE(pollVoiceHold(state, 3, true, 1000));
 }

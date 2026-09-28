@@ -122,6 +122,7 @@ private:
 
   void handleModeStrap(uint32_t nowMs, UIState &uiState);
   void onModeFlip(uint32_t nowMs, UIState &uiState);
+  // Plain press selects, 400 ms hold edits that voice's gate sequence length.
   void handleVoiceButtons(uint32_t nowMs, UIState &uiState);
   void handleParamButtons(UIState &uiState);
   void handleUtilityButtons(uint32_t nowMs, UIState &uiState,
