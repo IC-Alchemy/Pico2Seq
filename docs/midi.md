@@ -8,9 +8,9 @@ remains a firmware dependency for CDC. There is no note, CC, Clock, Start or
 Stop output, and no external MIDI clock input.
 
 The dormant firmware MIDI module has now also been removed: the former
-`MidiManager.cpp`, `MidiManager.h` and `MidiCCConfig.h` contained stub send paths,
-unused CC mappings and `MidiNoteManager` bookkeeping for only voices 0 and 1.
-No active MIDI subsystem replaces them. `src/midi/README.md` is a removal notice.
+`MidiManager.cpp`, `MidiManager.h` and `MidiCCConfig.h` contained stub send paths
+and unused CC mappings. No active MIDI subsystem replaces them.
+`src/midi/README.md` is a removal notice.
 
 ## One Note-Duration Authority for All Four Voices
 

@@ -53,7 +53,7 @@ ordinary control loop drains them:
 1. `processSequencerStep()` advances the sequencers through the application
    routing table, applies per-voice controls, stores the resulting snapshots
    and publishes them through `VoiceManager`.
-2. `ClockService::processPendingGateTicks()` calls
+2. `processPendingGateTicks()` calls
    `Sequencer::tickNoteDuration()` for each voice. This is the sole note-duration
    authority. On expiry it updates the supplied `VoiceState` to gate-off; the
    clock service immediately publishes that state to `VoiceManager`, so release

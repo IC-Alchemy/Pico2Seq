@@ -121,19 +121,21 @@ code with **no hardware dependencies**, using header stubs in `tests/stubs/` (e.
 `Wire.h`, `pico/sync.h`) to satisfy `#include`s without real hardware. `tests/stubs/` mirrors
 real header paths exactly — a stub for `pico/sync.h` must live at `tests/stubs/pico/sync.h`.
 
-What's tested vs. not, per `tests/CMakeLists.txt` (four focused targets: `pico2seq_tests`,
+What's tested vs. not, per `tests/CMakeLists.txt` (five focused targets: `pico2seq_tests`,
 `pico2seq_ui_tests`, `pico2seq_voice_tests`, `pico2seq_watchdog_tests`, `pico2seq_audio_tests`):
 - **Tested**: `src/rpdsp/` additions via
   `tests/unit/test_rpdsp_additions.cpp`, `test_dsp_recipe_regressions.cpp`,
   and `test_recipe_optimization.cpp`,
+  `src/pico2seq-core/scales/scales.cpp` via `test_scales.cpp`,
   `src/voice/VoiceOscillator.h` via `test_voiceoscillator.cpp`,
-  `src/pico2seq-core/scales/scales.cpp`,
   `src/pico2seq-core/arpeggiator/Arpeggiator.cpp` via `test_arpeggiator.cpp`,
   `src/pico2seq-core/sequencer/{ParameterManager,Sequencer}.cpp` via
-  `test_sequencer.cpp`,
+  `test_sequencer.cpp`, `test_parameter_mapping.cpp`, and
+  `test_parameter_randomize.cpp`,
   `src/voice/{Voice,VoicePresets,VoiceParameters,VoiceEditParameters,VoiceManager}.cpp`
   (incl. the `SpscQueue` control handoff via `test_voice_transfer.cpp`; recipes via
-  `test_voice_recipes.cpp`; voice editing via `test_voice_edit.cpp`; the master
+  `test_voice_recipes.cpp`; block rendering via `test_voice_block.cpp`; voice
+  editing via `test_voice_edit.cpp`; the master
   delay/compressor/bus via `test_master_delay.cpp`, `test_master_compressor.cpp`
   and `test_master_bus.cpp`; focused ownership via `pico2seq_voice_tests`),
   session and patch serialization (`src/pico2seq-core/persistence/*`,
@@ -141,9 +143,12 @@ What's tested vs. not, per `tests/CMakeLists.txt` (four focused targets: `pico2s
   `src/ui/ControlSurfaceLogic.cpp` and `src/ui/UITransitions.h` via
   `test_control_surface_logic.cpp` / `test_ui_transitions.cpp`
   (`pico2seq_ui_tests`),
+  `src/ui/SettingsPads.h` via `test_settings_pads.cpp`,
   `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` via `tests/unit/test_alchemy_proto.cpp`,
-  `src/app/VoicePlayback.cpp` via `test_voice_playback.cpp` (the one `src/app`
-  file in the host suite, plus `src/app/SequencerView.h` via `test_sequencer_view.cpp`),
+  `src/app/{VoicePlayback,VoiceEnvelope,StepPlayback}.cpp` via
+  `test_voice_playback.cpp`, `test_voice_envelope.cpp`, and
+  `test_lidar_recording.cpp`, plus `src/app/SequencerView.h` via
+  `test_sequencer_view.cpp`,
   `src/audio/{audio_i2s,audio}.cpp` via `pico2seq_audio_tests` (against
   `tests/audio_stubs/` — keep driver logic in those testable functions),
   `src/utils/FreezeWatchdog.h` via `pico2seq_watchdog_tests`
@@ -200,10 +205,9 @@ sensors,ButtonHandlers}.md` cover each subsystem. The essentials:
 
 `src/voice/VoiceSystem.h` replaced what used to be parallel global arrays (`voice1Id`,
 `voice2Id`, ...) with array-based, bounds-checked access for `MAX_VOICES = 4` voices:
-`voiceIds[]` and `voiceStates[]` (one `VoiceState` per voice). That is **all** it holds —
-the per-voice `gates[]`/`gateTimers[]` arrays and the internal `MidiNoteManager` note
-lifecycle are gone. Note length now lives in `Sequencer::tickNoteDuration()`, which is the
-sole duration authority, and gate truth lives in `VoiceState::isGateHigh`. Always go
+`voiceIds[]` and `voiceStates[]` (one `VoiceState` per voice). That is **all** it holds.
+`Sequencer::tickNoteDuration()` is the sole note-duration authority, and gate truth lives in
+`VoiceState::isGateHigh`. Always go
 through the accessors (`getVoiceState`, `getVoiceId`) rather than indexing the arrays
 directly — they clamp out-of-range indices.
 
