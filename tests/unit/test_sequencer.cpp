@@ -9,6 +9,25 @@
 
 #include <algorithm>
 
+TEST_CASE("Descriptor edit kinds preserve track storage rules", "[sequencer][parameter_metadata]") {
+    ParameterManager parameters;
+    parameters.init();
+    for (ParamId id : {ParamId::Gate, ParamId::Slide}) {
+        parameters.setValue(id, 0, 0.5f);
+        CHECK(parameters.getValue(id, 0) == 0.0f);
+        parameters.setValue(id, 0, 0.5001f);
+        CHECK(parameters.getValue(id, 0) == 1.0f);
+    }
+    // Both are detented when edited by encoder, but only Note stores integers.
+    parameters.setValue(ParamId::Note, 0, 4.6f);
+    CHECK(parameters.getValue(ParamId::Note, 0) == 5.0f);
+    parameters.setValue(ParamId::Octave, 0, 0.37f);
+    CHECK(parameters.getValue(ParamId::Octave, 0) == Catch::Approx(0.37f));
+    // No record button does not prohibit explicit editing of the timing lane.
+    parameters.setValue(ParamId::GateLength, 0, 0.37f);
+    CHECK(parameters.getValue(ParamId::GateLength, 0) == Catch::Approx(0.37f));
+}
+
 // ─── ParameterTrack template ─────────────────────────────────────────────────
 
 TEST_CASE("ParameterTrack initialises all steps to default value", "[paramtrack]") {
@@ -46,14 +65,13 @@ TEST_CASE("ParameterTrack resize extends with default values", "[paramtrack]") {
     }
 }
 
-// ─── Filter randomization audibility (regression: narrowed dead zone) ────────
+// ─── Randomization depth around the patch base ──────────────────────────────
 //
-// Playback composes track values as ±0.5 modifiers around the per-preset base
-// (VoiceEdit::composeLane): effective = clamp(laneBase + stored - 0.5, 0, 1).
-// A standard voice uses filterCutoffBase = 0.37, so any stored value < 0.13
-// clamps flat at 0 (inaudible dead zone) and the usable sweep width equals
-// the stored subrange width. The random subrange must therefore stay inside
-// [0.2, 0.8] — modifier-symmetric around 0.5 and dead-zone free.
+// The randomizer draws triangular offsets of at most depth/2 around 0.5. In
+// patch mode the Sequencer turns them into absolute values around the patch
+// value (offsetAroundBase): 0.5 is the patch, 0 and 1 the lane's ends, each
+// half linear, so depth D moves a step at most D% of the way from the patch
+// toward either end of the lane.
 
 namespace
 {
@@ -65,59 +83,64 @@ float composeFilterEffective(float stored)
     VoiceEdit::enablePatch(config); // playback path (usePatchBases = true)
     return VoiceEdit::composeLane(ParamId::Filter, stored, &config);
 }
-} // namespace
 
-TEST_CASE("randomizeParameters Filter draws stay within the audible subrange [0.2, 0.8]", "[paramtrack][sequencer]") {
-    ParameterManager pm;
-    pm.init();
-    const uint8_t steps = pm.getStepCount(ParamId::Filter);
-    REQUIRE(steps > 0);
-
-    float observedMin = 1.0f;
-    float observedMax = 0.0f;
-    // randomizeParameters() is time-seeded; enough draws make the range
-    // assertions stable without depending on any particular seed.
-    for (int round = 0; round < 16; ++round) {
-        pm.randomizeParameters();
-        for (uint8_t step = 0; step < steps; ++step) {
-            const float value = pm.getValue(ParamId::Filter, step);
-            observedMin = std::min(observedMin, value);
-            observedMax = std::max(observedMax, value);
-        }
-    }
-
-    // lcg_rand_float() never leaves [min, max], so after the fix the observed
-    // range can only tighten inward; the epsilon only absorbs float rounding.
-    constexpr float kEps = 1e-3f;
-    REQUIRE(observedMin >= 0.2f - kEps);
-    REQUIRE(observedMax <= 0.8f + kEps);
+const VoiceConfig &standardPatch()
+{
+    static const VoiceConfig config = [] {
+        VoiceConfig c{};
+        VoiceEdit::enablePatch(c);
+        return c;
+    }();
+    return config;
 }
 
-TEST_CASE("randomizeParameters Filter draws stay out of the standard-voice dead zone", "[paramtrack][sequencer]") {
+struct Sweep { float minimum = 1.0f, maximum = 0.0f; };
+
+Sweep composedFilterSweep(uint8_t depth, uint64_t seed)
+{
+    Sequencer seq;
+    seq.setPlaybackTransform(VoiceEdit::composeLane, &standardPatch(), VoiceEdit::mapOctave);
+    VoiceEdit::seedModifiers(seq);
+    seq.randomizeParameters(depth, seed);
+    Sweep sweep;
+    for (uint8_t step = 0; step < seq.getParameterStepCount(ParamId::Filter); ++step) {
+        const float effective = seq.getPlaybackValue(ParamId::Filter, step);
+        REQUIRE_FALSE(followsPatch(seq.getStepParameterValue(ParamId::Filter, step)));
+        sweep.minimum = std::min(sweep.minimum, effective);
+        sweep.maximum = std::max(sweep.maximum, effective);
+    }
+    return sweep;
+}
+} // namespace
+
+TEST_CASE("randomizeParameters keeps Filter offsets inside the default depth radius", "[paramtrack][sequencer]") {
     ParameterManager pm;
     pm.init();
     const uint8_t steps = pm.getStepCount(ParamId::Filter);
     REQUIRE(steps > 0);
-
-    float effectiveMin = 1.0f;
-    float effectiveMax = 0.0f;
-    // A neutral 0.5 modifier must compose to exactly the standard lane base.
-    REQUIRE(composeFilterEffective(0.5f) == Catch::Approx(kFilterLaneBase));
+    const float radius = ParameterManager::kDefaultRandomizeDepth / 200.0f;
+    // The default call is clock-seeded; the radius holds for any seed.
     for (int round = 0; round < 16; ++round) {
         pm.randomizeParameters();
-        for (uint8_t step = 0; step < steps; ++step) {
-            const float effective =
-                composeFilterEffective(pm.getValue(ParamId::Filter, step));
-            // Draws below the laneBase floor clamp flat at 0: no audible change.
-            REQUIRE(effective > 0.0f);
-            effectiveMin = std::min(effectiveMin, effective);
-            effectiveMax = std::max(effectiveMax, effective);
-        }
+        for (uint8_t step = 0; step < steps; ++step)
+            REQUIRE(std::abs(pm.getValue(ParamId::Filter, step) - 0.5f) <= radius + 1e-5f);
     }
+}
 
-    // The composed sweep across the legal subrange must stay audibly wide
-    // (~4 octaves at env peak on standard voices), not collapse to a sliver.
-    REQUIRE(effectiveMax - effectiveMin >= 0.5f);
+TEST_CASE("randomizeParameters composes a sweep that widens with depth and never goes dead", "[paramtrack][sequencer]") {
+    // A step that follows the patch plays exactly the standard lane base.
+    REQUIRE(composeFilterEffective(SequencerConstants::LANE_FOLLOWS_PATCH) ==
+            Catch::Approx(kFilterLaneBase));
+    for (uint64_t seed : {7ull, 99ull, 2026ull}) {
+        INFO("seed " << seed);
+        const Sweep subtle = composedFilterSweep(10, seed);
+        const Sweep adventurous = composedFilterSweep(60, seed);
+        REQUIRE(adventurous.maximum - adventurous.minimum > subtle.maximum - subtle.minimum);
+        // Depth 60 reaches at most 60% of the way to either end: never a flat zero.
+        REQUIRE(adventurous.minimum >= kFilterLaneBase * 0.4f - 1e-4f);
+        REQUIRE(adventurous.maximum <= kFilterLaneBase + 0.6f * (1.0f - kFilterLaneBase) + 1e-4f);
+        REQUIRE(adventurous.minimum > 0.0f);
+    }
 }
 
 TEST_CASE("Step filterCutoff default is the neutral modifier value 0.5", "[seqdefs]") {
@@ -342,6 +365,117 @@ TEST_CASE("Sequencer::resetAllSteps resets Note track even when gate is low", "[
     REQUIRE(seq.getStepParameterValue(ParamId::Note, 5) == 0.0f);
 }
 
+// ─── clearPattern: full voice wipe (values, gates, track lengths) ────────────
+
+TEST_CASE("Sequencer::clearPattern wipes every slot and restores default track lengths", "[sequencer]") {
+    Sequencer seq(0);
+    // Plant custom data across the full capacity while the tracks are long,
+    // then shrink so the leftovers live beyond the active length.
+    for (uint8_t step = 0; step < SequencerConstants::MAX_STEPS_COUNT; ++step) {
+        seq.setStepParameterValue(ParamId::Gate, step, 1.0f);
+        seq.setStepParameterValue(ParamId::Slide, step, 1.0f);
+        seq.setStepParameterValue(ParamId::Velocity, step, 0.9f);
+        seq.setStepParameterValue(ParamId::Attack, step, 0.8f);
+        seq.setStepParameterValue(ParamId::Note, step, 30.0f);
+    }
+    seq.setParameterStepCount(ParamId::Gate, 7);
+    seq.setParameterStepCount(ParamId::Velocity, 5);
+
+    seq.clearPattern();
+
+    // No gates, no slides, neutral values -- across the whole 64-slot
+    // capacity, not just the active length, so later track growth cannot
+    // resurrect pre-clear data.
+    for (uint8_t step = 0; step < SequencerConstants::MAX_STEPS_COUNT; ++step) {
+        REQUIRE(seq.getRawStepValue(ParamId::Gate, step) == 0.0f);
+        REQUIRE(seq.getRawStepValue(ParamId::Slide, step) == 0.0f);
+        REQUIRE(seq.getRawStepValue(ParamId::Velocity, step) == Catch::Approx(0.5f));
+        REQUIRE(seq.getRawStepValue(ParamId::Attack, step) == Catch::Approx(0.01f));
+        REQUIRE(seq.getRawStepValue(ParamId::Note, step) == Catch::Approx(0.0f));
+    }
+    for (uint8_t param = 0; param < PARAM_ID_COUNT; ++param) {
+        REQUIRE(seq.getParameterStepCount(static_cast<ParamId>(param)) ==
+                SequencerConstants::DEFAULT_STEPS_COUNT);
+    }
+}
+
+TEST_CASE("Randomize keeps attacks short enough for short gates", "[sequencer][randomize]") {
+    // A long attack never finishes inside a short gate: a sustain-0 voice
+    // would fall silent. Attack stays at or below max(patch, lane center).
+    Sequencer seq;
+    seq.setPlaybackTransform(VoiceEdit::composeLane, &standardPatch(), VoiceEdit::mapOctave);
+    VoiceEdit::seedModifiers(seq);
+    const float ceiling = std::max(seq.patchValue(ParamId::Attack), 0.5f);
+    for (uint64_t seed = 1; seed < 40; ++seed) {
+        seq.randomizeParameters(100, seed);
+        for (uint8_t step = 0; step < seq.getParameterStepCount(ParamId::Attack); ++step)
+            REQUIRE(seq.getPlaybackValue(ParamId::Attack, step) <= ceiling + 1e-6f);
+    }
+    // Sustain and Release are randomized around the patch too.
+    bool sustainMoved = false, releaseMoved = false;
+    for (uint8_t step = 0; step < 16; ++step) {
+        sustainMoved |= seq.getPlaybackValue(ParamId::Sustain, step) != seq.patchValue(ParamId::Sustain);
+        releaseMoved |= seq.getPlaybackValue(ParamId::Release, step) != seq.patchValue(ParamId::Release);
+    }
+    CHECK(sustainMoved);
+    CHECK(releaseMoved);
+}
+
+TEST_CASE("An absolute lane step can return to the patch value", "[sequencer]") {
+    Sequencer seq;
+    seq.setPlaybackTransform(VoiceEdit::composeLane, &standardPatch(), VoiceEdit::mapOctave);
+    VoiceEdit::seedModifiers(seq);
+    REQUIRE(followsPatch(seq.getStepParameterValue(ParamId::Decay, 3)));
+    REQUIRE(seq.editStepValue(ParamId::Decay, 3, 0.8f));
+    CHECK(seq.getPlaybackValue(ParamId::Decay, 3) == Catch::Approx(0.8f));
+    CHECK(seq.followPatch(ParamId::Decay, 3));
+    CHECK_FALSE(seq.followPatch(ParamId::Decay, 3)); // already following
+    CHECK(seq.getPlaybackValue(ParamId::Decay, 3) == Catch::Approx(seq.patchValue(ParamId::Decay)));
+    // Offset lanes have no patch-following state.
+    CHECK_FALSE(seq.followPatch(ParamId::Note, 3));
+    CHECK_FALSE(seq.followPatch(ParamId::GateLength, 3));
+    // Growing a lane fills the new steps with 'follows patch', not a raw default.
+    seq.setParameterStepCount(ParamId::Decay, 4);
+    seq.setParameterStepCount(ParamId::Decay, 32);
+    CHECK(followsPatch(seq.getStepParameterValue(ParamId::Decay, 20)));
+}
+
+TEST_CASE("Sequencer::clearPattern neutralizes modifier steps in patch mode", "[sequencer]") {
+    Sequencer seq(0);
+    seq.setPlaybackTransform(
+        [](ParamId, float stored, const void *) { return stored; }, nullptr);
+    REQUIRE(seq.usesPlaybackTransform());
+
+    for (uint8_t step = 0; step < SequencerConstants::MAX_STEPS_COUNT; ++step) {
+        seq.setStepParameterValue(ParamId::Gate, step, 1.0f);
+        seq.setStepParameterValue(ParamId::Velocity, step, 0.9f);
+    }
+
+    seq.clearPattern();
+
+    // Cleared steps follow the patch on absolute lanes, sit at no offset on
+    // the others, and have their gates off.
+    for (uint8_t step = 0; step < SequencerConstants::MAX_STEPS_COUNT; ++step) {
+        REQUIRE(seq.getRawStepValue(ParamId::Gate, step) == 0.0f);
+        REQUIRE(followsPatch(seq.getRawStepValue(ParamId::Velocity, step)));
+        REQUIRE(followsPatch(seq.getRawStepValue(ParamId::Release, step)));
+        REQUIRE(seq.getRawStepValue(ParamId::GateLength, step) ==
+                Catch::Approx(mapNormalizedValueToParamRange(ParamId::GateLength, 0.5f)));
+    }
+    REQUIRE(seq.getParameterStepCount(ParamId::Gate) == SequencerConstants::DEFAULT_STEPS_COUNT);
+}
+
+TEST_CASE("Sequencer::clearPattern releases a sounding note", "[sequencer]") {
+    Sequencer seq(0);
+    seq.setStepParameterValue(ParamId::Gate, 0, 1.0f);
+    seq.startNote(60, 100, 480);
+    REQUIRE(seq.isNotePlaying());
+
+    seq.clearPattern();
+
+    REQUIRE_FALSE(seq.isNotePlaying());
+}
+
 TEST_CASE("ParameterManager::randomizeParameters produces only integer values for Note", "[paramtrack][sequencer]") {
     ParameterManager pm;
     pm.init();
@@ -349,12 +483,12 @@ TEST_CASE("ParameterManager::randomizeParameters produces only integer values fo
     REQUIRE(steps > 0);
 
     for (int round = 0; round < 16; ++round) {
-        pm.randomizeParameters(false);
+        pm.randomizeParameters(round % 2 ? 100 : 0);
         for (uint8_t step = 0; step < steps; ++step) {
             float val = pm.getValue(ParamId::Note, step);
             REQUIRE(val == std::floor(val));
             REQUIRE(val >= 0.0f);
-            REQUIRE(val <= 36.0f);
+            REQUIRE(val <= 12.0f); // a compact run of scale steps at any depth
         }
     }
 }
@@ -401,6 +535,57 @@ TEST_CASE("Sequencer::processStep triggers envelope on initial slide note", "[se
     REQUIRE(seq.isNotePlaying());
 }
 
+TEST_CASE("Rest steps leave the triggering note's voice settings intact", "[sequencer][envelope]") {
+    Sequencer seq(0);
+    seq.start();
+    seq.setStepParameterValue(ParamId::Gate, 0, 1.0f);
+    seq.setStepParameterValue(ParamId::Note, 0, 7.0f);
+    seq.setStepParameterValue(ParamId::Velocity, 0, 0.9f);
+    seq.setStepParameterValue(ParamId::Filter, 0, 0.8f);
+    seq.setStepParameterValue(ParamId::Attack, 0, 0.7f);
+    seq.setStepParameterValue(ParamId::Decay, 0, 0.6f);
+    seq.setStepParameterValue(ParamId::Sustain, 0, 0.5f);
+    seq.setStepParameterValue(ParamId::Release, 0, 1.0f);
+    seq.setStepParameterValue(ParamId::GateLength, 0, 1.0f);
+
+    seq.setStepParameterValue(ParamId::Gate, 1, 0.0f);
+    seq.setStepParameterValue(ParamId::Note, 1, 12.0f);
+    seq.setStepParameterValue(ParamId::Velocity, 1, 0.1f);
+    seq.setStepParameterValue(ParamId::Filter, 1, 0.1f);
+    seq.setStepParameterValue(ParamId::Attack, 1, 0.1f);
+    seq.setStepParameterValue(ParamId::Decay, 1, 0.1f);
+    seq.setStepParameterValue(ParamId::Sustain, 1, 0.1f);
+    seq.setStepParameterValue(ParamId::Release, 1, 0.0f);
+    seq.setStepParameterValue(ParamId::GateLength, 1, 0.1f);
+
+    VoiceState state;
+    seq.advanceStep(0, -1, false, false, false, false, false, false, -1, &state);
+    REQUIRE(state.isGateHigh);
+    REQUIRE(state.shouldRetrigger);
+    const VoiceState triggered = state;
+
+    seq.advanceStep(1, -1, false, false, false, false, false, false, -1, &state);
+    CHECK_FALSE(state.isGateHigh);
+    CHECK_FALSE(state.shouldRetrigger);
+    CHECK(state.noteIndex == triggered.noteIndex);
+    CHECK(state.octaveOffset == triggered.octaveOffset);
+    CHECK(state.velocityLevel == triggered.velocityLevel);
+    CHECK(state.filterCutoff == triggered.filterCutoff);
+    CHECK(state.attackTimeSeconds == triggered.attackTimeSeconds);
+    CHECK(state.decayTimeSeconds == triggered.decayTimeSeconds);
+    CHECK(state.sustainLevel == triggered.sustainLevel);
+    CHECK(state.releaseTimeSeconds == 1.0f);
+    CHECK(state.gateLengthTicks == triggered.gateLengthTicks);
+    CHECK(state.hasSlide == triggered.hasSlide);
+
+    seq.setStepParameterValue(ParamId::Gate, 2, 1.0f);
+    seq.setStepParameterValue(ParamId::Release, 2, 0.0f);
+    seq.advanceStep(2, -1, false, false, false, false, false, false, -1, &state);
+    CHECK(state.isGateHigh);
+    CHECK(state.shouldRetrigger);
+    CHECK(state.releaseTimeSeconds == 0.0f);
+}
+
 TEST_CASE("Polyrhythmic advanceStep checks sounding gate step for Note recording", "[sequencer]") {
     Sequencer seq(0);
     seq.start();
@@ -441,6 +626,98 @@ TEST_CASE("Sequencer::getStep reflects configured octaveMapper", "[sequencer]") 
     seq.setStepParameterValue(ParamId::Octave, 0, 0.0f);
     s = seq.getStep(0);
     REQUIRE(s.octaveOffset == -24);
+}
+
+TEST_CASE("Step readers share lane conversions without sharing playback transforms", "[sequencer]") {
+    Sequencer seq(0);
+    // Raw writes retain fractional binary values to exercise the decoder threshold.
+    seq.setRawStepValue(ParamId::Note, 0, 7.25f);
+    seq.setRawStepValue(ParamId::Velocity, 0, 0.2f);
+    seq.setRawStepValue(ParamId::Filter, 0, 0.3f);
+    seq.setRawStepValue(ParamId::Attack, 0, 0.4f);
+    seq.setRawStepValue(ParamId::Decay, 0, 0.6f);
+
+    const float offset = 0.1f;
+    for (bool transformed : {false, true}) {
+        seq.setPlaybackTransform(transformed ? +[](ParamId, float stored, const void *context) {
+            return stored + *static_cast<const float *>(context);
+        } : nullptr, &offset);
+        for (float binary : {0.49f, 0.5f, 0.51f}) {
+            seq.setRawStepValue(ParamId::Gate, 0, binary);
+            seq.setRawStepValue(ParamId::Slide, 0, binary);
+            for (float octave : {0.0f, 1.0f / 3.0f, 0.5f, 2.0f / 3.0f, 1.0f}) {
+                seq.setRawStepValue(ParamId::Octave, 0, octave);
+                for (float length : {0.0f, 0.001f, 0.123f, 1.0f}) {
+                    seq.setRawStepValue(ParamId::GateLength, 0, length);
+                    for (bool playback : {false, true}) {
+                        CAPTURE(transformed, binary, octave, length, playback);
+                        const float delta = transformed && playback ? offset : 0.0f;
+                        const Step s = playback ? seq.getPlaybackStep(0) : seq.getStep(0);
+                        REQUIRE(s.noteIndex == Catch::Approx(7.25f + delta));
+                        REQUIRE(s.velocityLevel == Catch::Approx(0.2f + delta));
+                        REQUIRE(s.filterCutoff == Catch::Approx(0.3f + delta));
+                        REQUIRE(s.attackTimeSeconds == Catch::Approx(0.4f + delta));
+                        REQUIRE(s.decayTimeSeconds == Catch::Approx(0.6f + delta));
+                        REQUIRE(s.isGateActive == (binary + delta > 0.5f));
+                        REQUIRE(s.hasSlide == (binary + delta > 0.5f));
+                        const float mapped = octave + delta;
+                        REQUIRE(s.octaveOffset == (mapped < 1.0f / 3.0f ? -12 :
+                                                  mapped > 2.0f / 3.0f ? 12 : 0));
+                        REQUIRE(s.gateLengthTicks == static_cast<uint16_t>(std::max(
+                            1.0f, (length + delta) * SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS)));
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("Playback decoding selects each lane cursor before transforming", "[sequencer]") {
+    Sequencer seq(0);
+    Sequencer expected(0);
+    const auto transform = [](ParamId, float stored, const void *) { return stored * 0.5f; };
+    const auto octaveMapper = [](float value) -> int8_t { return value < 0.25f ? -24 : 24; };
+    seq.setPlaybackTransform(transform, nullptr, octaveMapper);
+    expected.setPlaybackTransform(transform, nullptr, octaveMapper);
+    for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane) {
+        const auto id = static_cast<ParamId>(lane);
+        const uint8_t count = lane + 2;
+        seq.setParameterStepCount(id, count);
+        for (uint8_t step = 0; step < count; ++step)
+            seq.setRawStepValue(id, step, static_cast<float>(step + 1) / count);
+    }
+    seq.start();
+    VoiceState state{};
+    constexpr uint32_t clockStep = 263; // Must not truncate before each lane's modulo.
+    seq.advanceStep(clockStep, -1, false, false, false, false, false, false, -1, &state);
+    const auto currentStep = seq.getCurrentStep();
+    const auto currentNote = seq.getCurrentNote();
+    const bool notePlaying = seq.isNotePlaying();
+    for (uint8_t selected : {uint8_t{UINT8_MAX}, uint8_t{1}}) {
+        for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane) {
+            const auto id = static_cast<ParamId>(lane);
+            const uint8_t cursor = clockStep % (lane + 2);
+            REQUIRE(seq.getCurrentStepForParameter(id) == cursor);
+            expected.setRawStepValue(id, 0, seq.getStepParameterValue(
+                id, selected == UINT8_MAX ? cursor : selected));
+        }
+        const Step actual = seq.getPlaybackStep(selected);
+        const Step reference = expected.getPlaybackStep(0);
+        REQUIRE(actual.noteIndex == reference.noteIndex);
+        REQUIRE(actual.velocityLevel == reference.velocityLevel);
+        REQUIRE(actual.filterCutoff == reference.filterCutoff);
+        REQUIRE(actual.attackTimeSeconds == reference.attackTimeSeconds);
+        REQUIRE(actual.decayTimeSeconds == reference.decayTimeSeconds);
+        REQUIRE(actual.isGateActive == reference.isGateActive);
+        REQUIRE(actual.hasSlide == reference.hasSlide);
+        REQUIRE(actual.octaveOffset == reference.octaveOffset);
+        REQUIRE(actual.gateLengthTicks == reference.gateLengthTicks);
+    }
+    REQUIRE(seq.getCurrentStep() == currentStep);
+    REQUIRE(seq.getCurrentNote() == currentNote);
+    REQUIRE(seq.isNotePlaying() == notePlaying);
+    for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane)
+        REQUIRE(seq.getCurrentStepForParameter(static_cast<ParamId>(lane)) == clockStep % (lane + 2));
 }
 
 TEST_CASE("previewActiveStep preserves independent polyrhythmic parameter cursors", "[sequencer]") {
@@ -530,56 +807,20 @@ TEST_CASE("ParameterManager::copyStep copies values across tracks and bounds-che
     pm.copyStep(0, 100);
 }
 
-TEST_CASE("VoiceSystem provides 4-voice independent gate and timer tracking", "[voice][voicesystem]") {
-    VoiceSystem vs;
-    REQUIRE(VoiceSystem::MAX_VOICES == 4);
-
-    // All gates default to false
+TEST_CASE("VoiceSystem retains independent control states for all four voices", "[voice][voicesystem]") {
+    VoiceSystem system;
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
-        REQUIRE(vs.getGate(i) == false);
-        REQUIRE(vs.getGateTimer(i).isActive == false);
+        REQUIRE_FALSE(system.getVoiceState(i).isGateHigh);
+        system.setVoiceId(i, i + 10);
+        system.getVoiceState(i).noteIndex = i + 4;
     }
-
-    // Set voice 2 and 3 gates and timers
-    vs.getGate(2) = true;
-    vs.getGateTimer(2).start(10);
-    vs.getGate(3) = true;
-    vs.getGateTimer(3).start(5);
-
-    REQUIRE(vs.getGate(2) == true);
-    REQUIRE(vs.getGate(3) == true);
-    REQUIRE(vs.getGate(0) == false);
-    REQUIRE(vs.getGate(1) == false);
-
-    // Tick timers 5 times
-    for (int t = 0; t < 5; ++t) {
-        vs.tickAllGateTimers();
-    }
-
-    // Voice 3 timer expired (duration was 5), voice 2 still has 5 ticks remaining
-    REQUIRE(vs.getGate(3) == false);
-    REQUIRE(vs.getGateTimer(3).isActive == false);
-    REQUIRE(vs.getGate(2) == true);
-    REQUIRE(vs.getGateTimer(2).isActive == true);
-    REQUIRE(vs.getGateTimer(2).ticksRemaining == 5);
-
-    // Tick remaining 5 times
-    for (int t = 0; t < 5; ++t) {
-        vs.tickAllGateTimers();
-    }
-    REQUIRE(vs.getGate(2) == false);
-    REQUIRE(vs.getGateTimer(2).isActive == false);
-
-    // stopAllGates
-    vs.getGate(0) = true;
-    vs.getGate(1) = true;
-    vs.getGate(2) = true;
-    vs.getGate(3) = true;
-    vs.stopAllGates();
+    system.getVoiceState(3).isGateHigh = true;
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i) {
-        REQUIRE(vs.getGate(i) == false);
-        REQUIRE(vs.getGateTimer(i).isActive == false);
+        REQUIRE(system.getVoiceId(i) == i + 10);
+        REQUIRE(system.getVoiceState(i).noteIndex == i + 4);
+        REQUIRE(system.getVoiceState(i).isGateHigh == (i == 3));
     }
+    REQUIRE(&system.getVoiceState(255) == &system.getVoiceState(0));
 }
 
 TEST_CASE("CORE_PARAMETERS metadata defines valid bounds and types for all parameters", "[seqdefs]") {
@@ -622,12 +863,97 @@ TEST_CASE("refreshVoiceParameters updates a sounding voice without retriggering"
     CHECK_FALSE(state.shouldRetrigger);
     CHECK(seq.isNotePlaying() == wasPlaying);
 
-    // A released note keeps its pitch through the tail.
+    // A released note keeps every setting through the tail, including release.
     state.isGateHigh = false;
     seq.setStepParameterValue(ParamId::Note, 0, 3.0f);
+    seq.setStepParameterValue(ParamId::Filter, 0, 1.0f);
+    seq.setStepParameterValue(ParamId::Release, 0, 0.0f);
+    const float release = state.releaseTimeSeconds;
     seq.refreshVoiceParameters(&state);
     CHECK(state.noteIndex == 9.0f);
+    CHECK(state.filterCutoff == Catch::Approx(0.2f));
+    CHECK(state.releaseTimeSeconds == release);
     CHECK_FALSE(state.isGateHigh);
 
     seq.refreshVoiceParameters(nullptr); // tolerated
+}
+
+TEST_CASE("Step Edit waits for a selected future step while transport runs",
+          "[sequencer][step_edit]") {
+    Sequencer seq(0);
+    seq.setParameterStepCount(ParamId::Filter, 16);
+    seq.setParameterStepCount(ParamId::Release, 16);
+    seq.setStepParameterValue(ParamId::Gate, 0, 1.0f);
+    seq.setStepParameterValue(ParamId::Gate, 4, 1.0f);
+    seq.setStepParameterValue(ParamId::Filter, 0, 0.0f);
+    seq.setStepParameterValue(ParamId::Filter, 4, 0.0f);
+    seq.setStepParameterValue(ParamId::Release, 0, 0.0f);
+    seq.setStepParameterValue(ParamId::Release, 4, 1.0f);
+    seq.start();
+
+    VoiceState state;
+    // Put the current lane cursors on step 0, then edit step 4.
+    seq.advanceStep(0, -1, false, false, false, false, false, false, -1, &state);
+    seq.editStepValue(ParamId::Filter, 4, 1.0f);
+    seq.editStepValue(ParamId::Release, 4, 0.25f);
+    seq.refreshVoiceParameters(&state, 4);
+
+    CHECK(state.filterCutoff == Catch::Approx(0.0f));
+    CHECK(state.releaseTimeSeconds == Catch::Approx(0.0f));
+    seq.advanceStep(4, -1, false, false, false, false, false, false, -1, &state);
+    CHECK(state.filterCutoff == Catch::Approx(1.0f));
+    CHECK(state.releaseTimeSeconds == Catch::Approx(0.25f));
+}
+
+// ─── Live recording and step edits (lidar, faders, encoder) ──────────────────
+
+TEST_CASE("Live values land on each lane's own playing step", "[sequencer][recording]") {
+    Sequencer seq(0);
+    seq.setParameterStepCount(ParamId::Filter, 5);
+    seq.setStepParameterValue(ParamId::Gate, 7, 1.0f);
+    seq.start();
+    VoiceState state;
+    seq.advanceStep(7, -1, false, false, false, false, false, false, -1, &state);
+    REQUIRE(seq.getCurrentStepForParameter(ParamId::Filter) == 2);
+
+    // Between clock steps the playing step takes the value, not step 7.
+    REQUIRE(seq.recordLiveValue(ParamId::Filter, 0.9f));
+    CHECK(seq.getStepParameterValue(ParamId::Filter, 2) == Catch::Approx(0.9f));
+    CHECK(seq.getPlaybackStep().filterCutoff == Catch::Approx(0.9f));
+    // An unchanged value reports no change, so callers skip the voice refresh.
+    CHECK_FALSE(seq.recordLiveValue(ParamId::Filter, 0.9f));
+    // Out-of-range lanes are rejected.
+    CHECK_FALSE(seq.recordLiveValue(ParamId::Count, 0.5f));
+}
+
+TEST_CASE("Live pitch follows the playing gate, not the Note lane's own step", "[sequencer][recording]") {
+    Sequencer seq(0);
+    seq.setParameterStepCount(ParamId::Note, 4);
+    seq.setStepParameterValue(ParamId::Gate, 1, 1.0f); // Note cursor 1 at step 5; gate step 5 is off
+    seq.start();
+    VoiceState state;
+    seq.advanceStep(5, -1, false, false, false, false, false, false, -1, &state);
+    REQUIRE(seq.getCurrentStepForParameter(ParamId::Note) == 1);
+    CHECK_FALSE(seq.recordLiveValue(ParamId::Note, 9.0f));
+    CHECK(seq.getStepParameterValue(ParamId::Note, 1) == 0.0f);
+    // Other lanes still record on a silent step.
+    CHECK(seq.recordLiveValue(ParamId::Decay, 0.7f));
+
+    seq.setStepParameterValue(ParamId::Gate, 5, 1.0f);
+    CHECK(seq.recordLiveValue(ParamId::Note, 9.0f));
+    CHECK(seq.getStepParameterValue(ParamId::Note, 1) == 9.0f);
+}
+
+TEST_CASE("Step edits never write pitch into a gate-off step", "[sequencer][recording]") {
+    Sequencer seq(0);
+    CHECK_FALSE(seq.editStepValue(ParamId::Note, 3, 12.0f));
+    CHECK(seq.getStepParameterValue(ParamId::Note, 3) == 0.0f);
+    CHECK(seq.editStepValue(ParamId::Attack, 3, 0.4f));
+    CHECK(seq.getStepParameterValue(ParamId::Attack, 3) == Catch::Approx(0.4f));
+
+    seq.toggleStep(3);
+    CHECK(seq.editStepValue(ParamId::Note, 3, 12.0f));
+    CHECK(seq.getStepParameterValue(ParamId::Note, 3) == 12.0f);
+    CHECK_FALSE(seq.editStepValue(ParamId::Note, 3, 12.2f)); // rounds to the stored step
+    CHECK_FALSE(seq.editStepValue(ParamId::Filter, SequencerConstants::MAX_STEPS_COUNT, 0.5f));
 }

@@ -428,3 +428,128 @@ TEST_CASE("a frame read more than once does not re-deliver its edges", "[alchemy
         CHECK_FALSE(rig.tiles.button(0, 0).releaseTap());
     }
 }
+
+// ---------------------------------------------------------------------------
+// sliderFrameChanged(): freshness for the fader consumers
+// ---------------------------------------------------------------------------
+//
+// AlchemyControlBridge runs each fader through a median filter, but only when
+// this flag is set: update() runs at 1 kHz while a tile is polled every 4 ms,
+// so the same cached position read four times in a row is one sample, not
+// four. "Fresh" therefore has to mean new information, not merely a
+// well-formed reply. It is the link's verdict on the snapshot, and it lasts
+// for exactly one update() pass.
+
+TEST_CASE("a new slider snapshot is fresh for exactly one update pass", "[alchemy_tiles][fresh]")
+{
+    Rig rig;
+    rig.slider().setState(1, 0x00, kMidFaders);
+    rig.pollSlider();
+    CHECK(rig.tiles.sliderFrameChanged());
+
+    rig.step(1); // the 1 kHz passes that fall between two tile polls
+    CHECK_FALSE(rig.tiles.sliderFrameChanged());
+}
+
+TEST_CASE("a fader move is fresh on the poll that carries it", "[alchemy_tiles][fresh]")
+{
+    Rig rig;
+    rig.slider().setState(1, 0x00, kMidFaders);
+    rig.pollSlider();
+
+    const std::uint16_t moved[4] = {1500, 2000, 3000, 4000};
+    rig.slider().setState(2, 0x00, moved);
+    rig.pollSlider();
+
+    CHECK(rig.tiles.sliderFrameChanged());
+    CHECK(rig.tiles.faderRaw(0) == 1500);
+}
+
+TEST_CASE("the same snapshot arriving again is not fresh", "[alchemy_tiles][fresh]")
+{
+    // SEQ unchanged: a valid, checksum-correct reply that carries nothing new.
+    // Handing it to a median filter would count one fader position repeatedly.
+    Rig rig;
+    rig.slider().setState(1, 0x00, kMidFaders);
+    rig.pollSlider();
+    REQUIRE(rig.tiles.sliderFrameChanged());
+
+    rig.pollSlider(); // the tile is still sweeping; nothing on it moved
+    CHECK_FALSE(rig.tiles.sliderFrameChanged());
+    CHECK(rig.tiles.link(0).fresh()); // and the link is perfectly healthy
+}
+
+TEST_CASE("a corrupt read is never a fresh slider frame", "[alchemy_tiles][fresh]")
+{
+    Rig rig;
+    rig.slider().setState(1, 0x00, kMidFaders);
+    rig.pollSlider();
+
+    const std::uint16_t moved[4] = {9, 9, 9, 9};
+    rig.slider().setCorruptChecksum(true);
+    rig.slider().setState(2, 0x00, moved);
+    rig.pollSlider();
+
+    CHECK_FALSE(rig.tiles.sliderFrameChanged());
+    CHECK(rig.tiles.faderRaw(0) == 1000); // last-known-good, not the corrupt frame
+}
+
+TEST_CASE("a stale link never reports a fresh slider frame", "[alchemy_tiles][fresh]")
+{
+    // The frozen tile answers every read with the same well-formed frame. None
+    // of them is new information, so the fader filter must not keep being fed.
+    Rig rig;
+    rig.slider().setState(1, 0x00, kMidFaders);
+    rig.pollSlider();
+
+    rig.slider().setFrozen(true);
+    bool everFresh = false;
+    for (std::uint32_t t = 0; t < AlchemyTiles::kLinkTimeoutMs + 100; ++t)
+    {
+        rig.step(1);
+        everFresh = everFresh || rig.tiles.sliderFrameChanged();
+    }
+    CHECK(rig.tiles.link(0).stale());
+    CHECK_FALSE(everFresh);
+}
+
+TEST_CASE("a satellite that comes back is fresh again", "[alchemy_tiles][fresh]")
+{
+    Rig rig;
+    rig.slider().setState(1, 0x00, kMidFaders);
+    rig.pollSlider();
+
+    rig.slider().setOffline(true);
+    rig.run(AlchemyTiles::kLinkTimeoutMs + 50);
+    REQUIRE(rig.tiles.link(0).stale());
+
+    // Back with the identical snapshot: SEQ never moved, but the hub has spent
+    // the outage serving a stand-in and its consumers need the real position.
+    rig.slider().setOffline(false);
+    bool freshOnRecovery = false;
+    for (std::uint32_t t = 0; t < AlchemyTiles::kReprobeIntervalMs + 100; ++t)
+    {
+        rig.step(1);
+        freshOnRecovery = freshOnRecovery || rig.tiles.sliderFrameChanged();
+    }
+    CHECK(freshOnRecovery);
+}
+
+TEST_CASE("a button tile's traffic is not a fader sample", "[alchemy_tiles][fresh]")
+{
+    Rig rig(/*withButtonTile=*/true);
+    rig.slider().setState(1, 0x00, kMidFaders);
+    rig.run(50); // both tiles claimed, polled, and past their first snapshot
+
+    // Only the button tile changes. Its polls are real, fresh snapshots, but
+    // none of them is a fader sample.
+    rig.buttonTile().setState(2, 0x01, nullptr);
+    bool sliderFresh = false;
+    for (int pass = 0; pass < 40; ++pass)
+    {
+        rig.step(1);
+        sliderFresh = sliderFresh || rig.tiles.sliderFrameChanged();
+    }
+    CHECK(rig.tiles.button(1, 0).held()); // the button tile really was read
+    CHECK_FALSE(sliderFresh);
+}

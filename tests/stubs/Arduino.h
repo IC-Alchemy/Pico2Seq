@@ -10,6 +10,13 @@
 #define HIGH      1
 #define LOW       0
 
+// Print bases, macros in the real core (ArduinoCore-API Print.h). Kept here so
+// a host build catches identifiers they would break, like an enum value OCT.
+#define DEC 10
+#define HEX 16
+#define OCT 8
+#define BIN 2
+
 // GPIO stubs
 inline void pinMode(uint8_t, uint8_t) {}
 inline void digitalWrite(uint8_t, uint8_t) {}

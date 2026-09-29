@@ -2,6 +2,10 @@
  * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
  *
  * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Pico2Seq local note (2026-09-28): removed dead
+ * PICO_BUFFER_USB_ALLOC_HACK branches; this repo always uses calloc-backed
+ * allocation here.
  */
 #if 1
 #ifdef ARDUINO_ARCH_RP2040
@@ -15,11 +19,10 @@
  * \defgroup util_buffer buffer
  * \brief Buffer management
  * \ingroup pico_util
+ *
+ * Pico2Seq use: backing bytes behind each 256-sample I2S buffer. Allocated once
+ * at pool creation on Core 1; never in the render loop (no jitter, no dropouts).
  */
-
-#ifdef PICO_BUFFER_USB_ALLOC_HACK
-#include "hardware/address_mapped.h"
-#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,11 +36,7 @@ extern "C" {
 
 /** \struct mem_buffer
  *  \ingroup util_buffer
- *  \brief Wrapper structure around a memory buffer
- * 
- *   Wrapper could be around static or allocated memory
- * 
- * \todo This module needs to be checked - think there are issues with the free function
+ *  \brief Wrapper around static or heap sample bytes (size + flags)
  */
 typedef struct mem_buffer {
     size_t size;
@@ -45,27 +44,7 @@ typedef struct mem_buffer {
     uint8_t flags;
 } mem_buffer_t;
 
-#ifdef PICO_BUFFER_USB_ALLOC_HACK
-#if !defined(USB_DPRAM_MAX) || (USB_DPRAM_MAX > 0)
-#include "hardware/structs/usb.h"
-#else
-#define USB_DPRAM_SIZE 4096
-#endif
-#endif
-
 inline static bool pico_buffer_alloc_in_place(mem_buffer_t *buffer, size_t size) {
-#ifdef PICO_BUFFER_USB_ALLOC_HACK
-    extern uint8_t *usb_ram_alloc_ptr;
-    if ((usb_ram_alloc_ptr + size) <= (uint8_t *)USBCTRL_DPRAM_BASE + USB_DPRAM_SIZE) {
-        buffer->bytes = usb_ram_alloc_ptr;
-        buffer->size = size;
-#ifdef DEBUG_MALLOC
-        printf("balloc %d %p->%p\n", size, buffer->bytes, ((uint8_t *)buffer->bytes) + size);
-#endif
-        usb_ram_alloc_ptr += size;
-        return true;
-    }
-#endif    // inline for now
     buffer->bytes = (uint8_t *) calloc(1, size);
     if (buffer->bytes) {
         buffer->size = size;

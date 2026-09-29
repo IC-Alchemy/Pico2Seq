@@ -33,7 +33,7 @@ Pico2Seq/
 │   ├── matrix/             # MPR121 32-pad capacitive touch matrix scanning
 │   ├── LEDMatrix/          # 8x4 WS2812B FastLED matrix (mirrors the 4x8 touch matrix)
 │   ├── OLED/               # 128x64 SH1106G I2C OLED display driver and view hierarchy
-│   ├── midi/               # Internal MIDI note lifecycle (USB MIDI transmission removed 2026-09-06)
+│   ├── midi/               # Removal notice only; no firmware MIDI module
 │   └── utils/              # Debug.h/.cpp lightweight logging utilities
 └── tests/                  # Catch2 v3.5.2 host unit tests with hardware header stubs
 ```
@@ -48,9 +48,9 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
 |---|---|---|
 | Startup | Buses, sensors, display; construct and publish four voices; start uClock | Stabilize; create I2S pool and enable output |
 | Each pass | Flush voice controls; held buttons; queued steps; diagnostics; PPQN gate ticks | Wait for a buffer; render silence until voices are ready; render mono mix to stereo; return buffer |
-| Timed work | 1 ms controls; 20 ms OLED/LED refresh | Queue a diagnostic heartbeat every two seconds |
+| Timed work | 1 ms controls; 13 ms LED refresh; 40 ms OLED refresh | Queue a diagnostic heartbeat every two seconds |
 
-The ISR stages clock events only. Sequencers, software gate bookkeeping,
+The ISR stages clock events only. Sequencers, note-duration processing,
 sensor input and serial output run in Core 0 thread context. USB MIDI is
 disabled; TinyUSB CDC remains available for the serial console.
 
@@ -77,7 +77,7 @@ disabled; TinyUSB CDC remains available for the serial console.
   Uses the ARM Cortex-M33 hardware saturation instruction `__SSAT` to clamp the scaled 32-bit integer into signed 16-bit range in a single cycle.
 - **Mono-to-Stereo Replication**: The mono voice mix is duplicated across both channels: `out[2*i] = pcm16; out[2*i+1] = pcm16;`.
 
-### 2.2 Core 0: System Control, UI, Sensors, MIDI & Clock
+### 2.2 Core 0: System Control, UI, Sensors & Clock
 - **Execution**: Runs Arduino `setup()` and `loop()`.
 - **Clock Engine (`uClock`)**:
   - Library: the stock `<uClock.h>` (2.2.1 installed from the library manager; upstream
@@ -88,10 +88,10 @@ disabled; TinyUSB CDC remains available for the serial console.
     `uClock.setShuffle(true)` using templates from `ShuffleTemplates.h`.
   - Initialized in `setup()` on Core 0, so the timer ISR fires on Core 0.
   - ISR-context callbacks stage events only — no work (2026-09-05 deferral refactor):
-    `onStepCallback` enqueues the 16th-note step number into a 16-deep SPSC ring
-    `stepQueue`, a `SpscQueue<uint32_t, 16>` from `src/utils/`; a full ring drops the
-    new step and counts into `droppedStepCount`); `onOutputPPQNCallback` increments
-    `ppqnTicksPending`. The firmware sends **no MIDI realtime clock output** — no Clock,
+    `onStepCallback` enqueues the 16th-note step number into `clockEvents.steps`,
+    a 16-deep `SpscQueue<uint32_t, 16>` in `src/app/ClockService.cpp`; a full ring
+    drops the new step and increments `clockEvents.droppedSteps`. `onOutputPPQNCallback`
+    increments `clockEvents.ppqnTicksPending`. The firmware sends **no MIDI realtime clock output** — no Clock,
     Start, or Stop bytes go out over USB MIDI.
   - Thread-context callbacks: `onClockStart` / `onClockStop` keep their full bodies
     inline — `uClock.start()/stop()` are called from `setup()`/UI handlers (thread),
@@ -101,18 +101,15 @@ disabled; TinyUSB CDC remains available for the serial console.
   - `processClockEvents()` runs first in the timing section: dequeues steps into
     `processSequencerStep()` (the full 16th-note work — advances all four sequencers,
     routes sensor values, pushes `VoiceState`s into `voiceSystem`, stages voice
-    parameters, sends gate/MIDI note events).
-  - USB MIDI transmission remains disabled; compatibility note bookkeeping stays
-    in the control thread.
-  - Sequencer/midiNoteManager state is also single-context now (the old same-core
-    ISR-preempts-thread reentrancy hazard on these structures is gone; a step can
-    only be processed between `loop()` iterations, adding at most one loop-cycle of
-    latency to note timing).
+    parameters and publishes gate/retrigger updates).
+  - Sequencer state is single-context: steps are processed by the control loop,
+    never by the ISR. No firmware MIDI bookkeeping remains.
 - **PPQN Drain Loop** (in `loop()`, same core as the ISR):
   - Drains `ppqnTicksPending`.
-  - Advances `midiNoteManager.updateTiming(globalTickCounter)`.
-  - Advances sequencer note durations (`seq1..seq4.tickNoteDuration()`).
-  - Ticks gate countdown timers (`voiceSystem.tickAllGateTimers()`).
+  - Calls `Sequencer::tickNoteDuration()` through `AppState::sequencers` for all
+    four voices. This is the sole note-duration authority.
+  - On expiry, publishes the updated gate-off `VoiceState` to `VoiceManager`
+    immediately, without waiting for the next step. No parallel gate timers run.
 - **1ms Sensor and Control Loop**:
   - `Matrix_scan()`: Consumes MPR121 touch-status interrupts from GP8 and, only when pending, scans 32 capacitive touch step pads over I2C0 (Wire: GP4/GP5 @ 0x5A).
   - `alchemyBridge.update()`: Polls SliderModule (4 faders) and ButtonModule8 on dedicated I2C1 (Wire1: GP14/GP15 @ 100kHz) and reads the GP7 hardware mode strap.
@@ -120,7 +117,7 @@ disabled; TinyUSB CDC remains available for the serial console.
   - `distanceSensor.update()`: Non-blocking VL53L1X distance sensor update on Wire @ 0x29 (55–700mm useful window).
   - `pollUIHeldButtons()`: Processes long-press events across all four sequencers (`seq1..seq4`).
 - **20ms (50Hz) Display Refresh Loop**:
-  - OLED Display: `display.update(uiState, seq1..seq4, voiceManager)` refreshes the 128x64 SH1106G display on Wire @ 0x3C.
+  - OLED Display: `display.update(uiState, AppState::sequencers, VoiceSystem::MAX_VOICES, voiceManager)` refreshes the 128x64 SH1106G display on Wire @ 0x3C.
   - LED Matrix: `updateStepLEDs()` and `ledMatrix.show()` refresh the 8x4 WS2812B FastLED array on GPIO 1; control indicators moved to the OLED (transient notices + encoder line).
 - **Freeze Forensics (`src/utils/FreezeWatchdog.h`, added 2026-09-05)**:
   - `freezeWatchdogArm()` (in `setup()`, after `Wire.begin()`) arms the hardware
@@ -150,14 +147,19 @@ fixed storage and lock-free 32-bit indices. Neither side blocks or allocates.
 2. It copies the update into a free slot, then publishes the write index with
    release ordering. A published slot belongs to Core 1.
 3. Core 1 acquires the write index and copies one update locally at the start
-   of `Voice::process()`.
+   of a queued sample in `Voice::processBlock()`.
 4. Only after copying does Core 1 release the read index. Core 0 acquires that
    index before reusing the slot.
 5. Core 1 applies the local copy to its DSP state, then renders a sample.
 
 One update per sample bounds the drain and lets each queued gate edge reach the
-envelope. Updates still drain while disabled, so queued re-enables can take
-effect. Config, pitch caches, dirty flags, filter/slide coefficients, and gates
+envelope. When the queue is empty, Core 1 renders up to 32 samples before
+probing again; a concurrent publication can wait up to 0.67 ms at 48 kHz.
+Mix levels, master-volume, transport-mute, compressor-macro and master-delay targets are
+sampled per block (up to 256 frames); the master smoother and the delay's
+mix/time eases still advance every sample.
+Updates still drain while disabled, so queued re-enables can take effect.
+Config, pitch caches, dirty flags, filter/slide coefficients, and gates
 are audio-owned. The pitch version is now ordinary single-core state.
 
 ### Full queues
@@ -191,9 +193,15 @@ setters: the producer is Core 0's ordinary `loop()` context. Existing clock and
 diagnostic flags are separate from the voice queue protocol.
 
 Core 1 heartbeat diagnostics use a separate four-entry SPSC queue and are
-printed on Core 0. The existing PPQN counter lost-increment window and the
-disabled delay feature's shared-control races are documented in the
+printed on Core 0. The existing PPQN counter lost-increment window is
+documented in the
 [application guide](firmware-structure.md#ownership-and-real-time-rules).
+The master delay does not share the removed global delay's races: Core 0
+publishes mix, time mode, note division, BPM and feedback through lock-free
+atomics on `VoiceManager`, and Core 1 reads them once per block. Millisecond
+mode keeps the original full-rate 10–750 ms path. Tempo mode stores a
+low-passed 6 kHz, 16-bit repeat line so a whole note at 45 BPM fits in SRAM;
+the live uClock tempo changes its target time without moving the fader.
 
 ---
 
@@ -210,12 +218,8 @@ struct VoiceSystem {
     // Voice IDs assigned by VoiceManager
     uint8_t voiceIds[MAX_VOICES] = {0, 0, 0, 0};
 
-    // Active voice states for synthesis and sequencing
+    // Control-core requested voice snapshots
     VoiceState voiceStates[MAX_VOICES];
-
-    // Software gate flags + gate timers for all 4 voices
-    volatile bool gates[MAX_VOICES] = {false, false, false, false};
-    GateTimer gateTimers[MAX_VOICES];
 
     // Array accessors with bounds checking
     uint8_t getVoiceId(uint8_t voiceIndex) const;
@@ -224,24 +228,26 @@ struct VoiceSystem {
     VoiceState& getVoiceState(uint8_t voiceIndex);
     const VoiceState& getVoiceState(uint8_t voiceIndex) const;
 
-    volatile bool& getGate(uint8_t voiceIndex);
-    GateTimer& getGateTimer(uint8_t voiceIndex);
-
-    void stopAllGates();
-    void tickAllGateTimers();
 };
 
 extern VoiceSystem voiceSystem;
 ```
 
 ### 4.2 Voice Count & Subsystem Capabilities
-- **4 Polyphonic Voices (`MAX_VOICES = 4`)**: All 4 voices are fully synthesized in real time on Core 1 via `voiceManager->processAllVoices()`.
-- **4-Voice Software Gates & Timers**: All four voices (indices 0–3) possess dedicated software gate flags (`gates[MAX_VOICES]`) and duration timers (`gateTimers[MAX_VOICES]`). On step triggers with high gates, `StepPlayback` sets the gate flag and starts the duration timer; PPQN ticks decrement the timers in `ClockService::processPendingGateTicks()`, turning gates off when durations expire and pushing immediate note-offs to `VoiceManager`.
-- **Internal Note Lifecycle Tracking (Voices 0 & 1)**: Internal note on/off state tracking via `MidiNoteManager` is maintained for voices 0 and 1 (USB MIDI output itself is removed; no bytes are transmitted externally).
-- **Safe Dummy Returns**:
-  - `getGate(voiceIndex)` for `voiceIndex >= MAX_VOICES` returns a reference to an internal `static volatile bool dummy = false`.
-  - `getGateTimer(voiceIndex)` for `voiceIndex >= MAX_VOICES` returns a reference to an internal `static GateTimer dummy`.
-  - `getVoiceState(voiceIndex)` clamps index `< MAX_VOICES ? voiceIndex : 0`.
+- **4 Polyphonic Voices (`MAX_VOICES = 4`)**: All 4 voices are fully synthesized in real time on Core 1 via `voiceManager->processBlock()`.
+- **One duration authority per voice**: Each sequencer owns note duration.
+  `processPendingGateTicks()` calls `tickNoteDuration()` and
+  publishes expiry to audio via `VoiceManager` for every voice. The redundant
+  `VoiceSystem` gates, gate timers and `GateTimer` type are removed, as is the
+  dormant firmware MIDI module.
+- **Control snapshots, not DSP state**: `VoiceSystem` holds only IDs and
+  control-owned `VoiceState` snapshots. Core 1 consumes queued copies.
+- **Bounds checking**: Invalid ID reads return `0`; invalid ID writes are
+  ignored; `getVoiceState()` selects voice 0 for an invalid index.
+- **Routing**: `AppState::sequencers` is the immutable borrowed-pointer table in
+  voice order. Concrete `seq1`..`seq4` construction remains. OLED and step-LED
+  updates accept `Sequencer *const *` plus a `size_t` count rather than four
+  references. This changes routing, not the four-voice product configuration.
 
 ---
 
@@ -249,63 +255,32 @@ extern VoiceSystem voiceSystem;
 
 All DSP components reside in the `rpdsp` namespace from `src/rpdsp/` (tracked as a Git submodule from `IC-Alchemy/RPDSP`).
 
+```text
+VoiceManager::processBlock() (Core 1, up to 256 frames per block)
+  For each voice in the established mix order:
+    Voice::processBlock(): one update + one sample while controls are queued;
+    otherwise renderSpan_() handles up to 32 samples:
+      gate edges / retrigger, then ADSR samples
+      deferred structural config when gate is low
+      cutoff smoothing; record coefficient updates at their sample indices
+      source generation / pitch commit / per-sample slide
+      envelope gain, effects, velocity
+      main filter split at coefficient updates, then HPF and output level
+    Add voice samples * mixLevel to the block
+  Master delay on the summed block: eased mix/time, fractional cubic read,
+  DC blocker + lowpass + tanh in the feedback loop
+  Advance master gain per sample and multiply the mixed block
+  Compress dry sound and repeats together with the Warm/Glue/Punch macro;
+  ease the macro per sample and update compressor coefficients at most once per block
+AudioSamples::toPcm16() -> identical left/right PCM16 -> I2S DMA at 48 kHz
 ```
-                              Voice::process() (Core 1 @ 48kHz)
-                                              │
-                    ┌─────────────────────────┴─────────────────────────┐
-                    │ 1. applyConfig_() & applyParameters_()  │
-                    └─────────────────────────┬─────────────────────────┘
-                                              │
-                                              ▼
-                    ┌───────────────────────────────────────────────────┐
-                    │ 2. computeEnvelope()                              │
-                    │    - rpdsp::ADSR (Gate rise/fall or retrigger)    │
-                    │    - Returns envelope amplitude E in [0.0, 1.0]   │
-                    └─────────────────────────┬─────────────────────────┘
-                                              │
-                                              ▼
-                    ┌───────────────────────────────────────────────────┐
-                    │ 3. updateFilter(E)                                │
-                    │    - One-pole cutoff smoothing (4ms tau)          │
-                    │    - Throttled filter.setFreq() every 8 samples   │
-                    └─────────────────────────┬─────────────────────────┘
-                                              │
-                                              ▼
-                    ┌───────────────────────────────────────────────────┐
-                    │ 4. mixOscillators()                               │
-                    │    - Silence short-circuit (if E <= 0.0005, ret 0)│
-                    │    - Slew pitch if slide active                   │
-                    │    - Commit pitch if gate HIGH                    │
-                    │    - VoiceConfig.engine dispatch: osc bank        │
-                    │      sum / waveguide / noise-FX source            │
-                    └─────────────────────────┬─────────────────────────┘
-                                              │
-                                              ▼
-                    ┌───────────────────────────────────────────────────┐
-                    │ 5. finalizeOutput()                               │
-                    │    - S_vca = S_osc * E (Pre-filter VCA envelope)  │
-                    │    - Overdrive: rpdsp::Waveshaper (if enabled)    │
-                    │    - Main filter per filterType:                  │
-                    │      Ladder (Analog/Lead) or StateVariableFilter  │
-                    │      (SVF: LP, BP or HP output per filterMode —   │
-                    │       12 dB; the 24 dB modes are ladder-only)     │
-                    │    - High-Pass: rpdsp::StateVariableFilter (HPF)  │
-                    │    - Scaling: S_out = S_hpf * outputLevel         │
-                    └─────────────────────────┬─────────────────────────┘
-                                              │
-                                              ▼
-                    ┌───────────────────────────────────────────────────┐
-                    │ VoiceManager::processAllVoices()                  │
-                    │   Sum(voice[i] * mixLevel[i]) * masterGain        │
-                    │   (globalVolume/mute eased per sample, ~15 ms)    │
-                    └─────────────────────────┬─────────────────────────┘
-                                              │
-                                              ▼
-                             AudioSamples::toPcm16() (Cortex-M33 __SSAT)
-                                              │
-                                              ▼
-                                 I2S DMA Stereo Output @ 48kHz
-```
+
+Fixed member/static scratch keeps sample arrays off Core 1's 2 KiB stack.
+`Voice::process()` and `VoiceManager::processAllVoices()` are one-sample wrappers;
+`processVoice()` retains its single-voice behavior. See the
+[voice pipeline](voice.md#4-dsp-processing-pipeline--signal-flow) for silent-skip
+eligibility and the [measurements](audio-performance.md#block-rendering-and-silent-voice-skip).
+
 
 ### 5.1 `VoiceOscillator` Class Dispatch
 `src/voice/VoiceOscillator.h` decouples numeric waveform identifiers from `rpdsp`'s class-per-waveform architecture using `std::variant`:
@@ -334,7 +309,7 @@ using Osc = std::variant<
 ### 6.2 `src/pico2seq-core/`
 Portable core with **no hardware, UI, or Arduino dependencies**:
 - `sequencer/Sequencer.h/.cpp`: 4-voice independent step sequencers.
-- `sequencer/SequencerDefs.h`: Polymetric `ParameterTrack<N>`, `ParamId` enum, `VoiceState`, `GateTimer`.
+- `sequencer/SequencerDefs.h`: Polymetric `ParameterTrack<N>`, `ParamId` enum, `VoiceState`.
 - `sequencer/ParameterManager.h/.cpp`: Thread-safe parameter validation and clamping.
 - `sequencer/ShuffleTemplates.h`: Groove and shuffle timing templates.
 - `scales/scales.h/.cpp`: 13 musical scales across 48 steps, scale degree ranking, and frequency conversion.
@@ -347,7 +322,10 @@ Portable core with **no hardware, UI, or Arduino dependencies**:
 - `VoiceOscillator.h`: Variant-based oscillator class dispatcher.
 
 ### 6.4 `src/ui/` & `src/AlchemyUI/`
-- `UIState.h`: Unified UI state struct (replaces loose globals; holds mode flags, debounce timestamps, preset arrays).
+- `UIState.h`: Unified UI state struct. `selectedVoiceIndex` is the voice-selection
+  authority. `isPresetSelection()` and `isVoiceParameterSettings()` derive from
+  `settingsMode` and `currentSubMode`; the former `isVoice2Mode`,
+  `inPresetSelection` and `inVoiceParameterMode` mirrors are removed.
 - `ControlSurfaceLogic.h/.cpp`: Unit-tested decision logic (`ModeStabilizer`, `PadBank`, `ShiftLatch`, `FaderMap`).
 - `UIEventHandler.h/.cpp`: Event routing for MPR121 pads and control surface actions.
 - `AlchemyControlBridge.h/.cpp`: Hardware bridge polling the Alchemy tile panel on Wire1 @ 100kHz. Frames are decoded per tile TYPE (`AlchemyProto.h` `buttonBlockOffset()`: button bytes at DATA 8..10 on slider tiles, DATA 0..2 on button tiles), and the slider/button roles are resolved by tile `TYPE_ID` (`sliderSlot()` / `firstSlotOfType(kTypeButton4)`), not by fixed bus slots.
@@ -393,8 +371,7 @@ Physical Inputs (Core 0)
 ├── MPR121 32 Step Pads (Wire: GP4/GP5 @ 0x5A)
 ├── Alchemy Tile Panel: 4 Faders + 12 Buttons (Wire1: GP14/GP15 @ 100kHz)
 ├── TMAG5273A Velocity Encoder (Wire @ 0x35)
-├── VL53L1X Distance Sensor (Wire @ 0x29)
-└── USB MIDI In (TinyUSB)
+└── VL53L1X Distance Sensor (Wire @ 0x29)
          │
          ▼
 UIEventHandler / ControlSurfaceLogic / AlchemyControlBridge
@@ -403,20 +380,19 @@ UIEventHandler / ControlSurfaceLogic / AlchemyControlBridge
 UIState (Single Source of Truth)
          │
          ▼
-4x Polymetric Sequencers (seq1..seq4)
+4x Polymetric Sequencers (AppState::sequencers routes seq1..seq4)
          │
-         ▼ (onStepCallback @ 16th notes)
-VoiceSystem (voiceStates[4], gates[2], gateTimers[2])
+         ▼ (Core 0 step drain and PPQN note-duration expiry)
+VoiceSystem (voice IDs and control VoiceState snapshots)
          │
-         ├──────────────────────────────────────────┐
-         ▼ (Lock-Free Staging)                      ▼
-VoiceManager / 4x Voice DSP Chains (Core 1)    USB MIDI Out & Gate Timing (Core 0)
+         ▼ (bounded SPSC control queues)
+VoiceManager / 4x Voice DSP Chains (Core 1)
          │
          ▼ (fill_audio_buffer @ 48kHz)
 AudioSamples::toPcm16() [ARM Cortex-M33 __SSAT]
          │
          ▼
-I2S DMA Buffer Pool (3x 256 samples)
+I2S DMA Buffer Pool (4x 256 frames)
          │
          ▼
 I2S Stereo Audio Out (GP10 / GP11 / GP12)
@@ -426,12 +402,12 @@ I2S Stereo Audio Out (GP10 / GP11 / GP12)
 
 ## 9. Gate Sequence Length Mode
 
-- **Activation**: Long-hold the encoder control button (Utility mode bit 5) to enter Gate Sequence Length Mode.
-- **Behavior**: Step pads 1–16 set the Gate track length (2–16 steps) for the active voice via `Sequencer::setParameterStepCount(ParamId::Gate, ...)`.
+- **Activation**: Hold a SliderModule voice button without Shift for 400 ms in Param or Utility mode. A press selects the voice immediately; the hold opens Gate Sequence Length Mode. Settings, Voice Editing, voice-envelope controls, and Arpeggiator mode suppress this gesture.
+- **Behavior**: Step pads 1–16 in the held voice's bank set its Gate track length (2–16 steps) via `Sequencer::setParameterStepCount(ParamId::Gate, ...)`. The other bank is ignored, and pad releases cannot toggle gates or enter step editing.
 - **Visual Feedback**:
   - **LED Matrix**: Renders a blinking band along the selected voice row up to the active Gate length; non-selected rows dim.
-  - **OLED**: Displays "Gate Len Mode", the active voice number, length value, and a proportional horizontal gauge.
-- **Exit**: Release the encoder button or toggle slide mode.
+  - **OLED**: Displays "Sequence length", the active voice number, length value, and a proportional horizontal gauge.
+- **Exit**: Release the voice button, switch voices/panel modes, press Shift, or enter a conflicting mode. A new voice press is required to re-arm the hold.
 
 ---
 

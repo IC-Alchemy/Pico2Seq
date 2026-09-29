@@ -1,4 +1,8 @@
+// VoiceEditParameters.cpp — editor model implementation (control thread).
+// Recipe choice borrows its first preset's lanes so the editor always shows
+// meaningful timbre rows for the picked algorithm.
 #include "VoiceEditParameters.h"
+#include "MusicalValues.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "presets/MusicalPresets.h"
 #include <algorithm>
@@ -13,27 +17,30 @@ struct RecipeChoice {
   const VoiceParameterLayout *layout;
   const char *name;
 };
+// Picking a recipe in the editor borrows the lanes of its first preset.
 constexpr RecipeChoice kRecipes[] = {
-    {&VoiceRecipes::kFeedbackFm, &VoicePresets::kFmParameters, "Feedback FM"},
-    {&VoiceRecipes::kPhaseMorph, &VoicePresets::kPhaseParameters, "Phase morph"},
-    {&VoiceRecipes::kSpectralDsf, &VoicePresets::kDsfParameters, "Spectral DSF"},
-    {&VoiceRecipes::kPrism, &VoicePresets::kPrismParameters, "Prism"},
-    {&VoiceRecipes::kReedPipe, &VoicePresets::kReedPipeParameters, "Reed pipe"},
-    {&VoiceRecipes::kSilkPad, &VoicePresets::kSilkPadParameters, "Silk pad"},
-    {&VoiceRecipes::kHollowBell, &VoicePresets::kHollowBellParameters, "Hollow bell"},
-    {&VoiceRecipes::kSyncLead, &VoicePresets::kSyncLeadParameters, "Sync lead"},
-    {&VoiceRecipes::kOrbitPluck, &VoicePresets::kOrbitPluckParameters, "Orbit pluck"},
-    {&VoiceRecipes::kAirChime, &VoicePresets::kAirChimeParameters, "Air chime"}};
+    {&VoiceRecipes::kFeedbackFm, &VoicePresets::kFmGlassLayout, "Feedback FM"},
+    {&VoiceRecipes::kPhaseMorph, &VoicePresets::kPhaseMorphLayout, "Phase morph"},
+    {&VoiceRecipes::kSpectralDsf, &VoicePresets::kSpectralLayout, "Spectral DSF"},
+    {&VoiceRecipes::kPrism, &VoicePresets::kPrismLayout, "Prism"},
+    {&VoiceRecipes::kReedPipe, &VoicePresets::kReedPipeLayout, "Reed pipe"},
+    {&VoiceRecipes::kSilkPad, &VoicePresets::kSilkPadLayout, "Silk pad"},
+    {&VoiceRecipes::kHollowBell, &VoicePresets::kHollowBellLayout, "Hollow bell"},
+    {&VoiceRecipes::kSyncLead, &VoicePresets::kSyncLeadLayout, "Sync lead"},
+    {&VoiceRecipes::kOrbitPluck, &VoicePresets::kOrbitPluckLayout, "Orbit pluck"},
+    {&VoiceRecipes::kAirChime, &VoicePresets::kAirChimeLayout, "Air chime"}};
 constexpr int kRecipeCount = static_cast<int>(std::size(kRecipes));
 constexpr Parameter kParameters[] = {
     {Id::Note, "Note", Group::Sequenced, Unit::Number, 0.0f, 36.0f, false,
      nullptr, nullptr},
     {Id::Velocity, "Velocity", Group::Sequenced, Unit::Percent, 0.0f, 1.0f,
      false, nullptr, nullptr},
-    {Id::Cutoff, "Cutoff", Group::Sequenced, Unit::Percent, 0.0f, 1.0f, false,
+    // Sequenced Filter lane edits envelope amount (how far the contour opens
+    // the cutoff); the patch base itself is Id::StaticCutoff.
+    {Id::Cutoff, "FiltEnv", Group::Sequenced, Unit::Percent, 0.0f, 1.0f, false,
      nullptr, nullptr},
-    {Id::Attack, "Attack", Group::Sequenced, Unit::Seconds, 0.001f, 10.0f, true,
-     nullptr, nullptr},
+    {Id::Attack, "Attack", Group::Sequenced, Unit::Seconds, 0.001f,
+     kAttackMaxSeconds, true, nullptr, nullptr},
     {Id::Decay, "Decay", Group::Sequenced, Unit::Seconds, 0.001f, 10.0f, true,
      nullptr, nullptr},
     {Id::Octave, "Octave", Group::Sequenced, Unit::Semitones, -24.0f, 24.0f,
@@ -200,7 +207,7 @@ constexpr Parameter kParameters[] = {
        c.defaultSustain =
            static_cast<std::remove_reference_t<decltype(c.defaultSustain)>>(v);
      }},
-    {Id::Release, "Release", Group::Envelope, Unit::Seconds, 0.001f, 10.0f,
+    {Id::Release, "Release", Group::Envelope, Unit::Seconds, kReleaseMinSeconds, kReleaseMaxSeconds,
      true,
      +[](const VoiceConfig &c) { return static_cast<float>(c.defaultRelease); },
      +[](VoiceConfig &c, float v) {
@@ -484,22 +491,22 @@ constexpr Parameter kParameters[] = {
      +[](VoiceConfig &c, float v) {
        c.noiseChaosRate = static_cast<decltype(c.noiseChaosRate)>(v);
      }},
-    {Id::FilterEnvAmount, "Env amount", Group::Filter, Unit::Number, 0.0f, 2.0f,
+    {Id::FilterEnvAmount, "Env octaves", Group::Filter, Unit::Number, 0.0f, 4.0f,
      false,
      +[](const VoiceConfig &c) {
-       return static_cast<float>(c.filterEnvelopeAmount);
+       return static_cast<float>(c.filterEnvelopeOctaves);
      },
      +[](VoiceConfig &c, float v) {
-       c.filterEnvelopeAmount =
-           static_cast<decltype(c.filterEnvelopeAmount)>(v);
+       c.filterEnvelopeOctaves =
+           static_cast<decltype(c.filterEnvelopeOctaves)>(v);
      }},
-    {Id::FilterEnvFloor, "Env floor", Group::Filter, Unit::Number, 0.0f, 1.0f,
+    {Id::FilterEnvFloor, "Env rest", Group::Filter, Unit::Number, 0.0f, 1.0f,
      false,
      +[](const VoiceConfig &c) {
-       return static_cast<float>(c.filterEnvelopeFloor);
+       return static_cast<float>(c.filterEnvelopeRest);
      },
      +[](VoiceConfig &c, float v) {
-       c.filterEnvelopeFloor = static_cast<decltype(c.filterEnvelopeFloor)>(v);
+       c.filterEnvelopeRest = static_cast<decltype(c.filterEnvelopeRest)>(v);
      }},
 };
 static_assert(std::size(kParameters) == static_cast<size_t>(Id::Count));
@@ -510,30 +517,34 @@ constexpr const char *kGroups[] = {
     "Oscillator 3",    "Envelope", "Main filter",  "High-pass",
     "Overdrive",       "Engine",   "Output"};
 constexpr float kTimeMin = 0.001f, kTimeMax = 10.0f;
-float timeNormalize(float seconds) {
+} // namespace
+float timeNormalize(float seconds) noexcept {
   return std::log(std::clamp(seconds, kTimeMin, kTimeMax) / kTimeMin) /
          std::log(kTimeMax / kTimeMin);
 }
-float timeMap(float n) {
-  return kTimeMin * std::pow(kTimeMax / kTimeMin, std::clamp(n, 0.0f, 1.0f));
+float attackNormalize(float seconds) noexcept {
+  return std::log(std::clamp(seconds, kTimeMin, kAttackMaxSeconds) / kTimeMin) /
+         std::log(kAttackMaxSeconds / kTimeMin);
 }
-int recipeIndex(const VoiceConfig &c) {
+int recipeIndex(const VoiceConfig &c) noexcept {
   for (int i = 0; i < kRecipeCount; ++i)
     if (c.recipe == kRecipes[i].recipe)
       return i;
   return 0;
 }
-void selectRecipe(VoiceConfig &c, int i) {
+void selectRecipe(VoiceConfig &c, int i) noexcept {
   i = std::clamp(i, 0, kRecipeCount - 1);
+  // Re-selecting the current recipe keeps the preset's own lanes.
+  if (c.recipe != kRecipes[i].recipe || !c.parameters)
+    c.parameters = kRecipes[i].layout;
   c.recipe = kRecipes[i].recipe;
-  c.parameters = kRecipes[i].layout;
   // Each recipe owns macro units; normalize old values through the new ranges.
   for (ParamId lane : {ParamId::Filter, ParamId::Attack, ParamId::Decay}) {
     const auto &b = VoiceParameters::binding(c, lane);
     c.*(b.target) = std::clamp(c.*(b.target), b.minimum, b.maximum);
   }
 }
-float laneBase(ParamId id, const VoiceConfig &c) {
+float laneBase(ParamId id, const VoiceConfig &c) noexcept {
   const auto &b = VoiceParameters::binding(c, id);
   if (b.target)
     return b.normalize(c.*(b.target));
@@ -545,13 +556,17 @@ float laneBase(ParamId id, const VoiceConfig &c) {
   case ParamId::Filter:
     return c.filterCutoffBase;
   case ParamId::Attack:
-    return timeNormalize(c.defaultAttack);
+    return attackNormalize(c.defaultAttack);
   case ParamId::Decay:
     return timeNormalize(c.defaultDecay);
   case ParamId::Octave:
     return (c.baseOctave + 24.0f) / 48.0f;
   case ParamId::GateLength:
     return (c.baseGateLength - 0.001f) / 0.999f;
+  case ParamId::Sustain:
+    return std::clamp(c.defaultSustain, 0.0f, 1.0f);
+  case ParamId::Release:
+    return MusicalValues::releaseNormalized(c.defaultRelease);
   default:
     return 0.5f;
   }
@@ -575,7 +590,7 @@ void setLaneBase(ParamId id, VoiceConfig &c, float v) {
     c.filterCutoffBase = std::clamp(v, 0.0f, 1.0f);
     break;
   case ParamId::Attack:
-    c.defaultAttack = std::clamp(v, kTimeMin, kTimeMax);
+    c.defaultAttack = std::clamp(v, kTimeMin, kAttackMaxSeconds);
     break;
   case ParamId::Decay:
     c.defaultDecay = std::clamp(v, kTimeMin, kTimeMax);
@@ -603,7 +618,6 @@ const VoiceParameterBinding *bindingFor(Id id, const VoiceConfig &c) {
   const auto &b = VoiceParameters::binding(c, lane);
   return (b.target || b.unit != VoiceParameterUnit::Standard) ? &b : nullptr;
 }
-} // namespace
 const Parameter &parameter(Id id) noexcept {
   return kParameters[static_cast<size_t>(id) < std::size(kParameters)
                          ? static_cast<size_t>(id)
@@ -658,6 +672,18 @@ ParamId sequenceLane(Id id, const VoiceConfig &c) noexcept {
   case Id::EnvDecay:
     return VoiceParameters::layout(c).envelopeFromTracks ? ParamId::Decay
                                                          : ParamId::Count;
+  case Id::Sustain:
+    return VoiceParameters::binding(c, ParamId::Sustain).target ? ParamId::Count
+                                                                : ParamId::Sustain;
+  case Id::Release:
+    return VoiceParameters::binding(c, ParamId::Release).target ? ParamId::Count
+                                                                : ParamId::Release;
+  case Id::PickPosition:
+    target = &VoiceConfig::wgPickPosition;
+    break;
+  case Id::Stiffness:
+    target = &VoiceConfig::wgStiffness;
+    break;
   case Id::StaticCutoff:
     return VoiceParameters::binding(c, ParamId::Filter).target
                ? ParamId::Count
@@ -666,11 +692,33 @@ ParamId sequenceLane(Id id, const VoiceConfig &c) noexcept {
     break;
   }
   if (target)
-    for (ParamId lane :
-         {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Decay})
+    for (ParamId lane : {ParamId::Velocity, ParamId::Filter, ParamId::Attack,
+                         ParamId::Decay, ParamId::Sustain, ParamId::Release})
       if (VoiceParameters::binding(c, lane).target == target)
         return lane;
   return ParamId::Count;
+}
+Id baseParameterForLane(ParamId lane, const VoiceConfig &c) noexcept {
+  if (lane <= ParamId::Slide)
+    return static_cast<Id>(lane);
+  // Resolve envelope lanes through the same bindings as playback, including
+  // the waveguide's Position/Stiffness controls.
+  if (lane == ParamId::Sustain || lane == ParamId::Release)
+    for (size_t i = static_cast<size_t>(Id::Slide) + 1; i < static_cast<size_t>(Id::Count); ++i) {
+      const auto id = static_cast<Id>(i);
+      if (sequenceLane(id, c) == lane)
+        return id;
+    }
+  return Id::Count;
+}
+const char *laneName(ParamId lane, const VoiceConfig &c) noexcept {
+  if (lane <= ParamId::Slide)
+    return name(static_cast<Id>(lane), c);
+  const auto &b = VoiceParameters::binding(c, lane);
+  if (b.name)
+    return b.name;
+  const auto *definition = parameterDefinition(lane);
+  return definition ? definition->name : "--";
 }
 const char *name(Id id, const VoiceConfig &c) noexcept {
   if (id <= Id::Slide) {
@@ -777,9 +825,18 @@ float value(Id id, const VoiceConfig &c) noexcept {
     return static_cast<float>(static_cast<int>(v) / 2);
   return v;
 }
+namespace {
+// While the Attack lane drives the envelope, the envelope page's Attack edits
+// the same base and must keep to that lane's shorter range.
+Id envelopeAlias(Id id, const VoiceConfig &c) noexcept {
+  return id == Id::EnvAttack && sequenceLane(id, c) == ParamId::Attack ? Id::Attack
+                                                                       : id;
+}
+} // namespace
 void setValue(Id id, VoiceConfig &c, float v) noexcept {
   if (id >= Id::Count || !std::isfinite(v))
     return;
+  id = envelopeAlias(id, c);
   if (id <= Id::Slide) {
     setLaneBase(static_cast<ParamId>(id), c, v);
     return;
@@ -837,6 +894,7 @@ bool stepped(Id id) noexcept {
 void adjust(Id id, VoiceConfig &c, float delta) noexcept {
   if (!available(id, c) || !std::isfinite(delta) || delta == 0)
     return;
+  id = envelopeAlias(id, c);
   const auto &p = parameter(id);
   const auto *b = bindingFor(id, c);
   const float lo = b ? b->minimum : p.minimum, hi = b ? b->maximum : p.maximum;
@@ -896,10 +954,8 @@ void format(Id id, const VoiceConfig &c, char *out, size_t capacity) noexcept {
     return;
   }
   if ((id == Id::Cutoff && !b) || id == Id::StaticCutoff) {
-    const auto &l = VoiceParameters::layout(c);
     std::snprintf(out, capacity, "%.0f Hz",
-                  dspmap::fmap(v, l.cutoffMinimum, l.cutoffMaximum,
-                               dspmap::Mapping::EXP));
+                  VoiceParameters::mapCutoff(VoiceParameters::layout(c), v));
     return;
   }
   if (b && b->unit == VoiceParameterUnit::Ratio) {
@@ -970,6 +1026,14 @@ float composeLane(ParamId id, float stored, const void *context) noexcept {
   if (!context)
     return stored;
   const auto &c = *static_cast<const VoiceConfig *>(context);
+  if (isPatchDefaultLane(id)) {
+    // Absolute lane: a step's own value plays as stored; a step that follows
+    // the patch plays the patch value (or the lane default without bases).
+    if (!followsPatch(stored))
+      return std::clamp(stored, 0.0f, 1.0f);
+    return c.usePatchBases ? laneBase(id, c)
+                           : parameterValueAsFloat(CORE_PARAMETERS[static_cast<size_t>(id)].defaultValue);
+  }
   if (!c.usePatchBases)
     return stored;
   if (id == ParamId::Gate)
@@ -980,9 +1044,21 @@ float composeLane(ParamId id, float stored, const void *context) noexcept {
     return stored;
   if (id == ParamId::Note)
     return std::round(std::clamp(stored + c.baseNote, 0.0f, 36.0f));
+  if (id == ParamId::Octave) {
+    const int8_t trackOffset = mapOctave(stored);
+    const int8_t totalOffset = std::clamp<int8_t>(trackOffset + static_cast<int8_t>(c.baseOctave), -24, 24);
+    return std::clamp(static_cast<float>(totalOffset) / 48.0f + 0.5f, 0.0f, 1.0f);
+  }
   const float n = id == ParamId::GateLength ? (stored - 0.001f) / 0.999f : stored;
-  const float effective = std::clamp(
-      laneBase(id, c) + std::clamp(n, 0.0f, 1.0f) - 0.5f, 0.0f, 1.0f);
+  const float base = laneBase(id, c);
+  const float n_clamped = std::clamp(n, 0.0f, 1.0f);
+  float effective;
+  if (n_clamped >= 0.5f) {
+    effective = base + (n_clamped - 0.5f) * 2.0f * (1.0f - base);
+  } else {
+    effective = base + (n_clamped - 0.5f) * 2.0f * base;
+  }
+  effective = std::clamp(effective, 0.0f, 1.0f);
   if (id == ParamId::GateLength)
     return 0.001f + effective * 0.999f;
   return effective;
@@ -996,8 +1072,20 @@ void seedModifiers(Sequencer &seq) {
     const auto id = static_cast<ParamId>(i);
     if (id == ParamId::Gate || id == ParamId::Slide)
       continue;
-    seq.fillModulationTrack(id, id == ParamId::Note ? 0.0f : mapNormalizedValueToParamRange(id, 0.5f));
+    seq.fillModulationTrack(id, isPatchDefaultLane(id) ? SequencerConstants::LANE_FOLLOWS_PATCH
+                                : id == ParamId::Note ? 0.0f
+                                : mapNormalizedValueToParamRange(id, 0.5f));
   }
+}
+void convertOffsetValues(ParamId id, float *values, size_t count, const VoiceConfig &c) {
+  if (!values || !isPatchDefaultLane(id))
+    return;
+  constexpr float kNeutral = 0.5f;
+  const float base = laneBase(id, c);
+  for (size_t step = 0; step < count; ++step)
+    values[step] = std::fabs(values[step] - kNeutral) < 1e-4f
+                       ? SequencerConstants::LANE_FOLLOWS_PATCH
+                       : offsetAroundBase(base, values[step]);
 }
 void enablePatch(VoiceConfig &c) noexcept { c.usePatchBases = true; }
 } // namespace VoiceEdit

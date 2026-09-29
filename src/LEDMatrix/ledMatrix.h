@@ -5,65 +5,39 @@
 #include <FastLED.h>
 #include "LEDConstants.h"
 
-/**
- * @brief LED Matrix Controller for 8x8 WS2812B Matrix
- * 
- * Manages an 8x8 WS2812B LED matrix with consistent color management
- * and hardware abstraction. Provides methods for individual LED control,
- * bulk operations, and direct access for advanced use cases.
- */
+// ledMatrix.h — 8x4 WS2812B stage mirror (Core 0, FastLED).
+// Framebuffer only: set colors, then show() pushes. Out-of-range setLED is a
+// safe no-op so renderers can skip their own clipping.
 class LEDMatrix {
 public:
-  // Matrix dimensions and hardware configuration
+  // 8x4 geometry and data pin; keep in step with LEDConstants.
   static constexpr uint8_t WIDTH = LEDConstants::MATRIX_WIDTH;
   static constexpr uint8_t HEIGHT = LEDConstants::MATRIX_HEIGHT;
   static constexpr uint8_t DATA_PIN = LEDConstants::MATRIX_DATA_PIN;
   static constexpr uint8_t TOTAL_LEDS = LEDConstants::MATRIX_TOTAL_LEDS;
 
-  /**
-   * @brief Constructor - initializes LED array to black
-   */
   LEDMatrix();
 
-  /**
-   * @brief Initialize the LED matrix hardware
-   * @param brightness Initial brightness level (0-255, default from constants)
-   */
+  // Arm FastLED; brightness 0-255 (default suits stage visibility).
   void begin(uint8_t brightness = LEDConstants::DEFAULT_BRIGHTNESS);
 
-  /**
-   * @brief Set color of individual LED at matrix coordinates
-   * @param x X coordinate (0 to WIDTH-1)
-   * @param y Y coordinate (0 to HEIGHT-1) 
-   * @param color CRGB color value
-   */
+  // One pad, x 0-7 / y 0-3; out of range is a no-op.
   void setLED(int x, int y, const CRGB& color);
 
-  /**
-   * @brief Set all LEDs to the same color
-   * @param color CRGB color value to apply to all LEDs
-   */
+  // All pads at once (clears, washes).
   void setAll(const CRGB& color);
 
-  /**
-   * @brief Update physical LED matrix with current color data
-   */
+  // Push staged colors to the strip.
   void show();
 
-  /**
-   * @brief Clear all LEDs (set to black)
-   */
+  // Black-out without pushing (call show() to display).
   void clear();
 
-  /**
-   * @brief Get direct access to LED array for advanced operations
-   * @return Pointer to internal CRGB array
-   * @warning Use with caution - direct manipulation bypasses bounds checking
-   */
+  // Raw framebuffer for the feedback renderer; bypasses bounds checking.
   CRGB* getLeds();
 
 private:
-  CRGB ledArray[TOTAL_LEDS];  // Internal LED color storage
+  CRGB ledArray[TOTAL_LEDS];  // staged frame, pushed by show()
 };
 
 #endif // LEDMATRIX_H

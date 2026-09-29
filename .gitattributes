@@ -9,3 +9,7 @@
 *.ino   text eol=lf
 *.h     text eol=lf
 *.cpp   text eol=lf
+
+# The Delta checkout hook is a POSIX shell script; CRLF would break its shebang
+# and every command in it on the shells Delta runs it with.
+.agents/prepare text eol=lf

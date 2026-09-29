@@ -1,0 +1,14 @@
+#!/bin/sh
+# Delta runs this script every time it mounts a managed checkout, before the
+# agent starts (https://delta.dev/docs/concepts/worktrees-and-machines). It must
+# stay fast: in an existing checkout the submodule update below is a local no-op.
+#
+# src/rpdsp and src/VelocityEncoder are Git submodules. A fresh checkout has only
+# their empty placeholder directories, and every build and test resolves sources
+# and headers from inside them (see tests/CMakeLists.txt), so initialize them.
+set -eu
+
+cd "$(dirname "$0")/.."
+
+git submodule update --init --recursive
+git submodule status --recursive

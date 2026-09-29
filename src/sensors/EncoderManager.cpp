@@ -11,12 +11,11 @@
 #include "../ui/ButtonManager.h"
 #include <algorithm>
 #include <cmath>
+#include <uClock.h>
 #include "../voice/VoiceManager.h"
 #include "../voice/VoiceSystem.h" // VoiceSystem::MAX_VOICES
 
-// =======================
-//   MAGNETIC ENCODER GLOBALS
-// =======================
+// TMAG5273 jog knob state: per-target motion so a new voice/step/lane starts at zero.
 
 namespace
 {
@@ -35,6 +34,9 @@ MagEncoder::Config makeMagEncoderConfig()
 // Motion for the selected step, separate from base editing's motion in
 // VoiceEditor. A different voice, step or parameter starts from zero.
 ControlSurface::EncoderMotion stepMotion;
+ControlSurface::EncoderMotion arpTempoMotion;
+bool arpDialShift = false;
+bool arpDialActive = false;
 struct StepTurn
 {
   uint8_t voice = UINT8_MAX;
@@ -69,7 +71,10 @@ bool editSelectedStep(UIState &uiState, float delta)
   stepMotion.add(delta);
 
   const uint8_t step = static_cast<uint8_t>(uiState.selectedStepForEdit);
-  const float curVal = selectedSeq->getStepParameterValue(targetParam, step);
+  // An absolute lane that follows the patch starts from the value it plays.
+  const float curVal = isPatchDefaultLane(targetParam)
+                           ? selectedSeq->getPlaybackValue(targetParam, step)
+                           : selectedSeq->getStepParameterValue(targetParam, step);
   const float minVal = getParameterMinValueForParamId(targetParam);
   const float maxVal = getParameterMaxValueForParamId(targetParam);
   float newVal;
@@ -88,9 +93,9 @@ bool editSelectedStep(UIState &uiState, float delta)
         SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD) * (maxVal - minVal);
   }
   newVal = std::clamp(newVal, minVal, maxVal);
-  if (newVal != curVal)
+  // Like the lidar and faders, pitch is never written into a gate-off step.
+  if (newVal != curVal && selectedSeq->editStepValue(targetParam, step, newVal))
   {
-    selectedSeq->setStepParameterValue(targetParam, step, newVal);
     updateActiveVoiceState(step, *selectedSeq);
   }
   return true;
@@ -100,45 +105,46 @@ bool editSelectedStep(UIState &uiState, float delta)
 // The magnetic encoder driver for the TMAG5273A Velocity Encoder board.
 MagEncoder magEncoder(makeMagEncoderConfig());
 
-// Note: currentEncoderParameter is accessed via uiState.currentEncoderParameter
-
-void updateEncoderBaseValues(UIState &uiState)
+void updateEncoderTarget(UIState &uiState)
 {
   if (!magEncoder.isConnected() || uiState.controlsWaitRelease) return;
   // Every read's increment is forwarded, however small: the driver has
   // already drained those ticks, and the step and base paths accumulate them.
   const float delta=magEncoder.takeParameterIncrement(-1.0f,1.0f,3);
+  if (uiState.voiceEnvelope.active || uiState.voiceEnvelope.chordPending ||
+      uiState.voiceEnvelope.waitRelease) return;
+  const bool arpOwnsDial = uiState.arp.active() && !uiState.voiceEditor.active;
+  if (arpOwnsDial != arpDialActive || uiState.shiftHeld != arpDialShift) {
+    arpTempoMotion.reset();
+    uiState.arp.resetRateMotion();
+    arpDialActive = arpOwnsDial;
+    arpDialShift = uiState.shiftHeld;
+  }
   if(delta==0.0f) return;
+  // Arpeggiator mode: the dial is the arp's rate. It is the one arp control
+  // that wants absolute, stepped access; unshifted faders carry rhythm, while
+  // Shift swaps them to range, gate, swing and tone.
+  if(arpOwnsDial) {
+    if (uiState.shiftHeld) {
+      arpTempoMotion.add(delta);
+      const int steps = arpTempoMotion.takeSteps(SensorConstants::MagneticEncoder::STEPPED_VALUE_DETENT);
+      if (steps) {
+        uClock.setTempo(std::clamp(uClock.getTempo() + static_cast<float>(steps), 45.0f, 200.0f));
+        uiState.showArpControl(UIState::ArpControl::Tempo, millis());
+      }
+    } else {
+      const auto previous = uiState.arp.settings().rate;
+      uiState.arp.turnRate(delta, SensorConstants::MagneticEncoder::STEPPED_VALUE_DETENT);
+      if (previous != uiState.arp.settings().rate)
+        uiState.showArpControl(UIState::ArpControl::Rate, millis());
+    }
+    return;
+  }
   if(!uiState.voiceEditor.active && editSelectedStep(uiState, delta)) return;
   VoiceEditor::encoder(delta);
 }
 
-// --- Helper Functions for Step Parameter Editing ---
-
-// Convert EncoderParameterMode to ParamId for step editing
-ParamId convertEncoderParameterToParamId(EncoderParameterMode encoderParam)
-{
-  switch (encoderParam)
-  {
-  case EncoderParameterMode::Note:
-    return ParamId::Note;
-  case EncoderParameterMode::Velocity:
-    return ParamId::Velocity;
-  case EncoderParameterMode::Filter:
-    return ParamId::Filter;
-  case EncoderParameterMode::Attack:
-    return ParamId::Attack;
-  case EncoderParameterMode::Decay:
-    return ParamId::Decay;
-  case EncoderParameterMode::Octave:
-    return ParamId::Octave;
-  case EncoderParameterMode::SlideTime:
-    return ParamId::Count; // SlideTime is not a step parameter
-  default:
-    return ParamId::Count; // Invalid for step editing
-  }
-}
-
+// Lane-inverse mapping lives in ControlSurface::stepEditParameter (single source).
 float getParameterMinValueForParamId(ParamId paramId)
 {
   if (static_cast<size_t>(paramId) < static_cast<size_t>(ParamId::Count))
@@ -156,68 +162,9 @@ float getParameterMaxValueForParamId(ParamId paramId)
   }
   return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
 }
-
-// Helper function for the "Shift and Scale" mapping.
-// This function takes a sequencer value (0.0-1.0) and an encoder offset
-// (a bipolar value, e.g., -0.6 to 0.6) and combines them intelligently.
-float shiftAndScale(float seqValue, float encoderOffset)
-{
-  float finalValue;
-  if (encoderOffset >= 0.0f)
-  {
-    // When the encoder offset is positive, it sets the minimum value,
-    // and the sequencer value is scaled to fit the remaining range up to 1.0.
-    finalValue = encoderOffset + (seqValue * (1.0f - encoderOffset));
-  }
-  else
-  {
-    // When the encoder offset is negative, it reduces the maximum value,
-    // and the sequencer value is scaled to fit the range from 0.0 up to that new maximum.
-    finalValue = seqValue * (1.0f + encoderOffset);
-  }
-  // Clamp the result to ensure it remains within the valid [0.0, 1.0] range.
-  return std::max(0.0f, std::min(finalValue, 1.0f));
-}
-
-// =======================
-//   ENCODER HELPER FUNCTIONS (moved from main file)
-// =======================
-
-/**
- * Gets the current value of the active encoder parameter, normalized to a 0.0-1.0 range.
- * This is used for visual feedback, such as controlling the brightness or color of an LED.
- */
-float getEncoderParameterValue()
-{
-  if(!voiceManager || uiState.selectedVoiceIndex>=4) return 0.0f;
-  const auto *config=voiceManager->getVoiceConfig(voiceSystem.getVoiceId(uiState.selectedVoiceIndex));
-  return config?VoiceEdit::value(VoiceEditor::encoderTarget(),*config):0.0f;
-}
-
-void initEncoderBaseValues()
+void initEncoderTarget()
 {
   // VoiceSetup initializes each patch's bases from its preset. The old
   // encoderBaseValues array was removed with that ownership change.
-  VoiceEditor::clearEncoder();
-}
-
-void resetEncoderBaseValues(UIState &uiState, bool currentVoiceOnly)
-{
-  if(!voiceManager) return;
-  for(uint8_t index=0;index<4;++index) {
-    if(currentVoiceOnly && index!=uiState.selectedVoiceIndex) continue;
-    const auto *requested=voiceManager->getVoiceConfig(voiceSystem.getVoiceId(index));
-    if(!requested) continue;
-    VoiceConfig next=*requested;
-    VoiceConfig defaults=VoicePresets::getPresetConfig(uiState.voicePresetIndices[index]);
-    if(defaults.engine!=next.engine) VoiceEdit::setValue(VoiceEdit::Id::Engine,defaults,next.engine);
-    if(next.engine==ENGINE_RECIPE) VoiceEdit::setValue(VoiceEdit::Id::Recipe,defaults,VoiceEdit::value(VoiceEdit::Id::Recipe,next));
-    for(uint8_t lane=0;lane<PARAM_ID_COUNT;++lane) {
-      const auto id=static_cast<VoiceEdit::Id>(lane);
-      VoiceEdit::setValue(id,next,VoiceEdit::value(id,defaults));
-    }
-    next.slideSeconds=defaults.slideSeconds;
-    VoiceEditor::publish(index,next);
-  }
   VoiceEditor::clearEncoder();
 }

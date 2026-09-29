@@ -8,9 +8,9 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **4 Independent Polyphonic Voices**: Each with a complete DSP chain (B-spline oscillator bank, resonant main filter, ADSR envelope, overdrive distortion)
 - **Five Sound Engines per Voice**: A classic oscillator bank (up to 3 oscillators, or raw noise), a Karplus-Strong **waveguide** engine for plucked/nylon/bell/shimmer strings, a **noise-FX texture** engine (prime-tap diffuser, regenerative allpass swarm, pitch-tracked Lorenz chaos growl), a native 7-voice **hypersaw** engine, and a **recipe** engine for modular rpdsp sound synthesis patches (FM, phase distortion, DSF, formant synthesis, ring modulation, reversing sync, spectral, and chaotic prisms)
 - **Two Filter Topologies**: A 24dB multi-mode ladder filter (LP12, LP24, BP12, BP24, HP12, HP24) with drive and passband gain compensation on the character voices, plus a clean modulation-stable state-variable filter (LP/BP/HP) everywhere else — including all three bass presets
-- **Effects Processing**: Per-voice overdrive distortion
+- **Effects Processing**: Per-voice overdrive distortion, followed by a master-bus analog-style delay and compressor. Shift + fader 1 sets feedback (0–100%). Fader 2 sets delay mix (Shift: time); Shift + Utility Delay/Session toggles the time fader between milliseconds and tempo divisions. Fader 3 sets master volume (Shift: Warm/Glue/Punch compressor macro).
 - **ADSR Envelopes**: Fast, analog-modeled attack, decay, sustain, and release stages with microsecond accuracy
-- **29 Voice Presets**: Stored as `constexpr` tables in flash (.rodata), organized across a 2-page browser, covering classic subtractive, sub-bass, waveguide string, hypersaw, noise-texture, and 14 recipe/musical sounds
+- **29 Voice Presets**: Stored as `constexpr` tables in flash (.rodata), all on one browser page, covering classic subtractive, sub-bass, waveguide string, hypersaw, noise-texture, and 14 recipe/musical sounds
 
 ### Advanced Sequencing
 - **Polymetric Sequencing**: Independent track step lengths for each parameter (Notes: 16 steps, Filter: 8 steps, Velocity: 12 steps, etc.)
@@ -19,6 +19,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **Shuffle & Swing**: 16 PPQN shuffle templates for groovy swing timing
 
 ### Intuitive Controls
+- **Arpeggiator Mode**: `Shift + hold Voice 4` turns the same panel into a chord arpeggiator — the 32 pads become a scale-degree keyboard, the LED matrix becomes a pitch-coloured chord map, the four unshifted faders set Hits/Length/Rotate/Accent, the dial sets the rate, the lidar sets note dynamics, and the button panel switches six note patterns and latches the chord. Holding Shift swaps the faders to range/gate/swing/filter, adds six rhythm starting points, and changes the dial to tempo; the OLED shows a rhythm strip and control hints. See [Arpeggiator mode](docs/arpeggiator.md)
 - **32-Button Touch Matrix**: MPR121 capacitive touch grid providing 32 dedicated step sequencing pads across two voice banks
 - **Alchemy Modular UI Tiles**: Dedicated `SliderModule` (4 faders + 4 voice selects) and `ButtonModule8` (8 multi-function buttons) on a dedicated I2C1 bus
 - **Hardware Mode Strap (GP7)**: Instant hardware toggle between Parameter mode and Utility mode
@@ -47,10 +48,12 @@ For a practical guide to changing the firmware, start with
 ├── .gitmodules               # Git submodule configuration
 ├── src/
 │   ├── app/                  # Startup, clock/playback glue, controls and audio output
+│   │   ├── ArpPlayback.*    # Arpeggiator mode: slot-to-voice mapping and VoiceState publishing
 │   ├── audio/                # I2S audio interface, PIO DMA, and buffer management
 │   ├── pico2seq-core/        # Portable core sequencer, ParameterTrack, and scale tables
-│   │   ├── scales/           # 13 scale tables and MIDI mapping
-│   │   └── sequencer/        # Sequencer, ParameterManager, SequencerDefs, ShuffleTemplates
+│   │   ├── arpeggiator/     # Portable chord/pattern/clock engine behind Arpeggiator mode
+│   │   ├── scales/          # 13 scale tables and MIDI mapping
+│   │   └── sequencer/       # Sequencer, ParameterManager, SequencerDefs, ShuffleTemplates
 │   ├── rpdsp/                # Submodule: IC-Alchemy/RPDSP (header-only DSP algorithms)
 │   ├── VelocityEncoder/      # Submodule: IC-Alchemy/VelocityEncoder (TMAG5273 driver)
 │   ├── voice/                # Synthesizer voices, VoiceSystem, and VoicePresets
@@ -67,7 +70,7 @@ For a practical guide to changing the firmware, start with
 │   │   └── UIEventHandler.h/.cpp      # Sequencer step adapter logic
 │   ├── matrix/               # MPR121 4×8 touch matrix — 32 dedicated step pads
 │   ├── sensors/              # Sensor management (EncoderManager and VL53L1X DistanceSensor)
-│   ├── midi/                 # Internal gate/note lifecycle (MidiNoteManager); USB MIDI removed 2026-09-06
+│   ├── midi/                 # Removal notice only; USB remains CDC-only
 │   ├── LEDMatrix/            # 8×4 WS2812B RGB visual feedback (pad-mirror) and 10 color themes
 │   ├── OLED/                 # 128×64 SH1106G OLED display manager and priority screens
 │   ├── utils/                # Debug logging utilities (Debug.h/.cpp)
@@ -109,22 +112,45 @@ For a practical guide to changing the firmware, start with
     control core. Upstream 2.3.0 changed the callback API; re-verify before
     upgrading.)
 
+### Fresh GitHub clone and 150 MHz build
+
+For a new checkout, run these commands from an empty directory:
+
+```bash
+git clone --recurse-submodules https://github.com/IC-Alchemy/Pico2Seq.git
+cd Pico2Seq
+git switch DeCluttered
+git submodule update --init --recursive
+```
+
+The final submodule command is intentionally repeatable after switching branches. The helper
+never resets, cleans, or discards local work. If it reports stale or missing submodules, fix the
+checkout with the command above and review any local changes before retrying.
+
+On Windows with PowerShell, compile the stable firmware baseline explicitly at **150 MHz**:
+
+```powershell
+pwsh -NoProfile -File scripts/build_pico2seq.ps1 `
+  -CpuMHz 150 `
+  -BuildDirectory build/pico2seq-150 `
+  -NoWorkingCopy
+```
+
+The command writes `build/pico2seq-150/Pico2Seq.ino.uf2`, `.elf`, `.bin`, and `.map`. It compiles
+only; it does not upload or hardware-test the board. The optional
+`scripts/publish_uf2.ps1` rename/copy step is skipped when that developer helper is absent; the
+required UF2/ELF/BIN/MAP artifacts remain in the requested build directory. The helper's required
+submodule and source-marker checks remain hard errors.
+
 ### Installation & Flashing
 
-1. **Clone the repository with submodules:**
-   ```bash
-   git clone --recurse-submodules https://github.com/IC-Alchemy/Pico2Seq.git
-   cd Pico2Seq
-   ```
-   *(If cloned without `--recurse-submodules`, run `git submodule update --init --recursive`)*
-
-2. **Open in Arduino IDE:**
+1. **Open in Arduino IDE:**
    - Launch Arduino IDE
    - Open `Pico2Seq.ino`
    - Select board: **Raspberry Pi Pico 2** / **RP2350**
    - Ensure USB stack is set to **Adafruit TinyUSB**
 
-3. **Compile and Upload:**
+2. **Compile and Upload:**
    - Compile and flash to the Pico 2 board
    - Monitor the USB serial console (115200 baud) for startup diagnostics
 
@@ -168,7 +194,7 @@ Copy-StageTree -Source $repoRoot -Destination $stageSketch
 $boardOptions = @(
     'flash=4194304_65536'
     'arch=arm'
-    'freq=300'
+    'freq=150'
     'opt=Optimize3'
     'profile=Disabled'
     'rtti=Disabled'
@@ -228,13 +254,38 @@ MIDI, displays, sensors, or controls on physical hardware.
 6. **Real-time recording:** Hold (or Shift+tap to latch) a parameter button and touch step pads to record automation into the pattern.
 7. **Switch function sets:** Toggle the GP7 mode strap between **Param** (Note, Velocity, Filter, Attack, Decay, Octave, Slide, Shift) and **Utility** (Play/Stop, Session Save/Load, Scale, Swing, Theme, Encoder Target, Randomize, Shift).
 8. **Voice Editing mode:** Hold **Shift** and press slider button 4 to stop transport and edit any voice's sound parameters directly with the encoder (button tiles navigate groups/parameters; slider buttons 1–4 pick the voice). See [`docs/voice-edit.md`](docs/voice-edit.md).
-9. **Master volume:** In Utility mode, fader 3 sets the final output volume (applied on Core 1's final mix).
+9. **Delay & groove:** Fader 2 sets the master delay wet mix. Hold **Shift** and move it for delay time. In millisecond mode it spans 10–750 ms; **Shift + Utility Delay/Session** toggles tempo sync, where the fader selects whole through dotted and triplet 64th notes. The OLED shows the selected division. Tempo changes update the delay time automatically. Fader 3 keeps master volume; **Shift + fader 3** morphs the compressor across Warm/Glue/Punch. Shuffle/swing comes from the 16 templates (Utility button 4).
+10. **Clear a voice / start fresh:** In Utility mode, **Shift + Randomize tap** wipes the selected voice's whole pattern (all step values, gates, slides and per-track lengths); **Shift + Randomize long-press** wipes all four voices the same way. Voice presets, tempo and transport state are kept.
+
+### Live voice ADSR sliders
+
+Hold **Shift (button 8)**, then **button 6** (Octave / Encoder), and press
+**Voice 1–4**. Release the buttons. This opens a persistent **SEQ ADSR** or
+**ARP ADSR** page without stopping playback. Press **Shift** to leave; plain
+voice buttons select another voice while the page is open.
+
+Faders 1–4 control **Attack / Decay / Sustain / Release**, using the existing
+movement pickup, median filter and deadband. Entering, leaving, or selecting a
+voice re-arms pickup. Only a moved stage changes. Attack spans 1 ms–2 s, decay
+1 ms–10 s, sustain 0–100%, and release 10 ms–8 s.
+
+In sequencer mode, the moved envelope lane follows the new patch value across
+**all stored steps**, including steps outside the current track length. In arp
+mode the patch and sounding voice update without rewriting the sequence.
+Updates reach held notes and release tails without retriggering. Timbre macros
+on repurposed lanes are preserved. A patch with its amplitude envelope disabled
+keeps that setting; the OLED says **Env OFF**.
+
+The OLED shows the selected voice, ADSR values, and last moved stage. Only that
+voice's LED band is lit. Sequence pads and the encoder are inactive on this page;
+arp pads still play chords. **Shift + button 6** without a voice press performs
+its existing short action on release; use unshifted button 6 for its normal hold.
 
 ### Preset System
 
-Each synthesizer voice supports 29 built-in sound presets (held as `constexpr` tables in flash) accessible through a 2-page selection browser in Settings mode:
+Each synthesizer voice supports 29 built-in sound presets (held as `constexpr` tables in flash) accessible through a single-page selection browser in Settings mode (preset *n* sits on pad *n*−1):
 
-**Page 1 (Pads 8–31):**
+**Pads 0–23:**
 1. **Analog** — Triple-saw classic subtractive synth with warm 24dB ladder filtering
 2. **Digital** — Square + triangle hybrid with sharp 12dB lowpass cutoff
 3. **Bass** — Deep sub-octave detuned sine/triangle bass
@@ -260,7 +311,7 @@ Each synthesizer voice supports 29 built-in sound presets (held as `constexpr` t
 23. **CopperBass** — Harmonically rich bass: `osc_dsf` harmonic spacing with a sub sine from `osc_pdmorph`
 24. **ReedPipe** — Held acoustic reed tone: `osc_formant` bursts blended with sine fundamental
 
-**Page 2 (Pads 8–12):**
+**Pads 24–28:**
 25. **SilkPad** — Slow orchestral swell: two detuned `osc_pdmorph` voices with free-running phase and 1.25s release
 26. **HollowBell** — Hollow metallic bell: dual `osc_pdmorph` sources ring-modulated at 2:1, zero sustain
 27. **SyncLead** — Aggressive sync lead: `osc_revsync` blended with pitched `osc_pdmorph` body
@@ -268,9 +319,8 @@ Each synthesizer voice supports 29 built-in sound presets (held as `constexpr` t
 29. **AirChime** — Ethereal harmonic chime: `osc_prism` blended with octave sine and extended decay
 
 **Browser Navigation:**
-- In Settings mode, **Pad 6** and **Pad 7** page left (`<`) and right (`>`).
-- Touch **Pads 8–31** on Page 1 or **Pads 8–12** on Page 2 to instantly assign a preset to the active voice.
-- Press **Pads 0–3** (or SliderModule V1–V4 buttons) to select which voice is being configured.
+- In Settings mode, touch **Pads 0–30** to instantly assign that pad's preset to the active voice (pads 0–28 hold the 29 presets; pad 31 is unassigned). There are no pages.
+- Press the SliderModule **V1–V4** buttons to select which voice is being configured. Pads never change the voice in Settings.
 
 ---
 
@@ -284,7 +334,7 @@ Pico2Seq leverages the dual ARM Cortex-M33 cores of the RP2350:
 |       (UI, Sensors & MIDI)         |    |       (Real-Time Audio DSP)        |
 +------------------------------------+    +------------------------------------+
 | • 1ms sensor poll (TMAG, VL53L1X)   |    | • fill_audio_buffer() loop         |
-| • MPR121 32-pad touch matrix scan  |    | • VoiceManager::processAllVoices() |
+| • MPR121 32-pad touch matrix scan  |    | • VoiceManager::processBlock() |
 | • Alchemy tile panel polling (I2C1)|    | • 4-voice synthesis chain          |
 | • 50Hz OLED & WS2812B LED updates  |    | • FloatToPcm16() with __SSAT       |
 | • uClock sequencer step ticking    |    | • Non-blocking I2S DMA @ 48kHz     |

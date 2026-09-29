@@ -59,7 +59,7 @@ The firmware partitions the control surface implementation into two distinct lay
 
 ### 1. Param Mode (`GP7` LOW / `ControlSurface::Mode::Param`)
 
-In Param mode, ButtonModule8 provides instant parameter arming for real-time recording via distance sensor, magnetic encoder, or continuous faders.
+In Param mode, ButtonModule8 provides instant parameter arming for real-time recording via distance sensor or magnetic encoder.
 
 | Bit / Button | Parameter / Function | Behavior |
 |---|---|---|
@@ -72,12 +72,7 @@ In Param mode, ButtonModule8 provides instant parameter arming for real-time rec
 | **6** | `Slide` | Toggles slide/portamento mode (clears conflicting edit modes) |
 | **7** | `Shift` | Modifier for parameter latching and secondary chords |
 
-**Fader Channels in Param Mode:**
-- **Fader 0**: Filter Cutoff for the currently selected voice.
-- **Fader 1**: Attack Time for the currently selected voice.
-- **Fader 2**: Decay Time for the currently selected voice.
-- **Fader 3**: Velocity for the currently selected voice.
-- *Recording Behavior*: When a matching parameter button is held (armed) and a step is in edit (`selectedStepForEdit >= 0`), moving the corresponding fader writes the normalized value directly into the sequencer step track.
+The faders do not follow the mode strap; see **Fader channels** below.
 
 ---
 
@@ -92,15 +87,31 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, and system contr
 | **2** | `Scale Cycle` | Cycles forward through the 13 musical scales |
 | **3** | `Swing Pattern` | Cycles through the 16 groove/shuffle templates in `ShuffleTemplates.h` |
 | **4** | `Theme Cycle` | Cycles visual LED color themes across `LEDTheme` presets |
-| **5** | `Encoder Target` | Short press cycles encoder target; hold enters Gate Sequence Length mode |
-| **6** | `Randomize` | Short press randomizes selected voice; long press (>1000 ms) resets voice |
+| **5** | `Encoder Target` | Press cycles encoder target (or toggles the Settings page) |
+| **6** | `Randomize` | Short press randomizes selected voice; long press (>1000 ms) resets voice. Shift + tap clears the selected voice's whole pattern (`clearSequencerVoice` → `Sequencer::clearPattern`); Shift + long-press clears all four voices (`clearAllSequencerVoices`) |
 | **7** | `Shift` | Modifier for transport and utility chords |
 
-**Fader Channels in Utility Mode:**
-- **Fader 0**: Master Tempo (uClock BPM: 45–200 BPM).
-- **Fader 1**: Swing Amount (continuous shuffle template depth).
-- **Fader 2**: **Master Volume** — final output gain via `VoiceManager::setGlobalVolume()` (added 2026-09-11; the fader slot was unassigned after the delay effect's removal).
-- **Fader 3**: Gate Length (applies gate length across active steps on the selected voice).
+**Fader channels (both strap positions, `ControlSurface::FaderMap::assignmentFor()`):**
+
+| Fader | No step selected | Step Edit = ENV mode (`selectedStepForEdit >= 0`) |
+|---|---|---|
+| **0** | Master Tempo (uClock BPM: 45–200 BPM) | Attack lane of the selected step |
+| **1** | Swing Amount (continuous shuffle depth) | Decay lane of the selected step |
+| **2** | Unassigned (the former Decay / Master Volume slot) | Sustain lane of the selected step |
+| **3** | Gate Length across the selected voice's steps | Release lane of the selected step |
+
+- **ENV mode** writes the fader position as the step's absolute value through
+  `recordParameter()` (`Sequencer::editStepValue()`), refreshing the sounding note in
+  place. `Shift` + a fader move calls `resetStepToPatch()` instead, so that lane of the
+  step follows the patch again. Strings bind the four lanes to Pick, T60, Position and
+  Stiffness; Hypersaw, NoiseStorm and recipes to their two Attack/Decay engine controls
+  plus the real Sustain and Release.
+- The bridge re-arms every fader (`FaderMap::resetDeadband()`) whenever the selected
+  voice or the selected step changes, including entering and leaving Step Edit, so a
+  fader only writes after an obvious move. Only fresh checksum-valid slider frames
+  enter the rolling median filter; a cached read cannot count as another sample.
+- Faders no longer edit voice bases or live-record: the encoder edits bases, the
+  distance sensor records. Master volume is fader 3 in Utility mode, and is saved with the session (default 0.75).
 
 ---
 
@@ -113,6 +124,7 @@ The 4 buttons on the SliderModule tile act as direct Voice 1–4 selectors in bo
   - Button 1: Select Voice 2 (`selectedVoiceIndex = 1`)
   - Button 2: Select Voice 3 (`selectedVoiceIndex = 2`)
   - Button 3: Select Voice 4 (`selectedVoiceIndex = 3`)
+- **Long Press (400 ms, without Shift)**: Enter Gate Sequence Length mode for that voice in either panel mode. Keep holding and tap a pad in its lit bank to set 2–16 steps; the partner bank is ignored. The existing OLED length gauge and blinking LED band show the value. Release the voice button to exit. Settings, Voice Editing, voice-envelope controls, and Arpeggiator mode retain their own controls.
 - **Shift + Voice Button Chords** (Held Shift + Slider Button):
   - `Shift + Voice 1`: Play / Stop toggle
   - `Shift + Voice 2`: Randomize selected voice (short-press randomize only — the poll-driven long-press reset never triggers from a chord)
@@ -145,7 +157,7 @@ PadAddress addr = ControlSurface::PadBank::resolve(padIndex, uiState.selectedVoi
   - Bank 0 (Pads 0–15): Voice 3 steps 0–15
   - Bank 1 (Pads 16–31): Voice 4 steps 0–15
 
-All step actions (gate toggle, long-press step selection for editing, parameter-hold step entry, gate sequence length adjustment, and slide toggling) resolve to the pad's bank-mapped voice rather than assuming the single global selected voice.
+Step actions resolve to the pad's bank-mapped voice. Gate sequence length entry accepts only the held voice's bank; gate toggles, step selection, parameter-length entry, and slide toggles can address either visible voice.
 
 ---
 
@@ -171,10 +183,13 @@ Maintains momentary button holds and single-parameter Shift latching.
 - `reset()`: Flushes all momentary holds and latches (called automatically on mode flip).
 
 ### 4. `FaderMap`
-Fader target assignment, 12-bit ADC normalization (0–4095 to 0.0–1.0), and deadband filtering.
-- `kDeadbandCounts = 8`: Suppresses jitter and spurious I2C updates.
-- `accept(uint8_t channel, uint16_t rawCounts)`: Returns `true` only when movement exceeds deadband or immediately after a mode reset.
-- `assignmentFor(Mode mode, uint8_t channel)`: Maps channel index to `FaderAssignment{target, paramId}`.
+Fader target assignment, 12-bit ADC normalization (0–4095 to 0.0–1.0), and a
+three-frame median filter plus deadband.
+- `kFilterWindowSamples = 3`: Filters one-frame ADC/I2C spikes before engagement or dispatch.
+- `kDeadbandCounts = 48`: Suppresses remaining jitter and small I2C changes once engaged (~1.2% of throw).
+- `kMoveThresholdCounts = 384`: Filtered movement required to engage a fader after reset / mode flip (~9.4% of throw).
+- `accept(uint8_t channel, uint16_t rawCounts)`: Feed only a fresh coherent slider frame. Returns `true` only after the filtered move engages the fader, or after a subsequent filtered move exceeds the deadband. `filtered(channel)` returns the value to dispatch.
+- `assignmentFor(bool stepSelected, uint8_t channel)`: Maps channel index to `FaderAssignment{target, paramId}`: Tempo / DelayMix / MasterVolume / GateLength, or the four envelope lanes (`FaderTarget::EnvLane`) with a step selected. Arpeggiator mode uses the separate `arpAssignmentFor()` table: unshifted rhythm faders, Shift range/gate/swing/filter faders.
 
 ---
 
@@ -188,7 +203,6 @@ Fader target assignment, 12-bit ADC normalization (0–4095 to 0.0–1.0), and d
 
 class UIState;
 class Sequencer;
-class MidiNoteManager;
 
 // Core button handling functions
 void handleRandomizeButton(int voiceIndex, UIState &state);
@@ -241,24 +255,32 @@ The verified `BUTTON_PLAY_STOP` logic in `ButtonHandlers.cpp` directly coordinat
 case BUTTON_PLAY_STOP:
     if (isClockRunning)
     {
-        onClockStop();
+        uClock.stop();
         // Enter settings mode when stopping
-        state.settingsMode = true;
-        state.inPresetSelection = true;
+        openSettingsMode(state);
     }
     else
     {
-        onClockStart();
+        uClock.start();
         // Exit settings mode if active
         if (state.settingsMode)
         {
-            state.settingsMode = false;
-            state.inPresetSelection = false;
-            state.selectedStepForEdit = -1;
+            closeSettingsMode(state);
         }
     }
     break;
 ```
+
+Every path into or out of Settings (this one, the Utility Play long-press, and
+the running short-press close) goes through `openSettingsMode()` /
+`closeSettingsMode()` (`UIEventHandler.h`). Opening always starts in preset
+selection. The browser has one page: pad N applies preset N on pads 0–30 (pad
+31 is unassigned), and a `static_assert` in `VoicePresets.cpp` fails the build if
+the bank outgrows those pads. The preset grid, OLED and preset taps all follow
+`selectedVoiceIndex`, which only the voice buttons change while Settings is
+open; no pad selects a voice there. Settings also consumes pad releases as well
+as presses, so a preset tap never toggles or selects a step on the pad's bank
+voice.
 
 ---
 
@@ -280,13 +302,11 @@ struct UIState {
 
     // Settings Mode States
     bool settingsMode = false;
-    bool inPresetSelection = false;
-    uint8_t settingsMenuIndex = 0;
+    // isPresetSelection() derives the active view from currentSubMode.
     uint8_t voicePresetIndices[4] = {4, 2, 1, 6};
 
-    // Encoder Hold / Gate Seq Length
-    unsigned long encoderControlPressTime = 0;
-    bool encoderControlWasPressed = false;
+    // Voice Button Hold / Gate Sequence Length
+    int8_t gateSeqLengthVoice = -1;
     bool gateSeqLengthMode = false;
 
     // Alchemy Tile State (GP7 Mode Strap & Shift Latch)

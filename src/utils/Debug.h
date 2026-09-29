@@ -1,9 +1,8 @@
 #pragma once
 
-// Lightweight Arduino-style debug utility with runtime toggle and log levels.
-// - Zero cost when compiled out via AUG_DEBUG_COMPILED=0
-// - Runtime enable/disable and level control when compiled in
-// - Avoids dynamic allocation; suitable for microcontrollers
+// Debug.h — leveled Serial log for bring-up (Core 0 only: formatting +
+// Serial block, so never from the Core 1 audio path).
+// Zero cost with AUG_DEBUG_COMPILED=0; fixed buffers, no heap, when compiled in.
 
 #include <Arduino.h>
 #include <stdarg.h>

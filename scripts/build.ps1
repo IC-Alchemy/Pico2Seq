@@ -14,6 +14,7 @@ $logFile = Join-Path $PWD ("build\{0}-{1}-build.log" -f $title, $cpuMHz)
 & scripts/build_pico2seq.ps1 `
     -CpuMHz $cpuMHz `
     -BuildDirectory $buildDirectory `
+    -FirmwareTitle $title `
     -KeepStage *> $logFile
 
 $buildExit = $LASTEXITCODE

@@ -1,6 +1,6 @@
 {
     "sketch": "Pico2Seq.ino",
-    "configuration": "flash=4194304_65536,arch=arm,freq=225,opt=Optimize3,profile=Disabled,rtti=Disabled,stackprotect=Disabled,exceptions=Disabled,dbgport=Disabled,dbglvl=None,usbstack=tinyusb,ipbtstack=ipv4only,uploadmethod=default",
+    "configuration": "flash=4194304_65536,arch=arm,freq=150,opt=Optimize3,profile=Disabled,rtti=Disabled,stackprotect=Disabled,exceptions=Disabled,dbgport=Disabled,dbglvl=None,usbstack=tinyusb,ipbtstack=ipv4only,uploadmethod=default",
     "board": "rp2040:rp2040:rpipico2",
     "port": "COM3",
     "output": "build",

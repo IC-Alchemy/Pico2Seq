@@ -6,13 +6,17 @@
 #include "StepPlayback.h"
 #include "../ui/ControlSurfaceLogic.h"
 #include "../ui/UIConstants.h"
+#include "../ui/UITransitions.h"
 #include <cstdlib>
 #include <uClock.h>
 
+// Patch-editing mode: transport parking, knob/button handling, and publishing.
+// Entering clears performance holds so a stuck gate never drones under the editor.
+
 namespace {
 ControlSurface::EncoderMotion encoderMotion;
-// The value pending encoder motion was turned for. Motion never carries over
-// to a different voice, parameter, or between the editor and performance.
+// Pending knob turn belongs to one voice/parameter/mode; switching resets it
+// so motion never leaks into a different target.
 struct EncoderTurn {
   bool editor = false;
   uint8_t voice = 0;
@@ -29,9 +33,8 @@ void clearPerformanceControls() {
     held = false;
   for (auto &timestamp : uiState.padPressTimestamps)
     timestamp = 0;
-  uiState.settingsMode = uiState.inPresetSelection =
-      uiState.inVoiceParameterMode = false;
-  uiState.encoderControlWasPressed = uiState.gateSeqLengthMode = false;
+  UITransitions::closeSettings(uiState);
+  UITransitions::cancelGateLengthHold(uiState);
   uiState.modGateParamSeqLengthsMode = uiState.slideMode = false;
   uiState.playStopWasPressed = uiState.voiceSwitchWasPressed = false;
   uiState.selectedStepForEdit = -1;
@@ -45,6 +48,7 @@ void clearPerformanceControls() {
 } // namespace
 namespace VoiceEditor {
 void enter() {
+  uiState.voiceEnvelope = {};
   stopClockForEditor();
   clearPerformanceControls();
   uiState.voiceEditor.enter();
@@ -59,8 +63,8 @@ void publish(uint8_t index, VoiceConfig &config) {
   if (!voiceManager || index >= VoiceSystem::MAX_VOICES)
     return;
   const auto id = voiceSystem.getVoiceId(index);
-  // Glide time rides its own control update, so only send it when it moved.
-  // Every other field travels inside the config push below.
+  // Glide rides its own update, so send it only when it moved; the rest ships
+  // in the config push below.
   const auto *applied = voiceManager->getVoiceConfig(id);
   const bool slideMoved =
       !applied || applied->slideSeconds != config.slideSeconds;
@@ -81,7 +85,7 @@ void buttons(uint8_t buttons, uint8_t voices, uint32_t now) {
     clearEncoder();
   if (input.voice >= 0) {
     uiState.selectedVoiceIndex = static_cast<uint8_t>(input.voice);
-    uiState.isVoice2Mode = input.voice == 1;
+    // Editor focus only switches the cursor bank: no note cleanup, no OLED fanfare.
   }
   const uint8_t index = uiState.selectedVoiceIndex;
   if (!voiceManager || index >= 4)
@@ -102,7 +106,7 @@ void buttons(uint8_t buttons, uint8_t voices, uint32_t now) {
     VoiceConfig next = *requested;
     VoiceConfig defaults =
         VoicePresets::getPresetConfig(uiState.voicePresetIndices[index]);
-    // Reset a field in a changed engine using defaults in that engine's units.
+    // Reset one field in the running engine's own units (engines differ).
     if (defaults.engine != next.engine)
       VoiceEdit::setValue(VoiceEdit::Id::Engine, defaults, next.engine);
     if (next.engine == ENGINE_RECIPE)
@@ -117,6 +121,8 @@ void clearEncoder() {
   encoderMotion.reset();
 }
 void encoder(float delta) {
+  if (uiState.voiceEnvelope.active || uiState.voiceEnvelope.chordPending ||
+      uiState.voiceEnvelope.waitRelease) return;
   const auto &editor = uiState.voiceEditor;
   const auto index = uiState.selectedVoiceIndex;
   if (!voiceManager || index >= VoiceSystem::MAX_VOICES ||
@@ -147,38 +153,28 @@ void encoder(float delta) {
                       encoderMotion.takeContinuous(
                           SensorConstants::MagneticEncoder::MINIMUM_INCREMENT_THRESHOLD));
   }
-  // A knob already pinned at the parameter's limit must not republish.
+  // A knob pinned at its limit must not republish (avoids queue churn).
   if (VoiceEdit::value(id, next) == before)
     return;
   publish(index, next);
-  // While playing, the sounding note takes the new base at once (without a
-  // retrigger), so the value on the OLED is also what is heard.
+  // While playing, the sounding note takes the new base without retrigger, so
+  // the OLED value matches what is heard.
   if (!editor.active)
-    updateActiveVoiceState(0, *AppState::sequencers[index]);
-  // Outside the editor the OLED normally shows sequenced step values, where a
-  // step's modifier can mask a base change. Show the base while it is turned.
+    updateActiveVoiceState(UINT8_MAX, *AppState::sequencers[index]);
+  // Outside the editor the OLED shows step values, which can mask a base change;
+  // flash the base while the knob turns.
   if (!editor.active)
     uiState.encoderBaseViewUntil = millis() + ENCODER_BASE_VIEW_MS;
 }
 VoiceEdit::Id encoderTarget() {
   using Id = VoiceEdit::Id;
-  switch (uiState.currentEncoderParameter) {
-  case EncoderParameterMode::Note:
-    return Id::Note;
-  case EncoderParameterMode::Velocity:
-    return Id::Velocity;
-  case EncoderParameterMode::Filter:
-    return Id::Cutoff;
-  case EncoderParameterMode::Attack:
-    return Id::Attack;
-  case EncoderParameterMode::Decay:
-    return Id::Decay;
-  case EncoderParameterMode::Octave:
-    return Id::Octave;
-  case EncoderParameterMode::SlideTime:
-    return Id::SlideTime;
-  default:
-    return Id::Velocity;
-  }
+  if (uiState.currentEncoderParameter == EncoderParameterMode::SlideTime)
+    return Id::SlideTime; // Voice-only knob target, not the sequencer Slide toggle.
+  const ParamId lane = parameterForEncoderMode(uiState.currentEncoderParameter);
+  const auto index = uiState.selectedVoiceIndex;
+  const auto *config = voiceManager && index < VoiceSystem::MAX_VOICES
+      ? voiceManager->getVoiceConfig(voiceSystem.getVoiceId(index)) : nullptr;
+  const auto target = config ? VoiceEdit::baseParameterForLane(lane, *config) : Id::Count;
+  return target == Id::Count ? Id::Velocity : target;
 }
 } // namespace VoiceEditor

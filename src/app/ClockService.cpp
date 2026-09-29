@@ -1,11 +1,16 @@
 #include "ClockService.h"
 #include "AppState.h"
+#include "ArpPlayback.h"
 #include "StepPlayback.h"
-#include "../midi/MidiManager.h"
+#include "VoicePlayback.h"
 #include "../utils/SpscQueue.h"
 #include <Arduino.h>
 #include <uClock.h>
 #include <hardware/sync.h>
+
+// ISR stages, loop() plays: step numbers wait in a 16-deep ring, PPQN ticks in a
+// counter. Same-core (Core 0) handoff, no locks; processing stays in thread
+// context so the tick ISR never blocks and the groove stays tight.
 
 uint32_t g_processedStepCount = 0;
 
@@ -16,11 +21,10 @@ constexpr float kStartingTempoBpm = 90.0f;
 struct ClockEvents
 {
     SpscQueue<uint32_t, kQueuedStepCapacity> steps;
-    // Same-core ISR visibility. The existing increment/decrement policy is
-    // retained; volatile does not fix its pre-existing lost-increment window.
+    // Same-core ISR visibility; increments can still be lost if loop() drains
+    // mid-burst. Retained policy: PPQN only shortens notes, never hangs them.
     volatile uint32_t ppqnTicksPending = 0;
     volatile uint32_t droppedSteps = 0;
-    uint16_t gateTick = 0;
 };
 ClockEvents clockEvents;
 
@@ -28,65 +32,59 @@ void onStepCallback(uint32_t uClockCurrentStep)
 {
     if (!clockEvents.steps.tryPush(uClockCurrentStep))
     {
-        clockEvents.droppedSteps++; // loop() stalled longer than the queue
+        // loop() stalled longer than 16 steps: drop the newest, count it.
+        clockEvents.droppedSteps++;
     }
 }
 
 void onOutputPPQNCallback(uint32_t tick)
 {
-    // Increment counter to signal pending tick processing
+    // Stage one pending tick for the loop drain; note length is ticked there.
     clockEvents.ppqnTicksPending++;
 }
 } // namespace
 
 void onClockStart()
 {
+    // Thread context (uClock.start() call site): safe to touch sequencers/voices.
     if (uiState.voiceEditor.active) return;
     if (voiceManager) voiceManager->setTransportMuted(false);
      Serial.println("[uClock] onClockStart()");
-    // Start all four sequencers so  LEDs and audio advance for 3/4 as well
-    seq1.start();
-    seq2.start();
-    seq3.start();
-    seq4.start();
+    for (auto *sequencer : AppState::sequencers)
+        sequencer->start();
+    // Arpeggiator mode: a chord held through the stop starts from its root on
+    // the downbeat instead of wherever the walk was left.
+    arpTransportStart();
     isClockRunning = true;
 }
 
 void onClockStop()
 {
-    // Stop all four sequencers
-    seq1.stop();
-    seq2.stop();
-    seq3.stop();
-    seq4.stop();
-
-    // Use MidiNoteManager for comprehensive cleanup
-    midiNoteManager.onSequencerStop();
-
-    // Legacy allNotesOff() call for sequencer state cleanup
     isClockRunning = false;
-    if (voiceManager) {
+    if (voiceManager)
         voiceManager->setTransportMuted(true);
-        for (uint8_t i=0;i<VoiceSystem::MAX_VOICES;++i) {
-            auto &state=voiceSystem.getVoiceState(i);
-            state.isGateHigh=false; state.shouldRetrigger=false; state.hasSlide=false;
-            voiceManager->updateVoiceState(voiceSystem.getVoiceId(i),state);
-        }
-    }
+    for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i)
+        stopSequencerVoice(i);
     Serial.println("[uClock] onClockStop()");
 }
 
 void processClockEvents()
 {
+    // Core 0 loop drain: turns staged steps into sounding notes (see StepPlayback).
     uint32_t step = 0;
     while (clockEvents.steps.tryPop(step))
     {
-        if (isClockRunning && !uiState.voiceEditor.active) processSequencerStep(step);
+        // Arpeggiator mode consumes no clock steps: the arp advances on the PPQN
+        // path below, where its note divisions live. The queue still drains so
+        // it cannot back up while the mode is on.
+        if (isClockRunning && !uiState.voiceEditor.active && !uiState.arp.active())
+            processSequencerStep(step);
     }
 }
 
 void initializeClock()
 {
+    // 90 BPM, 480 PPQN, shuffle on: the default groove before the session overrides.
     uClock.init();
     uClock.setOnClockStart(onClockStart);
     uClock.setOnClockStop(onClockStop);
@@ -100,41 +98,37 @@ void initializeClock()
 
 void processPendingGateTicks()
 {
+    // Snapshot the tick count under IRQ lock (same-core ISR race), then publish
+    // each note-off on its exact tick so short gates never drag to the next step.
     const uint32_t irqState=save_and_disable_interrupts();
     uint32_t pending=clockEvents.ppqnTicksPending;
     clockEvents.ppqnTicksPending=0;
     restore_interrupts(irqState);
-    if (!isClockRunning || uiState.voiceEditor.active) return;
-    while (pending-- > 0)
+    // Core 0 loop context: none of these flags can change mid-drain, so sample
+    // once instead of re-testing per tick (up to 480 ticks per quarter note).
+    const bool clockRunning = isClockRunning;
+    const bool editorActive = uiState.voiceEditor.active;
+    const bool arpActive = uiState.arp.active();
+    if (!clockRunning || editorActive) return;
+    // Sequencer mode publishes note-off at its exact PPQN tick rather than
+    // at the next step boundary. Arpeggiator mode owns the tick instead: the
+    // engine decides when its notes start and end, and the sequencers'
+    // duration counters stay put.
+    if (arpActive)
     {
-        clockEvents.gateTick++;
-
-        // Update MidiNoteManager timing - this handles all MIDI note-off timing
-        midiNoteManager.updateTiming(clockEvents.gateTick);
-
-        // Process sequencer note duration timing for every voice (2-3 are
-        // audio-only but still track gate length). When a gate length expires
-        // mid-step, the note-off must reach the audio voice at expiry, not at
-        // the next step boundary, or GateLength stays inaudible.
-        if (voiceManager)
-        {
-            for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i)
-            {
-                if (AppState::sequencers[i]->tickNoteDuration(&voiceSystem.getVoiceState(i)))
-                {
-                    voiceManager->updateVoiceState(voiceSystem.getVoiceId(i),
-                                                   voiceSystem.getVoiceState(i));
-                }
-            }
-        }
-
-        // Process gate timers - now synchronized with MidiNoteManager
-        voiceSystem.tickAllGateTimers();
+        while (pending-- > 0)
+            arpTick();
+    }
+    else
+    {
+        while (pending-- > 0)
+            tickSequencerVoices();
     }
 }
 
 void stopClockForEditor()
 {
+    // Editor needs silence: stop transport, clear gates, and drop staged ticks.
     uClock.stop();
     onClockStop(); // Also cleans up if transport was already stopped.
     const uint32_t irqState=save_and_disable_interrupts();

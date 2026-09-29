@@ -15,6 +15,29 @@ uint16_t faderDelta(uint16_t a, uint16_t b)
 {
   return static_cast<uint16_t>(a > b ? a - b : b - a);
 }
+
+uint16_t medianOfThree(uint16_t a, uint16_t b, uint16_t c)
+{
+  if (a > b)
+  {
+    const uint16_t swap = a;
+    a = b;
+    b = swap;
+  }
+  if (b > c)
+  {
+    const uint16_t swap = b;
+    b = c;
+    c = swap;
+  }
+  if (a > b)
+  {
+    const uint16_t swap = a;
+    a = b;
+    b = swap;
+  }
+  return b;
+}
 } // namespace
 
 int8_t combineOctaveOffsets(int8_t sequencerOffset,
@@ -141,30 +164,50 @@ void ShiftLatch::applyTo(bool *heldOut, uint8_t count) const
 
 // --- FaderMap -----------------------------------------------------------------
 
-FaderAssignment FaderMap::assignmentFor(Mode mode, uint8_t channel)
+FaderAssignment FaderMap::assignmentFor(bool stepSelected, uint8_t channel)
 {
   FaderAssignment out;
   if (channel >= kChannelCount)
   {
-    out.target = FaderTarget::StepParam;
-    out.paramId = ParamId::Count;
     return out;
   }
 
-  if (mode == Mode::Param)
+  if (stepSelected)
   {
-    // Design table: Filter, Attack, Decay, Velocity for the selected voice.
-    static constexpr ParamId kParamModeParams[kChannelCount] = {
-        ParamId::Filter, ParamId::Attack, ParamId::Decay, ParamId::Velocity};
-    out.target = FaderTarget::StepParam;
-    out.paramId = kParamModeParams[channel];
+    static constexpr ParamId kEnvLanes[kChannelCount] = {
+        ParamId::Attack, ParamId::Decay, ParamId::Sustain, ParamId::Release};
+    out.target = FaderTarget::EnvLane;
+    out.paramId = kEnvLanes[channel];
     return out;
   }
 
-  static constexpr FaderTarget kUtilityModeTargets[kChannelCount] = {
-      FaderTarget::Tempo, FaderTarget::SwingAmount, FaderTarget::MasterVolume,
+  static constexpr FaderTarget kTargets[kChannelCount] = {
+      FaderTarget::Tempo, FaderTarget::DelayMix, FaderTarget::MasterVolume,
       FaderTarget::GateLength};
-  out.target = kUtilityModeTargets[channel];
+  out.target = kTargets[channel];
+  return out;
+}
+
+// Why Arpeggiator mode gets its own table instead of tagging lanes: the four
+// faders there are the whole continuous control surface of the arp, and none of
+// them means anything in step terms (tempo, swing and gate length all drive the
+// step sequencer). The unshifted layer shapes rhythm; Shift swaps to the
+// continuous range/gate/swing/filter layer. Values are interpreted by the
+// engine, which clamps them.
+FaderAssignment FaderMap::arpAssignmentFor(uint8_t channel, bool shift)
+{
+  FaderAssignment out;
+  if (channel >= kChannelCount)
+  {
+    return out;
+  }
+  static constexpr FaderTarget kTargets[kChannelCount] = {
+      FaderTarget::ArpHits, FaderTarget::ArpLength, FaderTarget::ArpRotate,
+      FaderTarget::ArpAccent};
+  static constexpr FaderTarget kShiftTargets[kChannelCount] = {
+      FaderTarget::ArpOctaves, FaderTarget::ArpGate, FaderTarget::ArpSwing,
+      FaderTarget::ArpFilter};
+  out.target = shift ? kShiftTargets[channel] : kTargets[channel];
   return out;
 }
 
@@ -182,22 +225,92 @@ bool FaderMap::accept(uint8_t channel, uint16_t rawCounts)
   {
     return false;
   }
-  const bool send = !valid_[channel] ||
-                    faderDelta(lastSent_[channel], rawCounts) >= kDeadbandCounts;
-  if (send)
+
+  // Keep a rolling median so one noisy tile frame cannot become a control write.
+  // A full window is required before a freshly reset channel establishes its
+  // pickup baseline; a stable deliberate move normally needs two fresh frames.
+  sampleWindow_[channel][sampleCursor_[channel]] = rawCounts;
+  sampleCursor_[channel] =
+      static_cast<uint8_t>((sampleCursor_[channel] + 1) % kFilterWindowSamples);
+  if (sampleCount_[channel] < kFilterWindowSamples)
   {
-    lastSent_[channel] = rawCounts;
-    valid_[channel] = true;
+    ++sampleCount_[channel];
   }
-  return send;
+  if (sampleCount_[channel] < kFilterWindowSamples)
+  {
+    return false;
+  }
+
+  const uint16_t value = medianOfThree(
+      sampleWindow_[channel][0], sampleWindow_[channel][1],
+      sampleWindow_[channel][2]);
+  filtered_[channel] = value;
+
+  if (!hasBaseline_[channel])
+  {
+    baseline_[channel] = value;
+    hasBaseline_[channel] = true;
+    return false;
+  }
+
+  // If not yet engaged, require an obvious filtered move from the baseline.
+  if (!engaged_[channel])
+  {
+    if (faderDelta(baseline_[channel], value) >= kMoveThresholdCounts)
+    {
+      engaged_[channel] = true;
+      lastSent_[channel] = value;
+      return true;
+    }
+    return false;
+  }
+
+  // Once engaged, send only when filtered movement meets or exceeds deadband.
+  if (faderDelta(lastSent_[channel], value) >= kDeadbandCounts)
+  {
+    lastSent_[channel] = value;
+    return true;
+  }
+  return false;
+}
+
+uint16_t FaderMap::filtered(uint8_t channel) const
+{
+  return channel < kChannelCount ? filtered_[channel] : 0;
 }
 
 void FaderMap::resetDeadband()
 {
   for (uint8_t i = 0; i < kChannelCount; ++i)
   {
-    valid_[i] = false;
+    sampleCursor_[i] = 0;
+    sampleCount_[i] = 0;
+    baseline_[i] = 0;
+    lastSent_[i] = 0;
+    filtered_[i] = 0;
+    hasBaseline_[i] = false;
+    engaged_[i] = false;
   }
+}
+
+void FaderMap::resetChannel(uint8_t channel)
+{
+  if (channel >= kChannelCount)
+  {
+    return;
+  }
+  sampleCursor_[channel] = 0;
+  sampleCount_[channel] = 0;
+  baseline_[channel] = 0;
+  lastSent_[channel] = 0;
+  filtered_[channel] = 0;
+  hasBaseline_[channel] = false;
+  engaged_[channel] = false;
+}
+
+bool FaderMap::isEngaged(uint8_t channel) const
+{
+  return channel < kChannelCount && engaged_[channel];
 }
 
 // --- EncoderMotion --------------------------------------------------------------

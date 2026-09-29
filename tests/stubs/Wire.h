@@ -16,6 +16,8 @@ public:
     int read() { return 0; }
     int available() { return 0; }
     int peek() { return 0; }
+    void setTimeout(uint32_t, bool = true) {}
 };
 
 inline TwoWire Wire;
+inline TwoWire Wire1;

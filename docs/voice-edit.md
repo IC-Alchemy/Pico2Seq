@@ -1,8 +1,8 @@
-# Voice Edit and sequenced modifiers
+# Voice Edit and sequenced step values
 
 Voice Edit implements the first three development stages: the sound parameter
 catalogue, stopped-transport controls and OLED, and independent patch bases with
-sequenced modifiers. Patches now persist across power cycles: every save (Utility
+sequenced step values. Patches now persist across power cycles: every save (Utility
 button 1, autosave on transport stop) captures the live `VoiceConfig` control copy
 per voice, and each boot restores it. Loading a factory preset still replaces the
 bases; saved patches ride in the session snapshot, not the preset bank.
@@ -33,59 +33,90 @@ Param/Utility switch do not change the patch or sequence. The switch is sampled
 again after exit. Button releases from the editor are consumed before normal
 controls resume. Button 7 is Help in these stages; audition is not implemented.
 
-## Base plus modifier
+## Patch values and step values
 
-Every numeric sound setting has a per-voice base in `VoiceConfig`. The encoder
-edits these requested values, including outside the editor when a sequenced
-parameter is selected. With a step selected for editing, it edits that step's stored
-value instead (see `editSelectedStep()` in `src/sensors/EncoderManager.cpp`).
+Every numeric sound setting has a per-voice base (the patch value) in
+`VoiceConfig`. The encoder edits these requested values, including outside the
+editor when a sequenced parameter is selected. With a step selected for editing, it
+edits that step's value instead (see `editSelectedStep()` in
+`src/sensors/EncoderManager.cpp`). The faders never edit patch values.
 
-For timbre, envelope, velocity, octave and gate length, the lidar records a modifier.
-Note records melody scale steps directly. Both step editing and live recording normalize
-the calibrated 55–700 mm sensor range to 0–1 (a 645 mm active span). With no hand in range (an invalid reading or
-one more than 40 mm outside the window) nothing is recorded and steps keep their values.
-In the normalized parameter domain:
+### Absolute lanes
 
-```
-modifier = lidarNormalized - 0.5
-effective = clamp(baseNormalized + modifier, 0, 1)
-```
+Velocity, Filter, Attack, Decay, Sustain and Release are **absolute** lanes
+(`ParameterDefinition::patchDefault`). A step either holds its own normalized
+0–1 value, which plays as stored whatever the patch says, or holds
+`SequencerConstants::LANE_FOLLOWS_PATCH` (-1) and plays the voice's patch value
+(`VoiceEdit::laneBase()`). New, cleared and reset steps follow the patch, so an
+untouched pattern plays each preset exactly as designed.
 
-The midpoint is neutral. For a 70% velocity base, recorded readings of 25%, 50%,
-and 75% give effective velocities of 45%, 70%, and 95%. Changing the base leaves
-those three recordings unchanged. Limits clamp the result. There is no additional
-depth control in these stages.
+The lidar (hand height), the encoder in Step Edit and the ENV-mode faders all
+write absolute values: the calibrated 55–700 mm sensor range maps straight onto
+the lane's 0–1 range. With no hand in range (an invalid reading or one more than
+40 mm outside the window) nothing is recorded and steps keep their values.
 
-The portable sequencer retains its existing storage units: Note is 0–36,
-GateLength is 0.001–1, and the other continuous lanes are 0–1. Playback converts
-continuous control storage to the modifier domain before octave mapping and
-gate-duration timing. Note uses `clamp(recordedScaleStep + baseNote, 0, 36)`, so
-the entire recording range writes a melody even with the default zero transpose.
-New/reset Note steps start at zero; other continuous lanes start at their neutral
-midpoint. Gate and Slide start off. The default gate lasts half a sixteenth note
-(60 ticks, 83.3 ms at the starting 90 BPM). Randomization uses integer melody steps
-0–12, modest timbre/envelope/velocity variation around the preset, neutral octave
-and gate length, and the existing gate/slide probabilities. Loading a preset replaces the bases without reseeding lanes.
+Until 2026-09-19 these lanes stored offsets around the patch (0.5 = patch, below
+0.5 scaled toward 0 by the patch value). A patch value at the end of its range
+therefore swallowed every lower-half hand height or encoder turn: with a Filter
+base of 0 the OLED sat at the minimum while the hand moved, and a Decay base near
+0 left sustain-0 voices such as Square silent. Sessions saved in that format
+convert on load (`VoiceEdit::convertOffsetValues()`): neutral steps follow the
+patch, every other step becomes the value it played.
+
+`Shift` + an ENV fader move, the Shift+pad step clear and Shift+Randomize (clear
+pattern) return steps to the patch value.
+
+### Offset lanes
+
+Note, Octave and Gate length stay offsets on top of the patch. Note uses
+`clamp(recordedScaleStep + baseNote, 0, 36)`, so the entire recording range writes a
+melody even with the default zero transpose. Octave adds whole octaves to the patch
+octave; Gate length spreads around the patch gate length with 0.5 as neutral.
+New/reset Note steps start at zero, Octave and Gate length at their neutral midpoint.
+Gate and Slide start off. The default gate lasts half a sixteenth note (60 ticks,
+83.3 ms at the starting 90 BPM).
+
+Randomization uses integer melody steps 0–12, neutral octave and gate length, and
+for the absolute lanes values spread around each voice's patch value (triangular,
+depth D reaches at most D% of the way to either end). Randomized Attack never exceeds
+the longer of the patch attack and the lane center (~45 ms), so a short gate on a
+sustain-0 voice stays audible. Loading a preset replaces the bases without reseeding
+lanes.
 
 Note bases are scale steps; octave bases are quantized semitones in octaves from
--24 to +24. Attack and decay use a logarithmic 1 ms–10 s domain. Their sequencer
-lanes do not change sustain or release. Engine-specific lanes retain their own
-curves and units, including Hard Sync's Slave lane, string T60, and FM ratio.
+-24 to +24. Attack uses a logarithmic 1 ms–2 s domain, Decay 1 ms–10 s and Release 10 ms–8 s,
+Sustain is a 0–100% level. Engine-specific lanes retain their own curves and units,
+including Hard Sync's Slave lane, string T60, and FM ratio. Strings have no envelope,
+so their Sustain and Release lanes bind to pick Position and Stiffness. Hypersaw,
+NoiseStorm and the recipes keep their Attack/Decay lanes for engine controls; their
+Sustain/Release lanes still drive the real envelope.
+
+On oscillator voices such as Digital and Square, hold the third parameter button
+to record filter-envelope amount with lidar; the OLED shows the amount and peak
+cutoff. Hold the fifth button (silkscreened Decay) to record Release. Release takes
+effect when the gate closes; a new note retriggers the envelope. Rest steps keep
+the previous note's release and other voice settings while its tail rings. Its
+encoder base uses the same time curve as playback. Waveguide keeps Bright and Stiffness on
+these buttons. The held-button OLED reads recorded playback values directly,
+including the selected step in Step Edit, rather than calculating a sensor preview.
 
 Gate remains a trigger pattern: its base enables/disables the pattern. Slide's
 base can enable slide throughout the pattern, otherwise the recorded Slide bits
-control it. Neither binary track is treated as a continuous lidar modifier.
+control it. Neither binary track is treated as a continuous lidar lane.
 
-With a parameter button held, and in Step Edit, the OLED shows composed playback
-values, after preset bases, clamping, quantization and engine-specific mapping: the
-value the voice plays. With no parameter held, the home screen shows the encoder
-target's base, since a step's modifier or a clamp at a limit could otherwise hide an
-encoder turn. Live edits (lidar, faders, encoder) refresh the sounding note in place
-through `Sequencer::refreshVoiceParameters()`; they never retrigger it. Note displays
 The step OLED and normal encoder screen show composed playback values, after
-preset bases, clamping, quantization and engine-specific mapping. For 1.5 s after an
-encoder turn they show the edited base instead (`Base` / `BASE`), since a step's
-modifier or a clamp at a limit can otherwise hide the change. Note displays
+preset bases, clamping, quantization and engine-specific mapping: the value the voice
+plays. For 1.5 s after an encoder turn they show the edited base instead
+(`Base` / `BASE`), since a step's own value can otherwise hide the change. Live edits
+(lidar, ENV faders, encoder) refresh the currently gated note in place through
+`Sequencer::refreshVoiceParameters()`; they never retrigger it. While playing,
+edits to other steps wait until those steps sound, and edits during a rest leave
+the release tail alone. With transport stopped, Step Edit previews its selected step.
+The ADSR's stages are
+linear ramps counted in samples, so `Voice` holds a new attack (decay, release) length
+while that stage runs, and a new sustain level while decay or sustain runs; each lands
+when its stage ends or at the next note-on. Cutoff, velocity and pitch apply at once. A patch publish glides the cutoff smoother
+to its new target instead of snapping it. Note displays
 note names and octaves, including oscillator harmonies/detuning (Bass starts at
 `C2/C3`); unpitched percussion reads `Noise`. Envelope and gate durations use
 ms/s, cutoff uses Hz, octave uses signed octaves, and FM/spacing use ratios.

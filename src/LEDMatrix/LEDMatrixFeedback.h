@@ -7,27 +7,17 @@
 
 // Forward declarations to break circular dependencies
 class Sequencer;
+class SequencerView;
 struct UIState;
 
-/**
- * @brief LED Matrix Feedback System for Pico2Seq
- *
- * Provides comprehensive visual feedback for sequencer state, parameter editing,
- * and UI modes through the LED matrix. Handles multiple display modes including:
- * - Step gate visualization with playhead indication
- * - Parameter editing feedback with length and value display
- * - Settings menu navigation with preset selection
- * - Voice parameter configuration display
- * - Breathing animation for idle states
- * - Polyrhythmic overlay visualization
- */
+// LEDMatrixFeedback.h — what the 8x4 WS2812B stage mirror shows (Core 0).
+// Player view: sounding step blooms white, gated steps glow in voice hue, rests
+// stay dark; settings/param pages reuse the same pads. All fades are
+// wall-clock (frameBlend), never frame-counted, so tempo and loop load can't
+// change the look.
 
-/**
- * @brief LED Theme Enumeration
- *
- * Defines available color themes for the LED matrix system.
- * Each theme provides a complete set of colors for all UI elements.
- */
+// Stage palettes. The player picks by feel; keep every theme's four voice hues
+// distinguishable (hue + lightness, never red-vs-green alone).
 enum class LEDTheme
 {
   DEFAULT = 0, // Standard blue/green theme
@@ -40,25 +30,27 @@ enum class LEDTheme
   DARK_EMBER,  // Dark theme with warm amber accents
   BLUE,        // High-contrast blue theme
   GREEN,       // High-contrast green theme
-  COUNT        // Keep last - used for theme count
+  COUNT        // last: theme count (saved settings index by this order)
 };
 
 static constexpr uint8_t LED_THEME_VOICE_COUNT = 4;
 
-/**
- * @brief LED Theme Color Structure
- *
- * Contains all colors used by the LED matrix system for a specific theme.
- * Provides consistent color mapping across all LED feedback functions.
- */
+// One palette: voice hues, playhead accent, edit/settings colors.
 struct LEDThemeColors
 {
-  // Voice gate state colors
-  // Every voice keeps its own nearby hue in a theme. Gate-off uses a darker
-  // secondary hue from that theme, making gate state distinct by both colour
-  // and brightness without introducing an unrelated palette.
+  // Which LEDTheme this entry defines. The theme cycler and the saved settings
+  // address palettes by index, so this field exists to be checked against the
+  // entry's position in ALL_THEMES at compile time (see the static_assert below
+  // the table): a table in a different order would show one theme's colors
+  // under another theme's name.
+  LEDTheme theme;
+
+  // Voice gate colors: gateOn is each voice's identity hue — the only gate
+  // color a theme stores. Gate state is applied as brightness of that hue
+  // (the GATE_ON_* / GATE_OFF_DIVISOR rule in LEDMatrixFeedback.cpp), so an
+  // off step still reads as its voice, just clearly "off". Gate state is
+  // therefore brightness, voice identity is hue, and the two never fight.
   CRGB gateOn[LED_THEME_VOICE_COUNT];
-  CRGB gateOff[LED_THEME_VOICE_COUNT];
 
   // Playhead and accent colors
   CRGB playheadAccent;    // Current step playhead highlight
@@ -97,90 +89,30 @@ struct LEDThemeColors
   CRGB randomizeIdle;  // Randomize button idle
 };
 
-/**
- * @brief Initialize LED matrix feedback system
- *
- * Sets up smoothed color buffers and initializes the LED feedback system.
- * Must be called before using other LED feedback functions.
- */
+// Call once at boot: blacks the smooth buffers and builds the gamma table.
 void setupLEDMatrixFeedback();
 
-/**
- * @brief Update step LEDs based on sequencer and UI state
- *
- * Main LED update function that handles all display modes:
- * - Idle breathing animation when sequencers stopped
- * - Gate state visualization with playhead indication
- * - Parameter editing mode with length and value feedback
- * - Settings menu navigation display
- * - Voice parameter configuration display
- *
- * @param ledMatrix Reference to LED matrix for output
- * @param seq1 Voice 1 sequencer reference
- * @param seq2 Voice 2 sequencer reference
- * @param seq3 Voice 3 sequencer reference
- * @param seq4 Voice 4 sequencer reference
- * @param uiState Current UI state containing mode flags and selections
- * @param mm Unused parameter (legacy)
- */
+// Per-frame render into ledMatrix. Call from the Core 0 loop only; mm is
+// legacy (unused) — the hand readout lives on the OLED now.
 void updateStepLEDs(
     LEDMatrix &ledMatrix,
-    const Sequencer &seq1,
-    const Sequencer &seq2,
-    const Sequencer &seq3,
-    const Sequencer &seq4,
+    const SequencerView &sequencers,
     const UIState &uiState,
     int mm);
 
-/**
- * @brief Update LED matrix for settings mode interface
- *
- * Displays settings menu navigation with visual feedback:
- * - Main menu: Shows voice selection options with pulsing
- * - Preset selection: Shows available presets with current selection highlight
- * - Voice indicators: Shows which voice is being configured
- *
- * @param ledMatrix Reference to LED matrix for output
- * @param uiState Current UI state containing settings menu state
- */
+// Preset pick / settings-pad pages: pad N mirrors preset/pad N.
 void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState);
 
-/**
- * @brief Update LED matrix for voice parameter feedback
- *
- * Highlights voice parameter buttons (9-24) with visual indication
- * of parameter state and pulsing effect for recent changes.
- *
- * @param ledMatrix Reference to LED matrix for output
- * @param uiState Current UI state containing voice parameter information
- */
+// Settings-pad values as brightness; called from the settings page above.
 void updateVoiceParameterLEDs(LEDMatrix &ledMatrix, const UIState &uiState);
 
-/**
- * @brief Set individual step LED color (legacy function)
- *
- * @param step Step index (0-15)
- * @param r Red component (0-255)
- * @param g Green component (0-255)
- * @param b Blue component (0-255)
- */
+// Legacy no-op (needs a matrix ref); kept so old call sites still compile.
 void setStepLedColor(uint8_t step, uint8_t r, uint8_t g, uint8_t b);
 
-/**
- * @brief Set active LED color theme
- *
- * Changes the active color theme for all LED feedback functions.
- * Theme change takes effect immediately on next LED update.
- *
- * @param theme LEDTheme enumeration value to activate
- */
+// Switch palette live; takes effect on the next frame.
 void setLEDTheme(LEDTheme theme);
 
-/**
- * @brief Get pointer to currently active theme colors
- *
- * @return Const pointer to active LEDThemeColors structure
- */
+// Active palette for renderers that need raw colors.
 const LEDThemeColors *getActiveThemeColors();
 
 #endif // LEDMATRIX_FEEDBACK_H

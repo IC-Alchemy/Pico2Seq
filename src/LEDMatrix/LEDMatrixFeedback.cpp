@@ -1,41 +1,322 @@
-#include <Arduino.h>
 #include "LEDMatrixFeedback.h"
+#include "ArpLedPalette.h"
+#include "../pico2seq-core/arpeggiator/Arpeggiator.h"
+#include "../pico2seq-core/scales/scales.h"
+#include <algorithm>
+#include <Arduino.h>
 #include <FastLED.h>
 #include <cmath>
 
-#include "ledMatrix.h"
-#include "LEDConstants.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
-#include "../ui/UIEventHandler.h"
-#include "../ui/ControlSurfaceLogic.h"
+#include "../app/SequencerView.h"
 #include "../ui/ButtonManager.h"
-#include "../voice/VoicePresets.h"
+#include "../ui/ControlSurfaceLogic.h"
+#include "../ui/SettingsPads.h"
+#include "../app/AppState.h"
+#include "../voice/VoiceSystem.h"
+#include "../voice/VoiceManager.h"
+#include "../ui/UIEventHandler.h"
 #include "../utils/Debug.h"
+#include "../voice/VoicePresets.h"
+#include "LEDConstants.h"
+#include "ledMatrix.h"
 
-/**
- * @brief LED Matrix Feedback Implementation
- *
- * Provides comprehensive visual feedback for sequencer operations including
- * step gate visualization, parameter editing, settings navigation, and
- * animated effects. Uses smoothed color blending for professional appearance.
- */
+// LEDMatrixFeedback.cpp — per-frame 8x4 stage render (Core 0).
+// Hue = voice, brightness = gate, white bloom = sounding step; settings pages
+// reuse the pads. Fades run on wall-clock (frameBlend), envelopes decay per
+// voice tempo, and every write goes through the smoothing buffers.
 
-// LED matrix layout constants
+// Steps per band; layout geometry itself lives in ControlSurface::LedLayout.
 static constexpr uint8_t SEQ_STEPS = 16;
 
 // The host-tested layout helper must agree with the hardware constants.
 static_assert(LEDConstants::MATRIX_WIDTH == ControlSurface::LedLayout::kWidth);
-static_assert(LEDConstants::MATRIX_HEIGHT == ControlSurface::LedLayout::kBandCount * ControlSurface::LedLayout::kRowsPerBand);
-static_assert(LEDConstants::MATRIX_TOTAL_LEDS == ControlSurface::LedLayout::kLedCount);
-static_assert(LEDConstants::BOTTOM_HALF_OFFSET == ControlSurface::LedLayout::kStepsPerBand);
-// Smoothed color buffer for smooth LED transitions
+static_assert(LEDConstants::MATRIX_HEIGHT ==
+              ControlSurface::LedLayout::kBandCount *
+                  ControlSurface::LedLayout::kRowsPerBand);
+static_assert(LEDConstants::MATRIX_TOTAL_LEDS ==
+              ControlSurface::LedLayout::kLedCount);
+static_assert(LEDConstants::BOTTOM_HALF_OFFSET ==
+              ControlSurface::LedLayout::kStepsPerBand);
+// Smoothing targets: edited first, then the pushed pixels chase them.
 CRGB smoothedTargetColorBuffer[LEDConstants::MATRIX_TOTAL_LEDS];
 
-// Color blending constants from LEDConstants
-static constexpr uint8_t TARGET_SMOOTHING_BLEND_AMOUNT = LEDConstants::TARGET_SMOOTHING_BLEND_AMOUNT;
+static constexpr uint8_t TARGET_SMOOTHING_BLEND_AMOUNT =
+    LEDConstants::TARGET_SMOOTHING_BLEND_AMOUNT;
 
-// Define common colors as constants for readability and maintainability
-// These will be populated from the activeThemeColors pointer
+// ===========================================================================
+//   FRAME TIMING
+// ===========================================================================
+// Every blend amount in this file was tuned against a fixed 40 ms display
+// slice, so the fades used to run at whatever rate the renderer happened to be
+// called at. frameBlend() reinterprets one of those amounts for the time that
+// actually elapsed: a constant keeps its original look at 40 ms and produces
+// the same fade in wall-clock terms at any other cadence.
+static constexpr float kLegacyFrameMs = 40.0f;
+static constexpr uint32_t kMaxFrameDtMs = 250; // after a stall, resume rather than snap
+static float frameDeltaMs = kLegacyFrameMs;
+static uint32_t lastFrameMs = 0;
+
+struct BlendCacheEntry
+{
+  uint8_t legacy;
+  uint8_t alpha;
+};
+static constexpr uint8_t kBlendCacheSize = 12;
+static BlendCacheEntry blendCache[kBlendCacheSize];
+static uint8_t blendCacheCount = 0;
+
+// Perceptual curve for the step envelope. LED output is linear in PWM but the
+// eye is not, so a linear fade appears to hang near the bottom of the range.
+// Expanding the envelope through gamma makes the tail fall evenly. The theme
+// palettes are deliberately left in PWM space - they are hand-levelled there.
+static constexpr float kEnvelopeGamma = 2.2f;
+static uint8_t envelopeGammaTable[256];
+
+static void beginLEDFrame(uint32_t nowMs)
+{
+  uint32_t deltaMs =
+      (lastFrameMs == 0) ? static_cast<uint32_t>(kLegacyFrameMs) : nowMs - lastFrameMs;
+  lastFrameMs = nowMs;
+  if (deltaMs == 0)
+    deltaMs = 1;
+  if (deltaMs > kMaxFrameDtMs)
+    deltaMs = kMaxFrameDtMs;
+  frameDeltaMs = static_cast<float>(deltaMs);
+  blendCacheCount = 0;
+}
+
+// Legacy per-frame blend amount -> this frame's equivalent. Cached because the
+// same handful of constants repeat across every LED of every band.
+static uint8_t frameBlend(uint8_t legacyAmount)
+{
+  for (uint8_t i = 0; i < blendCacheCount; ++i)
+  {
+    if (blendCache[i].legacy == legacyAmount)
+      return blendCache[i].alpha;
+  }
+
+  const float retainPerLegacyFrame = 1.0f - static_cast<float>(legacyAmount) / 256.0f;
+  float alpha = 1.0f;
+  if (retainPerLegacyFrame > 0.0f)
+  {
+    alpha = 1.0f - powf(retainPerLegacyFrame, frameDeltaMs / kLegacyFrameMs);
+  }
+  const uint8_t scaled =
+      static_cast<uint8_t>(std::min(255.0f, alpha * 256.0f + 0.5f));
+  if (blendCacheCount < kBlendCacheSize)
+  {
+    blendCache[blendCacheCount++] = {legacyAmount, scaled};
+  }
+  return scaled;
+}
+
+// Per-frame fade toward a target that always arrives.
+//
+// nblend() computes (target - value) * amount / 256 and truncates, so a step
+// smaller than one unit is a step of zero. The blend amounts here were tuned
+// for a 40 ms frame; at the 13 ms LED cadence frameBlend() scales them to about
+// a third, and the product underflows for exactly the colours that matter most:
+// a gate-off pad sits at 1/16 of its hue and the edit-mode blues are darker
+// still, so those pixels never moved off black at all. They lit only when the
+// playhead swept past and fell straight back - the flicker on the off pads, and
+// the dark screen while a parameter button was held.
+//
+// Moving at least one unit whenever the target differs fixes both, and landing
+// exactly on the target stops a settled pixel from hunting when the frame time
+// jitters (13 ms, or 18 when the 40 ms OLED tick ran first).
+static void blendTo(CRGB &destination, const CRGB &target, uint8_t amount)
+{
+  const auto step = [amount](uint8_t &value, uint8_t goal) {
+    if (value == goal)
+      return;
+    const int delta = static_cast<int>(goal) - static_cast<int>(value);
+    int move = (delta * static_cast<int>(amount)) / 256;
+    if (move == 0)
+      move = delta > 0 ? 1 : -1;
+    value = static_cast<uint8_t>(static_cast<int>(value) + move);
+  };
+  step(destination.r, target.r);
+  step(destination.g, target.g);
+  step(destination.b, target.b);
+}
+
+// ===========================================================================
+//   STEP TRIGGER ENVELOPE
+// ===========================================================================
+// Each LED carries an energy value in 0..1. A step trigger drives it to a peak
+// scaled by that step's velocity, then it fades out on a release scaled to that
+// voice's step interval - so the tail reads the same at 60 or 180 BPM, and each
+// voice of a polymetric pair keeps its own trail length.
+//
+// The envelope deliberately does NOT follow the voice's gate. Holding the LED
+// for the Gate Length lane read as a glitch: a short gate cut the light before
+// the eye caught the step, and the hold was barely visible when it was long.
+static constexpr float kEnergyAttackTauMs = 6.0f;    // ~1 frame rise at 13 ms
+static constexpr uint32_t kEnergyAttackWindowMs = 20; // rise, then straight to release
+static constexpr float kEnergyReleaseFactor = 0.35f; // of the voice's step interval
+static constexpr float kEnergyReleaseMinMs = 18.0f;
+static constexpr float kEnergyReleaseMaxMs = 180.0f;
+static constexpr float kEnergyIdleReleaseMs = 90.0f; // interval not known yet
+static constexpr float kEnergyEpsilon = 0.002f;
+// A trigger lands at part of its peak in the same frame, so a gate shorter than
+// one display frame still shows. The attack takes it the rest of the way.
+static constexpr float kTriggerSeedFraction = 0.55f;
+// Gate-off steps get no envelope at all. Giving them a dim peak lit every
+// gate-off pad as the playhead swept past, which read as the whole off-row
+// flickering. The playhead is carried by the gated steps.
+static constexpr float kMutedStepPeak = 0.0f;
+// Softest velocity that still reads as a hit.
+static constexpr float kVelocityPeakFloor = 0.45f;
+// White bloom at full energy on a gated step: a hot core, not a brighter tint.
+static constexpr uint8_t kBloomAmount = 48;
+
+struct BandEnvelope
+{
+  uint8_t lastStep = 0xFF;
+  uint32_t lastTriggerMs = 0;
+  float stepIntervalMs = 0.0f;
+  float peak = 1.0f;
+};
+
+static float stepEnergy[LEDConstants::MATRIX_TOTAL_LEDS];
+static BandEnvelope bandEnvelopes[ControlSurface::LedLayout::kBandCount];
+static uint8_t energyPairFirstVoice = 0xFF;
+
+static float clampUnit(float value)
+{
+  return value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
+}
+
+// Peak energy for a fresh trigger, scaled by step velocity.
+static float peakForStep(const Sequencer &sequencer, uint8_t voiceIndex,
+                         uint8_t step)
+{
+  if (!sequencer.getStep(step).isGateActive)
+  {
+    return kMutedStepPeak;
+  }
+  float velocity = sequencer.getStepParameterValue(ParamId::Velocity, step);
+  if (velocity < 0.0f)
+  {
+    // LANE_FOLLOWS_PATCH: the step plays at the voice's own level.
+    velocity = voiceSystem.getVoiceState(voiceIndex).velocityLevel;
+  }
+  velocity = clampUnit(velocity);
+  return kVelocityPeakFloor + (1.0f - kVelocityPeakFloor) * velocity;
+}
+
+// Advances every visible LED's envelope by one frame. Runs in every UI mode so
+// that a mode the renderer does not draw still fades out instead of freezing.
+static void advanceStepEnergy(const SequencerView &sequencers,
+                              const UIState &uiState)
+{
+  const uint8_t firstVoice = (uiState.selectedVoiceIndex < 2) ? 0 : 2;
+  if (firstVoice != energyPairFirstVoice)
+  {
+    // Page switch: these LEDs now belong to a different voice pair.
+    energyPairFirstVoice = firstVoice;
+    for (int i = 0; i < LEDConstants::MATRIX_TOTAL_LEDS; ++i)
+      stepEnergy[i] = 0.0f;
+    for (auto &band : bandEnvelopes)
+      band = BandEnvelope{};
+  }
+
+  const uint32_t nowMs = millis();
+  const float attackAlpha = 1.0f - expf(-frameDeltaMs / kEnergyAttackTauMs);
+
+  for (uint8_t band = 0; band < ControlSurface::LedLayout::kBandCount; ++band)
+  {
+    const uint8_t voiceIndex = static_cast<uint8_t>(firstVoice + band);
+    const Sequencer &sequencer = sequencers.clamped(voiceIndex);
+    BandEnvelope &envelope = bandEnvelopes[band];
+
+    float releaseTauMs = kEnergyIdleReleaseMs;
+    if (envelope.stepIntervalMs > 0.0f)
+    {
+      releaseTauMs = std::min(
+          kEnergyReleaseMaxMs,
+          std::max(kEnergyReleaseMinMs,
+                   envelope.stepIntervalMs * kEnergyReleaseFactor));
+    }
+    const float retain = expf(-frameDeltaMs / releaseTauMs);
+
+    // Release first, so the step the playhead just left starts fading at once.
+    for (uint8_t step = 0; step < ControlSurface::LedLayout::kStepsPerBand;
+         ++step)
+    {
+      const int ledIndex = ControlSurface::LedLayout::linearIndex(band, step);
+      if (ledIndex < 0)
+        continue;
+      stepEnergy[ledIndex] *= retain;
+      if (stepEnergy[ledIndex] < kEnergyEpsilon)
+        stepEnergy[ledIndex] = 0.0f;
+    }
+
+    if (!sequencer.isRunning())
+    {
+      envelope.lastStep = 0xFF;
+      continue;
+    }
+
+    const uint8_t step = sequencer.getCurrentStepForParameter(ParamId::Gate);
+    const int ledIndex = ControlSurface::LedLayout::linearIndex(band, step);
+    if (ledIndex < 0)
+      continue;
+
+    if (step != envelope.lastStep)
+    {
+      // The interval is measured step to step, gated or not, so the release
+      // stays tied to the clock rather than to how sparse the gates are.
+      if (envelope.lastStep != 0xFF && envelope.lastTriggerMs != 0)
+      {
+        const float interval =
+            static_cast<float>(nowMs - envelope.lastTriggerMs);
+        envelope.stepIntervalMs = (envelope.stepIntervalMs > 0.0f)
+                                      ? 0.5f * (envelope.stepIntervalMs + interval)
+                                      : interval;
+      }
+      envelope.lastTriggerMs = nowMs;
+      envelope.lastStep = step;
+      envelope.peak = peakForStep(sequencer, voiceIndex, step);
+      // A gate-off step has no peak, so it lights nothing and the previous
+      // step's tail keeps fading undisturbed.
+      if (envelope.peak > 0.0f)
+        stepEnergy[ledIndex] =
+            std::max(stepEnergy[ledIndex], envelope.peak * kTriggerSeedFraction);
+    }
+
+    // Fast rise to the peak, then the release above takes over. Nothing holds
+    // the LED up, so every gated step reads as the same shape.
+    if (envelope.peak > 0.0f && nowMs - envelope.lastTriggerMs <= kEnergyAttackWindowMs)
+    {
+      stepEnergy[ledIndex] +=
+          (envelope.peak - stepEnergy[ledIndex]) * attackAlpha;
+    }
+  }
+}
+
+// Add the step's envelope glow onto its gate color.
+static void applyStepGlow(CRGB &color, const LEDThemeColors &themeColors,
+                          float energy, bool gateActive)
+{
+  if (energy <= 0.0f)
+    return;
+  const uint8_t punch =
+      envelopeGammaTable[static_cast<uint8_t>(clampUnit(energy) * 255.0f + 0.5f)];
+  if (punch == 0)
+    return;
+
+  CRGB glow = themeColors.playheadAccent;
+  glow.nscale8_video(punch);
+  color += glow;
+  if (gateActive)
+  {
+    nblend(color, CRGB::White, scale8(punch, kBloomAmount));
+  }
+}
+
+// Live palette mirrors; refreshed from the active theme each frame.
 CRGB current_COLOR_GATE_ON_V1;
 CRGB current_COLOR_GATE_OFF_V1;
 CRGB current_COLOR_PLAYHEAD_ACCENT;
@@ -63,33 +344,100 @@ CRGB current_COLOR_MOD_GATE_MODE_INACTIVE;
 CRGB current_COLOR_RANDOMIZE_FLASH;
 CRGB current_COLOR_RANDOMIZE_IDLE;
 
-const LEDThemeColors ALL_THEMES[] = {
-    { // DEFAULT - blue-green progression
-     {CRGB(0, 148, 188), CRGB(0, 172, 178), CRGB(16, 180, 160), CRGB(32, 188, 132)},
-     {CRGB(34, 2, 54), CRGB(40, 2, 58), CRGB(48, 3, 60), CRGB(56, 5, 62)},
+// Voice-gate palette design principles (applied to every theme below):
+// - Voices are CATEGORICAL data (4 groups): each voice gets a distinct hue,
+//   within-pair voices (V1/V2, V3/V4 — the only ones ever shown together on
+//   the two matrix bands) sit ~40+ degrees apart in hue, following the
+//   categorical-palette guideline of maximum hue distance at equal lightness.
+// - Hues are anchored in the empirically colorblind-safe Okabe-Ito / Paul Tol
+//   categorical sets (blue vs orange, green vs purple/magenta), graded toward
+//   each theme's character. No voice pair relies on red-vs-green alone.
+// - Gate state is SEQUENTIAL data: a theme stores only each voice's hue, and
+//   gate on/off is that hue at two brightness levels (the GATE_ON_* /
+//   GATE_OFF_DIVISOR rule below), so state reads as brightness and identity
+//   reads as hue — a redundant encoding that survives grayscale and all
+//   common color-vision deficiencies.
+// - Monochromatic themes (BLUE/GREEN) and warm-family themes (VOLCANIC/EMBER)
+//   instead use a monotonic lightness ramp as the redundant channel, per the
+//   sequential-palette rule (must order correctly in grayscale).
+// - On-states are lightness-balanced so no voice dominates, and the gate-on
+//   gain (below) lifts them for legibility on the near-black LED background
+//   (dark-mode practice); reds are boosted slightly to compensate protan
+//   red-darkening.
+constexpr LEDThemeColors ALL_THEMES[] = {
+    {LEDTheme::DEFAULT,
+     // DEFAULT - Okabe-Ito categorical quartet: sky / orange / bluish-green /
+     // reddish-purple. The reference-standard colorblind-safe voice set.
+     {CRGB(60, 170, 235), CRGB(235, 160, 20), CRGB(0, 190, 140),
+      CRGB(215, 130, 175)},
      CRGB(0, 44, 54),
-     CRGB(0, 0, 94), CRGB(0, 0, 12), CRGB(0, 0, 12), CRGB(128, 94, 0), CRGB(32, 24, 0),
-     CRGB(94, 0, 94), CRGB(12, 0, 12), CRGB(0, 94, 188), CRGB(0, 24, 48), CRGB(188, 64, 0),
-     CRGB(48, 16, 0), CRGB(128, 0, 0), CRGB(32, 0, 0), CRGB(0, 128, 64), CRGB(0, 32, 16),
-     CRGB(188, 0, 188), CRGB(48, 0, 48), CRGB(64, 64, 128), CRGB(16, 16, 32), CRGB(128, 64, 0),
-     CRGB(32, 16, 0), CRGB(94, 0, 64), CRGB(24, 0, 16), CRGB(64, 94, 94), CRGB(16, 24, 24)},
-    { // OCEANIC - deep blue through seafoam
-     {CRGB(0, 112, 188), CRGB(0, 138, 190), CRGB(0, 162, 184), CRGB(0, 176, 148)},
-     {CRGB(16, 8, 54), CRGB(22, 8, 60), CRGB(28, 10, 64), CRGB(34, 12, 66)},
+     CRGB(0, 0, 94),
+     CRGB(0, 0, 12),
+     CRGB(0, 8, 8),
+     CRGB(128, 94, 0),
+     CRGB(32, 24, 0),
+     CRGB(94, 0, 94),
+     CRGB(12, 0, 12),
+     CRGB(0, 94, 188),
+     CRGB(0, 24, 48),
+     CRGB(188, 64, 0),
+     CRGB(48, 16, 0),
+     CRGB(128, 0, 0),
+     CRGB(32, 0, 0),
+     CRGB(0, 128, 64),
+     CRGB(0, 32, 16),
+     CRGB(188, 0, 188),
+     CRGB(48, 0, 48),
+     CRGB(64, 64, 128),
+     CRGB(16, 16, 32),
+     CRGB(128, 64, 0),
+     CRGB(32, 16, 0),
+     CRGB(94, 0, 64),
+     CRGB(24, 0, 16),
+     CRGB(64, 94, 94),
+     CRGB(16, 24, 24)},
+    {LEDTheme::OCEANIC,
+     // OCEANIC - deep-sea blue / sunlit sand / seafoam / pale ice. Warm sand
+     // accents give V1/V2 a CVD-safe cool-vs-warm split; V3/V4 separate by
+     // lightness (seafoam vs near-white ice) as redundant encoding.
+     {CRGB(30, 120, 235), CRGB(235, 170, 60), CRGB(20, 200, 150),
+      CRGB(150, 230, 240)},
      CRGB(0, 38, 48),
-     CRGB(0, 48, 144), CRGB(0, 5, 17), CRGB(0, 12, 17), CRGB(0, 144, 188), CRGB(0, 15, 22),
-     CRGB(64, 144, 188), CRGB(13, 29, 38), CRGB(94, 0, 188), CRGB(11, 0, 24), CRGB(188, 144, 0),
-     CRGB(38, 29, 0), CRGB(144, 188, 94), CRGB(29, 38, 19), CRGB(188, 0, 94), CRGB(17, 0, 11),
-     CRGB(144, 0, 188), CRGB(29, 0, 38), CRGB(48, 144, 144), CRGB(10, 29, 29), CRGB(0, 166, 188),
-     CRGB(0, 33, 38), CRGB(144, 0, 188), CRGB(15, 0, 22), CRGB(0, 188, 166), CRGB(0, 22, 15)},
-    {
-        // VOLCANIC theme - red/orange fire on near-black
-        {CRGB(220, 65, 20), CRGB(235, 88, 20), CRGB(245, 112, 25), CRGB(255, 138, 35)},
-        {CRGB(55, 3, 8), CRGB(60, 5, 8), CRGB(66, 7, 10), CRGB(72, 10, 12)},
-        CRGB(62, 22, 4),     // playheadAccent - dark lava accent
+     CRGB(0, 48, 144),
+     CRGB(0, 5, 17),
+     CRGB(0, 12, 17),
+     CRGB(0, 144, 188),
+     CRGB(0, 15, 22),
+     CRGB(64, 144, 188),
+     CRGB(13, 29, 38),
+     CRGB(94, 0, 188),
+     CRGB(11, 0, 24),
+     CRGB(188, 144, 0),
+     CRGB(38, 29, 0),
+     CRGB(144, 188, 94),
+     CRGB(29, 38, 19),
+     CRGB(188, 0, 94),
+     CRGB(17, 0, 11),
+     CRGB(144, 0, 188),
+     CRGB(29, 0, 38),
+     CRGB(48, 144, 144),
+     CRGB(10, 29, 29),
+     CRGB(0, 166, 188),
+     CRGB(0, 33, 38),
+     CRGB(144, 0, 188),
+     CRGB(15, 0, 22),
+     CRGB(0, 188, 166),
+     CRGB(0, 22, 15)},
+    {LEDTheme::VOLCANIC,
+        // VOLCANIC - crimson (protan-boosted) / gold / tangerine / magma-pink.
+        // Warm-family ramp with monotonic lightness as redundant channel plus
+        // a pink outlier anchor; reds lifted to offset protan red-darkening.
+        {CRGB(240, 70, 60), CRGB(250, 175, 45), CRGB(255, 150, 40),
+         CRGB(255, 80, 160)},
+        CRGB(62, 44, 4),     // playheadAccent - dark lava accent
         CRGB(50, 20, 8),     // idleBreathingBlue - warm ember glow
-        CRGB(12, 6, 4),      // editModeDimBlueV1 - very dark warm slate
-        CRGB(14, 8, 5),      // editModeDimBlueV2
+        CRGB(5, 6, 12),      // editModeDimBlueV1 - very dark warm slate
+        CRGB(12, 12, 5),      // editModeDimBlueV2
         CRGB(230, 150, 90),  // modNoteActive - warm beige-orange
         CRGB(30, 18, 12),    // modNoteInactive
         CRGB(240, 180, 120), // modVelocityActive - pale amber
@@ -113,10 +461,12 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(255, 220, 150), // randomizeFlash - bright warm flash
         CRGB(24, 14, 10)     // randomizeIdle - dark subtle tone
     },
-    {
-        // FOREST theme - greens and warm browns on dark moss
-        {CRGB(28, 150, 55), CRGB(48, 162, 62), CRGB(38, 172, 82), CRGB(72, 182, 68)},
-        {CRGB(36, 14, 3), CRGB(42, 18, 3), CRGB(44, 22, 4), CRGB(48, 26, 5)},
+    {LEDTheme::FOREST,
+        // FOREST - leaf / bark-amber / glacial-lake blue / dry-grass gold.
+        // Okabe-style green-vs-orange and blue-vs-yellow splits; no
+        // green-vs-green pair is ever shown together.
+        {CRGB(60, 195, 80), CRGB(225, 150, 55), CRGB(50, 160, 210),
+         CRGB(200, 185, 70)},
         CRGB(12, 55, 20),    // playheadAccent - deep forest accent
         CRGB(16, 36, 18),    // idleBreathingBlue - deep moss breathing
         CRGB(6, 12, 7),      // editModeDimBlueV1 - dark green slate
@@ -144,10 +494,11 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(230, 250, 180), // randomizeFlash - pale flash
         CRGB(14, 20, 12)     // randomizeIdle - dark subtle tone
     },
-    {
-        // NEON theme - bright cyan/magenta on dark
-        {CRGB(0, 220, 235), CRGB(0, 232, 205), CRGB(0, 225, 165), CRGB(34, 235, 125)},
-        {CRGB(45, 0, 65), CRGB(52, 0, 70), CRGB(56, 0, 75), CRGB(60, 4, 76)},
+    {LEDTheme::NEON,
+        // NEON - Tol-bright-style primaries: cyan / magenta / lime / violet.
+        // All pairs 90+ degrees apart; lime moderated so it doesn't dominate.
+        {CRGB(0, 225, 255), CRGB(255, 60, 220), CRGB(170, 235, 45),
+         CRGB(165, 130, 255)},
         CRGB(0, 55, 65),     // playheadAccent - deep cyan accent
         CRGB(0, 30, 60),     // idleBreathingBlue - neon blue breathing
         CRGB(0, 10, 16),     // editModeDimBlueV1 - dark cyan slate
@@ -175,73 +526,12 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(255, 255, 255), // randomizeFlash - white flash
         CRGB(14, 14, 20)     // randomizeIdle - dark subtle tone
     },
-    // DARK_NOCTIS theme - deep charcoal with cool blue/cyan accents
-    {
-        {CRGB(25, 85, 140), CRGB(30, 103, 150), CRGB(35, 118, 158), CRGB(48, 126, 170)},
-        {CRGB(28, 5, 46), CRGB(32, 6, 50), CRGB(36, 7, 54), CRGB(40, 9, 56)},
-        CRGB(18, 52, 85),    // playheadAccent - deep navy accent
-        CRGB(18, 30, 50),    // idleBreathingBlue - muted navy
-        CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
-        CRGB(10, 14, 18),    // editModeDimBlueV2
-        CRGB(100, 140, 160), // modNoteActive - cool desaturated teal
-        CRGB(24, 28, 30),    // modNoteInactive
-        CRGB(140, 160, 180), // modVelocityActive - pale steel blue
-        CRGB(30, 34, 36),    // modVelocityInactive
-        CRGB(120, 100, 140), // modFilterActive - muted indigo
-        CRGB(24, 18, 24),    // modFilterInactive
-        CRGB(160, 120, 90),  // modDecayActive - muted warm contrast
-        CRGB(28, 26, 22),    // modDecayInactive
-        CRGB(120, 150, 110), // modAttackActive - subdued sage
-        CRGB(22, 26, 20),    // modAttackInactive
-        CRGB(180, 110, 160), // modOctaveActive - muted magenta accent
-        CRGB(20, 12, 16),    // modOctaveInactive
-        CRGB(100, 160, 170), // modSlideActive - cool cyan slide
-        CRGB(18, 26, 28),    // modSlideInactive
-        CRGB(200, 200, 200), // defaultActive - light gray
-        CRGB(14, 14, 16),    // defaultInactive - near black
-        CRGB(120, 200, 170), // modParamModeActive - soft aqua-green
-        CRGB(16, 18, 18),    // modParamModeInactive
-        CRGB(160, 140, 110), // modGateModeActive - muted warm highlight
-        CRGB(18, 16, 14),    // modGateModeInactive
-        CRGB(220, 200, 180), // randomizeFlash - soft warm flash
-        CRGB(12, 12, 14)     // randomizeIdle - dark subtle tone
-    },
-    {
-        // DARK_EMBER theme - deep charcoal with warm amber ember accents
-        {CRGB(200, 100, 40), CRGB(215, 120, 46), CRGB(230, 140, 56), CRGB(245, 160, 70)},
-        {CRGB(55, 4, 8), CRGB(62, 5, 9), CRGB(68, 7, 11), CRGB(74, 10, 13)},
-        CRGB(40, 24, 18),    // playheadAccent - dark warm accent
-        CRGB(28, 22, 20),    // idleBreathingBlue - warm slate for breathing (amber-tinted)
-        CRGB(10, 8, 8),      // editModeDimBlueV1 - very dark warm slate
-        CRGB(12, 10, 10),    // editModeDimBlueV2
-        CRGB(220, 160, 120), // modNoteActive - warm beige
-        CRGB(28, 24, 20),    // modNoteInactive
-        CRGB(200, 160, 140), // modVelocityActive - soft warm gray
-        CRGB(30, 26, 24),    // modVelocityInactive
-        CRGB(180, 120, 100), // modFilterActive - muted terracotta
-        CRGB(24, 18, 16),    // modFilterInactive
-        CRGB(255, 200, 150), // modDecayActive - bright amber
-        CRGB(28, 20, 16),    // modDecayInactive
-        CRGB(160, 180, 140), // modAttackActive - muted olive
-        CRGB(22, 20, 18),    // modAttackInactive
-        CRGB(220, 140, 160), // modOctaveActive - soft rose ember
-        CRGB(20, 12, 12),    // modOctaveInactive
-        CRGB(200, 160, 140), // modSlideActive - warm slide accent
-        CRGB(18, 16, 14),    // modSlideInactive
-        CRGB(230, 220, 200), // defaultActive - light warm gray
-        CRGB(14, 12, 12),    // defaultInactive - near black
-        CRGB(255, 200, 170), // modParamModeActive - warm pale
-        CRGB(16, 14, 12),    // modParamModeInactive
-        CRGB(255, 180, 90),  // modGateModeActive - bright ember highlight
-        CRGB(18, 14, 12),    // modGateModeInactive
-        CRGB(255, 210, 140), // randomizeFlash - bright warm flash
-        CRGB(10, 8, 8)       // randomizeIdle - very dark idle tone
-    },
-
-    {
-        // MODERN theme - muted, high-legibility palette with warm accent
-        {CRGB(48, 170, 120), CRGB(56, 178, 138), CRGB(68, 176, 112), CRGB(84, 184, 132)},
-        {CRGB(42, 16, 42), CRGB(46, 18, 44), CRGB(50, 20, 45), CRGB(54, 22, 46)},
+    {LEDTheme::MODERN,
+        // MODERN - dusty blue / clay / sage / rosewood. Muted chroma for the
+        // refined look, but pairs sit ~140+ degrees apart so muting never
+        // costs distinguishability; lightness equalized across voices.
+        {CRGB(110, 170, 215), CRGB(215, 150, 110), CRGB(95, 180, 125),
+         CRGB(225, 125, 180)},
         CRGB(20, 55, 54),    // playheadAccent - muted teal accent
         CRGB(60, 84, 110),   // idleBreathingBlue - slate blue for breathing
         CRGB(12, 16, 20),    // editModeDimBlueV1 - dim slate
@@ -269,10 +559,80 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(255, 210, 170), // randomizeFlash - bright warm flash
         CRGB(40, 44, 46)     // randomizeIdle - subtle gray idle tone
     },
-    {
-        // BLUE theme - high-contrast cool blues and cyan accents
-        {CRGB(30, 105, 185), CRGB(35, 124, 195), CRGB(45, 142, 205), CRGB(64, 154, 212)},
-        {CRGB(22, 5, 55), CRGB(28, 6, 62), CRGB(34, 8, 68), CRGB(40, 10, 72)},
+    // DARK_NOCTIS - midnight blue / lantern amber / deep violet / moonlight.
+    // One warm accent (the lantern) gives V1/V2 a CVD-safe split; V3/V4 pair
+    // violet against bright moon-silver, distinct in hue AND lightness.
+    {LEDTheme::DARK_NOCTIS,
+        {CRGB(50, 120, 210), CRGB(220, 150, 50), CRGB(150, 110, 225),
+         CRGB(190, 215, 230)},
+        CRGB(18, 52, 85),    // playheadAccent - deep navy accent
+        CRGB(18, 30, 50),    // idleBreathingBlue - muted navy
+        CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
+        CRGB(10, 14, 18),    // editModeDimBlueV2
+        CRGB(100, 140, 160), // modNoteActive - cool desaturated teal
+        CRGB(24, 28, 30),    // modNoteInactive
+        CRGB(140, 160, 180), // modVelocityActive - pale steel blue
+        CRGB(30, 34, 36),    // modVelocityInactive
+        CRGB(120, 100, 140), // modFilterActive - muted indigo
+        CRGB(24, 18, 24),    // modFilterInactive
+        CRGB(160, 120, 90),  // modDecayActive - muted warm contrast
+        CRGB(28, 26, 22),    // modDecayInactive
+        CRGB(120, 150, 110), // modAttackActive - subdued sage
+        CRGB(22, 26, 20),    // modAttackInactive
+        CRGB(180, 110, 160), // modOctaveActive - muted magenta accent
+        CRGB(20, 12, 16),    // modOctaveInactive
+        CRGB(100, 160, 170), // modSlideActive - cool cyan slide
+        CRGB(18, 26, 28),    // modSlideInactive
+        CRGB(200, 200, 200), // defaultActive - light gray
+        CRGB(14, 14, 16),    // defaultInactive - near black
+        CRGB(120, 200, 170), // modParamModeActive - soft aqua-green
+        CRGB(16, 18, 18),    // modParamModeInactive
+        CRGB(160, 140, 110), // modGateModeActive - muted warm highlight
+        CRGB(18, 16, 14),    // modGateModeInactive
+        CRGB(220, 200, 180), // randomizeFlash - soft warm flash
+        CRGB(12, 12, 14)     // randomizeIdle - dark subtle tone
+    },
+    {LEDTheme::DARK_EMBER,
+        // DARK_EMBER - ember-red (protan-boosted) / gold / copper-rose /
+        // pale flame. Monotonic lightness ramp carries identity for CVD
+        // viewers; reds lifted to offset protan red-darkening.
+        {CRGB(225, 65, 50), CRGB(250, 185, 70), CRGB(225, 110, 110),
+         CRGB(255, 215, 150)},
+        CRGB(66, 26, 8), // playheadAccent - warm ember accent (was navy copy-paste)
+        CRGB(28, 22,
+             20), // idleBreathingBlue - warm slate for breathing (amber-tinted)
+        CRGB(10, 8, 8),      // editModeDimBlueV1 - very dark warm slate
+        CRGB(12, 10, 10),    // editModeDimBlueV2
+        CRGB(220, 160, 120), // modNoteActive - warm beige
+        CRGB(28, 24, 20),    // modNoteInactive
+        CRGB(200, 160, 140), // modVelocityActive - soft warm gray
+        CRGB(30, 26, 24),    // modVelocityInactive
+        CRGB(180, 120, 100), // modFilterActive - muted terracotta
+        CRGB(24, 18, 16),    // modFilterInactive
+        CRGB(255, 200, 150), // modDecayActive - bright amber
+        CRGB(28, 20, 16),    // modDecayInactive
+        CRGB(160, 180, 140), // modAttackActive - muted olive
+        CRGB(22, 20, 18),    // modAttackInactive
+        CRGB(220, 140, 160), // modOctaveActive - soft rose ember
+        CRGB(20, 12, 12),    // modOctaveInactive
+        CRGB(200, 160, 140), // modSlideActive - warm slide accent
+        CRGB(18, 16, 14),    // modSlideInactive
+        CRGB(230, 220, 200), // defaultActive - light warm gray
+        CRGB(14, 12, 12),    // defaultInactive - near black
+        CRGB(255, 200, 170), // modParamModeActive - warm pale
+        CRGB(16, 14, 12),    // modParamModeInactive
+        CRGB(255, 180, 90),  // modGateModeActive - bright ember highlight
+        CRGB(18, 14, 12),    // modGateModeInactive
+        CRGB(255, 210, 140), // randomizeFlash - bright warm flash
+        CRGB(10, 8, 8)       // randomizeIdle - very dark idle tone
+    },
+
+    {LEDTheme::BLUE,
+        // BLUE theme - monochrome ramp done right: monotonic lightness
+        // (grayscale-correct ordering) with a deep-to-ice run plus an indigo
+        // endpoint for hue assist. Lightness, not hue, carries identity here.
+        {CRGB(25, 80, 210), CRGB(55, 160, 255), CRGB(95, 225, 255),
+         CRGB(105, 95, 255)},
         CRGB(18, 60, 105),   // playheadAccent - strong blue accent
         CRGB(16, 36, 80),    // idleBreathingBlue - deep ocean blue
         CRGB(8, 10, 14),     // editModeDimBlueV1 - very dark slate
@@ -300,10 +660,12 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(255, 240, 220), // randomizeFlash - bright neutral flash
         CRGB(12, 12, 14)     // randomizeIdle - dark subtle tone
     },
-    {
-        // GREEN theme - lush greens with clean high-contrast accents
-        {CRGB(35, 145, 75), CRGB(40, 160, 90), CRGB(45, 174, 105), CRGB(55, 184, 120)},
-        {CRGB(38, 16, 4), CRGB(44, 20, 5), CRGB(50, 24, 6), CRGB(56, 28, 7)},
+    {LEDTheme::GREEN,
+        // GREEN theme - monochrome ramp: deep / bright / mint / lime with
+        // monotonic lightness (grayscale-correct). Same sequential-encoding
+        // treatment as BLUE.
+        {CRGB(25, 155, 70), CRGB(55, 215, 105), CRGB(115, 250, 175),
+         CRGB(175, 240, 85)},
         CRGB(12, 68, 38),    // playheadAccent - strong forest accent
         CRGB(18, 44, 28),    // idleBreathingBlue - deep forest for breathing
         CRGB(8, 12, 10),     // editModeDimBlueV1 - very dark green slate
@@ -332,660 +694,730 @@ const LEDThemeColors ALL_THEMES[] = {
         CRGB(10, 12, 10)     // randomizeIdle - very dark idle tone
     }};
 
-static_assert(sizeof(ALL_THEMES) / sizeof(ALL_THEMES[0]) == static_cast<int>(LEDTheme::COUNT),
+static_assert(sizeof(ALL_THEMES) / sizeof(ALL_THEMES[0]) ==
+                  static_cast<int>(LEDTheme::COUNT),
               "Every LED theme needs one palette entry");
 
-static const LEDThemeColors *activeThemeColors = &ALL_THEMES[static_cast<int>(LEDTheme::DEFAULT)];
-
-static const CRGB &getVoiceGateColor(const LEDThemeColors &themeColors, uint8_t voiceIndex, bool gateActive)
-{
-    const uint8_t clampedVoiceIndex = voiceIndex < LED_THEME_VOICE_COUNT ? voiceIndex : 0;
-    return gateActive ? themeColors.gateOn[clampedVoiceIndex] : themeColors.gateOff[clampedVoiceIndex];
-}
-
-void setLEDTheme(LEDTheme theme)
-{
-    if (static_cast<int>(theme) < static_cast<int>(LEDTheme::COUNT))
-    {
-        activeThemeColors = &ALL_THEMES[static_cast<int>(theme)];
+// The table must sit at its own enum indices: LEDTheme indices are what the
+// theme cycler, the saved settings and the docs all use, so an entry in the
+// wrong slot shows one theme's colors under another theme's name.
+static constexpr bool themeTableMatchesEnumOrder() {
+  for (int i = 0; i < static_cast<int>(LEDTheme::COUNT); ++i) {
+    if (ALL_THEMES[i].theme != static_cast<LEDTheme>(i)) {
+      return false;
     }
+  }
+  return true;
 }
 
-const LEDThemeColors *getActiveThemeColors()
-{
-    return activeThemeColors;
+static_assert(themeTableMatchesEnumOrder(),
+              "ALL_THEMES must list themes in LEDTheme order");
+
+static const LEDThemeColors *activeThemeColors =
+    &ALL_THEMES[static_cast<int>(LEDTheme::DEFAULT)];
+
+// Gate-state rendering rule. A theme stores one hue per voice (gateOn in
+// ALL_THEMES above); the two gate states are that hue at two brightnesses,
+// always scaling all three channels by one factor so the hue — and with it the
+// voice identity — survives exactly:
+//  - on: lifted by GATE_ON_GAIN, or as far as the hue can go without a channel
+//    clipping. A hue whose brightest channel already sits at full scale cannot
+//    get brighter without losing saturation, so it stays where it is.
+//  - off: the same hue at 1/GATE_OFF_DIVISOR, dark enough that the gate
+//    pattern reads at a glance while an off step still shows its voice.
+static constexpr uint8_t GATE_ON_GAIN_NUM = 6;   // 1.2x
+static constexpr uint8_t GATE_ON_GAIN_DEN = 5;
+static constexpr uint8_t GATE_OFF_DIVISOR = 16;  // 1/16 of the hue
+
+// One channel of a gate-state scale. Rounds to the nearest step so the dim
+// off-state levels keep the hue that truncation would distort.
+static uint8_t scaleGateChannel(uint8_t channel, uint32_t numerator,
+                                uint32_t denominator) {
+  return static_cast<uint8_t>((static_cast<uint32_t>(channel) * numerator +
+                               denominator / 2) /
+                              denominator);
 }
+
+// Scales all three channels by numerator/denominator. Callers pass a numerator
+// no larger than the hue's own peak, so no channel can clip.
+static CRGB scaleGateHue(const CRGB &hue, uint32_t numerator,
+                         uint32_t denominator) {
+  return CRGB(scaleGateChannel(hue.r, numerator, denominator),
+              scaleGateChannel(hue.g, numerator, denominator),
+              scaleGateChannel(hue.b, numerator, denominator));
+}
+
+static CRGB getVoiceGateColor(const LEDThemeColors &themeColors,
+                              uint8_t voiceIndex, bool gateActive) {
+  const uint8_t clampedVoiceIndex =
+      voiceIndex < LED_THEME_VOICE_COUNT ? voiceIndex : 0;
+  const CRGB &hue = themeColors.gateOn[clampedVoiceIndex];
+  if (!gateActive) {
+    return scaleGateHue(hue, 1, GATE_OFF_DIVISOR);
+  }
+
+  const uint8_t peak =
+      std::max<uint8_t>(hue.r, std::max<uint8_t>(hue.g, hue.b));
+  if (peak == 0) {
+    return hue;
+  }
+  const uint32_t liftedPeak =
+      static_cast<uint32_t>(peak) * GATE_ON_GAIN_NUM / GATE_ON_GAIN_DEN;
+  return scaleGateHue(hue, std::min<uint32_t>(liftedPeak, 255), peak);
+}
+
+void setLEDTheme(LEDTheme theme) {
+  if (static_cast<int>(theme) < static_cast<int>(LEDTheme::COUNT)) {
+    activeThemeColors = &ALL_THEMES[static_cast<int>(theme)];
+  }
+}
+
+const LEDThemeColors *getActiveThemeColors() { return activeThemeColors; }
 
 DEFINE_GRADIENT_PALETTE(parameterPalette){
-    0, 0, 0, 255,   // Blue
-    85, 0, 255, 0,  // Green
-    170, 255, 0, 0, // Red
-    255, 0, 0, 255  // Back to blue
+    0,   0,   0,   255, // Blue
+    85,  0,   255, 0,   // Green
+    170, 255, 0,   0,   // Red
+    255, 0,   0,   255  // Back to blue
 };
 CRGBPalette16 parameterColors = parameterPalette;
 
-CRGB getParameterColor(ParamId param, uint8_t intensity)
-{
-    uint8_t paletteIndex = map(static_cast<int>(param), 0, static_cast<int>(ParamId::Count), 0, 255);
-    return ColorFromPalette(parameterColors, paletteIndex, intensity);
+CRGB getParameterColor(ParamId param, uint8_t intensity) {
+  uint8_t paletteIndex =
+      map(static_cast<int>(param), 0, static_cast<int>(ParamId::Count), 0, 255);
+  return ColorFromPalette(parameterColors, paletteIndex, intensity);
 }
 
 void addPolyrhythmicOverlay(
-    LEDMatrix &ledMatrix,
-    const Sequencer &sequencer,
-    uint8_t band,
-    uint8_t overlayIntensity = LEDConstants::POLYRHYTHM_INTENSITY)
-{
-    // Only add overlay if sequencer is actively running
-    if (!sequencer.isRunning())
-    {
-        return;
+    LEDMatrix &ledMatrix, const Sequencer &sequencer, uint8_t band,
+    uint8_t overlayIntensity = LEDConstants::POLYRHYTHM_INTENSITY) {
+  if (!sequencer.isRunning()) {
+    return;
+  }
+
+  // Which lanes get a playhead tint when their cycle differs from Gate.
+  struct PolyrhythmicParameterOverlay {
+    ParamId parameterID;
+    CRGB overlayColor;
+  };
+
+  const PolyrhythmicParameterOverlay
+      overlayParameters[LEDConstants::POLYRHYTHM_PARAM_COUNT] = {
+          {ParamId::Note, LEDColors::POLYRHYTHM_NOTE},
+          {ParamId::Velocity, LEDColors::POLYRHYTHM_VELOCITY},
+          {ParamId::Filter, LEDColors::POLYRHYTHM_FILTER}};
+
+  for (size_t paramIndex = 0; paramIndex < LEDConstants::POLYRHYTHM_PARAM_COUNT;
+       ++paramIndex) {
+    const ParamId currentParameter = overlayParameters[paramIndex].parameterID;
+    const uint8_t currentParameterStep =
+        sequencer.getCurrentStepForParameter(currentParameter);
+    const uint8_t parameterStepCount =
+        sequencer.getParameterStepCount(currentParameter);
+
+    if (currentParameterStep < LEDConstants::MAX_STEP_BUTTONS &&
+        parameterStepCount > 1 &&
+        parameterStepCount <= LEDConstants::MAX_STEP_BUTTONS) {
+
+      const int ledLinearIndex =
+          ControlSurface::LedLayout::linearIndex(band, currentParameterStep);
+      if (ledLinearIndex < 0) {
+        continue;
+      }
+      CRGB currentLEDColor = ledMatrix.getLeds()[ledLinearIndex];
+
+      // Tint, don't replace: the gate hue underneath must survive.
+      currentLEDColor += overlayParameters[paramIndex].overlayColor;
+
+      ledMatrix.setLED(ControlSurface::LedLayout::x(currentParameterStep),
+                       ControlSurface::LedLayout::y(band, currentParameterStep),
+                       currentLEDColor);
     }
-
-    // Parameter overlay configuration for polyrhythmic visualization
-    struct PolyrhythmicParameterOverlay
-    {
-        ParamId parameterID;
-        CRGB overlayColor;
-    };
-
-    const PolyrhythmicParameterOverlay overlayParameters[LEDConstants::POLYRHYTHM_PARAM_COUNT] = {
-        {ParamId::Note, LEDColors::POLYRHYTHM_NOTE},
-        {ParamId::Velocity, LEDColors::POLYRHYTHM_VELOCITY},
-        {ParamId::Filter, LEDColors::POLYRHYTHM_FILTER}};
-
-    // Apply overlay for each parameter type
-    for (size_t paramIndex = 0; paramIndex < LEDConstants::POLYRHYTHM_PARAM_COUNT; ++paramIndex)
-    {
-        const ParamId currentParameter = overlayParameters[paramIndex].parameterID;
-        const uint8_t currentParameterStep = sequencer.getCurrentStepForParameter(currentParameter);
-        const uint8_t parameterStepCount = sequencer.getParameterStepCount(currentParameter);
-
-        // Only apply overlay if parameter is within valid bounds
-        if (currentParameterStep < LEDConstants::MAX_STEP_BUTTONS &&
-            parameterStepCount > 1 &&
-            parameterStepCount <= LEDConstants::MAX_STEP_BUTTONS)
-        {
-
-            // Calculate LED matrix position
-            const int ledLinearIndex = ControlSurface::LedLayout::linearIndex(band, currentParameterStep);
-            if (ledLinearIndex < 0)
-            {
-                continue;
-            }
-            CRGB currentLEDColor = ledMatrix.getLeds()[ledLinearIndex];
-
-            // Blend overlay color with existing LED color
-            currentLEDColor += overlayParameters[paramIndex].overlayColor;
-
-            ledMatrix.setLED(ControlSurface::LedLayout::x(currentParameterStep),
-                             ControlSurface::LedLayout::y(band, currentParameterStep),
-                             currentLEDColor);
-        }
-    }
+  }
 }
 
-float ease(float x)
-{
-    return x < 0.5 ? 2 * x * x : 1 - pow(-2 * x + 2, 2) / 2;
+// easeInOutQuad for the idle breathing wash (eye-linear, not PWM-linear).
+float ease(float x) { return x < 0.5 ? 2 * x * x : 1 - pow(-2 * x + 2, 2) / 2; }
+
+float smoothBreathing(uint32_t timeMs) {
+  const float normalizedTime =
+      static_cast<float>(timeMs % LEDConstants::BREATHING_CYCLE_MS) /
+      static_cast<float>(LEDConstants::BREATHING_CYCLE_MS);
+  return ease(0.5f * (1.0f + sin(2.0f * PI * normalizedTime)));
 }
 
-float smoothBreathing(uint32_t timeMs)
-{
-    // Calculate smooth breathing animation value using easing function
-    const float normalizedTime = static_cast<float>(timeMs % LEDConstants::BREATHING_CYCLE_MS) /
-                                 static_cast<float>(LEDConstants::BREATHING_CYCLE_MS);
-    return ease(0.5f * (1.0f + sin(2.0f * PI * normalizedTime)));
+void setStepLedColor(uint8_t stepIndex, uint8_t redValue, uint8_t greenValue,
+                     uint8_t blueValue) {
+  // Legacy no-op (needs a matrix ref); prefer updateStepLEDs.
 }
 
-void setStepLedColor(uint8_t stepIndex, uint8_t redValue, uint8_t greenValue, uint8_t blueValue)
-{
-    // Legacy function for setting individual step LED colors
-    // Note: This function requires a LEDMatrix reference to work properly
-    // Consider using the main LED update functions instead
+void setupLEDMatrixFeedback() {
+  for (int ledIndex = 0; ledIndex < LEDConstants::MATRIX_TOTAL_LEDS;
+       ++ledIndex) {
+    smoothedTargetColorBuffer[ledIndex] = LEDColors::BLACK;
+    stepEnergy[ledIndex] = 0.0f;
+  }
+  for (auto &band : bandEnvelopes) {
+    band = BandEnvelope{};
+  }
+  energyPairFirstVoice = 0xFF;
+  lastFrameMs = 0;
+
+  // Envelope gamma table. Zero stays off so a fade reaches true black; every
+  // other level keeps at least 1/255 so the tail does not cut out early.
+  envelopeGammaTable[0] = 0;
+  for (int i = 1; i < 256; ++i) {
+    const float normalized = static_cast<float>(i) / 255.0f;
+    const int value =
+        static_cast<int>(powf(normalized, kEnvelopeGamma) * 255.0f + 0.5f);
+    envelopeGammaTable[i] = static_cast<uint8_t>(value < 1 ? 1 : value);
+  }
 }
 
-void setupLEDMatrixFeedback()
-{
-    // Initialize smoothed color buffer to black (off state)
-    for (int ledIndex = 0; ledIndex < LEDConstants::MATRIX_TOTAL_LEDS; ++ledIndex)
-    {
-        smoothedTargetColorBuffer[ledIndex] = LEDColors::BLACK;
-    }
-}
+// Settings page: preset pads in the voice hue (pulse = current), or the
+// settings-pad values as brightness.
+void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
+  const LEDThemeColors *activeThemeColors = getActiveThemeColors();
 
-/**
- * @brief Updates LED matrix to show settings mode interface
- *
- * Displays menu options and preset selections using step LEDs:
- * - Main menu: Shows Voice 1 and Voice 2 options (steps 0-1)
- * - Preset selection: Shows available presets (steps 0-5 for 6 presets)
- * - Uses different colors to indicate current selection and available options
- */
-void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState)
-{
-    const LEDThemeColors *activeThemeColors = getActiveThemeColors();
+  for (int i = 0; i < LEDMatrix::WIDTH * LEDMatrix::HEIGHT; ++i) {
+    ledMatrix.getLeds()[i] = CRGB::Black;
+  }
 
-    // Clear all LEDs first
-    for (int i = 0; i < LEDMatrix::WIDTH * LEDMatrix::HEIGHT; ++i)
-    {
-        ledMatrix.getLeds()[i] = CRGB::Black;
-    }
+  if (uiState.isPresetSelection()) {
+    const uint8_t totalPresets = VoicePresets::getPresetCount();
 
-    if (uiState.inPresetSelection)
-    {
-        // Preset selection mode - show available presets
-        const uint8_t totalPresets = VoicePresets::getPresetCount();
-        const uint8_t presetCount = VoicePresets::presetCountOnPage(totalPresets, uiState.presetPage);
+    // Keep preset selection in the hue assigned to the configured voice.
+    CRGB selectedColor =
+        getVoiceGateColor(*activeThemeColors, uiState.selectedVoiceIndex, true);
+    CRGB availableColor = getVoiceGateColor(*activeThemeColors,
+                                            uiState.selectedVoiceIndex, false);
 
-        // Keep preset selection in the hue assigned to the configured voice.
-        CRGB selectedColor = getVoiceGateColor(*activeThemeColors, uiState.settingsMenuIndex, true);
-        CRGB availableColor = getVoiceGateColor(*activeThemeColors, uiState.settingsMenuIndex, false);
+    const uint8_t voiceIndex = uiState.selectedVoiceIndex < UIState::MAX_VOICES
+                                   ? uiState.selectedVoiceIndex
+                                   : 0;
+    const uint8_t currentPresetIndex = uiState.voicePresetIndices[voiceIndex];
 
-        if (uiState.presetPage > 0)
-            ledMatrix.setLED(VoicePresets::kPreviousPagePad, 0, availableColor);
-        if (uiState.presetPage + 1 < VoicePresets::presetPageCount(totalPresets))
-            ledMatrix.setLED(VoicePresets::kNextPagePad, 0, availableColor);
+    // Pad N holds preset N, so each LED mirrors its pad.
+    for (uint8_t pad = 0; pad < VoicePresets::kPresetPadCount; pad++) {
+      const int presetIndex =
+          VoicePresets::presetIndexForPad(pad, totalPresets);
+      if (presetIndex < 0) {
+        continue;
+      }
 
-        // Preset pads occupy the three rows below voice/page navigation.
-        for (uint8_t i = 0; i < presetCount; i++)
-        {
-            CRGB color;
-
-            // Highlight currently selected preset
-            const uint8_t voiceIndex = uiState.settingsMenuIndex < UIState::MAX_VOICES
-                                           ? uiState.settingsMenuIndex
-                                           : 0;
-            const uint8_t currentPresetIndex = uiState.voicePresetIndices[voiceIndex];
-
-            if (uiState.presetPage * VoicePresets::kPresetsPerPage + i == currentPresetIndex)
-            {
-                // Current preset - bright pulsing
-                uint32_t time = millis();
-                float pulse = 0.5f + 0.5f * sinf(time * 0.008f);
-                color = selectedColor;
-                color.nscale8(static_cast<uint8_t>(128 + 127 * pulse));
-            }
-            else
-            {
-                // Available preset - dim steady
-                color = availableColor;
-                color.nscale8(64);
-            }
-
-            // Calculate LED position
-            int x = i % LEDMatrix::WIDTH;
-            int y = i / LEDMatrix::WIDTH;
-            ledMatrix.setLED(x, y + 1, color);
-        }
-    }
-    else
-    {
-        // Main settings menu - show all 4 voice options
-        // Show all 4 voice options in first row
-        for (int voiceIndex = 0; voiceIndex < 4; voiceIndex++)
-        {
-            CRGB voiceColor = getVoiceGateColor(*activeThemeColors, static_cast<uint8_t>(voiceIndex),
-                                                 uiState.settingsMenuIndex == voiceIndex);
-
-            // Add pulsing effect for selected option
-            if (uiState.settingsMenuIndex == voiceIndex)
-            {
-                uint32_t time = millis();
-                float pulse = 0.5f + 0.5f * sinf(time * 0.006f);
-                voiceColor.nscale8(static_cast<uint8_t>(128 + 127 * pulse));
-            }
-            else
-            {
-                voiceColor.nscale8(96);
-            }
-
-            // Set LED for voice option
-            ledMatrix.setLED(voiceIndex, 0, voiceColor);
-        }
-    }
-}
-
-void updateVoiceParameterLEDs(LEDMatrix &ledMatrix, const UIState &uiState)
-{
-    if (!uiState.inVoiceParameterMode)
-        return;
-
-    // Get active theme colors
-    const LEDThemeColors *activeThemeColors = getActiveThemeColors();
-    if (!activeThemeColors)
-        return;
-
-    // Clear all LEDs first
-    for (int i = 0; i < LEDMatrix::WIDTH * LEDMatrix::HEIGHT; i++)
-    {
-        ledMatrix.setLED(i % LEDMatrix::WIDTH, i / LEDMatrix::WIDTH, CRGB::Black);
-    }
-
-    // Map button index to LED position (buttons 9-24 map to steps 8-23)
-    uint8_t ledIndex = uiState.lastVoiceParameterButton - 1;
-    if (ledIndex >= LEDMatrix::WIDTH * LEDMatrix::HEIGHT)
-        return;
-
-    // Choose color based on voice and parameter type
-    CRGB paramColor;
-
-    switch (uiState.lastVoiceParameterButton)
-    {
-    case 9: // Envelope
-        paramColor = uiState.isVoice2Mode ? activeThemeColors->modAttackActive : activeThemeColors->modDecayActive;
-        break;
-    case 10: // Overdrive
-        paramColor = uiState.isVoice2Mode ? activeThemeColors->modFilterActive : activeThemeColors->modVelocityActive;
-        break;
-    case 11: // (was Wavefolder; button removed with the wavefolder effect)
-        paramColor = uiState.isVoice2Mode ? activeThemeColors->modOctaveActive : activeThemeColors->modNoteActive;
-        break;
-    case 12: // Filter Mode
-        paramColor = getVoiceGateColor(*activeThemeColors, uiState.selectedVoiceIndex, true);
-        break;
-    case 13: // Filter Resonance
-        paramColor = uiState.isVoice2Mode ? activeThemeColors->modSlideActive : activeThemeColors->modParamModeActive;
-        break;
-    default:
-        paramColor = uiState.isVoice2Mode ? activeThemeColors->defaultActive : activeThemeColors->defaultInactive;
-        break;
-    }
-
-    // Create pulsing effect for 3 seconds
-    if (millis() - uiState.voiceParameterChangeTime < 3000)
-    {
+      CRGB color;
+      if (presetIndex == currentPresetIndex) {
+        // Current preset breathes; the rest sit at gate-off level.
         uint32_t time = millis();
-        float pulse = 0.5f + 0.5f * sinf(time * 0.01f); // Faster pulse for voice parameters
-        paramColor.nscale8(static_cast<uint8_t>(128 + 127 * pulse));
+        float pulse = 0.5f + 0.5f * sinf(time * 0.008f);
+        color = selectedColor;
+        color.nscale8(static_cast<uint8_t>(128 + 127 * pulse));
+      } else {
+        // Available preset - the voice's gate-off color, i.e. the same dim
+        // steady level an off step shows in the step row.
+        color = availableColor;
+      }
+
+      ledMatrix.setLED(pad % LEDMatrix::WIDTH, pad / LEDMatrix::WIDTH, color);
     }
-    else
-    {
-        paramColor.nscale8(64); // Dim after timeout
+  } else {
+    updateVoiceParameterLEDs(ledMatrix, uiState);
+  }
+}
+
+void updateVoiceParameterLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
+  if (!uiState.hasVoiceParameterFeedback(millis()))
+    return;
+  const auto *theme = getActiveThemeColors();
+  if (!theme || !voiceManager || uiState.selectedVoiceIndex >= VoiceSystem::MAX_VOICES)
+    return;
+  const auto *config = voiceManager->getVoiceConfig(
+      voiceSystem.getVoiceId(uiState.selectedVoiceIndex));
+  if (!config)
+    return;
+
+  for (uint8_t pad = 0; pad < SettingsPads::kPadCount; ++pad) {
+    CRGB color = CRGB::Black;
+    if (SettingsPads::available(pad, *config)) {
+      const auto id = SettingsPads::parameter(pad);
+      const bool toggle = VoiceEdit::parameter(id).unit == VoiceEdit::Unit::Toggle;
+      const float level = SettingsPads::level(pad, *config);
+      // Toggles: off is dark, on is solid. Other controls encode their value
+      // as brightness; a small floor distinguishes minimum from unavailable.
+      color = getVoiceGateColor(*theme, uiState.selectedVoiceIndex, true);
+      color.nscale8(toggle ? (level > 0.5f ? 255 : 0)
+                          : static_cast<uint8_t>(32 + 223 * level));
+    }
+    // Raw pad N is LED N, exactly as on the preset page (no -1 offset).
+    ledMatrix.setLED(pad % LEDMatrix::WIDTH, pad / LEDMatrix::WIDTH, color);
+  }
+}
+
+// One voice pair (1/2 or 3/4) into the two matrix bands: gate hue per step,
+// slide tint, tempo-scaled comet glow, then the smoothing buffers.
+static void renderVoicePair(LEDMatrix &ledMatrix,
+                            const Sequencer &firstVoiceSequencer,
+                            const Sequencer &secondVoiceSequencer,
+                            const LEDThemeColors *themeColors,
+                            uint8_t firstVoiceIndex, uint8_t band) {
+  const uint8_t firstVoiceGateStepCount =
+      firstVoiceSequencer.getParameterStepCount(ParamId::Gate);
+  const uint8_t secondVoiceGateStepCount =
+      secondVoiceSequencer.getParameterStepCount(ParamId::Gate);
+
+  if (firstVoiceGateStepCount == 0) {
+    DBG_WARN("renderVoicePair: First voice has zero gate step count");
+    return;
+  }
+  if (secondVoiceGateStepCount == 0) {
+    DBG_WARN("renderVoicePair: Second voice has zero gate step count");
+    return;
+  }
+
+  for (int stepIndex = 0; stepIndex < LEDConstants::MAX_STEP_BUTTONS;
+       ++stepIndex) {
+    // Upper band of the pair.
+    const Step &firstVoiceStep = firstVoiceSequencer.getStep(stepIndex);
+    const int topRowLEDIndex =
+        ControlSurface::LedLayout::linearIndex(band, stepIndex);
+    if (topRowLEDIndex < 0) {
+      continue;
     }
 
-    // Set the LED for the voice parameter button
-    ledMatrix.setLED(ledIndex % LEDMatrix::WIDTH, ledIndex / LEDMatrix::WIDTH, paramColor);
+    // Gate hue first; slide/glow/smoothing layer on top.
+    CRGB firstVoiceColor = getVoiceGateColor(*themeColors, firstVoiceIndex,
+                                             firstVoiceStep.isGateActive);
+
+    // Slide tint: a sounding glide reads before the note moves.
+    if (firstVoiceSequencer.getStepParameterValue(ParamId::Slide, stepIndex) >
+        0) {
+      nblend(firstVoiceColor, themeColors->modSlideActive,
+             LEDConstants::MEDIUM_BRIGHTNESS);
+    }
+
+    // Trigger envelope: attack, gate hold, tempo-scaled fade out. The steps
+    // behind the playhead are still fading, which is the comet trail.
+    applyStepGlow(firstVoiceColor, *themeColors, stepEnergy[topRowLEDIndex],
+                  firstVoiceStep.isGateActive);
+
+    // Two-stage settle: targets ease, then pushed pixels chase the targets.
+    blendTo(smoothedTargetColorBuffer[topRowLEDIndex], firstVoiceColor,
+           frameBlend(TARGET_SMOOTHING_BLEND_AMOUNT));
+    blendTo(ledMatrix.getLeds()[topRowLEDIndex],
+           smoothedTargetColorBuffer[topRowLEDIndex],
+           frameBlend(LEDConstants::STANDARD_BLEND_AMOUNT));
+
+    // Lower band of the pair.
+    const Step &secondVoiceStep = secondVoiceSequencer.getStep(stepIndex);
+    const int bottomRowLEDIndex = ControlSurface::LedLayout::linearIndex(
+        static_cast<uint8_t>(band + 1), stepIndex);
+    if (bottomRowLEDIndex < 0) {
+      continue;
+    }
+
+    // Gate hue first; slide/glow/smoothing layer on top.
+    CRGB secondVoiceColor = getVoiceGateColor(
+        *themeColors, static_cast<uint8_t>(firstVoiceIndex + 1),
+        secondVoiceStep.isGateActive);
+
+    // Slide tint: a sounding glide reads before the note moves.
+    if (secondVoiceSequencer.getStepParameterValue(ParamId::Slide, stepIndex) >
+        0) {
+      nblend(secondVoiceColor, themeColors->modSlideActive,
+             LEDConstants::MEDIUM_BRIGHTNESS);
+    }
+
+    applyStepGlow(secondVoiceColor, *themeColors,
+                  stepEnergy[bottomRowLEDIndex], secondVoiceStep.isGateActive);
+
+    // Two-stage settle: targets ease, then pushed pixels chase the targets.
+    blendTo(smoothedTargetColorBuffer[bottomRowLEDIndex], secondVoiceColor,
+           frameBlend(TARGET_SMOOTHING_BLEND_AMOUNT));
+    blendTo(ledMatrix.getLeds()[bottomRowLEDIndex],
+           smoothedTargetColorBuffer[bottomRowLEDIndex],
+           frameBlend(LEDConstants::STANDARD_BLEND_AMOUNT));
+  }
 }
 
 /**
- * @brief Render a voice pair (voices 1/2 or 3/4) into the LED matrix
+ * @brief Paint the 8x4 panel as the arp's 32-degree chord map.
  *
- * Displays gate states, playhead position, and slide effects for two voices
- * arranged in the two band row-pairs of the 8x4 matrix display.
+ * Arpeggiator mode reuses the panel the touch pads mirror: each LED is one
+ * physical scale position. Seven-note scales lay out one octave per row, with
+ * the first/last columns and row-boundary pads repeating the octave root. The
+ * grid therefore shows the chord, where the scale's octaves fall and which
+ * physical positions are sounding right now. Colour carries the state:
+ *   - a finger on the pad: a related pitch hue at gate-on brightness,
+ *   - latched with the finger off: that pitch hue at gate-off brightness,
+ *   - sounding: the same pitch hue with a small white core, brighter for higher
+ *     octaves and for the captured hand dynamics,
+ *   - free: a quiet shade of the selected voice hue, with roots at a brighter
+ *     shade so the ladder is navigable in the dark.
  *
- * @param ledMatrix Reference to LED matrix for output
- * @param firstVoiceSequencer First voice sequencer (band 0)
- * @param secondVoiceSequencer Second voice sequencer (band 1)
- * @param firstVoiceIndex Index of the first voice in the pair (0 or 2)
- * @param themeColors Pointer to active theme colors
- * @param band Band index (0-based) of the pair's first voice in the matrix
+ * Pitch classes use one stable, bounded hue rotation around the selected voice
+ * colour. Neighbouring semitones stay related, scale tones remain distinct, and
+ * the same note keeps its colour in every octave.
+ *
+ * @param ledMatrix Reference to the LED matrix for output
+ * @param uiState Current UI state, which owns the arp engine
  */
-static void renderVoicePair(
-    LEDMatrix &ledMatrix,
-    const Sequencer &firstVoiceSequencer,
-    const Sequencer &secondVoiceSequencer,
-    const LEDThemeColors *themeColors,
-    uint8_t firstVoiceIndex,
-    uint8_t band)
-{
-    // Validate sequencer gate step counts
-    const uint8_t firstVoiceGateStepCount = firstVoiceSequencer.getParameterStepCount(ParamId::Gate);
-    const uint8_t secondVoiceGateStepCount = secondVoiceSequencer.getParameterStepCount(ParamId::Gate);
+static void renderArpPanel(LEDMatrix &ledMatrix, const UIState &uiState) {
+  static constexpr uint8_t kOctaveBrightnessStep = 8;
+  static constexpr uint8_t kSoundingWhiteCore = 16;
 
-    if (firstVoiceGateStepCount == 0)
-    {
-        DBG_WARN("renderVoicePair: First voice has zero gate step count");
-        return;
+  const LEDThemeColors *theme = getActiveThemeColors();
+  const Arpeggiator::Engine &arp = uiState.arp;
+  const uint8_t voice = uiState.selectedVoiceIndex < VoiceSystem::MAX_VOICES
+                            ? uiState.selectedVoiceIndex
+                            : 0;
+  const uint8_t clampedVoice = voice < LED_THEME_VOICE_COUNT ? voice : 0;
+  const size_t scaleIndex = std::min<size_t>(currentScale, SCALES_COUNT - 1);
+  const int *row = scale[scaleIndex];
+  const uint8_t notesPerOctave = scaleNotesPerOctave(row);
+
+  // Lidar dynamics: the same hand that sets note velocity brightens the note
+  // that is sounding, so the panel shows the gesture that is being heard.
+  const uint8_t dynamicScale =
+      static_cast<uint8_t>(LEDConstants::MEDIUM_BRIGHTNESS +
+                           (arp.lastVelocityScale() * (LEDConstants::FULL_BRIGHTNESS -
+                                              LEDConstants::MEDIUM_BRIGHTNESS)));
+
+  // Keep the active theme's saturation/value and rotate only hue by pitch class.
+  // This makes notes visually distinct without replacing the selected voice's
+  // theme identity with a second global palette.
+  const CHSV voiceHsv =
+      rgb2hsv_approximate(getVoiceGateColor(*theme, clampedVoice, true));
+  const uint8_t voiceHue = voiceHsv.h;
+  const uint8_t voiceSaturation = voiceHsv.s;
+  const uint8_t voiceValue = voiceHsv.v;
+
+  for (uint8_t pad = 0; pad < Arpeggiator::kPadCount; ++pad) {
+    const int ledIndex = Arpeggiator::ledIndexForPad(pad);
+    if (ledIndex < 0) continue;
+
+    const uint8_t degree = Arpeggiator::scaleDegreeForPad(pad, notesPerOctave);
+    const uint8_t pitchClass = ArpLedPalette::classifySemitone(row[degree]);
+    const uint8_t noteHue = static_cast<uint8_t>(
+        voiceHue + ArpLedPalette::hueOffsetSteps(pitchClass));
+
+    CRGB target = CRGB::Black;
+    if (arp.padInChord(pad)) {
+      // Held or latched: reveal the note's eventual playing colour. Brightness,
+      // not another hue change, carries the physical-finger state.
+      const uint8_t chordValue = arp.padHeld(pad)
+                                     ? voiceValue
+                                     : scaleGateChannel(voiceValue, 1, GATE_OFF_DIVISOR);
+      target = hsv2rgb_rainbow(CHSV(noteHue, voiceSaturation, chordValue));
+    } else if ((notesPerOctave == Arpeggiator::kSevenNoteScale &&
+                degree % Arpeggiator::kSevenNoteScale == 0) ||
+               (notesPerOctave != Arpeggiator::kSevenNoteScale &&
+                row[pad] % 12 == 0)) {
+      // Seven-note layouts also mark the repeated root at each row boundary,
+      // making the octave grid legible without painting the whole free ladder
+      // with every pitch colour.
+      target = scaleGateHue(theme->gateOn[clampedVoice], 1, 2);
+    } else {
+      target = scaleGateHue(theme->gateOn[clampedVoice], 1, 4);
     }
-    if (secondVoiceGateStepCount == 0)
-    {
-        DBG_WARN("renderVoicePair: Second voice has zero gate step count");
-        return;
+
+    if (isClockRunning && arp.padSounding(pad)) {
+      // The pitch hue remains the identity channel. Octave range and lidar
+      // velocity add smaller brightness cues, while the neutral core gives the
+      // eye an immediate attack without washing every note toward one accent.
+      uint8_t octave = 0;
+      for (uint8_t slot = 0; slot < Arpeggiator::kMaxSlots; ++slot) {
+        uint8_t slotDegree = 0;
+        uint8_t slotOctave = 0;
+        if (arp.slotSounding(slot, slotDegree, slotOctave) &&
+            slotDegree == degree && slotOctave > octave)
+          octave = slotOctave;
+      }
+      const uint8_t brightness = static_cast<uint8_t>(std::min<int>(
+          255, dynamicScale + (octave * kOctaveBrightnessStep)));
+      target = hsv2rgb_rainbow(CHSV(noteHue, voiceSaturation, voiceValue));
+      nblend(target, CRGB::White, kSoundingWhiteCore);
+      target.nscale8_video(brightness);
     }
 
-    // Render each step for both voices in the pair
-    for (int stepIndex = 0; stepIndex < LEDConstants::MAX_STEP_BUTTONS; ++stepIndex)
-    {
-        // === First Voice (band) Processing ===
-        const Step &firstVoiceStep = firstVoiceSequencer.getStep(stepIndex);
-        const bool isFirstVoicePlayhead = (firstVoiceSequencer.getCurrentStepForParameter(ParamId::Gate) == stepIndex &&
-                                           firstVoiceSequencer.isRunning());
-
-        // Determine base color based on gate state
-        CRGB firstVoiceColor = getVoiceGateColor(*themeColors, firstVoiceIndex, firstVoiceStep.isGateActive);
-
-        // Add slide effect if active for this step
-        if (firstVoiceSequencer.getStepParameterValue(ParamId::Slide, stepIndex) > 0)
-        {
-            nblend(firstVoiceColor, themeColors->modSlideActive, LEDConstants::MEDIUM_BRIGHTNESS);
-        }
-
-        // Add playhead accent if this is the current step
-        if (isFirstVoicePlayhead)
-        {
-            firstVoiceColor += themeColors->playheadAccent;
-        }
-
-        // Apply smoothed color blending for the first voice's band
-        const int topRowLEDIndex = ControlSurface::LedLayout::linearIndex(band, stepIndex);
-        nblend(smoothedTargetColorBuffer[topRowLEDIndex], firstVoiceColor, TARGET_SMOOTHING_BLEND_AMOUNT);
-        nblend(ledMatrix.getLeds()[topRowLEDIndex], smoothedTargetColorBuffer[topRowLEDIndex],
-               LEDConstants::STANDARD_BLEND_AMOUNT);
-
-        // === Second Voice (other band) Processing ===
-        const Step &secondVoiceStep = secondVoiceSequencer.getStep(stepIndex);
-        const bool isSecondVoicePlayhead = (secondVoiceSequencer.getCurrentStepForParameter(ParamId::Gate) == stepIndex &&
-                                            secondVoiceSequencer.isRunning());
-
-        // Determine base color based on gate state
-        CRGB secondVoiceColor = getVoiceGateColor(
-            *themeColors, static_cast<uint8_t>(firstVoiceIndex + 1), secondVoiceStep.isGateActive);
-
-        // Add slide effect if active for this step
-        if (secondVoiceSequencer.getStepParameterValue(ParamId::Slide, stepIndex) > 0)
-        {
-            nblend(secondVoiceColor, themeColors->modSlideActive, LEDConstants::MEDIUM_BRIGHTNESS);
-        }
-
-        // Add playhead accent if this is the current step
-        if (isSecondVoicePlayhead)
-        {
-            secondVoiceColor += themeColors->playheadAccent;
-        }
-
-        // Apply smoothed color blending for the second voice's band
-        const int bottomRowLEDIndex = ControlSurface::LedLayout::linearIndex(
-            static_cast<uint8_t>(band + 1), stepIndex);
-        nblend(smoothedTargetColorBuffer[bottomRowLEDIndex], secondVoiceColor, TARGET_SMOOTHING_BLEND_AMOUNT);
-        nblend(ledMatrix.getLeds()[bottomRowLEDIndex], smoothedTargetColorBuffer[bottomRowLEDIndex],
-               LEDConstants::STANDARD_BLEND_AMOUNT);
-    }
+    nblend(smoothedTargetColorBuffer[ledIndex], target,
+           LEDConstants::TARGET_SMOOTHING_BLEND_AMOUNT);
+    nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex],
+           LEDConstants::STANDARD_BLEND_AMOUNT);
+  }
 }
 
-void updateStepLEDs(
-    LEDMatrix &ledMatrix,
-    const Sequencer &seq1,
-    const Sequencer &seq2,
-    const Sequencer &seq3,
-    const Sequencer &seq4,
-    const UIState &uiState,
-    int mm)
-{
-    // If requested, immediately clear smoothed buffers to force a visual refresh
-    if (uiState.resetStepsLightsFlag)
-    {
-        for (int i = 0; i < LEDConstants::MATRIX_TOTAL_LEDS; ++i)
-        {
-            smoothedTargetColorBuffer[i] = CRGB::Black;
+void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
+                    const UIState &uiState, int mm) {
+  // Everything below fades on elapsed time, not on frame count.
+  beginLEDFrame(millis());
+  // Runs in every mode: a view that does not draw the envelope still has to
+  // let it fade, or the energy would be frozen when the view comes back.
+  advanceStepEnergy(sequencers, uiState);
+
+  // If requested, immediately clear smoothed buffers to force a visual refresh
+  if (uiState.resetStepsLightsFlag) {
+    for (int i = 0; i < LEDConstants::MATRIX_TOTAL_LEDS; ++i) {
+      smoothedTargetColorBuffer[i] = CRGB::Black;
+      stepEnergy[i] = 0.0f;
+    }
+    // One-shot consumption of the flag. UIState is passed as const to
+    // renderers, so we clear it here intentionally to prevent continuous
+    // clearing every frame.
+    const_cast<UIState &>(uiState).resetStepsLightsFlag = false;
+  }
+
+  if (uiState.voiceEnvelope.active) {
+    const uint8_t band = ControlSurface::LedLayout::bandOfVoiceInPair(uiState.selectedVoiceIndex);
+    const Sequencer &sequence = sequencers.clamped(uiState.selectedVoiceIndex);
+    for (uint8_t b = 0; b < ControlSurface::LedLayout::kBandCount; ++b) {
+      for (uint8_t step = 0; step < ControlSurface::LedLayout::kStepsPerBand; ++step) {
+        const int index = ControlSurface::LedLayout::linearIndex(b, step);
+        CRGB color = CRGB::Black;
+        if (b == band) {
+          const bool gate = uiState.arp.active()
+              ? voiceSystem.getVoiceState(uiState.selectedVoiceIndex).isGateHigh
+              : sequence.getStep(step).isGateActive;
+          color = getVoiceGateColor(*getActiveThemeColors(), uiState.selectedVoiceIndex, gate);
+          if (!uiState.arp.active())
+            applyStepGlow(color, *getActiveThemeColors(), stepEnergy[index], gate);
         }
-        // One-shot consumption of the flag. UIState is passed as const to renderers,
-        // so we clear it here intentionally to prevent continuous clearing every frame.
-        const_cast<UIState &>(uiState).resetStepsLightsFlag = false;
+        // Other voices go fully dark immediately, without a stale fade tail.
+        smoothedTargetColorBuffer[index] = color;
+        ledMatrix.getLeds()[index] = color;
+      }
+    }
+    return;
+  }
+
+  if (uiState.settingsMode) {
+    updateSettingsModeLEDs(ledMatrix, uiState);
+    return;
+  }
+
+  if (uiState.hasVoiceParameterFeedback(millis())) {
+    updateVoiceParameterLEDs(ledMatrix, uiState);
+    return;
+  }
+
+  // Arpeggiator mode owns the panel: it is the chord map, not the step grid.
+  if (uiState.arp.active()) {
+    renderArpPanel(ledMatrix, uiState);
+    return;
+  }
+
+  const Sequencer &activeSeq = sequencers.clamped(uiState.selectedVoiceIndex);
+  const ParamId heldParamIdForLength = getHeldParameterParamId(uiState);
+  bool anyParamForLengthHeld = (heldParamIdForLength != ParamId::Count);
+  ParamId activeParamIdForLength =
+      anyParamForLengthHeld ? heldParamIdForLength : ParamId::Count;
+
+  // Length edit: blink the selected voice's bar up to its gate length.
+  if (uiState.gateSeqLengthMode) {
+    const uint8_t selBand = ControlSurface::LedLayout::bandOfVoiceInPair(
+        uiState.selectedVoiceIndex);
+    const CRGB withinColorBase = getVoiceGateColor(
+        *getActiveThemeColors(), uiState.selectedVoiceIndex, true);
+
+    static bool blinkState = false;
+    static uint32_t lastBlinkMs = 0;
+    const uint32_t now = millis();
+    if (now - lastBlinkMs > 250) { // ~4 Hz
+      blinkState = !blinkState;
+      lastBlinkMs = now;
     }
 
-    // Handle settings mode LED feedback
-    if (uiState.settingsMode)
-    {
-        updateSettingsModeLEDs(ledMatrix, uiState);
-        return;
+    const uint8_t gateLen = activeSeq.getParameterStepCount(ParamId::Gate);
+
+    // Other pair goes dark so the length bar reads alone.
+    for (int step = 0; step < LEDConstants::MAX_STEP_BUTTONS; ++step) {
+      const int otherIndex = ControlSurface::LedLayout::linearIndex(
+          static_cast<uint8_t>(1 - selBand), step);
+      blendTo(smoothedTargetColorBuffer[otherIndex], CRGB::Black,
+             frameBlend(LEDConstants::TARGET_SMOOTHING_BLEND_AMOUNT));
+      blendTo(ledMatrix.getLeds()[otherIndex],
+             smoothedTargetColorBuffer[otherIndex],
+             frameBlend(LEDConstants::DIM_BLEND_AMOUNT));
     }
 
-    // Handle voice parameter mode LED feedback
-    if (uiState.inVoiceParameterMode && (millis() - uiState.voiceParameterChangeTime < 3000))
-    {
-        updateVoiceParameterLEDs(ledMatrix, uiState);
-        return;
+    for (int step = 0; step < LEDConstants::MAX_STEP_BUTTONS; ++step) {
+      CRGB target = CRGB::Black;
+      if (step < gateLen && gateLen > 1) {
+        target = withinColorBase;
+        if (blinkState) {
+          target.nscale8(60);
+        }
+      }
+      const int ledIndex =
+          ControlSurface::LedLayout::linearIndex(selBand, step);
+      blendTo(smoothedTargetColorBuffer[ledIndex], target,
+             frameBlend(LEDConstants::TARGET_SMOOTHING_BLEND_AMOUNT));
+      blendTo(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex],
+             frameBlend(LEDConstants::STANDARD_BLEND_AMOUNT));
     }
 
-    const ParamId heldParamIdForLength = getHeldParameterParamId(uiState);
-    bool anyParamForLengthHeld = (heldParamIdForLength != ParamId::Count);
-    ParamId activeParamIdForLength = anyParamForLengthHeld ? heldParamIdForLength : ParamId::Count;
+    return;
+  }
 
-    // Gate sequence length mode visualization: blink LEDs up to current gate length for selected voice
-    if (uiState.gateSeqLengthMode)
-    {
-        // Select active sequencer by selectedVoiceIndex (0..3)
-        const Sequencer *seqPtr = (uiState.selectedVoiceIndex == 0) ? &seq1 : (uiState.selectedVoiceIndex == 1) ? &seq2
-                                                                          : (uiState.selectedVoiceIndex == 2)   ? &seq3
-                                                                                                                : &seq4;
-        const Sequencer &activeSeq = *seqPtr;
+  if (uiState.slideMode) {
+    uint8_t slidePlayhead =
+        activeSeq.getCurrentStepForParameter(ParamId::Slide);
+    uint8_t slideLength = activeSeq.getParameterStepCount(ParamId::Slide);
 
-        const uint8_t selBand = ControlSurface::LedLayout::bandOfVoiceInPair(uiState.selectedVoiceIndex);
-        const CRGB withinColorBase = getVoiceGateColor(*getActiveThemeColors(), uiState.selectedVoiceIndex, true);
+    for (int step = 0; step < NUMBER_OF_STEP_BUTTONS; step++) {
+      uint8_t slideValue =
+          activeSeq.getStepParameterValue(ParamId::Slide, step);
+      bool isSlideActive = (slideValue > 0);
+      bool isPlayhead = (step == slidePlayhead);
+      bool isWithinLength = (step < slideLength);
 
-        // Simple blink state
-        static bool blinkState = false;
-        static uint32_t lastBlinkMs = 0;
-        const uint32_t now = millis();
-        if (now - lastBlinkMs > 250)
-        { // ~4 Hz
-            blinkState = !blinkState;
-            lastBlinkMs = now;
-        }
+      CRGB color;
+      if (isPlayhead && isWithinLength) {
+        color = activeThemeColors->modSlideActive;
+      } else if (isSlideActive && isWithinLength) {
+        color = activeThemeColors->modSlideActive;
+        color.nscale8(64);
+      } else if (isWithinLength) {
+        color = activeThemeColors->modSlideInactive;
+        color.nscale8(32);
+      } else {
+        color = CRGB::Black;
+      }
 
-        const uint8_t gateLen = activeSeq.getParameterStepCount(ParamId::Gate);
+      const int x = ControlSurface::LedLayout::x(step);
+      const int y = ControlSurface::LedLayout::y(
+          ControlSurface::LedLayout::bandOfVoiceInPair(
+              uiState.selectedVoiceIndex),
+          step);
+      if (x >= 0 && y >= 0) {
+        ledMatrix.setLED(x, y, color);
+      }
+    }
+    return;
+  }
 
-        // Dim the other band fully to focus on the selected voice
-        for (int step = 0; step < LEDConstants::MAX_STEP_BUTTONS; ++step)
-        {
-            const int otherIndex = ControlSurface::LedLayout::linearIndex(static_cast<uint8_t>(1 - selBand), step);
-            nblend(smoothedTargetColorBuffer[otherIndex], CRGB::Black, LEDConstants::TARGET_SMOOTHING_BLEND_AMOUNT);
-            nblend(ledMatrix.getLeds()[otherIndex], smoothedTargetColorBuffer[otherIndex], LEDConstants::DIM_BLEND_AMOUNT);
-        }
+  bool paramValueEditActive = isAnyParameterButtonHeld(uiState);
 
-        // Paint selected band with blinking up-to-length visualization
-        for (int step = 0; step < LEDConstants::MAX_STEP_BUTTONS; ++step)
-        {
-            CRGB target = CRGB::Black;
-            if (step < gateLen && gateLen > 1)
-            {
-                target = withinColorBase;
-                if (blinkState)
-                {
-                    // Dim on alternate frames for blink
-                    target.nscale8(60);
-                }
-            }
-            const int ledIndex = ControlSurface::LedLayout::linearIndex(selBand, step);
-            nblend(smoothedTargetColorBuffer[ledIndex], target, LEDConstants::TARGET_SMOOTHING_BLEND_AMOUNT);
-            nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex], LEDConstants::STANDARD_BLEND_AMOUNT);
-        }
+  if (paramValueEditActive) {
+    uint8_t currentLength =
+        activeSeq.getParameterStepCount(activeParamIdForLength);
+    uint8_t paramPlayhead =
+        activeSeq.getCurrentStepForParameter(activeParamIdForLength);
 
-        return;
+    // Held lane: other pair dark, this pair shows length + playhead.
+    const uint8_t selBand = ControlSurface::LedLayout::bandOfVoiceInPair(
+        uiState.selectedVoiceIndex);
+    bool isSecondInPair = selBand == 1;
+    for (int step = 0; step < SEQ_STEPS; ++step) {
+      int topIndex = ControlSurface::LedLayout::linearIndex(0, step);
+      int bottomIndex = ControlSurface::LedLayout::linearIndex(1, step);
+      if (!isSecondInPair) {
+        blendTo(smoothedTargetColorBuffer[bottomIndex], CRGB::Black,
+               frameBlend(TARGET_SMOOTHING_BLEND_AMOUNT));
+        blendTo(ledMatrix.getLeds()[bottomIndex],
+               smoothedTargetColorBuffer[bottomIndex], frameBlend(32));
+      } else {
+        blendTo(smoothedTargetColorBuffer[topIndex], CRGB::Black,
+               frameBlend(TARGET_SMOOTHING_BLEND_AMOUNT));
+        blendTo(ledMatrix.getLeds()[topIndex],
+               smoothedTargetColorBuffer[topIndex], frameBlend(32));
+      }
     }
 
-    if (uiState.slideMode)
-    {
-        // Select sequencer based on selectedVoiceIndex (0..3)
-        const Sequencer *seqPtr = (uiState.selectedVoiceIndex == 0) ? &seq1 : (uiState.selectedVoiceIndex == 1) ? &seq2
-                                                                          : (uiState.selectedVoiceIndex == 2)   ? &seq3
-                                                                                                                : &seq4;
-        const Sequencer &activeSeq = *seqPtr;
-        uint8_t slidePlayhead = activeSeq.getCurrentStepForParameter(ParamId::Slide);
-        uint8_t slideLength = activeSeq.getParameterStepCount(ParamId::Slide);
-
-        for (int step = 0; step < NUMBER_OF_STEP_BUTTONS; step++)
-        {
-            uint8_t slideValue = activeSeq.getStepParameterValue(ParamId::Slide, step);
-            bool isSlideActive = (slideValue > 0);
-            bool isPlayhead = (step == slidePlayhead);
-            bool isWithinLength = (step < slideLength);
-
-            CRGB color;
-            if (isPlayhead && isWithinLength)
-            {
-                color = activeThemeColors->modSlideActive;
-            }
-            else if (isSlideActive && isWithinLength)
-            {
-                color = activeThemeColors->modSlideActive;
-                color.nscale8(64);
-            }
-            else if (isWithinLength)
-            {
-                color = activeThemeColors->modSlideInactive;
-                color.nscale8(32);
-            }
-            else
-            {
-                color = CRGB::Black;
-            }
-
-            const int x = ControlSurface::LedLayout::x(step);
-            const int y = ControlSurface::LedLayout::y(
-                ControlSurface::LedLayout::bandOfVoiceInPair(uiState.selectedVoiceIndex), step);
-            if (x >= 0 && y >= 0)
-            {
-                ledMatrix.setLED(x, y, color);
-            }
+    for (int step = 0; step < SEQ_STEPS; ++step) {
+      CRGB targetColor;
+      if (step < currentLength) {
+        if (step == paramPlayhead && activeSeq.isRunning()) {
+          targetColor = getParameterColor(activeParamIdForLength, 180);
+        } else {
+          // Edit tint follows the row (V1 top, V2 bottom).
+          targetColor = isSecondInPair ? activeThemeColors->editModeDimBlueV2
+                                       : activeThemeColors->editModeDimBlueV1;
         }
-        return;
+      } else {
+        targetColor = CRGB::Black;
+      }
+      int ledIndex = ControlSurface::LedLayout::linearIndex(selBand, step);
+      blendTo(smoothedTargetColorBuffer[ledIndex], targetColor,
+             frameBlend(TARGET_SMOOTHING_BLEND_AMOUNT));
+      blendTo(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex],
+             frameBlend(isSecondInPair ? 122 : 64));
     }
 
-    bool paramValueEditActive = isAnyParameterButtonHeld(uiState);
+    return;
+  }
 
-    // Helper to fetch by selected voice
-    auto &activeSeqRef = (uiState.selectedVoiceIndex == 0) ? seq1 : (uiState.selectedVoiceIndex == 1) ? seq2
-                                                                : (uiState.selectedVoiceIndex == 2)   ? seq3
-                                                                                                      : seq4;
+  if (anyParamForLengthHeld) {
+    uint8_t currentLength =
+        activeSeq.getParameterStepCount(activeParamIdForLength);
+    uint8_t paramPlayhead =
+        activeSeq.getCurrentStepForParameter(activeParamIdForLength);
 
-    if (paramValueEditActive)
-    {
-        uint8_t currentLength = activeSeqRef.getParameterStepCount(activeParamIdForLength);
-        uint8_t paramPlayhead = activeSeqRef.getCurrentStepForParameter(activeParamIdForLength);
-
-        // Dim the non-selected band (top or bottom) in the current page
-        const uint8_t selBand = ControlSurface::LedLayout::bandOfVoiceInPair(uiState.selectedVoiceIndex);
-        bool isSecondInPair = selBand == 1;
-        for (int step = 0; step < SEQ_STEPS; ++step)
-        {
-            int topIndex = ControlSurface::LedLayout::linearIndex(0, step);
-            int bottomIndex = ControlSurface::LedLayout::linearIndex(1, step);
-            if (!isSecondInPair)
-            {
-                // Selected voice is top row; dim bottom
-                nblend(smoothedTargetColorBuffer[bottomIndex], CRGB::Black, TARGET_SMOOTHING_BLEND_AMOUNT);
-                nblend(ledMatrix.getLeds()[bottomIndex], smoothedTargetColorBuffer[bottomIndex], 32);
-            }
-            else
-            {
-                // Selected voice is bottom row; dim top
-                nblend(smoothedTargetColorBuffer[topIndex], CRGB::Black, TARGET_SMOOTHING_BLEND_AMOUNT);
-                nblend(ledMatrix.getLeds()[topIndex], smoothedTargetColorBuffer[topIndex], 32);
-            }
-        }
-
-        // Paint the selected row with parameter length/playhead info
-        for (int step = 0; step < SEQ_STEPS; ++step)
-        {
-            CRGB targetColor;
-            if (step < currentLength)
-            {
-                if (step == paramPlayhead && activeSeqRef.isRunning())
-                {
-                    targetColor = getParameterColor(activeParamIdForLength, 180);
-                }
-                else
-                {
-                    // Use V1 tint for top row, V2 tint for bottom row
-                    targetColor = isSecondInPair ? activeThemeColors->editModeDimBlueV2
-                                                 : activeThemeColors->editModeDimBlueV1;
-                }
-            }
-            else
-            {
-                targetColor = CRGB::Black;
-            }
-            int ledIndex = ControlSurface::LedLayout::linearIndex(selBand, step);
-            nblend(smoothedTargetColorBuffer[ledIndex], targetColor, TARGET_SMOOTHING_BLEND_AMOUNT);
-            nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex], isSecondInPair ? 122 : 64);
-        }
-
-        return;
+    // Latched-lane length view: same bar, only the held band paints.
+    const uint8_t selBand = ControlSurface::LedLayout::bandOfVoiceInPair(
+        uiState.selectedVoiceIndex);
+    bool isSecondInPair = selBand == 1;
+    for (int step = 0; step < currentLength; ++step) {
+      CRGB targetColor =
+          (step == paramPlayhead && activeSeq.isRunning())
+              ? getParameterColor(activeParamIdForLength, 180)
+              : (isSecondInPair ? activeThemeColors->editModeDimBlueV2
+                                : activeThemeColors->editModeDimBlueV1);
+      int ledIndex = ControlSurface::LedLayout::linearIndex(selBand, step);
+      blendTo(smoothedTargetColorBuffer[ledIndex], targetColor,
+             frameBlend(TARGET_SMOOTHING_BLEND_AMOUNT));
+      blendTo(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex],
+             frameBlend(isSecondInPair ? 200 : 60));
     }
 
-    if (anyParamForLengthHeld)
-    {
-        uint8_t currentLength = activeSeqRef.getParameterStepCount(activeParamIdForLength);
-        uint8_t paramPlayhead = activeSeqRef.getCurrentStepForParameter(activeParamIdForLength);
-
-        // Paint only the selected band's within-length area
-        const uint8_t selBand = ControlSurface::LedLayout::bandOfVoiceInPair(uiState.selectedVoiceIndex);
-        bool isSecondInPair = selBand == 1;
-        for (int step = 0; step < currentLength; ++step)
-        {
-            CRGB targetColor = (step == paramPlayhead && activeSeqRef.isRunning())
-                                   ? getParameterColor(activeParamIdForLength, 180)
-                                   : (isSecondInPair ? activeThemeColors->editModeDimBlueV2
-                                                     : activeThemeColors->editModeDimBlueV1);
-            int ledIndex = ControlSurface::LedLayout::linearIndex(selBand, step);
-            nblend(smoothedTargetColorBuffer[ledIndex], targetColor, TARGET_SMOOTHING_BLEND_AMOUNT);
-            nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex], isSecondInPair ? 200 : 60);
-        }
-
-        // Dim the other band's within-length area
-        for (int step = 0; step < currentLength; ++step)
-        {
-            int otherIndex = ControlSurface::LedLayout::linearIndex(static_cast<uint8_t>(1 - selBand), step);
-            nblend(smoothedTargetColorBuffer[otherIndex], CRGB::Black, TARGET_SMOOTHING_BLEND_AMOUNT);
-            nblend(ledMatrix.getLeds()[otherIndex], smoothedTargetColorBuffer[otherIndex], 150);
-        }
+    for (int step = 0; step < currentLength; ++step) {
+      int otherIndex = ControlSurface::LedLayout::linearIndex(
+          static_cast<uint8_t>(1 - selBand), step);
+      blendTo(smoothedTargetColorBuffer[otherIndex], CRGB::Black,
+             frameBlend(TARGET_SMOOTHING_BLEND_AMOUNT));
+      blendTo(ledMatrix.getLeds()[otherIndex],
+             smoothedTargetColorBuffer[otherIndex], frameBlend(150));
     }
-    else
-    {
-        // Determine which voice pair to display based on selectedVoiceIndex
-        bool showFirstPair = (uiState.selectedVoiceIndex < 2);
-        const LEDThemeColors *theme = getActiveThemeColors();
+  } else {
+    // Show the selected pair (1/2 or 3/4); the other page stays cached.
+    const uint8_t firstVoice = (uiState.selectedVoiceIndex < 2) ? 0 : 2;
+    const Sequencer &firstSeq = sequencers.clamped(firstVoice);
+    const Sequencer &secondSeq = sequencers.clamped(firstVoice + 1);
+    const LEDThemeColors *theme = getActiveThemeColors();
 
-        // Clear first to avoid ghosting when switching pages
-        for (int i = 0; i < LEDMatrix::WIDTH * LEDMatrix::HEIGHT; ++i)
-        {
-            nblend(smoothedTargetColorBuffer[i], CRGB::Black, TARGET_SMOOTHING_BLEND_AMOUNT);
-            nblend(ledMatrix.getLeds()[i], smoothedTargetColorBuffer[i], 64);
-        }
+    // No pre-clear pass here. renderVoicePair() writes every one of the 32 LEDs
+    // from the visible pair's own state, so clearing first only meant each LED
+    // was pulled toward black and then toward its target in the same frame.
+    // That two-stage pull settles at a fraction of the target which depends on
+    // the alpha, so it moved with every wobble in frame time - the flicker.
+    // A page switch is covered by the new targets and by the energy reset.
 
-        // Render either voices 1/2 (page 1) or 3/4 (page 2)
-        if (showFirstPair)
-        {
-            renderVoicePair(ledMatrix, seq1, seq2, theme, 0, 0);
-        }
-        else
-        {
-            renderVoicePair(ledMatrix, seq3, seq4, theme, 2, 0);
-        }
+    renderVoicePair(ledMatrix, firstSeq, secondSeq, theme, firstVoice, 0);
 
-        // Polyrhythmic overlays for the visible pair only
-        if (showFirstPair)
-        {
-            addPolyrhythmicOverlay(ledMatrix, seq1, 0, 32);
-            addPolyrhythmicOverlay(ledMatrix, seq2, 1, 32);
-        }
-        else
-        {
-            addPolyrhythmicOverlay(ledMatrix, seq3, 0, 32);
-            addPolyrhythmicOverlay(ledMatrix, seq4, 1, 32);
-        }
+    // Lane playheads that differ from Gate get their tint (visible pair only).
+    addPolyrhythmicOverlay(ledMatrix, firstSeq, 0, 32);
+    addPolyrhythmicOverlay(ledMatrix, secondSeq, 1, 32);
 
-        // Highlight selected step if editing
-        if (uiState.selectedStepForEdit >= 0 && uiState.selectedStepForEdit < SEQ_STEPS)
-        {
-            int ledIndex = ControlSurface::LedLayout::linearIndex(
-                ControlSurface::LedLayout::bandOfVoiceInPair(uiState.selectedVoiceIndex),
-                static_cast<uint8_t>(uiState.selectedStepForEdit));
+    // Step-edit cursor blinks over the pair view.
+    if (uiState.selectedStepForEdit >= 0 &&
+        uiState.selectedStepForEdit < SEQ_STEPS) {
+      int ledIndex = ControlSurface::LedLayout::linearIndex(
+          ControlSurface::LedLayout::bandOfVoiceInPair(
+              uiState.selectedVoiceIndex),
+          static_cast<uint8_t>(uiState.selectedStepForEdit));
 
-            static bool blinkState = false;
-            static uint32_t lastBlinkTime = 0;
-            uint32_t currentTime = millis();
-            if (currentTime - lastBlinkTime > 500)
-            {
-                blinkState = !blinkState;
-                lastBlinkTime = currentTime;
-            }
+      static bool blinkState = false;
+      static uint32_t lastBlinkTime = 0;
+      uint32_t currentTime = millis();
+      if (currentTime - lastBlinkTime > 500) {
+        blinkState = !blinkState;
+        lastBlinkTime = currentTime;
+      }
 
-            CRGB highlightColor = blinkState ? CRGB::White : CRGB::Black;
-            nblend(smoothedTargetColorBuffer[ledIndex], highlightColor, TARGET_SMOOTHING_BLEND_AMOUNT);
-            nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex], 100);
-        }
+      CRGB highlightColor = blinkState ? CRGB::White : CRGB::Black;
+      blendTo(smoothedTargetColorBuffer[ledIndex], highlightColor,
+             frameBlend(TARGET_SMOOTHING_BLEND_AMOUNT));
+      blendTo(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex],
+             frameBlend(100));
     }
+  }
 }

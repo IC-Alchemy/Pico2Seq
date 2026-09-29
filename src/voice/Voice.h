@@ -1,3 +1,7 @@
+// Voice.h — one synth voice: sources → envelope gain → effects → velocity →
+// main filter → HPF. Control thread stages (updateParameters/setConfig), Core 1
+// renders spans of <=32 samples (2 KiB stack, no heap/blocking); staged edits
+// land after the next process(). Voice index is 0-based (0-3).
 #pragma once
 
 #include "VoiceConfig.h"
@@ -21,10 +25,12 @@
 #include <atomic>
 #include <cmath>
 
-// Force-inline the per-sample stages of Voice::process(). Even at -O3 GCC
-// left computeEnvelope/updateFilter/mixOscillators and the two pending-change
-// checks as out-of-line calls: 4-6 call/return pairs per voice per sample on
-// the RP2350. The bodies are private and only ever called from process().
+// Compile out idle skipping for exact-output/performance comparisons.
+#ifndef P2S_VOICE_IDLE_SKIP
+#define P2S_VOICE_IDLE_SKIP 1
+#endif
+
+// Keep tiny audio helpers inside their RAM-resident span caller.
 #if defined(__GNUC__)
 #define PICO2SEQ_HOT_INLINE inline __attribute__((always_inline))
 #else
@@ -43,25 +49,32 @@ struct VoiceSlewParams
 };
 
 /**
- * @brief A complete synthesizer voice with oscillators, filter, envelope, and effects
+ * @brief One synth voice: oscillators/engines, envelope (note bloom → held
+ * loudness → release), filter (brightness), and effects.
  *
- * This class encapsulates all the audio processing components needed for a single voice,
- * making it easy to create multiple independent voices with different characteristics.
- *
- * Scale data access and testability:
- * - Voice no longer reads global scale variables directly. Instead, scale data is injected
- *   via setter methods (see setScaleTable and setCurrentScalePointer).
- * - This reduces global-state coupling and makes the class easier to unit test: tests can
- *   provide a mock scale table and a fixed/current scale index without relying on externs.
- * - If no scale data is injected, Voice falls back to chromatic mapping for note calculation.
+ * Scale data is injected (setScaleTable/setCurrentScalePointer) so Voice never
+ * reads globals: tests can pass a mock table, nullptr falls back to chromatic.
  */
 class Voice
 {
 public:
+  // Waveguide string tuning: configured base (waveguideSettings_) vs. last
+  // humanized values pushed to the DSP (waveguideApplied_, audio/tests only;
+  // `valid` is unused on that copy). Public so tests can read it back.
+  struct WaveguideSettings
+  {
+    float t60 = 0.0f;
+    float brightness = 0.0f;
+    float pickPosition = 0.0f;
+    float pickHardness = 0.0f;
+    float stiffness = 0.0f;
+    float detune = 0.0f;
+    bool valid = false;
+  };
   /**
    * @brief Construct a new Voice object
-   * @param id Unique identifier for this voice (0-7)
-   * @param config Configuration structure defining voice characteristics
+   * @param id Voice index (0-based, 0-3)
+   * @param config Patch defining this voice's sound
    */
   Voice(uint8_t id, const VoiceConfig &config);
 
@@ -97,6 +110,9 @@ public:
   // UI code reads these separate producer-owned copies instead.
   const VoiceConfig &getRequestedConfig() const noexcept { return controls_.config; }
   const VoiceState &getRequestedState() const noexcept { return controls_.state; }
+  // Last humanized waveguide values pushed to the string model (audio thread
+  // while rendering; tests may read it while audio is stopped).
+  const WaveguideSettings &getAppliedWaveguideParams() const noexcept { return waveguideApplied_; }
 
   // Control thread: retry a full queue and sample the control-owned scale index.
   // Call every loop even when no new knob/note events arrive.
@@ -111,22 +127,30 @@ public:
    */
   float process() noexcept;
 
-  /**
-   * @brief Update voice parameters from sequencer state
-   * @param newState New voice state from sequencer containing note, velocity, filter, envelope parameters
-   */
-  void updateParameters(const VoiceState &newState);
+  // At most 0.67 ms at 48 kHz between control-queue probes.
+  static constexpr uint32_t kMaxSpan = 32;
+  // Audio thread only. Overwrites n samples; zero length is a no-op.
+  // Applies one queued update per sample, then renders spans without updates.
+  void processBlock(float *out, uint32_t n) noexcept;
 
-  // Sequencer integration
   /**
-   * @brief Set the sequencer for this voice (takes ownership)
-   * @param seq Unique pointer to sequencer object
+   * @brief Update voice parameters from a sequencer step (staged; audible
+   * after the next process()). Attack = how fast the note blooms, sustain =
+   * held loudness, filter = brightness.
+   */
+  // liveEnvelopeMask: one-shot A/D/S/R bits for deliberate live slider edits.
+  // Normal sequencer updates retain the existing stage-safe timing policy.
+  void updateParameters(const VoiceState &newState, uint8_t liveEnvelopeMask = 0);
+
+  // Sequencer attachment: unique_ptr takes ownership, raw pointer borrows
+  // (setup only; never while either core is using the voice).
+  /**
+   * @brief Attach a sequencer, taking ownership.
    */
   void setSequencer(std::unique_ptr<Sequencer> seq);
 
   /**
-   * @brief Set the sequencer for this voice (raw pointer, no ownership transfer)
-   * @param seq Raw pointer to sequencer object
+   * @brief Attach a sequencer without transferring ownership.
    */
   void setSequencer(Sequencer *seq);
 
@@ -164,8 +188,8 @@ public:
   const VoiceState &getState() const noexcept { return state; }
 
   /**
-   * @brief Set gate state for this voice
-   * @param gateState True for gate on (note triggered), false for gate off (note released)
+   * @brief Gate on/off: rising edge fires noteOn (pitch commits, envelope
+   * blooms), falling edge releases. Drives the event-style ADSR.
    */
   void setGate(bool gateState);
 
@@ -190,8 +214,7 @@ public:
 
   // Voice identification
   /**
-   * @brief Get voice ID
-   * @return uint8_t Voice identifier (0-7)
+   * @brief Get voice index (0-based, 0-3)
    */
   uint8_t getId() const noexcept { return voiceId; }
 
@@ -214,8 +237,8 @@ public:
   void setFrequency(float frequency);
 
   /**
-   * @brief Set slide time for frequency transitions
-   * @param slideTime Slide time in seconds (0.001-10.0)
+   * @brief Slide (portamento) time: how fast pitch glides between notes.
+   * @param slideTime Seconds (0.001-10.0); exponential time constant.
    */
   void setSlideTime(float slideTime);
 
@@ -286,16 +309,21 @@ private:
   rpdsp::PluckedStringVoice<kWaveguideCapacity> waveguide_;
   // Audio-owned cache: unchanged controls need no coefficient recalculation.
   // Invalidated whenever the string model is reset or prepared again.
-  struct WaveguideSettings
-  {
-    float t60 = 0.0f;
-    float brightness = 0.0f;
-    float pickPosition = 0.0f;
-    float pickHardness = 0.0f;
-    float stiffness = 0.0f;
-    float detune = 0.0f;
-    bool valid = false;
-  } waveguideSettings_;
+  // (Type moved to the public section for test introspection.)
+  WaveguideSettings waveguideSettings_;
+  // Per-note humanization: dedicated audio-thread PRNG plus the last
+  // humanized values actually pushed to the string model (audio/tests only;
+  // `valid` is unused on this copy). Reseeded per voice in
+  // resetAlternateEngines_(), so the sequence is scoped to the string-model
+  // lifetime: a fresh model rolls the same deterministic sequence for a
+  // given gate history (bit-exact reset/re-init tests rely on this).
+  static constexpr uint32_t kWaveguideHumanizeSeed = 0xC2B60A1Fu;
+  rpdsp::XorShift32 wgHumanizeRng_{kWaveguideHumanizeSeed};
+  WaveguideSettings waveguideApplied_;
+  // Humanization depth: ±4% multiplicative around each configured base,
+  // strictly under the 5% musical ceiling. Exact zeros stay zero, so an
+  // explicitly unison/dry setting (detune/stiffness 0) never drifts.
+  static constexpr float kWaveguideHumanize = 0.04f;
   // A Hypersaw itself contains the seven saw voices. Keep exactly one instance
   // per Voice rather than building a second unison stack from VoiceOscillator.
   rpdsp::Hypersaw hypersaw_;
@@ -311,8 +339,17 @@ private:
 
   // Gate edge tracking for the event-style ADSR (noteOn on rise, noteOff on fall)
   bool gateHighPrev_ = false;
+  // The ADSR times each stage in samples, so a new attack/decay length in the
+  // middle of that stage steps the level (a click on every live edit). Such a
+  // time waits here until its stage ends or the next note-on. Negative: none.
+  float pendingAttackSeconds_ = -1.0f;
+  float pendingDecaySeconds_ = -1.0f;
+  // Same for the level stages: sustain waits out decay and sustain (the
+  // decay ramps toward it), release waits out a running release.
+  float pendingSustain_ = -1.0f;
+  float pendingReleaseSeconds_ = -1.0f;
   // Set on gate rise/retrigger so the waveguide engine plucks with the pitch
-  // already committed for this frame; consumed by mixOscillators().
+  // already committed for this frame; consumed by renderSources_().
   bool wgPluckPending_ = false;
   // Hypersaw randomizes its internal phases on each gate rise/retrigger.
   bool hypersawTriggerPending_ = false;
@@ -330,10 +367,34 @@ private:
   // Cache of last applied cutoff to avoid redundant filter.SetFreq calls in the hotpath.
   // Initialized to -1.0f in ctor/init to guarantee first SetFreq occurs.
   float lastAppliedFilterCutoff = -1.0f;
+  // Filter envelope, exponential in pitch like an analog VCF's V/oct input:
+  //   cutoff = filterFrequency * 2^(octaves * (env - rest))
+  // At env == rest the cutoff is exactly the value the Filter lane dialed, so
+  // the sequenced cutoff stays the thing you hear.
+  float filterEnvOctaves_ = 0.0f;
+  float filterEnvRest_ = 0.35f;
+  // Envelope-modulated cutoff target, recomputed once per kFilterUpdateInterval
+  // (the rate setFreq runs at) and smoothed per sample in between.
+  float filterEnvTarget_ = 1000.0f;
+  // The Filter lane is the envelope amount, scaling filterEnvelopeOctaves from
+  // 0 (cutoff parked on the patch base) to the preset's full sweep.
   // Throttle expensive filter.setFreq() updates: coefficients are recomputed
   // at most once every kFilterUpdateInterval samples. Power of two so the
   // rolling counter wraps with a mask instead of a per-sample UDIV.
   static constexpr uint8_t kFilterUpdateInterval = 8;
+  static_assert(kMaxSpan % kFilterUpdateInterval == 0);
+  std::array<float, kMaxSpan> spanEnv_{};
+  std::array<float, kMaxSpan> spanSignal_{};
+  struct FilterEvent { uint8_t index; float cutoffHz; };
+  std::array<FilterEvent, kMaxSpan / kFilterUpdateInterval> spanFilterEvents_{};
+#if P2S_VOICE_IDLE_SKIP
+  static constexpr uint16_t kQuietHold = 256;
+  static constexpr float kQuietLevel = 1.0e-6f;
+  uint16_t quietRun_ = 0;
+  bool canSkipSilentSpan_() const noexcept;
+  void advanceSilentSpan_(uint32_t n) noexcept;
+  void trackQuietOutput_(const float *out, uint32_t n) noexcept;
+#endif
   static_assert((kFilterUpdateInterval & (kFilterUpdateInterval - 1)) == 0,
                 "kFilterUpdateInterval must be a power of two");
   uint8_t filterUpdateCounter = 0;               // rolling counter
@@ -354,7 +415,7 @@ private:
   uint8_t cachedOscCount_ = 0;
   // Bypass flags computed on config apply to avoid unnecessary DSP work
   bool hpfBypass_ = false;
-  bool velocityToAmplitude_ = true; // Cached from the immutable parameter layout
+  bool velocityToAmplitude_ = true; // Cached from the layout and hard-sync paramSet
   // Which StateVariableFilter output the main filter reads when
   // filterType == FILTER_SVF: 0 lowpass, 1 bandpass, 2 highpass (from
   // filterMode, cached on config apply).
@@ -375,7 +436,7 @@ private:
   // - baseFreqDirty_ flags when base must be recomputed.
   // - lastSentBaseFreqHz_ reserved for micro-gating comparisons.
   // - updatePitchCache_ computes PitchCache/PitchSnapshot on the audio thread.
-  // - mixOscillators() uses a local version to avoid redundant frequency commits.
+  // - renderSources_() uses a local version to avoid redundant frequency commits.
   // - ShouldApplyFreq_ gates redundant per-sample SetFreq calls (eps ~= 0.017 cent via kPitchRelEps).
   float cachedBaseFreqHz_ = 440.0f;
   bool baseFreqDirty_ = true;
@@ -402,6 +463,7 @@ private:
     float frequency = 440.0f;
     float filterHz = 1000.0f;
     uint32_t changes = 0;
+    uint8_t liveEnvelopeMask = 0;
   };
   // Only the control thread touches controls_ / currentScalePtr_. If full,
   // pending changes coalesce here without touching any published queue slot.
@@ -485,18 +547,13 @@ private:
   std::unique_ptr<Sequencer> sequencerOwned;
 
   // Private helper methods
-  /**
-   * @brief Process the effects chain on the input signal
-   * @param signal Reference to signal to process (modified in place, -1.0 to +1.0)
-   */
-  void processEffectsChain(float &signal);
-
   // Cross-core application helpers. process() pops into audioUpdate_ before
   // calling applyControlUpdate_(), so empty queues need no out-of-line call.
   void applyControlUpdate_() noexcept;
   void applyParameters_(const VoiceState &newState) noexcept;
   void applyConfig_(const VoiceConfig &newConfig) noexcept;
   void refreshPitch_();
+  void refreshFilterEnvDepth_() noexcept;
   void applyFrequency_(float frequency);
   void applyStructuralConfig_() noexcept;
 
@@ -506,12 +563,13 @@ private:
   // Recomputes pitchCache_ and updates pitchSnapshot_, then increments its audio-local version.
   void updatePitchCache_();
 
-  // Private DSP stages used by process()
-  /**
-   * @brief Compute envelope value for current sample
-   * @return float Envelope amplitude (0.0-1.0)
-   */
-  PICO2SEQ_HOT_INLINE float computeEnvelope();
+  // Audio-thread span stages. Scratch is per Voice; Core 1 has a 2 KiB stack.
+  void renderSpan_(float *out, uint32_t n) noexcept;
+  PICO2SEQ_HOT_INLINE void handleGateEdges_() noexcept;
+  uint32_t planFilterUpdates_(const float *env, uint32_t n) noexcept;
+  void renderSources_(float *sig, const float *env, uint32_t n) noexcept;
+  void runMainFilter_(float *sig, uint32_t n, uint32_t events) noexcept;
+  void commitOscillatorPitch_() noexcept;
 
   /**
    * @brief Mark the static base cache dirty if the effective scale row changed
@@ -519,17 +577,12 @@ private:
    */
   void checkScaleIndexChanged_() noexcept;
 
-  /**
-   * @brief Update filter parameters based on envelope and voice state
-   * @param envelopeValue Current envelope value (0.0-1.0)
-   */
-  PICO2SEQ_HOT_INLINE void updateFilter(float envelopeValue);
 
   /**
    * @brief Push topology-dependent filter config (resonance, SVF response)
    *        into the state-variable path. Control-rate: called from init() and
    *        applyConfig_(); cutoff itself is updated per-sample by
-   *        updateFilter().
+   *        planFilterUpdates_().
    */
   void configureMainFilterFromConfig_() noexcept;
 
@@ -539,17 +592,30 @@ private:
    */
   void recomputeDetuneMultipliers();
 
-  /**
-   * @brief Mix and process oscillator outputs
-   * @return float Mixed oscillator signal (-1.0 to +1.0)
-   */
-  PICO2SEQ_HOT_INLINE float mixOscillators();
 
   /**
    * @brief Apply engine-specific configuration (waveguide and Hypersaw tuning)
-   *        Called from init() and applyConfig_() at control rate.
+   *        Called from init() and applyConfig_() at control rate. Waveguide
+   *        string tuning is gate-gated (see pushWaveguideParams_()): edits
+   *        made while a note rings wait for the next gate-on.
    */
   void applyEngineConfig_();
+  /**
+   * @brief Push waveguide string tuning with per-note humanization
+   *
+   * Audio thread only. Scales each configured wg* base by ±kWaveguideHumanize
+   * and pushes the result to the string model, recording the pushed values
+   * in waveguideApplied_ (test introspection). Called on every gate rise and
+   * retrigger before the pluck; the base cache in waveguideSettings_ belongs
+   * to applyEngineConfig_(), so an edit made while gated still lands
+   * (re-humanized) on the next gate-on. A ringing Karplus loop is never
+   * retuned mid-note.
+   */
+  void pushWaveguideParams_() noexcept;
+  /**
+   * @brief Scale one waveguide base by ±kWaveguideHumanize (audio thread)
+   */
+  float wgHumanize_(float base) noexcept;
 
   /**
    * @brief Waveguide engine source stage: pluck on pending edges, process string
@@ -580,13 +646,6 @@ private:
    */
   void applyEffects(float &signal);
 
-  /**
-   * @brief Finalize output with level and envelope
-   * @param signal Input signal (-1.0 to +1.0)
-   * @param envelopeValue Envelope amplitude (0.0-1.0)
-   * @return float Final output signal (-1.0 to +1.0)
-   */
-  PICO2SEQ_HOT_INLINE float finalizeOutput(float signal, float envelopeValue) noexcept;
 
   /**
    * @brief Update oscillator frequencies based on current state
@@ -611,6 +670,17 @@ private:
    */
   void applyEnvelopeDefaults_() noexcept;
 
+  // Audio thread: envelope changes that would cut into the running stage are
+  // held in pending*_; applyPendingEnvelopeTimes_() lands them.
+  void setEnvelopeTimes_(float attackSeconds, float decaySeconds) noexcept;
+  void setEnvelopeShape_(float sustainLevel, float releaseSeconds) noexcept;
+  void applyPendingEnvelopeTimes_(bool noteOn, uint8_t liveMask = 0) noexcept;
+  bool envelopeChangePending_() const noexcept
+  {
+    return pendingAttackSeconds_ >= 0.0f || pendingDecaySeconds_ >= 0.0f ||
+           pendingSustain_ >= 0.0f || pendingReleaseSeconds_ >= 0.0f;
+  }
+
   /**
    * @brief Calculate frequency for a given note with octave offset
    * @param note Scale-step index (clamped to 0..SCALE_STEPS-1)
@@ -620,7 +690,7 @@ private:
    *
    * Single pitch lookup path: resolves the step via the injected scale table
    * (chromatic mapping when no table was injected) to a MIDI note centered at
-   * C3 (48), clamped to the 128-entry frequency lookup table.
+   * C5 (72), clamped to the 128-entry frequency lookup table.
    */
   float calculateNoteFrequency(float note, int8_t octaveOffset, int harmony) noexcept;
 

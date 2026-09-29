@@ -1,8 +1,20 @@
 # OLED Module Documentation
 
+## Arpeggiator play page
+
+[Arpeggiator mode](arpeggiator.md#oled) has an eight-row play page with a
+persistent preset band, transport/rate/latch status, scale-key summary,
+hit/rest strip, tempo, gate duration and swing ratio. Long chords use a `+N`
+summary; long names end in `~`. Without Shift the faders shape rhythm; holding
+Shift swaps them to range/gate/swing/tone and also reveals the rhythm choices
+and tempo-dial hint. Recent control movement changes only the middle rows for
+1.4 seconds. Formatting in
+`src/ui/ArpDisplay.h` is shared with host checks; hardware rendering remains in
+`OLEDDisplay::displayArpPage()`.
+
 ## Overview
 
-The `src/OLED/` subsystem manages the 128×64 monochrome OLED display for Pico2Seq using an **Adafruit SH1106G** driver over I2C (`Wire` @ `0x3C`).
+The `src/OLED/` subsystem manages the 128×64 monochrome OLED display for Pico2Seq using an **Adafruit SH1106G** driver over I2C (`Wire`, I2C0 @ 400 kHz, address `0x3C`).
 
 The OLED provides real-time visualization of parameter values, sequence lengths, settings sub-menus, voice presets, and system status through a deterministic **7-tier priority rendering hierarchy**.
 
@@ -12,7 +24,7 @@ The OLED provides real-time visualization of parameter values, sequence lengths,
 
 - **Display Controller:** SH1106G 128×64 Monochrome I2C OLED
 - **Driver Library:** `Adafruit_SH1106G` (via `Adafruit_SH110X` / `Adafruit_GFX`)
-- **Bus:** `Wire` (I2C0)
+- **Bus:** `Wire` (I2C0 @ 400 kHz, shared with the touch pads, encoder and distance sensor)
   - `SDA`: GP4
   - `SCL`: GP5
 - **I2C Address:** `0x3C` (`OLEDConstants::I2C_ADDRESS`)
@@ -41,6 +53,7 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
 +-------------------------------------------------------------------------+
 | Priority 3: Transitory Confirmation Notice                              |
 | (Active when millis() < uiState.oledNoticeUntil: "RANDOMIZED" + voice,  |
+|  "CLEARED" + voice, "ALL CLEAR", "SAVED"/"LOADED"/"LOAD ERR";           |
 |  replacing the old control-cluster LED flashes)                         |
 +-------------------------------------------------------------------------+
                                     | (if expired)
@@ -61,7 +74,7 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
                                     v
 +-------------------------------------------------------------------------+
 | Priority 5: Gate Sequence Length Gauge                                  |
-| (Active when uiState.gateSeqLengthMode == true - holding encoder)       |
+| (Active when uiState.gateSeqLengthMode == true - holding a voice button) |
 +-------------------------------------------------------------------------+
                                     | (if inactive)
                                     v
@@ -73,7 +86,7 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
                                     v
 +-------------------------------------------------------------------------+
 | Priority 7: Default System Status Screen                                |
-| (Preset, BPM, encoder target's base value, scale, step indicators)      |
+| (Preset, BPM, encoder target's value or base, scale, step indicators)   |
 +-------------------------------------------------------------------------+
 ```
 
@@ -98,9 +111,11 @@ Triggered for a brief timeout window whenever the hardware GP7 mode strap change
 - **UTIL Mode:** Displays centered size-3 **"UTIL"** with subtitle `> utility <`.
 
 #### 3. Transitory Confirmation Notice (Priority 3)
-Shown for a short window after randomize/save/load actions (replacing the old control-cluster LED flashes):
+Shown for a short window after randomize/save/load/clear actions (replacing the old control-cluster LED flashes):
 - `RANDOMIZED` with a `Voice N` sub-line (1-based). *(The `DELAY ON`/`DELAY OFF` notices were
   removed with the delay effect, 2026-09-11.)*
+- `CLEARED` with a `Voice N` sub-line after Shift + Randomize tap clears that voice;
+  `ALL CLEAR` after Shift + Randomize long-press clears every voice (added 2026-09-16).
 - `SAVED` / `LOADED` after a session save or restore; `LOAD ERR` when storage fails
   (also used for a failed save).
 
@@ -116,9 +131,8 @@ Activated when `uiState.settingsMode` is true:
   - Displays currently selected preset name centered in size-2 (or size-1 if name exceeds 10 chars) text.
   - Animated underline indicator.
   - Preset counter (`#1/29` through `#29/29`; dynamic from `VoicePresets::getPresetCount()`).
-  - Page navigation (`Page 1/2 6< >7`): pads 6 (`<`) and 7 (`>`) navigate pages.
-  - Page 1 hosts presets 1–24 across pads 8–31 (`Pads 8-31`).
-  - Page 2 hosts presets 25–29 across pads 8–12 (`Pads 8-12`).
+  - Pad range (`Pads 0-28`): pad N applies preset N+1 (1-based on screen). All presets share one page; pads 0–30 are reserved for presets and pad 31 is unassigned.
+  - Hint line `V1-V4 select voice`: only the voice buttons change the target voice.
   - When browsing root settings, displays the **"Sound Buffet"** listing current presets assigned across all 4 voices (0–3).
 
 The parameter name/value screens are preset-aware: for voices whose preset re-purposes the
@@ -127,18 +141,26 @@ name (e.g. Bright/Pick/T60 on a waveguide voice, via `VoicePresets::getSequencer
 and formats the value in its own unit (%, seconds for T60, semitones for detune) via `MusicalValues::format`.
 
 #### 5. Gate Sequence Length Gauge (Priority 5)
-Activated when `uiState.gateSeqLengthMode` is active (holding the encoder while rotating):
-- Header: `"Sequence Length"`
+Activated when `uiState.gateSeqLengthMode` is active (holding Voice 1–4 without Shift for 400 ms, in either panel mode):
+- Header: `"Sequence length"`
 - Voice: `1..4` (1-based display)
-- Length: Numeric sequence length (1–64) displayed in size-2 font.
-- Visual Gauge: Proportional horizontal bar across the bottom displaying length relative to 64 steps.
+- Length: Gate sequence length (2–16) displayed in size-2 font; set it with a pad in the held voice's lit bank.
+- Visual Gauge: Proportional horizontal bar across the bottom displaying length relative to 16 steps. Release the voice button to exit.
 
 #### 6. Parameter Edit Screen (Priority 3b when held, 6 in Step Edit)
 Displayed when a parameter button is held (`heldParamId`) or a step is selected for editing (`selectedStepForEdit`).
 A held parameter shows the composed value at that lane's playing cursor (`getPlaybackStep()`), which is
 the value live recording writes and the voice plays; it outranks the settings and sequence-length screens.
-In Step Edit the screen shows the selected step for `ControlSurface::stepEditParameter()` (held, else toggled,
-else the encoder target's lane) — the same parameter the encoder edits.
+In Step Edit a held parameter shows the selected step's value; with a toggled parameter (and no ENV
+fader moved in the last 1.5 s) the screen shows that parameter — the same one the encoder edits.
+
+**ENV page (Step Edit with nothing held or toggled, and for 1.5 s after an ENV fader move,
+`OLEDDisplay::displayEnvelopePage()`):** the selected step's four envelope lanes — the ENV faders —
+one per row: Attack, Decay, Sustain, Release (or the engine's names for them, e.g. Pick / T60 /
+Position / Stiffness on strings). A value in parentheses follows the patch; a bare value is the
+step's own. `>` marks the lane a fader last moved (`uiState.envFaderLane`). The footer reads
+`()=patch` and names the lane the encoder edits (`Enc:Velocity`). It replaced the old
+"Step N / Hold parameter to edit this step" screen, which hid fader and encoder edits.
 - **Distance:** while a parameter button is held, the current VL53L1X reading in mm at the right of the
   `LIVE`/`STEP` line: `412mm` inside the recording window, `(812mm)` outside it (nothing recorded), `--mm`
   with no measurement.
@@ -156,9 +178,10 @@ else the encoder target's lane) — the same parameter the encoder edits.
 - **Progress Bar:** 10px tall bordered progress bar for continuous parameters (Velocity, Filter, Attack, Decay, GateLength).
 
 #### 7. Default Status Screen (Priority 7 — Lowest)
-Displayed when no transient, settings, or edit modes are active. Its value line always shows the
-**base** of the encoder target (`MusicalValues::baseStep()`), not the playing step, so an encoder turn is
-always visible:
+Displayed when no transient, settings, or edit modes are active. Its value line shows the encoder
+target's composed value at the playing step; for 1.5 s after an encoder turn
+(`uiState.encoderBaseViewUntil`) it shows that target's **base** instead (`MusicalValues::baseStep()`,
+labelled `Base`), so the edit is visible even where a step's own value would hide it:
 - **Scale:** Name of active musical scale (e.g., `Chromatic`, `Major`, `Minor`, `Dorian`, `Pentatonic Major`, etc.).
 - **Shuffle:** Active shuffle template name (e.g., `No Shuffle`, `Classic 16th`, `Light Swing`).
 - **Voice Index:** Active voice displayed in 0-based format (`Voice: 0` through `Voice: 3`) in large size-3 typography.
@@ -210,13 +233,19 @@ public:
 ```
 
 ### Main Class Interface (`src/OLED/oled.h`)
+
+The display borrows `AppState::sequencers` in voice order with an explicit
+count, as does `updateStepLEDs()`. It does not own the sequencers or construct a
+second routing table. Settings views use `UIState`'s derived predicates rather
+than mirrored mode flags.
+
 ```cpp
 class OLEDDisplay : public VoiceParameterObserver {
 public:
   OLEDDisplay();
   bool begin();
-  void update(const UIState &uiState, const Sequencer &seq1, const Sequencer &seq2,
-              const Sequencer &seq3, const Sequencer &seq4, VoiceManager *voiceManager);
+  void update(const UIState &uiState, Sequencer *const *sequencers,
+              size_t sequencerCount, VoiceManager *voiceManager = nullptr);
   void clear();
   bool isInitialized() const;
   void setVoiceManager(VoiceManager *voiceManager);
@@ -236,8 +265,8 @@ extern OLEDDisplay oledDisplay;
 
 ## Concurrency & Performance
 
-- **Core 0 Execution:** All OLED drawing, formatting, and I2C transmission occur on **Core 0** inside `loop()` at a dedicated 50 Hz frame rate (~20 ms interval).
-- **Single-Frame Buffer:** Geometry and text operations write into Adafruit GFX's 1024-byte RAM buffer, followed by a single non-blocking `display()` burst over I2C.
+- **Core 0 Execution:** All OLED drawing, formatting, and I2C transmission occur on **Core 0** inside `loop()`, on its own display slice (`kOledIntervalMs` in `src/app/ControlIO.cpp`, currently 40 ms ≈ 25 fps). The LED matrix runs on a separate, faster slice (`kLedIntervalMs`, 13 ms ≈ 77 fps).
+- **Dirty-Page Refresh:** Geometry and text operations write into Adafruit GFX's 1024-byte RAM buffer. `commitFrame()` then compares that buffer against `frameShadow_` one 128-byte page at a time and pushes only the changed pages to the SH1106 GDDRAM — each as a page/column command pair (`0xB0 | page`, column nibbles for the 2-column panel offset) followed by one 128-byte data write — so a static screen costs no I2C traffic at all.
 - **Zero Heap Allocations:** Frame rendering avoids dynamic strings in the hot path, utilizing static buffers and integer math.
 
 ---

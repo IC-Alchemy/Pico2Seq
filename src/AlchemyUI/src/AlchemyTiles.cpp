@@ -49,6 +49,7 @@ void AlchemyTiles::begin(TwoWire& bankA, TwoWire* bankB, std::uint32_t now) {
       buttons_[slot][b].begin(opt, now);
     }
   }
+  sliderFrameChanged_ = false;
 
   // Two passes so the layout is deterministic: the slider tile (there is at
   // most one — the rig has four faders) claims slot 0, then every button tile
@@ -92,6 +93,11 @@ void AlchemyTiles::begin(TwoWire& bankA, TwoWire* bankB, std::uint32_t now) {
 }
 
 void AlchemyTiles::update(std::uint32_t now) {
+  // This is a per-call freshness flag, not a sticky "data exists" bit. Without
+  // clearing it, a 1 kHz consumer would feed the same cached fader value into
+  // its median filter several times between 4 ms tile polls.
+  sliderFrameChanged_ = false;
+
   // Age every claimed link first. This costs no bus time and must happen on
   // every pass, not only on a slot's turn in the rotation: a satellite that
   // fell off the bus has to time out on the clock, not on whether the driver
@@ -248,6 +254,14 @@ void AlchemyTiles::pollTile(int slot, std::uint32_t now) {
 
   tile.lastSeq = decoded.packet.seq;
   tile.dataChanged = links_[slot].onPacket(decoded.packet, now);
+
+  // "Fresh" for the fader consumers means a new, checksum-valid slider snapshot
+  // was accepted on this call. The same sample arriving again (unchanged SEQ)
+  // is not fresh, and a stale link publishes nothing, so a frozen tile cannot
+  // keep feeding a fader filter that expects independent samples.
+  if (tile.identity.typeId == alchemy::kTypeSliderButton) {
+    sliderFrameChanged_ = tile.dataChanged;
+  }
 
   // Levels come from the link (so a recovering or stale link's view wins).
   //

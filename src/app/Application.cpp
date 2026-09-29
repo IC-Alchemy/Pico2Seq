@@ -9,26 +9,35 @@
 #include "AudioEngine.h"
 #include "../sensors/DistanceSensor.h"
 #include "../utils/FreezeWatchdog.h"
+#include "../utils/Debug.h"
 #include "../pico2seq-core/persistence/ProjectSnapshot.h"
 #include "../pico2seq-core/persistence/SnapshotFormat.h"
 #include "../ui/UIConstants.h"
 #include <Arduino.h>
 #include <uClock.h>
 
+// Application: Core 0 boot order + main-loop slices (see Application.h).
+// Musical role: power-on restores the performer's song, then each pass keeps
+// clock, hands, lights, and display in step. Keep every slice short and
+// non-blocking; the watchdog reboots a Core 0 pass that stalls ~2 s.
+
 namespace
 {
 constexpr uint32_t kBootStabilizationMs = 100;
 constexpr uint32_t kSerialBaud = 115200;
 constexpr uint32_t kDiagnosticIntervalMs = 2000;
-// The watchdog-resume attempt counter only resets after the control loop has
-// run this long without a freeze; clearing it earlier would let a freeze that
-// recurs shortly after every boot resume forever.
+// Attempt counter resets only after a proven-healthy loop; clearing it sooner
+// would let a freeze that recurs right after every boot resume forever.
 constexpr uint32_t kHealthyLoopIntervalMs = 15000;
 bool recoveryMode = false;
-persistence::ProjectSnapshotV1 g_pendingBootSnapshot;
+// One snapshot buffer shared by boot load, capture, and save. Static, not stack:
+// ~12.4 KB would overflow Core 0's loop stack (hard-faulted within seconds).
+// Uses are sequential on Core 0, never nested.
+persistence::ProjectSnapshot g_sessionSnapshot;
 bool g_bootSnapshotPending = false;
 
-// Serial and watchdog diagnostics stay on Core 0.
+// Core 0 Serial diagnostics only; Core 1 reports via the heartbeat queue below.
+#if AUG_DEBUG_COMPILED
 void printRuntimeDiagnostics(uint32_t currentMillis)
 {
     static uint32_t lastVoiceDiag = 0;
@@ -38,9 +47,9 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
         if (Serial)
         {
             freezeWatchdogPrintPreviousRun();
-            // lidar=-1 means nothing measured recently. st is the ST range status:
-            // 0 valid, 1 sigma fail (still used), 2 signal fail, 4 out of bounds, 255 none.
-            Serial.printf("[DIAG C0] ids=%u,%u,%u,%u mgrVoices=%u warmBoots=%lu steps=%lu audioBufs=%lu audio=%s i2sstage=%lu lidar=%dmm st=%u\n",
+            // lidar=-1: no recent reading. st is the ST range status: 0 valid,
+            // 1 sigma fail (still used), 2 signal fail, 4 out of bounds, 255 none.
+            Serial.printf("[DIAG C0] ids=%u,%u,%u,%u mgrVoices=%u warmBoots=%lu steps=%lu audioBufs=%lu audio=%s err=%u i2sstage=%lu lidar=%dmm st=%u\n",
                           voiceSystem.getVoiceId(0), voiceSystem.getVoiceId(1),
                           voiceSystem.getVoiceId(2), voiceSystem.getVoiceId(3),
                           (unsigned)(voiceManager ? voiceManager->getVoiceCount() : 0),
@@ -48,9 +57,41 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
                           (unsigned long)g_processedStepCount,
                           (unsigned long)AudioEngine::completedBufferCount(),
                           AudioEngine::phaseName(AudioEngine::phase()),
+                          static_cast<unsigned>(g_errorState),
                           (unsigned long)AudioEngine::driverSetupStage(),
                           distanceSensor.getRawDistanceMm(),
                           static_cast<unsigned>(distanceSensor.getLastRangeStatus()));
+        }
+    }
+
+    // Bench aid: one line per report shows every gate the hand-recording path
+    // passes through. held is a ParamId bitmask, hand is handPresent, rec is the
+    // normalized height written, lanes show cursor + stored value. Hand=1 with a
+    // moving rec but frozen lane value means the write is being rejected.
+    static uint32_t lastRecordDiag = 0;
+    if (currentMillis - lastRecordDiag >= kDiagnosticIntervalMs)
+    {
+        lastRecordDiag = currentMillis;
+        if (Serial)
+        {
+            uint16_t held = 0;
+            for (uint8_t lane = 0; lane < PARAM_ID_COUNT; ++lane)
+                if (uiState.parameterButtonHeld[lane])
+                    held |= static_cast<uint16_t>(1u << lane);
+            const Sequencer &seq = AppState::sequencerView.clamped(uiState.selectedVoiceIndex);
+            const uint8_t filterStep = seq.getCurrentStepForParameter(ParamId::Filter);
+            const uint8_t releaseStep = seq.getCurrentStepForParameter(ParamId::Release);
+            Serial.printf("[DIAG REC] held=0x%03X hand=%d rec=%.2f selStep=%d voice=%u "
+                          "filt[%u]=%.3f rel[%u]=%.3f\n",
+                          static_cast<unsigned>(held),
+                          AppState::performanceInput.handPresent ? 1 : 0,
+                          AppState::performanceInput.recordingValue(),
+                          uiState.selectedStepForEdit,
+                          static_cast<unsigned>(uiState.selectedVoiceIndex),
+                          static_cast<unsigned>(filterStep),
+                          seq.getStepParameterValue(ParamId::Filter, filterStep),
+                          static_cast<unsigned>(releaseStep),
+                          seq.getStepParameterValue(ParamId::Release, releaseStep));
         }
     }
 
@@ -70,7 +111,35 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
                           static_cast<unsigned long>(heartbeat.txStalls));
         }
     }
+
+    // Core-1 stall watch. The watchdog only covers Core 0, so a wedged audio
+    // core is otherwise silent: the loop keeps feeding and nothing reboots.
+    // Detection is deliberately narrow — the phase must claim the render loop
+    // is live (BufferWait/Render/Submit) and the completed-buffer count must not
+    // have moved across a full diagnostic interval. Boot, a failed I2S setup and
+    // a parked recovery boot all report other phases, so they cannot trip this.
+    // Log only: never reset or reboot from here.
+    static uint32_t lastAudioBufs = 0;
+    static bool haveAudioBaseline = false;
+    {
+        const uint32_t bufs = AudioEngine::completedBufferCount();
+        const auto phase = AudioEngine::phase();
+        const bool renderingPhase = phase == AudioEngine::Phase::BufferWait ||
+                                    phase == AudioEngine::Phase::Render ||
+                                    phase == AudioEngine::Phase::Submit;
+        if (renderingPhase && haveAudioBaseline && bufs == lastAudioBufs && Serial)
+        {
+            Serial.printf("[DIAG C1] STALLED phase=%s i2sstage=%lu bufs=%lu (unchanged for %lums) - Core 1 is not rendering\n",
+                          AudioEngine::phaseName(phase),
+                          static_cast<unsigned long>(AudioEngine::driverSetupStage()),
+                          static_cast<unsigned long>(bufs),
+                          static_cast<unsigned long>(kDiagnosticIntervalMs));
+        }
+        lastAudioBufs = bufs;
+        haveAudioBaseline = renderingPhase;
+    }
 }
+#endif
 } // namespace
 
 void Application::begin()
@@ -105,31 +174,28 @@ void Application::begin()
     Serial.print("[CORE0] Setup starting... ");
     Serial.printf("clock=%lu MHz\n", (unsigned long)(F_CPU / 1000000));
 
-    // Session storage mounts BEFORE anything arms the watchdog
-    // (ControlIO::beginMainBusAndLeds -> freezeWatchdogArm): a first-boot
-    // LittleFS format can take seconds and must not reboot us mid-format.
+    // Mount storage BEFORE arming the watchdog (see beginMainBusAndLeds): a first-boot
+    // LittleFS format takes seconds and must not reboot mid-format.
     freezeWatchdogMark(FW_SETUP_STORAGE); // breadcrumb only; not armed yet
     SessionStorage::begin();
-    persistence::ProjectSnapshotV1 snapshot;
     bool loaded;
     if (resumeFromRetained)
     {
-        loaded = RetainedSession::takeResumeSnapshot(snapshot);
+        loaded = RetainedSession::takeResumeSnapshot(g_sessionSnapshot);
         if (!loaded)
             Serial.println("[STORAGE] retained session invalid; factory defaults");
     }
     else
     {
-        loaded = SessionStorage::load(snapshot) == SessionStorage::LoadResult::Ok;
+        loaded = SessionStorage::load(g_sessionSnapshot) == SessionStorage::LoadResult::Ok;
     }
     Session::g_bootLoadedOk = loaded;
     if (loaded)
     {
-        Session::applyBeforeVoices(snapshot);
-        g_pendingBootSnapshot = snapshot;
+        Session::applyBeforeVoices(g_sessionSnapshot);
         g_bootSnapshotPending = true;
         Session::setLastSavedCrc(persistence::crc32(
-            reinterpret_cast<const uint8_t *>(&snapshot), sizeof(snapshot)));
+            reinterpret_cast<const uint8_t *>(&g_sessionSnapshot), sizeof(g_sessionSnapshot)));
         Serial.println("[STORAGE] session loaded");
     }
     else
@@ -144,24 +210,23 @@ void Application::begin()
     freezeWatchdogFeed(FW_SETUP_VOICES);
     initializeVoices(); // consumes uiState.voicePresetIndices
     if (g_bootSnapshotPending)
-        Session::applyAfterVoices(g_pendingBootSnapshot);
+        Session::applyAfterVoices(g_sessionSnapshot);
     ControlIO::observeVoiceChanges();
     ControlIO::beginMatrixAndTiles();
 
     freezeWatchdogFeed(FW_SETUP_UCLOCK);
     initializeClock();
     if (g_bootSnapshotPending)
-        Session::applyAfterClock(g_pendingBootSnapshot);
+        Session::applyAfterClock(g_sessionSnapshot);
+    voiceManager->setDelayTempoBpm(uClock.getTempo());
     Serial.println("[VOICE EDIT] Patch bases + lidar modifiers; Shift + slider 4 opens editor");
     Serial.println("[CORE0] Setup complete!");
     voicesReady.store(true, std::memory_order_release);
 
-    // Seed the retained-RAM mirror so a freeze 100 ms into loop() still finds
-    // a fresh session. markBootCompleted() deliberately does NOT run here —
-    // the resume-attempt counter only clears after a proven-healthy loop.
-    persistence::ProjectSnapshotV1 snap;
-    Session::captureSession(snap);
-    RetainedSession::refresh(snap);
+    // Seed the retained-RAM mirror so a freeze 100 ms into loop() still resumes
+    // fresh. markBootCompleted() stays deferred until a proven-healthy loop.
+    Session::captureSession(g_sessionSnapshot);
+    RetainedSession::refresh(g_sessionSnapshot);
 }
 
 void Application::update()
@@ -178,13 +243,12 @@ void Application::update()
         }
         return;
     }
-    // Retry queued controls even without new input, including a final gate-off.
+    // Retry queued voice updates even with no new input, so a final gate-off lands.
     voiceManager->flushControlUpdates();
     freezeWatchdogFeed(FW_LOOP_USB_READ); // Retain the persisted watchdog phase ID.
     const uint32_t nowMs = millis();
 
-    // Reset the watchdog-resume attempt counter only after the control loop
-    // has demonstrably run healthy (see kHealthyLoopIntervalMs).
+    // Reset the resume-attempt counter only after a demonstrably healthy loop.
     static const uint32_t bootStampMs = millis(); // first non-recovery pass
     static bool healthyBootMarked = false;
     if (!healthyBootMarked && nowMs - bootStampMs >= kHealthyLoopIntervalMs)
@@ -193,15 +257,13 @@ void Application::update()
         RetainedSession::markBootCompleted();
     }
 
-    // 1 Hz retained-RAM mirror refresh: zero flash wear, bounds watchdog
-    // session loss to one second.
+    // 1 Hz retained-RAM mirror: zero flash wear, caps watchdog resume loss at 1 s.
     static uint32_t lastRetainedRefreshMs = 0;
     if (nowMs - lastRetainedRefreshMs >= 1000)
     {
         lastRetainedRefreshMs = nowMs;
-        persistence::ProjectSnapshotV1 snap;
-        Session::captureSession(snap);
-        RetainedSession::refresh(snap);
+        Session::captureSession(g_sessionSnapshot);
+        RetainedSession::refresh(g_sessionSnapshot);
     }
 
     // One-time confirmation that a session was restored at boot.
@@ -216,9 +278,8 @@ void Application::update()
         }
     }
 
-    // Deferred flash I/O: requested by UI handlers, executed here — never in
-    // ISR/uClock callback context. A save with the transport running stops
-    // the clock for the erase window and restarts it after.
+    // Deferred flash I/O: UI handlers only request; this loop executes. Never in
+    // ISR/uClock context — a save with the transport running pauses the clock first.
     const Session::PendingAction action = Session::consumePendingAction();
     if (action != Session::PendingAction::None)
     {
@@ -227,14 +288,12 @@ void Application::update()
             stopClockForEditor(); // also drains pending steps (ClockService.cpp)
         voiceManager->flushControlUpdates();
 
-        persistence::ProjectSnapshotV1 snap;
-        Session::captureSession(snap);
-        const uint32_t crc = persistence::crc32(
-            reinterpret_cast<const uint8_t *>(&snap), sizeof(snap));
-
         if (action == Session::PendingAction::Save)
         {
-            if (SessionStorage::save(snap))
+            Session::captureSession(g_sessionSnapshot);
+            const uint32_t crc = persistence::crc32(
+                reinterpret_cast<const uint8_t *>(&g_sessionSnapshot), sizeof(g_sessionSnapshot));
+            if (SessionStorage::save(g_sessionSnapshot))
             {
                 Session::setLastSavedCrc(crc);
                 uiState.oledNoticeKind = UIState::OledNoticeKind::Saved;
@@ -252,14 +311,13 @@ void Application::update()
         }
         else // Load
         {
-            persistence::ProjectSnapshotV1 loaded{};
-            if (SessionStorage::load(loaded) == SessionStorage::LoadResult::Ok)
+            if (SessionStorage::load(g_sessionSnapshot) == SessionStorage::LoadResult::Ok)
             {
-                Session::applyBeforeVoices(loaded);
-                Session::applyAfterVoices(loaded);
-                Session::applyAfterClock(loaded);
+                Session::applyBeforeVoices(g_sessionSnapshot);
+                Session::applyAfterVoices(g_sessionSnapshot);
+                Session::applyAfterClock(g_sessionSnapshot);
                 Session::setLastSavedCrc(persistence::crc32(
-                    reinterpret_cast<const uint8_t *>(&loaded), sizeof(loaded)));
+                    reinterpret_cast<const uint8_t *>(&g_sessionSnapshot), sizeof(g_sessionSnapshot)));
                 uiState.oledNoticeKind = UIState::OledNoticeKind::Loaded;
                 uiState.oledNoticeUntil = nowMs + OLED_NOTICE_DURATION_MS;
                 Serial.println("[STORAGE] loaded");
@@ -274,8 +332,8 @@ void Application::update()
         freezeWatchdogFeed(FW_LOOP_USB_READ); // long flash op: re-arm the 2 s budget
     }
 
-    // Autosave on transport stop (debounced). isClockRunning flips inside the
-    // uClock callbacks (ISR-adjacent); polling the edge here stays safe.
+    // Autosave on transport stop (debounced). isClockRunning flips in uClock
+    // callbacks; polling the edge here stays race-free.
     static bool wasClockRunningForAutosave = false;
     static uint32_t stopEdgeMs = 0;
     if (wasClockRunningForAutosave && !isClockRunning)
@@ -284,13 +342,12 @@ void Application::update()
     if (stopEdgeMs != 0 && !isClockRunning && nowMs - stopEdgeMs >= 1000)
     {
         stopEdgeMs = 0;
-        persistence::ProjectSnapshotV1 snap;
-        Session::captureSession(snap);
+        Session::captureSession(g_sessionSnapshot);
         const uint32_t crc = persistence::crc32(
-            reinterpret_cast<const uint8_t *>(&snap), sizeof(snap));
+            reinterpret_cast<const uint8_t *>(&g_sessionSnapshot), sizeof(g_sessionSnapshot));
         if (crc != Session::lastSavedCrc())
         {
-            if (SessionStorage::save(snap))
+            if (SessionStorage::save(g_sessionSnapshot))
             {
                 Session::setLastSavedCrc(crc);
                 Serial.println("[STORAGE] autosaved on stop");
@@ -298,8 +355,7 @@ void Application::update()
         }
     }
 
-    // Bench aid: type 'W' over serial to stop feeding the watchdog and prove
-    // the retained-RAM resume path end-to-end (plan Task 12).
+    // Bench aid: 'W' over serial hangs Core 0 to prove the retained-RAM resume path.
     if (Serial.available() > 0 && Serial.read() == 'W')
     {
         Serial.println("[BENCH] freezing Core 0 on request");
@@ -307,13 +363,19 @@ void Application::update()
     }
 
     ControlIO::pollHeldButtons();
-    // Preserve this order: steps, diagnostics, gate ticks, controls, displays.
+    // Fixed slice order: steps, diagnostics, gate ticks, controls, LEDs, OLED.
     freezeWatchdogFeed(FW_LOOP_CLOCK_EVENTS);
     processClockEvents();
     freezeWatchdogMark(FW_LOOP_DIAGNOSTICS);
+#if AUG_DEBUG_COMPILED
     printRuntimeDiagnostics(nowMs);
+#endif
     freezeWatchdogFeed(FW_LOOP_PPQN);
     processPendingGateTicks();
     ControlIO::scanControls(nowMs);
-    ControlIO::refreshDisplays(nowMs);
+    // The clock can change from the tempo fader, the arp dial, or a loaded
+    // session. Publish its current BPM every pass so synced echoes follow it.
+    voiceManager->setDelayTempoBpm(uClock.getTempo());
+    ControlIO::refreshLeds(nowMs);
+    ControlIO::refreshOled(nowMs);
 }

@@ -155,13 +155,13 @@ TEST_CASE("Pitch lookup honors the injected scale table over the global", "[voic
     v.updateParameters(vs);
     v.process();
     REQUIRE_THAT(v.getCachedFrequency(0),
-                 WithinRel(rpdsp::midiNoteToHz(53.0f), 0.001f)); // semitone 5
+                 WithinRel(rpdsp::midiNoteToHz(77.0f), 0.001f)); // semitone 5 + 72
 
     scaleIdx = 1; // one octave up in the injected table
     v.updateParameters(vs);
     v.process();
     REQUIRE_THAT(v.getCachedFrequency(0),
-                 WithinRel(rpdsp::midiNoteToHz(65.0f), 0.001f)); // semitone 17
+                 WithinRel(rpdsp::midiNoteToHz(89.0f), 0.001f)); // semitone 17 + 72
 }
 
 TEST_CASE("No injected table falls back to chromatic mapping", "[voice]") {
@@ -176,7 +176,7 @@ TEST_CASE("No injected table falls back to chromatic mapping", "[voice]") {
     v.updateParameters(vs);
     v.process();
     REQUIRE_THAT(v.getCachedFrequency(0),
-                 WithinRel(rpdsp::midiNoteToHz(52.0f), 0.001f)); // 4 semitones above C3
+                 WithinRel(rpdsp::midiNoteToHz(76.0f), 0.001f)); // 4 semitones above C5
 }
 
 TEST_CASE("Voice combines note indices with octave track semitones", "[voice]") {
@@ -193,19 +193,19 @@ TEST_CASE("Voice combines note indices with octave track semitones", "[voice]") 
     v.updateParameters(vs);
     v.process();
     REQUIRE_THAT(v.getCachedFrequency(0),
-                 WithinRel(rpdsp::midiNoteToHz(72.0f), 0.001f));
+                 WithinRel(rpdsp::midiNoteToHz(96.0f), 0.001f));
 
     vs.octaveOffset = 0;
     v.updateParameters(vs);
     v.process();
     REQUIRE_THAT(v.getCachedFrequency(0),
-                 WithinRel(rpdsp::midiNoteToHz(84.0f), 0.001f));
+                 WithinRel(rpdsp::midiNoteToHz(108.0f), 0.001f));
 
     vs.octaveOffset = 12;
     v.updateParameters(vs);
     v.process();
     REQUIRE_THAT(v.getCachedFrequency(0),
-                 WithinRel(rpdsp::midiNoteToHz(96.0f), 0.001f));
+                 WithinRel(rpdsp::midiNoteToHz(120.0f), 0.001f));
 }
 
 TEST_CASE("Pitch lookup clamps out-of-range indices", "[voice]") {
@@ -223,14 +223,15 @@ TEST_CASE("Pitch lookup clamps out-of-range indices", "[voice]") {
     vs.isGateHigh = true;
     vs.octaveOffset = 0;
 
-    // note 46 + harmony 12 clamps to the row's last entry: semitone 67, MIDI 115.
+    // note 46 + harmony 12 clamps to the row's last entry: semitone 67.
+    // 72 + 67 = 139 -> clamped to 127.
     vs.noteIndex = 46.0f;
     v.updateParameters(vs);
     v.process();
     REQUIRE_THAT(v.getCachedFrequency(0),
-                 WithinRel(rpdsp::midiNoteToHz(115.0f), 0.001f));
+                 WithinRel(rpdsp::midiNoteToHz(127.0f), 0.001f));
 
-    // A +24 octave shift on the top step would index MIDI 139; saturate at the
+    // A +24 octave shift on the top step would index MIDI 163; saturate at the
     // frequency table's top instead of reading past it.
     vs.noteIndex = 47.0f;
     vs.octaveOffset = 24;
@@ -374,6 +375,81 @@ TEST_CASE("Waveguide presets bypass filter and envelope", "[voice][presets]") {
             REQUIRE(c.highPassFreq < 100.0f);
         }
     }
+}
+
+TEST_CASE("Waveguide string tuning lands only on gate-on, humanized under 5%", "[voice][waveguide]") {
+    VoiceConfig cfg = VoicePresets::getWaveguidePluckVoice();
+    Voice v(0, cfg);
+    initVoiceWithScale(v);
+
+    auto within5pct = [](float applied, float base) {
+        if (base == 0.0f)
+            return applied == 0.0f; // explicit unison/dry never drifts
+        return std::fabs(applied - base) <= 0.05f * std::fabs(base);
+    };
+    auto checkBounded = [&](const Voice::WaveguideSettings &a, const VoiceConfig &base) {
+        INFO("t60 " << a.t60 << " vs " << base.wgT60);
+        REQUIRE(within5pct(a.t60, base.wgT60));
+        REQUIRE(within5pct(a.brightness, base.wgBrightness));
+        REQUIRE(within5pct(a.pickPosition, base.wgPickPosition));
+        REQUIRE(within5pct(a.pickHardness, base.wgPickHardness));
+        REQUIRE(within5pct(a.stiffness, base.wgStiffness));
+        REQUIRE(within5pct(a.detune, base.wgDetune));
+    };
+    auto runSamples = [&](int n) {
+        for (int i = 0; i < n; ++i)
+            v.process();
+    };
+
+    // Gate on: tuning lands, humanized around the configured base.
+    v.setGate(true);
+    runSamples(4);
+    const auto first = v.getAppliedWaveguideParams();
+    REQUIRE(first.valid);
+    checkBounded(first, cfg);
+    REQUIRE(first.stiffness == 0.0f); // WgPluck base is 0: stays exactly 0
+
+    // Retune while the note rings: the ringing string must not move.
+    VoiceConfig held = cfg;
+    held.wgT60 = 6.0f;
+    held.wgBrightness = 0.2f;
+    held.wgPickPosition = 0.4f;
+    held.wgPickHardness = 0.3f;
+    held.wgDetune = 12.0f;
+    v.setConfig(held);
+    runSamples(64);
+    const auto duringNote = v.getAppliedWaveguideParams();
+    REQUIRE(duringNote.t60 == first.t60);
+    REQUIRE(duringNote.brightness == first.brightness);
+    REQUIRE(duringNote.pickPosition == first.pickPosition);
+    REQUIRE(duringNote.pickHardness == first.pickHardness);
+    REQUIRE(duringNote.stiffness == first.stiffness);
+    REQUIRE(duringNote.detune == first.detune);
+
+    // Next gate-on picks up the edited base, still humanized.
+    v.setGate(false);
+    runSamples(4);
+    v.setGate(true);
+    runSamples(4);
+    const auto second = v.getAppliedWaveguideParams();
+    checkBounded(second, held);
+    REQUIRE(second.t60 != first.t60);
+
+    // Repeated notes re-roll: not every pluck sounds identical.
+    bool varied = false;
+    float prevT60 = second.t60;
+    for (int n = 0; n < 8; ++n)
+    {
+        v.setGate(false);
+        runSamples(4);
+        v.setGate(true);
+        runSamples(4);
+        const float t = v.getAppliedWaveguideParams().t60;
+        checkBounded(v.getAppliedWaveguideParams(), held);
+        varied = varied || (t != prevT60);
+        prevT60 = t;
+    }
+    REQUIRE(varied);
 }
 
 TEST_CASE("Only Analog and Lead keep the ladder filter", "[voice][presets]") {
@@ -541,7 +617,7 @@ TEST_CASE("Waveguide ring-out is not rescaled by a later velocity push", "[voice
     initVoiceWithScale(v);
 
     VoiceState vs;
-    vs.noteIndex = 12.0f;
+    vs.noteIndex = 0.0f;
     vs.velocityLevel = 1.0f;
     vs.isGateHigh = true;
     v.updateParameters(vs);
@@ -576,7 +652,7 @@ TEST_CASE("Waveguide slots drive T60 via Decay track", "[voice]") {
     vs.noteIndex = 0.0f;
     vs.filterCutoff = cfg.wgBrightness;        // Bright slot
     vs.attackTimeSeconds = cfg.wgPickHardness; // Pick slot
-    vs.decayTimeSeconds = 0.0f;                // T60 slot: fmap(0, 0.05, 10, EXP) = 0.05 s
+    vs.decayTimeSeconds = 0.0f;                // T60 slot: bottom of WgPluck's lane = 0.15 s
     v.updateParameters(vs);
     v.setGate(true);
     for (int i = 0; i < 4800; ++i)
@@ -591,7 +667,7 @@ TEST_CASE("Waveguide slots drive T60 via Decay track", "[voice]") {
         early = std::max(early, std::abs(v.process()));
     REQUIRE(early > 0.0f);
 
-    // Half a second later a T60 of 0.05 s is 10^-10 of its level; the preset's
+    // Half a second later a T60 of 0.15 s is ~10^-10 of its level; the preset's
     // unrouted 1.8 s T60 would still hold ~53% — the ratio discriminates hard.
     for (int i = 0; i < 23520; ++i)
         v.process();
@@ -602,7 +678,12 @@ TEST_CASE("Waveguide slots drive T60 via Decay track", "[voice]") {
 }
 
 TEST_CASE("Noise/Hypersaw slots are re-purposed on the audio-thread config", "[voice]") {
-    Voice vn(0, VoicePresets::getNoiseStormVoice());
+    // Each lane lands where the preset's own binding maps it.
+    const auto mapped = [](const VoiceConfig &c, ParamId id, float lane) {
+        return VoiceParameters::binding(c, id).map(lane);
+    };
+    const auto &storm = VoicePresets::getNoiseStormVoice();
+    Voice vn(0, storm);
     initVoiceWithScale(vn);
     VoiceState vs;
     vs.isGateHigh = true;
@@ -611,18 +692,20 @@ TEST_CASE("Noise/Hypersaw slots are re-purposed on the audio-thread config", "[v
     vs.decayTimeSeconds = 0.4f;   // Chaos slot
     vn.updateParameters(vs);
     vn.process();
-    REQUIRE(vn.getConfig().noiseSwarmColor == 0.9f);
-    REQUIRE(vn.getConfig().noiseSwarmRegen == 0.7f);
-    REQUIRE(vn.getConfig().noiseChaosLevel == 0.4f);
+    REQUIRE_THAT(vn.getConfig().noiseSwarmColor, WithinAbs(mapped(storm, ParamId::Filter, 0.9f), 1e-6f));
+    REQUIRE_THAT(vn.getConfig().noiseSwarmRegen, WithinAbs(mapped(storm, ParamId::Attack, 0.7f), 1e-6f));
+    REQUIRE_THAT(vn.getConfig().noiseChaosLevel, WithinAbs(mapped(storm, ParamId::Decay, 0.4f), 1e-6f));
+    REQUIRE(vn.getConfig().noiseSwarmRegen > storm.noiseSwarmRegen); // above-center lane: more regen
 
-    Voice vh(0, VoicePresets::getHypersawVoice());
+    const auto &hyper = VoicePresets::getHypersawVoice();
+    Voice vh(0, hyper);
     initVoiceWithScale(vh);
     vs.attackTimeSeconds = 0.5f;  // Native Hypersaw detune slot
     vs.decayTimeSeconds = 0.25f;  // Native Hypersaw mix slot
     vh.updateParameters(vs);
     vh.process();
-    REQUIRE(vh.getConfig().hypersawDetune == 0.5f);
-    REQUIRE(vh.getConfig().hypersawMix == 0.25f);
+    REQUIRE_THAT(vh.getConfig().hypersawDetune, WithinAbs(mapped(hyper, ParamId::Attack, 0.5f), 1e-6f));
+    REQUIRE_THAT(vh.getConfig().hypersawMix, WithinAbs(mapped(hyper, ParamId::Decay, 0.25f), 1e-6f));
 }
 
 TEST_CASE("HardSyncSaw sequencer slave lane offsets the master pitch", "[voice]") {
@@ -671,17 +754,18 @@ TEST_CASE("Preset param sets and re-purposed slot names", "[voice][presets]") {
     REQUIRE(VP::getSequencerParamName(0, ParamId::Filter) == nullptr);
 }
 
-TEST_CASE("presetIndexForPad maps pads 8..8+count-1", "[voice][presets]") {
-    REQUIRE(VoicePresets::presetIndexForPad(7, 15) == -1);
-    REQUIRE(VoicePresets::presetIndexForPad(8, 15) == 0);
-    REQUIRE(VoicePresets::presetIndexForPad(22, 15) == 14);
-    REQUIRE(VoicePresets::presetIndexForPad(23, 15) == -1);
-    REQUIRE(VoicePresets::presetIndexForPad(8, 0) == -1);
+TEST_CASE("presetIndexForPad maps pads 0..count-1 to their own preset", "[voice][presets]") {
+    REQUIRE(VoicePresets::presetIndexForPad(0, 15) == 0);
+    REQUIRE(VoicePresets::presetIndexForPad(14, 15) == 14);
+    REQUIRE(VoicePresets::presetIndexForPad(15, 15) == -1);
+    REQUIRE(VoicePresets::presetIndexForPad(0, 0) == -1);
+    REQUIRE(VoicePresets::presetIndexForPad(30, 255) == 30);
+    REQUIRE(VoicePresets::presetIndexForPad(31, 255) == -1);
 
-    // Round-trip of the T60 seeding map
+    // Round-trip of the T60 seeding map (WgPluck's 0.15..4 s lane)
     const float norm = VoicePresets::wgT60ToNormalized(3.2f);
-    REQUIRE_THAT(dspmap::fmap(norm, 0.05f, 10.0f, dspmap::Mapping::EXP),
-                 WithinAbs(3.2f, 0.01f));
+    const auto &t60 = VoiceParameters::binding(VoicePresets::getWaveguidePluckVoice(), ParamId::Decay);
+    REQUIRE_THAT(t60.map(norm), WithinAbs(3.2f, 0.01f));
 }
 
 TEST_CASE("Preset switch while gate high keeps the held note sounding", "[voice]") {

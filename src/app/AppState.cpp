@@ -1,10 +1,17 @@
 #include "AppState.h"
 
+// Definitions for the shared live state declared above. Core 0 owns construction
+// order here: sequencers first (voice order), the rest published during setup.
+
 UIState uiState;
+namespace
+{
+// Voice-order construction; only the routing table below is public.
 Sequencer seq1(1);
 Sequencer seq2(2);
 Sequencer seq3(3);
 Sequencer seq4(4);
+}
 std::unique_ptr<VoiceManager> voiceManager;
 std::atomic<bool> voicesReady{false};
 VoiceSystem voiceSystem;
@@ -14,5 +21,6 @@ bool isClockRunning = true;
 namespace AppState
 {
 Sequencer *const sequencers[VoiceSystem::MAX_VOICES] = {&seq1, &seq2, &seq3, &seq4};
+const SequencerView sequencerView{sequencers};
 PerformanceInput performanceInput;
 }

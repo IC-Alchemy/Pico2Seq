@@ -2,7 +2,9 @@
 // (src/ui/ControlSurfaceLogic.h/.cpp): ModeStabilizer, PadBank, ShiftLatch,
 // FaderMap. These are pure C++ — no hardware, no Arduino stubs needed.
 
+#include "LEDMatrix/ArpLedPalette.h"
 #include "ui/ControlSurfaceLogic.h"
+#include "voice/DelayTiming.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -10,8 +12,27 @@
 
 #include <cmath>
 #include <limits>
+#include <string>
 
 using namespace ControlSurface;
+using Catch::Approx;
+
+namespace
+{
+bool feedFaderSamples(FaderMap &map, uint8_t channel, uint16_t rawCounts,
+                      uint8_t sampleCount = FaderMap::kFilterWindowSamples)
+{
+    bool accepted = false;
+    for (uint8_t sample = 0; sample < sampleCount; ++sample)
+    {
+        if (map.accept(channel, rawCounts))
+        {
+            accepted = true;
+        }
+    }
+    return accepted;
+}
+} // namespace
 
 TEST_CASE("Parameter record buttons select their matching encoder base", "[control_surface]")
 {
@@ -24,7 +45,7 @@ TEST_CASE("Parameter record buttons select their matching encoder base", "[contr
         {ParamId::Velocity, EncoderParameterMode::Velocity},
         {ParamId::Filter, EncoderParameterMode::Filter},
         {ParamId::Attack, EncoderParameterMode::Attack},
-        {ParamId::Decay, EncoderParameterMode::Decay},
+        {ParamId::Release, EncoderParameterMode::Release},
         {ParamId::Octave, EncoderParameterMode::Octave},
     };
 
@@ -34,6 +55,11 @@ TEST_CASE("Parameter record buttons select their matching encoder base", "[contr
         CAPTURE(static_cast<int>(mapping.param));
         REQUIRE(encoderBaseModeForRecordParam(mapping.param, mode));
         CHECK(mode == mapping.mode);
+        REQUIRE(parameterDefinition(mapping.param) != nullptr);
+        CHECK(parameterDefinition(mapping.param)->recordable);
+        CHECK(parameterDefinition(mapping.param)->encoderMode == mapping.mode);
+        CHECK(parameterForEncoderMode(mapping.mode) == mapping.param);
+        CHECK(stepEditParameter(ParamId::Count, ParamId::Count, mapping.mode) == mapping.param);
     }
 
     for (const ParamId nonRecordParam : {ParamId::GateLength, ParamId::Gate,
@@ -43,6 +69,88 @@ TEST_CASE("Parameter record buttons select their matching encoder base", "[contr
         CAPTURE(static_cast<int>(nonRecordParam));
         CHECK_FALSE(encoderBaseModeForRecordParam(nonRecordParam, mode));
         CHECK(mode == EncoderParameterMode::COUNT);
+    }
+}
+
+TEST_CASE("Record button bits map to the intended parameter lanes", "[control_surface]")
+{
+    constexpr ParamId expected[] = {
+        ParamId::Note, ParamId::Velocity, ParamId::Filter,
+        ParamId::Attack, ParamId::Release, ParamId::Octave,
+    };
+    static_assert(sizeof(expected) / sizeof(expected[0]) == 6);
+
+    for (uint8_t bit = 0; bit < 6; ++bit)
+    {
+        CAPTURE(bit);
+        CHECK(recordParamForButtonBit(bit) == expected[bit]);
+    }
+
+    CHECK(recordParamForButtonBit(6) == ParamId::Count);
+    CHECK(recordParamForButtonBit(7) == ParamId::Count);
+    CHECK(recordParamForButtonBit(UINT8_MAX) == ParamId::Count);
+}
+
+TEST_CASE("Parameter descriptors distinguish recording, detents and toggles", "[control_surface][parameter_metadata]")
+{
+    constexpr ParameterEditKind kinds[] = {
+        ParameterEditKind::Stepped, ParameterEditKind::Continuous,
+        ParameterEditKind::Continuous, ParameterEditKind::Continuous,
+        ParameterEditKind::Continuous, ParameterEditKind::Stepped,
+        ParameterEditKind::Continuous, ParameterEditKind::Toggle,
+        ParameterEditKind::Toggle, ParameterEditKind::Continuous,
+        ParameterEditKind::Continuous
+    };
+    static_assert(sizeof(kinds) / sizeof(kinds[0]) == PARAM_ID_COUNT);
+    for (uint8_t i = 0; i < PARAM_ID_COUNT; ++i)
+    {
+        const auto id = static_cast<ParamId>(i);
+        const auto *definition = parameterDefinition(id);
+        CAPTURE(i);
+        REQUIRE(definition != nullptr);
+        CHECK(definition->editKind == kinds[i]);
+        // The six record buttons: Note, Velocity, Filter, Attack, Octave and
+        // Release. Decay lost its button to Release - it is an engine control
+        // rather than an envelope stage on most presets.
+        const bool hasRecordButton = id == ParamId::Note || id == ParamId::Velocity ||
+                                     id == ParamId::Filter || id == ParamId::Attack ||
+                                     id == ParamId::Octave || id == ParamId::Release;
+        CHECK(definition->recordable == hasRecordButton);
+        CHECK(definition->defaultSteps == SequencerConstants::DEFAULT_STEPS_COUNT);
+        if (!definition->recordable)
+            CHECK(definition->encoderMode == EncoderParameterMode::COUNT);
+    }
+    // Absolute lanes can follow the patch; offsets and toggles cannot.
+    for (uint8_t i = 0; i < PARAM_ID_COUNT; ++i)
+    {
+        const auto id = static_cast<ParamId>(i);
+        CAPTURE(i);
+        CHECK(isPatchDefaultLane(id) ==
+              (id == ParamId::Velocity || id == ParamId::Filter || id == ParamId::Attack ||
+               id == ParamId::Decay || id == ParamId::Sustain || id == ParamId::Release));
+    }
+    // Stepped encoder editing must not turn the normalized octave recording
+    // lane into an integer-valued track.
+    CHECK(std::holds_alternative<int>(parameterDefinition(ParamId::Note)->minValue));
+    CHECK(std::holds_alternative<float>(parameterDefinition(ParamId::Octave)->minValue));
+}
+
+TEST_CASE("Descriptor lookup rejects sentinels and unknown control values", "[control_surface][parameter_metadata]")
+{
+    for (unsigned value = PARAM_ID_COUNT; value <= UINT8_MAX; ++value)
+    {
+        const auto id = static_cast<ParamId>(value);
+        CHECK(parameterDefinition(id) == nullptr);
+        EncoderParameterMode mode = EncoderParameterMode::Attack;
+        CHECK_FALSE(encoderBaseModeForRecordParam(id, mode));
+        CHECK(mode == EncoderParameterMode::Attack); // Rejection preserves the caller's target.
+    }
+    for (unsigned value = static_cast<uint8_t>(EncoderParameterMode::SlideTime);
+         value <= UINT8_MAX; ++value)
+    {
+        const auto mode = static_cast<EncoderParameterMode>(value);
+        CHECK(parameterForEncoderMode(mode) == ParamId::Count);
+        CHECK(stepEditParameter(ParamId::Count, ParamId::Count, mode) == ParamId::Count);
     }
 }
 
@@ -199,6 +307,35 @@ TEST_CASE("PadBank clamps out-of-range pad indices", "[control_surface]")
     const PadAddress a = PadBank::resolve(32, 0);
     CHECK(a.voice == 1); // clamped to pad 31 -> high bank
     CHECK(a.step == 15);
+}
+
+// ---------------------------------------------------------------------------
+// Pad release classification
+// ---------------------------------------------------------------------------
+
+TEST_CASE("A pad release splits timed presses into tap and hold", "[control_surface]")
+{
+    constexpr uint32_t hold = 400;
+    CHECK(classifyPadRelease(10000, 10000, hold) == PadRelease::Tap);
+    CHECK(classifyPadRelease(10000, 10399, hold) == PadRelease::Tap);
+    CHECK(classifyPadRelease(10000, 10400, hold) == PadRelease::Hold);
+    CHECK(classifyPadRelease(10000, 60000, hold) == PadRelease::Hold);
+}
+
+TEST_CASE("A pad release after an untimed press does nothing", "[control_surface]")
+{
+    // Settings, Shift+clear and length modes consume the press without timing
+    // it. Measured from 0, the release would read as a hold of the uptime and
+    // select the step, moving the selected voice to the pad's bank.
+    CHECK(classifyPadRelease(0, 60000, 400) == PadRelease::Ignore);
+    CHECK(classifyPadRelease(0, 5, 400) == PadRelease::Ignore);
+}
+
+TEST_CASE("A pad release is timed across a millis() wrap", "[control_surface]")
+{
+    constexpr uint32_t pressedAt = std::numeric_limits<uint32_t>::max() - 99;
+    CHECK(classifyPadRelease(pressedAt, 200, 400) == PadRelease::Tap);  // 300 ms
+    CHECK(classifyPadRelease(pressedAt, 300, 400) == PadRelease::Hold); // 400 ms
 }
 
 // ---------------------------------------------------------------------------
@@ -373,68 +510,200 @@ TEST_CASE("ShiftLatch ignores out-of-range param ids", "[control_surface]")
 // FaderMap
 // ---------------------------------------------------------------------------
 
-TEST_CASE("FaderMap assigns param-mode faders to Filter/Attack/Decay/Velocity", "[control_surface]")
+TEST_CASE("FaderMap: without a selected step the faders are tempo/delay mix/volume/gate length", "[control_surface][fader]")
 {
-    const FaderAssignment ch0 = FaderMap::assignmentFor(Mode::Param, 0);
-    CHECK(ch0.target == FaderTarget::StepParam);
-    CHECK(ch0.paramId == ParamId::Filter);
-
-    const FaderAssignment ch1 = FaderMap::assignmentFor(Mode::Param, 1);
-    CHECK(ch1.paramId == ParamId::Attack);
-
-    const FaderAssignment ch2 = FaderMap::assignmentFor(Mode::Param, 2);
-    CHECK(ch2.paramId == ParamId::Decay);
-
-    const FaderAssignment ch3 = FaderMap::assignmentFor(Mode::Param, 3);
-    CHECK(ch3.paramId == ParamId::Velocity);
+    CHECK(FaderMap::assignmentFor(false, 0).target == FaderTarget::Tempo);
+    CHECK(FaderMap::assignmentFor(false, 1).target == FaderTarget::DelayMix);
+    CHECK(FaderMap::assignmentFor(false, 2).target == FaderTarget::MasterVolume);
+    CHECK(FaderMap::assignmentFor(false, 3).target == FaderTarget::GateLength);
+    for (uint8_t channel = 0; channel < FaderMap::kChannelCount; ++channel)
+        CHECK(FaderMap::assignmentFor(false, channel).paramId == ParamId::Count);
 }
 
-TEST_CASE("FaderMap assigns utility-mode faders to tempo/swing/master-volume/gate-length", "[control_surface]")
+TEST_CASE("Delay time fader mapping spans 10 ms to 750 ms on a log curve", "[control_surface][fader]")
 {
-    CHECK(FaderMap::assignmentFor(Mode::Utility, 0).target == FaderTarget::Tempo);
-    CHECK(FaderMap::assignmentFor(Mode::Utility, 1).target == FaderTarget::SwingAmount);
-    CHECK(FaderMap::assignmentFor(Mode::Utility, 2).target == FaderTarget::MasterVolume);
-    CHECK(FaderMap::assignmentFor(Mode::Utility, 3).target == FaderTarget::GateLength);
+    CHECK(delaySecondsForFader(0.0f) == Approx(kDelayTimeMinSeconds).margin(1e-6f));
+    CHECK(delaySecondsForFader(1.0f) == Approx(kDelayTimeMaxSeconds).margin(1e-6f));
+    // Geometric midpoint of the tuned range: sqrt(0.01 * 0.75).
+    CHECK(delaySecondsForFader(0.5f) == Approx(std::sqrt(0.0075f)).epsilon(0.001));
+    CHECK(delaySecondsForFader(-1.0f) == Approx(kDelayTimeMinSeconds).margin(1e-6f));
+    CHECK(delaySecondsForFader(2.0f) == Approx(kDelayTimeMaxSeconds).margin(1e-6f));
+
+    float previous = 0.0f;
+    for (int i = 0; i <= 20; ++i)
+    {
+        const float seconds = delaySecondsForFader(static_cast<float>(i) / 20.0f);
+        CHECK(seconds > previous);
+        previous = seconds;
+    }
+}
+
+TEST_CASE("Tempo delay divisions cover whole through dotted and triplet 64ths", "[control_surface][delay_sync]")
+{
+    REQUIRE(DelayTiming::kNoteCount == 19);
+    CHECK(DelayTiming::indexForFader(0.0f) == 18);
+    CHECK(DelayTiming::indexForFader(1.0f) == 0);
+    CHECK(DelayTiming::indexForFader(-1.0f) == 18);
+    CHECK(DelayTiming::indexForFader(2.0f) == 0);
+    CHECK(std::string(DelayTiming::labelForIndex(0)) == "WHOLE");
+    CHECK(std::string(DelayTiming::labelForIndex(18)) == "1/64 TRIPLET");
+
+    float previous = 100.0f;
+    for (uint8_t index = 0; index < DelayTiming::kNoteCount; ++index)
+    {
+        const float seconds = DelayTiming::secondsForIndex(index, 120.0f);
+        CAPTURE(index);
+        CHECK(seconds < previous); // fader divisions are in audible time order
+        previous = seconds;
+    }
+    CHECK(DelayTiming::secondsForIndex(0, 45.0f) == Approx(256000.0f / 48000.0f));
+    CHECK(DelayTiming::secondsForIndex(3, 120.0f) == Approx(0.75f)); // dotted quarter
+    CHECK(DelayTiming::secondsForIndex(4, 120.0f) == Approx(2.0f / 3.0f)); // half triplet
+    CHECK(DelayTiming::secondsForIndex(DelayTiming::kDefaultNoteIndex, 120.0f) == Approx(0.5f));
+    CHECK(DelayTiming::secondsForIndex(18, 200.0f) == Approx(0.0125f));
+}
+
+TEST_CASE("FaderMap: a selected step turns the faders into its envelope lanes", "[control_surface][fader]")
+{
+    constexpr ParamId kLanes[] = {ParamId::Attack, ParamId::Decay, ParamId::Sustain, ParamId::Release};
+    for (uint8_t channel = 0; channel < FaderMap::kChannelCount; ++channel)
+    {
+        CAPTURE(channel);
+        const FaderAssignment env = FaderMap::assignmentFor(true, channel);
+        CHECK(env.target == FaderTarget::EnvLane);
+        CHECK(env.paramId == kLanes[channel]);
+    }
 }
 
 TEST_CASE("FaderMap rejects out-of-range channels", "[control_surface]")
 {
-    const FaderAssignment bad = FaderMap::assignmentFor(Mode::Param, 4);
-    CHECK(bad.paramId == ParamId::Count);
+    for (const bool stepSelected : {false, true})
+    {
+        const FaderAssignment bad = FaderMap::assignmentFor(stepSelected, 4);
+        CHECK(bad.target == FaderTarget::None);
+        CHECK(bad.paramId == ParamId::Count);
+    }
     CHECK_FALSE(FaderMap().accept(4, 100));
 }
 
-TEST_CASE("FaderMap deadband sends the first sample then only real movement", "[control_surface]")
+TEST_CASE("FaderMap: Arpeggiator mode replaces the whole fader set", "[control_surface][fader]")
 {
-    FaderMap map;
-
-    CHECK(map.accept(0, 2048));              // first sample always sends
-    CHECK_FALSE(map.accept(0, 2050));        // +2 counts: inside the deadband
-    CHECK_FALSE(map.accept(0, 2055));        // +7 counts cumulative: still inside
-    CHECK(map.accept(0, 2056));              // +8 counts: sent
-
-    // Drifting just under the threshold each time never sends (compare to the
-    // last *sent* value, not the last sample).
-    CHECK_FALSE(map.accept(0, 2059)); // +3 from 2056 (last sent): inside
-    CHECK_FALSE(map.accept(0, 2063)); // +7 from 2056 again, not from 2059
-    CHECK(map.accept(0, 2064));       // +8 from 2056: sent
+    // Unshifted faders shape rhythm; Shift swaps to range, gate, swing and
+    // tone. Neither layer is a step lane.
+    CHECK(FaderMap::arpAssignmentFor(0, false).target == FaderTarget::ArpHits);
+    CHECK(FaderMap::arpAssignmentFor(1, false).target == FaderTarget::ArpLength);
+    CHECK(FaderMap::arpAssignmentFor(2, false).target == FaderTarget::ArpRotate);
+    CHECK(FaderMap::arpAssignmentFor(3, false).target == FaderTarget::ArpAccent);
+    CHECK(FaderMap::arpAssignmentFor(0, true).target == FaderTarget::ArpOctaves);
+    CHECK(FaderMap::arpAssignmentFor(1, true).target == FaderTarget::ArpGate);
+    CHECK(FaderMap::arpAssignmentFor(2, true).target == FaderTarget::ArpSwing);
+    CHECK(FaderMap::arpAssignmentFor(3, true).target == FaderTarget::ArpFilter);
+    for (uint8_t channel = 0; channel < FaderMap::kChannelCount; ++channel)
+    {
+        CAPTURE(channel);
+        const FaderAssignment arp = FaderMap::arpAssignmentFor(channel);
+        CHECK(arp.target != FaderTarget::None);
+        CHECK(arp.paramId == ParamId::Count); // no step lane is edited there
+        CHECK(FaderMap::assignmentFor(false, channel).target != arp.target);
+    }
+    const FaderAssignment bad = FaderMap::arpAssignmentFor(4);
+    CHECK(bad.target == FaderTarget::None);
+    CHECK(bad.paramId == ParamId::Count);
 }
 
-TEST_CASE("FaderMap channels are independent", "[control_surface]")
+TEST_CASE("FaderMap median and deadband reject noise then track real movement", "[control_surface][fader]")
 {
+    constexpr uint16_t kEngage = FaderMap::kMoveThresholdCounts;
+    constexpr uint16_t kDeadband = FaderMap::kDeadbandCounts;
     FaderMap map;
-    CHECK(map.accept(0, 100));
-    CHECK(map.accept(1, 102)); // different channel: first sample sends
-    CHECK_FALSE(map.accept(0, 105));
-    CHECK_FALSE(map.accept(1, 108)); // +6 from its own last-sent value
+
+    // A full fresh-frame window establishes the rest baseline without sending.
+    CHECK_FALSE(feedFaderSamples(map, 0, 2048));
+    CHECK_FALSE(map.isEngaged(0));
+    CHECK(map.filtered(0) == 2048);
+
+    // One isolated full-threshold spike is rejected by the rolling median.
+    CHECK_FALSE(map.accept(0, 2048 + kEngage));
+    CHECK_FALSE(map.accept(0, 2048));
+    CHECK_FALSE(map.accept(0, 2048));
+    CHECK_FALSE(map.isEngaged(0));
+
+    // Stable movement below the larger pickup threshold stays silent.
+    CHECK_FALSE(feedFaderSamples(map, 0, 2048 + kEngage - 1));
+    CHECK_FALSE(map.isEngaged(0));
+
+    // A deliberate filtered move engages and reports the median, not the raw frame.
+    CHECK(feedFaderSamples(map, 0, 2048 + kEngage));
+    CHECK(map.isEngaged(0));
+    const uint16_t sent = 2048 + kEngage;
+    CHECK(map.filtered(0) == sent);
+
+    // A lone post-engage spike cannot write; small stable movement stays inside
+    // the deadband; a full deadband step reports its filtered value.
+    CHECK_FALSE(map.accept(0, sent + 1000));
+    CHECK_FALSE(map.accept(0, sent));
+    CHECK_FALSE(map.accept(0, sent));
+    CHECK_FALSE(feedFaderSamples(map, 0, sent + kDeadband - 1));
+    CHECK(feedFaderSamples(map, 0, sent + kDeadband));
+    CHECK(map.filtered(0) == sent + kDeadband);
 }
 
-TEST_CASE("FaderMap resetDeadband forces the next sample to send", "[control_surface]")
+TEST_CASE("FaderMap channels engage independently", "[control_surface]")
 {
+    constexpr uint16_t kEngage = FaderMap::kMoveThresholdCounts;
     FaderMap map;
-    CHECK(map.accept(2, 3000));
+    CHECK_FALSE(feedFaderSamples(map, 0, 1000));
+    CHECK_FALSE(feedFaderSamples(map, 1, 2000));
+
+    CHECK(feedFaderSamples(map, 0, 1000 + kEngage));
+    CHECK(map.isEngaged(0));
+    CHECK_FALSE(map.isEngaged(1));
+
+    CHECK_FALSE(feedFaderSamples(map, 1, 2000 + kEngage - 1));
+    CHECK_FALSE(map.isEngaged(1));
+    CHECK(feedFaderSamples(map, 1, 2000 - kEngage));
+    CHECK(map.isEngaged(1));
+}
+
+TEST_CASE("FaderMap resetDeadband disarms channels until moved again", "[control_surface]")
+{
+    constexpr uint16_t kEngage = FaderMap::kMoveThresholdCounts;
+    FaderMap map;
+    CHECK_FALSE(feedFaderSamples(map, 2, 3000));
+    CHECK(feedFaderSamples(map, 2, 3000 + kEngage));
+    CHECK(map.isEngaged(2));
+
+    map.resetDeadband(); // mode flip disarms all channels
+    CHECK_FALSE(map.isEngaged(2));
+
+    const uint16_t rest = 3000 + kEngage;
+    CHECK_FALSE(feedFaderSamples(map, 2, rest));
+    CHECK_FALSE(map.isEngaged(2));
+    CHECK_FALSE(feedFaderSamples(map, 2, rest + 10));
+    CHECK_FALSE(map.isEngaged(2));
+    CHECK(feedFaderSamples(map, 2, rest + kEngage));
+    CHECK(map.isEngaged(2));
+}
+
+TEST_CASE("FaderMap disarms across voice switches", "[control_surface]")
+{
+    constexpr uint16_t kEngage = FaderMap::kMoveThresholdCounts;
+    FaderMap map;
+
+    CHECK_FALSE(feedFaderSamples(map, 3, 1000));
+    CHECK(feedFaderSamples(map, 3, 1000 + kEngage));
+    CHECK(map.isEngaged(3));
+
     map.resetDeadband();
-    CHECK(map.accept(2, 3001)); // same-ish value after a mode flip re-sends
+    CHECK_FALSE(map.isEngaged(3));
+
+    const uint16_t rest = 1000 + kEngage;
+    CHECK_FALSE(feedFaderSamples(map, 3, rest));
+    CHECK_FALSE(map.isEngaged(3));
+    CHECK_FALSE(feedFaderSamples(map, 3, rest + 10));
+    CHECK_FALSE(map.isEngaged(3));
+    CHECK(feedFaderSamples(map, 3, rest + kEngage));
+    CHECK(map.isEngaged(3));
 }
 
 TEST_CASE("FaderMap normalize maps 12-bit counts to 0..1", "[control_surface]")
@@ -442,6 +711,116 @@ TEST_CASE("FaderMap normalize maps 12-bit counts to 0..1", "[control_surface]")
     CHECK(FaderMap::normalize(0) == Catch::Approx(0.0f).margin(0.0001f));
     CHECK(FaderMap::normalize(4095) == Catch::Approx(1.0f).margin(0.0001f));
     CHECK(FaderMap::normalize(2048) == Catch::Approx(0.5f).margin(0.001f));
+}
+
+TEST_CASE("FaderMap resetChannel disarms one channel and leaves the rest", "[control_surface]")
+{
+    constexpr uint16_t kEngage = FaderMap::kMoveThresholdCounts;
+    FaderMap map;
+    CHECK_FALSE(feedFaderSamples(map, 1, 2000));
+    CHECK_FALSE(feedFaderSamples(map, 2, 3000));
+    CHECK(feedFaderSamples(map, 1, 2000 + kEngage));
+    CHECK(feedFaderSamples(map, 2, 3000 + kEngage));
+    CHECK(map.isEngaged(1));
+    CHECK(map.isEngaged(2));
+
+    map.resetChannel(FaderMap::kMasterVolumeChannel);
+    CHECK(map.isEngaged(1));
+    CHECK_FALSE(map.isEngaged(2));
+    CHECK_FALSE(feedFaderSamples(map, 2, 3000 + kEngage));
+    CHECK_FALSE(feedFaderSamples(map, 2, 3000 + kEngage + 10));
+    CHECK(feedFaderSamples(map, 2, 3000 + 2 * kEngage));
+    CHECK(map.isEngaged(2));
+
+    map.resetChannel(99);
+    CHECK(map.isEngaged(1));
+    CHECK(map.isEngaged(2));
+    CHECK(map.filtered(99) == 0);
+}
+
+TEST_CASE("Arp LED pitch palette is bounded, unique and octave-stable", "[control_surface][led][arpeggiator]")
+{
+    bool seen[193] = {};
+    int offsets[ArpLedPalette::kPitchClassCount] = {};
+    for (uint8_t pitchClass = 0; pitchClass < ArpLedPalette::kPitchClassCount; ++pitchClass)
+    {
+        const int offset = ArpLedPalette::hueOffsetSteps(pitchClass);
+        offsets[pitchClass] = offset;
+        CHECK(offset >= -96);
+        CHECK(offset <= 96);
+        CHECK_FALSE(seen[offset + 96]);
+        seen[offset + 96] = true;
+    }
+    CHECK(offsets[0] == 0); // the active scale's root keeps the voice hue
+    for (uint8_t a = 0; a < ArpLedPalette::kPitchClassCount; ++a)
+    {
+        for (uint8_t b = static_cast<uint8_t>(a + 1);
+             b < ArpLedPalette::kPitchClassCount; ++b)
+        {
+            CHECK(offsets[a] != offsets[b]);
+        }
+    }
+
+    CHECK(ArpLedPalette::classifySemitone(-1) == 11);
+    CHECK(ArpLedPalette::classifySemitone(0) == 0);
+    CHECK(ArpLedPalette::classifySemitone(12) == 0);
+    CHECK(ArpLedPalette::classifySemitone(25) == 1);
+    CHECK(ArpLedPalette::hueOffsetSteps(ArpLedPalette::kPitchClassCount) == 0);
+}
+
+TEST_CASE("Shift edges require fresh movement on all three effect faders", "[control_surface][fader]")
+{
+    FaderMap map;
+    constexpr uint16_t rest = 2000;
+    constexpr uint16_t move = FaderMap::kMoveThresholdCounts;
+    for (uint8_t channel = 0; channel < FaderMap::kChannelCount; ++channel)
+    {
+        CHECK_FALSE(feedFaderSamples(map, channel, rest - move));
+        REQUIRE(feedFaderSamples(map, channel, rest));
+    }
+
+    for (unsigned edge = 0; edge < 2; ++edge)
+    {
+        map.resetShiftTargets();
+        CHECK(map.isEngaged(3));
+        for (uint8_t channel : {FaderMap::kTempoChannel, FaderMap::kDelayChannel,
+                                FaderMap::kMasterVolumeChannel})
+        {
+            const uint16_t baseline = rest + edge * move;
+            CHECK_FALSE(map.isEngaged(channel));
+            CHECK_FALSE(feedFaderSamples(map, channel, baseline));
+            CHECK_FALSE(feedFaderSamples(map, channel, baseline + move - 1));
+            CHECK(feedFaderSamples(map, channel, baseline + move));
+        }
+    }
+}
+
+TEST_CASE("Shift + master fader drives the macro knob, plain moves drive volume", "[control_surface]")
+{
+    CHECK(masterFaderAction(false) == MasterFaderAction::Volume);
+    CHECK(masterFaderAction(true) == MasterFaderAction::Macro);
+    // The macro gesture lives on the volume channel outside ENV mode.
+    CHECK(FaderMap::assignmentFor(false, FaderMap::kMasterVolumeChannel).target ==
+          FaderTarget::MasterVolume);
+}
+
+TEST_CASE("Shift + tempo fader edits feedback while ENV mode keeps attack", "[control_surface][fader]")
+{
+    CHECK(tempoFaderAction(false) == TempoFaderAction::Tempo);
+    CHECK(tempoFaderAction(true) == TempoFaderAction::DelayFeedback);
+    CHECK(FaderMap::assignmentFor(false, FaderMap::kTempoChannel).target == FaderTarget::Tempo);
+    const auto env = FaderMap::assignmentFor(true, FaderMap::kTempoChannel);
+    CHECK(env.target == FaderTarget::EnvLane);
+    CHECK(env.paramId == ParamId::Attack);
+}
+
+TEST_CASE("Macro zones split at center: Warm below, Punch above", "[control_surface]")
+{
+    CHECK(std::string(masterMacroZoneName(0.0f)) == "WARM");
+    CHECK(std::string(masterMacroZoneName(0.49f)) == "WARM");
+    CHECK(std::string(masterMacroZoneName(0.5f)) == "GLUE");
+    CHECK(std::string(masterMacroZoneName(0.51f)) == "PUNCH");
+    CHECK(std::string(masterMacroZoneName(1.0f)) == "PUNCH");
 }
 
 // ---------------------------------------------------------------------------
@@ -525,11 +904,51 @@ TEST_CASE("EncoderMotion ignores zero, non-finite and non-positive sizes", "[con
 }
 TEST_CASE("Step edit targets the held, then toggled, then encoder parameter", "[control_surface]")
 {
-    CHECK(stepEditParameter(ParamId::Filter, ParamId::Velocity, EncoderParameterMode::Decay) == ParamId::Filter);
-    CHECK(stepEditParameter(ParamId::Count, ParamId::Velocity, EncoderParameterMode::Decay) == ParamId::Velocity);
-    CHECK(stepEditParameter(ParamId::Count, ParamId::Count, EncoderParameterMode::Decay) == ParamId::Decay);
+    CHECK(stepEditParameter(ParamId::Filter, ParamId::Velocity, EncoderParameterMode::Release) == ParamId::Filter);
+    CHECK(stepEditParameter(ParamId::Count, ParamId::Velocity, EncoderParameterMode::Release) == ParamId::Velocity);
+    CHECK(stepEditParameter(ParamId::Count, ParamId::Count, EncoderParameterMode::Release) == ParamId::Release);
     CHECK(stepEditParameter(ParamId::Count, ParamId::Count, EncoderParameterMode::Note) == ParamId::Note);
     CHECK(stepEditParameter(ParamId::Count, ParamId::Count, EncoderParameterMode::Octave) == ParamId::Octave);
     // Slide Time is a voice setting, not a step lane.
     CHECK(stepEditParameter(ParamId::Count, ParamId::Count, EncoderParameterMode::SlideTime) == ParamId::Count);
+}
+
+TEST_CASE("Between clock steps the lidar keeps writing only continuous lanes", "[control_surface][recording]")
+{
+    // Release, not Decay: the 5th record button drives the lane that reaches the
+    // envelope on every preset.
+    for (ParamId lane : {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Release})
+        CHECK(recordsBetweenSteps(lane));
+    // Pitch is one value per note, taken on the clock step.
+    CHECK_FALSE(recordsBetweenSteps(ParamId::Note));
+    CHECK_FALSE(recordsBetweenSteps(ParamId::Octave));
+    // No record button, no live recording.
+    for (ParamId lane : {ParamId::GateLength, ParamId::Gate, ParamId::Slide, ParamId::Sustain,
+                         ParamId::Decay, ParamId::Count})
+        CHECK_FALSE(recordsBetweenSteps(lane));
+}
+
+TEST_CASE("Arp Shift swaps rhythm faders for tone faders and re-arms", "[control_surface][arpeggiator]")
+{
+    using namespace ControlSurface;
+    CHECK(FaderMap::arpAssignmentFor(0, false).target == FaderTarget::ArpHits);
+    CHECK(FaderMap::arpAssignmentFor(1, false).target == FaderTarget::ArpLength);
+    CHECK(FaderMap::arpAssignmentFor(2, false).target == FaderTarget::ArpRotate);
+    CHECK(FaderMap::arpAssignmentFor(3, false).target == FaderTarget::ArpAccent);
+    CHECK(FaderMap::arpAssignmentFor(0, true).target == FaderTarget::ArpOctaves);
+    CHECK(FaderMap::arpAssignmentFor(1, true).target == FaderTarget::ArpGate);
+    CHECK(FaderMap::arpAssignmentFor(2, true).target == FaderTarget::ArpSwing);
+    CHECK(FaderMap::arpAssignmentFor(3, true).target == FaderTarget::ArpFilter);
+    CHECK(FaderMap::arpAssignmentFor(4, true).target == FaderTarget::None);
+
+    constexpr uint16_t rest = 2000;
+    constexpr uint16_t move = FaderMap::kMoveThresholdCounts;
+    FaderMap faders;
+    CHECK_FALSE(feedFaderSamples(faders, 0, rest));
+    CHECK(feedFaderSamples(faders, 0, rest + move));
+    faders.resetDeadband(); // entering Shift
+    CHECK_FALSE(feedFaderSamples(faders, 0, rest + move));
+    CHECK(feedFaderSamples(faders, 0, rest + 2 * move));
+    faders.resetDeadband(); // leaving Shift
+    CHECK_FALSE(feedFaderSamples(faders, 0, rest + 2 * move));
 }

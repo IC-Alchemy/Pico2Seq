@@ -1,6 +1,7 @@
-// Intentionally no include guard: expanded for IDs and registry data.
+// PresetBank.h — the single source of truth for the preset list (no guard:
+// expanded twice, once for Ids and once for the registry). Append entries;
+// Ids, count, and lookups derive from this order, so never reorder.
 // Use .h so Arduino copies this file into its sketch build directory.
-// Append entries to preserve existing preset IDs. Included with VOICE_PRESET defined.
 // ID, display name, factory. Count and both lookups derive from this list.
 VOICE_PRESET(Analog, "Analog", makeAnalog)
 VOICE_PRESET(Digital, "Digital", makeDigital)

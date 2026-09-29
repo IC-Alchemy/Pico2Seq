@@ -14,46 +14,111 @@ set(SRC_DIR   ${PROJECT_SOURCE_DIR}/src)
 set(CORE_DIR  ${SRC_DIR}/pico2seq-core)
 set(RPDSP_DIR ${SRC_DIR}/rpdsp/src)
 
-add_executable(pico2seq_tests
-  unit/test_helpers.cpp
-  unit/test_rpdsp_additions.cpp
-  unit/test_dsp_recipe_regressions.cpp
-  unit/test_scales.cpp
-  unit/test_sequencer.cpp
-  unit/test_voice.cpp
-  unit/test_voice_recipes.cpp
-  unit/test_recipe_optimization.cpp
-  unit/test_voice_transfer.cpp
-  unit/test_voiceoscillator.cpp
-  unit/test_control_surface_logic.cpp
-  unit/test_alchemy_proto.cpp
-  unit/test_satellite_link.cpp
-  unit/test_app_runtime.cpp
-  unit/test_voice_edit.cpp
-  unit/test_persistence.cpp
+# Fail loudly instead of drowning a fresh clone in missing-header errors:
+# src/rpdsp and src/VelocityEncoder are git submodules and are empty until
+# they are checked out. Same trap on the Arduino build, which needs them too.
+if(NOT EXISTS "${RPDSP_DIR}/rpdsp/parameter_track.h")
+  message(FATAL_ERROR
+    "src/rpdsp submodule is not checked out. Run:\n"
+    "  git submodule update --init --recursive")
+endif()
+if(NOT EXISTS "${SRC_DIR}/VelocityEncoder/src/MagEncoder.h")
+  message(FATAL_ERROR
+    "src/VelocityEncoder submodule is not checked out. Run:\n"
+    "  git submodule update --init --recursive")
+endif()
 
-  # Scale data
+# Portable sources compiled once, grouped the way the suites consume them.
+# OBJECT rather than static libraries: each target keeps its own stub include
+# dirs and link libraries, and object libraries compose without forcing a
+# shared link configuration. The groups mirror the existing per-suite object
+# sets (e.g. VoiceManager references test-side stubs like currentScale from
+# unit/test_helpers.cpp, so the UI suite only takes the UI group).
+set(PICO2SEQ_TEST_INCLUDE_DIRS
+  ${STUB_DIR}
+  ${PROJECT_SOURCE_DIR}
+  ${SRC_DIR}
+  ${CORE_DIR}
+  ${RPDSP_DIR}
+)
+
+# Alchemy tile control surface decision logic + arpeggiator note engine.
+add_library(pico2seq_ui_code OBJECT
+  ${SRC_DIR}/ui/ControlSurfaceLogic.cpp
+  ${CORE_DIR}/arpeggiator/Arpeggiator.cpp
+)
+
+# Scale data, sequencer logic and voice synthesis (DSP comes from header-only
+# src/rpdsp).
+add_library(pico2seq_voice_code OBJECT
   ${CORE_DIR}/scales/scales.cpp
-
-  # Sequencer logic
   ${CORE_DIR}/sequencer/ParameterManager.cpp
   ${CORE_DIR}/sequencer/Sequencer.cpp
-
-  # Session persistence (portable snapshot + codecs)
-  ${CORE_DIR}/persistence/SnapshotFormat.cpp
-  ${CORE_DIR}/persistence/ProjectSnapshot.cpp
-  ${CORE_DIR}/persistence/PatternCodec.cpp
-
-  # Voice synthesis (DSP comes from header-only src/rpdsp)
   ${SRC_DIR}/voice/Voice.cpp
   ${SRC_DIR}/voice/VoicePresets.cpp
   ${SRC_DIR}/voice/VoiceParameters.cpp
   ${SRC_DIR}/voice/VoiceEditParameters.cpp
   ${SRC_DIR}/voice/VoiceManager.cpp
-  ${SRC_DIR}/voice/PatchCodec.cpp
+)
 
-  # Alchemy tile control surface decision logic (pure C++)
-  ${SRC_DIR}/ui/ControlSurfaceLogic.cpp
+# Session persistence (portable snapshot + codecs); only the full suite uses it.
+add_library(pico2seq_persist_code OBJECT
+  ${CORE_DIR}/persistence/SnapshotFormat.cpp
+  ${CORE_DIR}/persistence/ProjectSnapshot.cpp
+  ${CORE_DIR}/persistence/PatternCodec.cpp
+  ${SRC_DIR}/voice/PatchCodec.cpp
+)
+
+foreach(_lib pico2seq_ui_code pico2seq_voice_code pico2seq_persist_code)
+  target_include_directories(${_lib} PRIVATE ${PICO2SEQ_TEST_INCLUDE_DIRS})
+  target_compile_definitions(${_lib} PRIVATE AUG_DEBUG_COMPILED=0)
+  target_compile_options(${_lib} PRIVATE -Wall -Wno-unused-parameter)
+endforeach()
+
+# Test files shared by more than one suite, listed once.
+set(PICO2SEQ_UI_TEST_SOURCES
+  unit/test_control_surface_logic.cpp
+  unit/test_arpeggiator.cpp
+  unit/test_ui_transitions.cpp
+)
+set(PICO2SEQ_VOICE_TEST_SOURCES
+  unit/test_helpers.cpp
+  unit/test_voice.cpp
+  unit/test_voice_recipes.cpp
+  unit/test_recipe_optimization.cpp
+  unit/test_voiceoscillator.cpp
+  unit/test_voice_transfer.cpp
+  unit/test_voice_block.cpp
+  unit/test_master_compressor.cpp
+  unit/test_master_bus.cpp
+  unit/test_master_delay.cpp
+)
+
+add_executable(pico2seq_tests
+  unit/test_rpdsp_additions.cpp
+  unit/test_parameter_mapping.cpp
+  unit/test_parameter_randomize.cpp
+  unit/test_dsp_recipe_regressions.cpp
+  unit/test_scales.cpp
+  unit/test_sequencer.cpp
+  unit/test_sequencer_view.cpp
+  unit/test_voice_playback.cpp
+  unit/test_voice_envelope.cpp
+  unit/test_lidar_recording.cpp
+  ${SRC_DIR}/app/VoicePlayback.cpp
+  ${SRC_DIR}/app/VoiceEnvelope.cpp
+  ${SRC_DIR}/app/StepPlayback.cpp
+  unit/test_alchemy_proto.cpp
+  unit/test_satellite_link.cpp
+  unit/test_app_runtime.cpp
+  unit/test_voice_edit.cpp
+  unit/test_settings_pads.cpp
+  unit/test_persistence.cpp
+  ${PICO2SEQ_UI_TEST_SOURCES}
+  ${PICO2SEQ_VOICE_TEST_SOURCES}
+  $<TARGET_OBJECTS:pico2seq_ui_code>
+  $<TARGET_OBJECTS:pico2seq_voice_code>
+  $<TARGET_OBJECTS:pico2seq_persist_code>
 )
 
 # Stub headers must come first so they shadow Arduino.h / Wire.h / pico/sync.h
@@ -78,23 +143,19 @@ include(CTest)
 include(Catch)
 catch_discover_tests(pico2seq_tests)
 
+# UI policies can be checked without linking firmware glue or rendering audio.
+add_executable(pico2seq_ui_tests
+  ${PICO2SEQ_UI_TEST_SOURCES}
+  $<TARGET_OBJECTS:pico2seq_ui_code>)
+target_include_directories(pico2seq_ui_tests PRIVATE
+  ${STUB_DIR} ${PROJECT_SOURCE_DIR} ${SRC_DIR} ${CORE_DIR} ${RPDSP_DIR})
+target_link_libraries(pico2seq_ui_tests PRIVATE Catch2::Catch2WithMain)
+catch_discover_tests(pico2seq_ui_tests TEST_PREFIX "ui-focused: ")
+
 # Focused voice/ownership suite can run independently of the DSP recipe tests.
 add_executable(pico2seq_voice_tests
-  unit/test_helpers.cpp
-  unit/test_voice.cpp
-  unit/test_voice_recipes.cpp
-  unit/test_recipe_optimization.cpp
-  unit/test_voiceoscillator.cpp
-  unit/test_voice_transfer.cpp
-  ${CORE_DIR}/scales/scales.cpp
-  ${CORE_DIR}/sequencer/ParameterManager.cpp
-  ${CORE_DIR}/sequencer/Sequencer.cpp
-  ${SRC_DIR}/voice/Voice.cpp
-  ${SRC_DIR}/voice/VoicePresets.cpp
-  ${SRC_DIR}/voice/VoiceParameters.cpp
-  ${SRC_DIR}/voice/VoiceEditParameters.cpp
-  ${SRC_DIR}/voice/VoiceManager.cpp
-)
+  ${PICO2SEQ_VOICE_TEST_SOURCES}
+  $<TARGET_OBJECTS:pico2seq_voice_code>)
 target_include_directories(pico2seq_voice_tests PRIVATE
   ${STUB_DIR} ${PROJECT_SOURCE_DIR} ${SRC_DIR} ${CORE_DIR} ${RPDSP_DIR})
 target_link_libraries(pico2seq_voice_tests PRIVATE Catch2::Catch2WithMain Threads::Threads)

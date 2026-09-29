@@ -9,7 +9,7 @@
 #include "UIState.h"
 
 class Sequencer;
-class MidiNoteManager;
+class SequencerView;
 
 /**
  * @brief Glue between the Alchemy tile panel and the existing firmware UI.
@@ -31,12 +31,24 @@ class MidiNoteManager;
  *     raises the OLED banner flag.
  *   - SliderModule buttons: Voice1..4 direct select in both modes; with
  *     Shift held they become transport chords (Play/Stop, Randomize,
- *     Scale, Delay toggle).
+ *     Scale, Voice editor). Shift + hold Voice 4 toggles Arpeggiator mode
+ *     instead of opening the editor, so a tap and a hold never fire together.
+ *   - Shift + button 6 + Voice1..4 opens the live voice ADSR fader page.
+ *     Voice buttons select its target; Shift exits. Shift+6 alone defers its
+ *     existing short action until release so the chord has no side effects.
  *   - ButtonModule8: parameter set (Note..Slide) or utility set (Play,
  *     Delay, Scale, Swing, Theme, Encoder, Randomize) per mode; Shift is
- *     bit 7 in both.
+ *     bit 7 in both. In Utility mode, Shift + Randomize clears the selected
+ *     voice's whole pattern (tap) or every voice's pattern (hold).
+ *   - Arpeggiator mode (docs/arpeggiator.md) replaces the step-shaped sets:
+ *     the Param panel is the six arp patterns plus Latch, and the Utility
+ *     panel keeps Play/Session/Scale/Theme while Octave range, Re-sync and
+ *     Randomize-chord take the step-only slots.
  *   - Faders: step-parameter recording in Param mode (same recording path
- *     as the lidar), tempo/swing/master-volume/gate-length in Utility mode.
+ *     as the lidar), tempo/delay-mix/master-volume/gate-length otherwise;
+ *     in Arpeggiator mode the same four faders set hits, rhythm length,
+ *     rotation and accent; Shift selects arp range, gate, swing and filter
+ *     (ControlSurface::FaderMap::arpAssignmentFor).
  */
 class AlchemyControlBridge
 {
@@ -51,11 +63,10 @@ public:
 
   /**
    * Poll tiles and translate edges into UI actions.
-   * @param sequencers Array of the 4 voice sequencers (voice index order).
+   * @param sequencers Fixed voice-order view of the 4 voice sequencers.
    */
   void update(uint32_t nowMs, UIState &uiState,
-              Sequencer *const *sequencers, size_t sequencerCount,
-              MidiNoteManager &midiNoteManager);
+              const SequencerView &sequencers);
 
   /** Read-only driver access, for boot scan reports and diagnostics pages. */
   [[nodiscard]] const AlchemyTiles &tiles() const { return panel_.tiles(); }
@@ -82,6 +93,19 @@ private:
   };
 
   /**
+   * One button's sampled state this pass. The transport and session handlers are
+   * shared by both utility panels, so they take this instead of a parameter list
+   * and a reference to the driver's button array.
+   */
+  struct ButtonState
+  {
+    bool pressEdge = false;
+    bool releaseEdge = false;
+    bool held = false;
+    uint32_t heldMs = 0;
+  };
+
+  /**
    * Re-resolve which driver slot holds the slider tile and which holds the
    * button tile. Slot order is scan order, so a tile that did not answer at
    * begin() shifts every slot after it — asking the driver by TYPE_ID keeps
@@ -98,12 +122,22 @@ private:
 
   void handleModeStrap(uint32_t nowMs, UIState &uiState);
   void onModeFlip(uint32_t nowMs, UIState &uiState);
-  void handleVoiceButtons(UIState &uiState, MidiNoteManager &midiNoteManager,
-                          Sequencer *const *sequencers, size_t sequencerCount);
+  // Plain press selects, 400 ms hold edits that voice's gate sequence length.
+  void handleVoiceButtons(uint32_t nowMs, UIState &uiState);
   void handleParamButtons(UIState &uiState);
-  void handleUtilityButtons(uint32_t nowMs, UIState &uiState);
-  void handleFaders(UIState &uiState, Sequencer *const *sequencers,
-                    size_t sequencerCount);
+  void handleUtilityButtons(uint32_t nowMs, UIState &uiState,
+                            const SequencerView &sequencers);
+  // Arpeggiator mode's two panels: patterns/Latch on the Param side, and the
+  // utility set with the step-only slots replaced on the Utility side.
+  void handleArpPatternButtons(UIState &uiState);
+  void handleArpUtilityButtons(uint32_t nowMs, UIState &uiState);
+  // Transport (Play/Stop, tap vs. settings hold) and Session (save, load on
+  // hold) are mode-independent; both utility panels call these so the two modes
+  // cannot drift on the two buttons that must never change meaning.
+  void handleTransportButton(const ButtonState &button, UIState &uiState);
+  void handleSessionButton(const ButtonState &button);
+  void handleSessionOrDelayButton(const ButtonState &button, UIState &uiState);
+  void handleFaders(UIState &uiState, const SequencerView &sequencers);
 
   AlchemyPanel panel_;
   ControlSurface::ModeStabilizer mode_;
@@ -127,7 +161,23 @@ private:
   ButtonEdges buttonEdges_[kRoleCount][kButtonBits]; // [role][bit]
   bool playSettingsOpenedThisPress_ = false;
   bool saveLoadLatch_ = false; // session button: hold consumed, release suppressed
+  bool delayTogglePress_ = false; // Shift held at press: consume session hold/release
+  // Voice 4 + Shift: a tap opens the voice editor, a hold toggles Arpeggiator
+  // mode, so the press defers its action to release/hold (like Play below).
+  bool editorHoldArmed_ = false;
+  bool editorHoldFired_ = false;
+  // Randomize button Shift chord state: the press edge latched whether this
+  // press is a clear chord (Shift held at press), and clearAllLatch_ consumes
+  // the hold so the release cannot also clear a single voice.
+  bool clearChordThisPress_ = false;
+  bool clearAllLatch_ = false;
+  // Shift edges re-arm tempo/feedback, mix/time and volume/macro.
+  bool shiftWasHeld_ = false;
   uint8_t modeSwitchPin_ = 7; // GP7 default; setup1 sets PIN_ALCHEMY_MODE_SWITCH
+  uint8_t lastVoiceIndex_ = 0;
+  int lastStepForEdit_ = -1;
+  bool lastArpShift_ = false;
+  bool lastArpActive_ = false;
 };
 
 #endif // ALCHEMY_CONTROL_BRIDGE_H

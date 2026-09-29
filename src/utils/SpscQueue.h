@@ -29,6 +29,13 @@ public:
         return true;
     }
 
+    // Consumer only. A concurrent publish missed here is seen on the next probe.
+    bool consumerEmpty() const noexcept
+    {
+        const uint32_t read = readIndex_.load(std::memory_order_relaxed);
+        return read == writeIndex_.load(std::memory_order_acquire);
+    }
+
     // Consumer only. Return the slot only AFTER copying its complete payload.
     bool tryPop(T &value) noexcept
     {

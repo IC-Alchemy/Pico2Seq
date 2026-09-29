@@ -2,6 +2,7 @@
 #define CONTROL_SURFACE_LOGIC_H
 
 #include <cstdint>
+#include <cmath>
 
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 
@@ -14,10 +15,12 @@
 //
 //   ModeStabilizer — raw GP7 readings in, stable Mode out (20 ms), + edge.
 //   PadBank        — pad index + selected voice -> (voice, step).
+//   classifyPadRelease — pad press time + release time -> ignore/tap/hold.
 //   ShiftLatch     — shift level + param edges -> parameterButtonHeld state
 //                    with Shift+tap latching.
-//   FaderMap       — mode + fader channel -> control target, with a send
-//                    deadband so steady faders stay quiet.
+//   FaderMap       — Step Edit + fader channel -> control target, with a
+//                    median window, pickup threshold and send deadband.
+//   recordParamForButtonBit — physical record button -> recorded parameter.
 //   encoderBaseModeForRecordParam — record button -> encoder base target.
 //   EncoderMotion  — encoder increments carried between sensor reads.
 
@@ -39,6 +42,21 @@ enum class Mode : uint8_t
 inline constexpr bool kModeParamLevel = false;
 
 /**
+ * Record-lane parameter behind one ButtonModule8 bit in Param mode.
+ *
+ * Bits 0..5 follow the physical button order. Bit 4 intentionally records
+ * Release rather than Decay so the envelope tail stays available on the panel.
+ * Returns ParamId::Count for any non-lane bit.
+ */
+constexpr ParamId recordParamForButtonBit(uint8_t bit) noexcept
+{
+  constexpr ParamId kButtonLanes[6] = {
+      ParamId::Note, ParamId::Velocity, ParamId::Filter,
+      ParamId::Attack, ParamId::Release, ParamId::Octave};
+  return bit < 6 ? kButtonLanes[bit] : ParamId::Count;
+}
+
+/**
  * Resolve a parameter-record button to the matching encoder base target.
  *
  * Only the six continuous parameters that have physical record buttons are
@@ -47,29 +65,12 @@ inline constexpr bool kModeParamLevel = false;
 constexpr bool encoderBaseModeForRecordParam(ParamId paramId,
                                              EncoderParameterMode &mode)
 {
-  switch (paramId)
-  {
-  case ParamId::Note:
-    mode = EncoderParameterMode::Note;
-    return true;
-  case ParamId::Velocity:
-    mode = EncoderParameterMode::Velocity;
-    return true;
-  case ParamId::Filter:
-    mode = EncoderParameterMode::Filter;
-    return true;
-  case ParamId::Attack:
-    mode = EncoderParameterMode::Attack;
-    return true;
-  case ParamId::Decay:
-    mode = EncoderParameterMode::Decay;
-    return true;
-  case ParamId::Octave:
-    mode = EncoderParameterMode::Octave;
-    return true;
-  default:
+  const auto *definition = parameterDefinition(paramId);
+  if (!definition || !definition->recordable ||
+      definition->encoderMode == EncoderParameterMode::COUNT)
     return false;
-  }
+  mode = definition->encoderMode;
+  return true;
 }
 
 /**
@@ -85,13 +86,20 @@ constexpr ParamId stepEditParameter(ParamId held, ParamId toggled,
     return held;
   if (toggled != ParamId::Count)
     return toggled;
-  for (uint8_t i = 0; i < PARAM_ID_COUNT; ++i)
-  {
-    EncoderParameterMode mode = EncoderParameterMode::COUNT;
-    if (encoderBaseModeForRecordParam(static_cast<ParamId>(i), mode) && mode == encoderMode)
-      return static_cast<ParamId>(i);
-  }
-  return ParamId::Count;
+  return parameterForEncoderMode(encoderMode);
+}
+
+/**
+ * Live lidar recording between clock steps. Continuous lanes (Velocity,
+ * Filter, Attack, Release) follow the hand through the playing step; pitch
+ * lanes (Note, Octave) take one value per note on the clock step, so hand
+ * jitter at a scale-step boundary cannot warble a sounding note.
+ */
+constexpr bool recordsBetweenSteps(ParamId paramId)
+{
+  const auto *definition = parameterDefinition(paramId);
+  return definition && definition->recordable &&
+         definition->editKind == ParameterEditKind::Continuous;
 }
 
 /**
@@ -171,6 +179,34 @@ public:
   /** Resolve a raw pad index (0..31, clamped) to its voice and step. */
   static PadAddress resolve(uint8_t padIndex, uint8_t selectedVoice);
 };
+
+/** What releasing a step pad does. */
+enum class PadRelease : uint8_t
+{
+  Ignore, // the press was never timed: a mode consumed it
+  Tap,    // short press: toggle the step
+  Hold,   // long press: select the step for editing
+};
+
+/**
+ * Classify a step pad release.
+ *
+ * @param pressedAtMs Time the press was recorded, or 0 when a mode consumed
+ *                    the press (Settings, Shift+clear, gate or parameter
+ *                    length) and never timed it. Timing a release against 0
+ *                    would read as a hold as long as the uptime.
+ * @param nowMs       Release time (millis() wraps; unsigned math handles it).
+ * @param holdMs      Long-press threshold.
+ */
+constexpr PadRelease classifyPadRelease(uint32_t pressedAtMs, uint32_t nowMs,
+                                        uint32_t holdMs)
+{
+  if (pressedAtMs == 0)
+  {
+    return PadRelease::Ignore;
+  }
+  return (nowMs - pressedAtMs >= holdMs) ? PadRelease::Hold : PadRelease::Tap;
+}
 
 // ---------------------------------------------------------------------------
 // LED layout (pad-mirror geometry)
@@ -290,48 +326,155 @@ private:
 // Fader map
 // ---------------------------------------------------------------------------
 
-/** What a fader channel controls in the current mode. */
+/** What a fader channel controls. The mode strap does not change it. */
 enum class FaderTarget : uint8_t
 {
-  StepParam,   // records a ParamId into steps (param mode)
-  Tempo,       // uClock BPM (utility mode)
-  SwingAmount, // continuous shuffle depth (utility mode)
-  GateLength,  // gate length across the selected voice's steps (utility mode)
-  MasterVolume // final mix gain (utility mode)
+  None,        // unassigned
+  EnvLane,     // ENV mode: one envelope lane of the selected step
+  Tempo,        // uClock BPM (Shift + fader: delay feedback)
+  DelayMix,     // master delay wet mix (Shift + fader: delay time)
+  MasterVolume, // VoiceManager's global gain on Core 1's final mix
+  GateLength,   // gate length across the selected voice's steps
+  // Arpeggiator mode replaces the whole step-oriented set: the same four
+  // faders shape the arp's note range, length, swing and tone instead.
+  ArpOctaves, // arp range in octaves
+  ArpGate,    // note length as a fraction of the interval
+  ArpSwing,   // arp swing depth
+  ArpFilter,  // per-note filter lane
+  ArpHits,
+  ArpLength,
+  ArpRotate,
+  ArpAccent,
 };
+
+/**
+ * What the master-volume fader does. Plain moves drive global volume;
+ * Shift + move drives the master macro knob (Warm/Glue/Punch morph of the
+ * master-bus compressor) instead, so one physical fader serves both.
+ */
+enum class MasterFaderAction : uint8_t { Volume, Macro };
+
+enum class TempoFaderAction : uint8_t { Tempo, DelayFeedback };
+
+constexpr TempoFaderAction tempoFaderAction(bool shiftHeld)
+{
+  return shiftHeld ? TempoFaderAction::DelayFeedback : TempoFaderAction::Tempo;
+}
+
+constexpr MasterFaderAction masterFaderAction(bool shiftHeld)
+{
+  return shiftHeld ? MasterFaderAction::Macro : MasterFaderAction::Volume;
+}
+
+/** Display zone of a 0..1 macro position: Warm below center, Punch above. */
+inline const char *masterMacroZoneName(float macro)
+{
+  if (macro < 0.5f)
+    return "WARM";
+  if (macro > 0.5f)
+    return "PUNCH";
+  return "GLUE";
+}
+
+// Delay time for the Shift + wet-mix-fader control: a log curve across the
+// range, so a short-throw fader spends its travel evenly over musical
+// distance. Pure so the host tests can pin the endpoints and the curve.
+inline constexpr float kDelayTimeMinSeconds = 0.010f;
+inline constexpr float kDelayTimeMaxSeconds = 0.750f;
+inline float delaySecondsForFader(float normalized)
+{
+  if (!(normalized > 0.0f))
+    return kDelayTimeMinSeconds;
+  if (normalized > 1.0f)
+    return kDelayTimeMaxSeconds;
+  return kDelayTimeMinSeconds *
+         std::pow(kDelayTimeMaxSeconds / kDelayTimeMinSeconds, normalized);
+}
 
 struct FaderAssignment
 {
-  FaderTarget target = FaderTarget::StepParam;
-  ParamId paramId = ParamId::Count; // valid when target == StepParam
+  FaderTarget target = FaderTarget::None;
+  ParamId paramId = ParamId::Count; // valid when target == EnvLane
 };
 
 class FaderMap
 {
 public:
   static constexpr uint8_t kChannelCount = 4;
+  // In the sequencer modes Shift retargets the first three faders; Arp mode
+  // swaps all four layers. Re-arm on either edge so one parameter never snaps
+  // to the other parameter's rest position.
+  static constexpr uint8_t kTempoChannel = 0;
+  static constexpr uint8_t kDelayChannel = 1;
+  static constexpr uint8_t kMasterVolumeChannel = 2;
   static constexpr uint16_t kFaderMaxCounts = 4095;
-  // Movement smaller than this (in 12-bit counts) is not sent.
-  static constexpr uint16_t kDeadbandCounts = 8;
+  // Each accepted value is the median of a rolling three-frame window. A lone
+  // ADC/I2C spike therefore cannot engage a lane or move an already live one.
+  static constexpr uint8_t kFilterWindowSamples = 3;
+  // Movement smaller than this (in 12-bit counts) is not sent. 48 of 4095 is
+  // about 1.2% of travel, so resting noise and one-count encoding jitter stay
+  // quiet without making deliberate fader motion feel coarse.
+  static constexpr uint16_t kDeadbandCounts = 48;
+  // An obvious move (in 12-bit counts) required to engage a fader after reset /
+  // mode flip. 384 is about 9.4% of travel: a deliberate pickup gesture, not a
+  // brush or a settling tile value.
+  static constexpr uint16_t kMoveThresholdCounts = 384;
 
-  /** Target of one fader channel (0..3) in the given mode. */
-  static FaderAssignment assignmentFor(Mode mode, uint8_t channel);
+  /**
+   * Target of one fader channel (0..3). With a step selected (ENV mode) the
+   * faders are that step's Attack, Decay, Sustain and Release lanes;
+   * otherwise Tempo, Delay mix, Master volume, Gate length.
+   */
+  static FaderAssignment assignmentFor(bool stepSelected, uint8_t channel);
+
+  /**
+   * Target of one fader channel (0..3) in Arpeggiator mode: hits, rhythm length,
+   * rotation and accent without Shift; Shift selects octave range, gate length,
+   * swing depth and filter. Step selection is meaningless there, so this set
+   * applies in both step-edit states; the strap does not change it.
+   */
+  static FaderAssignment arpAssignmentFor(uint8_t channel, bool shift = false);
 
   /** 12-bit raw fader counts -> normalized 0..1. */
   static float normalize(uint16_t rawCounts);
 
   /**
-   * Deadband filter: true when this channel's value should be sent (first
-   * sample after a reset always sends, so controls snap to fader positions).
+   * Median, deadband and motion filter. Feed this only fresh, coherent slider
+   * frames (not repeated copies of the driver's last value). Returns true only
+   * after an obvious move has engaged the fader, and subsequent filtered moves
+   * exceed the deadband. When true, read the value to apply with filtered().
    */
   bool accept(uint8_t channel, uint16_t rawCounts);
 
-  /** Forget the last-sent values (mode flip): the next sample re-sends. */
+  /** Median-filtered 12-bit value from the most recent full sample window. */
+  uint16_t filtered(uint8_t channel) const;
+
+  /** Disarm all faders (e.g. on mode flip): faders must be moved before sending. */
   void resetDeadband();
 
+  /** Disarm one channel (e.g. the volume fader on shift edges). */
+  void resetChannel(uint8_t channel);
+
+  /** Re-arm tempo/feedback, mix/time and volume/macro on either Shift edge. */
+  void resetShiftTargets()
+  {
+    resetChannel(kTempoChannel);
+    resetChannel(kDelayChannel);
+    resetChannel(kMasterVolumeChannel);
+  }
+
+  /** True if the channel has detected an obvious move and is actively tracking. */
+  bool isEngaged(uint8_t channel) const;
+
 private:
+  uint16_t baseline_[kChannelCount] = {0, 0, 0, 0};
   uint16_t lastSent_[kChannelCount] = {0, 0, 0, 0};
-  bool valid_[kChannelCount] = {false, false, false, false};
+  uint16_t filtered_[kChannelCount] = {0, 0, 0, 0};
+  uint16_t sampleWindow_[kChannelCount][kFilterWindowSamples] = {};
+  uint8_t sampleCursor_[kChannelCount] = {0, 0, 0, 0};
+  uint8_t sampleCount_[kChannelCount] = {0, 0, 0, 0};
+  bool hasBaseline_[kChannelCount] = {false, false, false, false};
+  bool engaged_[kChannelCount] = {false, false, false, false};
 };
 
 // ---------------------------------------------------------------------------

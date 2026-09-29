@@ -1,7 +1,14 @@
 #pragma once
 #include "../voice/VoiceEditParameters.h"
 
+// VoiceEditControls.h — Utility-mode voice editor gesture policy (Core 0).
+// Pure edge logic: tile levels in, cursor/group/param/reset/exit intents out.
+// No hardware calls; the instance lives in UIState (never a loose global).
+// Performer view: Shift+Voice4 enters, voice buttons pick the voice, pads move
+// the cursor, encoder edits, hold-reset restores the patch, exit leaves.
+
 namespace VoiceEdit {
+// One poll's intent: what the performer asked for since the last pass.
 struct Input {
   int8_t voice = -1;
   int8_t group = 0;
@@ -11,7 +18,8 @@ struct Input {
   bool clearEncoder = false;
 };
 // All editor interaction state belongs to UIState; policy has no hardware
-// calls.
+// calls. Edge-triggered (pressed = level & ~previous) so holding a pad never
+// repeats; waitRelease swallows the entry chord's own release.
 struct Controls {
   bool active = false;
   bool fine = false;
@@ -23,6 +31,8 @@ struct Controls {
   uint32_t resetStarted = 0;
   bool resetArmed = false;
 
+  // Enter the editor: waits for the entry chord to release first, so the
+  // fingers that opened it cannot also move the cursor.
   void enter() noexcept {
     active = true;
     fine = false;
@@ -31,6 +41,8 @@ struct Controls {
     previousButtons = previousVoices = 0;
     resetArmed = false;
   }
+  // Decode one pass of tile levels into an intent. Holds never repeat;
+  // reset needs a deliberate 700 ms hold so it survives on stage.
   Input poll(uint8_t buttons, uint8_t voices, uint32_t now) noexcept {
     Input result{};
     if (waitRelease) {

@@ -13,11 +13,23 @@ To enable rapid, automated regression testing, Pico2Seq employs a **host-side un
 
 ## Testing Strategy & Module Classification
 
+`pico2seq_tests '[voice_envelope]'` covers the live ADSR page's entry/exit
+gesture, release suppression, movement pickup, all-step scope, arp publication,
+voice isolation, repurposed timbre lanes, and audible sustain/release changes
+without retriggering. OLED/LED layout and tile timing still need a hardware check.
+
 Application glue lives in `src/app/`; see the
 [firmware structure guide](firmware-structure.md). `test_app_runtime.cpp`
 checks every PCM16 level, clipping/truncation and hand-distance recording
 calibration (`[app]`). The Arduino build checks the hardware-bound app `.cpp`
 files; host CMake does not compile that startup/I2S/control glue.
+
+`test_lidar_recording.cpp` compiles the real `StepPlayback.cpp` recording and
+publication path. Run `pico2seq_tests.exe '[lidar]'` to check held/latched Filter
+and Release buttons, calibrated distance, independent lane lengths, selected-step
+edits while running/stopped, voice isolation, patch reset, encoder targets, and
+Digital/Square rendered filter contours and release tails. These are host logic
+and DSP checks; physical lidar, OLED and listening still need a hardware check.
 
 ```
                      PICO2SEQ CODEBASE
@@ -51,11 +63,95 @@ files; host CMake does not compile that startup/I2S/control glue.
 | **Tier 2: Light Stubs** | Musical Scales | `src/pico2seq-core/scales/scales.cpp` | Requires minimal `Arduino.h` type aliases (`uint8_t`, `String`). |
 | **Tier 2: Light Stubs** | Sequencer Logic | `src/pico2seq-core/sequencer/{Sequencer,ParameterManager}.cpp` | Requires `Arduino.h` and `pico/sync.h` spinlock stubs. |
 | **Tier 2: Light Stubs** | Voice & Presets | `src/voice/{Voice,VoicePresets}.cpp` | Requires staged parameter and scale table injection. |
-| **Tier 3: Hardware-Bound** | I2S, LED, OLED, MIDI, Sensors | `src/audio/`, `src/LEDMatrix/`, `src/OLED/`, `src/midi/`, `src/sensors/` | Hardware-dependent glue. Kept thin; validated on physical hardware. |
+| **Tier 3: Hardware-Bound** | I2S, LED, OLED, Sensors | `src/audio/`, `src/LEDMatrix/`, `src/OLED/`, `src/sensors/` | Hardware-dependent glue. Kept thin; validated on physical hardware. |
 
 ---
 
-## 17 Host Unit Test Suites
+## Focused UI transition checks
+
+`UIState` derives settings-page queries from `settingsMode/currentSubMode` and
+stores parameter-change feedback separately. `src/ui/UITransitions.h` contains
+pure state transitions; hardware handlers own MIDI cleanup and tile edge history.
+`tests/unit/test_ui_transitions.cpp` covers page reopening, feedback expiration
+(including timer wrap), slide cleanup, and tile-selection versus pad-focus rules.
+
+The focused target includes these tests and the existing ControlSurfaceLogic suite:
+
+```bash
+cmake --build build_test --target pico2seq_ui_tests --parallel
+./build_test/tests/pico2seq_ui_tests
+```
+
+Use a separate build directory when changing generators or compilers. On Windows,
+with x64 Clang and the Visual Studio SDK installed (not the ARM `g++` toolchain):
+
+```bash
+cmake -S . -B build_clang -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug
+cmake --build build_clang --target pico2seq_ui_tests --parallel
+./build_clang/tests/pico2seq_ui_tests.exe
+```
+
+Bench regression checklist (host tests cannot verify the physical tile/LED/OLED glue):
+- Open settings after leaving its parameter page: presets appear and pad taps apply presets.
+- Select each voice through tiles and pad holds: tiles exit step editing; pad holds keep
+  the parameter target and focus the held step without ending sounding notes.
+- Enter slide with a Shift-latched parameter, pending pad hold, or voice length hold:
+  old holds/latches cannot reappear on release. Both slide toggles leave step editing clear.
+- Press/release parameter tiles while sliding, then leave slide: no stale latch returns.
+- Hold each voice button for 400 ms in both panel modes: the existing OLED length gauge
+  and blinking band should identify that voice. Tap its lit bank to set 2–16 steps;
+  the partner bank must do nothing. Release the voice and pads in either order:
+  no gate toggles or step selection should leak through. Short voice taps and Shift
+  chords retain their actions; holding Utility button 6 must not open length entry.
+  Host coverage for timing, ownership, and modal cancellation is tagged `[gate_length]`
+  in `test_ui_transitions.cpp`; physical controls and display behavior need hardware checks.
+- Editor voice selection keeps per-voice cursors; session restore retains the saved voice
+  without invoking live tile-selection note cleanup.
+
+## Master delay and compressor integration
+
+`test_master_bus.cpp` checks the real `VoiceManager` against standalone
+delay and compressor processing in the order: voices, delay, master gain,
+compressor. It covers dry bypass, all three compressor anchors, block sizes
+through 513 samples, tails after voices go silent, transport mute, zero
+master volume, the 10–750 ms fader range, and synced time following BPM at 48 kHz. The block suite also
+compares scalar and block rendering while delay mix/time change.
+
+`test_master_delay.cpp` retains fractional timing, repeat darkening, bounded
+feedback and mix smoothing checks, plus a 45 BPM whole-note echo and safe
+mode switches. `test_master_compressor.cpp` checks that a four-voice mix
+changes the PCM16 samples delivered to I2S. `test_control_surface_logic.cpp` checks
+faders 1–3 re-arm on Shift edges while gate length stays engaged,
+the 19 note divisions and retains the step-envelope assignments and compressor macro gesture.
+
+```powershell
+cmake --build build_test --parallel
+& ./build_test/tests/pico2seq_tests.exe '[master],[master_delay],[control_surface]'
+ctest --test-dir build_test -C Release --output-on-failure
+```
+
+On hardware, check fader 1 tempo/feedback, fader 2 mix/time in both ms and sync modes,
+Shift + Utility Delay/Session toggling the mode, and fader 3 volume/macro independently,
+their OLED notices, both Shift edges, and all four ENV sliders. Listen to
+delay tails with different compressor settings; inspect underrun counters
+while all four voices play. Host tests and firmware compilation do not
+establish board timing, physical controls, or listening acceptance.
+
+Integration validation on 2026-09-21 started from `DeCluttered` at `df6b50d`
+and merged `delay` at `70f2d86`. Clang Release CTest passed 484/504 checks;
+all 20 failures also occurred on untouched `df6b50d` (462/482), with identical
+failure names. The focused effect/control run passed 67 cases. RP2350
+firmware compiled at 150 MHz with audio code in SRAM and all four artifacts
+(UF2, ELF, BIN, MAP) verified. It was not flashed or tested on hardware.
+
+The subsequent Shift + tempo-fader feedback change passed 68 focused cases
+and 486/506 full CTest checks, with the same 20 baseline failures. Live
+feedback changes are checked through the real combined bus at 0%, 100% and
+35%, and the saturated-delay test now exercises a full 1.0 feedback coefficient.
+The 150 MHz firmware was rebuilt with all four artifacts verified; physical
+fader/OLED behavior and audio timing remain unverified.
+
+## Host Unit Test Suites
 
 The host test executable (`pico2seq_tests`) links all unit suites under `tests/unit/`:
 
@@ -74,14 +170,17 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 10a | `tests/unit/test_satellite_link.cpp` | Satellite cached control state | SEQ dedupe and wrap, liveness from SEQ/HEARTBEAT (a tile that answers but stopped sampling still goes Stale), timeout into Stale, buttons released / faders held while stale, recovery re-publish, rejected reads never overwriting the cache (`[satellite_link]`) |
 | 10c | `tests/unit/test_py32_slider_tile.cpp` | PY32 slider tile firmware (`py32_slider_tests`) | The sketch itself: identity block, coherent checksummed frame, SEQ vs HEARTBEAT, publish never stalled by an in-flight or abandoned read, survival of a peripheral rebuild, sticky edges cleared only once delivered, TXE+BTF in one snapshot, pointer parking, and the fader conditioning in front of the snapshot — a resting fader's dither doesn't churn SEQ, a deliberate 30-count move publishes, a settled fader rests within one deadband of the truth, every deadband index is addressable, the smoothing is primed at boot (`[py32][slider]`, `[py32][slider][filter]`, isolated `tests/py32_stubs/`) |
 | 10d | `tests/unit/test_py32_button_tile.cpp` | PY32 button tile firmware (`py32_button_tests`) | Same slave contract plus the 8-bit bitmap in a 3-byte DATA block and the shared bus rate (`[py32][button]`) |
-| 10b | `tests/unit/test_alchemy_tiles.cpp` | Alchemy tile driver (`pico2seq_tile_tests`) | One-transaction snapshot poll, sticky edges delivered once and never re-delivered from a re-read frame, a frozen-but-answering tile caught, a dead satellite holding faders but dropping button holds, corrupt/short frames refused (`[alchemy_tiles]`, isolated `tests/tile_stubs/`) |
+| 10b | `tests/unit/test_alchemy_tiles.cpp` | Alchemy tile driver (`pico2seq_tile_tests`) | One-transaction snapshot poll, sticky edges delivered once and never re-delivered from a re-read frame, a frozen-but-answering tile caught, a dead satellite holding faders but dropping button holds, corrupt/short frames refused, and `sliderFrameChanged()` — the freshness flag the fader median filter is gated on — true only for a new snapshot and for one update pass (`[alchemy_tiles]`, `[alchemy_tiles][fresh]`, isolated `tests/tile_stubs/`) |
 | 11 | `tests/unit/test_app_runtime.cpp` | App runtime helpers | PCM16 DAC conversion (clipping/truncation, `[app][pcm]`), lidar recording calibration across the 55–700 mm window (`[app][recording]`) |
 | 12 | `tests/unit/test_audio_i2s.cpp` | I2S output path (`pico2seq_audio_tests`) | Rendered buffers handed to DMA, starvation recovery (`[audio][i2s]`, isolated `tests/audio_stubs/`) |
 | 13 | `tests/unit/test_freeze_watchdog.cpp` | `FreezeWatchdog` (`pico2seq_watchdog_tests`) | Watchdog scratch evidence, boot vs late-serial reconnect, no stale reports on normal boot (`[watchdog]`, isolated `tests/watchdog_stubs/`) |
 | 14 | `tests/unit/test_voice_recipes.cpp` | Recipe/engine voices | Preset registry coherence (29 presets across core, recipes, and musical presets), waveguide tails across engine resets, recipe timbre lanes, envelope gate/retrigger behavior (`[voice][presets][waveguide][recipes]`) |
 | 15 | `tests/unit/test_voice_edit.cpp` | Voice Editing mode | Base vs lidar-modifier independence, neutral-modifier preset round-trip, parameter catalogue reachability/clamping per engine, editor release semantics, muted-editor queue draining (`[voice_edit][recording]`) |
-| 16 | `tests/unit/test_persistence.cpp` | Session persistence (`src/pico2seq-core/persistence/`, `src/voice/PatchCodec.*`) | CRC32 vector, frame magic/version/size/CRC rejection, locked 10,312-byte snapshot layout, snapshot validation bounds, pattern round-trip incl. raw tails, patch codec pointer re-derivation, golden full-project round-trip, watchdog resume decision table, retained-store validity (`[persistence]`) |
+| 16 | `tests/unit/test_persistence.cpp` | Session persistence (`src/pico2seq-core/persistence/`, `src/voice/PatchCodec.*`) | CRC32 vector, frame magic/version/size/CRC rejection, locked snapshot layout (10,312 bytes format 1, 12,400 bytes format 2), snapshot validation bounds, pattern round-trip incl. raw tails, patch codec pointer re-derivation, golden full-project round-trip, watchdog resume decision table, retained-store validity (`[persistence]`) |
 | 17 | `tests/unit/test_recipe_optimization.cpp` | `rpdsp` Recipe CPU Optimizations | Prepared oscillator phase/spectra, cached coefficient survival across edits/triggers, feedback operator history (`[optimization][recipes][voice]`) |
+| 18 | `tests/unit/test_master_compressor.cpp` | Master-bus macro knob (`VoiceManager`) | `rpdsp::Compressor` Warm/Glue/Punch curve anchors, gain reduction on high-amplitude streams, Punch squeezes harder than Warm to DAC-safe levels, gradual (not instant) morphs, silence passthrough (`[master][compressor]`, also in `pico2seq_voice_tests`) |
+| 19 | `tests/unit/test_master_delay.cpp` | Master-bus delay | Fractional reads, filtered repeats, feedback bounds and mix smoothing (`[master_delay]`) |
+| 20 | `tests/unit/test_master_bus.cpp` | Combined delay and compressor | Bus order, dry bypass, tails, mute, volume and audible fader range (`[master_bus]`) |
 
 ---
 
@@ -134,6 +233,9 @@ cmake --build build_test --parallel
 ./build_test/tests/pico2seq_voice_tests      # Focused voice ownership & queue suite (70 tests)
 ./build_test/tests/pico2seq_watchdog_tests   # FreezeWatchdog forensics suite (4 tests)
 ./build_test/tests/pico2seq_audio_tests      # I2S DMA/pool driver suite (1 test)
+./build_test/tests/pico2seq_tile_tests       # Tile bus master against a scriptable I2C bus
+./build_test/tests/py32_slider_tests         # SliderModule.ino itself, against a PY32Duino shim
+./build_test/tests/py32_button_tests         # ButtonModule8.ino itself
 ```
 
 *(On Windows PowerShell, append `.exe` to executable names; `ctest --test-dir build_test` executes all 315 tests across all 4 targets)*
@@ -235,7 +337,6 @@ one-transaction snapshot poll can actually be proven.
 |---|---|
 | `src/pico2seq-core/sequencer/Sequencer.cpp` | `advanceStep()` polyrhythmic step progression across independent tracks |
 | `src/voice/VoicePresets.cpp` | Boundary assertion that all preset parameter values stay within [0.0, 1.0] |
-| `src/rpdsp/` `Compressor` | Master mix gain reduction verification on high-amplitude audio streams |
 
 ---
 

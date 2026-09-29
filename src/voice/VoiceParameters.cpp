@@ -1,3 +1,5 @@
+// VoiceParameters.cpp — lane → config mapping (control thread; pure math,
+// no allocation, safe to call from tests).
 #include "VoiceParameters.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include <algorithm>
@@ -6,6 +8,8 @@
 
 float VoiceParameterBinding::map(float normalized) const noexcept
 {
+  if (isCentered())
+    return dspmap::fmapCentered(normalized, minimum, maximum, center, curve);
   return dspmap::fmap(std::clamp(normalized, 0.0f, 1.0f), minimum, maximum, curve);
 }
 
@@ -13,11 +17,13 @@ float VoiceParameterBinding::normalize(float value) const noexcept
 {
   if (maximum <= minimum)
     return 0.0f;
+  if (isCentered())
+    return dspmap::normalizeCentered(value, minimum, maximum, center, curve);
   value = std::clamp(value, minimum, maximum);
   const float linear = (value - minimum) / (maximum - minimum);
   if (curve == dspmap::Mapping::EXP)
     return std::sqrt(linear);
-  if (curve == dspmap::Mapping::LOG)
+  if (curve == dspmap::Mapping::LOG || curve == dspmap::Mapping::OCTAVE)
     return std::log(value / minimum) / std::log(maximum / minimum);
   return linear;
 }
@@ -25,54 +31,10 @@ float VoiceParameterBinding::normalize(float value) const noexcept
 namespace VoiceParameters {
 namespace {
 constexpr size_t slot(ParamId id) { return static_cast<size_t>(id); }
-constexpr VoiceParameterBinding control(const char *name, float VoiceConfig::*target)
-{
-  return {name, target, 0.0f, 1.0f, dspmap::Mapping::LINEAR, VoiceParameterUnit::Percent, true};
-}
-constexpr VoiceParameterLayout makeWaveguide()
-{
-  VoiceParameterLayout p{};
-  p.envelopeFromTracks = false;
-  // Velocity lives in the pluck excitation (Voice::processWaveguide_). Scaling
-  // the raw output too would double-apply it and zipper the ringing string
-  // every time a later step pushes a new velocity value.
-  p.velocityToAmplitude = false;
-  p.slots[slot(ParamId::Filter)] = control("Bright", &VoiceConfig::wgBrightness);
-  p.slots[slot(ParamId::Attack)] = control("Pick", &VoiceConfig::wgPickHardness);
-  p.slots[slot(ParamId::Decay)] = {"T60", &VoiceConfig::wgT60, kWaveguideT60Min,
-      kWaveguideT60Max, dspmap::Mapping::EXP, VoiceParameterUnit::Seconds, true};
-  return p;
-}
-constexpr VoiceParameterLayout makeHypersaw()
-{
-  VoiceParameterLayout p{};
-  p.envelopeFromTracks = false;
-  p.cutoffMinimum = 150.0f;
-  p.cutoffMaximum = 8000.0f;
-  p.slots[slot(ParamId::Attack)] = control("Detune", &VoiceConfig::hypersawDetune);
-  p.slots[slot(ParamId::Decay)] = control("Mix", &VoiceConfig::hypersawMix);
-  return p;
-}
-constexpr VoiceParameterLayout makeNoiseStorm()
-{
-  VoiceParameterLayout p = makeHypersaw();
-  p.slots[slot(ParamId::Filter)] = control("Color", &VoiceConfig::noiseSwarmColor);
-  p.slots[slot(ParamId::Attack)] = control("Regen", &VoiceConfig::noiseSwarmRegen);
-  p.slots[slot(ParamId::Decay)] = control("Chaos", &VoiceConfig::noiseChaosLevel);
-  return p;
-}
-constexpr VoiceParameterLayout makeHardSync()
-{
-  VoiceParameterLayout p{};
-  p.velocityToAmplitude = false;
-  p.slots[slot(ParamId::Note)].name = "Master";
-  p.slots[slot(ParamId::Velocity)] = {"Slave", nullptr, -24.0f, 24.0f,
-      dspmap::Mapping::LINEAR, VoiceParameterUnit::Semitones, true, 0.5f};
-  return p;
-}
 constexpr VoiceParameterLayout kStandard{};
+constexpr VoiceParameterLayout kHardSync = hardSyncLayout();
 constexpr VoiceParameterLayout kLegacyLayouts[] = {
-    kStandard, makeWaveguide(), makeHypersaw(), makeNoiseStorm(), makeHardSync()};
+    kStandard, waveguideLayout(), hypersawLayout(), noiseStormLayout(), kHardSync};
 
 float stateValue(const VoiceState &s, ParamId id) noexcept
 {
@@ -81,6 +43,8 @@ float stateValue(const VoiceState &s, ParamId id) noexcept
   case ParamId::Filter: return s.filterCutoff;
   case ParamId::Attack: return s.attackTimeSeconds;
   case ParamId::Decay: return s.decayTimeSeconds;
+  case ParamId::Sustain: return s.sustainLevel;
+  case ParamId::Release: return s.releaseTimeSeconds;
   default: return 0.0f;
   }
 }
@@ -96,14 +60,33 @@ const VoiceParameterLayout &layout(const VoiceConfig &config) noexcept
 const VoiceParameterBinding &binding(const VoiceConfig &config, ParamId id) noexcept
 {
   static constexpr VoiceParameterBinding empty{};
-  return slot(id) < PARAM_ID_COUNT ? layout(config).slots[slot(id)] : empty;
+  if (slot(id) >= PARAM_ID_COUNT)
+    return empty;
+  if (config.paramSet == PARAMSET_HARDSYNC && (id == ParamId::Note || id == ParamId::Velocity))
+    return kHardSync.slots[slot(id)];
+  return layout(config).slots[slot(id)];
+}
+
+bool velocityToAmplitude(const VoiceConfig &config) noexcept
+{
+  return config.paramSet != PARAMSET_HARDSYNC && layout(config).velocityToAmplitude;
+}
+
+float mapCutoff(const VoiceParameterLayout &p, float normalized) noexcept
+{
+  if (p.cutoffCentered())
+    return dspmap::fmapCentered(normalized, p.cutoffMinimum, p.cutoffMaximum, p.cutoffCenter,
+                                p.cutoffCurve);
+  return dspmap::fmap(std::clamp(normalized, 0.0f, 1.0f), p.cutoffMinimum, p.cutoffMaximum,
+                      p.cutoffCurve);
 }
 
 void apply(VoiceConfig &config, const VoiceState &state) noexcept
 {
-  // Pitch, octave and timing retain their shared musical units. These four
-  // normalized lanes can address any float setting in a recipe/config.
-  for (ParamId id : {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Decay})
+  // Pitch, octave and timing keep shared musical units; these six lanes may
+  // each retarget any float setting (recipe macros, string model, ...).
+  for (ParamId id : {ParamId::Velocity, ParamId::Filter, ParamId::Attack, ParamId::Decay,
+                     ParamId::Sustain, ParamId::Release})
   {
     const auto &b = binding(config, id);
     if (b.target)
@@ -113,14 +96,13 @@ void apply(VoiceConfig &config, const VoiceState &state) noexcept
 
 void seedTracks(Sequencer &sequencer, const VoiceConfig &config)
 {
-  const auto &p = layout(config);
-  for (size_t i = 0; i < p.slots.size(); ++i)
+  for (size_t i = 0; i < PARAM_ID_COUNT; ++i)
   {
-    const auto &b = p.slots[i];
+    const auto id = static_cast<ParamId>(i);
+    const auto &b = binding(config, id);
     if (!b.seed)
       continue;
     const float value = b.target ? b.normalize(config.*(b.target)) : b.defaultNormalized;
-    const auto id = static_cast<ParamId>(i);
     for (uint8_t step = 0; step < sequencer.getParameterStepCount(id); ++step)
       sequencer.setStepParameterValue(id, step, value);
   }
@@ -133,10 +115,15 @@ bool formatValue(const VoiceConfig &config, ParamId id, float normalized,
     return false;
   const auto &b = binding(config, id);
   if (id == ParamId::Filter && !b.target) {
+    // Target-less Filter lane: show envelope amount plus the cutoff peak it
+    // opens to, since a bare Hz readout would lie about what the lane does.
     const auto &p = layout(config);
-    const float frequency = dspmap::fmap(std::clamp(normalized, 0.0f, 1.0f),
-                                        p.cutoffMinimum, p.cutoffMaximum, dspmap::Mapping::EXP);
-    std::snprintf(output, capacity, "%.0fHz", frequency);
+    const float octaves = std::max(0.0f, config.filterEnvelopeOctaves) *
+                          std::clamp(normalized, 0.0f, 1.0f);
+    const float base = mapCutoff(p, config.filterCutoffBase);
+    const float peak = base * std::exp2(octaves * (1.0f - std::clamp(config.filterEnvelopeRest, 0.0f, 1.0f)));
+    std::snprintf(output, capacity, "%.0f%% %.0fHz", normalized * 100.0f, peak);
+    // "<amount>% <peak>": how far the contour opens, and the cutoff it reaches.
     return true;
   }
   const float value = b.map(normalized);
@@ -146,7 +133,12 @@ bool formatValue(const VoiceConfig &config, ParamId id, float normalized,
   case VoiceParameterUnit::Semitones: std::snprintf(output, capacity, "%+.1fst", value); break;
   case VoiceParameterUnit::Ratio: std::snprintf(output, capacity, "%.2fx", value); break;
   case VoiceParameterUnit::Hertz: std::snprintf(output, capacity, "%.0fHz", value); break;
-  default: return false;
+  default:
+    if (b.target) {
+      std::snprintf(output, capacity, "%.0f%%", value * 100.0f);
+      return true;
+    }
+    return false;
   }
   return true;
 }

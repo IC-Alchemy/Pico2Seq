@@ -4,22 +4,26 @@ For adding sounds, start with the [voice and preset extension guide](../src/voic
 
 ## 1. Overview
 
-The voice module provides a comprehensive synthesizer voice system with multi-oscillator synthesis, selectable ladder/state-variable filtering, effects processing, lock-free parameter staging, and preset management. It is designed specifically for the dual-core Raspberry Pi Pico 2 (RP2350) architecture and integrates with the sequencer, UI, and MIDI systems.
+The voice module provides a comprehensive synthesizer voice system with multi-oscillator synthesis, selectable ladder/state-variable filtering, effects processing, lock-free parameter staging, and preset management. It is designed specifically for the dual-core Raspberry Pi Pico 2 (RP2350) architecture and integrates with the sequencer and UI systems.
 
 ### 1.1 Architecture Components
 
 The voice system consists of several key components:
 
 - **`Voice`**: Individual synthesizer voice encapsulating oscillators, a main filter (ladder or state-variable, per `filterType`), high-pass filter, ADSR envelope, overdrive waveshaper, and lock-free parameter/pitch staging.
-- **`VoiceManager`**: Manages multiple voices with allocation, deallocation, master volume scaling, per-voice mix levels, and unified per-sample audio processing.
-- **`VoiceSystem`**: Centralized structure consolidating voice IDs, states, gates, and gate countdown timers into arrays for `MAX_VOICES = 4` voices.
+- **`VoiceManager`**: Manages multiple voices with allocation, deallocation, per-voice mix levels and unified block audio processing. The summed bus passes through `MasterDelay`, master volume, then the glue compressor (`rpdsp::Compressor`, last DSP before the DAC); see `VoiceManager::processBlock()`. The compressor is driven by the master macro knob (Shift + fader 3): 0 = Warm/Glue/Leveler, 0.5 = Neutral/Mild Glue, 1 = Punch/Smash/Pump (`settingsForMacro()`); the audio thread eases toward the fader target so moves never step the output. Fader 1 is tempo (Shift: delay feedback) and fader 2 is delay mix (Shift: delay time). The macro position is performance state, not part of the session snapshot.
+- **`VoiceSystem`**: Centralized structure consolidating voice IDs and control-core state snapshots into arrays for `MAX_VOICES = 4` voices.
 - **`VoicePresets`**: Registry of 29 presets, built from grouped preset headers and one `PresetBank.h` list. Fourteen recipe presets cover FM, phase distortion, DSF, formants, ring modulation, reversing sync and spectral/chaotic synthesis. See the [musical preset bank](../src/voice/README.md#musical-preset-bank) for the latest eight sounds and their controls.
 - **`VoiceOscillator`**: Variant-based dispatcher decoupling numeric waveform IDs from `rpdsp` oscillator classes.
 - **Supporting Classes**: `VoiceManagerBuilder` and `VoiceFactory` for builder-pattern and pre-configured voice setups.
 
 ### 1.2 VoiceSystem Centralization
 
-The `VoiceSystem` struct provides centralized voice tracking:
+The `VoiceSystem` struct provides centralized voice tracking. Each sequencer
+owns note duration; PPQN expiry publishes gate-off through `VoiceManager`.
+There are no separate gate timers or MIDI trackers in this structure. See
+[VoiceSystem ownership](VoiceSystem.md#3-ownership-and-routing).
+
 
 ```cpp
 struct VoiceSystem {
@@ -28,21 +32,12 @@ struct VoiceSystem {
     uint8_t voiceIds[MAX_VOICES] = {0, 0, 0, 0};
     VoiceState voiceStates[MAX_VOICES];
 
-    // Gate states and duration countdown timers across all 4 voices (0-3)
-    volatile bool gates[MAX_VOICES] = {false, false, false, false};
-    GateTimer gateTimers[MAX_VOICES];
-
     uint8_t getVoiceId(uint8_t voiceIndex) const;
     void setVoiceId(uint8_t voiceIndex, uint8_t voiceId);
 
     VoiceState& getVoiceState(uint8_t voiceIndex);
     const VoiceState& getVoiceState(uint8_t voiceIndex) const;
 
-    volatile bool& getGate(uint8_t voiceIndex);
-    GateTimer& getGateTimer(uint8_t voiceIndex);
-
-    void stopAllGates();
-    void tickAllGateTimers();
 };
 
 extern VoiceSystem voiceSystem;
@@ -314,7 +309,8 @@ public:
 
     // Audio Processing
     void init(float sampleRate);
-    float processAllVoices() noexcept;
+    void processBlock(float *out, uint32_t n) noexcept;
+    float processAllVoices() noexcept; // one-sample wrapper
     float processVoice(uint8_t voiceId);
 
     // Voice Control
@@ -372,8 +368,8 @@ and [musical preset bank](../src/voice/README.md#musical-preset-bank).
 | **4** | **Square** | osc | 1x `WAVE_BSP_SQUARE` (PW: 0.2) | `[1.0]` | `[0.0]` | `[0]` | **BP24** (SVF) | Res: 0.60, SVF band-pass, HPF: 150 Hz | Off (Gain: 0.75, Drive: 0.35) | `0.02s / 0.4s / 0.0 / 0.25s` | `0.56` |
 | **5** | **Pad** | osc | 3x `WAVE_BSP_SAW` | `[0.33, 0.33, 0.33]` | `[0.0, 0.0, 0.0]` | `[0, +4, +9]` | **LP12** (SVF) | Res: 0.30, SVF low-pass, HPF: 140 Hz (Res: 0.08) | Off (Gain: 0.85, Drive: 0.25) | `0.02s / 0.2s / 0.5 / 0.5s` | `0.5` |
 | **6** | **Percussion** | osc | **0 oscs** (`WAVE_NOISE`, `NoiseOscillator`) | `[1.0]` | `[0.0]` | `[0]` | **LP24** (SVF) | Res: 0.40, SVF low-pass, HPF: 200 Hz | Off (Gain: 0.45, Drive: 0.30) | `0.005s / 0.08s / 0.0 / 0.07s` | `0.5` |
-| **7** | **SubFunk** | osc | (`WAVE_SIN`, `WAVE_TRI`, `WAVE_SIN`) | `[1.0, 0.8, 0.65]` | `[-12.0, -12.0, 0.0]` | `[0, 0, 0]` | **LP12** (SVF) | Res: 0.50, SVF low-pass, HPF: 55 Hz | On (Gain: 0.9, Drive: 0.35) | `0.004s / 0.22s / 0.35 / 0.12s` | `0.9` |
-| **8** | **RubberSub** | osc | (`WAVE_SIN`, `WAVE_BSP_SQUARE`, `WAVE_TRI`) | `[0.9, 0.3, 0.5]` | `[-12.0, -12.0, 0.0]` | `[0, 0, 0]` | **BP24** (SVF) | Res: 0.70, SVF band-pass, HPF: 70 Hz | On (Gain: 1.0, Drive: 0.55) | `0.002s / 0.16s / 0.25 / 0.09s` | `0.85` |
+| **7** | **SubFunk** | osc | (`WAVE_SIN`, `WAVE_BSP_SQUARE`, `WAVE_SIN`) | `[1.0, 0.35, 0.65]` | `[-12.0, -12.0, 0.0]` | `[0, 0, 0]` | **LP12** (SVF) | Res: 0.60, SVF low-pass, HPF: 25 Hz | On (Gain: 0.9, Drive: 0.45) | `0.004s / 0.22s / 0.35 / 0.12s` | `0.9` |
+| **8** | **RubberSub** | osc | (`WAVE_SIN`, `WAVE_BSP_SQUARE`, `WAVE_TRI`) | `[0.9, 0.3, 0.5]` | `[-12.0, -12.0, 0.0]` | `[0, 0, 0]` | **BP24** (SVF) | Res: 0.70, SVF band-pass, HPF: 25 Hz | On (Gain: 1.0, Drive: 0.55) | `0.002s / 0.16s / 0.25 / 0.09s` | `0.85` |
 | **9** | **WgPluck** | waveguide | — (wg: T60 1.8s, bright 0.78, pick 0.26/0.85, stiff 0.0, det 4c) | — | — | — | **none** (`hasFilter=false`) | ladder bypassed; sub-shed HPF 55 Hz | Off | **none** (`hasEnvelope=false`; natural T60 ring) | `0.85` |
 | **10** | **WgNylon** | waveguide | — (wg: T60 3.2s, bright 0.28, pick 0.42/0.22, stiff 0.05, det 9c) | — | — | — | **none** (`hasFilter=false`) | ladder bypassed; sub-shed HPF 66 Hz | Off | **none** (`hasEnvelope=false`; natural T60 ring) | `0.9` |
 | **11** | **WgBell** | waveguide | — (wg: T60 1.4s, bright 0.9, pick 0.08/1.0, stiff 0.88, det 0c) | — | — | — | **none** (`hasFilter=false`) | ladder + HPF bypassed | Off | **none** (`hasEnvelope=false`; natural T60 ring) | `0.75` |
@@ -399,7 +395,11 @@ the `wg*` config fields tune T60, loop brightness, pick position/hardness, stiff
 bypassed, velocity scales the pluck excitation itself (soft picks inject less energy,
 and the ringing tail is never rescaled by later velocity changes), and the string
 rings past gate fall on its own T60 (gate edges still arm plucks — see
-`computeEnvelope()`).
+`handleGateEdges_()`). String tuning lands only on note starts: each gate
+rise (or retrigger) re-pushes the `wg*` bases with a small per-note
+humanization (±4% multiplicative, under the 5% musical ceiling; exact zeros
+stay zero so unison/dry settings never drift), and edits made while a note
+rings wait for the next gate-on instead of retuning the live loop.
 WgPluck/WgNylon keep a gentle 55/66 Hz high-pass to shed subsonic rumble that
 Karplus tails otherwise accumulate; WgBell/WgShimmer bypass the high-pass too.
 Preset 13 uses `engine = ENGINE_HYPERSAW`: one `rpdsp::Hypersaw` instance supplies
@@ -445,7 +445,10 @@ presets while playing never clicks a held note or cuts a ringing tail.
 ## 4. DSP Processing Pipeline & Signal Flow
 
 Control setters enqueue snapshots without reading or mutating applied DSP state.
-Each `process()` consumes at most one update, even when disabled. Control code
+While updates are queued, `processBlock()` consumes one update and renders one
+sample, even when disabled. With an empty queue it renders spans of up to 32
+samples before checking again. A control published during a span waits at most
+0.67 ms at 48 kHz. `process()` remains a one-sample wrapper. Control code
 calls `flushControlUpdates()` every loop to retry full queues and sample scale
 selection. Only unpublished updates may coalesce under overload; published slots
 cannot be overwritten until audio finishes copying them. See
@@ -454,61 +457,56 @@ for overflow policy, table lifetimes, and getter ownership. UI getters on
 `VoiceManager` return const requested copies; applied getters on `Voice` are
 restricted to the audio thread or quiescent tests.
 
-Each call to `Voice::process()` on Core 1 executes the following stages:
+Each span runs these stages on Core 1. All sample scratch belongs to the voice,
+so no per-span arrays use Core 1's 2 KiB stack.
 
-```
-[Sequencer / UI Parameters]
-           │
-           ▼ (Bounded Control Queue: complete owned slots)
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│ Voice::process() (Core 1 @ 48kHz)                                               │
-│                                                                                 │
-│ 1. Apply Pending Updates                                                        │
-│    - applyConfig_(): Reconfigures filters, waveforms, detune multipliers  │
-│    - applyParameters_(): Applies staged VoiceState, ADSR parameters, filter f │
-│                                                                                 │
-│ 2. Envelope Processing (computeEnvelope)                                        │
-│    - rpdsp::ADSR: noteOn() on gate rise / retrigger; noteOff() on gate fall     │
-│    - Computes envelope amplitude E in [0.0, 1.0]                                │
-│                                                                                 │
-│ 3. Filter Cutoff Smoothing (updateFilter)                                       │
-│    - Target cutoff = (filterFrequency * E) + (filterFrequency * 0.1)            │
-│    - One-pole smoother: cutoffCurrent += alpha * (targetCutoff - cutoffCurrent) │
-│    - Throttled filter.setFreq() update every 8 samples (relative eps > 0.2%)    │
-│                                                                                 │
-│ 4. Source Stage & Slide Slew (mixOscillators)                                   │
-│    - Silence short-circuit: If E <= 0.001 (and the envelope is enabled), return 0.0 immediately              │
-│    - engine == ENGINE_WAVEGUIDE: pluck on gate rise; S_osc = waveguide_.process │
-│    - engine == ENGINE_HYPERSAW: S_osc = one native seven-voice Hypersaw         │
-│    - engine == ENGINE_NOISEFX: S_osc = noise + chaos_lorenz (fx inserts at 5)   │
-│    - ENGINE_OSC: commit pitch to hardware ONLY when isGateHigh == true          │
-│    - If slide active: Exponential slew via fmaf(delta, slideAlpha, currentFreq) │
-│    - If oscCount > 0: S_osc = Sum(osc[i].process() * oscAmplitudes[i])          │
-│    - If oscCount == 0: S_osc = noise_.process()                                 │
-│                                                                                 │
-│ 5. Pre-Filter VCA & Effects Shaping (finalizeOutput)                            │
-│    - S_vca = S_osc * E   (Pre-filter VCA makes overdrive response dynamic)      │
-│    - If hasOverdrive: S_vca = overdrive.process(S_vca * overdriveGain)          │
-│    - If ENGINE_NOISEFX: fx_diffuse -> fx_swarm inserts (rpdsp DSPFunctions)     │
-│                                                                                 │
-│ 6. Main Filter & High-Pass Filtering                                            │
-│    - Ladder or SVF per filterType; SVF reads lowpass/bandpass/highpass          │
-│      out per filterMode (response cached in svfOutputSel_)                      │
-│    - S_filt = filter.process(S_vca * velocityLevel) — fixed at 1.0 for HARDSYNC presets                             │
-│    - S_hpf = highPassFilter.process(S_filt).highpass (or bypassed if <= 20 Hz (and resonance <= 0.01))   │
-│                                                                                 │
-│ 7. Output Scaling                                                               │
-│    - S_out = S_hpf * outputLevel                                                │
-└─────────────────────────────────────────────────────────────────────────────────┘
-           │
-           ▼
-[VoiceManager::processAllVoices() -> Sum(S_out * mixLevel) * smoothed master gain]
-  (globalVolume / transport-mute targets eased per sample, ~15 ms time constant,
-   so volume moves and transport start/stop never click)
-           │
-           ▼
-[FloatToPcm16() -> Cortex-M33 __SSAT -> I2S DMA Buffer]
-```
+1. `handleGateEdges_()` consumes gate rise/fall and retrigger, including pluck
+   triggers when the ADSR is bypassed. The ADSR then generates each sample.
+2. Apply deferred structural configuration if the gate is low.
+3. `planFilterUpdates_()` advances cutoff smoothing per sample. The target is
+   `filterFrequency * 2^(filterEnvOctaves_ * (env - filterEnvelopeRest))` -
+   exponential in pitch, like an analog VCF's V/oct input, recomputed at the
+   setFreq rate and smoothed per sample in between. At `env == filterEnvelopeRest`
+   the cutoff is exactly what the Filter lane dialed, so the sequenced cutoff
+   stays audible instead of being replaced by the contour. `filterEnvOctaves_`
+   is `filterEnvelopeOctaves` scaled +/-30% by the Filter lane, so one sweep
+   both raises the cutoff and deepens the envelope.
+   (Before 2026-09-19 this was linear: `env * amount + floor`, which dropped a
+   released note to a tenth of its cutoff and made voices inaudible unless the
+   gate was long.)
+   Coefficient updates retain their every-eight-samples throttle and change
+   threshold; their exact sample indices are recorded in fixed storage.
+**The Filter lane is the envelope amount, not the cutoff** (2026-09-19). The
+cutoff frequency comes from `filterCutoffBase` alone - the encoder's Filter
+target - and the sequenced lane scales `filterEnvelopeOctaves` from 0 (cutoff
+parked on the base) to the preset's full sweep. `filterEnvelopeRest` defaults to
+0, so the contour only opens upward from the base, the way an analog VCF's
+contour amount works. The OLED shows the lane as `<amount>% <peak Hz>` and the
+patch base as plain Hz (`MusicalValues::format(..., baseView)`).
+
+4. `renderSources_()` selects the engine once per span. With an envelope,
+   samples at or below `0.001f` leave the source and pending pitch commit alone.
+   Oscillator-bank pitch commits require a high gate; slides advance every
+   sounding sample. Each oscillator renders into the mix in its original order.
+5. Apply envelope gain, then overdrive/NoiseStorm effects when needed, then
+   velocity (amplitude remains 1 for layouts that repurpose velocity).
+6. `runMainFilter_()` processes segments between coefficient updates, applying
+   each update before its sample. Then apply the optional HPF and output level.
+7. Track consecutive output samples below `1e-6` for the silent skip.
+
+A voice can skip DSP after 256 quiet samples only with an idle ADSR, released
+gate, no pending gate edge/retrigger or structural change, and an envelope.
+Waveguide and NoiseStorm engines stay active so their internal tail state keeps
+evolving. Skipped spans still advance cutoff smoothing and its update counter;
+every configuration change resets the quiet count. Set `P2S_VOICE_IDLE_SKIP=0`
+to compare the full renderer. The skip can leave tiny frozen filter/HPF states;
+the resulting next-note differences are checked by PCM16 null tests.
+
+`VoiceManager::processBlock()` sums voice blocks in the original voice order.
+Per-voice mix, master-volume and mute targets are read once per block of up to
+256 frames (5.33 ms at 48 kHz). Master smoothing still advances every sample.
+`AudioSamples::toPcm16()` clamps and truncates the mix into identical left/right
+I2S samples. Block APIs overwrite their output and accept zero-length calls.
 
 ---
 
@@ -575,10 +573,15 @@ newState.gateLengthTicks = 60;        // 60 PPQN ticks
 voiceManager.updateVoiceState(v1, newState);
 ```
 
-### 6.3 Real-Time Per-Sample Audio Loop (Core 1)
+### 6.3 Real-Time Block Audio Loop (Core 1)
 
 ```cpp
-// Called per sample inside fill_audio_buffer() on Core 1
-float sample = voiceManager.processAllVoices();
-int16_t pcm16 = FloatToPcm16(sample);
+// Fixed Core 1 scratch, outside the stack.
+static std::array<float, 256> mix;
+voiceManager.processBlock(mix.data(), mix.size());
+for (uint32_t i = 0; i < mix.size(); ++i) {
+    const int16_t pcm16 = AudioSamples::toPcm16(mix[i]);
+    out[2 * i] = pcm16;
+    out[2 * i + 1] = pcm16;
+}
 ```

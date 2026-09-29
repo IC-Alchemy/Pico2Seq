@@ -1,50 +1,90 @@
 #ifndef UI_STATE_H
 #define UI_STATE_H
 
-#include <Arduino.h>
+#include <cstdint>
+#include "UIConstants.h"
 #include "VoiceEditControls.h"
+#include "VoiceEnvelopeControls.h"
+#include "../voice/DelayTiming.h"
+#include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
 
 /**
- * @brief Centralized state management for the Pico2Seq UI.
+ * @brief Single source of UI truth (Core 0 only).
  *
- * This struct encapsulates all UI-related state variables, eliminating
- * global externs and improving modularity. An instance of this struct
- * is passed to UI functions, making data flow explicit and easier to manage.
+ * All mode flags, holds, debounce timestamps, and transient OLED notices live
+ * here — never as loose globals. Handlers mutate it, LEDs/OLED read it.
+ * To add UI state: extend this struct (not a new global) and reset it in
+ * initButtonManager(). Voice indices are 0-based internally (0..3).
  */
 struct UIState
 {
     VoiceEdit::Controls voiceEditor;
+    VoiceEnvelope::Controls voiceEnvelope;
+    // Wait for all pads/tiles to release before performance input resumes
+    // (prevents a held pad from firing a step toggle on mode exit).
     bool controlsWaitRelease = false;
+
+    // --- Arpeggiator mode (Shift + hold Voice 4 toggles) ---
+    // The engine is the single owner of the mode flag, the chord and the note
+    // walk, so pads, tiles, encoder, LEDs, OLED and the playback layer all read
+    // the same state (see src/pico2seq-core/arpeggiator/Arpeggiator.h).
+    Arpeggiator::Engine arp;
+    enum class ArpControl : uint8_t {
+        None, Octaves, Gate, Swing, Filter, Hits, Length, Rotate, Accent,
+        Rate, Tempo, Rhythm, Latch, Restart
+    };
+    ArpControl arpControl = ArpControl::None;
+    uint32_t arpControlAt = 0;
+    // Primary arp voice's last composed pitch, captured when published.
+    char arpLastNotes[48] = {};
+    void showArpControl(ArpControl control, uint32_t now) noexcept {
+        arpControl = control;
+        arpControlAt = now;
+    }
     // --- Parameter Button States ---
+    // Which step-parameter lane (Note/Velocity/...) the performer is holding.
     // Indexed by ParamId for direct lookup.
     bool parameterButtonHeld[PARAM_ID_COUNT] = {false};
 
     // --- Mode States ---
+    // Mutually exclusive step-edit modes: only one may own the pads at a time.
     bool modGateParamSeqLengthsMode = false;
-    bool slideMode = false;
-    // Selected voice index 0..3 (replaces isVoice2Mode)
+    bool slideMode = false; // pads toggle legato per step instead of gates
+    // Shift + Utility Delay button toggles the master delay time scale.
+    bool delaySynced = false;
+    uint8_t delayNoteIndex = DelayTiming::kDefaultNoteIndex;
+    // Selected voice index 0..3; all voice-dependent UI derives from this.
     uint8_t selectedVoiceIndex = 0;
-    bool isVoice2Mode = false; // Legacy flag (kept for compatibility in some code paths)
     int selectedStepForEdit = -1;
     ParamId currentEditParameter = ParamId::Count; // Parameter being edited in toggle mode (Count = none)
     int currentThemeIndex = 0;
     EncoderParameterMode currentEncoderParameter = EncoderParameterMode::Velocity;
 
     // --- Timing States ---
-    unsigned long padPressTimestamps[SequencerConstants::MAX_STEPS_COUNT] = {0};
-    // --- Transient OLED notice (replaces the old control-cluster LED flashes) ---
-    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4 };
+    // Per-pad press times for tap (toggle step) vs hold (edit step). Index is
+    // the raw 0..31 pad; 0 = press was consumed by a mode, so release ignores it.
+    unsigned long padPressTimestamps[NUMBER_OF_STEP_PADS] = {0};
+    // --- Transient OLED notice (short confirmation banner; replaces the old control-cluster LED flashes) ---
+    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6, Macro = 7, DelayMix = 8, DelayTime = 9, DelayFeedback = 10, ArpOn = 11, ArpOff = 12, DelaySync = 13, DelayMsMode = 14 };
     volatile unsigned long oledNoticeUntil = 0;
     volatile OledNoticeKind oledNoticeKind = OledNoticeKind::None;
-    volatile uint8_t oledNoticeVoice = 0; // 0-based voice, valid for Randomized
+    volatile uint8_t oledNoticeVoice = 0; // 0-based voice, valid for Randomized and VoiceCleared
+    volatile uint8_t macroNoticePercent = 50; // 0..100 macro position, valid for Macro
+    // Numeric payload for DelayMix/DelayFeedback (0-100 %) or DelayTime (ms).
+    volatile uint16_t oledNoticeValue = 0;
     unsigned long lastEncoderButtonPressTime = 0;
     // Until this time the OLED shows the base the encoder just changed instead
     // of the playing step's composed value (0 = not showing).
     unsigned long encoderBaseViewUntil = 0;
+    // ENV mode: the envelope lane a fader last moved, highlighted on the ENV
+    // page, which also outranks a toggled parameter page until envViewUntil.
+    ParamId envFaderLane = ParamId::Count;
+    unsigned long envViewUntil = 0;
     unsigned long voiceSwitchPressTime = 0;
     bool voiceSwitchWasPressed = false;
 
+    // Randomize gesture per voice: tap shuffles the pattern, hold wipes it.
     // --- Randomize Button States ---
     static constexpr int NUM_RANDOMIZE = 4;
     unsigned long randomizePressTime[NUM_RANDOMIZE] = {0};
@@ -55,10 +95,11 @@ struct UIState
     uint8_t currentShufflePatternIndex = 0;
 
     // --- Flags ---
-    // Flag to signal the LED matrix to reset step lights.
+    // Asks the LED layer to redraw step lights (set after clears/resets).
     bool resetStepsLightsFlag = false;
 
     // --- Debounce for Slide Mode Toggle ---
+    // Guards the slide toggle against double-firing on one press.
     unsigned long lastSlideModeToggleTime = 0;
 
     // --- Settings Mode State ---
@@ -68,34 +109,48 @@ struct UIState
     enum class SettingsSubMode : uint8_t { PRESET_SELECTION = 0, VOICE_PARAMETER = 1 };
     SettingsSubMode currentSubMode = SettingsSubMode::PRESET_SELECTION;
 
-    uint8_t settingsMenuIndex = 0;    // 0-7 for 8 menu items
     uint8_t settingsSubMenuIndex = 0; // For preset selection
-    bool inPresetSelection = false;
-    uint8_t presetPage = 0; // 24 presets per page; navigation uses pads 6/7
     static constexpr int MAX_VOICES = 4;
     uint8_t voicePresetIndices[MAX_VOICES] = {4, 2, 1, 6}; // Default presets: Square, Bass, Digital, Percussion (indices into VoicePresets)
     unsigned long playStopPressTime = 0;
     bool playStopWasPressed = false;
 
-    // --- Encoder Control Hold / Gate Seq Length Mode ---
-    // Press/hold tracking for BUTTON_ENCODER_CONTROL to enable gate seq length mode while held
-    unsigned long encoderControlPressTime = 0;
-    bool encoderControlWasPressed = false;
-    bool gateSeqLengthMode = false; // When true, step buttons set Gate track length (per selected voice)
+    // --- Voice Button Hold / Gate Sequence Length Mode ---
+    // A plain voice press selects immediately; holding it opens length entry
+    // for that voice until release. -1 means no armed/active voice hold.
+    int8_t gateSeqLengthVoice = -1;
+    bool gateSeqLengthMode = false;
 
-    // --- Voice Parameter Editing State ---
-    bool inVoiceParameterMode = false;
-    uint8_t lastVoiceParameterButton = 0;       // Track which voice parameter was last changed
+    // --- Transient parameter feedback (independent of the settings page) ---
+    bool voiceParameterFeedbackPending = false;
+    uint8_t lastVoiceParameterButton = 255; // Raw pad index; 255 = no notice
+    uint8_t voiceParameterNoticeVoice = 0;  // Snapshot so a voice switch cannot relabel it
+    char voiceParameterNoticeName[24] = {};
+    char voiceParameterNoticeValue[32] = {};
     unsigned long voiceParameterChangeTime = 0; // Timestamp of last voice parameter change
 
+    bool isPresetSelection() const noexcept
+    {
+        return settingsMode && currentSubMode == SettingsSubMode::PRESET_SELECTION;
+    }
+    bool isVoiceParameterSettings() const noexcept
+    {
+        return settingsMode && currentSubMode == SettingsSubMode::VOICE_PARAMETER;
+    }
+    bool hasVoiceParameterFeedback(unsigned long now) const noexcept
+    {
+        return voiceParameterFeedbackPending && now - voiceParameterChangeTime < 3000;
+    }
+
     // --- Voice Switch State ---
-    bool voiceSwitchTriggered = false; // Flag to trigger immediate OLED update for voice switching
+    // Set on voice/step selection so the OLED redraws immediately.
+    bool voiceSwitchTriggered = false;
 
     // --- Alchemy Tile Control Surface State ---
     // Tile function set selected by the GP7 strap switch. The physical
     // ButtonModule8 carries the parameter set in Param mode and the
     // transport/utility set in Utility mode; AlchemyControlBridge owns the
-    // translation and is the only writer of these fields.
+    // translation. UI transitions may clear held/latch state.
     enum class AlchemyMode : uint8_t { Param = 0, Utility = 1 };
     AlchemyMode alchemyMode = AlchemyMode::Param;
     bool shiftHeld = false;       // Shift tile button level (works in both modes)

@@ -151,6 +151,16 @@ class AlchemyTiles {
   [[nodiscard]] std::uint16_t faderRaw(std::uint8_t channel) const;
 
   /**
+   * True only when this update() call accepted a new, checksum-valid slider
+   * snapshot: the satellite's SEQ moved, or the link just recovered. The flag
+   * is cleared at the top of the next update(), so a 1 kHz consumer never
+   * mistakes repeated reads of the cached fader positions for independent
+   * samples. It stays false while the link is stale, when faderRaw() serves the
+   * last-known-good position rather than anything new.
+   */
+  [[nodiscard]] bool sliderFrameChanged() const { return sliderFrameChanged_; }
+
+  /**
    * Button state for a tile slot (index 0..3). The slot order is scan order:
    * slider tile first (if found), then button tiles by bus and address.
    */
@@ -182,6 +192,7 @@ class AlchemyTiles {
   std::uint8_t frame_[1 + alchemy::kSliderDataLen + 1] = {0};
   int sliderSlot_ = -1;
   int nextSlot_ = 0;
+  bool sliderFrameChanged_ = false;
   std::uint32_t holdMs_ = 400;
 };
 

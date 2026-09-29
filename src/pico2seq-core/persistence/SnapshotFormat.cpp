@@ -1,3 +1,5 @@
+// SnapshotFormat: CRC + little-endian frame codec (see header for layout).
+// Bit-by-bit IEEE CRC keeps flash dependency-free; payloads are small.
 #include "SnapshotFormat.h"
 
 namespace persistence
@@ -29,15 +31,20 @@ void writeFrameHeader(uint8_t out[12], uint32_t payloadSize, uint32_t payloadCrc
         out[8 + i] = static_cast<uint8_t>(payloadCrc >> (8 * i));
 }
 
+uint16_t frameVersion(const uint8_t *header) noexcept
+{
+    return static_cast<uint16_t>(header[4] | (uint16_t(header[5]) << 8));
+}
+
 FrameStatus readFrameHeader(const uint8_t *header, const uint8_t *payload,
-                            size_t payloadCapacity, uint16_t expectedPayloadSize) noexcept
+                            size_t payloadCapacity, uint16_t expectedPayloadSize,
+                            uint16_t expectedVersion) noexcept
 {
     const uint32_t magic = header[0] | (uint32_t(header[1]) << 8) | (uint32_t(header[2]) << 16) |
                            (uint32_t(header[3]) << 24);
     if (magic != SNAPSHOT_MAGIC)
         return FrameStatus::BadMagic;
-    const uint16_t version = header[4] | (uint16_t(header[5]) << 8);
-    if (version != SNAPSHOT_FORMAT_VERSION)
+    if (frameVersion(header) != expectedVersion)
         return FrameStatus::BadVersion;
     const uint16_t size = header[6] | (uint16_t(header[7]) << 8);
     if (size != expectedPayloadSize)

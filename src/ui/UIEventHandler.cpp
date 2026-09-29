@@ -1,9 +1,9 @@
 #include "UIEventHandler.h"
+#include "UITransitions.h"
 #include "../app/AppState.h"
 #include "../app/ClockService.h"
 #include "../app/VoiceSetup.h"
 #include "../app/VoiceEditor.h"
-#include "../midi/MidiManager.h"
 #include "../sensors/EncoderManager.h"
 #include "../pico2seq-core/scales/scales.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
@@ -15,115 +15,80 @@
 #include "ButtonManager.h"
 #include "ButtonHandlers.h"
 #include "ControlSurfaceLogic.h"
+#include "SettingsPads.h"
 #include "UIConstants.h"
 #include <uClock.h>
+#include <cstdio>
 
+// UIEventHandler.cpp — one funnel for all 32 step pads + tile entry points.
+// Core 0 only, non-blocking (millis() timing, no waits). Tap toggles a step,
+// hold opens it for edit, Shift+pad clears it; modes below arbitrate the rest.
 // =======================
 //   UI EVENT CONSTANTS
 // =======================
 
 namespace UIEventConstants
 {
-  // Voice system constants
-  static constexpr uint8_t MAX_VOICES = 4; // Number of voices supported by the hardware - used for LED feedback and settings menu navigation (4 voices)
+  // Four voices, 0-based everywhere internally (UI shows 1..4).
+  static constexpr uint8_t MAX_VOICES = 4;
   static constexpr uint8_t VOICE_1_INDEX = 0;
   static constexpr uint8_t VOICE_2_INDEX = 1;
   static constexpr uint8_t VOICE_3_INDEX = 2;
   static constexpr uint8_t VOICE_4_INDEX = 3;
 
-  // Default voice preset indices
+  // Boot presets for voices 1-2 (indices into VoicePresets).
   static constexpr uint8_t DEFAULT_VOICE_1_PRESET = 0; // Analog preset
   static constexpr uint8_t DEFAULT_VOICE_2_PRESET = 1; // Digital preset
 
-  // Settings mode constants
+  // Settings browser voices shown at once + initial cursor positions.
   static constexpr uint8_t SETTINGS_MENU_VOICE_COUNT = 4;
   static constexpr uint8_t SETTINGS_MENU_INITIAL_INDEX = 0;
   static constexpr uint8_t SETTINGS_SUBMENU_INITIAL_INDEX = 0;
 
-  // Slide mode constants
+  // Slide gate values: legato off/on per step.
   static constexpr uint8_t SLIDE_OFF_VALUE = 0;
   static constexpr uint8_t SLIDE_ON_VALUE = 1;
 
-  // Voice parameter button range (buttons 9-24 in settings mode)
-  static constexpr uint8_t VOICE_PARAM_BUTTON_MIN = 8;
-  static constexpr uint8_t VOICE_PARAM_BUTTON_MAX = 24;
 
-  // Filter mode cycling constants (mode list lives in voiceui::kFilterModes)
-  static constexpr float FILTER_RESONANCE_STEP = 0.025f;
-  static constexpr float FILTER_RESONANCE_MAX = 1.0f;
-  static constexpr float FILTER_RESONANCE_MIN = 0.0f;
 }
 
 static_assert(UIState::NUM_RANDOMIZE >= UIEventConstants::MAX_VOICES,
               "UI expects 4 randomize buttons; update UIState::NUM_RANDOMIZE or adjust handlers.");
 
-// External function declarations that the UI calls
+// LED theme lives in the LED layer; UI only tracks the index.
 extern void setLEDTheme(LEDTheme theme);
 
-// External variables that are still needed from the main file
+// Step-parameter metadata (names/defaults) owned by the sequencer core.
 extern const ParameterDefinition CORE_PARAMETERS[];
 
-// Helper function declarations (static to this file)
+// File-local helpers: step routing, slide steps, settings pages, encoder follow.
 static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
-                                  UIState &uiState, Sequencer *const *sequencers,
-                                  size_t sequencerCount);
+                                  UIState &uiState, const SequencerView &sequencers);
 
-// Private helper handlers for matrixEventHandler
-static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount);
+// Slide-mode and settings-page helpers (one owner each, called from the funnel).
+static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, const SequencerView &sequencers);
 
-// Settings sub-mode helpers (settings mode refactor)
-static void toggleSettingsSubMode(UIState &uiState);
+// Settings sub-mode helpers.
 static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState);
 static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState, VoiceManager *voiceManager);
 
 static void autoSelectEncoderParameter(ParamId paramId, UIState &uiState);
 
-// Shared encoder-control hold/release implementation (used by the tile bridge)
-static void encoderControlShortPressAction(UIState &uiState);
-
-// Shared body of a short encoder-control press: in Settings mode while
-// stopped it toggles between sub-modes; otherwise it cycles the encoder
-// parameter target.
-static void encoderControlShortPressAction(UIState &uiState)
+// Encoder target button: Settings page navigation or performance target cycle.
+void handleEncoderControlPress(UIState &uiState)
 {
   // In Settings mode the encoder button toggles between sub-modes — this now
   // also works while the transport runs, so presets can be browsed live.
   // Otherwise, keep the existing encoder parameter cycling behavior.
   if (uiState.settingsMode)
   {
-    toggleSettingsSubMode(uiState);
-    uiState.selectedStepForEdit = -1;
+    UITransitions::toggleSettingsPage(uiState);
   }
   else
   {
     // Existing behavior outside of settings: cycle encoder parameter
     handleControlButton(BUTTON_ENCODER_CONTROL, uiState);
   }
-}
-
-void beginEncoderControlHold(UIState &uiState)
-{
-  uiState.encoderControlPressTime = millis();
-  uiState.encoderControlWasPressed = true;
-}
-
-void endEncoderControlHold(UIState &uiState)
-{
-  if (!uiState.encoderControlWasPressed)
-  {
-    return;
-  }
-  unsigned long pressDurationMs = millis() - uiState.encoderControlPressTime;
-  uiState.encoderControlWasPressed = false;
-
-  if (!isLongPress(pressDurationMs))
-  {
-    encoderControlShortPressAction(uiState);
-  }
-
-  // Exit gate sequence length mode on release
-  uiState.gateSeqLengthMode = false;
-  uiState.selectedStepForEdit = -1;
 }
 
 /**
@@ -134,38 +99,80 @@ void endEncoderControlHold(UIState &uiState)
  * the ButtonModule8/SliderModule tiles and enter through AlchemyControlBridge.
  * Every pad is resolved to (voice, step) through the pad-bank mapping instead
  * of assuming the single selected voice.
+ *
+ * Why: since the Alchemy migration this is the single funnel for all 32 pads,
+ * so it guards voice-editor/modal states first and routes slide vs. normal
+ * early — that keeps per-step behavior consistent no matter which surface
+ * produced the event.
  */
 void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
-                        Sequencer *const *sequencers, size_t sequencerCount,
-                        MidiNoteManager &midiNoteManager)
+                        const SequencerView &sequencers)
 {
 
-  if(uiState.voiceEditor.active || uiState.controlsWaitRelease) return;
-  // Poll held buttons (long press detection) using the supplied array.
-  pollUIHeldButtons(uiState, sequencers, sequencerCount);
+  if(uiState.voiceEditor.active || uiState.controlsWaitRelease)
+  {
+    // A modal state swallows pad releases (the early return below), so the arp
+    // must not keep believing a finger is still down: latched notes stay,
+    // physically held ones are dropped.
+    uiState.arp.releaseAllHeldPads();
+    return;
+  }
+  // Edge-only input: holds are promoted by polling so the loop never blocks.
+  pollUIHeldButtons(uiState, sequencers);
+
+  // =======================
+  //   ARPEGGIATOR MODE: CHORD ENTRY
+  // =======================
+
+  /**
+   * Handle touch pads as the arp's scale-degree keyboard.
+   *
+   * In Arpeggiator mode the 32 pads are a 32-degree ladder (see
+   * src/pico2seq-core/arpeggiator/Arpeggiator.h): a touch joins the chord, a
+   * release drops it unless Latch is on. Nothing here reads the pad banks,
+   * selects a step or toggles a gate, so no sequencer pad path may run.
+   *
+   * Why releases are always delivered: Settings can open while a finger is
+   * down (Play long-press), and a swallowed release would leave that note in
+   * the chord forever. Presses still belong to whichever page has the pads.
+   */
+  if (uiState.arp.active() && evt.buttonIndex < NUMBER_OF_STEP_PADS)
+  {
+    if (evt.type == MATRIX_BUTTON_PRESSED)
+    {
+      // Settings (the preset browser) keeps the pads while it is open: it maps
+      // raw pad indices to presets, so a press there is not chord entry.
+      if (!uiState.settingsMode)
+        uiState.arp.pressPad(evt.buttonIndex);
+    }
+    else
+    {
+      // A release always reaches the chord, even if Settings opened while the
+      // finger was down -- otherwise that note would stay in the chord forever.
+      uiState.arp.releasePad(evt.buttonIndex);
+    }
+    if (!uiState.settingsMode)
+      return;
+  }
 
   // =======================
   //   SLIDE MODE STEP HANDLING
   // =======================
 
-  /**
-   * Handle step pads in slide mode - toggle slide per step
-   *
-   * When in slide mode, step pads toggle the slide parameter for individual
-   * steps on their own voice rather than toggling the step on/off.
-   */
-  if (uiState.slideMode && evt.buttonIndex < NUMBER_OF_STEP_PADS)
+  // Slide mode owns the pads: each tap flips legato for that step's voice.
+  // (No gate toggles here — one gesture, one job.)
+  if (!uiState.settingsMode && uiState.slideMode && evt.buttonIndex < NUMBER_OF_STEP_PADS)
   {
     if (evt.type == MATRIX_BUTTON_PRESSED)
     {
-      handleSlideModeStep(evt, uiState, sequencers, sequencerCount);
+      handleSlideModeStep(evt, uiState, sequencers);
     }
-    return; // In slide mode, step pads only toggle slide
+    return; // Slide consumed the pad; normal step handling stays out.
   }
 
   // Step pads: settings navigation, gate-seq-length entry, parameter length
   // programming, step toggling, and Shift+pad clearing.
-  handleStepButtonEvent(evt, uiState, sequencers, sequencerCount);
+  handleStepButtonEvent(evt, uiState, sequencers);
 }
 
 // =======================
@@ -183,6 +190,10 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
  * @param paramId ParamId as uint8_t of the parameter button
  * @param pressed true on press edge, false on release edge
  * @param uiState Reference to the UI state object
+ *
+ * Why: tiles are keyed by ParamId rather than matrix index so the same logic
+ * serves both surfaces; auto-selecting the encoder target on press keeps the
+ * knob always acting on the parameter the finger just touched (no extra select step).
  */
 void handleParameterButtonById(uint8_t paramId, bool pressed, UIState &uiState)
 {
@@ -233,15 +244,19 @@ void handleParameterButtonById(uint8_t paramId, bool pressed, UIState &uiState)
  *
  * @param evt Matrix button event containing button index and press/release type
  * @param uiState Reference to the UI state object for tracking modes and timing
- * @param sequencers Array of non-owning sequencer pointers, one per voice
- * @param sequencerCount Number of entries in the sequencers array
+ * @param sequencers Fixed voice-order view of the voice sequencers
  * @return true if the event was handled as a step button event, false otherwise
+ *
+ * Why: one pad does five jobs (toggle/edit/clear/length/settings) depending on
+ * modifiers, so priority order matters — settings and Shift-clear must win over
+ * normal toggling or a stuck modifier would corrupt pattern data.
  */
 static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
-                                  UIState &uiState, Sequencer *const *sequencers,
-                                  size_t sequencerCount)
+                                  UIState &uiState, const SequencerView &sequencers)
 {
-  // Ignore out-of-bounds pad indices (all 32 matrix indices are step pads now)
+  if (uiState.voiceEnvelope.active || uiState.voiceEnvelope.chordPending ||
+      uiState.voiceEnvelope.waitRelease) return true;
+  // Pads outside the 32-step grid have no voice; ignore them.
   if (evt.buttonIndex >= NUMBER_OF_STEP_PADS)
   {
     return false;
@@ -251,27 +266,22 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
   //   SETTINGS MODE HANDLING
   // =======================
 
-  /**
-   * Handle settings mode navigation and voice configuration
-   *
-   * Settings mode allows configuration of voice presets and voice parameters.
-   * Navigation uses raw pad indices (no bank resolution): pads 0-3 select a
-   * voice, pads 8 and up apply presets in the preset sub-mode.
-   */
-  if (uiState.settingsMode && evt.type == MATRIX_BUTTON_PRESSED)
+  // Settings owns the pads: raw indices browse presets/timbre (no bank
+  // mapping), voice buttons alone switch voices, releases are swallowed.
+  if (uiState.settingsMode)
   {
-    // Buttons 0-3 always select voice index (0..3) - used for both voice selection and voice parameter navigation (0-3)
-    if (evt.buttonIndex < UIEventConstants::MAX_VOICES)
+    // Settings owns every pad edge while open. A release that fell through
+    // would reach the step handling below, select a step and move the voice
+    // selection to the pad's bank voice, so the next preset tap would land
+    // on a different voice than the one on screen.
+    if (evt.type != MATRIX_BUTTON_PRESSED)
     {
-      uiState.selectedVoiceIndex = evt.buttonIndex;
-      uiState.isVoice2Mode = (uiState.selectedVoiceIndex == UIEventConstants::VOICE_2_INDEX); // legacy compat
-      uiState.presetPage = uiState.voicePresetIndices[evt.buttonIndex] / VoicePresets::kPresetsPerPage;
-      uiState.settingsMenuIndex = evt.buttonIndex;                                            // used by OLED/LED menus
+      uiState.padPressTimestamps[evt.buttonIndex] = 0;
       return true;
     }
 
     // Route handling based on active sub-mode
-    if (uiState.currentSubMode == UIState::SettingsSubMode::PRESET_SELECTION)
+    if (uiState.isPresetSelection())
     {
       handlePresetSelection(evt, uiState);
     }
@@ -279,18 +289,14 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
     {
       handleVoiceParameter(evt, uiState, voiceManager.get());
     }
-    return true; // Event was handled in settings mode
+    return true; // Handled inside settings; step toggling stays out.
   }
 
   // Resolve the pad through the bank mapping: bank = index/16 picks one of
   // the two voices visible for the current pair, step = index%16.
   const ControlSurface::PadAddress pad =
       ControlSurface::PadBank::resolve(evt.buttonIndex, uiState.selectedVoiceIndex);
-  Sequencer *padSequencerPtr = nullptr;
-  if (sequencers && pad.voice < sequencerCount)
-  {
-    padSequencerPtr = sequencers[pad.voice];
-  }
+  Sequencer *padSequencerPtr = sequencers.get(pad.voice);
 
   // =======================
   //   SHIFT + PAD: CLEAR STEP
@@ -312,16 +318,13 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
   // =======================
   //   GATE SEQ LENGTH MODE
   // =======================
-  // While holding encoder control (long press), allow setting Gate track length (2-16)
-  if (uiState.gateSeqLengthMode && evt.type == MATRIX_BUTTON_PRESSED)
+  // A long-held voice button owns length entry for its own bank (2..16).
+  if (uiState.gateSeqLengthMode)
   {
-    if (padSequencerPtr)
+    uiState.padPressTimestamps[evt.buttonIndex] = 0;
+    const uint8_t requested = UITransitions::gateLengthForPad(uiState, pad.voice, pad.step);
+    if (evt.type == MATRIX_BUTTON_PRESSED && requested != 0 && padSequencerPtr)
     {
-      uint8_t requested = static_cast<uint8_t>(pad.step + 1); // 1..16
-      if (requested < 2)
-        requested = 2;
-      if (requested > 16)
-        requested = 16;
       padSequencerPtr->setParameterStepCount(ParamId::Gate, requested);
       // Optional UI feedback flags
       uiState.resetStepsLightsFlag = true;
@@ -331,11 +334,7 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
   }
 
   // Select the previously "active" (selected voice) sequencer for legacy paths
-  Sequencer *currentActiveSequencerPtr = nullptr;
-  if (sequencers && uiState.selectedVoiceIndex < sequencerCount)
-  {
-    currentActiveSequencerPtr = sequencers[uiState.selectedVoiceIndex];
-  }
+  Sequencer *currentActiveSequencerPtr = sequencers.get(uiState.selectedVoiceIndex);
 
   // Handle parameter length adjustment when holding parameter buttons
   if (isAnyParameterButtonHeld(uiState) && evt.type == MATRIX_BUTTON_PRESSED)
@@ -355,55 +354,58 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
   }
 
   // Handle normal step pad presses (short/long press detection)
-  if (!isAnyParameterButtonHeld(uiState))
+  if (evt.type == MATRIX_BUTTON_PRESSED)
   {
-    if (evt.type == MATRIX_BUTTON_PRESSED)
-    {
-      // Record press timestamp for long press detection
-      uiState.padPressTimestamps[evt.buttonIndex] = millis();
-    }
-    else if (evt.type == MATRIX_BUTTON_RELEASED)
-    {
-      unsigned long pressDurationMs = millis() - uiState.padPressTimestamps[evt.buttonIndex];
-      uiState.padPressTimestamps[evt.buttonIndex] = 0; // Clear timestamp
+    // Record press timestamp for long press detection. Presses consumed by a
+    // branch above return first and stay untimed, so their release is ignored.
+    uiState.padPressTimestamps[evt.buttonIndex] = millis();
+    return true;
+  }
 
-      if (isLongPress(pressDurationMs))
-      {
-        // Long press: Toggle step edit mode for detailed parameter editing.
-        // Editing always happens on the selected voice, so entering edit
-        // from a pad of the partner voice moves selection to that voice.
-        if (currentActiveSequencerPtr == padSequencerPtr && uiState.selectedStepForEdit == pad.step)
-        {
-          // Exit edit mode for this step
-          uiState.selectedStepForEdit = -1;
-          uiState.currentEditParameter = ParamId::Count; // Clear edit parameter
-        }
-        else
-        {
-          // Enter edit mode for this step on the pad's own voice
-          uiState.selectedVoiceIndex = pad.voice;
-          uiState.isVoice2Mode = (pad.voice == UIEventConstants::VOICE_2_INDEX); // legacy compat
-          uiState.voiceSwitchTriggered = true;                                   // immediate OLED update
-          uiState.selectedStepForEdit = pad.step;
-        }
-      }
-      else
-      {
-        // Short press: Toggle step on/off on the pad's own voice and exit edit mode
-        if (padSequencerPtr)
-        {
-          padSequencerPtr->toggleStep(pad.step);
-        }
-        uiState.selectedStepForEdit = -1;
-        uiState.currentEditParameter = ParamId::Count; // Clear edit parameter
-      }
+  const ControlSurface::PadRelease release = ControlSurface::classifyPadRelease(
+      uiState.padPressTimestamps[evt.buttonIndex], millis(),
+      UITimingConstants::LONG_PRESS_THRESHOLD_MS);
+  uiState.padPressTimestamps[evt.buttonIndex] = 0; // Clear timestamp
+  if (isAnyParameterButtonHeld(uiState))
+  {
+    return true;
+  }
+
+  if (release == ControlSurface::PadRelease::Hold)
+  {
+    // Long press: Toggle step edit mode for detailed parameter editing.
+    // Editing always happens on the selected voice, so entering edit
+    // from a pad of the partner voice moves selection to that voice.
+    if (currentActiveSequencerPtr == padSequencerPtr && uiState.selectedStepForEdit == pad.step)
+    {
+      // Exit edit mode for this step
+      uiState.selectedStepForEdit = -1;
+      uiState.currentEditParameter = ParamId::Count; // Clear edit parameter
     }
+    else
+    {
+      // Enter edit mode for this step on the pad's own voice
+      UITransitions::focusPad(uiState, pad.voice, pad.step);
+    }
+  }
+  else if (release == ControlSurface::PadRelease::Tap)
+  {
+    // Short press: Toggle step on/off on the pad's own voice and exit edit mode
+    if (padSequencerPtr)
+    {
+      padSequencerPtr->toggleStep(pad.step);
+    }
+    uiState.selectedStepForEdit = -1;
+    uiState.currentEditParameter = ParamId::Count; // Clear edit parameter
   }
   return true; // Event was handled as step pad
 }
 
-// Obsolete static handleControlButtonEvent removed; logic is centralized in handleControlButton (ButtonHandlers.cpp)
 
+// Why: without this the encoder would keep writing to the previously selected
+// parameter after the user grabs a new tile — auto-select keeps ear-to-hand
+// mapping immediate for live tweaking, and clearing the encoder accumulator
+// avoids a value jump on the new target.
 static void autoSelectEncoderParameter(ParamId paramId, UIState &uiState)
 {
   EncoderParameterMode newEncoderParam;
@@ -413,8 +415,6 @@ static void autoSelectEncoderParameter(ParamId paramId, UIState &uiState)
     uiState.currentEncoderParameter = newEncoderParam;
     // A turn made for the previous target must not carry over to this one.
     VoiceEditor::clearEncoder();
-    // Serial.print("Encoder auto-selected: ");
-    // Serial.println(CORE_PARAMETERS[static_cast<int>(paramId)].name);
   }
 }
 
@@ -422,42 +422,38 @@ static void autoSelectEncoderParameter(ParamId paramId, UIState &uiState)
 // Settings sub-mode helpers
 // =======================
 
-/**
- * Toggle Settings sub-mode between Preset Selection and Voice Parameter.
- * Also updates legacy flags for backward compatibility.
- */
-static void toggleSettingsSubMode(UIState &uiState)
+// Why: Settings always opens on presets (never resumes the last sub-mode) so the
+// LED grid and the handler agree — otherwise preset taps would silently hit the
+// voice-parameter toggles while the display still shows presets.
+void openSettingsMode(UIState &uiState)
 {
-  using Sub = UIState::SettingsSubMode;
-  uiState.currentSubMode =
-      (uiState.currentSubMode == Sub::PRESET_SELECTION) ? Sub::VOICE_PARAMETER : Sub::PRESET_SELECTION;
+  UITransitions::openSettings(uiState);
+}
 
-  // Legacy flags kept in sync for existing renderers/logic
-  uiState.inPresetSelection = (uiState.currentSubMode == Sub::PRESET_SELECTION);
-  uiState.inVoiceParameterMode = (uiState.currentSubMode == Sub::VOICE_PARAMETER);
+// Why: closing resets every Settings-related flag (not just settingsMode) so no
+// modal residue leaks into step editing — a leftover selectedStepForEdit would
+// reroute the next pad tap into parameter editing.
+void closeSettingsMode(UIState &uiState)
+{
+  UITransitions::closeSettings(uiState);
 }
 
 /**
  * Handle Preset Selection sub-mode.
- * - Buttons 0-3 (handled in caller) select current voice.
- * - Pads 6/7 change page; pads 8..31 apply a preset on that page.
+ * - Pads 0..30 apply that preset to the selected voice (voice buttons pick it).
  * - Remain in Preset Selection mode after applying a preset.
  * Safe while the transport runs: applyVoicePreset stages the config and the
  * voice applies it without stopping playback.
+ * Why: staying in the browser after applying (rather than auto-closing) enables
+ * fast A/B auditioning of presets while the transport runs — staging makes that
+ * safe for the Core 1 audio path.
  */
 static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState)
 {
   if (evt.type != MATRIX_BUTTON_PRESSED)
     return;
 
-  const uint8_t count = VoicePresets::getPresetCount();
-  if (evt.buttonIndex == VoicePresets::kPreviousPagePad || evt.buttonIndex == VoicePresets::kNextPagePad)
-  {
-    uiState.presetPage = VoicePresets::changePresetPage(uiState.presetPage,
-        evt.buttonIndex == VoicePresets::kNextPagePad ? 1 : -1, count);
-    return;
-  }
-  const int presetIndex = VoicePresets::presetIndexForPad(evt.buttonIndex, count, uiState.presetPage);
+  const int presetIndex = VoicePresets::presetIndexForPad(evt.buttonIndex, VoicePresets::getPresetCount());
   if (presetIndex >= 0)
   {
     // Apply to currently selected voice (0..3 for applyVoicePreset)
@@ -468,137 +464,36 @@ static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState
       applyVoicePreset(voiceIdx, static_cast<uint8_t>(presetIndex));
     }
 
-    // Stay in Preset Selection mode; do not auto-switch.
-    uiState.inPresetSelection = true;     // legacy flag mirror
-    uiState.inVoiceParameterMode = false; // legacy flag mirror
+    // Applying a preset does not change the settings page.
   }
 }
 
-/**
- * Handle Voice Parameter sub-mode.
- * - Buttons 8..15 perform parameter toggles/adjustments for current voice.
- * - Buttons 16..24 reserved/ignored (with optional debug prints).
- * Only active when currentSubMode == VOICE_PARAMETER.
- */
+// The same pad catalogue drives edits, persistent LEDs and OLED labels.
 static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState, VoiceManager *voiceManager)
 {
-  if (evt.type != MATRIX_BUTTON_PRESSED)
+  if (evt.type != MATRIX_BUTTON_PRESSED || !voiceManager ||
+      uiState.selectedVoiceIndex >= VoiceSystem::MAX_VOICES)
     return;
 
-  // Only respond to parameter button range 8..24; active range 8..15 as defined today
-  if (evt.buttonIndex < UIEventConstants::VOICE_PARAM_BUTTON_MIN ||
-      evt.buttonIndex > UIEventConstants::VOICE_PARAM_BUTTON_MAX ||
-      voiceManager == nullptr)
-  {
+  const uint8_t voiceIndex = uiState.selectedVoiceIndex;
+  const auto *config = voiceManager->getVoiceConfig(voiceSystem.getVoiceId(voiceIndex));
+  if (!config)
     return;
-  }
-
-  // Resolve current voice configuration
-  const uint8_t selectedVoiceIndex = uiState.selectedVoiceIndex;
-  const uint8_t currentVoiceId = voiceSystem.getVoiceId(selectedVoiceIndex);
-  const VoiceConfig *liveCfg = voiceManager->getVoiceConfig(currentVoiceId);
-  if (!liveCfg)
+  VoiceConfig next = *config;
+  if (!SettingsPads::apply(evt.buttonIndex, next, uiState.shiftHeld))
     return;
-  // Work on a local copy to avoid mutating live config from UI thread
-  VoiceConfig voiceConfig = *liveCfg;
 
-  // UI feedback bookkeeping
-  uiState.inVoiceParameterMode = true; // legacy flag mirror of active sub-mode
-  uiState.lastVoiceParameterButton = evt.buttonIndex;
-  uiState.voiceParameterChangeTime = millis();
-
-  const uint8_t displayVoiceNumber = selectedVoiceIndex; // 0-based
-
-  switch (evt.buttonIndex)
-  {
-  case 8: // Toggle envelope on/off
-    voiceConfig.hasEnvelope = !voiceConfig.hasEnvelope;
-    Serial.print("Voice ");
-    Serial.print(displayVoiceNumber);
-    Serial.print(" envelope ");
-    Serial.println(voiceConfig.hasEnvelope ? "ON" : "OFF");
-    break;
-
-  case 9: // Toggle overdrive
-    voiceConfig.hasOverdrive = !voiceConfig.hasOverdrive;
-    Serial.print("Voice ");
-    Serial.print(displayVoiceNumber);
-    Serial.print(" overdrive ");
-    Serial.println(voiceConfig.hasOverdrive ? "ON" : "OFF");
-    break;
-
-  // case 10 (wavefolder toggle) removed with the wavefolder effect
-
-  case 11: // Cycle filter mode
-  {
-    // Cycle through the shared filter-mode table (names and modes stay in sync)
-    int currentIndex = 0;
-    for (int i = 0; i < voiceui::kFilterModeCount; ++i)
-    {
-      if (voiceConfig.filterMode == voiceui::kFilterModes[i])
-      {
-        currentIndex = i;
-        break;
-      }
-    }
-    const int nextIndex = (currentIndex + 1) % voiceui::kFilterModeCount;
-    voiceConfig.filterMode = voiceui::kFilterModes[nextIndex];
-
-    Serial.print("Voice ");
-    Serial.print(displayVoiceNumber);
-    Serial.print(" filter mode: ");
-    Serial.println(voiceui::kFilterModeNames[nextIndex]);
-  }
-  break;
-
-  case 12: // Step filter resonance
-  {
-    float currentResonance = voiceConfig.filterRes;
-    currentResonance += UIEventConstants::FILTER_RESONANCE_STEP;
-    if (currentResonance > UIEventConstants::FILTER_RESONANCE_MAX)
-    {
-      currentResonance = UIEventConstants::FILTER_RESONANCE_MIN;
-    }
-    voiceConfig.filterRes = currentResonance;
-    // Serial.print("Voice "); Serial.print(displayVoiceNumber);
-    // Serial.print(" filter resonance: "); Serial.println(currentResonance, 2);
-  }
-  break;
-
-  // case 13 (delay time to dotted quarter) removed with the delay effect
-
-  case 14: // Tempo -5, floored at 45
-  {
-    float currentTempo = uClock.getTempo();
-    uClock.setTempo(currentTempo - 5);
-    if (currentTempo < 45)
-    {
-      uClock.setTempo(45);
-    }
-  }
-  break;
-
-  case 15: // Tempo +5, capped at 200
-  {
-    float currentTempo = uClock.getTempo();
-    uClock.setTempo(currentTempo + 5);
-    if (currentTempo > 200)
-    {
-      uClock.setTempo(200);
-    }
-  }
-  break;
-
-  default:
-    // Buttons 16-24 reserved (ignored)
-    Serial.print("Voice parameter button ");
-    Serial.print(evt.buttonIndex);
-    Serial.println(" - reserved");
-    break;
-  }
-
-  // Apply updated configuration back to voice manager
-  voiceManager->setVoiceConfig(currentVoiceId, voiceConfig);
+  // Use the normal control-core publisher, including its glide-time handoff.
+  VoiceEditor::publish(voiceIndex, next);
+  // Shared transition flag drives the LED/OLED feedback timeout; the name
+  // snapshot below lets the notice survive a voice switch.
+  UITransitions::showVoiceParameterFeedback(uiState, evt.buttonIndex, millis());
+  const auto parameter = SettingsPads::parameter(evt.buttonIndex);
+  uiState.voiceParameterNoticeVoice = voiceIndex;
+  snprintf(uiState.voiceParameterNoticeName, sizeof(uiState.voiceParameterNoticeName),
+           "%s", VoiceEdit::name(parameter, next));
+  VoiceEdit::format(parameter, next, uiState.voiceParameterNoticeValue,
+                    sizeof(uiState.voiceParameterNoticeValue));
 }
 /**
  * @brief Poll for long press detection on randomize buttons
@@ -608,16 +503,19 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
  * to ensure responsive long press detection during button holds.
  *
  * @param uiState Reference to UI state containing button press timing data
- * @param seq1 Reference to sequencer 1 for potential reset
- * @param seq2 Reference to sequencer 2 for potential reset
+ * @param sequencers Fixed voice-order view of the voice sequencers
+ * Why: long-press actions are polled (not interrupt-driven) because the matrix
+ * only delivers edges — polling keeps randomize resets responsive without
+ * blocking the Core 0 scan loop, and suppressing them in Settings avoids
+ * mistaking preset browsing for a destructive reset.
  */
-void pollUIHeldButtons(UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount)
+void pollUIHeldButtons(UIState &uiState, const SequencerView &sequencers)
 {
   if(uiState.voiceEditor.active || uiState.controlsWaitRelease) return;
   unsigned long currentTimeMs = millis();
 
-  // Check for long press resets on all supported voices (up to MAX_VOICES)
-  for (uint8_t voiceIndex = 0; voiceIndex < UIEventConstants::MAX_VOICES; voiceIndex++)
+  // Check for long press resets on every voice in the routing table.
+  for (size_t voiceIndex = 0; voiceIndex < sequencers.size(); ++voiceIndex)
   {
     if (uiState.randomizeWasPressed[voiceIndex] &&
         !uiState.randomizeResetTriggered[voiceIndex])
@@ -625,12 +523,9 @@ void pollUIHeldButtons(UIState &uiState, Sequencer *const *sequencers, size_t se
       unsigned long pressDurationMs = currentTimeMs - uiState.randomizePressTime[voiceIndex];
       if (isLongPress(pressDurationMs))
       {
-        // Use the supplied sequencer for this voice when available; otherwise ignore.
-        Sequencer *targetSequencer = nullptr;
-        if (sequencers && voiceIndex < sequencerCount)
-        {
-          targetSequencer = sequencers[voiceIndex];
-        }
+        // The routing table owns one sequencer per voice; get() rejects
+        // out-of-range indices instead of resetting the wrong voice.
+        Sequencer *targetSequencer = sequencers.get(voiceIndex);
 
         if (targetSequencer)
         {
@@ -642,102 +537,54 @@ void pollUIHeldButtons(UIState &uiState, Sequencer *const *sequencers, size_t se
     }
   }
 
-  // Detect long hold of encoder control to enter Gate Sequence Length mode
-  // Suppress this feature while in settings menus (stopped state)
-  if (uiState.encoderControlWasPressed && !uiState.gateSeqLengthMode && !uiState.settingsMode)
-  {
-    unsigned long pressDurationMs = currentTimeMs - uiState.encoderControlPressTime;
-    if (isLongPress(pressDurationMs))
-    {
-      uiState.gateSeqLengthMode = true;
-      // Clear conflicting modes when entering this mode
-      uiState.slideMode = false;
-      for (int paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
-      {
-        uiState.parameterButtonHeld[paramIndex] = false;
-      }
-      uiState.selectedStepForEdit = -1;
-    }
-  }
-  // Safety: if the encoder control is no longer held, ensure we exit the mode
-  else if (!uiState.encoderControlWasPressed && uiState.gateSeqLengthMode)
-  {
-    uiState.gateSeqLengthMode = false;
-    uiState.selectedStepForEdit = -1;
-  }
 }
 
-// Convenience overload for ControlIO's seq1..seq4 call pattern; forwards to
-// the canonical array-based implementation.
-void pollUIHeldButtons(UIState &uiState, Sequencer &seq1, Sequencer &seq2,
-                       Sequencer &seq3, Sequencer &seq4)
-{
-  Sequencer *sequencers[UIEventConstants::MAX_VOICES] = {&seq1, &seq2, &seq3, &seq4};
-  pollUIHeldButtons(uiState, sequencers, UIEventConstants::MAX_VOICES);
-}
-
+// Slide mode is mutually exclusive with parameter-hold and gate-length
+// modes: entering it clears the others so a stuck modifier cannot make step
+// pads both toggle slides and rewrite track lengths at once.
 void handleSlideModePress(UIState &uiState)
 {
-  // Toggle slide mode state
-  uiState.slideMode = !uiState.slideMode;
-
-  if (uiState.slideMode)
-  {
-    // Clear conflicting modes when entering slide mode
-    for (int paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
-    {
-      uiState.parameterButtonHeld[paramIndex] = false;
-    }
-    uiState.modGateParamSeqLengthsMode = false;
-    uiState.gateSeqLengthMode = false;
-    uiState.selectedStepForEdit = -1;
-  }
+  UITransitions::toggleSlide(uiState);
 }
 
-void selectVoice(UIState &uiState, MidiNoteManager &midiNoteManager, uint8_t voiceIndex)
+void selectVoice(UIState &uiState, uint8_t voiceIndex)
 {
-  if (voiceIndex >= UIEventConstants::MAX_VOICES)
-  {
-    return;
-  }
-
-  midiNoteManager.onModeSwitch();
-
-  uiState.selectedVoiceIndex = voiceIndex;
-  uiState.isVoice2Mode = (voiceIndex == UIEventConstants::VOICE_2_INDEX); // Legacy compatibility
-  uiState.selectedStepForEdit = -1;                                       // Clear step editing when switching voices
-  uiState.voiceSwitchTriggered = true;                                    // Set flag for immediate OLED update
+  // Invalid indices are rejected by the shared transition (no state change).
+  UITransitions::selectPerformanceVoice(uiState, voiceIndex);
 }
 
-static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, Sequencer *const *sequencers, size_t sequencerCount)
+// Why: slide is edited per-step on the pad's own (bank-resolved) voice rather
+// than the selected voice, so polymetric partner voices can have independent
+// legato without forcing a voice switch first.
+static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, const SequencerView &sequencers)
 {
   // Resolve the pad to its own voice through the bank mapping
   const ControlSurface::PadAddress pad =
       ControlSurface::PadBank::resolve(evt.buttonIndex, uiState.selectedVoiceIndex);
-  Sequencer *activeSequencerPtr = nullptr;
-  if (sequencers && pad.voice < sequencerCount)
-  {
-    activeSequencerPtr = sequencers[pad.voice];
-  }
+  Sequencer *activeSequencerPtr = sequencers.get(pad.voice);
 
   if (activeSequencerPtr)
   {
     Sequencer &currentActiveSequencer = *activeSequencerPtr;
 
-    // Get current slide value and toggle it
+    // Flip legato for this step; the performer hears the glide on next pass.
     uint8_t currentSlideValue = currentActiveSequencer.getStepParameterValue(
         ParamId::Slide, pad.step);
     uint8_t newSlideValue = (currentSlideValue > UIEventConstants::SLIDE_OFF_VALUE) ? UIEventConstants::SLIDE_OFF_VALUE : UIEventConstants::SLIDE_ON_VALUE;
 
-    // Apply the new slide value to the step
+    // Write the flipped legato back to the step.
     currentActiveSequencer.setStepParameterValue(ParamId::Slide, pad.step, newSlideValue);
   }
   else
   {
-    // No sequencer available for the pad's voice; ignore.
+    // Null voice slot (should not happen via PadBank); nothing to flip.
   }
 }
 
+// Why: Shift+pad must silence the step (gate off) AND restore track defaults —
+// clearing only the gate would leave stale pitch/filter values that reappear
+// when the step is re-enabled; playback-transform voices delegate to the
+// modifier reset so the underlying pattern is preserved.
 void clearSequencerStep(Sequencer &sequencer, uint8_t stepIdx)
 {
   if(sequencer.usesPlaybackTransform()) {sequencer.resetModifierStep(stepIdx);return;}
@@ -764,16 +611,35 @@ void clearSequencerStep(Sequencer &sequencer, uint8_t stepIdx)
   sequencer.setStepParameterValue(ParamId::Gate, stepIdx, 0.0f);
 }
 
-void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_distance,
-                          const UIState &uiState, VoiceState *voiceState)
+// Why: a per-voice wipe also posts an OLED notice and clears edit/selection
+// state, because after destructive input the display and LEDs must agree that
+// the voice is empty — presets/transport/tempo are deliberately untouched.
+void clearSequencerVoice(UIState &uiState, Sequencer &sequencer, uint8_t voiceIndex)
 {
-  seq.advanceStep(current_uclock_step, mm_distance,
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Note)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Velocity)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Filter)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Attack)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Decay)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Octave)],
-                  uiState.selectedStepForEdit,
-                  voiceState);
+  sequencer.clearPattern();
+  uiState.oledNoticeKind = UIState::OledNoticeKind::VoiceCleared;
+  uiState.oledNoticeVoice = voiceIndex;
+  uiState.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
+  uiState.resetStepsLightsFlag = true;
+  uiState.selectedStepForEdit = -1;
+  uiState.currentEditParameter = ParamId::Count;
+}
+
+// Why: the all-voices clear loops the routing view (skipping nulls) instead of
+// assuming 4 voices, so future voice counts need no new chord handler; like the
+// single-voice wipe it resets UI light/edit flags so the grid redraws clean.
+void clearAllSequencerVoices(UIState &uiState, const SequencerView &sequencers)
+{
+  for (size_t voice = 0; voice < sequencers.size(); ++voice)
+  {
+    if (Sequencer *seq = sequencers.get(voice))
+    {
+      seq->clearPattern();
+    }
+  }
+  uiState.oledNoticeKind = UIState::OledNoticeKind::AllCleared;
+  uiState.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
+  uiState.resetStepsLightsFlag = true;
+  uiState.selectedStepForEdit = -1;
+  uiState.currentEditParameter = ParamId::Count;
 }
