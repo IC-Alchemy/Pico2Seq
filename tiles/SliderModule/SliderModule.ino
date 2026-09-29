@@ -172,20 +172,33 @@ typedef struct {
 } StrapPair;
 
 #define FW_VER_MAJOR 0x01
-#define FW_VER_MINOR 0x04  // 1.04: 400 kHz bus, stale-latch reclaim, ISR hardening
+#define FW_VER_MINOR 0x04  // 1.04: stale-latch reclaim, ISR hardening (on 1.03's filter)
 
 // --- Config page defaults ---------------------------------------------------
-// Conditioning defaults must be conservative (§7.1): index 0 everywhere means
-// 1 LSB of published-value hysteresis (just enough to stop single-count ADC
-// dither) and an unlimited slew ceiling. Nothing steeper unless the hub asks.
-#define CFG_FILTER_DEFAULT      Proto::cfgFilter(0, 0)
+// Conditioning defaults are conservative about ERASING MOTION, not about
+// filtering: the slew ceiling stays unlimited (index 0) so a fast move is
+// never smoothed into a ramp, while the deadband defaults to a real noise
+// gate. A 1-count deadband is not conservative in any useful sense on a
+// VCC-referenced 12-bit ADC reading a slide pot — it republishes on pure
+// dither, which churns DATA every sweep, defeats the hub's adaptive
+// STATUS-only read, and puts jitter straight into the DSP. Index 6 = 10
+// counts, about a quarter of the smallest deliberate fader move (measured
+// at 30-50 counts on this hardware).
+#define CFG_FILTER_DEFAULT      Proto::cfgFilter(6, 0)
 #define CFG_DEBOUNCE_DEFAULT_MS 4  // Tier B poll is 4 ms: no extra press latency
 #define SWEEP_INTERVAL_MS 4
 
-// Deadband lookup by CFG_FILTER low nibble (& 3), in ADC counts.
-static const uint8_t kDeadbandCounts[4] = { 1, 2, 4, 8 };
-// Slew ceiling per sweep by high nibble (& 3), in counts; 0 = unlimited.
-static const uint8_t kSlewPerSweep[4] = { 0, 24, 12, 6 };
+// Deadband lookup by CFG_FILTER low nibble, in ADC counts. Sixteen entries so
+// the whole nibble Proto::cfgFilter() encodes is addressable — the old
+// 4-entry table capped the hub at 8 counts and silently aliased indices 4-15
+// down onto 0-3.
+static const uint8_t kDeadbandCounts[16] = {
+    1,  2,  3,  4,  6,  8, 10, 12,
+   16, 20, 24, 32, 40, 48, 56, 64 };
+// Slew ceiling per sweep by high nibble, in counts; 0 = unlimited.
+static const uint8_t kSlewPerSweep[16] = {
+    0, 96, 64, 48, 32, 24, 20, 16,
+   12, 10,  8,  6,  4,  3,  2,  1 };
 
 // Four evenly spread sub-rounds per 4 ms sweep; every channel converts once
 // per sub-round, so all four share equal averaging weight.
@@ -778,14 +791,42 @@ static void updateButtons(uint8_t& pressedOut, uint8_t& releasedOut)
   stableButtons = nextButtons;
 }
 
-// Noise reduction only (§7.5): move each published value toward the averaged
+// --- Pre-deadband smoothing --------------------------------------------------
+// One-pole EMA over the sweep-averaged reading, carried in Q4 so the tail
+// converges instead of stalling on integer truncation. RAW_EMA_SHIFT is the
+// alpha exponent: 0 disables it (straight passthrough), 2 = alpha 1/4, which
+// at the 250 Hz sweep rate is a ~16 ms time constant — far faster than a
+// finger, far slower than ADC dither.
+//
+// This runs BEFORE the deadband on purpose. Smoothing shrinks the noise the
+// deadband has to cover, so the deadband can stay narrow enough to pass a
+// slow deliberate move; widening the deadband alone to cover raw dither is
+// what erases fine motion.
+#define RAW_EMA_SHIFT 2
+static uint32_t rawFilt[NUM_CHANNELS] = {};  // Q4: counts << 4
+
+static uint16_t smoothRaw(uint8_t ch, uint16_t sample)
+{
+#if RAW_EMA_SHIFT == 0
+  rawFilt[ch] = (uint32_t)sample << 4;
+#else
+  const int32_t target = (int32_t)sample << 4;
+  const int32_t cur    = (int32_t)rawFilt[ch];
+  rawFilt[ch] = (uint32_t)(cur + (target - cur) / (1 << RAW_EMA_SHIFT));
+#endif
+  return (uint16_t)(rawFilt[ch] >> 4);
+}
+
+// Noise reduction only (§7.5): move each published value toward the smoothed
 // reading through a deadband evaluated against the published value, then a
-// slew limit. Deadband idx 0 (default) is 1 count — just enough to kill
-// resting dither without erasing motion; slew idx 0 (default) is unlimited.
+// slew limit. The deadband is what keeps a resting fader byte-stable, so it
+// must exceed the peak-to-peak noise that survives smoothRaw(); the default
+// is index 6 = 10 counts. Slew idx 0 (default) is unlimited, so breaking out
+// of the deadband snaps straight to the target and a real move has no lag.
 static void applyFilterToPublished(void)
 {
-  uint8_t dbIdx  = regMap[Proto::REG_CFG_FILTER] & 0x03;
-  uint8_t slwIdx = (uint8_t)((regMap[Proto::REG_CFG_FILTER] >> 4) & 0x03);
+  uint8_t dbIdx  = regMap[Proto::REG_CFG_FILTER] & 0x0F;
+  uint8_t slwIdx = (uint8_t)((regMap[Proto::REG_CFG_FILTER] >> 4) & 0x0F);
 
   for (uint8_t ch = 0; ch < NUM_CHANNELS; ch++) {
     int16_t delta = (int16_t)rawValue[ch] - (int16_t)publishedValue[ch];
@@ -947,7 +988,8 @@ void setup()
   // DECLARED_MA, LED_COUNT, LED_TIER stay 0x00.
   regMap[Proto::REG_DATA_LEN] = Proto::SliderTile::DATA_LEN;
 
-  // Config page defaults: 1-count deadband, unlimited slew, 4 ms debounce.
+  // Config page defaults: 10-count deadband (index 6), unlimited slew, 4 ms
+  // debounce. The hub never writes this page, so these are what runs.
   regMap[Proto::REG_CFG_RATE]     = 0;  // stored, advisory on this tile
   regMap[Proto::REG_CFG_FILTER]   = CFG_FILTER_DEFAULT;
   regMap[Proto::REG_CFG_DEBOUNCE] = CFG_DEBOUNCE_DEFAULT_MS;
@@ -961,6 +1003,7 @@ void setup()
   adcSubstep();
   for (uint8_t ch = 0; ch < NUM_CHANNELS; ch++) {
     rawValue[ch]       = (uint16_t)sampleAccum[ch];
+    rawFilt[ch]        = (uint32_t)rawValue[ch] << 4;  // prime the EMA
     publishedValue[ch] = rawValue[ch];
     sampleAccum[ch]    = 0;
   }
@@ -1015,7 +1058,8 @@ void loop()
     // Finalize this sweep's averaged readings and restart accumulation.
     if (sampleCount > 0) {
       for (uint8_t ch = 0; ch < NUM_CHANNELS; ch++) {
-        rawValue[ch]    = (uint16_t)(sampleAccum[ch] / sampleCount);
+        const uint16_t avg = (uint16_t)(sampleAccum[ch] / sampleCount);
+        rawValue[ch]    = smoothRaw(ch, avg);
         sampleAccum[ch] = 0;
       }
       sampleCount = 0;

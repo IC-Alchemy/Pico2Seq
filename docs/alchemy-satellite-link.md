@@ -191,13 +191,16 @@ Two faults that shaped the hub's design have been fixed there:
    it is the general answer to "answers the bus, isn't sampling", and that class
    of fault will not have been exhausted by one instance of it.
 
-2. **The two tiles disagreed on bus speed.** `SliderModule.ino` was programmed
-   for 100 kHz and `ButtonModule8.ino` for 400 kHz, on one bank the hub clocks
-   at 400 kHz — the slider was configured for standard-mode timing while being
-   driven at fast mode, which is the "400 kHz stalls tile transfers on this rig"
-   this repo used to document. Both now read `kBusClockHz = 400000`, matching
-   `kTileBusFrequencyHz` in `src/app/ControlIO.cpp`. **Bench-verify this one**:
-   the diagnosis is sound from the source, but only hardware settles it.
+2. **The two tiles could disagree on bus speed.** An earlier `SliderModule.ino`
+   (1.03) was programmed for 100 kHz while `ButtonModule8.ino` was programmed for
+   400 kHz, on one bank — the slider configured for standard-mode timing while
+   driven at fast mode. That is one candidate for the "400 kHz stalls tile
+   transfers on this rig" this repo used to document; it is a candidate, not a
+   proven cause. The 1.03 slider now flashed already programs 400000. Both
+   sketches now name it `kBusClockHz = 400000`, held equal by a host test, and it
+   must match `kTileBusFrequencyHz` in `src/app/ControlIO.cpp`. **Bench-verify
+   the bank at 400 kHz**: only hardware settles it. If it stalls, lower all
+   three together — never one.
 
 Also worth knowing: each button edge costs **two** SEQ advances on the tile (one
 publishing the edge, one publishing the cleared sticky bytes). Harmless for this

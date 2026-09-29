@@ -28,13 +28,16 @@ else differs between the two button variants, and no protocol version moves.
 
 ## Fitting the part
 
-Measured with `arm-none-eabi-g++ -mcpu=cortex-m0plus -Os`, sketch code only —
-the core and HAL are on top of this:
+Measured with the command below, sketch code only — the core and HAL are on top
+of this:
 
-| Sketch | flash (.text) | RAM (.bss) |
+| Sketch | flash (text + data) | RAM (data + bss) |
 |---|---|---|
-| SliderModule | 2552 | 249 |
-| ButtonModule8 | 2112 | 200 |
+| SliderModule | 2529 | 281 |
+| ButtonModule8 | 1913 | 213 |
+
+The hardening in 1.04 costs the slider about 108 bytes of flash and no more than
+3 bytes of RAM over the 1.03 filter it is built on.
 
 If the link overflows, get the numbers before changing code:
 
@@ -47,11 +50,18 @@ arm-none-eabi-size /tmp/t.o
 An overflow far larger than the sketch's own footprint is not a code problem.
 
 **The board part number is the thing to check first.** `PY32F030F28U6TR` is
-TSSOP-20 with density code 8: **64 KB flash, 8 KB SRAM**. Selecting a 16 KB /
-2 KB variant instead fails by roughly the size of the core no matter what the
-sketch does — a real instance of this overflowed FLASH by 952 bytes and RAM by
-48, which works out to an image of ~17.3 KB and ~2.1 KB. The same image is
-about a quarter of the correct part. The sketch itself was 2.5 KB of it.
+TSSOP-20, and by Puya's naming density code 8 is 64 KB flash / 8 KB SRAM — read
+from the part number, not from a datasheet, so confirm it. The variant chosen in
+the IDE sets the linker script's FLASH and RAM sizes, and the core and HAL are
+linked in on top of the sketch, so a variant smaller than the chip overflows by
+roughly the size of the core no matter what the sketch does.
+
+One recorded instance: a link overflowed FLASH by 952 bytes and RAM by 48 while
+the maintainer's own build of the previous sketch had just flashed. The two
+sketches were within 12 bytes of each other in total footprint (2693 vs 2681
+with the command above), so the sketch was not what differed. The overflow
+arithmetic — an image of ~17.3 KB and ~2.1 KB — is what a 16 KB / 2 KB linker
+script would produce, but which variant that build used was never confirmed.
 
 After that, in order:
 
@@ -115,10 +125,20 @@ while being the core's default serial pin — so no `Serial` either.
 
 ### Slider 1.04 / Button 1.05
 
-- **Bus rate unified at 400 kHz** (`kBusClockHz`). The slider tile was
-  programmed for 100 kHz on a bank the hub clocks at 400 kHz — configured for
-  standard-mode timing while being driven at fast mode. Keep this in lockstep
-  with `kTileBusFrequencyHz` in `src/app/ControlIO.cpp`.
+The slider is built on the maintainer's 1.03 conditioning, unchanged: a
+pre-deadband one-pole EMA (`RAW_EMA_SHIFT`), sixteen-entry deadband and slew
+tables, and a 10-count default deadband. The hub never writes the config page,
+so that default is what runs. `[py32][slider][filter]` pins it: a resting
+fader's dither does not churn SEQ, a deliberate 30-count move does publish, a
+settled fader rests within one deadband of the truth, no index aliases another,
+and the smoothing is primed at boot.
+
+- **Bus rate is one named constant** (`kBusClockHz`, 400 kHz) instead of a
+  literal in `HAL_I2C_Init`'s arguments. The 1.03 slider now flashed already
+  programs 400000, but an earlier 1.03 build programmed 100000 while the button
+  tile programmed 400000 — standard-mode timing on a tile driven at fast mode.
+  Naming it lets a host test hold both tiles to the same value. Keep it in
+  lockstep with `kTileBusFrequencyHz` in `src/app/ControlIO.cpp`.
 - **A stale publish latch is reclaimed.** `servingBuf` reserves a buffer for an
   in-flight read and was cleared only in `endTransaction()`, which a
   transaction killed by the bus watchdog never reaches. The reservation then

@@ -12,6 +12,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
+#include <cstdlib>
 #include <vector>
 
 #include "py32_stubs/TileHarness.h"
@@ -57,6 +58,7 @@ void resetTileState()
     for (std::uint8_t ch = 0; ch < NUM_CHANNELS; ++ch)
     {
         rawValue[ch] = 0;
+        rawFilt[ch] = 0;
         publishedValue[ch] = 0;
         sampleAccum[ch] = 0;
     }
@@ -73,15 +75,17 @@ void resetTileState()
 /** Boot one tile with a known strap, faders and buttons. */
 struct Rig {
     tile::Master master;
+    int targets[4] = {0, 0, 0, 0};   // where the faders really are, in ADC counts
 
-    Rig()
+    /** Boot with the faders already at `a`..`d`: setup() primes its smoothing from them. */
+    explicit Rig(int a = 0, int b = 0, int c = 0, int d = 0)
     {
         const uint32_t clock = py32::state().millis + 1000u; // never rewind
         py32::state() = py32::State{};
         py32::setMillis(clock);
         py32::state().strap = py32::Strap::Floating;
         for (std::uint8_t pin : {PA4, PA5, PA6, PF0}) py32::setDigital(pin, HIGH); // released
-        setFaders(0, 0, 0, 0);
+        setFaders(a, b, c, d);
         resetTileState();
         setup();
     }
@@ -104,10 +108,37 @@ struct Rig {
 
     void setFaders(int a, int b, int c, int d)
     {
+        targets[0] = a;
+        targets[1] = b;
+        targets[2] = c;
+        targets[3] = d;
         py32::setAnalog(PA0, a);
         py32::setAnalog(PA1, b);
         py32::setAnalog(PA2, c);
         py32::setAnalog(PA3, d);
+    }
+
+    /**
+     * Run until the sketch's pre-deadband smoothing has caught up with the
+     * faders. A step is not visible on the wire at once: rawFilt closes on it
+     * geometrically (a full-scale step needs ~34 sweeps at RAW_EMA_SHIFT 2,
+     * ~68 at 3), and the published value then rests within the deadband of
+     * where the smoothing landed. 600 ms is ~150 sweeps, and the REQUIRE says
+     * so out loud if a retune ever makes that too short.
+     */
+    void settle()
+    {
+        run(600);
+        for (std::uint8_t ch = 0; ch < NUM_CHANNELS; ++ch)
+        {
+            REQUIRE(std::abs(int(rawValue[ch]) - targets[ch]) <= 1);
+        }
+    }
+
+    /** The deadband in force, in ADC counts — the most a settled fader may rest from the truth. */
+    int deadband() const
+    {
+        return kDeadbandCounts[regMap[Proto::REG_CFG_FILTER] & 0x0F];
     }
 
     /** Buttons are active-low through internal pull-ups. */
@@ -174,16 +205,21 @@ TEST_CASE("a frame read in one transaction is coherent and checksummed", "[py32]
     rig.setFaders(100, 2000, 3000, 4095);
     rig.pressButton(0, true);
     rig.pressButton(3, true);
-    rig.run(40);
+    rig.settle();
 
     const std::vector<std::uint8_t> frame = rig.readFrame();
     REQUIRE(frame.size() == kFrameLen);
     REQUIRE(tile::frameOk(frame, kDataLen));
 
-    CHECK(faderOf(frame, 0) == 100);
-    CHECK(faderOf(frame, 1) == 2000);
-    CHECK(faderOf(frame, 2) == 3000);
-    CHECK(faderOf(frame, 3) == 4095);
+    // Each fader in its own slot. Within the deadband of the truth rather than
+    // equal to it: the tile republishes a value only once it has moved further
+    // than the deadband, and the smoothing floors to a whole count. The four
+    // targets are thousands of counts apart, so the tolerance cannot blur them.
+    const int tolerance = rig.deadband() + 1;
+    CHECK(std::abs(faderOf(frame, 0) - 100) <= tolerance);
+    CHECK(std::abs(faderOf(frame, 1) - 2000) <= tolerance);
+    CHECK(std::abs(faderOf(frame, 2) - 3000) <= tolerance);
+    CHECK(std::abs(faderOf(frame, 3) - 4095) <= tolerance);
     CHECK(frame[1 + kBtnLevel] == 0x09); // buttons 0 and 3
     CHECK_FALSE(frame[0] & tile::kStatusNotReady);
 }
@@ -200,7 +236,7 @@ TEST_CASE("SEQ advances only when DATA changed", "[py32][slider]")
 {
     Rig rig;
     rig.setFaders(1000, 1000, 1000, 1000);
-    rig.run(40);
+    rig.settle(); // SEQ keeps moving until the smoothing has arrived
 
     const std::uint8_t settled = tile::seqOf(rig.readFrame()[0]);
     rig.run(40); // nothing touched
@@ -209,6 +245,126 @@ TEST_CASE("SEQ advances only when DATA changed", "[py32][slider]")
     rig.setFaders(3000, 1000, 1000, 1000);
     rig.run(40);
     CHECK(tile::seqOf(rig.readFrame()[0]) != settled);
+}
+
+// ---------------------------------------------------------------------------
+// Fader conditioning — smoothing, then deadband, in front of the snapshot
+// ---------------------------------------------------------------------------
+
+TEST_CASE("a resting fader's ADC dither does not churn the snapshot", "[py32][slider][filter]")
+{
+    // The deadband exists so an untouched fader is byte-stable. Dither that
+    // republished every sweep would advance SEQ every sweep, put jitter
+    // straight into the DSP, and make every poll look like news to the hub.
+    Rig rig;
+    rig.setFaders(2000, 2000, 2000, 2000);
+    rig.settle();
+
+    // +/-3 counts, alternating every sweep, opposite phase on alternate channels.
+    auto dither = [&rig](int sweep) {
+        const int wobble = (sweep & 1) ? 3 : -3;
+        rig.setFaders(2000 + wobble, 2000 - wobble, 2000 + wobble, 2000 - wobble);
+        rig.run(SWEEP_INTERVAL_MS);
+    };
+
+    // A fader that settled at the very edge of its deadband may republish once
+    // when the dither first arrives. That is a step, not churn, so let it land.
+    for (int sweep = 0; sweep < 20; ++sweep) dither(sweep);
+    const std::uint8_t settled = tile::seqOf(rig.readFrame()[0]);
+
+    int seqMoves = 0;
+    for (int sweep = 20; sweep < 120; ++sweep)
+    {
+        dither(sweep);
+        if (tile::seqOf(rig.readFrame()[0]) != settled) ++seqMoves;
+    }
+    CHECK(seqMoves == 0);
+}
+
+TEST_CASE("a deliberate fader move passes the deadband and is published", "[py32][slider][filter]")
+{
+    // The deadband's other half: gate the noise without eating the smallest
+    // deliberate move, which was measured at 30-50 counts on this hardware.
+    // "Moved" is judged from what the hub last saw. The tile compares against
+    // its published value, which may rest up to a deadband from the truth.
+    Rig rig;
+    rig.setFaders(2000, 2000, 2000, 2000);
+    rig.settle();
+    const std::vector<std::uint8_t> before = rig.readFrame();
+    const int rest = faderOf(before, 0);
+
+    rig.setFaders(rest + 30, 2000, 2000, 2000);
+    rig.settle();
+    const std::vector<std::uint8_t> frame = rig.readFrame();
+
+    CHECK(tile::seqOf(frame[0]) != tile::seqOf(before[0]));
+    CHECK(faderOf(frame, 0) > rest);
+    CHECK(faderOf(frame, 1) == faderOf(before, 1)); // an untouched channel does not budge
+}
+
+TEST_CASE("a settled fader rests within the deadband of where it really is", "[py32][slider][filter]")
+{
+    // The price of a byte-stable rest is that the published value may sit up
+    // to one deadband away from the truth. Pin the bound rather than exactness
+    // so a retuned deadband moves the bound with it. The targets include both
+    // end stops, reached from the far side each time.
+    Rig rig;
+    for (int target : {4095, 0, 1, 2048, 4094, 137, 4000, 0, 4095})
+    {
+        rig.setFaders(target, target, target, target);
+        rig.settle();
+
+        const std::vector<std::uint8_t> frame = rig.readFrame();
+        for (std::uint8_t ch = 0; ch < NUM_CHANNELS; ++ch)
+        {
+            INFO("target " << target << ", channel " << int(ch));
+            CHECK(std::abs(faderOf(frame, ch) - target) <= rig.deadband() + 1);
+        }
+    }
+}
+
+TEST_CASE("the first published frame carries the real fader positions", "[py32][slider][filter]")
+{
+    // setup() primes the smoothing with a live sample. Without that it starts
+    // from zero, and a tile powered up with a fader at 3000 feeds the hub a
+    // slow fake sweep up to it: five sweeps is nowhere near enough to ramp.
+    Rig rig(3000, 1500, 500, 4095);
+    rig.run(5 * SWEEP_INTERVAL_MS);
+
+    const std::vector<std::uint8_t> frame = rig.readFrame();
+    REQUIRE(tile::frameOk(frame, kDataLen));
+    CHECK(std::abs(faderOf(frame, 0) - 3000) <= rig.deadband() + 1);
+    CHECK(std::abs(faderOf(frame, 1) - 1500) <= rig.deadband() + 1);
+    CHECK(std::abs(faderOf(frame, 2) - 500) <= rig.deadband() + 1);
+    CHECK(std::abs(faderOf(frame, 3) - 4095) <= rig.deadband() + 1);
+}
+
+TEST_CASE("every deadband index is addressable and none aliases another", "[py32][slider][filter]")
+{
+    // The lookup used to take the low two bits, so indices 4..15 silently
+    // behaved as 0..3 and a hub asking for a wide deadband got a narrow one.
+    // Index 9 is 20 counts; index 1 is 2. The test picks its own deadband up
+    // front so it does not depend on whatever the power-on default is.
+    Rig rig;
+    rig.master.writeRegister(Proto::REG_CFG_FILTER, {Proto::cfgFilter(9, 0)});
+    REQUIRE(rig.deadband() == 20);
+
+    rig.setFaders(2000, 2000, 2000, 2000);
+    rig.settle();
+
+    // A settled fader rests anywhere within the deadband of the truth, so
+    // measure the step from what was actually published, not from 2000.
+    const int rest = faderOf(rig.readFrame(), 0);
+    const int moved = rest + 15;
+
+    rig.setFaders(moved, 2000, 2000, 2000);
+    rig.settle();
+    CHECK(faderOf(rig.readFrame(), 0) == rest); // 15 counts sits inside a 20-count deadband
+
+    rig.master.writeRegister(Proto::REG_CFG_FILTER, {Proto::cfgFilter(1, 0)});
+    REQUIRE(rig.deadband() == 2);
+    rig.run(4 * SWEEP_INTERVAL_MS);
+    CHECK(std::abs(faderOf(rig.readFrame(), 0) - moved) <= 2 + 1); // and clears a 2-count one
 }
 
 // ---------------------------------------------------------------------------
