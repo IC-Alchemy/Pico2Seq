@@ -254,7 +254,7 @@ MIDI, displays, sensors, or controls on physical hardware.
 6. **Real-time recording:** Hold (or Shift+tap to latch) a parameter button and touch step pads to record automation into the pattern.
 7. **Switch function sets:** Toggle the GP7 mode strap between **Param** (Note, Velocity, Filter, Attack, Decay, Octave, Slide, Shift) and **Utility** (Play/Stop, Session Save/Load, Scale, Swing, Theme, Encoder Target, Randomize, Shift).
 8. **Voice Editing mode:** Hold **Shift** and press slider button 4 to stop transport and edit any voice's sound parameters directly with the encoder (button tiles navigate groups/parameters; slider buttons 1–4 pick the voice). See [`docs/voice-edit.md`](docs/voice-edit.md).
-9. **Delay & groove:** Fader 2 sets the master delay wet mix. Hold **Shift** and move it for delay time. In millisecond mode it spans 10–750 ms; **Shift + Utility Delay/Session** toggles tempo sync, where the fader selects whole through dotted and triplet 64th notes. The OLED shows the selected division. Tempo changes update the delay time automatically. Fader 3 keeps master volume; **Shift + fader 3** morphs the compressor across Warm/Glue/Punch. Shuffle/swing comes from the 16 templates (Utility button 4).
+9. **Delay & groove:** Fader 2 sets the master delay wet mix. Hold **Shift** and move it for delay time. In millisecond mode it spans 10–750 ms; **Shift + Utility Delay/Session** toggles tempo sync, where the fader selects whole through dotted and triplet 64th notes. The OLED shows the selected division. Tempo changes update the delay time automatically. Fader 3 keeps master volume; **Shift + fader 3** morphs the compressor across Warm/Glue/Punch. The **Reverb page** (Shift + 6 + 2, below) holds the reverb controls. Shuffle/swing comes from the 16 templates (Utility button 4).
 10. **Clear a voice / start fresh:** In Utility mode, **Shift + Randomize tap** wipes the selected voice's whole pattern (all step values, gates, slides and per-track lengths); **Shift + Randomize long-press** wipes all four voices the same way. Voice presets, tempo and transport state are kept.
 
 ### Live voice ADSR sliders
@@ -280,6 +280,20 @@ The OLED shows the selected voice, ADSR values, and last moved stage. Only that
 voice's LED band is lit. Sequence pads and the encoder are inactive on this page;
 arp pads still play chords. **Shift + button 6** without a voice press performs
 its existing short action on release; use unshifted button 6 for its normal hold.
+
+### Master reverb page
+
+Hold **Shift (button 8)**, hold **button 6**, then **press button 2**, and
+release. The **REVERB** page opens without stopping playback; **Shift** leaves it.
+Faders 1–3 on the MAIN layer are **Mix** (0 by default, so existing sounds are
+unchanged), **Decay** (0.1–1000 s) and **Damping**; **button 1** toggles
+**Freeze**. **Button 2** switches to the TONE layer: **Low cut**, **Diffusion**,
+**Mod** depth and **Width**. The reverb sits after the master delay and before
+master volume and the now stereo-linked compressor. Its settings are saved with
+the session (freeze is not), and the reverb output is genuinely stereo: left
+and right PCM16 are converted separately. See
+[the manual](docs/manual.md#37-master-reverb) and the
+[RAM/CPU audit](docs/audio-performance.md#master-reverb-ram-stack-and-sram-audit).
 
 ### Preset System
 

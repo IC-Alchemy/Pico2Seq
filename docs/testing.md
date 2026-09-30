@@ -149,6 +149,55 @@ feedback changes are checked through the real combined bus at 0%, 100% and
 The 150 MHz firmware was rebuilt with all four artifacts verified; physical
 fader/OLED behavior and audio timing remain unverified.
 
+## Master reverb, stereo bus and Reverb page
+
+The signal path is voices → `MasterDelay` → `MasterReverb` (`rpdsp::DarkReverb`) → shared master gain →
+linked stereo compressor → separate left/right PCM16. The reverb tank keeps running at mix zero, and a
+settled mix of zero must reproduce the legacy mono bus bit-for-bit.
+
+| Tag | File | What it pins |
+|---|---|---|
+| `[reverb][master_reverb]` | `test_master_reverb.cpp` | Mix zero is the dry bus exactly while the tank keeps evolving; the wet path is the engine driven by the mono bus on both inputs at the intended level; one shared eased mix; lock-free control targets and clamping; coherent snapshots, later single edits beating an earlier snapshot (even a return to the old value) and a full snapshot ring; eased coefficients that land exactly and then do no setter work; **any split of the render into calls gives the same output**; extreme controls stay finite and bounded; `prepare()` keeps published targets |
+| `[freeze]` | same | Freeze holds the tail, its transitions do not click (measured per control tick against the tail's own floor; a plain-engine freeze and a damping-only ramp both fail this check), and a rapid toggle never engages the engine |
+| `[storage]` | same | Half and Float agree at the same capacity (residual below −55 dB, equal peaks within 0.1 dB); the compiled variant names itself for `[DIAG MEM]` |
+| `[alloc]` | same | A global `operator new` replacement counts allocations while rendering, changing controls and publishing snapshots: zero |
+| `[reverb_bus]` | `test_master_bus.cpp` | Bus order (voices, delay, reverb, shared gain, linked compressor) with a wrong-order twin that must differ; reverb mix zero equals the legacy mono bus on both channels including PCM; distinct wet channels sharing one compressor gain; delay repeats reach the reverb; tails survive silent voices and obey transport mute and volume (against an unmuted twin); odd, empty, oversized and overlapping blocks; `init()` clears the tail but keeps published targets |
+| `[app][pcm][stereo]` | `test_app_runtime.cpp` | Left and right convert and clip independently |
+| `[reverb_page]` | `test_reverb_page.cpp`, `test_reverb_editor.cpp` | Entry gesture (Shift, then 6, then a press of 2) and only that, coexistence with the ADSR chord, presses-only actions, no stale presses after another screen, gate-length holds blocked, fader layers, exact curve limits (monotonic and invertible), OLED formatting, and that a fader move reaches the sound without a click |
+| `[persistence][effects]` | `test_persistence.cpp` | Format 3: locked sizes and offsets, v1/v2 upgrade with default effects (mix 0), bit-exact v3 round trip, NaN/infinity/out-of-range rejection for every field, damaged and unknown frames refused, codec never stores freeze, limits equal `ReverbParams` |
+| `[stack]` | `test_stack_watermark.cpp` | The paint/scan arithmetic behind `[DIAG MEM]`'s stack headroom |
+| `reverb-bypass:` | `test_reverb_bypass.cpp` (`pico2seq_reverb_bypass_tests`) | The bench-only `-DPICO2SEQ_REVERB_BYPASS=1` build renders the dry bus and still hands controls over |
+
+```bash
+./build_test/tests/pico2seq_tests "[reverb]"          # adapter, freeze, storage, allocation
+./build_test/tests/pico2seq_tests "[reverb_bus]"      # stereo master bus
+./build_test/tests/pico2seq_tests "[reverb_page]"     # Reverb page and editor
+./build_test/tests/pico2seq_tests "[persistence]"     # includes format 3
+./build_test/tests/pico2seq_audio_tests               # I2S pool and driver (builds again on GCC 13)
+```
+
+**Storage variants.** The host tests default to the firmware's Half tank. Re-run the identical suites
+against the 24-bit tank with a second build directory (the option is applied to every target, so
+`MasterReverb`, which `VoiceManager` embeds, has one definition per executable):
+
+```bash
+cmake -B build_test_float -DCMAKE_BUILD_TYPE=Debug -DPICO2SEQ_REVERB_STORAGE=FLOAT
+cmake --build build_test_float --parallel
+ctest --test-dir build_test_float --output-on-failure
+```
+
+**Known baseline failures.** Recorded 2026-09-30 on Linux with GCC 13.3, Debug: at `93bb7a1` 33 tests fail in
+`pico2seq_tests`/`pico2seq_voice_tests`. Their assertions concern octave/gate defaults, note names, pitch lookup,
+release defaults, cutoff limits and filter counts; whether the code or the expectation is stale was not
+investigated. `pico2seq_audio_tests` also did not compile: the host test builds `audio_i2s.c` as C++, which requires
+designated initializers in declaration order. The reverb work leaves the 33 failing test names and their
+assertion text unchanged (compare the Catch2 XML reporter output, not the count) and fixes the audio target
+by reordering the three initializers. Treat a failure outside that set as new.
+
+**What host tests do not establish:** board CPU time, XIP/SRAM behavior at run time, heap and stack headroom on the
+device, DMA timing and listening. Those are the board checks in
+[audio-performance.md](audio-performance.md#master-reverb-ram-stack-and-sram-audit).
+
 ## Host Unit Test Suites
 
 The host test executable (`pico2seq_tests`) links all unit suites under `tests/unit/`:
@@ -165,16 +214,20 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 8 | `tests/unit/test_voiceoscillator.cpp` | Voice Oscillator Dispatch | `VoiceOscillator` variant dispatch, band-limited waveforms, pulse width modulation, pitch changes |
 | 9 | `tests/unit/test_control_surface_logic.cpp` | Tile UI Decision Logic | `ModeStabilizer` debouncing, `PadBank` voice-pair resolution, `ShiftLatch` latching, `FaderMap` deadband |
 | 10 | `tests/unit/test_alchemy_proto.cpp` | Alchemy Tile Wire Format | Per-tile-type button block offsets (slider DATA 8..10 vs button DATA 0..2), fader decode, SEQ/STATUS decode, frame checksum, identity validation, `TileButton` press/hold/tap |
-| 11 | `tests/unit/test_app_runtime.cpp` | App runtime helpers | PCM16 DAC conversion (clipping/truncation, `[app][pcm]`), lidar recording calibration across the 55–700 mm window (`[app][recording]`) |
+| 11 | `tests/unit/test_app_runtime.cpp` | App runtime helpers | PCM16 DAC conversion (clipping/truncation, independent stereo channels, `[app][pcm]`), lidar recording calibration across the 55–700 mm window (`[app][recording]`) |
 | 12 | `tests/unit/test_audio_i2s.cpp` | I2S output path (`pico2seq_audio_tests`) | Rendered buffers handed to DMA, starvation recovery (`[audio][i2s]`, isolated `tests/audio_stubs/`) |
 | 13 | `tests/unit/test_freeze_watchdog.cpp` | `FreezeWatchdog` (`pico2seq_watchdog_tests`) | Watchdog scratch evidence, boot vs late-serial reconnect, no stale reports on normal boot (`[watchdog]`, isolated `tests/watchdog_stubs/`) |
 | 14 | `tests/unit/test_voice_recipes.cpp` | Recipe/engine voices | Preset registry coherence (29 presets across core, recipes, and musical presets), waveguide tails across engine resets, recipe timbre lanes, envelope gate/retrigger behavior (`[voice][presets][waveguide][recipes]`) |
 | 15 | `tests/unit/test_voice_edit.cpp` | Voice Editing mode | Base vs lidar-modifier independence, neutral-modifier preset round-trip, parameter catalogue reachability/clamping per engine, editor release semantics, muted-editor queue draining (`[voice_edit][recording]`) |
-| 16 | `tests/unit/test_persistence.cpp` | Session persistence (`src/pico2seq-core/persistence/`, `src/voice/PatchCodec.*`) | CRC32 vector, frame magic/version/size/CRC rejection, locked snapshot layout (10,312 bytes format 1, 12,400 bytes format 2), snapshot validation bounds, pattern round-trip incl. raw tails, patch codec pointer re-derivation, golden full-project round-trip, watchdog resume decision table, retained-store validity (`[persistence]`) |
+| 16 | `tests/unit/test_persistence.cpp` | Session persistence (`src/pico2seq-core/persistence/`, `src/voice/PatchCodec.*`) | CRC32 vector, frame magic/version/size/CRC rejection, locked snapshot layout (10,312 bytes format 1, 12,400 bytes format 2, 12,448 bytes format 3 with the effect record), v1/v2 upgrade, effect validation, snapshot validation bounds, pattern round-trip incl. raw tails, patch codec pointer re-derivation, golden full-project round-trip, watchdog resume decision table, retained-store validity (`[persistence]`) |
 | 17 | `tests/unit/test_recipe_optimization.cpp` | `rpdsp` Recipe CPU Optimizations | Prepared oscillator phase/spectra, cached coefficient survival across edits/triggers, feedback operator history (`[optimization][recipes][voice]`) |
 | 18 | `tests/unit/test_master_compressor.cpp` | Master-bus macro knob (`VoiceManager`) | `rpdsp::Compressor` Warm/Glue/Punch curve anchors, gain reduction on high-amplitude streams, Punch squeezes harder than Warm to DAC-safe levels, gradual (not instant) morphs, silence passthrough (`[master][compressor]`, also in `pico2seq_voice_tests`) |
 | 19 | `tests/unit/test_master_delay.cpp` | Master-bus delay | Fractional reads, filtered repeats, feedback bounds and mix smoothing (`[master_delay]`) |
-| 20 | `tests/unit/test_master_bus.cpp` | Combined delay and compressor | Bus order, dry bypass, tails, mute, volume and audible fader range (`[master_bus]`) |
+| 20 | `tests/unit/test_master_bus.cpp` | Combined delay, reverb and compressor | Bus order, dry bypass, tails, mute, volume, audible fader range, stereo reverb bus (`[master_bus]`, `[reverb_bus]`) |
+| 21 | `tests/unit/test_master_reverb.cpp` | `MasterReverb` adapter | Mix-zero bit-exactness, lock-free control hand-off, snapshots, eased controls, freeze, storage variants, allocation (`[reverb][master_reverb]`) |
+| 22 | `tests/unit/test_reverb_page.cpp`, `test_reverb_editor.cpp` | Reverb page | Entry gesture, fader layers and curves, OLED formatting, published values (`[reverb_page]`) |
+| 23 | `tests/unit/test_stack_watermark.cpp` | `StackWatermark` | Paint/scan arithmetic (`[stack]`) |
+| 24 | `tests/unit/test_reverb_bypass.cpp` | Bench bypass build (`pico2seq_reverb_bypass_tests`) | Dry bus, control hand-off |
 
 ---
 
@@ -220,16 +273,18 @@ cmake -B build_test -DCMAKE_BUILD_TYPE=Debug
 # Compile the test runner executables
 cmake --build build_test --parallel
 
-# Execute the main test runner directly (240 tests)
+# Execute the main test runner directly
 ./build_test/tests/pico2seq_tests
 
 # Or run individual specialized test executables:
-./build_test/tests/pico2seq_voice_tests      # Focused voice ownership & queue suite (70 tests)
-./build_test/tests/pico2seq_watchdog_tests   # FreezeWatchdog forensics suite (4 tests)
-./build_test/tests/pico2seq_audio_tests      # I2S DMA/pool driver suite (1 test)
+./build_test/tests/pico2seq_voice_tests      # Focused voice ownership, master bus and reverb suite
+./build_test/tests/pico2seq_ui_tests         # Control surface, UI transitions, Reverb page
+./build_test/tests/pico2seq_watchdog_tests   # FreezeWatchdog forensics suite
+./build_test/tests/pico2seq_audio_tests      # I2S DMA/pool driver suite
+./build_test/tests/pico2seq_reverb_bypass_tests  # Bench-only reverb bypass build
 ```
 
-*(On Windows PowerShell, append `.exe` to executable names; `ctest --test-dir build_test` executes all 315 tests across all 4 targets)*
+*(On Windows PowerShell, append `.exe` to executable names; `ctest --test-dir build_test` runs every discovered test across the six targets: 692 on 2026-09-30, 33 of them the known baseline failures above.)*
 
 ### 2. Run with CTest
 

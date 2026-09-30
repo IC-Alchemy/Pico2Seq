@@ -155,6 +155,19 @@ without changing tempo. Faders 1–3 re-arm on Shift edges; feedback eases
 with the same 45 ms time constant as wet mix.
 Delay/filter/compressor history belongs to Core 1; Core 0 only writes targets.
 
+`MasterReverb` (`src/voice/MasterReverb.h/.cpp`, 2026-09-30) follows the delay: an
+`rpdsp::DarkReverb<16384>` (Half storage by default) whose mono input is the
+post-delay bus and whose left/right output makes the bus stereo. The compressor
+became a linked stereo compressor and `AudioEngine.cpp` converts left and right
+to PCM16 separately (`AudioSamples::interleavePcm16()`). Core 0 publishes eight
+reverb controls plus freeze through atomics and, for a project restore, one
+coherent snapshot through a small SPSC ring; only Core 1 touches the tank and eases
+the coefficients. The Reverb page (Shift + 6 + 2) is `src/ui/ReverbPageControls.h`
+(gesture), `src/app/ReverbEditor.cpp` (values to `VoiceManager`),
+`AlchemyControlBridge` (fader routing), `oled.cpp` and `LEDMatrixFeedback.cpp`
+(display). Settings persist in format 3 (`src/voice/EffectsCodec.*`); freeze does
+not. RAM, stack and SRAM placement: [audio-performance.md](audio-performance.md#master-reverb-ram-stack-and-sram-audit).
+
 ## Building and checking changes
 
 Arduino recursively compiles `.cpp` files under `src/app/`; no source list or

@@ -121,8 +121,9 @@ code with **no hardware dependencies**, using header stubs in `tests/stubs/` (e.
 `Wire.h`, `pico/sync.h`) to satisfy `#include`s without real hardware. `tests/stubs/` mirrors
 real header paths exactly — a stub for `pico/sync.h` must live at `tests/stubs/pico/sync.h`.
 
-What's tested vs. not, per `tests/CMakeLists.txt` (five focused targets: `pico2seq_tests`,
-`pico2seq_ui_tests`, `pico2seq_voice_tests`, `pico2seq_watchdog_tests`, `pico2seq_audio_tests`):
+What's tested vs. not, per `tests/CMakeLists.txt` (six focused targets: `pico2seq_tests`,
+`pico2seq_ui_tests`, `pico2seq_voice_tests`, `pico2seq_watchdog_tests`, `pico2seq_audio_tests`,
+`pico2seq_reverb_bypass_tests`):
 - **Tested**: `src/rpdsp/` additions via
   `tests/unit/test_rpdsp_additions.cpp`, `test_dsp_recipe_regressions.cpp`,
   and `test_recipe_optimization.cpp`,
@@ -137,18 +138,21 @@ What's tested vs. not, per `tests/CMakeLists.txt` (five focused targets: `pico2s
   `test_voice_recipes.cpp`; block rendering via `test_voice_block.cpp`; voice
   editing via `test_voice_edit.cpp`; the master
   delay/compressor/bus via `test_master_delay.cpp`, `test_master_compressor.cpp`
-  and `test_master_bus.cpp`; focused ownership via `pico2seq_voice_tests`),
-  session and patch serialization (`src/pico2seq-core/persistence/*`,
-  `src/voice/PatchCodec.cpp`) via `test_persistence.cpp`,
+  and `test_master_bus.cpp`; the master reverb adapter `MasterReverb.cpp` via
+  `test_master_reverb.cpp` (and `[reverb_bus]` in `test_master_bus.cpp`); focused
+  ownership via `pico2seq_voice_tests`),
+  session, patch and effect-settings serialization (`src/pico2seq-core/persistence/*`,
+  `src/voice/{PatchCodec,EffectsCodec}.cpp`) via `test_persistence.cpp`,
   `src/ui/ControlSurfaceLogic.cpp` and `src/ui/UITransitions.h` via
-  `test_control_surface_logic.cpp` / `test_ui_transitions.cpp`
+  `test_control_surface_logic.cpp` / `test_ui_transitions.cpp` / `test_reverb_page.cpp`
   (`pico2seq_ui_tests`),
   `src/ui/SettingsPads.h` via `test_settings_pads.cpp`,
   `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` via `tests/unit/test_alchemy_proto.cpp`,
   `src/app/{VoicePlayback,VoiceEnvelope,StepPlayback}.cpp` via
   `test_voice_playback.cpp`, `test_voice_envelope.cpp`, and
   `test_lidar_recording.cpp`, plus `src/app/SequencerView.h` via
-  `test_sequencer_view.cpp`,
+  `test_sequencer_view.cpp`, `src/app/ReverbEditor.cpp` via `test_reverb_editor.cpp`, and the
+  portable stack-watermark logic in `src/utils/StackWatermark.h` via `test_stack_watermark.cpp`,
   `src/audio/{audio_i2s,audio}.cpp` via `pico2seq_audio_tests` (against
   `tests/audio_stubs/` — keep driver logic in those testable functions),
   `src/utils/FreezeWatchdog.h` via `pico2seq_watchdog_tests`
@@ -162,7 +166,8 @@ What's tested vs. not, per `tests/CMakeLists.txt` (five focused targets: `pico2s
   the Wire-bound parts of `src/ui/AlchemyControlBridge.cpp`,
   `src/ui/{UIEventHandler,ButtonHandlers,ButtonManager}.cpp`, the rest of
   `src/app/` (`Application`, `ControlIO`, `AudioEngine`, `ClockService`,
-  `StepPlayback`, `SessionStorage`), and `src/utils/Debug.cpp`.
+  `StepPlayback`, `SessionStorage`), `src/utils/Debug.cpp` and the linker-symbol binding
+  `src/utils/StackWatermark.cpp`.
   There is no `src/midi/` module any more: it holds a removal notice only.
 
 When adding a new module to be tested:
@@ -192,11 +197,11 @@ sensors,ButtonHandlers}.md` cover each subsystem. The essentials:
 ### Dual-core split (the most important thing to keep in mind for any change)
 
 - **Core 0** (`setup()`/`loop()`): everything else — USB CDC serial, TMAG5273 magnetic encoder and VL53L1X, distance sensor polling, MPR121 touch matrix scanning, `uClock` sequencer step ticking, LED matrix and OLED updates, UI state.
-- **Core 1** (`setup1()`/`loop1()` in `Pico2Seq.ino`): audio synthesis only. Pulls a buffer, calls `voiceManager->processBlock()` for each 256-frame buffer, writes I2S output. Nothing else should run here — this is real-time critical and must never block or allocate.
+- **Core 1** (`setup1()`/`loop1()` in `Pico2Seq.ino`): audio synthesis only. Pulls a buffer, calls `voiceManager->processStereoBlock()` for each 256-frame buffer, converts left and right to PCM16 separately, writes I2S output. Nothing else should run here — this is real-time critical and must never block or allocate.
 - Cross-core communication is via lock-free primitives — there are no mutexes anywhere:
   an `std::atomic<bool>` publish flag (`voicesReady`), `std::atomic` control targets
-  (volume, macro, delay), and `SpscQueue` rings for voice control updates and the Core 1
-  heartbeat. `ClockService` also uses a file-static `volatile` tick count for its
+  (volume, macro, delay, reverb), and `SpscQueue` rings for voice control updates, the
+  reverb's coherent settings snapshots and the Core 1 heartbeat. `ClockService` also uses a file-static `volatile` tick count for its
   same-core ISR→loop handoff. When touching shared state, check whether it is read or
   written from both cores and use one of those shapes — see `docs/architecture.md`
   section 3.
@@ -223,8 +228,10 @@ Matrix/TMAG5273/VL53L1X input  (Core 0)
     processClockEvents() and runs processSequencerStep)
   → VoiceSystem (ID tags + the published VoiceState snapshot) → VoiceManager
   → Voice spans (sources → envelope gain → effects → velocity → main filter → HPF)
-  → fill_audio_buffer()  (Core 1)  → I2S @ 48kHz (final mix includes the master
-    volume from `VoiceManager::setGlobalVolume()`, restored from the session and
+  → master bus: sum → MasterDelay → MasterReverb (mono in, stereo out; controls on the
+    Reverb page, Shift + 6 + 2) → shared master gain → linked stereo compressor
+  → fill_audio_buffer()  (Core 1)  → separate L/R PCM16 → I2S @ 48kHz (the master
+    volume from `VoiceManager::setGlobalVolume()` is restored from the session and
     driven by Utility-mode fader 3)
 ```
 
@@ -242,6 +249,20 @@ is what makes "Note track at 16 steps, Filter track at 8 steps" possible on the 
   core may use applied DSP state or rendering scratch. One-sample wrappers
   remain available for callers and tests.
 
+- **The master reverb is audio-owned.** Core 0 may only publish targets
+  (`VoiceManager::setReverb*()`, `applyReverbSettings()`); never call the tank's setters,
+  `prepare()` or anything that clears it from a control thread or the audio callback.
+  Its defaults keep mix at 0 so old projects sound unchanged, and the tank keeps running
+  at mix 0 by design. It uses Half tank storage by default because Float leaves ~3 KB of
+  accounted heap (`docs/audio-performance.md`, "Master reverb RAM, stack and SRAM audit").
+- **Hot rpdsp template members are placed by hook, not by their caller.** Annotating
+  `PICO2SEQ_AUDIO_FUNC` on a wrapper does not move the out-of-line template callee it calls.
+  `RPDSP_HOT_FUNCTION` (defined in `src/utils/AudioRam.h`, honored by `DarkReverb::process`)
+  does; after touching the audio path, check the linked ELF with `arm-none-eabi-nm -S -C`
+  that the hot symbols sit at `0x200...` addresses.
+- **`-ffast-math` means no NaN checks with `std::isfinite`.** Under `-ffinite-math-only`
+  the firmware toolchain compiles `std::isfinite(x)` to a constant true; test the bit pattern
+  (`ReverbParams::finite()`), as persistence and the control surface do.
 - **No heap allocation in the audio/sequencer hot path.** Static/fixed-size arrays
   (`ParameterTrack<MAX_SIZE>`, `voiceStates[MAX_VOICES]`) are deliberate — don't introduce
   `std::vector`/`new` into anything reachable from `loop()` or `onStepCallback()`.

@@ -12,6 +12,31 @@ and tempo-dial hint. Recent control movement changes only the middle rows for
 `src/ui/ArpDisplay.h` is shared with host checks; hardware rendering remains in
 `OLEDDisplay::displayArpPage()`.
 
+## Reverb page
+
+Shift + button 6 + a press of button 2 opens the live master-reverb page
+(`OLEDDisplay::displayReverbPage()`, [manual §3.7](manual.md#37-master-reverb)). It draws
+above the PARAM/UTIL banner, notices and every step/settings view, and below Voice
+Editing and the live ADSR page:
+
+```
+REVERB MAIN                FRZ      <- layer name; FRZ only while frozen
+--------------------------------
+ 1 Mix               35%           <- fader 1..4 of the layer, value right-aligned
+>2 Decay             20s           <- '>' marks the fader moved last
+ 3 Damp            3.0kHz
+ 4 Freeze            OFF           <- MAIN layer's fourth fader row is the Freeze switch
+1 Frz 2 Layer 8 Exit
+```
+
+The TONE layer shows `LowCut`, `Diffuse`, `Mod` and `Width` on rows 1-4. Values are
+formatted by `ControlSurface::formatReverbValue()` (shared with the host tests):
+Mix, Diffuse, Mod and Width as percent; Decay as `0.25s`, `6.0s` or `20s`; Damp as
+`850Hz` or `3.0kHz`; LowCut as `40Hz`. The page reads the control-side settings
+(`VoiceManager::getReverbSettings()`), i.e. what the performer last set, not the
+audio-owned values that ease toward it. Layout and timing on the physical display
+still need a hardware check.
+
 ## Overview
 
 The `src/OLED/` subsystem manages the 128×64 monochrome OLED display for Pico2Seq using an **Adafruit SH1106G** driver over I2C (`Wire`, I2C0 @ 400 kHz, address `0x3C`).
@@ -41,6 +66,12 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
 +-------------------------------------------------------------------------+
 | Priority 1: Voice Editing Screen                                        |
 | (Active when uiState.voiceEditor.active — "EDIT V1".."EDIT V4")         |
++-------------------------------------------------------------------------+
+                                    | (if inactive)
+                                    v
++-------------------------------------------------------------------------+
+| Priority 1b: Live ADSR page, then Reverb page                           |
+| (uiState.voiceEnvelope.active, then uiState.reverbPage.active)          |
 +-------------------------------------------------------------------------+
                                     | (if inactive)
                                     v

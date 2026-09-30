@@ -54,11 +54,13 @@ is not a promise of an unchanged or endless repeat.
    moving volume changes how hard the compressor is driven. I would test
    whether that interaction feels right before considering a different order.
 
-5. **Master effect settings do not survive a session reload or reboot.**
-   [Session](../src/app/Session.cpp) captures master volume, but the current
-   [settings snapshot](../src/pico2seq-core/persistence/ProjectSnapshot.h)
-   does not contain delay mix/time/feedback or the master compressor macro.
-   A saved pattern can consequently return with a different effect balance.
+5. **Delay and compressor settings do not survive a session reload or reboot.**
+   [Session](../src/app/Session.cpp) captures master volume and, since format 3,
+   the master reverb's eight settings (see
+   [persistence](persistence.md)), but the
+   [snapshot](../src/pico2seq-core/persistence/ProjectSnapshot.h) still does not
+   contain delay mix/time/feedback or the master compressor macro. A saved pattern
+   can consequently return with a different delay/compressor balance.
 
 6. **The delay reserves more memory than its current time range needs.**
    [MasterDelay](../src/voice/MasterDelay.h) reserves 48,000 floats, about
