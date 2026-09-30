@@ -2,6 +2,7 @@
 #define UI_STATE_H
 
 #include <cstdint>
+#include "UIConstants.h" // NUMBER_OF_STEP_PADS sizes padPressTimestamps below
 #include "VoiceEditControls.h"
 #include "VoiceEnvelopeControls.h"
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
