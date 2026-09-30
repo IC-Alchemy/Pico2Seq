@@ -257,8 +257,9 @@ is what makes "Note track at 16 steps, Filter track at 8 steps" possible on the 
   (`VoiceManager::setReverb*()`, `applyReverbSettings()`); never call the tank's setters,
   `prepare()` or anything that clears it from a control thread or the audio callback.
   Its defaults keep mix at 0 so old projects sound unchanged, and the tank keeps running
-  at mix 0 by design. It uses Half tank storage by default because Float leaves ~3 KB of
-  accounted heap (`docs/audio-performance.md`, "Master reverb RAM, stack and SRAM audit").
+  at mix 0 by design. It uses Half tank storage by default because, with Float, the counted
+  setup-time allocations exceed the linked heap by ~1.7 KB (Half leaves ~30 KB before the
+  uncounted ones; `docs/audio-performance.md`, "Master reverb RAM, stack and SRAM audit").
 - **Hot rpdsp template members are placed by hook, not by their caller.** Annotating
   `PICO2SEQ_AUDIO_FUNC` on a wrapper does not move the out-of-line template callee it calls.
   `RPDSP_HOT_FUNCTION` (defined in `src/utils/AudioRam.h`, honored by `DarkReverb::process`)
