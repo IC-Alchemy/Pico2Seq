@@ -29,7 +29,7 @@ The existing gain, sample conversion, filters and envelope behavior are retained
 
 Audio startup still waits for Core 0's `voicesReady` publication. Automatic DMA
 channel claiming, the watchdog and freeze reports remain in place. No clock
-increase is required by these changes; validate at the stable **150 MHz** first.
+increase is required by these changes; validate at the stable **225 MHz** first.
 
 ## Hot audio code in SRAM
 
@@ -55,7 +55,7 @@ helpers can still use XIP. In particular, Arduino's wrapped math routines in the
 DSP calculations, control ownership and diagnostic timing boundaries are unchanged.
 
 For a controlled hardware comparison, build both variants from the same source
-at the same clock (the helper's default clock is 150 MHz):
+at the same clock (the helper's default clock is 225 MHz):
 
 ```powershell
 ./scripts/build_pico2seq.ps1 -CpuMHz 150 -AudioInFlash -BuildDirectory build/audio-xip-150
@@ -314,9 +314,11 @@ retain Half at the same capacity", so **Half is the default**
 before the unmeasured allocations (the baseline left about 73 KB); whether that is enough
 is confirmed only by the running system's `[DIAG MEM]` line (below). The reverb's total RAM
 cost with Half is 33,372 B (heap) + 9,392 B (static, of which 8,216 B is RAM-placed code) =
-42,764 B. Float becomes possible only after RAM is recovered elsewhere; `next-steps.md` item 6
-describes about 47 KiB reserved but unused by `MasterDelay`. That change would alter the
-delay's coupled constants and is not part of this work.
+42,764 B. Float becomes possible only after RAM is recovered elsewhere. The
+audited build still had the delay constants coupled; the capacity reduction in
+`next-steps.md` item 6 has since landed, and `MasterDelay` now reserves 36,004
+samples (~140.6 KiB) for its decoupled 36,000-sample maximum — about 47 KiB
+less than this audit counted.
 
 ### Hot-code placement (measured, `nm -S` on the Half ELF; addresses `0x2000_0000..` are SRAM)
 
@@ -477,7 +479,7 @@ still producing an audible discontinuity.
 
 ## Hardware check
 
-Build with `scripts/build_pico2seq.ps1 -CpuMHz 150`, flash the resulting UF2, and
+Build with `scripts/build_pico2seq.ps1 -CpuMHz 225`, flash the resulting UF2, and
 listen to one voice followed by all four. Exercise preset changes, fast gates,
 slides, controls and OLED/LED updates. Check that `underruns` and `txstalls` stay
 at zero and that typical rendering leaves room below 5333 microseconds. An

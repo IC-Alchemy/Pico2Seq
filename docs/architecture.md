@@ -116,7 +116,7 @@ disabled; TinyUSB CDC remains available for the serial console.
   - `magEncoder.update()`: Reads the TMAG5273A magnetic encoder on Wire @ 0x35 and updates base values via `updateEncoderBaseValues(uiState)`.
   - `distanceSensor.update()`: Non-blocking VL53L1X distance sensor update on Wire @ 0x29 (55–700mm useful window).
   - `pollUIHeldButtons()`: Processes long-press events across all four sequencers (`seq1..seq4`).
-- **20ms (50Hz) Display Refresh Loop**:
+- **Display Refresh Loop** (OLED every 40 ms ≈ 25 fps; LED matrix every 13 ms ≈ 77 fps):
   - OLED Display: `display.update(uiState, AppState::sequencers, VoiceSystem::MAX_VOICES, voiceManager)` refreshes the 128x64 SH1106G display on Wire @ 0x3C.
   - LED Matrix: `updateStepLEDs()` and `ledMatrix.show()` refresh the 8x4 WS2812B FastLED array on GPIO 1; control indicators moved to the OLED (transient notices + encoder line).
 - **Freeze Forensics (`src/utils/FreezeWatchdog.h`, added 2026-09-05)**:
@@ -354,7 +354,7 @@ Portable core with **no hardware, UI, or Arduino dependencies**:
 - `ReverbSettings.h`: The reverb's eight user controls and freeze as plain data, with `ReverbParams` ranges/defaults and sanitizing; portable, shared by the audio adapter, the session codec and the control surface.
 - `EffectsCodec.h/.cpp`: `ReverbSettings` ↔ the format-3 `EffectsSnapshot` (see [persistence](persistence.md)).
 - `VoiceSystem.h`: Centralized `VoiceSystem` struct (`MAX_VOICES = 4`).
-- `VoicePresets.h/.cpp`: Verified factory presets (Analog, Digital, Bass, Lead, Square, Pad, Percussion, SubFunk, RubberSub, WgPluck, WgNylon, WgBell, WgShimmer, Hypersaw, NoiseStorm); `constexpr` factories build a compile-time `std::array<VoiceConfig, 15>` table that lives in flash (.rodata), and `VoiceConfig.engine` selects the osc / waveguide / noise-FX source stage.
+- `VoicePresets.h/.cpp`: Verified factory presets — 29 of them, one per `presets/PresetBank.h` row, stored in the `constexpr Preset kPresets[]` table in `VoicePresets.cpp` and pinned by `static_assert` to the `Id` enum and the 31-pad preset browser (`kPresetPadCount`). The bank spans the Analog…NoiseStorm core voices plus 14 recipe presets (FMGlass…AirChime); the table lives in flash (.rodata), and `VoiceConfig.engine` selects the osc / waveguide / noise-FX source stage.
 - `VoiceOscillator.h`: Variant-based oscillator class dispatcher.
 
 ### 6.4 `src/ui/` & `src/AlchemyUI/`
@@ -462,7 +462,7 @@ I2S Stereo Audio Out (GP10 / GP11 / GP12)
 | Core 1 Allocation | 0 bytes dynamic allocation in `loop1()` | Static buffer and fixed array audit; `test_master_reverb.cpp` counts global `operator new` across rendering, control changes and snapshot publishes |
 | Reverb memory | Half tank 33,016 B object (default); Float 65,784 B fails the static heap gate | [Master reverb RAM, stack and SRAM audit](audio-performance.md#master-reverb-ram-stack-and-sram-audit); on-board `[DIAG MEM]` numbers still pending |
 | Core 0 Control Scan | 1,000 Hz (1 ms interval) | `src/app/ControlIO.cpp` interval checks |
-| Core 0 Display Refresh | 50 Hz (20 ms interval) | `src/app/ControlIO.cpp` interval checks |
+| Core 0 Display Refresh | OLED 40 ms ($\approx$ 25 fps); LEDs 13 ms ($\approx$ 77 fps) | `src/app/ControlIO.cpp` interval checks |
 | Sequencer Resolution | 480 PPQN @ 90 BPM default | `uClock.init()` verification |
 | Unit Test Coverage | Catch2 v3.5.2 host test suite | `ctest --test-dir build_test` |
 
@@ -507,12 +507,12 @@ Flash erase/program stalls XIP on **both** cores (45–400 ms per 4 KB sector),
 and the DMA pool buffers only ~21 ms of audio. Flash writes therefore run only
 from `Application::update()` context with the transport stopped:
 
-- **Gesture save** (Utility button 1 tap): requests a save; `update()` stops
+- **Gesture save** (Utility button 2 tap): requests a save; `update()` stops
   the clock via `stopClockForEditor()`, drains control updates, writes, then
   restarts the transport.
 - **Autosave on stop**: ~1 s after each running→stopped transition, only when
   the snapshot CRC differs from the last saved one. No dirty-flag plumbing.
-- **Load gesture** (Utility button 1 long-press): re-applies the last saved
+- **Load gesture** (Utility button 2 long-press, ≥400 ms): re-applies the last saved
   session (patterns, patches, settings) while stopped.
 - LittleFS mounts **before** `freezeWatchdogArm()`: a first-boot format can
   take seconds and must not trip the 2 s watchdog.

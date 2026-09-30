@@ -1,7 +1,8 @@
 **Pico2Seq: observations and the next steps I would take**
 
-Written on 2026-09-21 after merging the delay into `DeCluttered` and adding
-Shift + tempo-fader feedback control. These are findings and proposed work,
+Written on 2026-09-21 after merging the delay into `DeCluttered`; refreshed on
+2026-09-30 after the master reverb, Reverb page and stereo master bus landed on
+the same branch. These are findings and proposed work,
 not claims that the proposed fixes have been implemented or hardware-tested.
 I would stabilize this instrument's current sound and controls before adding
 another effect or doing a large refactor.
@@ -16,7 +17,7 @@ The performance surface now reads:
 | 4 | Selected voice's gate length | Existing gate-length behavior |
 
 With a step selected, the four faders retain their ENV assignments and
-Shift-reset behavior. Feedback defaults to 85%; it reaches an actual 1.0
+Shift-reset behavior. Feedback defaults to 75%; it reaches an actual 1.0
 coefficient at 100%. Filtering and saturation remain in the loop, so 100%
 is not a promise of an unchanged or endless repeat.
 
@@ -34,11 +35,11 @@ is not a promise of an unchanged or endless repeat.
    been measured on the board.
 
 2. **The full test suite already has unresolved failures.**
-   The merge passed 484 of 504 registered CTest checks. The same 20 failures
-   occurred on the untouched compressor commit `df6b50d`; some checks are
-   registered in both general and focused executables. Failures involve
-   pitch/scale expectations, preset parameter ranges, envelope behavior and
-   displayed values. They need classification, not blanket suppression.
+   The recorded baseline (2026-09-30, see [testing.md](testing.md)) is 692
+   CTest checks with 33 known failures in `pico2seq_tests`/`pico2seq_voice_tests`;
+   some checks are registered in both general and focused executables. Failures involve
+   octave/gate defaults, note names, pitch lookup, release defaults, cutoff limits
+   and filter counts. They need classification, not blanket suppression.
 
 3. **Combined DSP timing is not yet measured on hardware.**
    Compilation and host DSP comparisons passed, but neither measures the
@@ -62,13 +63,12 @@ is not a promise of an unchanged or endless repeat.
    contain delay mix/time/feedback or the master compressor macro. A saved pattern
    can consequently return with a different delay/compressor balance.
 
-6. **The delay reserves more memory than its current time range needs.**
-   [MasterDelay](../src/voice/MasterDelay.h) reserves 48,000 floats, about
-   187.5 KiB, while its tuned maximum uses 36,000 samples at 48 kHz. There
-   may be roughly 47 KiB to recover after allowing interpolation guard
-   samples. Simply shrinking the capacity would also shrink the current
-   maximum, because the two constants are coupled. This is an optimization
-   opportunity, not evidence of an existing allocation failure.
+6. **The delay reserves more memory than its current time range needs.** — **Done (2026-09-30).**
+   [MasterDelay](../src/voice/MasterDelay.h) now reserves 36,004 samples
+   (~140.6 KiB) while keeping its tuned 750 ms maximum (`kMaxDelaySamples`
+   = 36,000 at 48 kHz); the capacity and the maximum are decoupled
+   constants, so the roughly 47 KiB were recovered without shrinking the
+   range.
 
 7. **Master-control definitions are scattered.**
    DSP limits, fader mappings, OLED payloads and documentation repeat some
@@ -78,7 +78,8 @@ is not a promise of an unchanged or endless repeat.
 
 8. **Build defaults and some older documentation need reconciliation.**
    The [build helper](../scripts/build_pico2seq.ps1) now defaults to the
-   stable 150 MHz baseline; higher clocks remain explicit choices. Dependency
+   stable 225 MHz baseline; higher clocks remain explicit choices — this
+   clock half is done (2026-09-30). Dependency
    versions come from the installed Arduino environment. Some architecture
    text also still describes a PPQN read/modify/write race, while the current
    [clock consumer](../src/app/ClockService.cpp) disables interrupts around
@@ -102,7 +103,7 @@ is not a promise of an unchanged or endless repeat.
    appropriate percentage or milliseconds. Then select a step and exercise
    all four ENV sliders, their Shift resets, and voice/step changes.
 
-   Listen at feedback 0%, 85% and 100%, with short and long delay times.
+   Listen at feedback 0%, 75% and 100%, with short and long delay times.
    At zero feedback, a note should produce one delayed copy; high feedback
    should add regeneration while the existing darkening and saturation remain.
    Move time while a tail is audible. Stop/start transport and set master
@@ -132,7 +133,7 @@ is not a promise of an unchanged or endless repeat.
 
 3. **Make the existing tests describe the intended musical behavior.**
 
-   Group the 20 registered failures by shared cause. Start with pitch and
+   Group the known baseline failures by shared cause. Start with pitch and
    octave expectations, then preset parameter ranges, then envelope behavior
    and displayed units. For each group, trace the value through patch base,
    recorded modifier, composed playback value and final DSP mapping.
@@ -181,7 +182,7 @@ is not a promise of an unchanged or endless repeat.
    Add delay mix, time, feedback and compressor macro to a versioned extension
    of the current snapshot format. First write portable codec and migration
    tests. Old sessions should load with explicit defaults: dry delay, 300 ms,
-   85% feedback and the 50% compressor macro. Reject invalid/non-finite values
+   75% feedback and the 50% compressor macro. Reject invalid/non-finite values
    and clamp or reject out-of-range values according to a documented policy.
 
    Then wire capture and restore through the existing atomic control targets.

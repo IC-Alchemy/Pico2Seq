@@ -41,7 +41,7 @@ and DSP checks; physical lidar, OLED and listening still need a hardware check.
     ├── rpdsp DSP algorithms        ├── src/audio/ (PIO, DMA, I2S)
     ├── scales & lookup tables      ├── src/LEDMatrix/ (FastLED WS2812B)
     ├── pico2seq-core sequencer     ├── src/OLED/ (SH1106G I2C)
-    ├── voice synthesis & presets   ├── src/midi/ (TinyUSB stack)
+    ├── voice synthesis & presets   ├── src/midi/ (removal notice only; USB is CDC-only)
     ├── ControlSurfaceLogic         └── src/sensors/ (TMAG/VL53 drivers)
     └── AlchemyProto wire format
              |                               |
@@ -249,6 +249,12 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 22 | `tests/unit/test_reverb_page.cpp`, `test_reverb_editor.cpp` | Reverb page | Entry gesture, fader layers and curves, OLED formatting, published values (`[reverb_page]`) |
 | 23 | `tests/unit/test_stack_watermark.cpp` | `StackWatermark` | Paint/scan arithmetic (`[stack]`) |
 | 24 | `tests/unit/test_reverb_bypass.cpp` | Bench bypass build (`pico2seq_reverb_bypass_tests`) | Dry bus, control hand-off |
+| 25 | `tests/unit/test_arpeggiator.cpp` | Arpeggiator mode note engine (`src/pico2seq-core/arpeggiator/Arpeggiator.cpp`; also in `pico2seq_ui_tests`) | Seven-note pad layout and octave rows, chord/latch semantics, pattern walks, rate/gate/swing timing at 480 PPQN, encoder rate, lidar dynamics (`[arpeggiator]`) |
+| 26 | `tests/unit/test_sequencer_view.cpp` | `src/app/SequencerView.h` | Borrowed-pointer routing of all four voices without copies, rejected edits, last-voice display fallback (`[app][sequencer_view]`) |
+| 27 | `tests/unit/test_settings_pads.cpp` | `src/ui/SettingsPads.h` | Raw 32-pad parameter map, settings availability per editor state, toggle/cycle behavior in both edit directions (`[settings_pads]`) |
+| 28 | `tests/unit/test_voice_envelope.cpp` | `src/app/VoiceEnvelope.cpp` | ADSR chord entry/exit, movement pickup, all-voice scope, per-stage sequencer changes, release tails without retrigger (`[voice_envelope]`) |
+| 29 | `tests/unit/test_voice_playback.cpp` | `src/app/VoicePlayback.cpp` | Retriggers as events, gate expiry published once per tick, stop clearing lifecycles, voice focus keeping sounding notes (`[voice_playback]`) |
+| 30 | `tests/unit/test_lidar_recording.cpp` | `src/app/StepPlayback.cpp` (real recording/publication path) | Held/latched Filter/Release lanes, calibrated distance, independent lane lengths, selected-step edits while running/stopped, rendered filter contours and release tails (`[lidar]`) |
 
 ---
 
@@ -390,7 +396,6 @@ separate CMake targets in `tests/CMakeLists.txt`.
 - [`docs/architecture.md`](architecture.md) — System architecture and dual-core division
 - [`docs/voice.md`](voice.md) — Voice synthesis and DSP chain documentation
 - [`docs/sequencer.md`](sequencer.md) — Sequencer engine and polymetric parameter tracks
-- [`docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`](superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md) — ControlSurfaceLogic design specification
 
 ### Voice ownership regression suite
 

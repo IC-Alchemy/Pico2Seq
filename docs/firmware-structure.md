@@ -53,7 +53,8 @@ Each `Application::update()` pass:
 4. Runs the due control scan: pads, tiles, encoder, distance, step recording.
 5. Runs the due display refresh: voice-switch notice, step LEDs, OLED, LED show.
 
-Controls are due every 1 ms; displays every 20 ms (50 Hz). These are minimum
+Controls are due every 1 ms; the LED matrix every 13 ms (~77 fps) and the OLED
+every 40 ms (~25 fps). These are minimum
 intervals, not deadlines or catch-up loops. Slow bus/display work can extend a
 pass. Unsigned subtraction preserves timer-wrap behavior.
 
@@ -111,7 +112,9 @@ Core 1 owns the I2S pool. Output remains 48 kHz, PCM16 stereo, 256 frames per
 buffer. Four producer buffers pass directly to DMA, with no separate consumer
 sample storage or buffer copying in the interrupt. This retains the previous
 effective depth (three queued buffers plus one playing). Startup fills all four
-before enabling I2S. The mono mix is converted once and copied to left and right. Conversion clamps, truncates
+before enabling I2S. The master reverb makes the bus stereo, and
+`AudioSamples::interleavePcm16()` then converts left and right separately.
+Conversion clamps, truncates
 toward zero, then uses ARM `SSAT`; it does not round to nearest.
 
 The existing blocking `take_audio_buffer(pool, true)` is the audio pacing
@@ -141,10 +144,12 @@ reclaiming the ~338 KiB the delay line would have reserved.
 
 A redesigned master delay returned (2026-09-20): `MasterDelay`
 (`src/voice/MasterDelay.h`) rides the summed block inside
-`VoiceManager::processBlock()` — a 48,000-float (~187.5 KiB) rpdsp
+`VoiceManager::processBlock()` — a 36,004-sample (~140.6 KiB) rpdsp
 `DelayLine` owned by the heap-allocated `VoiceManager`, read fractionally
 with cubic interpolation, with a DC blocker + one-pole lowpass + tanh bound
-in the feedback loop. Core 0 publishes mix, delay time and feedback through lock-free
+in the feedback loop. Capacity (`kCapacitySamples` = 36,004) is decoupled
+from the tuned 750 ms maximum (`kMaxDelaySamples` = 36,000 at 48 kHz).
+Core 0 publishes mix, delay time and feedback through lock-free
 `std::atomic<float>` targets on `VoiceManager`; the audio core reads them
 once per block and eases per sample. Fader 2 is the wet mix; Shift + fader 2
 is the delay time (10–750 ms at 48 kHz, using the delay branch's tuned cap).
@@ -178,10 +183,10 @@ staging script. Host CMake tests remain separate from the hardware build.
 On this Windows setup:
 
 ```powershell
-cmake -S . -B build_test -G Ninja '-DCMAKE_CXX_COMPILER=C:/Program Files/LLVM/bin/clang++.exe' '-DCMAKE_C_COMPILER=C:/Program Files/LLVM/bin/clang.exe' -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=-D_USE_MATH_DEFINES
-cmake --build build_test --parallel 8
-.\build_test\tests\pico2seq_tests.exe --reporter console
-ctest --test-dir build_test --output-on-failure
+cmake -S . -B build_test_ninja -G Ninja '-DCMAKE_CXX_COMPILER=C:/Program Files/LLVM/bin/clang++.exe' '-DCMAKE_C_COMPILER=C:/Program Files/LLVM/bin/clang.exe' -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=-D_USE_MATH_DEFINES
+cmake --build build_test_ninja --parallel 8
+.\build_test_ninja\tests\pico2seq_tests.exe --reporter console
+ctest --test-dir build_test_ninja --output-on-failure
 .\scripts\build_pico2seq.ps1 -KeepStage
 ```
 
