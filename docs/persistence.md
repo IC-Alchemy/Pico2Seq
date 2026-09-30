@@ -24,8 +24,9 @@ One **project** = everything needed to resume exactly where you left off:
 |---|---|
 | 4 patterns | All 11 parameter lanes (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide, Sustain, Release) per voice, **including** each lane's independent step length (polymeter survives save/load) and the full 64-step tail behind a shortened lane |
 | 4 patches | Each voice's preset + every Voice Edit tweak (oscillators, filter, envelope, overdrive, waveguide/hypersaw/noise params, flags). The preset's *sound descriptors* are re-derived from flash at load, not stored |
-| Settings | Tempo (45–200 BPM), master volume, scale (0–12), shuffle template (0–15), LED theme (0–9), selected voice (0–3), per-voice preset indices, per-voice editor cursor + edited flags, slide mode |
+| Settings | Tempo (45–200 BPM), master volume, scale (0–46, stored by index; see [tuning.md](tuning.md)), shuffle template (0–15), LED theme (0–9), selected voice (0–3), per-voice preset indices, per-voice editor cursor + edited flags, slide mode |
 | Effects | The master reverb's eight settings: mix, decay, damping, low cut, diffusion, mod depth, mod rate, width. **Freeze is performance state and is never saved**, and neither is the reverb tank: a restored project starts unfrozen and the tail simply keeps evolving under the restored settings |
+| Tuning | The global tuning (id), tonic (Sa, 0–11 semitones above C), A4 reference (415.0–466.0 Hz in tenths), the A/B partner tuning and the four hot favourites (tuning id or empty). Which scale each tuning last used is **not** saved |
 
 ### 1.2 Save / load / autosave
 
@@ -37,8 +38,8 @@ One **project** = everything needed to resume exactly where you left off:
 | **Boot restore** | Automatic: flash file first, factory defaults if none/invalid | OLED `LOADED` notice; serial `[STORAGE] session loaded` vs `no valid session; factory defaults` |
 
 Projects saved by older firmware still load. They come up with the reverb mix
-at zero, so they sound exactly as they did before; the next save writes the new
-format (§3).
+at zero and the tuning at 12-EDO, tonic C, A4 = 440 Hz (with the default favourites), so they
+sound exactly as they did before; the next save writes the new format (§3).
 
 Technical notes players rarely need but should know:
 
@@ -110,8 +111,10 @@ All in `persistence::` (`ProjectSnapshot.h`). Sizes are part of the format:
 | `ProjectSnapshotV1` | 10,312 B | Format 1: 4 patterns (9,360 B) + 4 patches (928 B) + settings (24 B). Only used to size old files |
 | `ProjectSnapshotV2` | 12,400 B | Format 2: the format-1 layout unchanged, then 4 × `EnvelopeTracksSnapshot` (2,080 B), `laneModel` (u32) and `reserved` (u32). Only used to size old files |
 | `EffectsSnapshot` | 48 B | 8 floats (reverb mix, decay s, damping Hz, low cut Hz, diffusion, mod depth, mod rate Hz, width) + 4 `reserved` u32 (written zero, ignored on load) |
-| **`ProjectSnapshot`** | **12,448 B** | Format 3: the format-2 layout unchanged, then `EffectsSnapshot` (48 B) |
-| Flash file | 12,460 B | 12-byte frame header + 12,448-byte payload (format-2 files: 12,412 B, format-1 files: 10,324 B) |
+| `ProjectSnapshotV3` | 12,448 B | Format 3: the format-2 layout unchanged, then `EffectsSnapshot` (48 B). Only used to size old files |
+| `TuningSnapshot` | 12 B | `tuningId` u8, `tonic` u8, `a4Tenths` u16, `previousId` u8, 3 `reserved` bytes (written zero, ignored on load), `favorites[4]` u8 (`0xFF` = empty) |
+| **`ProjectSnapshot`** | **12,460 B** | Format 4: the format-3 layout unchanged, then `TuningSnapshot` (12 B) |
+| Flash file | 12,472 B | 12-byte frame header + 12,460-byte payload (format-3 files: 12,460 B, format-2 files: 12,412 B, format-1 files: 10,324 B) |
 
 **Format 2 (2026-09-19).** A format-1 payload is byte-for-byte the prefix of
 format 2 (`static_assert(offsetof(ProjectSnapshot, envelopes) == sizeof(ProjectSnapshotV1))`).
@@ -139,6 +142,21 @@ upgrades the payload **in place** in the static load buffer (`upgradeFromV1()` /
 the result. An upgraded project therefore sounds exactly as it did before, and the next save
 writes format 3. `RETAINED_VERSION` moved to 3, so retained RAM left by older firmware fails
 its version check and is ignored (the flash file is used instead).
+
+**Format 4 (2026-09-30).** A format-3 payload is byte-for-byte the prefix of format 4
+(`offsetof(ProjectSnapshot, tuning) == sizeof(ProjectSnapshotV3)`), which adds only the 12-byte
+`TuningSnapshot` (tuning, tonic, A4, A/B partner, four hot favourites). `payloadSizeForVersion()`
+now answers 10,312 / 12,400 / 12,448 / 12,460, and `upgradeFromV3()` fills the tail with
+`applyTuningDefaults()` (12-EDO, tonic C, A4 = 440 Hz, default favourites 12-EDO, 24-EDO, 5-Limit JI
+and 22 Shruti), so an older song sounds exactly as it did. `validateTuning()` refuses, rather than
+clamps, an unknown tuning or favourite id, a tonic above 11 or an A4 outside 415.0–466.0 Hz.
+`RETAINED_VERSION` moved to 4.
+
+On load, `Session::applyAfterClock()` restores the tuning (`restoreTuning()`, which also forgets
+the per-tuning scale memory) and then coerces the stored scale with `tuning::coerceScale()`: a scale
+the loaded tuning does not offer becomes the tuning's first scale, so a song can never load into a
+scale that means nothing in its tuning. The scale itself stays in `SettingsSnapshot`, by index, as
+before. Scales may therefore only be appended (see [scales.md](scales.md)).
 
 Field notes:
 
@@ -298,7 +316,7 @@ only), `retainedRefresh()` (sets magic/version, `generation += 1`, CRC),
 | yes | yes | 0–2 | `ResumeRetained` |
 | yes | yes | ≥ 3 | `HaltRecovery` (park) |
 
-Constants: `RETAINED_MAGIC 'RET1'`, `RETAINED_VERSION 3`,
+Constants: `RETAINED_MAGIC 'RET1'`, `RETAINED_VERSION 4`,
 `MAX_RESUME_ATTEMPTS 3`, `RETAINED_FLAG_BOOT_COMPLETED`. `refresh()` never
 resets the attempt counter; only `markBootCompleted()` does — resetting it at
 the end of `begin()` would let a freeze that recurs right after every boot
@@ -313,8 +331,8 @@ is computed over the payload buffer directly, never over bytes past the header.
 ```
 offset  size  field
 0       4     magic   0x50325331 ('P2S1', LE)
-4       2     version SNAPSHOT_FORMAT_VERSION = 3 (1 and 2 still load, see §3)
-6       2     payloadSize (u16; sizeof(ProjectSnapshot) = 12448, format 2: 12400, format 1: 10312)
+4       2     version SNAPSHOT_FORMAT_VERSION = 4 (1, 2 and 3 still load, see §3)
+6       2     payloadSize (u16; sizeof(ProjectSnapshot) = 12460, format 3: 12448, format 2: 12400, format 1: 10312)
 8       4     crc32   CRC-32/ISO-HDLC over payload (poly 0xEDB88320, init/xor 0xFFFFFFFF;
               check vector: "123456789" -> 0xCBF43926)
 ```
@@ -371,7 +389,7 @@ does; the retained path relies on CRC + the same check at apply time.
 ## 7. Gotchas (read before changing anything)
 
 1. **12 KB buffers are static, never stack.** `SessionStorage` keeps
-   `g_loadBuffer` (12,448 B) as file-static — Core 0's Arduino loop stack
+   `g_loadBuffer` (12,460 B) as file-static — Core 0's Arduino loop stack
    cannot hold it. `save()` needs no buffer: callers pass a file-static
    snapshot (e.g. `Application::g_sessionSnapshot`) that it CRCs and writes
    in place. `Application` also keeps a `g_bootSnapshotPending` flag for the

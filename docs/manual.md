@@ -322,7 +322,9 @@ to audio on expiry. Nothing is transmitted over MIDI.
    pad and use faders 1–4 (Attack / Decay / Sustain / Release).
 7. **Try polymeter** — hold a parameter button (e.g. Filter) and tap pad 5: the Filter
    track is now 5 steps long and cycles against the 16-step Gate track.
-8. **Change key feel** — hold Shift and tap V3 to cycle through the 13 scales.
+8. **Change key feel** — hold Shift and tap V3 to cycle through the playing tuning's scales.
+   For a different tuning (quarter-tones, just intonation, shrutis...), hold Shift and press
+   Utility button 3 to open the Tuning page (section 3.8).
 9. **Groove & delay** — fader 1 sets tempo; on **Utility**, button 4 cycles the
    swing templates. Fader 2 is the master delay wet mix, and **Shift + fader 2**
    sweeps the delay time (§3.5).
@@ -400,9 +402,13 @@ Other track behaviors worth knowing:
 
 ### 3.3 Scales
 
-Pitch is quantized to one of **13 built-in scales**, each a 48-step (4-octave) semitone
-table; the Note parameter (0–21) indexes into it. Internal synthesis is voiced around C3.
-Cycle scales with **Shift + V3** or Utility button 3:
+Pitch is quantized to one of **47 scales**, each a 48-step (4-octave) row. Rows 0-17 are
+classic scales written in 12-EDO semitones; rows 18-46 are **tuned scales** written in the
+degrees of one tuning (maqams, 19/31/22/17/41/53-EDO scales, Partch, Bohlen-Pierce...;
+see [tunings](tuning.md)). The Note parameter (0–21) indexes into it. Internal synthesis is voiced around C3.
+Cycle scales with **Shift + V3** or Utility button 3. They step through the scales of the
+**playing tuning** only (see §3.8): in the standard 12-EDO that is the 17 twelve-note scales
+below, without All Degrees (which is the same as Chromatic there). The classic rows:
 
 | Index | Scale | Character |
 |---|---|---|
@@ -419,6 +425,16 @@ Cycle scales with **Shift + V3** or Utility button 3:
 | 10 | Harmonic Minor | Dramatic classical minor |
 | 11 | Wholetone | Symmetrical, impressionistic |
 | 12 | Chromatic | All 12 semitones, 1:1 mapping |
+| 13 | All Degrees | Every note of the tuning in order (24 in 24-EDO, 22 shrutis in 22 Shruti) |
+| 14 | Bhairav Thaat | Hindustani: Sa re Ga Ma Pa dha Ni |
+| 15 | Marwa Thaat | Hindustani: Sa re Ga Ma# Pa Dha Ni |
+| 16 | Poorvi Thaat | Hindustani: Sa re Ga Ma# Pa dha Ni |
+| 17 | Todi Thaat | Hindustani: Sa re ga Ma# Pa dha Ni |
+
+Rows 18-46 belong to a tuning (Maqam Rast/Bayati/Hijaz/Saba for 24-EDO, a Major, Minor and
+Pentatonic for 19/31/22/41/53-EDO, and so on); a Dorian has no meaning in 24 notes per octave,
+so choosing a tuning switches to one of its own scales. The full list is in §3.8 and
+[tuning.md](tuning.md).
 
 The **Octave** parameter is quantized to five discrete positions mapped from hand distance:
 - **-2 octaves**: sensor minimum (55 mm) to 90 mm (stored `0.00`)
@@ -541,6 +557,43 @@ but has no fader.
 - **Long tails add up.** A 1000 s decay fed loud, continuous material exceeds full
   scale like a real space would; the compressor and the PCM clip are the only
   limiters after the reverb. Use Mix and Decay accordingly.
+
+### 3.8 Tunings
+
+A **tuning** decides how far apart the notes of a scale sound. The unit holds **29 tunings** in
+five families: Equal (12, 24, 19, 31, 22, 17, 15, 10, 7, 5, 41 and 53 notes per octave), Just
+(5-limit, 7-limit, Pythagorean, Overtone, Undertone, Partch 43), Temperament (meantone,
+Werckmeister III, Kirnberger III, Vallotti), Indian (22 Shruti, 12 Svara, Pythagorean Svara) and
+Xeno (Bohlen-Pierce, Carlos Alpha/Beta/Gamma). There is **one global tuning** for all voices,
+with a movable **tonic** (Sa) and **A4 reference** (415-466 Hz). A fresh unit, and any older
+song, plays 12-EDO, tonic C, A4 = 440 Hz exactly as before.
+
+Every tuning carries its own short list of scales, and **choosing a tuning switches to a scale
+that belongs to it**: the scale you have if the tuning offers it, else the one you last used
+there, else its first (for example 24-EDO goes to Maqam Rast, 22 Shruti to Bhairav Thaat).
+
+**Open the page:** hold **Shift** (button 8) in Utility mode, press **button 3**, release
+everything. Playback continues. **Shift** leaves the page. (This chord used to cycle the scale;
+Utility 3 alone and Shift + V3 still do.)
+
+One page does everything:
+
+| Control | Action |
+|---|---|
+| **Step pads** | The whole library at once, one pad per tuning in library order, each lit in its family colour: blue Equal, amber Just, magenta Temperament, green Indian, red Xeno. **Tap** a pad to choose that tuning (and its scale) |
+| **Encoder** | Step through the tunings in library order |
+| **Buttons 1-6** | Choose scale 1-6 of the playing tuning |
+| **Button 7** | A/B swap with the previous tuning (each keeps its own scale) |
+| **Voice buttons 1-4** | Four hot favourites: **tap** recalls, **hold** stores the playing tuning (hold again on the same tuning to clear) |
+| **Faders 1-3** | Tonic (Sa), A4 reference, scale (spread over the tuning's own list) |
+
+The playing tuning breathes on the LED matrix, the A/B partner blinks, and hot favourites are
+pale. The OLED lists the tuning before, the playing one and the next, the scale line, the tonic
+and A4, and confirms each gesture for 1.5 s (`24-EDO > Maqam Rast`, `Saved to Hot 2`). The status
+screen alternates the scale name and the tuning while a non-standard tuning plays, and pitches
+on the other screens use the tuning's own names (`E3-14c`, `C+3`, `Ga3`, `3:07`).
+The tuning, tonic, A4 and favourites are saved with the project. Everything about them, the
+library and the scale list of each tuning is in [tuning.md](tuning.md).
 
 ---
 
@@ -694,7 +747,7 @@ of the step to the patch value. See §1.3.
 |---|---|
 | 1 Play / Stop | Start/stop the transport (and all 4 sequencers). Stopping opens the OLED Settings/preset browser; starting closes it. Long-press toggles Settings without stopping |
 | 2 Save / Load | **Tap**: save everything to flash (the transport pauses ~0.5 s for the write, then resumes). **Long-press (≥ 0.4 s)**: reload the last saved session. OLED shows `SAVED` / `LOADED` / `LOAD ERR` |
-| 3 Scale | Cycle forward through the 13 scales |
+| 3 Scale | Cycle forward through the playing tuning's scales. **Shift + 3** opens the Tuning page (§3.8) |
 | 4 Swing | Cycle through the 16 shuffle templates |
 | 5 Theme | Cycle the 10 LED matrix color themes |
 | 6 Encoder target | Press: cycle encoder target (or toggle the Settings page) |
@@ -716,7 +769,7 @@ itself — no power-cycle needed.
 | Tap V1–V4 | Select voice 1–4 |
 | Shift + V1 | Play / Stop |
 | Shift + V2 | Randomize selected voice (short-press behavior) |
-| Shift + V3 | Cycle scale |
+| Shift + V3 | Cycle scale (within the playing tuning's scales) |
 | Shift + V4 | Enter Voice Editing mode (hold both, then release) |
 
 ### Voice Editing mode (Shift + V4)

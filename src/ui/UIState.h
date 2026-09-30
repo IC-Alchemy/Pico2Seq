@@ -6,6 +6,7 @@
 #include "VoiceEditControls.h"
 #include "VoiceEnvelopeControls.h"
 #include "ReverbPageControls.h"
+#include "TuningPageControls.h"
 #include "../voice/DelayTiming.h"
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
@@ -24,6 +25,14 @@ struct UIState
     VoiceEnvelope::Controls voiceEnvelope;
     // Live master-reverb page (Shift + 6 + 2): faders, Freeze and layer switch.
     ReverbPage::Controls reverbPage;
+    // Live Tuning page (Shift + Utility 3): pads choose a tuning, voice buttons recall
+    // hot favourites, faders set tonic / A4 / scale. The tuning itself is the global
+    // tuningSelection (pico2seq-core/tuning/TuningState.h), not UI state.
+    TuningPage::Controls tuningPage;
+    // One-line confirmation after a Tuning page gesture ("Saved to Fav 5"), drawn until
+    // tuningNoticeUntil (millis()); empty text or an elapsed time shows nothing.
+    char tuningNotice[24] = {};
+    unsigned long tuningNoticeUntil = 0;
     // Wait for all pads/tiles to release before performance input resumes
     // (prevents a held pad from firing a step toggle on mode exit).
     bool controlsWaitRelease = false;

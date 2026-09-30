@@ -5,6 +5,7 @@
 #define PICO2SEQ_PROJECT_SNAPSHOT_H
 
 #include "../sequencer/SequencerDefs.h"
+#include "../tuning/Tuning.h"
 #include "SnapshotFormat.h"
 #include <cstddef>
 #include <cstdint>
@@ -129,8 +130,35 @@ struct ProjectSnapshotV2
     uint32_t reserved;                   // must stay zero
 };
 
-// Format 3: format 2 plus the effect-settings record. Fields are only ever
-// appended, so an older payload is always a prefix of the newer one.
+// Format 3: format 2 plus the effect-settings record, kept only to size and load
+// old files - do not extend.
+struct ProjectSnapshotV3
+{
+    PatternSnapshot patterns[4];         // 9,360 B
+    PatchSnapshot patches[4];            // 928 B
+    SettingsSnapshot settings;           // 24 B
+    EnvelopeTracksSnapshot envelopes[4]; // 2,080 B
+    uint32_t laneModel;                  // LANE_MODEL_*
+    uint32_t reserved;                   // must stay zero
+    EffectsSnapshot effects;             // 48 B
+};
+
+// Format 4 tail: the one global tuning (tuning/Tuning.h) - which tuning, the tonic
+// (Sa) and the A4 reference - plus the four hot favourites the performer organised. Ids are
+// the tuning library's permanent ids, never indices, so a song keeps its tuning when
+// the library grows. A4 is stored in tenths of a hertz so no float sits in the file.
+struct TuningSnapshot
+{
+    uint8_t tuningId;
+    uint8_t tonic;       // 0..11 semitones above C
+    uint16_t a4Tenths;   // 4150..4660
+    uint8_t previousId;  // the A/B partner
+    uint8_t reserved[3]; // written as zero; ignored on load
+    uint8_t favorites[tuning::kFavoriteSlots]; // tuning id, or 0xFF for an empty slot
+};
+
+// Format 4: format 3 plus the tuning record. Fields are only ever appended, so an
+// older payload is always a prefix of the newer one.
 struct ProjectSnapshot
 {
     PatternSnapshot patterns[4];         // 9,360 B
@@ -140,10 +168,11 @@ struct ProjectSnapshot
     uint32_t laneModel;                  // LANE_MODEL_*
     uint32_t reserved;                   // must stay zero
     EffectsSnapshot effects;             // 48 B, format 3
+    TuningSnapshot tuning;               // 12 B, format 4
 };
 // Locked flash layout: the static_asserts below are the contract. A format-1
-// payload must load as the prefix of format 2, and a format-2 payload as the
-// prefix of format 3.
+// payload must load as the prefix of format 2, format 2 as the prefix of format 3
+// and format 3 as the prefix of format 4.
 static_assert(sizeof(TrackSnapshot) == 260, "locked layout");
 static_assert(sizeof(PatternSnapshot) == 2340, "locked layout");
 static_assert(sizeof(PatchSnapshot) == 232, "locked layout"); // 220 B words + 10 u8 + 2 tail
@@ -152,14 +181,22 @@ static_assert(sizeof(ProjectSnapshotV1) == 10312, "locked layout");
 static_assert(sizeof(EnvelopeTracksSnapshot) == 520, "locked layout");
 static_assert(sizeof(ProjectSnapshotV2) == 12400, "locked layout");
 static_assert(sizeof(EffectsSnapshot) == 48, "locked layout");
-static_assert(sizeof(ProjectSnapshot) == 12448, "locked layout");
+static_assert(sizeof(ProjectSnapshotV3) == 12448, "locked layout");
+static_assert(sizeof(TuningSnapshot) == 12, "locked layout");
+static_assert(sizeof(ProjectSnapshot) == 12460, "locked layout");
 static_assert(offsetof(ProjectSnapshotV2, envelopes) == sizeof(ProjectSnapshotV1),
               "a format-1 payload must load as the prefix of format 2");
-static_assert(offsetof(ProjectSnapshot, laneModel) == offsetof(ProjectSnapshotV2, laneModel) &&
-                  offsetof(ProjectSnapshot, reserved) == offsetof(ProjectSnapshotV2, reserved),
+static_assert(offsetof(ProjectSnapshotV3, laneModel) == offsetof(ProjectSnapshotV2, laneModel) &&
+                  offsetof(ProjectSnapshotV3, reserved) == offsetof(ProjectSnapshotV2, reserved),
               "format 3 keeps every format-2 field where it was");
-static_assert(offsetof(ProjectSnapshot, effects) == sizeof(ProjectSnapshotV2),
+static_assert(offsetof(ProjectSnapshotV3, effects) == sizeof(ProjectSnapshotV2),
               "a format-2 payload must load as the prefix of format 3");
+static_assert(offsetof(ProjectSnapshot, laneModel) == offsetof(ProjectSnapshotV3, laneModel) &&
+                  offsetof(ProjectSnapshot, reserved) == offsetof(ProjectSnapshotV3, reserved) &&
+                  offsetof(ProjectSnapshot, effects) == offsetof(ProjectSnapshotV3, effects),
+              "format 4 keeps every format-3 field where it was");
+static_assert(offsetof(ProjectSnapshot, tuning) == sizeof(ProjectSnapshotV3),
+              "a format-3 payload must load as the prefix of format 4");
 
 // Effect-settings limits and defaults as stored on flash. src/voice/ReverbSettings.h
 // holds the same numbers for the audio side (this folder must not depend on it);
@@ -184,16 +221,36 @@ void applyEffectsDefaults(EffectsSnapshot &effects) noexcept;
 // and inside its limits. Nothing is clamped here: a bad record rejects the file.
 bool validateEffects(const EffectsSnapshot &effects) noexcept;
 
+// The tuning a project starts from when the file predates it: 12-EDO, tonic C, A4 440
+// and the default favourites, which sounds exactly as the song always did.
+void applyTuningDefaults(TuningSnapshot &tuning) noexcept;
+
+// Known tuning and favourite ids, tonic 0..11, A4 inside the reference range. Nothing
+// is clamped: a bad record rejects the file.
+bool validateTuning(const TuningSnapshot &tuning) noexcept;
+
+// The live selection and favourites as a record, and back. restoreTuning() changes
+// nothing and returns false for a record that fails validateTuning().
+void captureTuning(const tuning::Selection &selection, const tuning::Bank &bank,
+                   TuningSnapshot &out) noexcept;
+bool restoreTuning(const TuningSnapshot &in, tuning::Selection &selection,
+                   tuning::Bank &bank) noexcept;
+
 // Fill a v1-loaded snapshot's missing tail: new lanes follow the patch on 16
 // steps, lane model reads as offsets (Session converts once voices exist), and
-// the effect record takes its defaults.
+// the effect and tuning records take their defaults.
 void upgradeFromV1(ProjectSnapshot &s) noexcept;
 
-// Fill a v2-loaded snapshot's missing tail: the effect record takes its defaults.
+// Fill a v2-loaded snapshot's missing tail: the effect and tuning records take their
+// defaults.
 void upgradeFromV2(ProjectSnapshot &s) noexcept;
 
+// Fill a v3-loaded snapshot's missing tail: the tuning record takes its defaults.
+void upgradeFromV3(ProjectSnapshot &s) noexcept;
+
 // Structural sanity only (ranges, not musical taste); mirrors UI limits:
-// tempo 45..200 BPM, 13 scales, 16 grooves, 10 LED themes, effect fields in range.
+// tempo 45..200 BPM, SCALES_COUNT scales, 16 grooves, 10 LED themes, effect and
+// tuning fields in range.
 bool validateProjectSnapshot(const ProjectSnapshot &s) noexcept;
 
 // Payload bytes a frame of this format version carries; 0 for a version this

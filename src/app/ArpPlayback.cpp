@@ -55,9 +55,11 @@ void arpNoteOn(uint8_t voice, uint8_t degree, uint8_t octave, bool primary)
         Step played = base;
         played.noteIndex = state.noteIndex;
         played.octaveOffset = state.octaveOffset;
+        const TuningView tuned = currentTuningView(currentScale);
         MusicalValues::format(ParamId::Note, played, *config,
             scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)], 120.0f,
-            uiState.arpLastNotes, sizeof(uiState.arpLastNotes));
+            uiState.arpLastNotes, sizeof(uiState.arpLastNotes), false, &tuned.world,
+            tuned.nativeScale);
     }
 }
 } // namespace
@@ -65,8 +67,7 @@ void arpNoteOn(uint8_t voice, uint8_t degree, uint8_t octave, bool primary)
 void arpModeToggle(UIState &uiState)
 {
   const bool entering = !uiState.arp.active();
-  uiState.arp.setScaleNotesPerOctave(
-      scaleNotesPerOctave(scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)]));
+  uiState.arp.setScaleNotesPerOctave(currentScaleNotesPerOctave());
 
 
     // Silence first, on both edges: the ticks that would end the sounding note
@@ -114,8 +115,7 @@ void arpTick()
 {
   // Scale selection is shared with the sequencer, so keep the ARP geometry in
   // sync even when the scale is changed while the mode is already active.
-  uiState.arp.setScaleNotesPerOctave(
-      scaleNotesPerOctave(scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)]));
+  uiState.arp.setScaleNotesPerOctave(currentScaleNotesPerOctave());
   const Arpeggiator::Tick out = uiState.arp.tick();
 
     for (uint8_t slot = 0; slot < Arpeggiator::kMaxSlots; ++slot)

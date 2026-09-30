@@ -12,6 +12,7 @@
 #include "../ui/ButtonManager.h"
 #include "../ui/ControlSurfaceLogic.h"
 #include "../ui/SettingsPads.h"
+#include "../ui/TuningPageLogic.h"
 #include "../app/AppState.h"
 #include "../voice/VoiceSystem.h"
 #include "../voice/VoiceManager.h"
@@ -1073,7 +1074,18 @@ static void renderArpPanel(LEDMatrix &ledMatrix, const UIState &uiState) {
   const uint8_t clampedVoice = voice < LED_THEME_VOICE_COUNT ? voice : 0;
   const size_t scaleIndex = std::min<size_t>(currentScale, SCALES_COUNT - 1);
   const int *row = scale[scaleIndex];
-  const uint8_t notesPerOctave = scaleNotesPerOctave(row);
+  const uint8_t notesPerOctave = currentScaleNotesPerOctave();
+  // A native row holds tuning degrees: colour a pad by the semitone its pitch is nearest to, and
+  // call a degree a root when it starts a period of the playing tuning.
+  const bool nativeRow = scaleIsNative(scaleIndex);
+  const tuning::Tuning &playing = tuning::resolve(tuningSelection.tuningId);
+  const auto semitoneOf = [&](int value) {
+    return nativeRow ? static_cast<int>(std::floor(tuning::degreeCents(playing, value) * 0.01f + 0.5f))
+                     : value;
+  };
+  const auto startsPeriod = [&](int value) {
+    return nativeRow ? (value % playing.degrees) == 0 : (value % 12) == 0;
+  };
 
   // Lidar dynamics: the same hand that sets note velocity brightens the note
   // that is sounding, so the panel shows the gesture that is being heard.
@@ -1096,7 +1108,7 @@ static void renderArpPanel(LEDMatrix &ledMatrix, const UIState &uiState) {
     if (ledIndex < 0) continue;
 
     const uint8_t degree = Arpeggiator::scaleDegreeForPad(pad, notesPerOctave);
-    const uint8_t pitchClass = ArpLedPalette::classifySemitone(row[degree]);
+    const uint8_t pitchClass = ArpLedPalette::classifySemitone(semitoneOf(row[degree]));
     const uint8_t noteHue = static_cast<uint8_t>(
         voiceHue + ArpLedPalette::hueOffsetSteps(pitchClass));
 
@@ -1111,7 +1123,7 @@ static void renderArpPanel(LEDMatrix &ledMatrix, const UIState &uiState) {
     } else if ((notesPerOctave == Arpeggiator::kSevenNoteScale &&
                 degree % Arpeggiator::kSevenNoteScale == 0) ||
                (notesPerOctave != Arpeggiator::kSevenNoteScale &&
-                row[pad] % 12 == 0)) {
+                startsPeriod(row[pad]))) {
       // Seven-note layouts also mark the repeated root at each row boundary,
       // making the octave grid legible without painting the whole free ladder
       // with every pitch colour.
@@ -1143,6 +1155,37 @@ static void renderArpPanel(LEDMatrix &ledMatrix, const UIState &uiState) {
            LEDConstants::TARGET_SMOOTHING_BLEND_AMOUNT);
     nblend(ledMatrix.getLeds()[ledIndex], smoothedTargetColorBuffer[ledIndex],
            LEDConstants::STANDARD_BLEND_AMOUNT);
+  }
+}
+
+// Tuning page: one pad per tuning, in library order, painted in its family's colour
+// (blue Equal, amber Just, magenta Temperament, green Indian, red Xeno). Dark = no tuning
+// there, dim = available, pale = also one of the four hot favourites, bright breathing = the
+// tuning playing, slow blink = the A/B partner. The faders have no LED bars here: every LED is
+// a pad.
+static void renderTuningPage(LEDMatrix &ledMatrix, const UIState &) {
+  const tuning::Selection selection = tuningSelection;
+  const tuning::Bank bank = tuningBank;
+  const uint32_t now = millis();
+  const float breath = 0.5f + 0.5f * sinf(now * 0.008f);
+  const bool blinkOn = ((now / 600) & 1u) != 0;
+  for (uint8_t pad = 0; pad < TuningPage::kPadCount; ++pad) {
+    const TuningPage::PadView view = TuningPage::padView(pad, selection, bank);
+    CRGB color = CRGB::Black;
+    if (view.exists) {
+      const uint8_t hue = TuningPage::familyHue(view.family);
+      if (view.current) {
+        color = CHSV(hue, 200, static_cast<uint8_t>(150 + 105 * breath));
+      } else if (view.previous) {
+        color = CHSV(hue, 255, blinkOn ? 150 : 40);
+      } else if (view.hotSlot != TuningPage::kNoTuning) {
+        color = CHSV(hue, 110, 130);
+      } else {
+        color = CHSV(hue, 255, 60);
+      }
+    }
+    smoothedTargetColorBuffer[pad] = color;
+    ledMatrix.getLeds()[pad] = color;
   }
 }
 
@@ -1218,6 +1261,11 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
         ledMatrix.getLeds()[index] = pixel;
       }
     }
+    return;
+  }
+
+  if (uiState.tuningPage.active) {
+    renderTuningPage(ledMatrix, uiState);
     return;
   }
 

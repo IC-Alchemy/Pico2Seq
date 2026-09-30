@@ -169,6 +169,17 @@ the coefficients. The Reverb page (Shift + 6 + 2) is `src/ui/ReverbPageControls.
 (display). Settings persist in format 3 (`src/voice/EffectsCodec.*`); freeze does
 not. RAM, stack and SRAM placement: [audio-performance.md](audio-performance.md#master-reverb-ram-stack-and-sram-audit).
 
+The tuning layer (2026-09-30) sits between the scale row and the oscillator frequency:
+`src/pico2seq-core/tuning/` holds the tuning library, the pitch maths and the per-tuning scale sets
+(`Tuning.*`, `TuningLibrary.cpp`, `TuningScales.*`, all portable); `tuning/TuningState.h` is the
+device-side selection and bank. Core 0 chooses the `tuning::Selection`; `VoiceManager` turns a change
+into a `PitchWorld` that each voice copies on its own control pass, so Core 1 only reads immutable
+flash tables. The Tuning page (Shift + Utility 3) is `src/ui/TuningPageControls.h` (gesture),
+`src/ui/TuningPageLogic.h` (what each gesture does and every string the page prints),
+`AlchemyControlBridge` (faders), `EncoderManager` (library stepping), `UIEventHandler` (pads),
+`oled.cpp` and `LEDMatrixFeedback.cpp` (display). Project persistence is format 4.
+See [tuning.md](tuning.md).
+
 ## Building and checking changes
 
 Arduino recursively compiles `.cpp` files under `src/app/`; no source list or

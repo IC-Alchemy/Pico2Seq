@@ -7,6 +7,7 @@
 
 #include "../ui/UIState.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
+#include "../pico2seq-core/tuning/TuningState.h"
 #include "../voice/VoiceManager.h"
 #include "../voice/VoiceSystem.h"
 #include "SequencerView.h"

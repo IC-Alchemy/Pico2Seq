@@ -11,9 +11,10 @@ namespace persistence
 {
 
 constexpr uint32_t SNAPSHOT_MAGIC = 0x50325331u; // 'P2S1': rejects non-song flash at once
-constexpr uint16_t SNAPSHOT_FORMAT_VERSION = 3;
-// Old songs still load: a v1 payload is the prefix of v2, and a v2 payload is the
-// prefix of v3 (see ProjectSnapshot). Anything newer than this build is rejected.
+constexpr uint16_t SNAPSHOT_FORMAT_VERSION = 4;
+// Old songs still load: a v1 payload is the prefix of v2, v2 of v3 and v3 of v4
+// (see ProjectSnapshot). Anything newer than this build is rejected.
+constexpr uint16_t SNAPSHOT_FORMAT_VERSION_V3 = 3;
 constexpr uint16_t SNAPSHOT_FORMAT_VERSION_V2 = 2;
 constexpr uint16_t SNAPSHOT_FORMAT_VERSION_V1 = 1;
 
@@ -38,7 +39,7 @@ FrameStatus readFrameHeader(const uint8_t header[12], const uint8_t *payload,
                             size_t payloadCapacity, uint16_t expectedPayloadSize,
                             uint16_t expectedVersion = SNAPSHOT_FORMAT_VERSION) noexcept;
 
-// Peek the version first so the loader picks the payload size (v1/v2/v3).
+// Peek the version first so the loader picks the payload size (v1/v2/v3/v4).
 uint16_t frameVersion(const uint8_t header[12]) noexcept;
 
 } // namespace persistence

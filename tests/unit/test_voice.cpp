@@ -7,6 +7,7 @@
 #include "voice/VoicePresets.h"
 #include "voice/VoiceParameters.h"
 #include "scales/scales.h"
+#include "tuning/Tuning.h"
 #include "utils/DspMapping.h"
 
 using namespace Catch::Matchers;
@@ -162,6 +163,66 @@ TEST_CASE("Pitch lookup honors the injected scale table over the global", "[voic
     v.process();
     REQUIRE_THAT(v.getCachedFrequency(0),
                  WithinRel(rpdsp::midiNoteToHz(89.0f), 0.001f)); // semitone 17 + 72
+}
+
+// ─── Native scale rows (tuning degrees) ───────────────────────────────────────────
+
+// A native row holds degrees of the playing tuning, so Maqam Rast plays the quarter-tones of
+// 24-EDO and a full period of it is exactly one octave.
+TEST_CASE("A native scale row plays degrees of the tuning, not semitones", "[voice][tuning]") {
+    tuning::Selection selection;
+    selection.tuningId = 1; // 24-EDO quarter-tones
+    uint8_t scaleIdx = 18;
+    REQUIRE(std::string(scaleNames[scaleIdx]) == "Maqam Rast"); // degrees 0 4 7 10 14 18 21 | 24 ...
+    Voice v(0, defaultConfig());
+    v.setScaleTable(scale, SCALES_COUNT, NATIVE_SCALE_MASK);
+    v.setCurrentScalePointer(&scaleIdx);
+    v.setTuningPointer(&selection);
+    v.init(48000.0f);
+    const tuning::PitchWorld world = tuning::makeWorld(selection);
+
+    float frequency[10] = {};
+    for (int step : {0, 1, 2, 6, 7, 9}) {
+        VoiceState vs;
+        vs.isGateHigh = true;
+        vs.noteIndex = static_cast<float>(step);
+        vs.octaveOffset = 0;
+        v.updateParameters(vs);
+        v.process();
+        frequency[step] = v.getCachedFrequency(0);
+        INFO("step " << step << " degree " << scale[scaleIdx][step]);
+        REQUIRE_THAT(frequency[step],
+                     WithinRel(tuning::frequencyHz(world, scale[scaleIdx][step], 0), 0.001f));
+    }
+    REQUIRE_THAT(frequency[7], WithinRel(2.0f * frequency[0], 0.001f)); // seven notes up: the octave
+}
+
+// The native-scale bit of the last scale is bit 46: a 32-bit mask would lose it and play the
+// Bohlen-Pierce Lambda row as semitone slots instead of degrees of the tritave tuning.
+TEST_CASE("The native mask reaches every tuned scale, including the last", "[voice][tuning]") {
+    tuning::Selection selection;
+    selection.tuningId = 128; // Bohlen-Pierce 13 per tritave
+    uint8_t scaleIdx = static_cast<uint8_t>(SCALES_COUNT - 1);
+    REQUIRE(std::string(scaleNames[scaleIdx]) == "Bohlen-Pierce Lambda");
+    REQUIRE(scaleIsNative(scaleIdx));
+    Voice v(0, defaultConfig());
+    v.setScaleTable(scale, SCALES_COUNT, NATIVE_SCALE_MASK);
+    v.setCurrentScalePointer(&scaleIdx);
+    v.setTuningPointer(&selection);
+    v.init(48000.0f);
+    const tuning::PitchWorld world = tuning::makeWorld(selection);
+
+    VoiceState vs;
+    vs.isGateHigh = true;
+    vs.noteIndex = 4.0f; // row value 6: a degree of the tritave tuning
+    vs.octaveOffset = 0;
+    v.updateParameters(vs);
+    v.process();
+    REQUIRE(scale[scaleIdx][4] == 6);
+    REQUIRE_THAT(v.getCachedFrequency(0), WithinRel(tuning::frequencyHz(world, 6, 0), 0.001f));
+    // ...and not the degree semitone slot 6 would have mapped to.
+    REQUIRE(tuning::frequencyHz(world, 6, 0) !=
+            tuning::frequencyHz(world, tuning::slotToDegree(tuning::resolve(128), 6), 0));
 }
 
 TEST_CASE("No injected table falls back to chromatic mapping", "[voice]") {

@@ -37,6 +37,33 @@ Mix, Diffuse, Mod and Width as percent; Decay as `0.25s`, `6.0s` or `20s`; Damp 
 audio-owned values that ease toward it. Layout and timing on the physical display
 still need a hardware check.
 
+## Tuning page
+
+Shift (button 8) + a press of Utility button 3 opens the live Tuning page
+(`OLEDDisplay::displayTuningPage()`, [manual §3.8](manual.md#38-tunings),
+[tuning.md](tuning.md)). It has the same priority as the Reverb page, just below it, and the
+same rule for exit (Shift). There is one page for the whole 29-tuning library:
+
+```
+TUNING 13/29 JUST                   y0   header: position in the library, family (TuningPage::formatHeader)
+---------------------------        y9   rule
+ Pythagorean                        y11  the tuning before
+ 7-Limit JI                      *2 y21  the playing tuning on an inverted bar; *n = hot favourite n
+ Overtone 16-31                     y31  the tuning after
+ 3/17 Lydian                        y41  scale of the playing tuning; ">" while fader 3 was last moved
+ Tonic C  A4 440.0Hz                y49  fader 1 and 2 values; ">" for whichever moved last
+ Saved to Hot 2                     y57  notice for 1.5 s, else alternating every 2 s:
+                                         the tuning's detail line / "1-6 Scl 7 A/B 8 Exit"
+```
+
+All text is produced by `TuningPageLogic.h` (host-tested, 21 characters per line at text size 1;
+long names fall back to short names and never wrap). The page copies the selection and bank once
+per frame, which keeps one frame self-consistent while input keeps being handled. On the LED matrix the
+32 pads show the library, one pad per tuning in the colour of its family
+(`LEDMatrixFeedback.cpp`). The status screen alternates the scale name with the tuning name
+(and tonic) every 1.5 s while a non-standard tuning is selected, and the encoder, step, arp and
+voice-edit value lines print pitches with the tuning's note names.
+
 ## Overview
 
 The `src/OLED/` subsystem manages the 128×64 monochrome OLED display for Pico2Seq using an **Adafruit SH1106G** driver over I2C (`Wire`, I2C0 @ 400 kHz, address `0x3C`).
@@ -70,8 +97,8 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
                                     | (if inactive)
                                     v
 +-------------------------------------------------------------------------+
-| Priority 1b: Live ADSR page, then Reverb page                           |
-| (uiState.voiceEnvelope.active, then uiState.reverbPage.active)          |
+| Priority 1b: Live ADSR page, then Reverb page, then Tuning page         |
+| (voiceEnvelope.active, reverbPage.active, then tuningPage.active)       |
 +-------------------------------------------------------------------------+
                                     | (if inactive)
                                     v

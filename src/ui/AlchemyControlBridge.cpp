@@ -124,12 +124,18 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
     }
     latch_.reset(); playSettingsOpenedThisPress_=false;
     uiState.reverbPage.observe(buttons, voices); // a button held across the editor is not a new press
+    uiState.tuningPage.observe(buttons, voices);
     if(uiState.voiceEditor.active) VoiceEditor::buttons(buttons,voices,nowMs);
     else if(buttons==0 && voices==0) uiState.controlsWaitRelease=false;
     return;
   }
 
   handleModeStrap(nowMs, uiState);
+
+  // The Tuning page (Shift + Utility 3) is decided first: nothing else claims that chord,
+  // and while it is open or draining it owns every button, fader and pad.
+  if (handleTuningPage(buttons, voices, nowMs, uiState))
+    return;
 
   // The Reverb page is the third key of the Shift + 6 chord, so it is decided before
   // the ADSR chord below claims that modifier pair.
@@ -308,6 +314,104 @@ void AlchemyControlBridge::handleReverbFaders(UIState &uiState)
     const auto control = ControlSurface::reverbControlForFader(uiState.reverbPage.layer, channel);
     ReverbEditor::setFromFader(control,
                                ControlSurface::FaderMap::normalize(faders_.filtered(channel)));
+  }
+}
+
+// --- Tuning page ---------------------------------------------------------------
+
+// Why this mirrors the Reverb page: the page is live (the transport keeps running), so
+// every physical history keeps advancing while it is open or draining its release tail and
+// no release can become an action once normal input resumes. Pad presses arrive through
+// UIEventHandler. A tuning change also moves currentScale to a scale of the new tuning
+// (tuning/TuningScales.h); the voices sample both on their own control pass, so for at most
+// one pass a voice can see the new tuning with the old scale - momentary and harmless,
+// because every pitch is clamped to the audible range.
+bool AlchemyControlBridge::handleTuningPage(uint8_t buttons, uint8_t voices, uint32_t nowMs,
+                                            UIState &uiState)
+{
+  const bool canOpen = uiState.alchemyMode == UIState::AlchemyMode::Utility &&
+                       !uiState.voiceEnvelope.active && !uiState.voiceEnvelope.chordPending &&
+                       !uiState.voiceEnvelope.waitRelease && !uiState.gateSeqLengthMode &&
+                       !uiState.reverbPage.active && !uiState.reverbPage.waitRelease;
+  const auto input = uiState.tuningPage.poll(buttons, voices, canOpen, nowMs);
+  if (!input.consumed)
+    return false;
+
+  for (uint8_t bit = 0; bit < 8; ++bit)
+  {
+    buttonEdges_[kButtonRole][bit].take(buttonAt(buttonSlot_, bit));
+    buttonEdges_[kSliderRole][bit].take(buttonAt(sliderSlot_, bit));
+  }
+  uiState.reverbPage.observe(buttons, voices);
+  latch_.reset();
+  for (auto &held : uiState.parameterButtonHeld) held = false;
+  uiState.latchedParameter = -1;
+  UITransitions::cancelGateLengthHold(uiState);
+  for (auto &held : uiState.randomizeWasPressed) held = false;
+  playSettingsOpenedThisPress_ = saveLoadLatch_ = delayTogglePress_ = false;
+  clearChordThisPress_ = clearAllLatch_ = false;
+  editorHoldArmed_ = editorHoldFired_ = false;
+  uiState.shiftHeld = shiftWasHeld_ = (buttons & TuningPage::Controls::kShift) != 0;
+
+  if (input.open)
+  {
+    UITransitions::openTuningPage(uiState);
+    // A pad held in Arpeggiator mode belongs to the chord; its release is swallowed by the
+    // page, so drop it now instead of leaving the note stuck.
+    uiState.arp.releaseAllHeldPads();
+    VoiceEditor::clearEncoder();
+    faders_.resetDeadband(); // faders must be moved to engage: no snapping to rest positions
+  }
+  if (input.exit)
+  {
+    UITransitions::closeTuningPage(uiState);
+    VoiceEditor::clearEncoder();
+    faders_.resetDeadband();
+  }
+
+  if (input.scaleSlot >= 0)
+    UITransitions::showTuningNotice(
+        uiState, TuningPage::scaleButton(static_cast<uint8_t>(input.scaleSlot), tuningSelection, currentScale),
+        nowMs);
+  if (input.swap)
+    UITransitions::showTuningNotice(
+        uiState, TuningPage::swapAB(tuningSelection, tuningBank, currentScale), nowMs);
+  if (input.recallSlot >= 0)
+    UITransitions::showTuningNotice(
+        uiState,
+        TuningPage::hotRecall(static_cast<uint8_t>(input.recallSlot), tuningSelection, tuningBank,
+                              currentScale),
+        nowMs);
+  if (input.storeSlot >= 0)
+    UITransitions::showTuningNotice(
+        uiState, TuningPage::hotStore(static_cast<uint8_t>(input.storeSlot), tuningSelection, tuningBank),
+        nowMs);
+
+  if (uiState.tuningPage.active && !uiState.tuningPage.waitRelease)
+    handleTuningFaders(uiState);
+
+  // The scale may have moved (a new tuning brings its own): the arpeggiator lays its pads out
+  // by the notes per octave of whatever is playing.
+  uiState.arp.setScaleNotesPerOctave(currentScaleNotesPerOctave());
+  return true;
+}
+
+void AlchemyControlBridge::handleTuningFaders(UIState &uiState)
+{
+  if (!panel_.tiles().sliderFrameChanged())
+    return;
+  for (uint8_t channel = 0; channel < ControlSurface::FaderMap::kChannelCount; ++channel)
+  {
+    if (!faders_.accept(channel, panel_.tiles().faderRaw(channel)))
+      continue;
+    const TuningPage::Fader fader = TuningPage::faderForChannel(channel);
+    if (fader == TuningPage::Fader::Unassigned)
+      continue;
+    uiState.tuningPage.lastControl = static_cast<uint8_t>(fader); // the OLED highlights it
+    const float position = ControlSurface::FaderMap::normalize(faders_.filtered(channel));
+    // The scale fader spreads over the playing tuning's own scales; the arp layout is
+    // refreshed by handleTuningPage once per pass.
+    TuningPage::applyFader(fader, position, tuningSelection, currentScale);
   }
 }
 

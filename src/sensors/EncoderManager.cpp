@@ -9,6 +9,7 @@
 #include "../ui/UIState.h"
 #include "../ui/ControlSurfaceLogic.h"
 #include "../ui/ButtonManager.h"
+#include "../ui/UITransitions.h"
 #include <algorithm>
 #include <cmath>
 #include <uClock.h>
@@ -35,6 +36,9 @@ MagEncoder::Config makeMagEncoderConfig()
 // VoiceEditor. A different voice, step or parameter starts from zero.
 ControlSurface::EncoderMotion stepMotion;
 ControlSurface::EncoderMotion arpTempoMotion;
+// The Tuning page's dial: one detent steps one tuning in the page.
+ControlSurface::EncoderMotion tuningMotion;
+bool tuningDialActive = false;
 bool arpDialShift = false;
 bool arpDialActive = false;
 struct StepTurn
@@ -114,6 +118,27 @@ void updateEncoderTarget(UIState &uiState)
   if (uiState.voiceEnvelope.active || uiState.voiceEnvelope.chordPending ||
       uiState.voiceEnvelope.waitRelease) return;
   if (uiState.reverbPage.active || uiState.reverbPage.waitRelease) return; // the page has no dial
+  const bool tuningOwnsDial = uiState.tuningPage.active && !uiState.tuningPage.waitRelease;
+  if (tuningOwnsDial != tuningDialActive)
+  {
+    tuningMotion.reset();
+    tuningDialActive = tuningOwnsDial;
+  }
+  if (uiState.tuningPage.active || uiState.tuningPage.waitRelease)
+  {
+    if (tuningOwnsDial && delta != 0.0f)
+    {
+      tuningMotion.add(delta);
+      const int steps = tuningMotion.takeSteps(SensorConstants::MagneticEncoder::STEPPED_VALUE_DETENT);
+      if (steps)
+      {
+        UITransitions::showTuningNotice(
+            uiState, TuningPage::encoderStep(steps, tuningSelection, tuningBank, currentScale), millis());
+        uiState.arp.setScaleNotesPerOctave(currentScaleNotesPerOctave());
+      }
+    }
+    return; // the dial belongs to the page while it is open
+  }
   const bool arpOwnsDial = uiState.arp.active() && !uiState.voiceEditor.active;
   if (arpOwnsDial != arpDialActive || uiState.shiftHeld != arpDialShift) {
     arpTempoMotion.reset();

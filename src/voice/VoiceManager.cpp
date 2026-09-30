@@ -8,6 +8,7 @@
 #include <cstring>
 #include "../utils/Debug.h"
 #include "../pico2seq-core/scales/scales.h" // Inject scale data into voices
+#include "../pico2seq-core/tuning/TuningState.h" // ...and the global tuning
 #include "Voice.h"
 #include "VoicePresets.h"
 
@@ -67,8 +68,9 @@ uint8_t VoiceManager::addVoice(const VoiceConfig &config)
     auto voice = std::make_unique<Voice>(voiceId, config);
 
     // Inject scale context to avoid global coupling inside Voice
-    voice->setScaleTable(scale, SCALES_COUNT);
+    voice->setScaleTable(scale, SCALES_COUNT, NATIVE_SCALE_MASK);
     voice->setCurrentScalePointer(&currentScale);
+    voice->setTuningPointer(&tuningSelection);
 
     voice->init(sampleRate);
 

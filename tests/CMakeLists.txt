@@ -73,10 +73,9 @@ add_library(pico2seq_ui_code OBJECT
   ${CORE_DIR}/arpeggiator/Arpeggiator.cpp
 )
 
-# Scale data, sequencer logic and voice synthesis (DSP comes from header-only
-# src/rpdsp).
+# Sequencer logic and voice synthesis (DSP comes from header-only src/rpdsp). The scale tables
+# live with the tuning code below: which scales a tuning offers is part of the tuning library.
 add_library(pico2seq_voice_code OBJECT
-  ${CORE_DIR}/scales/scales.cpp
   ${CORE_DIR}/sequencer/ParameterManager.cpp
   ${CORE_DIR}/sequencer/Sequencer.cpp
   ${SRC_DIR}/voice/Voice.cpp
@@ -96,7 +95,17 @@ add_library(pico2seq_persist_code OBJECT
   ${SRC_DIR}/voice/EffectsCodec.cpp
 )
 
-foreach(_lib pico2seq_ui_code pico2seq_voice_code pico2seq_persist_code)
+# Tuning library, pitch maths and the scale tables (portable, flash tables only): the voices,
+# the song file and the Tuning page logic all use them, so every suite that links one of
+# them links this.
+add_library(pico2seq_tuning_code OBJECT
+  ${CORE_DIR}/scales/scales.cpp
+  ${CORE_DIR}/tuning/Tuning.cpp
+  ${CORE_DIR}/tuning/TuningLibrary.cpp
+  ${CORE_DIR}/tuning/TuningScales.cpp
+)
+
+foreach(_lib pico2seq_ui_code pico2seq_voice_code pico2seq_persist_code pico2seq_tuning_code)
   target_include_directories(${_lib} PRIVATE ${PICO2SEQ_TEST_INCLUDE_DIRS})
   target_compile_definitions(${_lib} PRIVATE AUG_DEBUG_COMPILED=0)
   target_compile_options(${_lib} PRIVATE -Wall -Wno-unused-parameter)
@@ -108,6 +117,9 @@ set(PICO2SEQ_UI_TEST_SOURCES
   unit/test_arpeggiator.cpp
   unit/test_ui_transitions.cpp
   unit/test_reverb_page.cpp
+  unit/test_tuning.cpp
+  unit/test_tuning_scales.cpp
+  unit/test_tuning_page.cpp
 )
 set(PICO2SEQ_VOICE_TEST_SOURCES
   unit/test_helpers.cpp
@@ -150,6 +162,7 @@ add_executable(pico2seq_tests
   $<TARGET_OBJECTS:pico2seq_ui_code>
   $<TARGET_OBJECTS:pico2seq_voice_code>
   $<TARGET_OBJECTS:pico2seq_persist_code>
+  $<TARGET_OBJECTS:pico2seq_tuning_code>
 )
 
 # Stub headers must come first so they shadow Arduino.h / Wire.h / pico/sync.h
@@ -177,7 +190,8 @@ catch_discover_tests(pico2seq_tests)
 # UI policies can be checked without linking firmware glue or rendering audio.
 add_executable(pico2seq_ui_tests
   ${PICO2SEQ_UI_TEST_SOURCES}
-  $<TARGET_OBJECTS:pico2seq_ui_code>)
+  $<TARGET_OBJECTS:pico2seq_ui_code>
+  $<TARGET_OBJECTS:pico2seq_tuning_code>)
 target_include_directories(pico2seq_ui_tests PRIVATE
   ${STUB_DIR} ${PROJECT_SOURCE_DIR} ${SRC_DIR} ${CORE_DIR} ${RPDSP_DIR})
 target_link_libraries(pico2seq_ui_tests PRIVATE Catch2::Catch2WithMain)
@@ -186,7 +200,8 @@ catch_discover_tests(pico2seq_ui_tests TEST_PREFIX "ui-focused: ")
 # Focused voice/ownership suite can run independently of the DSP recipe tests.
 add_executable(pico2seq_voice_tests
   ${PICO2SEQ_VOICE_TEST_SOURCES}
-  $<TARGET_OBJECTS:pico2seq_voice_code>)
+  $<TARGET_OBJECTS:pico2seq_voice_code>
+  $<TARGET_OBJECTS:pico2seq_tuning_code>)
 target_include_directories(pico2seq_voice_tests PRIVATE
   ${STUB_DIR} ${PROJECT_SOURCE_DIR} ${SRC_DIR} ${CORE_DIR} ${RPDSP_DIR})
 target_link_libraries(pico2seq_voice_tests PRIVATE Catch2::Catch2WithMain Threads::Threads)

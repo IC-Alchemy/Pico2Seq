@@ -65,6 +65,8 @@ void Session::captureSession(persistence::ProjectSnapshot &out)
     // the freeze switch). Without a manager the defaults are written, never zeros.
     effectscodec::captureEffects(voiceManager ? voiceManager->getReverbSettings() : ReverbSettings{},
                                  out.effects);
+    // The one global tuning and the favourites the performer organised.
+    persistence::captureTuning(tuningSelection, tuningBank, out.tuning);
 }
 
 void Session::applyBeforeVoices(const persistence::ProjectSnapshot &s)
@@ -148,7 +150,13 @@ void Session::applyAfterClock(const persistence::ProjectSnapshot &s)
     uClock.setShuffleTemplate(const_cast<int8_t *>(tmpl.ticks), SHUFFLE_TEMPLATE_SIZE);
     uClock.setShuffle(s.settings.shuffleIndex > 0);
     uiState.currentShufflePatternIndex = s.settings.shuffleIndex;
-    currentScale = s.settings.currentScale;
+    // Voices sample the selection on their next control pass. A record that fails
+    // validation cannot reach here (the file is rejected on load); if one did, the running
+    // tuning stays as it is. The saved scale is kept when the saved tuning offers it, else
+    // it becomes that tuning's first scale (a file edited by hand, or written by a build
+    // whose tuning-to-scale sets differed): never a twelve-note mode across 24 notes.
+    persistence::restoreTuning(s.tuning, tuningSelection, tuningBank);
+    currentScale = tuning::coerceScale(tuningSelection.tuningId, s.settings.currentScale);
     uiState.currentThemeIndex = s.settings.themeIndex;
     setLEDTheme(static_cast<LEDTheme>(s.settings.themeIndex));
 }

@@ -8,6 +8,13 @@ bool slideMode = false;
 #include "app/AppState.h"
 
 uint8_t currentScale = 0;
+tuning::Selection tuningSelection;
+tuning::Bank tuningBank = []
+{
+    tuning::Bank bank;
+    tuning::defaultBank(bank);
+    return bank;
+}();
 std::unique_ptr<VoiceManager> voiceManager;
 VoiceSystem voiceSystem;
 UIState uiState;

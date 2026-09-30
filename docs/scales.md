@@ -2,7 +2,7 @@
 
 ## 1. Overview & Architecture
 
-The `src/pico2seq-core/scales/` module defines the musical tuning system for the Pico2Seq synthesizer. It provides 13 scale definitions spanning 4 octaves (48 steps), mapping sequencer step indices to semitone offsets for internal audio synthesis. Optional MIDI callbacks remain in the portable sequencer, but the firmware has no MIDI transport.
+The `src/pico2seq-core/scales/` module defines the musical tuning system for the Pico2Seq synthesizer. It provides 47 scale definitions spanning up to 6 periods (48 steps), mapping sequencer step indices to semitone offsets (classic rows 0-17) or to tuning degrees (All Degrees and the 29 tuned rows 18-46) for internal audio synthesis. Which degrees sound at which pitch is the job of the tuning layer, see [tuning.md](tuning.md). Optional MIDI callbacks remain in the portable sequencer, but the firmware has no MIDI transport.
 
 ```text
 Scale tables -> Voice scale-degree/pitch lookup -> oscillator frequency
@@ -31,8 +31,11 @@ All scale constants and arrays are declared in `src/pico2seq-core/scales/scales.
 
 ```cpp
 // Centralized scale size constants
-constexpr size_t SCALES_COUNT = 13;   // Number of distinct scale definitions
-constexpr size_t SCALE_STEPS  = 48;   // Number of step-to-semitone entries per scale
+constexpr size_t CLASSIC_SCALES_COUNT = 18; // rows 0-17: 12-EDO semitone slots (13 = All Degrees is native)
+constexpr size_t SCALES_COUNT = 47;   // Number of distinct scale definitions (18 classic + 29 tuned)
+constexpr size_t SCALE_STEPS  = 48;   // Number of step-to-pitch entries per scale
+constexpr size_t SCALE_ALL_DEGREES = 13;
+constexpr uint64_t NATIVE_SCALE_MASK = /* bit 13 and bits 18..46 */;  // rows written in tuning degrees
 
 // Global scale data
 extern int scale[SCALES_COUNT][SCALE_STEPS]; // 2D semitone lookup tables
@@ -42,8 +45,8 @@ extern uint8_t currentScale;                 // Active scale index (0..SCALES_CO
 
 ### Memory Footprint
 
-- **Scale Array**: $13 \times 48 \times 4\text{ bytes} = 2,496\text{ bytes}$ (statically allocated in RAM/Flash).
-- **Scale Names**: 13 string pointers with minimal text overhead.
+- **Scale Array**: $47 \times 48 \times 4\text{ bytes} = 9,024\text{ bytes}$ (statically allocated in RAM/Flash).
+- **Scale Names**: 47 full-name and 47 short-name (at most 10 characters, for the OLED) string pointers.
 - **Lookup Time**: $O(1)$ constant-time lookup for all scale and step combinations.
 
 ---
@@ -75,7 +78,7 @@ const char* scaleNames[SCALES_COUNT] = {
 | Index | Scale Name | Scale Degrees & Formula | First Octave Semitone Sequence | Musical Character |
 |---|---|---|---|---|
 | **0** | **Ionian Major** | `1 - 2 - 3 - 4 - 5 - 6 - 7` | `0, 2, 4, 5, 7, 9, 11, 12` | Bright, resolute, standard major |
-| **1** | **Dorian** | `1 - 2 - b3 - 4 - 5 - 6 - b7` | `0, 2, 3, 5, 7, 8, 10, 12` | Jazzy minor with raised 6th |
+| **1** | **Dorian** | `1 - 2 - b3 - 4 - 5 - 6 - b7` | `0, 2, 3, 5, 7, 9, 10, 12` | Jazzy minor with raised 6th |
 | **2** | **Phrygian** | `1 - b2 - b3 - 4 - 5 - b6 - b7` | `0, 1, 3, 5, 7, 8, 10, 12` | Dark, Spanish flavor with lowered 2nd |
 | **3** | **Lydian** | `1 - 2 - 3 - #4 - 5 - 6 - 7` | `0, 2, 4, 6, 7, 9, 11, 12` | Dreamy, mystical with raised 4th |
 | **4** | **Mixolydian** | `1 - 2 - 3 - 4 - 5 - 6 - b7` | `0, 2, 4, 5, 7, 9, 10, 12` | Bluesy, classic rock major with flat 7th |
@@ -89,6 +92,34 @@ const char* scaleNames[SCALES_COUNT] = {
 | **12**| **Chromatic** | All 12 semitones | `0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11` | Linear 1:1 semitone mapping (0..47) |
 
 > **Note on Pentatonic Minor Padding**: Because the 5-note pentatonic scale has fewer degrees than 7-note diatonic modes, adjacent step indices in `scale[7]` duplicate pitch values (e.g. `{0, 0, 3, 3, 5, 5, ...}`) to preserve smooth tactile response across the 48-step range.
+
+---
+
+### Scales added with the tuning system (rows 13-46)
+
+Saved songs store the scale by index, so rows may only be appended. The classic rows 0-12 are
+above; the rest, all written for the tuning shown:
+
+| Rows | Scales | Written in |
+|---|---|---|
+| 13 | All Degrees (every degree of the active tuning, in order; in 12-EDO it equals Chromatic) | degrees of the active tuning |
+| 14-17 | Bhairav, Marwa, Poorvi and Todi thaats | 12-EDO semitone slots (22 Shruti maps them to its own shrutis) |
+| 18-21 | Maqam Rast, Bayati, Hijaz, Saba | 24-EDO |
+| 22-24, 25-27, 28-30 | Major, Minor, Pentatonic for 19-EDO, 31-EDO, 22-EDO | that EDO |
+| 31-32 | 17-EDO Major, Minor | 17-EDO |
+| 33-34 | 15-EDO Heptatonic, Pentatonic | 15-EDO |
+| 35 | 10-EDO Pentatonic | 10-EDO |
+| 36-38, 39-41 | Major, Minor, Pentatonic for 41-EDO, 53-EDO | that EDO |
+| 42-43 | Overtone Heptatonic, Pentatonic | Overtone 16-31 |
+| 44-45 | Partch Major, Partch Minor | Partch 43-Tone |
+| 46 | Bohlen-Pierce Lambda | Bohlen-Pierce 13 |
+
+A native row is `min(P * (i // k) + p[i % k], 6 * P)` for a scale of `k` notes `p[]` in a
+period of `P` degrees: it climbs one period per `k` steps and holds its top note after six
+periods. `Voice::setScaleTable(table, count, NATIVE_SCALE_MASK)` tells the voice which rows
+are native; `scaleNotesPerPeriod(row, period)` counts a row's notes for the arpeggiator and
+`tuning::scalePeriodDegrees` supplies the period.
+Which tuning offers which scales is `tuning/TuningScales.cpp`, described in [tuning.md](tuning.md).
 
 ---
 
@@ -278,8 +309,11 @@ To add a new musical scale to Pico2Seq:
 
 1. **Update Constants in `scales.h`**:
    ```cpp
-   constexpr size_t SCALES_COUNT = 14; // Increment scale count
+   constexpr size_t SCALES_COUNT = 48; // Increment scale count (and keep the tail of the static_asserts true)
    ```
+   Append only: saved songs store the scale by index. A tuned (native) row also has to fall in
+   `NATIVE_SCALE_MASK` and be added to the set of the tuning it belongs to in
+   `tuning/TuningScales.cpp` (the enum there has a `static_assert` tying it to this file).
 2. **Add Human-Readable Name in `scales.cpp`**:
    ```cpp
    const char* scaleNames[SCALES_COUNT] = {
@@ -287,6 +321,7 @@ To add a new musical scale to Pico2Seq:
        "Custom Scale Name"
    };
    ```
+   and a `scaleShortNames[]` entry of at most 10 characters.
 3. **Define 48-Step Semitone Table in `scale[][]`**:
    Ensure the array contains exactly 48 ascending integers covering 4 octaves (0 to 72 semitones):
    ```cpp
