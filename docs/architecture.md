@@ -201,7 +201,8 @@ The master delay does not share the removed global delay's races: Core 0
 publishes mix, time mode, note division, BPM and feedback through lock-free
 atomics on `VoiceManager`, and Core 1 reads them once per block. Millisecond
 mode keeps the original full-rate 10–750 ms path. Tempo mode stores a
-low-passed 6 kHz, 16-bit repeat line so a whole note at 45 BPM fits in SRAM;
+low-passed 6 kHz, 16-bit repeat line so a whole note at 45 BPM fits in SRAM
+(in the same memory block as the millisecond ring, since only one is live at a time);
 the live uClock tempo changes its target time without moving the fader.
 
 `MasterReverb` follows the same ownership rule, with one difference: **only Core 1 ever
