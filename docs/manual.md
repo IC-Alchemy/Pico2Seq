@@ -398,9 +398,9 @@ Other track behaviors worth knowing:
 - **Randomize** (Utility button 7 short press, or Shift + V2) rewrites the parameter
   lanes but never the groove: Gate and Slide are untouched. Note gets a random scale
   degree 0–12 (quantized into the current scale at playback), Octave and GateLength
-  return to their neutral values, and the remaining lanes get a triangular spread (most
-  steps near their base value, a few reaching the depth edge) at the default depth of
-  35 %. **Long-press** Randomize (≥ 1 s) resets
+  set to their neutral mid values, and the remaining lanes get a triangular spread
+  centered on the middle of the lane's range (most steps near the middle, a few reaching
+  the depth edge) at the default depth of 35 %. **Long-press** Randomize (≥ 1 s) resets
   the selected voice's parameters instead.
 - **Shift + Randomize tap** clears the selected voice completely: every stored step
   value, all gates and slides off, and all track lengths back to their 16-step
