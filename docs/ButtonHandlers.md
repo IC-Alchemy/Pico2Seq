@@ -129,7 +129,7 @@ The 4 buttons on the SliderModule tile act as direct Voice 1–4 selectors in bo
   - `Shift + Voice 1`: Play / Stop toggle
   - `Shift + Voice 2`: Randomize selected voice (short-press randomize only — the poll-driven long-press reset never triggers from a chord)
   - `Shift + Voice 3`: Cycle musical scale
-  - `Shift + Voice 4`: Two commands share the button, decided on release — a **tap** (released under ~400 ms) enters **Voice Editing mode** (`VoiceEditor::enter()` — transport stops, audio mutes, editor consumes buttons until exit; see `docs/voice-edit.md`), while **holding it ≥400 ms** (Shift still held) toggles **Arpeggiator mode**; the consumed hold means the release does not also open the editor (`AlchemyControlBridge.cpp`)
+  - `Shift + Voice 4`: Two commands share the button, decided on release — a **tap** (released under ~400 ms) enters **Voice Editing mode** (`VoiceEditor::enter()` — transport stops, audio mutes, editor consumes buttons until exit; see `docs/voice-edit.md`), while **holding it ≥400 ms** toggles **Arpeggiator mode**; the consumed hold means the release does not also open the editor (`AlchemyControlBridge.cpp`)
 
 ---
 
@@ -354,5 +354,3 @@ src/app/
 - `docs/sensors.md`: Magnetic encoder, ToF distance sensor, and MPR121 hardware specifications.
 - `docs/matrix.md`: 32-pad capacitive touch matrix scanning and debounce mechanics.
 - `docs/voice-edit.md`: Voice Editing mode controls and parameter catalogue.
-- `docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`: Full specification for the Dual-Surface Alchemy Tile control system.
-- `docs/alchemyui-tmag5273-migration.md`: Migration history and architectural decisions.

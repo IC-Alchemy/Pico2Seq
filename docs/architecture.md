@@ -464,7 +464,7 @@ I2S Stereo Audio Out (GP10 / GP11 / GP12)
 | Core 0 Control Scan | 1,000 Hz (1 ms interval) | `src/app/ControlIO.cpp` interval checks |
 | Core 0 Display Refresh | OLED 40 ms ($\approx$ 25 fps); LEDs 13 ms ($\approx$ 77 fps) | `src/app/ControlIO.cpp` interval checks |
 | Sequencer Resolution | 480 PPQN @ 90 BPM default | `uClock.init()` verification |
-| Unit Test Coverage | Catch2 v3.5.2 host test suite | `ctest --test-dir build_test` |
+| Unit Test Coverage | Catch2 v3.5.2 host test suite | `ctest --test-dir build_test_ninja` |
 
 ---
 

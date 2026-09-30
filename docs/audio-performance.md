@@ -58,6 +58,7 @@ For a controlled hardware comparison, build both variants from the same source
 at the same clock (the helper's default clock is 225 MHz):
 
 ```powershell
+# -CpuMHz 150 reproduces the original A/B comparison; the helper's default clock is 225 MHz.
 ./scripts/build_pico2seq.ps1 -CpuMHz 150 -AudioInFlash -BuildDirectory build/audio-xip-150
 ./scripts/build_pico2seq.ps1 -CpuMHz 150 -BuildDirectory build/audio-ram-150
 ```

@@ -177,7 +177,7 @@ function Copy-StageTree {
 
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     foreach ($item in Get-ChildItem -LiteralPath $Source -Force) {
-        if ($item.Name -in @('.git', 'build', 'build_test', 'build_fw', 'build_fw_on')) { continue }
+        if ($item.Name -in @('.git', 'build', 'build_test_ninja', 'build_fw', 'build_fw_on')) { continue }
 
         $target = Join-Path $Destination $item.Name
         if ($item.PSIsContainer) {
@@ -350,7 +350,7 @@ Pico2Seq leverages the dual ARM Cortex-M33 cores of the RP2350:
 | • 1ms sensor poll (TMAG, VL53L1X)   |    | • fill_audio_buffer() loop         |
 | • MPR121 32-pad touch matrix scan  |    | • VoiceManager::processBlock() |
 | • Alchemy tile panel polling (I2C1)|    | • 4-voice synthesis chain          |
-| • 50Hz OLED & WS2812B LED updates  |    | • FloatToPcm16() with __SSAT       |
+| • 13ms LED / 40ms OLED updates     |    | • FloatToPcm16() with __SSAT       |
 | • uClock sequencer step ticking    |    | • Non-blocking I2S DMA @ 48kHz     |
 | • USB CDC serial console            |    |                                    |
 +------------------------------------+    +------------------------------------+
@@ -369,14 +369,14 @@ Pico2Seq provides an automated host-side unit test suite powered by **Catch2 v3.
 
 ```bash
 # Configure and build test suite
-cmake -B build_test -DCMAKE_BUILD_TYPE=Debug
-cmake --build build_test --parallel
+cmake -B build_test_ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build_test_ninja --parallel
 
 # Run the full suite via CTest
-ctest --test-dir build_test/tests --output-on-failure
+ctest --test-dir build_test_ninja/tests --output-on-failure
 
 # Or run/filter the test binary directly
-./build_test/tests/pico2seq_tests "[voice]"
+./build_test_ninja/tests/pico2seq_tests "[voice]"
 ```
 
 For more details on test stubs and writing unit tests, see [`docs/testing.md`](docs/testing.md).

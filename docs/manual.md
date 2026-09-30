@@ -356,7 +356,7 @@ parameters are entirely separate. This is what makes polymetry possible: Voice 1
 
 ### 3.2 Polymetric parameter tracks
 
-Each voice's sequencer holds **nine independent parameter tracks**, one per automatable
+Each voice's sequencer holds **eleven independent parameter tracks**, one per automatable
 parameter, each with its own step count (default 16, adjustable from the pads; the core
 supports up to 64):
 
@@ -398,7 +398,7 @@ Other track behaviors worth knowing:
 - **Randomize** (Utility button 7 short press, or Shift + V2) rewrites the parameter
   lanes but never the groove: Gate and Slide are untouched. Note gets a random scale
   degree 0–12 (quantized into the current scale at playback), Octave and GateLength
-  set to their neutral mid values, and the remaining lanes get a triangular spread
+  are set to their neutral mid values, and the remaining lanes get a triangular spread
   centered on the middle of the lane's range (most steps near the middle, a few reaching
   the depth edge) at the default depth of 35 %. **Long-press** Randomize (≥ 1 s) resets
   the selected voice's parameters instead.

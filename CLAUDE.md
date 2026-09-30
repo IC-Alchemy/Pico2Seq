@@ -29,27 +29,27 @@ Keep it that way.)
 ### Run the unit test suite
 
 ```bash
-cmake -B build_test -DCMAKE_BUILD_TYPE=Debug
-cmake --build build_test --parallel
-./build_test/tests/pico2seq_tests --reporter console
+cmake -B build_test_ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build_test_ninja --parallel
+./build_test_ninja/tests/pico2seq_tests --reporter console
 ```
 
 Run a single tag/group instead of the full suite:
 
 ```bash
-./build_test/tests/pico2seq_tests "[rpdsp]"
-./build_test/tests/pico2seq_tests "[sequencer]"
-./build_test/tests/pico2seq_tests "[voice]"
-./build_test/tests/pico2seq_tests "[voiceosc]"
-./build_test/tests/pico2seq_tests "[control_surface]"
+./build_test_ninja/tests/pico2seq_tests "[rpdsp]"
+./build_test_ninja/tests/pico2seq_tests "[sequencer]"
+./build_test_ninja/tests/pico2seq_tests "[voice]"
+./build_test_ninja/tests/pico2seq_tests "[voiceosc]"
+./build_test_ninja/tests/pico2seq_tests "[control_surface]"
 ```
 
 Other useful invocations:
 
 ```bash
-./build_test/tests/pico2seq_tests --list-tests        # list all tests without running
-./build_test/tests/pico2seq_tests --reporter console -s  # full detail on failures
-ctest --test-dir build_test --output-on-failure       # same tests, via CTest
+./build_test_ninja/tests/pico2seq_tests --list-tests        # list all tests without running
+./build_test_ninja/tests/pico2seq_tests --reporter console -s  # full detail on failures
+ctest --test-dir build_test_ninja --output-on-failure       # same tests, via CTest
 ```
 
 ### Firmware build + flash via arduino-cli (headless)

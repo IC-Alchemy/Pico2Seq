@@ -24,7 +24,7 @@ The `src/matrix/` subsystem provides the capacitive touch step-input interface f
 
 ## 32 Dedicated Step Pads & Bank Architecture
 
-With the integration of the dedicated [Alchemy Modular UI tile panel](superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md) (which offloads parameter and utility buttons to I2C1), all 32 MPR121 touch pads function as **dedicated step sequencing pads**.
+With the integration of the dedicated Alchemy Modular UI tile panel (which offloads parameter and utility buttons to I2C1), all 32 MPR121 touch pads function as **dedicated step sequencing pads**.
 
 The 32 pads are organized into two 16-step banks that address the currently selected voice pair:
 
@@ -167,5 +167,4 @@ src/matrix/
 - [`docs/LEDMatrix.md`](LEDMatrix.md) — 8×4 WS2812B visual feedback system (pad-mirror of this touch matrix)
 - [`docs/sensors.md`](sensors.md) — TMAG5273 encoder and VL53L1X distance sensor
 - [`docs/ButtonHandlers.md`](ButtonHandlers.md) — UI button event dispatching
-- [`docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`](superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md) — Alchemy tile control surface design spec
 - [`docs/architecture.md`](architecture.md) — System architecture and dual-core division

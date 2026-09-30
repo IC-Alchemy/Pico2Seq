@@ -10,7 +10,7 @@ This module implements touch matrix scanning and event dispatch for Pico2Seq, ha
 - Provides 32 dedicated step pads across two 16-step voice banks addressing the active voice pair
 - IRQ-gated state-change scanning with press/release event callbacks
 - Integrates with the Adafruit MPR121 I2C sensor on `Wire` @ `0x5A`
-- Seamlessly pairs with the [Alchemy Modular UI tile panel](../../docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md) which hosts parameter and utility controls
+- Seamlessly pairs with the Alchemy Modular UI tile panel which hosts parameter and utility controls
 
 ---
 
