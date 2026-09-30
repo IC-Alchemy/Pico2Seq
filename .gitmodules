@@ -1,6 +1,6 @@
 [submodule "src/rpdsp"]
 	path = src/rpdsp
-	url = https://github.com/IC-Alchemy/RPDSP.git
+	url = https://github.com/IC-Alchemy/rpdsp.git
 [submodule "src/VelocityEncoder"]
 	path = src/VelocityEncoder
 	url = https://github.com/IC-Alchemy/VelocityEncoder.git
