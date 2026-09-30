@@ -67,7 +67,7 @@ In Param mode, ButtonModule8 provides instant parameter arming for real-time rec
 | **1** | `Velocity` | Hold-to-arm parameter recording + auto-selects encoder target |
 | **2** | `Filter` | Hold-to-arm parameter recording + auto-selects encoder target |
 | **3** | `Attack` | Hold-to-arm parameter recording + auto-selects encoder target |
-| **4** | `Decay` | Hold-to-arm parameter recording + auto-selects encoder target |
+| **4** | `Release` (silkscreened "Decay") | Hold-to-arm parameter recording + auto-selects encoder target |
 | **5** | `Octave` | Hold-to-arm parameter recording + auto-selects encoder target |
 | **6** | `Slide` | Toggles slide/portamento mode (clears conflicting edit modes) |
 | **7** | `Shift` | Modifier for parameter latching and secondary chords |
@@ -83,7 +83,7 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, and system contr
 | Bit / Button | Function | Behavior |
 |---|---|---|
 | **0** | `Play / Stop` | Starts/stops sequencer clock (stopping automatically opens Settings mode) |
-| **1** | `Session Save / Load` | Tap saves the session to flash (stops transport for the ~0.1–0.5 s write, then restarts); long-press (≥400 ms) reloads the last saved session. Edits also autosave ~1 s after every transport stop when changed |
+| **1** | `Session Save / Load` | Tap saves the session to flash (stops transport for the ~0.1–0.5 s write, then restarts); long-press (≥400 ms) reloads the last saved session. Edits also autosave ~1 s after every transport stop when changed. Shift + press (instead of save/load) toggles the master delay between tempo-sync and free milliseconds, confirmed by a `DelaySync` / `DelayMsMode` OLED notice |
 | **2** | `Scale Cycle` | Cycles forward through the 13 musical scales |
 | **3** | `Swing Pattern` | Cycles through the 16 groove/shuffle templates in `ShuffleTemplates.h` |
 | **4** | `Theme Cycle` | Cycles visual LED color themes across `LEDTheme` presets |
@@ -96,8 +96,8 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, and system contr
 | Fader | No step selected | Step Edit = ENV mode (`selectedStepForEdit >= 0`) |
 |---|---|---|
 | **0** | Master Tempo (uClock BPM: 45–200 BPM) | Attack lane of the selected step |
-| **1** | Swing Amount (continuous shuffle depth) | Decay lane of the selected step |
-| **2** | Unassigned (the former Decay / Master Volume slot) | Sustain lane of the selected step |
+| **1** | Delay mix (master delay wet/dry blend) | Decay lane of the selected step |
+| **2** | Master volume (saved with the session) | Sustain lane of the selected step |
 | **3** | Gate Length across the selected voice's steps | Release lane of the selected step |
 
 - **ENV mode** writes the fader position as the step's absolute value through
@@ -111,7 +111,7 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, and system contr
   fader only writes after an obvious move. Only fresh checksum-valid slider frames
   enter the rolling median filter; a cached read cannot count as another sample.
 - Faders no longer edit voice bases or live-record: the encoder edits bases, the
-  distance sensor records. Master volume is fader 3 in Utility mode, and is saved with the session (default 0.75).
+  distance sensor records. Master volume is fader 2, and is saved with the session (default 0.75).
 
 ---
 
@@ -129,7 +129,7 @@ The 4 buttons on the SliderModule tile act as direct Voice 1–4 selectors in bo
   - `Shift + Voice 1`: Play / Stop toggle
   - `Shift + Voice 2`: Randomize selected voice (short-press randomize only — the poll-driven long-press reset never triggers from a chord)
   - `Shift + Voice 3`: Cycle musical scale
-  - `Shift + Voice 4`: Enter **Voice Editing mode** (`VoiceEditor::enter()` — transport stops, audio mutes, editor consumes buttons until exit; see `docs/voice-edit.md`)
+  - `Shift + Voice 4`: Two commands share the button, decided on release — a **tap** (released under ~400 ms) enters **Voice Editing mode** (`VoiceEditor::enter()` — transport stops, audio mutes, editor consumes buttons until exit; see `docs/voice-edit.md`), while **holding it ≥400 ms** (Shift still held) toggles **Arpeggiator mode**; the consumed hold means the release does not also open the editor (`AlchemyControlBridge.cpp`)
 
 ---
 
@@ -321,8 +321,8 @@ struct UIState {
     VoiceEdit::Controls voiceEditor;
     bool controlsWaitRelease = false; // entry chord buttons pending release
 
-    // Transient OLED notice (randomize confirmations)
-    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1 };
+    // Transient OLED notice (short confirmation banner)
+    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6, Macro = 7, DelayMix = 8, DelayTime = 9, DelayFeedback = 10, ArpOn = 11, ArpOff = 12, DelaySync = 13, DelayMsMode = 14 };
     volatile unsigned long oledNoticeUntil = 0;
     volatile OledNoticeKind oledNoticeKind = OledNoticeKind::None;
     volatile uint8_t oledNoticeVoice = 0;
