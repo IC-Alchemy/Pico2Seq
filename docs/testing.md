@@ -194,6 +194,27 @@ designated initializers in declaration order. The reverb work leaves the 33 fail
 assertion text unchanged (compare the Catch2 XML reporter output, not the count) and fixes the audio target
 by reordering the three initializers. Treat a failure outside that set as new.
 
+**Normal versus fast-math.** The firmware is built with `-O3 -ffast-math`, so the same suites were also run that way:
+
+```bash
+cmake -B build_test_fast -DCMAKE_BUILD_TYPE=Release "-DCMAKE_CXX_FLAGS_RELEASE=-O3 -ffast-math"
+cmake --build build_test_fast --parallel
+ctest --test-dir build_test_fast --output-on-failure
+```
+
+Recorded 2026-09-30 (GCC 13.3, x86-64): the baseline fails 44 tests this way and the reverb branch fails the same 44
+(by name): the 33 above plus 11 that only fail under fast-math, all in older tests (Arpeggiator dynamics/gate/pattern
+buttons, `EncoderMotion` non-finite sizes, oscillator spans, `sinNormalizedPhase`). Every new test passes in both modes.
+Tolerances: comparisons are bit-exact wherever the code copies or runs the same path twice (mix zero equals the dry
+bus, persistence round trips, freeze/snapshot ordering). The two split-invariance checks (a render cut into different
+calls: `test_master_reverb.cpp`, and the whole bus in `test_master_bus.cpp`) are bit-exact in IEEE builds and use
+**2e-4 relative** under `__FAST_MATH__`, the slack rpdsp's own reverb test allows, because a compiler may contract or
+reassociate the block and per-sample loops differently; on GCC 13.3 they were bit-exact in fast-math too. The ARM
+compiler's fused multiply-add contraction is not exercised on the host. rpdsp's linked-compressor test uses 1e-5
+relative under fast-math. Finiteness is always tested on the bit pattern, because `-ffinite-math-only` lets a compiler
+fold `std::isfinite`; one persistence check that used `nextafter` below a zero limit (a denormal that fast-math flushes
+to zero) was changed to avoid it.
+
 **What host tests do not establish:** board CPU time, XIP/SRAM behavior at run time, heap and stack headroom on the
 device, DMA timing and listening. Those are the board checks in
 [audio-performance.md](audio-performance.md#master-reverb-ram-stack-and-sram-audit).
