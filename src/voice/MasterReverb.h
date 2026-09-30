@@ -19,6 +19,7 @@
 // current tail. Mix is smoothed per sample here (one shared value for both
 // channels); the engine itself always renders wet-only (its own mix stays at 1).
 
+#include "../utils/AudioRam.h" // first: defines RPDSP_HOT_FUNCTION before any rpdsp header
 #include "ReverbSettings.h"
 #include "../utils/SpscQueue.h"
 #include "../rpdsp/src/rpdsp/dark_reverb.h"
@@ -27,11 +28,24 @@
 #include <cstddef>
 #include <cstdint>
 
-// Float storage keeps 24-bit precision in the feedback network at 64 KiB for the
-// 16384-sample tank; Half stores binary16 in 32 KiB. Both compute in float. Build
-// with -DPICO2SEQ_REVERB_STORAGE_HALF=1 for the same-capacity A/B comparison.
+// Tank storage at the fixed 16384-sample capacity (both variants compute in float):
+//   Half  (default): binary16 in 32 KiB, 33,016 B object, 11-bit stored precision.
+//   Float          : 24-bit stored precision, 65,784 B object.
+// Half is the default because, with Float, the firmware's counted setup-time allocations
+// exceed the linked heap by ~1.7 KB, while Half leaves ~30 KB before the allocations that
+// were not counted (docs/audio-performance.md, "Master reverb RAM, stack and SRAM audit").
+// The plan keeps Half at the same capacity when Float fails that gate. The accounting is
+// static: re-decide from the on-board [DIAG MEM] heap numbers, building with
+// -DPICO2SEQ_REVERB_STORAGE_HALF=0 for Float.
 #ifndef PICO2SEQ_REVERB_STORAGE_HALF
-#define PICO2SEQ_REVERB_STORAGE_HALF 0
+#define PICO2SEQ_REVERB_STORAGE_HALF 1
+#endif
+
+// Bench-only: -DPICO2SEQ_REVERB_BYPASS=1 never runs the tank, so the bus renders
+// dry. It is the reverb-free baseline for the same-clock CPU A/B (mix zero does not
+// give one: the tank keeps evolving there by design). Never a shipping build.
+#ifndef PICO2SEQ_REVERB_BYPASS
+#define PICO2SEQ_REVERB_BYPASS 0
 #endif
 
 class MasterReverb
@@ -39,8 +53,13 @@ class MasterReverb
 public:
     static constexpr size_t kCapacity = 16384;
     static constexpr bool kHalfStorage = PICO2SEQ_REVERB_STORAGE_HALF != 0;
+    static constexpr bool kBypass = PICO2SEQ_REVERB_BYPASS != 0;
     using Engine = rpdsp::DarkReverb<kCapacity, kHalfStorage ? rpdsp::DarkReverbStorage::Half
                                                              : rpdsp::DarkReverbStorage::Float>;
+    // Names the compiled variant in the serial diagnostics, so a timing capture
+    // says which build it came from.
+    static constexpr const char *kVariantName =
+        kBypass ? "bypass" : (kHalfStorage ? "half16384" : "float16384");
 
     // Control-tick period in frames (1.33 ms at 48 kHz). Also the size of the
     // scratch render() callers reserve for one span.

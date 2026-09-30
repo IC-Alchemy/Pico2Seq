@@ -541,10 +541,18 @@ TEST_CASE("Odd, empty, oversized and overlapping blocks all give the same bus", 
         split->processStereoBlock(splitL.data() + at, splitR.data() + at, n);
         at += n;
     }
+    // IEEE builds compare bit for bit. A -ffast-math build may contract or reassociate
+    // the block and per-sample reverb loops differently (rpdsp's own tests allow the same
+    // slack), so it compares within 2e-4 relative; GCC 13.3 x86-64 was bit-exact as well.
     for (uint32_t i = 0; i < total; ++i)
     {
+#ifdef __FAST_MATH__
+        REQUIRE(std::fabs(wholeL[i] - splitL[i]) <= 2.0e-4f * (1.0f + std::fabs(wholeL[i])));
+        REQUIRE(std::fabs(wholeR[i] - splitR[i]) <= 2.0e-4f * (1.0f + std::fabs(wholeR[i])));
+#else
         REQUIRE(std::memcmp(&wholeL[i], &splitL[i], sizeof(float)) == 0);
         REQUIRE(std::memcmp(&wholeR[i], &splitR[i], sizeof(float)) == 0);
+#endif
     }
 
     // Zero-length calls touch nothing, even with null pointers.

@@ -28,6 +28,21 @@ if(NOT EXISTS "${SRC_DIR}/VelocityEncoder/src/MagEncoder.h")
     "  git submodule update --init --recursive")
 endif()
 
+# Reverb tank storage the host tests build against. HALF mirrors the firmware
+# default (MasterReverb.h); FLOAT re-runs the same suites against the 24-bit tank:
+#   cmake -B build_test_float -DPICO2SEQ_REVERB_STORAGE=FLOAT
+# Applied to every target here, so MasterReverb (embedded in VoiceManager) has one
+# definition per executable.
+set(PICO2SEQ_REVERB_STORAGE "HALF" CACHE STRING "DarkReverb storage for the host tests: HALF or FLOAT")
+set_property(CACHE PICO2SEQ_REVERB_STORAGE PROPERTY STRINGS HALF FLOAT)
+if(PICO2SEQ_REVERB_STORAGE STREQUAL "FLOAT")
+  add_compile_definitions(PICO2SEQ_REVERB_STORAGE_HALF=0)
+elseif(PICO2SEQ_REVERB_STORAGE STREQUAL "HALF")
+  add_compile_definitions(PICO2SEQ_REVERB_STORAGE_HALF=1)
+else()
+  message(FATAL_ERROR "PICO2SEQ_REVERB_STORAGE must be HALF or FLOAT, not '${PICO2SEQ_REVERB_STORAGE}'")
+endif()
+
 # Portable sources compiled once, grouped the way the suites consume them.
 # OBJECT rather than static libraries: each target keeps its own stub include
 # dirs and link libraries, and object libraries compose without forcing a
@@ -109,6 +124,7 @@ add_executable(pico2seq_tests
   unit/test_voice_playback.cpp
   unit/test_voice_envelope.cpp
   unit/test_reverb_editor.cpp
+  unit/test_stack_watermark.cpp
   unit/test_lidar_recording.cpp
   ${SRC_DIR}/app/VoicePlayback.cpp
   ${SRC_DIR}/app/VoiceEnvelope.cpp
@@ -184,6 +200,20 @@ target_include_directories(pico2seq_audio_tests PRIVATE
 target_compile_definitions(pico2seq_audio_tests PRIVATE PICO_RP2350=1 ARDUINO_ARCH_RP2040=1)
 target_link_libraries(pico2seq_audio_tests PRIVATE Catch2::Catch2WithMain)
 catch_discover_tests(pico2seq_audio_tests TEST_PREFIX "audio: ")
+
+# The bench-only -DPICO2SEQ_REVERB_BYPASS=1 build of the master reverb (the
+# reverb-free baseline for the on-board CPU A/B). Compiled on its own so the
+# switch cannot leak into the suites above.
+add_executable(pico2seq_reverb_bypass_tests
+  unit/test_reverb_bypass.cpp
+  ${SRC_DIR}/voice/MasterReverb.cpp)
+target_include_directories(pico2seq_reverb_bypass_tests PRIVATE
+  ${STUB_DIR} ${PROJECT_SOURCE_DIR} ${SRC_DIR} ${CORE_DIR} ${RPDSP_DIR})
+target_compile_definitions(pico2seq_reverb_bypass_tests PRIVATE
+  AUG_DEBUG_COMPILED=0 PICO2SEQ_REVERB_BYPASS=1)
+target_compile_options(pico2seq_reverb_bypass_tests PRIVATE -Wall -Wno-unused-parameter)
+target_link_libraries(pico2seq_reverb_bypass_tests PRIVATE Catch2::Catch2WithMain)
+catch_discover_tests(pico2seq_reverb_bypass_tests TEST_PREFIX "reverb-bypass: ")
 
 # Opt-in throughput measurement; timing thresholds do not belong in CTest.
 add_executable(pico2seq_recipe_benchmark EXCLUDE_FROM_ALL benchmarks/recipe_benchmark.cpp)

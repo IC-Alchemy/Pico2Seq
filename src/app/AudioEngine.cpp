@@ -1,5 +1,6 @@
 #include "AudioEngine.h"
 #include "../utils/AudioRam.h"
+#include "../utils/StackWatermark.h"
 #include "AppState.h"
 #include "HardwarePins.h"
 #include "../audio/audio.h"
@@ -126,6 +127,7 @@ extern "C" void audio_i2s_debug_stage(uint32_t stage)
 
 void AudioEngine::begin()
 {
+    StackWatermark::paintCore1(); // Core 0's [DIAG MEM] reports this stack's headroom
     // Core 0 owns control/voice setup and never waits for audio. A watchdog
     // recovery boot leaves voicesReady low so Core 1 parks instead of reviving
     // a failing hardware path behind the console.

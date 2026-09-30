@@ -15,6 +15,8 @@
 #include <limits>
 #include <memory>
 #include <new>
+#include <string>
+#include <type_traits>
 #include <vector>
 
 // MasterReverb is the audio-owned adapter around rpdsp::DarkReverb. These tests
@@ -84,6 +86,19 @@ std::uint32_t bitsOf(float value)
     std::uint32_t bits;
     std::memcpy(&bits, &value, sizeof bits);
     return bits;
+}
+
+// Cutting a render into different calls must not change it. IEEE builds compare bit
+// for bit. A -ffast-math build may contract or reassociate the block and per-sample
+// loops differently (rpdsp's own tests allow the same slack), so it compares within
+// 2e-4 relative; on GCC 13.3 x86-64 the fast-math run was bit-exact as well.
+void requireSameSample(float split, float reference)
+{
+#ifdef __FAST_MATH__
+    REQUIRE(std::fabs(split - reference) <= 2.0e-4f * (1.0f + std::fabs(reference)));
+#else
+    REQUIRE(bitsOf(split) == bitsOf(reference));
+#endif
 }
 
 // A decaying-free burst of noise + a tone, then silence: something a tank can ring on.
@@ -567,8 +582,8 @@ TEST_CASE("Splitting the render into any calls does not change the output", "[re
         const Wet split = run(sizes);
         for (std::size_t n = 0; n < reference.left.size(); ++n)
         {
-            REQUIRE(bitsOf(split.left[n]) == bitsOf(reference.left[n]));
-            REQUIRE(bitsOf(split.right[n]) == bitsOf(reference.right[n]));
+            requireSameSample(split.left[n], reference.left[n]);
+            requireSameSample(split.right[n], reference.right[n]);
         }
     }
 }
@@ -773,6 +788,19 @@ TEST_CASE("Half and Float storage agree at the same capacity", "[reverb][master_
             CHECK(std::fabs(10.0 * std::log10(rmsOf(h, 48000, 52800) / rmsOf(f, 48000, 52800))) < 0.2);
         }
     }
+}
+
+TEST_CASE("The compiled reverb variant names itself for the serial diagnostics", "[reverb][master_reverb][storage]")
+{
+    static_assert(!MasterReverb::kBypass, "the main suites test the real reverb; the bypass build has its own target");
+    using HalfEngine = rpdsp::DarkReverb<MasterReverb::kCapacity, rpdsp::DarkReverbStorage::Half>;
+    constexpr bool isHalf = std::is_same_v<MasterReverb::Engine, HalfEngine>;
+    CHECK(MasterReverb::kHalfStorage == isHalf);
+    CHECK(std::string(MasterReverb::kVariantName) == (isHalf ? "half16384" : "float16384"));
+    // The tank is the bulk of the object; the rest is control state and the two
+    // queues (RAM budget: docs/audio-performance.md, "Reverb RAM audit").
+    CHECK(sizeof(MasterReverb) >= sizeof(MasterReverb::Engine));
+    CHECK(sizeof(MasterReverb) < sizeof(MasterReverb::Engine) + 1024);
 }
 
 TEST_CASE("Rendering, control changes and snapshots never allocate", "[reverb][master_reverb][alloc]")

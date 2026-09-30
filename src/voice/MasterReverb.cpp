@@ -8,6 +8,17 @@
 #include <algorithm>
 #include <cmath>
 
+// In a RAM-audio firmware build the engine's process() overloads must carry the
+// placement hook, or they link into flash (see AudioRam.h). This fails the build if
+// the hook is not defined at all. It cannot see an rpdsp header parsed before
+// AudioRam.h, so the linked ELF remains the check (docs/audio-performance.md).
+#define PICO2SEQ_STRINGIFY_(x) #x
+#define PICO2SEQ_STRINGIFY(x) PICO2SEQ_STRINGIFY_(x)
+#if defined(ARDUINO_ARCH_RP2040) && PICO2SEQ_AUDIO_IN_RAM
+static_assert(sizeof(PICO2SEQ_STRINGIFY(RPDSP_HOT_FUNCTION)) > 1,
+              "RPDSP_HOT_FUNCTION is empty: the reverb engine would run from flash");
+#endif
+
 namespace
 {
 // A mix within this distance of its goal lands on it exactly, so a settled zero
@@ -47,7 +58,7 @@ MasterReverb::MasterReverb()
     prepare(48000.0f);
 }
 
-ReverbSettings MasterReverb::readTargets_() const noexcept
+ReverbSettings PICO2SEQ_AUDIO_FUNC(MasterReverb::readTargets_)() const noexcept
 {
     ReverbSettings out;
     out.mix = pubMix_.load(std::memory_order_relaxed);
@@ -263,6 +274,17 @@ void PICO2SEQ_AUDIO_FUNC(MasterReverb::blend_)(const float *dry, float *wetLeft,
 void PICO2SEQ_AUDIO_FUNC(MasterReverb::render)(const float *dry, float *wetLeft, float *wetRight,
                                                uint32_t frames) noexcept
 {
+    if constexpr (kBypass)
+    {
+        // CPU A/B baseline (see MasterReverb.h): the tank and controls stay idle.
+        for (uint32_t k = 0; k < frames; ++k)
+        {
+            wetLeft[k] = dry[k];
+            wetRight[k] = dry[k];
+        }
+        return;
+    }
+
     uint32_t done = 0;
     while (done < frames)
     {

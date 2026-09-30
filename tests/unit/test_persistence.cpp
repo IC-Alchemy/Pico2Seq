@@ -646,8 +646,15 @@ TEST_CASE("nonfinite or out-of-range effect fields reject the file", "[persisten
     for (const Field &field : fields)
     {
         CAPTURE(field.name);
-        for (const float bad : {kNaN, kInf, -kInf, std::nextafter(field.low, -1.0e9f),
-                                std::nextafter(field.high, 1.0e9f), field.low - 1.0f, field.high + 1.0f})
+        // One float beyond a limit must be refused too. A zero limit is skipped: the
+        // next float below it is a denormal, which -ffast-math (flush-to-zero) reads
+        // as zero, i.e. in range. Nearby normal values cover that side instead.
+        std::vector<float> badValues = {kNaN, kInf, -kInf, field.low - 1.0f, field.high + 1.0f,
+                                        field.low - 1.0e-3f, field.high + 1.0e-3f};
+        if (field.low != 0.0f)
+            badValues.push_back(std::nextafter(field.low, -1.0e9f));
+        badValues.push_back(std::nextafter(field.high, 1.0e9f));
+        for (const float bad : badValues)
         {
             CAPTURE(bad);
             ProjectSnapshot snap = validSnapshot();
