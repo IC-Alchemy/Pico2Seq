@@ -41,11 +41,16 @@ SessionStorage::LoadResult SessionStorage::load(persistence::ProjectSnapshot &ou
         f.close();
         return LoadResult::BadFrame;
     }
-    // Format-1 payload is a prefix of format 2; completed (upgraded) below.
+    // An older payload is a prefix of the newest layout; the version picks how many
+    // bytes to read and decodeSnapshotFrame() completes (upgrades) the rest. A
+    // version newer than this build knows has size 0 and is refused.
     const uint16_t version = persistence::frameVersion(header);
-    const bool formatV1 = version == persistence::SNAPSHOT_FORMAT_VERSION_V1;
-    const size_t payloadSize = formatV1 ? sizeof(persistence::ProjectSnapshotV1)
-                                        : sizeof(persistence::ProjectSnapshot);
+    const size_t payloadSize = persistence::payloadSizeForVersion(version);
+    if (payloadSize == 0)
+    {
+        f.close();
+        return LoadResult::BadFrame;
+    }
     if (f.read(reinterpret_cast<uint8_t *>(&g_loadBuffer), payloadSize) !=
         static_cast<int>(payloadSize))
     {
@@ -53,16 +58,10 @@ SessionStorage::LoadResult SessionStorage::load(persistence::ProjectSnapshot &ou
         return LoadResult::BadFrame; // truncated file
     }
     f.close();
-    // Header and payload CRC separately: never read past the 12-byte header.
-    const persistence::FrameStatus status = persistence::readFrameHeader(
-        header, reinterpret_cast<const uint8_t *>(&g_loadBuffer), sizeof(g_loadBuffer),
-        static_cast<uint16_t>(payloadSize),
-        formatV1 ? persistence::SNAPSHOT_FORMAT_VERSION_V1 : persistence::SNAPSHOT_FORMAT_VERSION);
-    if (status != persistence::FrameStatus::Ok)
-        return LoadResult::BadFrame;
-    if (formatV1)
-        persistence::upgradeFromV1(g_loadBuffer);
-    if (!persistence::validateProjectSnapshot(g_loadBuffer))
+    // Header and payload CRC separately: never read past the 12-byte header. The
+    // payload is decoded in place in the static buffer (too large for the stack).
+    if (!persistence::decodeSnapshotFrame(header, reinterpret_cast<const uint8_t *>(&g_loadBuffer),
+                                          sizeof(g_loadBuffer), g_loadBuffer))
         return LoadResult::BadFrame;
     out = g_loadBuffer;
     return LoadResult::Ok;

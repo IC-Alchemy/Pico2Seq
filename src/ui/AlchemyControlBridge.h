@@ -36,6 +36,10 @@ class SequencerView;
  *   - Shift + button 6 + Voice1..4 opens the live voice ADSR fader page.
  *     Voice buttons select its target; Shift exits. Shift+6 alone defers its
  *     existing short action until release so the chord has no side effects.
+ *   - Shift + button 6, then button 2, opens the live Reverb page: faders 1-3 are
+ *     Mix / Decay / Damping, button 1 toggles Freeze, button 2 switches to the
+ *     TONE layer (Low cut / Diffusion / Modulation / Width), Shift exits
+ *     (ui/ReverbPageControls.h, docs/manual.md).
  *   - ButtonModule8: parameter set (Note..Slide) or utility set (Play,
  *     Delay, Scale, Swing, Theme, Encoder, Randomize) per mode; Shift is
  *     bit 7 in both. In Utility mode, Shift + Randomize clears the selected
@@ -138,6 +142,10 @@ private:
   void handleSessionButton(const ButtonState &button);
   void handleSessionOrDelayButton(const ButtonState &button, UIState &uiState);
   void handleFaders(UIState &uiState, const SequencerView &sequencers);
+  // Live Reverb page (Shift + 6 + 2). True when it owns this pass (open, opening,
+  // leaving or waiting for every button to lift): the caller returns immediately.
+  bool handleReverbPage(uint8_t buttons, uint8_t voices, UIState &uiState);
+  void handleReverbFaders(UIState &uiState);
 
   AlchemyPanel panel_;
   ControlSurface::ModeStabilizer mode_;

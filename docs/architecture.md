@@ -24,7 +24,7 @@ Pico2Seq/
 │   ├── pico2seq-core/      # Portable, zero-dependency sequencer and musical scale core
 │   │   ├── scales/         # Musical scale definitions (13 scales, 48 steps)
 │   │   └── sequencer/      # Polymetric Sequencer, ParameterManager, ShuffleTemplates
-│   ├── voice/              # Voice synthesis, VoiceManager, VoiceSystem, VoicePresets
+│   ├── voice/              # Voice synthesis, VoiceManager, master bus (MasterDelay, MasterReverb), VoiceSystem, VoicePresets
 │   ├── rpdsp/              # Submodule: header-only DSP library (IC-Alchemy/RPDSP)
 │   ├── ui/                 # UIState, ControlSurfaceLogic, UIEventHandler, ButtonHandlers
 │   ├── AlchemyUI/          # Modular I2C UI tile driver (Wire1 @ 100kHz)
@@ -47,7 +47,7 @@ The RP2350 processor features dual ARM Cortex-M33 cores. Pico2Seq assigns audio 
 | Phase | Core 0: `Application` | Core 1: `AudioEngine` |
 |---|---|---|
 | Startup | Buses, sensors, display; construct and publish four voices; start uClock | Stabilize; create I2S pool and enable output |
-| Each pass | Flush voice controls; held buttons; queued steps; diagnostics; PPQN gate ticks | Wait for a buffer; render silence until voices are ready; render mono mix to stereo; return buffer |
+| Each pass | Flush voice controls; held buttons; queued steps; diagnostics; PPQN gate ticks | Wait for a buffer; render silence until voices are ready; render the stereo master bus (delay, reverb, linked compressor) to separate L/R PCM16; return buffer |
 | Timed work | 1 ms controls; 13 ms LED refresh; 40 ms OLED refresh | Queue a diagnostic heartbeat every two seconds |
 
 The ISR stages clock events only. Sequencers, note-duration processing,
@@ -75,7 +75,7 @@ disabled; TinyUSB CDC remains available for the serial console.
   }
   ```
   Uses the ARM Cortex-M33 hardware saturation instruction `__SSAT` to clamp the scaled 32-bit integer into signed 16-bit range in a single cycle.
-- **Mono-to-Stereo Replication**: The mono voice mix is duplicated across both channels: `out[2*i] = pcm16; out[2*i+1] = pcm16;`.
+- **Stereo output**: The voices sum to one mono bus, which the master delay processes in place. The master reverb (DarkReverb) then turns it into distinct left/right signals, master gain and the Warm/Glue/Punch macro apply to both, and a **linked stereo compressor** ducks both channels by the same amount. `fill_audio_buffer()` calls `VoiceManager::processStereoBlock()` into two static float buffers and `AudioSamples::interleavePcm16()` converts each channel separately (`out[2*i] = toPcm16(left[i]); out[2*i+1] = toPcm16(right[i]);`). With the reverb mix at zero the two channels are bit-identical, so an unchanged project sounds exactly as before. The legacy mono `processBlock()` remains for existing callers and tests: it returns `0.5f * (left + right)`.
 
 ### 2.2 Core 0: System Control, UI, Sensors & Clock
 - **Execution**: Runs Arduino `setup()` and `loop()`.
@@ -157,7 +157,8 @@ envelope. When the queue is empty, Core 1 renders up to 32 samples before
 probing again; a concurrent publication can wait up to 0.67 ms at 48 kHz.
 Mix levels, master-volume, transport-mute, compressor-macro and master-delay targets are
 sampled per block (up to 256 frames); the master smoother and the delay's
-mix/time eases still advance every sample.
+mix/time eases still advance every sample. Reverb targets are sampled every 64
+frames of the stream, wherever a caller cuts its blocks; the reverb mix eases every sample.
 Updates still drain while disabled, so queued re-enables can take effect.
 Config, pitch caches, dirty flags, filter/slide coefficients, and gates
 are audio-owned. The pitch version is now ordinary single-core state.
@@ -202,6 +203,28 @@ atomics on `VoiceManager`, and Core 1 reads them once per block. Millisecond
 mode keeps the original full-rate 10–750 ms path. Tempo mode stores a
 low-passed 6 kHz, 16-bit repeat line so a whole note at 45 BPM fits in SRAM;
 the live uClock tempo changes its target time without moving the fader.
+
+`MasterReverb` follows the same ownership rule, with one difference: **only Core 1 ever
+touches the tank or its coefficients.** Core 0's setters (`VoiceManager::setReverbMix()`,
+`setReverbDecaySeconds()`, `setReverbDampingHz()`, `setReverbLowCutHz()`,
+`setReverbDiffusion()`, `setReverbModDepth()`, `setReverbModRateHz()`, `setReverbWidth()`,
+`setReverbFreeze()`) each clamp a value into `ReverbParams` range (non-finite values fall
+back to the default) and store it in a lock-free `std::atomic`, then bump a release-ordered
+revision. `applyReverbSettings()` (project restore) also pushes one coherent snapshot through
+a four-entry `SpscQueue`, so all eight fields change in the same control tick. Core 1
+consumes at most one update per 64-frame tick: the newest snapshot wins, then anything
+published after it (the revision comparison also resolves "snapshot vs. later single
+edit", including a return to the earlier value), and eases each coefficient toward it with a
+30 ms time constant (log domain for decay, damping, low cut and mod rate). Nothing
+allocates, blocks or spins on either side. `prepare()` clears the 64 KiB tank and is setup
+only, never called from the audio callback.
+
+Freeze is not a plain switch: the engine's own freeze sets every stage gain to 1 and bypasses
+damping in a single step, which measured as a click 16–50× above the tail's high-frequency
+floor. `MasterReverb` therefore first eases decay toward 1000 s and damping toward 10.8 kHz
+for 45 ticks (about 60 ms) and only then engages the engine freeze; leaving a freeze starts
+from the same open extremes and eases back to the requested values. A rapid toggle that never
+completes the ramp never reaches the engine.
 
 ---
 
@@ -269,13 +292,22 @@ VoiceManager::processBlock() (Core 1, up to 256 frames per block)
     Add voice samples * mixLevel to the block
   Master delay on the summed block: eased mix/time, fractional cubic read,
   DC blocker + lowpass + tanh in the feedback loop
-  Advance master gain per sample and multiply the mixed block
-  Compress dry sound and repeats together with the Warm/Glue/Punch macro;
-  ease the macro per sample and update compressor coefficients at most once per block
-AudioSamples::toPcm16() -> identical left/right PCM16 -> I2S DMA at 48 kHz
+  Master reverb (rpdsp::DarkReverb, 16384-sample tank at half rate) on the delayed mono bus,
+  in 64-frame control quanta: the mono bus feeds both engine inputs; wet and dry blend with
+  one shared per-sample mix (a settled mix of zero is the dry bus exactly, but the tank
+  keeps running, so raising the mix later reveals the current tail)
+  Advance master gain per sample and multiply both channels
+  Compress dry sound, repeats and reverb together with the Warm/Glue/Punch macro: one linked
+  detector on max(|L|,|R|) and one gain-smoother advance per frame, the same gain applied to
+  both channels (equal L/R reproduces the mono compressor bit-for-bit); ease the macro per
+  sample and update compressor coefficients at most once per block
+AudioSamples::interleavePcm16() -> separate left/right PCM16 -> I2S DMA at 48 kHz
 ```
 
-Fixed member/static scratch keeps sample arrays off Core 1's 2 KiB stack.
+Fixed member/static scratch keeps sample arrays off Core 1's 2 KiB stack: the reverb's
+wet channels reuse the voice scratch after the voices have been mixed, and the two channel
+buffers are file-static in `AudioEngine.cpp`. The reverb's RAM, heap, stack and SRAM-placement
+audit is in [audio-performance.md](audio-performance.md#master-reverb-ram-stack-and-sram-audit).
 `Voice::process()` and `VoiceManager::processAllVoices()` are one-sample wrappers;
 `processVoice()` retains its single-voice behavior. See the
 [voice pipeline](voice.md#4-dsp-processing-pipeline--signal-flow) for silent-skip
@@ -316,7 +348,11 @@ Portable core with **no hardware, UI, or Arduino dependencies**:
 
 ### 6.3 `src/voice/`
 - `Voice.h/.cpp`: Synthesizer voice DSP chain with lock-free staging and gate-controlled pitch commits.
-- `VoiceManager.h/.cpp`: Multi-voice lifecycle management, master mixing, and preset attachment.
+- `VoiceManager.h/.cpp`: Multi-voice lifecycle management, master mixing, the stereo master bus (delay → reverb → shared master gain → linked compressor), and preset attachment.
+- `MasterDelay.h`: Master delay on the summed mono bus.
+- `MasterReverb.h/.cpp`: Audio-owned adapter around `rpdsp::DarkReverb<16384>` (Half storage by default): lock-free control targets, eased coefficients, smoothed mix, freeze ramp, host-observable applied state.
+- `ReverbSettings.h`: The reverb's eight user controls and freeze as plain data, with `ReverbParams` ranges/defaults and sanitizing; portable, shared by the audio adapter, the session codec and the control surface.
+- `EffectsCodec.h/.cpp`: `ReverbSettings` ↔ the format-3 `EffectsSnapshot` (see [persistence](persistence.md)).
 - `VoiceSystem.h`: Centralized `VoiceSystem` struct (`MAX_VOICES = 4`).
 - `VoicePresets.h/.cpp`: Verified factory presets (Analog, Digital, Bass, Lead, Square, Pad, Percussion, SubFunk, RubberSub, WgPluck, WgNylon, WgBell, WgShimmer, Hypersaw, NoiseStorm); `constexpr` factories build a compile-time `std::array<VoiceConfig, 15>` table that lives in flash (.rodata), and `VoiceConfig.engine` selects the osc / waveguide / noise-FX source stage.
 - `VoiceOscillator.h`: Variant-based oscillator class dispatcher.
@@ -326,7 +362,8 @@ Portable core with **no hardware, UI, or Arduino dependencies**:
   authority. `isPresetSelection()` and `isVoiceParameterSettings()` derive from
   `settingsMode` and `currentSubMode`; the former `isVoice2Mode`,
   `inPresetSelection` and `inVoiceParameterMode` mirrors are removed.
-- `ControlSurfaceLogic.h/.cpp`: Unit-tested decision logic (`ModeStabilizer`, `PadBank`, `ShiftLatch`, `FaderMap`).
+- `ControlSurfaceLogic.h/.cpp`: Unit-tested decision logic (`ModeStabilizer`, `PadBank`, `ShiftLatch`, `FaderMap`, and the Reverb page's fader-to-value mapping, names and formatting).
+- `ReverbPageControls.h`: The Reverb page's entry gesture and pickup state (`ReverbPage::Controls`, held in `UIState`); `app/ReverbEditor.h/.cpp` writes the page's values to `VoiceManager`.
 - `UIEventHandler.h/.cpp`: Event routing for MPR121 pads and control surface actions.
 - `AlchemyControlBridge.h/.cpp`: Hardware bridge polling the Alchemy tile panel on Wire1 @ 100kHz. Frames are decoded per tile TYPE (`AlchemyProto.h` `buttonBlockOffset()`: button bytes at DATA 8..10 on slider tiles, DATA 0..2 on button tiles), and the slider/button roles are resolved by tile `TYPE_ID` (`sliderSlot()` / `firstSlotOfType(kTypeButton4)`), not by fixed bus slots.
 - `ButtonHandlers.h/.cpp`: Button behavior implementations (play/stop, randomize, parameter cycling).
@@ -339,6 +376,8 @@ Portable core with **no hardware, UI, or Arduino dependencies**:
 
 ### 6.6 `src/utils/`
 - `Debug.h/.cpp`: Zero-allocation, lightweight logging system with runtime toggle and level control (`DBG_ERROR`, `DBG_WARN`, `DBG_INFO`, `DBG_VERBOSE`).
+- `StackWatermark.h/.cpp`: Paints each core's stack at its entry point and reports the never-reached bytes in the `[DIAG MEM]` serial line (portable paint/scan logic is unit-tested; the linker-symbol binding is firmware only).
+- `AudioRam.h`: `PICO2SEQ_AUDIO_FUNC` places hot audio functions in SRAM.
 
 ---
 
@@ -388,8 +427,10 @@ VoiceSystem (voice IDs and control VoiceState snapshots)
          ▼ (bounded SPSC control queues)
 VoiceManager / 4x Voice DSP Chains (Core 1)
          │
+         ▼ master bus: delay → reverb → master gain → linked stereo compressor
+         │
          ▼ (fill_audio_buffer @ 48kHz)
-AudioSamples::toPcm16() [ARM Cortex-M33 __SSAT]
+AudioSamples::interleavePcm16() [ARM Cortex-M33 __SSAT, left and right separately]
          │
          ▼
 I2S DMA Buffer Pool (4x 256 frames)
@@ -418,7 +459,8 @@ I2S Stereo Audio Out (GP10 / GP11 / GP12)
 | Audio Sample Rate | 48,000 Hz, 16-bit stereo | Hardware I2S clock configuration (`src/app/AudioEngine.cpp`) |
 | Audio Buffer Size | 256 samples ($5.33\text{ ms}$) $\times$ 4 buffers | `audio_new_producer_pool` inspection |
 | Audio Latency | $\approx 10.66\text{ ms}$ (2 buffers) | DMA producer pool sizing |
-| Core 1 Allocation | 0 bytes dynamic allocation in `loop1()` | Static buffer and fixed array audit |
+| Core 1 Allocation | 0 bytes dynamic allocation in `loop1()` | Static buffer and fixed array audit; `test_master_reverb.cpp` counts global `operator new` across rendering, control changes and snapshot publishes |
+| Reverb memory | Half tank 33,016 B object (default); Float 65,784 B fails the static heap gate | [Master reverb RAM, stack and SRAM audit](audio-performance.md#master-reverb-ram-stack-and-sram-audit); on-board `[DIAG MEM]` numbers still pending |
 | Core 0 Control Scan | 1,000 Hz (1 ms interval) | `src/app/ControlIO.cpp` interval checks |
 | Core 0 Display Refresh | 50 Hz (20 ms interval) | `src/app/ControlIO.cpp` interval checks |
 | Sequencer Resolution | 480 PPQN @ 90 BPM default | `uClock.init()` verification |
@@ -433,15 +475,17 @@ the live session instead of demanding a power-cycle.
 
 ### What is saved
 
-One locked-layout `persistence::ProjectSnapshotV1` POD (10,312 bytes, pinned by
-`static_assert`): per voice the 9 `ParameterTrack`s (all 64 steps plus the
+One locked-layout `persistence::ProjectSnapshot` POD (format 3, 12,448 bytes, pinned by
+`static_assert`; formats 1 and 2 still load and are upgraded, see the
+[persistence manual](persistence.md)): per voice the 9 `ParameterTrack`s (all 64 steps plus the
 polymetric length; tail steps beyond the length are stored raw) and the
 `VoiceConfig` patch (value fields only — the flash-resident
 `parameters`/`recipe` descriptors are re-derived from the preset index via
 `voicecodec::applyPatch`), plus global settings (tempo, master volume, scale,
 shuffle, theme, selected voice, per-voice preset indices and editor
-cursors/dirty flags). Transport position, DSP state and debounce/timestamp UI
-state are never persisted. All persisted state is Core-0-owned.
+cursors/dirty flags), plus the master reverb's eight settings (`EffectsSnapshot`).
+Transport position, DSP state (including the reverb tank and its freeze switch) and
+debounce/timestamp UI state are never persisted. All persisted state is Core-0-owned.
 
 ### Where it goes
 

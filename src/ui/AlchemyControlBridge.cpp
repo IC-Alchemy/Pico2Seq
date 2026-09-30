@@ -3,6 +3,7 @@
 #include "AlchemyControlBridge.h"
 #include "../app/AppState.h"
 #include "../app/ArpPlayback.h"
+#include "../app/ReverbEditor.h"
 #include "../app/Session.h"
 #include "../app/StepPlayback.h"
 #include "../app/VoiceEditor.h"
@@ -122,12 +123,18 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
         faders_.accept(channel,panel_.tiles().faderRaw(channel));
     }
     latch_.reset(); playSettingsOpenedThisPress_=false;
+    uiState.reverbPage.observe(buttons, voices); // a button held across the editor is not a new press
     if(uiState.voiceEditor.active) VoiceEditor::buttons(buttons,voices,nowMs);
     else if(buttons==0 && voices==0) uiState.controlsWaitRelease=false;
     return;
   }
 
   handleModeStrap(nowMs, uiState);
+
+  // The Reverb page is the third key of the Shift + 6 chord, so it is decided before
+  // the ADSR chord below claims that modifier pair.
+  if (handleReverbPage(buttons, voices, uiState))
+    return;
 
   // Reserve Shift + button 6 before any single-button or Shift+voice action.
   // Keep histories current through the complete chord and its release tail.
@@ -236,6 +243,72 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
   }
 
   handleFaders(uiState, sequencers);
+}
+
+// --- Reverb page ---------------------------------------------------------------
+
+// Why this runs before the ADSR chord: Shift + 6 is that chord's modifier pair, and
+// its deferred "Shift+6 alone" action would otherwise fire when the page closes.
+// Opening resets the ADSR chord state for the same reason. While the page is open
+// or draining its release tail every physical history keeps advancing, so no
+// release can become an action once normal input resumes.
+bool AlchemyControlBridge::handleReverbPage(uint8_t buttons, uint8_t voices, UIState &uiState)
+{
+  const bool canOpen = !uiState.voiceEnvelope.active && !uiState.voiceEnvelope.waitRelease &&
+                       !uiState.gateSeqLengthMode;
+  const auto input = uiState.reverbPage.poll(buttons, voices, canOpen);
+  if (!input.consumed)
+    return false;
+
+  for (uint8_t bit = 0; bit < 8; ++bit)
+  {
+    buttonEdges_[kButtonRole][bit].take(buttonAt(buttonSlot_, bit));
+    buttonEdges_[kSliderRole][bit].take(buttonAt(sliderSlot_, bit));
+  }
+  latch_.reset();
+  for (auto &held : uiState.parameterButtonHeld) held = false;
+  uiState.latchedParameter = -1;
+  UITransitions::cancelGateLengthHold(uiState);
+  for (auto &held : uiState.randomizeWasPressed) held = false;
+  playSettingsOpenedThisPress_ = saveLoadLatch_ = delayTogglePress_ = false;
+  clearChordThisPress_ = clearAllLatch_ = false;
+  editorHoldArmed_ = editorHoldFired_ = false;
+  uiState.shiftHeld = shiftWasHeld_ = (buttons & ReverbPage::Controls::kShift) != 0;
+
+  if (input.open)
+  {
+    UITransitions::openReverbPage(uiState); // also drops any half-finished ADSR chord
+    VoiceEditor::clearEncoder();
+    faders_.resetDeadband(); // faders must be moved to engage: no snapping to rest positions
+  }
+  if (input.exit)
+  {
+    UITransitions::closeReverbPage(uiState);
+    VoiceEditor::clearEncoder();
+    faders_.resetDeadband();
+  }
+  if (input.toggleFreeze)
+    ReverbEditor::toggleFreeze();
+  if (input.toggleLayer)
+    faders_.resetDeadband(); // the same physical faders now mean other settings
+
+  if (uiState.reverbPage.active && !uiState.reverbPage.waitRelease)
+    handleReverbFaders(uiState);
+  return true;
+}
+
+void AlchemyControlBridge::handleReverbFaders(UIState &uiState)
+{
+  if (!panel_.tiles().sliderFrameChanged())
+    return;
+  for (uint8_t channel = 0; channel < ControlSurface::FaderMap::kChannelCount; ++channel)
+  {
+    if (!faders_.accept(channel, panel_.tiles().faderRaw(channel)))
+      continue;
+    const auto control = ControlSurface::reverbControlForFader(uiState.reverbPage.layer, channel);
+    ReverbEditor::setFromFader(control,
+                               ControlSurface::FaderMap::normalize(faders_.filtered(channel)));
+  }
 }
 
 // --- Mode strap ----------------------------------------------------------------

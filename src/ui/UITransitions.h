@@ -29,7 +29,8 @@ inline void beginGateLengthHold(UIState &state, uint8_t voice) noexcept
     if (voice >= UIState::MAX_VOICES || state.shiftHeld || state.settingsMode ||
         state.arp.active() || state.voiceEditor.active || state.controlsWaitRelease ||
         state.voiceEnvelope.active || state.voiceEnvelope.chordPending ||
-        state.voiceEnvelope.waitRelease) return;
+        state.voiceEnvelope.waitRelease || state.reverbPage.active ||
+        state.reverbPage.waitRelease) return;
     state.gateSeqLengthVoice = static_cast<int8_t>(voice);
 }
 
@@ -41,7 +42,8 @@ inline bool updateGateLengthHold(UIState &state, uint8_t voice, bool held,
     if (!held || state.shiftHeld || state.settingsMode || state.arp.active() ||
         state.voiceEditor.active || state.controlsWaitRelease ||
         state.voiceEnvelope.active || state.voiceEnvelope.chordPending ||
-        state.voiceEnvelope.waitRelease || state.selectedVoiceIndex != voice)
+        state.voiceEnvelope.waitRelease || state.reverbPage.active ||
+        state.reverbPage.waitRelease || state.selectedVoiceIndex != voice)
     {
         cancelGateLengthHold(state);
         return false;
@@ -83,6 +85,33 @@ inline void openVoiceEnvelope(UIState &state, uint8_t voice) noexcept
     state.envViewUntil = state.encoderBaseViewUntil = 0;
     state.voiceParameterFeedbackPending = false;
     state.alchemyModeBannerUntil = state.oledNoticeUntil = 0;
+    state.voiceSwitchTriggered = state.resetStepsLightsFlag = true;
+}
+
+// The reverb page is live too (transport keeps running): clear only the competing
+// UI gestures. ReverbPage::Controls::poll() has already set active/waitRelease.
+inline void openReverbPage(UIState &state) noexcept
+{
+    state.voiceEnvelope = {};
+    clearStepEdit(state);
+    state.settingsMode = state.slideMode = false;
+    cancelGateLengthHold(state);
+    state.modGateParamSeqLengthsMode = false;
+    state.latchedParameter = -1;
+    for (auto &held : state.parameterButtonHeld) held = false;
+    for (auto &held : state.randomizeWasPressed) held = false;
+    for (auto &time : state.padPressTimestamps) time = 0;
+    state.envFaderLane = ParamId::Count;
+    state.envViewUntil = state.encoderBaseViewUntil = 0;
+    state.voiceParameterFeedbackPending = false;
+    state.alchemyModeBannerUntil = state.oledNoticeUntil = 0;
+    state.voiceSwitchTriggered = state.resetStepsLightsFlag = true;
+}
+
+// Leaving redraws the step lights; the page struct already cleared its own flags.
+inline void closeReverbPage(UIState &state) noexcept
+{
+    state.reverbPage.lastControl = 255;
     state.voiceSwitchTriggered = state.resetStepsLightsFlag = true;
 }
 

@@ -5,6 +5,7 @@
 #include "UIConstants.h"
 #include "VoiceEditControls.h"
 #include "VoiceEnvelopeControls.h"
+#include "ReverbPageControls.h"
 #include "../voice/DelayTiming.h"
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
@@ -21,6 +22,8 @@ struct UIState
 {
     VoiceEdit::Controls voiceEditor;
     VoiceEnvelope::Controls voiceEnvelope;
+    // Live master-reverb page (Shift + 6 + 2): faders, Freeze and layer switch.
+    ReverbPage::Controls reverbPage;
     // Wait for all pads/tiles to release before performance input resumes
     // (prevents a held pad from firing a step toggle on mode exit).
     bool controlsWaitRelease = false;

@@ -477,10 +477,13 @@ time 300 ms and feedback 85%.
 
 ### 3.6 Master compressor and volume
 
-The summed voices pass through the delay, then master volume, then the
-compressor. Dry sound and repeats share compression; master volume and
-transport mute control the whole result. With delay mix at zero, the
-compressor keeps its existing dry-bus behavior.
+The summed voices pass through the delay, then the reverb (§3.7), then master
+volume, then the compressor. Dry sound, repeats and reverb share compression;
+master volume and transport mute control the whole result. The compressor is
+**linked**: one detector follows the louder of the left and right channels and
+both channels are turned down by the same amount, so the stereo image does not
+shift under compression. With delay and reverb mix at zero, the compressor keeps
+its existing dry-bus behavior.
 
 - **Master volume** — fader 3; saved with the session.
 - **Compressor macro** — hold **Shift** and move fader 3. The existing curve
@@ -492,6 +495,52 @@ compressor keeps its existing dry-bus behavior.
   the compressor leaves volume intact.
 - In **ENV mode**, all four faders retain their selected-step envelope
   controls and Shift-reset gestures; master effects are not edited there.
+
+### 3.7 Master reverb
+
+A long, dark stereo reverb sits after the delay, so delay repeats feed it, and
+before master volume and the compressor, so volume, transport mute and the
+compressor act on the whole result. It has **its own page**; the Utility faders
+are not reassigned.
+
+**Open the page:** hold **Shift** (button 8), hold **button 6**, then **press
+button 2**, and release everything. Playback continues. **Shift** leaves the page.
+The chord shares its first two keys with the ADSR page (Shift + 6 + a voice
+button) and with Shift + 6's own short action; only the third key decides.
+
+| Layer | Fader 1 | Fader 2 | Fader 3 | Fader 4 |
+|---|---|---|---|---|
+| **MAIN** (opens here) | **Mix** 0–100 % (default 0) | **Decay** 0.1–1000 s, log (20 s) | **Damping** 100 Hz–10.8 kHz, log (3 kHz) | *(unused)* |
+| **TONE** | **Low cut** 10–1000 Hz, log (40 Hz) | **Diffusion** 0–100 % (80 %) | **Mod** depth 0–100 % (50 %) | **Width** 0–200 % (100 %: natural, 0: mono wet, 200: exaggerated) |
+
+**Button 1** toggles **Freeze**, **button 2** switches MAIN ↔ TONE, **Shift** exits.
+Voice buttons, step pads and the encoder do nothing while the page is open.
+The faders use the same movement pickup, median filter and deadband as the ADSR
+page and are re-armed on entering, switching layer and leaving, so a fader only
+acts once you move it. The modulation *rate* (0.5 Hz) is saved with the project
+but has no fader.
+
+- **Mix 0 keeps the sound you had.** The reverb tank keeps running at any mix,
+  so raising Mix later reveals the tail that has been building; its CPU cost does
+  not depend on Mix.
+- **Nothing zips or clicks.** Every control eases in over about 30 ms; Mix is
+  smoothed per sample.
+- **Freeze** holds the current tail. It glides in over about 60 ms (decay and
+  damping open together, then the engine freezes) and glides out the same way.
+  Freezing a silent tank holds silence. Freeze is performance state: it is
+  **never saved** and is always off after boot or a load.
+- **Saving.** The eight reverb settings are part of the project (see
+  [persistence](persistence.md)); older projects load with Mix at 0 and sound
+  exactly as before. The tank itself is never saved, and loading a project does
+  not clear it: a tail rings on across the load while the new settings ease in.
+- **Display.** The OLED shows `REVERB MAIN` or `REVERB TONE`, `FRZ` while frozen,
+  the layer's four rows with the last-moved fader marked `>`, and the footer
+  `1 Frz 2 Layer 8 Exit`. On the LED matrix each row is a bar of 0–8 LEDs at that
+  fader's setting; the MAIN layer's fourth row is the Freeze switch (a full white
+  bar while frozen, one dim LED otherwise).
+- **Long tails add up.** A 1000 s decay fed loud, continuous material exceeds full
+  scale like a real space would; the compressor and the PCM clip are the only
+  limiters after the reverb. Use Mix and Decay accordingly.
 
 ---
 
@@ -537,7 +586,8 @@ Each voice runs a full synthesis chain at 48 kHz on the audio core:
         |
         v
  voice output level -> summed with the other 3 voices
- -> master delay -> master volume -> master compressor -> Stereo Out
+ -> master delay -> master reverb (mono in, stereo out) -> master volume
+ -> linked stereo master compressor -> Stereo Out (left and right)
 ```
 
 **The old delay effect was removed** (2026-09-11): the global delay line, its boot

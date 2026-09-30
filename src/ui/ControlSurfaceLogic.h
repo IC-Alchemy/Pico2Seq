@@ -1,10 +1,12 @@
 #ifndef CONTROL_SURFACE_LOGIC_H
 #define CONTROL_SURFACE_LOGIC_H
 
+#include <cstddef>
 #include <cstdint>
 #include <cmath>
 
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
+#include "../voice/ReverbSettings.h"
 
 // ControlSurfaceLogic — the decisions of the Alchemy tile control surface,
 // as pure C++ with no Arduino dependency so the host test suite can drive
@@ -23,6 +25,9 @@
 //   recordParamForButtonBit — physical record button -> recorded parameter.
 //   encoderBaseModeForRecordParam — record button -> encoder base target.
 //   EncoderMotion  — encoder increments carried between sensor reads.
+//   Reverb page    — which reverb control a fader drives on each page layer,
+//                    the fader curves (0..1 <-> seconds/Hz/percent) and the
+//                    value text the OLED shows.
 
 namespace ControlSurface
 {
@@ -476,6 +481,66 @@ private:
   bool hasBaseline_[kChannelCount] = {false, false, false, false};
   bool engaged_[kChannelCount] = {false, false, false, false};
 };
+
+// ---------------------------------------------------------------------------
+// Reverb page (Shift + 6 + 2): live master-reverb faders
+// ---------------------------------------------------------------------------
+
+/** The reverb settings a fader can drive. Freeze is a button, not a fader. */
+enum class ReverbControl : uint8_t
+{
+  Mix,
+  Decay,
+  Damping,
+  LowCut,
+  Diffusion,
+  ModDepth,
+  Width,
+  Count, // unassigned
+};
+
+/** The page has two fader layers, switched with button 2 while the page is open. */
+inline constexpr uint8_t kReverbLayerCount = 2;
+
+/**
+ * Control a fader drives on a page layer. Layer 0 (MAIN) is the sound of the room:
+ * Mix, Decay, Damping — fader 4 is unassigned there and its row shows the Freeze
+ * switch (button 1). Layer 1 (TONE) holds the secondary settings: Low cut,
+ * Diffusion, Modulation depth and Width. ReverbControl::Count = nothing.
+ */
+constexpr ReverbControl reverbControlForFader(uint8_t layer, uint8_t channel) noexcept
+{
+  constexpr ReverbControl kMain[4] = {ReverbControl::Mix, ReverbControl::Decay,
+                                      ReverbControl::Damping, ReverbControl::Count};
+  constexpr ReverbControl kTone[4] = {ReverbControl::LowCut, ReverbControl::Diffusion,
+                                      ReverbControl::ModDepth, ReverbControl::Width};
+  if (channel >= 4 || layer >= kReverbLayerCount)
+    return ReverbControl::Count;
+  return layer == 0 ? kMain[channel] : kTone[channel];
+}
+
+/** Short OLED label ("Mix", "Decay", ...). */
+const char *reverbControlName(ReverbControl control) noexcept;
+
+/**
+ * Fader position 0..1 -> setting. Mix, Diffusion and Modulation are linear, Width
+ * is linear over 0..2, and Decay (0.1..1000 s), Damping (100 Hz..10.8 kHz) and Low
+ * cut (10 Hz..1 kHz) are logarithmic so travel is spent evenly per octave. Out of
+ * range clamps, non-finite reads as 0. Endpoints land exactly on the limits.
+ */
+float reverbValueForFader(ReverbControl control, float normalized) noexcept;
+
+/** Inverse of reverbValueForFader (0..1); a setting outside its range clamps. */
+float reverbFaderForValue(ReverbControl control, float value) noexcept;
+
+/** The current value of one control in a settings snapshot (0 for ReverbControl::Count). */
+float reverbValueOf(const ReverbSettings &settings, ReverbControl control) noexcept;
+
+/**
+ * OLED text for a setting: "35%", "0.35s" / "3.2s" / "45s" / "450s", "800Hz" /
+ * "3.0kHz", "40Hz". At most 7 characters plus the terminator; always terminated.
+ */
+void formatReverbValue(ReverbControl control, float value, char *out, size_t size) noexcept;
 
 // ---------------------------------------------------------------------------
 // Encoder motion
