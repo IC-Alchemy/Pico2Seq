@@ -15,7 +15,6 @@ The voice system consists of several key components:
 - **`VoiceSystem`**: Centralized structure consolidating voice IDs and control-core state snapshots into arrays for `MAX_VOICES = 4` voices.
 - **`VoicePresets`**: Registry of 29 presets, built from grouped preset headers and one `PresetBank.h` list. Fourteen recipe presets cover FM, phase distortion, DSF, formants, ring modulation, reversing sync and spectral/chaotic synthesis. See the [musical preset bank](../src/voice/README.md#musical-preset-bank) for the latest eight sounds and their controls.
 - **`VoiceOscillator`**: Variant-based dispatcher decoupling numeric waveform IDs from `rpdsp` oscillator classes.
-- **Supporting Classes**: `VoiceManagerBuilder` and `VoiceFactory` for builder-pattern and pre-configured voice setups.
 
 ### 1.2 VoiceSystem Centralization
 
@@ -216,12 +215,14 @@ Defined in `src/pico2seq-core/sequencer/SequencerDefs.h`:
 
 ```cpp
 struct VoiceState {
-    float noteIndex = 0.0f;                                                   // Scale step index (0-21)
+    float noteIndex = 0.0f;                                                   // Scale degree (0-36) for the scale-table lookup
     float velocityLevel = 0.5f;                                               // Voice amplitude (0.0-1.0); hard-sync presets use this centered value as zero slave-frequency offset
     float filterCutoff = 0.37f;                                               // Filter cutoff frequency (0.0-1.0 normalized)
     float attackTimeSeconds = 0.01f;                                          // Envelope attack time (0.0-1.0s)
-    float decayTimeSeconds = 0.01f;                                           // Envelope decay time (0.0-1.0s)
-    float octaveOffset = 0.0f;                                                // Normalized octave offset (0.0=C2, 0.5=C3, 1.0=C4)
+    float decayTimeSeconds = 0.2f;                                            // Envelope decay time: fall toward sustain
+    float sustainLevel = 0.5f;                                                // Held level while the gate stays high (0.0-1.0)
+    float releaseTimeSeconds = 0.3f;                                          // Ring-out after gate off (normalized)
+    int8_t octaveOffset = 0;                                                  // Transpose in semitones from the Octave lane (-24..+24)
     uint16_t gateLengthTicks = SequencerConstants::DEFAULT_GATE_LENGTH_TICKS; // Gate duration (default 60 ticks @ 480 PPQN)
     bool isGateHigh = false;                                                  // Voice gate state (active note on)
     bool hasSlide = false;                                                    // Portamento / slide enable flag
@@ -445,7 +446,7 @@ values survive the first sequencer update.
 |---|---|---|---|---|---|
 | HARDSYNC | 0 | Master pitch / Slave offset (-24..+24 st; 0.5 = follow master) | Cutoff | Attack | Decay |
 | STANDARD | 1–8 | Note / velocity | Cutoff (120 Hz–5 kHz, EXP) | Attack (0.002–0.75 s) | Decay (0.01–0.5 s, LOG) |
-| WAVEGUIDE | 9–12 | Note / velocity | Brightness (0–1) | Pick hardness (0–1) | T60 (0.05–7 s at runtime, EXP; `wgT60ToNormalized` seeding assumes a 0.05–10 s curve) |
+| WAVEGUIDE | 9–12 | Note / velocity | Brightness (0–1) | Pick hardness (0–1) | T60 (0.05–10 s, EXP; seeded via `wgT60ToNormalized`) |
 | HYPERSAW | 13 | Note / velocity | Cutoff (live) | Native seven-voice detune (0–1) | Native center/side mix (0–1) |
 | NOISESTORM | 14 | Note / velocity | Swarm color | Swarm regen | Chaos level (the SVF keeps the preset's static `filterCutoffBase`) |
 
@@ -588,7 +589,7 @@ newState.velocityLevel = 0.85f;       // 85% velocity
 newState.filterCutoff = 0.6f;         // 60% filter cutoff
 newState.isGateHigh = true;           // Gate ON
 newState.hasSlide = false;
-newState.octaveOffset = 0.0f;
+newState.octaveOffset = 0;            // Semitone transpose
 newState.gateLengthTicks = 60;        // 60 PPQN ticks
 
 voiceManager.updateVoiceState(v1, newState);

@@ -147,6 +147,7 @@ add_executable(pico2seq_tests
   unit/test_voice_envelope.cpp
   unit/test_reverb_editor.cpp
   unit/test_stack_watermark.cpp
+  unit/test_serial_rate_limit.cpp
   unit/test_lidar_recording.cpp
   ${SRC_DIR}/app/VoicePlayback.cpp
   ${SRC_DIR}/app/VoiceEnvelope.cpp

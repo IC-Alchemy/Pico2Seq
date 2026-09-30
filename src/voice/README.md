@@ -81,8 +81,12 @@ maps automation into DSP values, converts preset values back into track values,
 and formats the OLED value. `EXP` is a square curve, not an exponential in Hz.
 The waveguide T60 range is now consistently 0.05–10 seconds in all three paths.
 
-Only Velocity, Filter, Attack and Decay support float-member remapping.
-Note, Octave, GateLength, Gate and Slide retain their shared musical roles.
+Only Velocity, Filter, Attack and Decay support float-member remapping in the
+legacy `paramSet` layouts. Waveguide layouts additionally remap Sustain and
+Release: a string has no envelope, so its ENV faders 3-4 bind to `wgPickPosition`
+(Position) and `wgStiffness` (Stiffness) instead (`waveguideLayout()` in
+`VoiceParameters.h`). Note, Octave, GateLength, Gate and Slide retain their
+shared musical roles.
 Bindings default to the standard role and label. The legacy `paramSet` values
 remain supported; new recipes provide `config.parameters` directly.
 

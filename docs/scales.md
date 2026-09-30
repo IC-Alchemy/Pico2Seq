@@ -16,10 +16,8 @@ has been removed; it is not part of the audio pitch path.
 1. **Portability & Host Testability**:
    Like the sequencer core, `src/pico2seq-core/scales/` has zero Arduino or hardware dependencies. It is compiled directly into host unit test binaries (`tests/unit/test_scales.cpp`).
 2. **Decoupled Synthesis Injection**:
-   Synthesis components (such as `Voice`) do not read global scale variables directly. Instead, scale tables and active scale pointers are injected via `Voice::setScaleTable()` and `Voice::setCurrentScalePointer()`. Passing `nullptr` enables chromatic fallback, allowing unit tests to run without global state.
-3. **Precomputed Unique-Degree Rank Cache**:
-   `Voice::setScaleTable()` precomputes scale degree ranks (`scaleUniqueCounts`, `scaleIndexToRank`, `scaleUniqueIndexList`) outside the realtime path, enabling $O(1)$ indexed lookups for harmony and degree transposition during audio processing.
-4. **Audio Pitch Base**:
+   Synthesis components (such as `Voice`) do not read global scale variables directly. Instead, scale tables and active scale pointers are injected via `Voice::setScaleTable()` and `Voice::setCurrentScalePointer()`. Passing `nullptr` enables chromatic fallback, allowing unit tests to run without global state. `setScaleTable()` only stores the pointer and marks the base frequency dirty; the former unique-degree rank caches were write-only and were removed 2026-09-05 (see [voice.md](voice.md)).
+3. **Audio Pitch Base**:
    Internal audio synthesis is centered at **C3** (MIDI note 48, base +48).
    MIDI note numbers here describe pitch; they do not imply MIDI transmission.
 
@@ -48,6 +46,7 @@ extern uint8_t currentScale;                 // Active scale index (0..SCALES_CO
 - **Scale Array**: $47 \times 48 \times 4\text{ bytes} = 9,024\text{ bytes}$ (statically allocated in RAM/Flash).
 - **Scale Names**: 47 full-name and 47 short-name (at most 10 characters, for the OLED) string pointers.
 - **Lookup Time**: $O(1)$ constant-time lookup for all scale and step combinations.
+- **Arpeggiator layout hint**: `scaleNotesPerOctave()` (`scales.h`) counts the distinct pitch classes in a scale row before the first octave; the arpeggiator uses it to give seven-note scales one octave per 8-column pad row, while other scales keep the linear 32-degree ladder.
 
 ---
 
@@ -172,11 +171,11 @@ separate optional hooks retained in the portable sequencer.
 
 ### 5.1 Octave Mapping Function (`mapFloatToOctaveOffset`)
 
-In `src/pico2seq-core/sequencer/Sequencer.cpp`, the continuous float value stored in `ParamId::Octave` (`0.0f` to `1.0f`) is quantized into discrete semitone offsets:
+In `src/pico2seq-core/sequencer/Sequencer.cpp`, the portable core's fallback quantizes the continuous float value stored in `ParamId::Octave` (`0.0f` to `1.0f`) into discrete semitone offsets:
 
 ```cpp
-constexpr float OCTAVE_LOW_THRESHOLD = 0.15f;  // Below this: transpose down 1 octave
-constexpr float OCTAVE_HIGH_THRESHOLD = 0.40f; // Above this: transpose up 1 octave
+constexpr float OCTAVE_LOW_THRESHOLD = 1.0f / 3.0f;  // Below this: down an octave (-12)
+constexpr float OCTAVE_HIGH_THRESHOLD = 2.0f / 3.0f; // Above this: up an octave (+12)
 
 int8_t mapFloatToOctaveOffset(float octaveValue)
 {
@@ -195,6 +194,8 @@ int8_t mapFloatToOctaveOffset(float octaveValue)
 }
 ```
 
+This three-zone fallback is not what the firmware plays: the sequencer's octave mapper is injected at setup (`src/app/VoiceSetup.cpp` passes `VoiceEdit::mapOctave` to `Sequencer::setPlaybackTransform()`; `Sequencer.cpp` decodes each step through the injected mapper when present). `VoiceEdit::mapOctave` (`src/voice/VoiceEditParameters.cpp:1066-1069`) quantizes the lane into **five** zones spanning −2..+2 octaves — nearest zone edge at hand heights of roughly 136/297/458/619 mm across the 55–700 mm recording window (zone boundaries at stored 0.125/0.375/0.625/0.875).
+
 ### 5.2 Bounds Clamping
 
 To prevent out-of-bounds memory access and undefined behavior:
@@ -204,106 +205,7 @@ To prevent out-of-bounds memory access and undefined behavior:
 
 ---
 
-## 6. `Voice::setScaleTable` Precomputed Rank Cache
-
-### 6.1 Purpose & Decoupling
-
-`Voice` decouples itself from global state by taking scale data via setter injection:
-
-```cpp
-void Voice::setScaleTable(const int (*table)[48], size_t scaleCount);
-void Voice::setCurrentScalePointer(const uint8_t *currentScalePtr);
-```
-
-When `setScaleTable()` is called during voice initialization, it precomputes lookup structures in `Voice.h` to optimize realtime degree manipulation (e.g. harmony shifts, modal transposition).
-
-### 6.2 Cache Data Structures (`Voice.h`)
-
-```cpp
-std::vector<uint8_t> scaleUniqueCounts;    // Size: scaleCount
-std::vector<uint8_t> scaleIndexToRank;     // Size: scaleCount * 48
-std::vector<uint8_t> scaleUniqueIndexList; // Size: scaleCount * 48 (padded)
-```
-
-- `scaleUniqueCounts[s]`: The total count of distinct pitch degrees in scale `s`.
-- `scaleIndexToRank[s * 48 + i]`: Maps the original 48-step index `i` (`0..47`) to its unique degree rank `u` (`0..uniqueCount - 1`).
-- `scaleUniqueIndexList[s * 48 + r]`: The original scale index (`0..47`) where the `r`-th unique pitch degree begins.
-
-### 6.3 Precomputation Algorithm (`Voice.cpp`)
-
-```cpp
-void Voice::setScaleTable(const int (*table)[48], size_t scaleCount)
-{
-  scaleTable = table;
-  scaleTableCount = scaleCount;
-  baseFreqDirty_ = true;
-
-  scaleUniqueCounts.clear();
-  scaleIndexToRank.clear();
-  scaleUniqueIndexList.clear();
-
-  if (scaleTable == nullptr || scaleTableCount == 0) return;
-
-  scaleUniqueCounts.resize(scaleCount);
-  scaleIndexToRank.resize(scaleCount * 48);
-  scaleUniqueIndexList.resize(scaleCount * 48);
-
-  for (size_t s = 0; s < scaleCount; ++s)
-  {
-    const int *row = scaleTable[s];
-
-    // 1. Identify step boundaries where the pitch value changes
-    uint8_t uniquePos[48];
-    uint8_t uniqueCount = 0;
-    uniquePos[uniqueCount++] = 0; // First unique degree is always step 0
-
-    for (int i = 1; i < static_cast<int>(SCALE_STEPS); ++i)
-    {
-      if (row[i] != row[i - 1])
-      {
-        uniquePos[uniqueCount++] = static_cast<uint8_t>(i);
-      }
-    }
-
-    scaleUniqueCounts[s] = uniqueCount;
-
-    // 2. Populate padded unique index list
-    const size_t base = s * 48;
-    for (uint8_t u = 0; u < uniqueCount; ++u)
-    {
-      scaleUniqueIndexList[base + u] = uniquePos[u];
-    }
-    for (uint8_t u = uniqueCount; u < 48; ++u)
-    {
-      scaleUniqueIndexList[base + u] = uniquePos[uniqueCount - 1]; // Pad remainder
-    }
-
-    // 3. Build index-to-rank mapping
-    for (uint8_t u = 0; u < uniqueCount; ++u)
-    {
-      const uint8_t start = uniquePos[u];
-      const uint8_t end = (u + 1 < uniqueCount) 
-                            ? static_cast<uint8_t>(uniquePos[u + 1] - 1) 
-                            : static_cast<uint8_t>(SCALE_STEPS - 1);
-      for (uint8_t j = start; j <= end; ++j)
-      {
-        scaleIndexToRank[base + j] = u;
-      }
-    }
-  }
-}
-```
-
-### 6.4 Realtime Benefits
-
-By precalculating these arrays on initialization:
-- Degree stepping (e.g. transposing up by $N$ scale degrees regardless of scale step padding) is executed with simple array indexing.
-- Eliminates loops and dynamic branching on Core 1 during real-time sample processing.
-- Guaranteed deterministic $O(1)$ computation time per sample.
-
----
-
-## 7. Developer Guidelines: Adding New Scales
+## 6. Developer Guidelines: Adding New Scales
 
 To add a new musical scale to Pico2Seq:
 
