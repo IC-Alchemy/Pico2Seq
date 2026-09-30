@@ -8,7 +8,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **4 Independent Polyphonic Voices**: Each with a complete DSP chain (B-spline oscillator bank, resonant main filter, ADSR envelope, overdrive distortion)
 - **Five Sound Engines per Voice**: A classic oscillator bank (up to 3 oscillators, or raw noise), a Karplus-Strong **waveguide** engine for plucked/nylon/bell/shimmer strings, a **noise-FX texture** engine (prime-tap diffuser, regenerative allpass swarm, pitch-tracked Lorenz chaos growl), a native 7-voice **hypersaw** engine, and a **recipe** engine for modular rpdsp sound synthesis patches (FM, phase distortion, DSF, formant synthesis, ring modulation, reversing sync, spectral, and chaotic prisms)
 - **Two Filter Topologies**: A 24dB multi-mode ladder filter (LP12, LP24, BP12, BP24, HP12, HP24) with drive and passband gain compensation on the character voices, plus a clean modulation-stable state-variable filter (LP/BP/HP) everywhere else — including all three bass presets
-- **Effects Processing**: Per-voice overdrive distortion, followed by a master-bus analog-style delay and compressor. Shift + fader 1 sets feedback (0–100%). Fader 2 sets delay mix (Shift: time); Shift + Utility Delay/Session toggles the time fader between milliseconds and tempo divisions. Fader 3 sets master volume (Shift: Warm/Glue/Punch compressor macro).
+- **Effects Processing**: Per-voice overdrive distortion, followed by a master-bus analog-style delay, a stereo `rpdsp::DarkReverb` reverb, and a stereo-linked compressor. Shift + fader 1 sets feedback (0–100%). Fader 2 sets delay mix (Shift: time); Shift + Utility Delay/Session toggles the time fader between milliseconds and tempo divisions. Fader 3 sets master volume (Shift: Warm/Glue/Punch compressor macro).
 - **ADSR Envelopes**: Fast, analog-modeled attack, decay, sustain, and release stages with microsecond accuracy
 - **29 Voice Presets**: Stored as `constexpr` tables in flash (.rodata), all on one browser page, covering classic subtractive, sub-bass, waveguide string, hypersaw, noise-texture, and 14 recipe/musical sounds
 
@@ -29,10 +29,10 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **LED Matrix**: 8×4 WS2812B RGB LED display (mirroring the 4×8 touch matrix) with 10 vibrant color themes and playhead visualization
 
 ### Architecture Highlights
-- **VoiceSystem Architecture**: Centralized, array-based voice management with safe accessor methods, providing software gates and duration timers across all 4 voices (0–3)
+- **VoiceSystem Architecture**: Centralized, array-based voice management with safe accessor methods, holding control-core voice snapshots for all 4 voices (0–3); `VoiceState` owns gate truth and the sequencer owns note-duration timing
 - **Dual-Core Asymmetric Design**: Core 1 dedicated exclusively to 48kHz audio synthesis; Core 0 handles UI, sensors, clock, display rendering, and the USB CDC serial console
 - **Lock-Free Parameter Staging**: Atomic generation counters and lock-free SPSC queues allow Core 0 to stage parameter changes without blocking Core 1 audio processing
-- **Host Test Suite**: Catch2 v3 unit test suite with hardware stubs across 4 test executables (315 tests total), built and run locally via CTest
+- **Host Test Suite**: Catch2 v3 unit test suite with hardware stubs across 6 test executables (692 tests recorded 2026-09-30), built and run locally via CTest
 
 ---
 
@@ -112,7 +112,7 @@ For a practical guide to changing the firmware, start with
     control core. Upstream 2.3.0 changed the callback API; re-verify before
     upgrading.)
 
-### Fresh GitHub clone and 150 MHz build
+### Fresh GitHub clone and 225 MHz build
 
 For a new checkout, run these commands from an empty directory:
 
@@ -127,16 +127,16 @@ The final submodule command is intentionally repeatable after switching branches
 never resets, cleans, or discards local work. If it reports stale or missing submodules, fix the
 checkout with the command above and review any local changes before retrying.
 
-On Windows with PowerShell, compile the stable firmware baseline explicitly at **150 MHz**:
+On Windows with PowerShell, compile the stable firmware baseline explicitly at **225 MHz**:
 
 ```powershell
 pwsh -NoProfile -File scripts/build_pico2seq.ps1 `
-  -CpuMHz 150 `
-  -BuildDirectory build/pico2seq-150 `
+  -CpuMHz 225 `
+  -BuildDirectory build/pico2seq-225 `
   -NoWorkingCopy
 ```
 
-The command writes `build/pico2seq-150/Pico2Seq.ino.uf2`, `.elf`, `.bin`, and `.map`. It compiles
+The command writes `build/pico2seq-225/Pico2Seq.ino.uf2`, `.elf`, `.bin`, and `.map`. It compiles
 only; it does not upload or hardware-test the board. The optional
 `scripts/publish_uf2.ps1` rename/copy step is skipped when that developer helper is absent; the
 required UF2/ELF/BIN/MAP artifacts remain in the requested build directory. The helper's required
@@ -194,7 +194,7 @@ Copy-StageTree -Source $repoRoot -Destination $stageSketch
 $boardOptions = @(
     'flash=4194304_65536'
     'arch=arm'
-    'freq=150'
+    'freq=225'
     'opt=Optimize3'
     'profile=Disabled'
     'rtti=Disabled'
@@ -236,7 +236,7 @@ MIDI, displays, sensors, or controls on physical hardware.
 | **SH1106G OLED** | `Wire` (I2C0) | GP4 (SDA), GP5 (SCL) | Address `0x3C` (128×64 monochrome) |
 | **TMAG5273A Magnetic Encoder** | `Wire` (I2C0) | GP4 (SDA), GP5 (SCL) | Address `0x35` (`TMAG5273::ADDRESS_A`) |
 | **VL53L1X Distance Sensor** | `Wire` (I2C0) | GP4 (SDA), GP5 (SCL) | Address `0x29` (TOF optical sensor) |
-| **Alchemy Modular UI Tiles** | `Wire1` (I2C1) | GP14 (SDA), GP15 (SCL) | 400 kHz bus; SliderModule & ButtonModule8 |
+| **Alchemy Modular UI Tiles** | `Wire1` (I2C1) | GP14 (SDA), GP15 (SCL) | 100 kHz bus; SliderModule & ButtonModule8 |
 | **Mode Strap Switch** | GPIO | GP7 | LOW = Param mode, HIGH = Utility mode |
 | **WS2812B LED Matrix** | FastLED | GP1 | 8×4 RGB matrix data pin |
 
@@ -365,7 +365,7 @@ Pico2Seq leverages the dual ARM Cortex-M33 cores of the RP2350:
 
 ## Host Unit Testing
 
-Pico2Seq provides an automated host-side unit test suite powered by **Catch2 v3.5.2** and CMake across four test executables (`pico2seq_tests`, `pico2seq_voice_tests`, `pico2seq_watchdog_tests`, `pico2seq_audio_tests` — 315 total tests):
+Pico2Seq provides an automated host-side unit test suite powered by **Catch2 v3.5.2** and CMake across six test executables (`pico2seq_tests`, `pico2seq_ui_tests`, `pico2seq_voice_tests`, `pico2seq_watchdog_tests`, `pico2seq_audio_tests`, `pico2seq_reverb_bypass_tests` — 692 tests recorded 2026-09-30), plus an opt-in `pico2seq_recipe_benchmark` target:
 
 ```bash
 # Configure and build test suite
@@ -400,13 +400,6 @@ Comprehensive subsystem documentation is maintained in the [`docs/`](docs/) dire
 - [`docs/sensors.md`](docs/sensors.md) — TMAG5273 magnetic encoder and VL53L1X TOF distance sensor integration
 - [`docs/ButtonHandlers.md`](docs/ButtonHandlers.md) — UI button event dispatching and debounce logic
 - [`docs/testing.md`](docs/testing.md) — Host-side Catch2 v3 unit testing guide, CMake/CTest workflow, and header stubs
-- [`docs/alchemyui-tmag5273-migration.md`](docs/alchemyui-tmag5273-migration.md) — Migration and architectural transition notes for Alchemy tiles & TMAG5273
-- [`docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`](docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md) — Specification for Alchemy modular UI tile control surface
-- [`docs/superpowers/specs/2026-09-02-modifier-layer-restoration.md`](docs/superpowers/specs/2026-09-02-modifier-layer-restoration.md) — Spec for the modifier layer; implemented 2026-09-11 via the Voice Editing mode (see [`docs/voice-edit.md`](docs/voice-edit.md))
-
-Interactive single-file HTML docs also live in `docs/`: [`PICO2SEQplayground.html`](docs/PICO2SEQplayground.html) and
-[`pico2seqinteractive_explainer.html`](docs/pico2seqinteractive_explainer.html) (hands-on explorers), [`synth_layout.html`](docs/synth_layout.html)
-(DSP/layout diagram), and [`voice_edit_playground.html`](docs/voice_edit_playground.html) (Voice Editing explorer).
 
 ---
 
