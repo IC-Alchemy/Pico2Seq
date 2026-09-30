@@ -41,7 +41,7 @@ still need a hardware check.
 
 The `src/OLED/` subsystem manages the 128×64 monochrome OLED display for Pico2Seq using an **Adafruit SH1106G** driver over I2C (`Wire`, I2C0 @ 400 kHz, address `0x3C`).
 
-The OLED provides real-time visualization of parameter values, sequence lengths, settings sub-menus, voice presets, and system status through a deterministic **7-tier priority rendering hierarchy**.
+The OLED provides real-time visualization of parameter values, sequence lengths, settings sub-menus, voice presets, and system status through a deterministic **priority rendering hierarchy** (numbered tiers; letter-suffixed tiers render between them).
 
 ---
 
@@ -100,6 +100,14 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
 | (Active when uiState.settingsMode == true)                              |
 |   ├── SubMode VOICE_PARAMETER: Parameter toggles (Filter/Env/Drive)     |
 |   └── SubMode PRESET_SELECTION: Preset browser & Sound Buffet 4-voice   |
++-------------------------------------------------------------------------+
+                                    | (if inactive)
+                                    v
++-------------------------------------------------------------------------+
+| Priority 4b: Arpeggiator Play Page                                      |
+| (Active when uiState.arp.active() — replaces every sequencer screen     |
+|  below it; Settings above still win, since the preset browser stays     |
+|  reachable while the arp plays)                                         |
 +-------------------------------------------------------------------------+
                                     | (if inactive)
                                     v
@@ -171,6 +179,14 @@ Filter/Attack/Decay slots (`VoiceConfig::paramSet`), the OLED shows the slot's r
 name (e.g. Bright/Pick/T60 on a waveguide voice, via `VoicePresets::getSequencerParamName`)
 and formats the value in its own unit (%, seconds for T60, semitones for detune) via `MusicalValues::format`.
 
+#### 4b. Arpeggiator Play Page (Priority 4b)
+While `uiState.arp.active()`, `OLEDDisplay::update()` renders the eight-row arp play page
+(`displayArpPage()`) in place of every sequencer screen below it: no step is selected in
+arpeggiator mode, so the gate-length, envelope and parameter pages cannot describe what the
+panel is doing. Settings still outrank it, because the preset browser stays reachable while
+the arp plays. The page layout is described at the top of this document and in
+[arpeggiator.md](arpeggiator.md#oled).
+
 #### 5. Gate Sequence Length Gauge (Priority 5)
 Activated when `uiState.gateSeqLengthMode` is active (holding Voice 1–4 without Shift for 400 ms, in either panel mode):
 - Header: `"Sequence length"`
@@ -203,7 +219,7 @@ step's own. `>` marks the lane a fader last moved (`uiState.envFaderLane`). The 
   - `Velocity`: `0%`–`100%`
   - `Filter`: Frequency in Hz (`20Hz`–`20000Hz` via `rpdsp::fmap`) or repurposed name
   - `Attack` / `Decay`: Milliseconds or seconds (e.g. `250ms`, `1.20s`)
-  - `Octave`: `-1`, `0`, `+1`
+  - `Octave`: Signed octaves over −2..+2, rendered `%+d oct` (e.g. `-2 oct`, `+1 oct`)
   - `GateLength`: `0%`–`100%`
   - `Gate` / `Slide`: `ON` / `OFF`
 - **Progress Bar:** 10px tall bordered progress bar for continuous parameters (Velocity, Filter, Attack, Decay, GateLength).

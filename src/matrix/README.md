@@ -8,7 +8,7 @@ This module implements touch matrix scanning and event dispatch for Pico2Seq, ha
 
 - Drives a 4×8 (32-pad) capacitive touch grid with low-latency hardware scanning on Core 0
 - Provides 32 dedicated step pads across two 16-step voice banks addressing the active voice pair
-- Reliable debouncing and event callbacks for press/release
+- IRQ-gated state-change scanning with press/release event callbacks
 - Integrates with the Adafruit MPR121 I2C sensor on `Wire` @ `0x5A`
 - Seamlessly pairs with the [Alchemy Modular UI tile panel](../../docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md) which hosts parameter and utility controls
 
@@ -18,7 +18,7 @@ This module implements touch matrix scanning and event dispatch for Pico2Seq, ha
 
 - 32-pad (4-row × 8-column) step sequencing grid
 - Dual 16-step voice banks (Low Bank = Voice 0 or 2, High Bank = Voice 1 or 3)
-- Debounced button state tracking
+- IRQ-gated state-change tracking: `Matrix_scan()` is a no-op until the MPR121's GP8 `/IRQ` flags a change — no separate debounce stage
 - Callback hooks for all button press/release events
 - State query at any time for responsive UI logic
 - Lightweight initialization and non-blocking main loop integration
@@ -49,7 +49,7 @@ This module implements touch matrix scanning and event dispatch for Pico2Seq, ha
 | Function | Description |
 |:---|:---|
 | `void Matrix_init(Adafruit_MPR121*)` | Initialize with sensor instance |
-| `void Matrix_scan()` | Poll for button state changes (call in main loop on Core 0) |
+| `void Matrix_scan()` | IRQ-gated scan for state changes (no-op until the MPR121 IRQ; call in main loop on Core 0) |
 | `bool Matrix_getButtonState(uint8_t)` | Query current button state |
 | `void Matrix_setEventHandler(func)` | Set general event handler for button events |
 | `void Matrix_setRisingEdgeHandler(func)` | Set handler for button press only |

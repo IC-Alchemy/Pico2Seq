@@ -3,7 +3,7 @@
 Voice Edit implements the first three development stages: the sound parameter
 catalogue, stopped-transport controls and OLED, and independent patch bases with
 sequenced step values. Patches now persist across power cycles: every save (Utility
-button 1, autosave on transport stop) captures the live `VoiceConfig` control copy
+button 2, autosave on transport stop) captures the live `VoiceConfig` control copy
 per voice, and each boot restores it. Loading a factory preset still replaces the
 bases; saved patches ride in the session snapshot, not the preset bank.
 
@@ -77,8 +77,8 @@ Gate and Slide start off. The default gate lasts half a sixteenth note (60 ticks
 83.3 ms at the starting 90 BPM).
 
 Randomization uses integer melody steps 0–12, neutral octave and gate length, and
-for the absolute lanes values spread around each voice's patch value (triangular,
-depth D reaches at most D% of the way to either end). Randomized Attack never exceeds
+for the absolute lanes a triangular spread centered on the middle of the lane's
+range (depth D reaches at most D% of the way to either end). Randomized Attack never exceeds
 the longer of the patch attack and the lane center (~45 ms), so a short gate on a
 sustain-0 voice stays audible. Loading a preset replaces the bases without reseeding
 lanes.
