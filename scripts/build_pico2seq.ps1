@@ -50,9 +50,13 @@ if ($subStatus -match '^[\+\-U]') {
 }
 
 # Check both required submodules by their source entry points. A clean status line
-# alone is not enough on a partially materialized checkout.
+# alone is not enough on a partially materialized checkout, and it says nothing about
+# a pin that is in sync but too old: dark_reverb.h is the newest rpdsp header the
+# firmware includes (MasterReverb.h), so a pin that predates the reverb fails here
+# with a clear message instead of deep inside the compiler.
 $requiredSubmoduleFiles = @(
     'src/rpdsp/src/rpdsp/DSPFunctions.h',
+    'src/rpdsp/src/rpdsp/dark_reverb.h',
     'src/VelocityEncoder/src/MagEncoder.h'
 )
 $missingSubmoduleFiles = @($requiredSubmoduleFiles | Where-Object {

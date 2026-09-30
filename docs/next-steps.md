@@ -63,12 +63,18 @@ is not a promise of an unchanged or endless repeat.
    contain delay mix/time/feedback or the master compressor macro. A saved pattern
    can consequently return with a different delay/compressor balance.
 
-6. **The delay reserves more memory than its current time range needs.** — **Done (2026-09-30).**
-   [MasterDelay](../src/voice/MasterDelay.h) now reserves 36,004 samples
-   (~140.6 KiB) while keeping its tuned 750 ms maximum (`kMaxDelaySamples`
-   = 36,000 at 48 kHz); the capacity and the maximum are decoupled
-   constants, so the roughly 47 KiB were recovered without shrinking the
-   range.
+6. **~~The delay reserves more memory than its current time range needs.~~
+   Done (2026-09-30): its two rings now share one block.**
+   This note used to say [MasterDelay](../src/voice/MasterDelay.h) reserved
+   48,000 floats (about 187.5 KiB) and that roughly 47 KiB could be recovered.
+   That was already out of date: the float ring is 36,004 samples (the 36,000
+   sample / 750 ms maximum plus four guard samples), so it has no slack, and
+   the measured 209,700 B `sizeof(MasterDelay)` also held a separate 64 KiB
+   16-bit ring for tempo mode that is never live at the same time as the
+   millisecond ring. The two now share one 144,016 B block, which recovers
+   65,536 B (209,700 B → 144,164 B by arithmetic; not re-measured on ARM). The
+   750 ms range, the whole-note range at 45 BPM and the sound are unchanged,
+   and shrinking the float ring any further would shorten the range.
 
 7. **Master-control definitions are scattered.**
    DSP limits, fader mappings, OLED payloads and documentation repeat some
@@ -203,12 +209,9 @@ is not a promise of an unchanged or endless repeat.
    targets; retain separate audio-owned smoothing state. Avoid a general
    parameter framework unless several concrete uses justify it.
 
-   Separately decouple maximum delay samples from buffer capacity. If measured
-   memory headroom warrants shrinking the buffer, retain the full 750 ms range
-   and enough neighboring samples for cubic interpolation. Test impulse timing,
-   full buffer wrap, the longest delay, pitch glides and 100% feedback before
-   comparing the sound. Make this a different change from the control cleanup
-   so a regression has a clear origin.
+   The delay's memory needs no further work here: its two rings now share one
+   block (item 6 above) and the float ring has only four guard samples beyond
+   its 750 ms maximum, so there is no capacity left to decouple from it.
 
    **Finished when:** advertised limits agree with DSP, source remains easy
    to modify, and any measured memory saving preserves timing and sound.

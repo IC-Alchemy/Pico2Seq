@@ -31,11 +31,13 @@
 // Tank storage at the fixed 16384-sample capacity (both variants compute in float):
 //   Half  (default): binary16 in 32 KiB, 33,016 B object, 11-bit stored precision.
 //   Float          : 24-bit stored precision, 65,784 B object.
-// Half is the default because, with Float, the firmware's counted setup-time allocations
-// exceed the linked heap by ~1.7 KB, while Half leaves ~30 KB before the allocations that
-// were not counted (docs/audio-performance.md, "Master reverb RAM, stack and SRAM audit").
-// The plan keeps Half at the same capacity when Float fails that gate. The accounting is
-// static: re-decide from the on-board [DIAG MEM] heap numbers, building with
+// Half is the default because, when this was decided, the firmware's counted setup-time
+// allocations with Float exceeded the linked heap by ~1.7 KB, while Half left ~30 KB before
+// the allocations that were not counted (docs/audio-performance.md, "Master reverb RAM,
+// stack and SRAM audit"). MasterDelay's two rings have since been merged into one block
+// (64 KiB less), which by the same arithmetic leaves ~63 KB with Float and ~96 KB with Half;
+// whether to change the default is a separate decision. The accounting is static:
+// re-decide from the on-board [DIAG MEM] heap numbers, building with
 // -DPICO2SEQ_REVERB_STORAGE_HALF=0 for Float.
 #ifndef PICO2SEQ_REVERB_STORAGE_HALF
 #define PICO2SEQ_REVERB_STORAGE_HALF 1

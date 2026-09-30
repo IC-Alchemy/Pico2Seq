@@ -315,11 +315,31 @@ retain Half at the same capacity", so **Half is the default**
 before the unmeasured allocations (the baseline left about 73 KB); whether that is enough
 is confirmed only by the running system's `[DIAG MEM]` line (below). The reverb's total RAM
 cost with Half is 33,372 B (heap) + 9,392 B (static, of which 8,216 B is RAM-placed code) =
-42,764 B. Float becomes possible only after RAM is recovered elsewhere. The
-audited build still had the delay constants coupled; the capacity reduction in
-`next-steps.md` item 6 has since landed, and `MasterDelay` now reserves 36,004
-samples (~140.6 KiB) for its decoupled 36,000-sample maximum — about 47 KiB
-less than this audit counted.
+42,764 B. Float becomes possible only after RAM is recovered elsewhere; the
+[follow-up below](#after-merging-masterdelays-two-rings) recovers 64 KiB in `MasterDelay`.
+(This audit's tables describe the layout before that change.)
+
+### After merging MasterDelay's two rings
+
+`MasterDelay` held a 36,004-float ring for 10–750 ms mode and, next to it, a 32,768-slot int16
+ring for tempo mode (the 209,700 B in the table above), but only one of the two is live at a
+time, so they now share one 144,016 B block. The arithmetic below is the audit's own, with the
+measured ARM `sizeof` reduced by the ring that was removed. **`sizeof` was not re-measured on
+ARM** (no ARM toolchain in the session that made the change; the host test only bounds it at
+under `kCapacitySamples * 4 + 512` bytes), and none of it has been checked on the board.
+
+| Allocation (counted) | Half | Float |
+|---|---:|---:|
+| `VoiceManager` (contains `MasterDelay` 144,164 B) | 178,732 | 211,500 |
+| Accounted payload | 304,412 | 337,180 |
+| Linked heap capacity (unchanged) | 400,352 | 400,992 |
+| **Left after the accounted payload** | **95,940** | **63,812** |
+
+Float now clears the gate the audit failed it on, and a Half tank at twice the capacity
+(+32,768 B) would fit. The default stays Half: switching it, or growing the tank, changes the
+sound and CPU cost and should be decided from the `[DIAG MEM]` numbers below. Sound is
+unchanged by the merge itself: the float ring's indexing and cubic read are the same, and
+`test_master_delay.cpp` checks that each mode after a switch is identical to a fresh delay.
 
 ### Hot-code placement (measured, `nm -S` on the Half ELF; addresses `0x2000_0000..` are SRAM)
 

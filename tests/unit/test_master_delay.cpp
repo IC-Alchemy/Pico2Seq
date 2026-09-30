@@ -42,6 +42,42 @@ std::vector<float> burstRepeats(MasterDelay &delay, float freqHz,
     }
     return wet;
 }
+
+// Wet signal (output minus input) for a unit impulse followed by silence.
+std::vector<float> impulseResponse(MasterDelay &delay, int samples)
+{
+    std::vector<float> wet;
+    wet.reserve(static_cast<size_t>(samples));
+    for (int n = 0; n < samples; ++n)
+    {
+        const float x = n == 0 ? 1.0f : 0.0f;
+        wet.push_back(delay.process(x) - x);
+    }
+    return wet;
+}
+
+// `prime` silent samples, then an impulse and `samples` more. Right after a mode
+// switch the delay mutes its tap until it holds enough fresh samples, so the
+// priming stretch is also where any leaked buffer contents would show up.
+std::vector<float> primedImpulseResponse(MasterDelay &delay, int prime, int samples)
+{
+    std::vector<float> wet;
+    wet.reserve(static_cast<size_t>(prime + samples));
+    for (int n = 0; n < prime; ++n)
+        wet.push_back(delay.process(0.0f));
+    for (const float w : impulseResponse(delay, samples))
+        wet.push_back(w);
+    return wet;
+}
+
+float maxAbsDiff(const std::vector<float> &a, const std::vector<float> &b)
+{
+    REQUIRE(a.size() == b.size());
+    float worst = 0.0f;
+    for (size_t i = 0; i < a.size(); ++i)
+        worst = std::max(worst, std::fabs(a[i] - b[i]));
+    return worst;
+}
 } // namespace
 
 TEST_CASE("MasterDelay is transparent at zero mix", "[master_delay]")
@@ -264,4 +300,58 @@ TEST_CASE("Synced repeat line stays bounded at full feedback", "[master_delay][d
     CHECK(finite);
     CHECK(peak > 0.9f);
     CHECK(peak < 4.0f);
+}
+
+TEST_CASE("MasterDelay's two rings share one block of memory", "[master_delay][delay_sync]")
+{
+    // A private synced ring would add 64 KiB on top of the float ring. The margin
+    // covers the filters, indices and targets (host pointers are wider than the
+    // firmware's, so it is generous).
+    constexpr size_t kFloatRingBytes = MasterDelay::kCapacitySamples * sizeof(float);
+    CHECK(sizeof(MasterDelay) >= kFloatRingBytes);
+    CHECK(sizeof(MasterDelay) < kFloatRingBytes + 512);
+}
+
+TEST_CASE("Switching delay modes over the shared block matches a fresh delay", "[master_delay][delay_sync]")
+{
+    constexpr int kPrime = 2600;    // longer than the 2400-sample delay plus the guard
+    constexpr int kResponse = 4000;
+    // Targets go in before prepare(), which snaps the eased state to them.
+    const auto configure = [](MasterDelay &d)
+    {
+        d.setMix(1.0f);
+        d.setFeedback(0.0f);
+        d.setDelaySeconds(0.05f); // 2400 samples
+        d.prepare(kSampleRate);
+    };
+
+    MasterDelay freshFast;
+    configure(freshFast);
+    const std::vector<float> expectedFast = primedImpulseResponse(freshFast, kPrime, kResponse);
+    MasterDelay freshSync;
+    freshSync.setSynced(true);
+    configure(freshSync);
+    const std::vector<float> expectedSync = primedImpulseResponse(freshSync, kPrime, kResponse);
+    REQUIRE(peakRange(expectedFast, kPrime + 2300, kPrime + 2500) > 0.25f);
+    REQUIRE(peakRange(expectedSync, kPrime + 2300, kPrime + 2500) > 0.005f);
+    REQUIRE(peakRange(expectedFast, 0, kPrime) == 0.0f);
+    REQUIRE(peakRange(expectedSync, 0, kPrime) == 0.0f);
+
+    MasterDelay delay;
+    configure(delay);
+    // Dirty the whole float ring with non-zero data, then switch to the synced
+    // ring: its int16 slots sit on those same bytes, and none may be heard.
+    for (int n = 0; n < 40000; ++n)
+        delay.process(0.8f);
+    delay.setSynced(true);
+    delay.setDelaySeconds(0.05f);
+    CHECK(maxAbsDiff(primedImpulseResponse(delay, kPrime, kResponse), expectedSync) < 1e-6f);
+
+    // Dirty the synced ring the same way and go back: the float ring's slots hold
+    // int16 pairs now, and again none may be heard.
+    for (int n = 0; n < 40000; ++n)
+        delay.process(0.8f);
+    delay.setSynced(false);
+    delay.setDelaySeconds(0.05f);
+    CHECK(maxAbsDiff(primedImpulseResponse(delay, kPrime, kResponse), expectedFast) < 1e-6f);
 }

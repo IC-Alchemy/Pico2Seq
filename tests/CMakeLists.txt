@@ -22,6 +22,16 @@ if(NOT EXISTS "${RPDSP_DIR}/rpdsp/parameter_track.h")
     "src/rpdsp submodule is not checked out. Run:\n"
     "  git submodule update --init --recursive")
 endif()
+# Checked out but too old: dark_reverb.h is the newest rpdsp header the firmware
+# includes (voice/MasterReverb.h), so a pin that predates the reverb lacks it.
+if(NOT EXISTS "${RPDSP_DIR}/rpdsp/dark_reverb.h")
+  message(FATAL_ERROR
+    "src/rpdsp is checked out at a commit without dark_reverb.h, so it is older than "
+    "this tree needs. Run:\n"
+    "  git submodule update --init --recursive\n"
+    "and if that does not fix it, the submodule pin recorded in this repository is "
+    "wrong (it must be an rpdsp commit that contains src/rpdsp/dark_reverb.h).")
+endif()
 if(NOT EXISTS "${SRC_DIR}/VelocityEncoder/src/MagEncoder.h")
   message(FATAL_ERROR
     "src/VelocityEncoder submodule is not checked out. Run:\n"

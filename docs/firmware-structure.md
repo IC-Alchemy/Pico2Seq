@@ -144,8 +144,9 @@ reclaiming the ~338 KiB the delay line would have reserved.
 
 A redesigned master delay returned (2026-09-20): `MasterDelay`
 (`src/voice/MasterDelay.h`) rides the summed block inside
-`VoiceManager::processBlock()` — a 36,004-sample (~140.6 KiB) rpdsp
-`DelayLine` owned by the heap-allocated `VoiceManager`, read fractionally
+`VoiceManager::processBlock()` — a 36,004-float (~140.6 KiB) ring owned by
+the heap-allocated `VoiceManager` (tempo mode's 16-bit ring lives in the same
+block; only one is live at a time), read fractionally
 with cubic interpolation, with a DC blocker + one-pole lowpass + tanh bound
 in the feedback loop. Capacity (`kCapacitySamples` = 36,004) is decoupled
 from the tuned 750 ms maximum (`kMaxDelaySamples` = 36,000 at 48 kHz).
