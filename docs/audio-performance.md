@@ -29,7 +29,7 @@ The existing gain, sample conversion, filters and envelope behavior are retained
 
 Audio startup still waits for Core 0's `voicesReady` publication. Automatic DMA
 channel claiming, the watchdog and freeze reports remain in place. No clock
-increase is required by these changes; validate at the stable **150 MHz** first.
+increase is required by these changes; validate at the stable **225 MHz** first.
 
 ## Hot audio code in SRAM
 
@@ -55,9 +55,10 @@ helpers can still use XIP. In particular, Arduino's wrapped math routines in the
 DSP calculations, control ownership and diagnostic timing boundaries are unchanged.
 
 For a controlled hardware comparison, build both variants from the same source
-at the same clock (the helper's default clock is 150 MHz):
+at the same clock (the helper's default clock is 225 MHz):
 
 ```powershell
+# -CpuMHz 150 reproduces the original A/B comparison; the helper's default clock is 225 MHz.
 ./scripts/build_pico2seq.ps1 -CpuMHz 150 -AudioInFlash -BuildDirectory build/audio-xip-150
 ./scripts/build_pico2seq.ps1 -CpuMHz 150 -BuildDirectory build/audio-ram-150
 ```
@@ -499,7 +500,7 @@ still producing an audible discontinuity.
 
 ## Hardware check
 
-Build with `scripts/build_pico2seq.ps1 -CpuMHz 150`, flash the resulting UF2, and
+Build with `scripts/build_pico2seq.ps1 -CpuMHz 225`, flash the resulting UF2, and
 listen to one voice followed by all four. Exercise preset changes, fast gates,
 slides, controls and OLED/LED updates. Check that `underruns` and `txstalls` stay
 at zero and that typical rendering leaves room below 5333 microseconds. An

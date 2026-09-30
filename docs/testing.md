@@ -41,7 +41,7 @@ and DSP checks; physical lidar, OLED and listening still need a hardware check.
     ├── rpdsp DSP algorithms        ├── src/audio/ (PIO, DMA, I2S)
     ├── scales & lookup tables      ├── src/LEDMatrix/ (FastLED WS2812B)
     ├── pico2seq-core sequencer     ├── src/OLED/ (SH1106G I2C)
-    ├── voice synthesis & presets   ├── src/midi/ (TinyUSB stack)
+    ├── voice synthesis & presets   ├── src/midi/ (removal notice only; USB is CDC-only)
     ├── ControlSurfaceLogic         └── src/sensors/ (TMAG/VL53 drivers)
     └── AlchemyProto wire format
              |                               |
@@ -76,8 +76,8 @@ pure state transitions; hardware handlers own MIDI cleanup and tile edge history
 The focused target includes these tests and the existing ControlSurfaceLogic suite:
 
 ```bash
-cmake --build build_test --target pico2seq_ui_tests --parallel
-./build_test/tests/pico2seq_ui_tests
+cmake --build build_test_ninja --target pico2seq_ui_tests --parallel
+./build_test_ninja/tests/pico2seq_ui_tests
 ```
 
 Use a separate build directory when changing generators or compilers. On Windows,
@@ -123,9 +123,9 @@ faders 1–3 re-arm on Shift edges while gate length stays engaged,
 the 19 note divisions and retains the step-envelope assignments and compressor macro gesture.
 
 ```powershell
-cmake --build build_test --parallel
-& ./build_test/tests/pico2seq_tests.exe '[master],[master_delay],[control_surface]'
-ctest --test-dir build_test -C Release --output-on-failure
+cmake --build build_test_ninja --parallel
+& ./build_test_ninja/tests/pico2seq_tests.exe '[master],[master_delay],[control_surface]'
+ctest --test-dir build_test_ninja -C Release --output-on-failure
 ```
 
 On hardware, check fader 1 tempo/feedback, fader 2 mix/time in both ms and sync modes,
@@ -169,11 +169,11 @@ settled mix of zero must reproduce the legacy mono bus bit-for-bit.
 | `reverb-bypass:` | `test_reverb_bypass.cpp` (`pico2seq_reverb_bypass_tests`) | The bench-only `-DPICO2SEQ_REVERB_BYPASS=1` build renders the dry bus and still hands controls over |
 
 ```bash
-./build_test/tests/pico2seq_tests "[reverb]"          # adapter, freeze, storage, allocation
-./build_test/tests/pico2seq_tests "[reverb_bus]"      # stereo master bus
-./build_test/tests/pico2seq_tests "[reverb_page]"     # Reverb page and editor
-./build_test/tests/pico2seq_tests "[persistence]"     # includes format 3
-./build_test/tests/pico2seq_audio_tests               # I2S pool and driver (builds again on GCC 13)
+./build_test_ninja/tests/pico2seq_tests "[reverb]"          # adapter, freeze, storage, allocation
+./build_test_ninja/tests/pico2seq_tests "[reverb_bus]"      # stereo master bus
+./build_test_ninja/tests/pico2seq_tests "[reverb_page]"     # Reverb page and editor
+./build_test_ninja/tests/pico2seq_tests "[persistence]"     # includes format 3
+./build_test_ninja/tests/pico2seq_audio_tests               # I2S pool and driver (builds again on GCC 13)
 ```
 
 **Storage variants.** The host tests default to the firmware's Half tank. Re-run the identical suites
@@ -249,6 +249,12 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 22 | `tests/unit/test_reverb_page.cpp`, `test_reverb_editor.cpp` | Reverb page | Entry gesture, fader layers and curves, OLED formatting, published values (`[reverb_page]`) |
 | 23 | `tests/unit/test_stack_watermark.cpp` | `StackWatermark` | Paint/scan arithmetic (`[stack]`) |
 | 24 | `tests/unit/test_reverb_bypass.cpp` | Bench bypass build (`pico2seq_reverb_bypass_tests`) | Dry bus, control hand-off |
+| 25 | `tests/unit/test_arpeggiator.cpp` | Arpeggiator mode note engine (`src/pico2seq-core/arpeggiator/Arpeggiator.cpp`; also in `pico2seq_ui_tests`) | Seven-note pad layout and octave rows, chord/latch semantics, pattern walks, rate/gate/swing timing at 480 PPQN, encoder rate, lidar dynamics (`[arpeggiator]`) |
+| 26 | `tests/unit/test_sequencer_view.cpp` | `src/app/SequencerView.h` | Borrowed-pointer routing of all four voices without copies, rejected edits, last-voice display fallback (`[app][sequencer_view]`) |
+| 27 | `tests/unit/test_settings_pads.cpp` | `src/ui/SettingsPads.h` | Raw 32-pad parameter map, settings availability per editor state, toggle/cycle behavior in both edit directions (`[settings_pads]`) |
+| 28 | `tests/unit/test_voice_envelope.cpp` | `src/app/VoiceEnvelope.cpp` | ADSR chord entry/exit, movement pickup, all-voice scope, per-stage sequencer changes, release tails without retrigger (`[voice_envelope]`) |
+| 29 | `tests/unit/test_voice_playback.cpp` | `src/app/VoicePlayback.cpp` | Retriggers as events, gate expiry published once per tick, stop clearing lifecycles, voice focus keeping sounding notes (`[voice_playback]`) |
+| 30 | `tests/unit/test_lidar_recording.cpp` | `src/app/StepPlayback.cpp` (real recording/publication path) | Held/latched Filter/Release lanes, calibrated distance, independent lane lengths, selected-step edits while running/stopped, rendered filter contours and release tails (`[lidar][app]`) |
 
 ---
 
@@ -287,62 +293,64 @@ tests/stubs/
 
 ### 1. Build and Run the Test Suite Locally
 
+The known-good configure is the Ninja + LLVM clang one into `build_test_ninja/` (as used in `docs/firmware-structure.md`); an old directory left over from an earlier default-generator (Visual Studio) configure can be deleted.
+
 ```bash
 # Configure the build directory (Debug mode)
-cmake -B build_test -DCMAKE_BUILD_TYPE=Debug
+cmake -B build_test_ninja -DCMAKE_BUILD_TYPE=Debug
 
 # Compile the test runner executables
-cmake --build build_test --parallel
+cmake --build build_test_ninja --parallel
 
 # Execute the main test runner directly
-./build_test/tests/pico2seq_tests
+./build_test_ninja/tests/pico2seq_tests
 
 # Or run individual specialized test executables:
-./build_test/tests/pico2seq_voice_tests      # Focused voice ownership, master bus and reverb suite
-./build_test/tests/pico2seq_ui_tests         # Control surface, UI transitions, Reverb page
-./build_test/tests/pico2seq_watchdog_tests   # FreezeWatchdog forensics suite
-./build_test/tests/pico2seq_audio_tests      # I2S DMA/pool driver suite
-./build_test/tests/pico2seq_reverb_bypass_tests  # Bench-only reverb bypass build
+./build_test_ninja/tests/pico2seq_voice_tests      # Focused voice ownership, master bus and reverb suite
+./build_test_ninja/tests/pico2seq_ui_tests         # Control surface, UI transitions, Reverb page
+./build_test_ninja/tests/pico2seq_watchdog_tests   # FreezeWatchdog forensics suite
+./build_test_ninja/tests/pico2seq_audio_tests      # I2S DMA/pool driver suite
+./build_test_ninja/tests/pico2seq_reverb_bypass_tests  # Bench-only reverb bypass build
 ```
 
-*(On Windows PowerShell, append `.exe` to executable names; `ctest --test-dir build_test` runs every discovered test across the six targets: 692 on 2026-09-30, 33 of them the known baseline failures above.)*
+*(On Windows PowerShell, append `.exe` to executable names; `ctest --test-dir build_test_ninja` runs every discovered test across the six targets: 692 on 2026-09-30, 33 of them the known baseline failures above.)*
 
 ### 2. Run with CTest
 
 ```bash
 # Run all discovered tests with full output on failure
-ctest --test-dir build_test --output-on-failure
+ctest --test-dir build_test_ninja --output-on-failure
 ```
 
 ### 3. Run Specific Test Tags or Filters
 
 ```bash
 # Run only DSP and mathematical utility tests
-./build_test/tests/pico2seq_tests "[rpdsp]"
+./build_test_ninja/tests/pico2seq_tests "[rpdsp]"
 
 # Run only sequencer tests
-./build_test/tests/pico2seq_tests "[sequencer]"
+./build_test_ninja/tests/pico2seq_tests "[sequencer]"
 
 # Run only voice-transfer (SpscQueue control handoff) tests
-./build_test/tests/pico2seq_tests "[voice_transfer]"
+./build_test_ninja/tests/pico2seq_tests "[voice_transfer]"
 
 # Run only voice oscillator tests
-./build_test/tests/pico2seq_tests "[voiceosc]"
+./build_test_ninja/tests/pico2seq_tests "[voiceosc]"
 
 # Run only control surface logic tests
-./build_test/tests/pico2seq_tests "[control_surface]"
+./build_test_ninja/tests/pico2seq_tests "[control_surface]"
 
 # Run only Alchemy tile wire-format tests
-./build_test/tests/pico2seq_tests "[alchemy_proto]"
+./build_test_ninja/tests/pico2seq_tests "[alchemy_proto]"
 
 # Run only voice engine tests
-./build_test/tests/pico2seq_tests "[voice]"
+./build_test_ninja/tests/pico2seq_tests "[voice]"
 
 # Run only musical scale table tests
-./build_test/tests/pico2seq_tests "[scales]"
+./build_test_ninja/tests/pico2seq_tests "[scales]"
 
 # List all test cases without running
-./build_test/tests/pico2seq_tests --list-tests
+./build_test_ninja/tests/pico2seq_tests --list-tests
 ```
 
 ---
@@ -390,11 +398,10 @@ separate CMake targets in `tests/CMakeLists.txt`.
 - [`docs/architecture.md`](architecture.md) — System architecture and dual-core division
 - [`docs/voice.md`](voice.md) — Voice synthesis and DSP chain documentation
 - [`docs/sequencer.md`](sequencer.md) — Sequencer engine and polymetric parameter tracks
-- [`docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`](superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md) — ControlSurfaceLogic design specification
 
 ### Voice ownership regression suite
 
-Build `pico2seq_voice_tests` and run `build_test/tests/pico2seq_voice_tests`
+Build `pico2seq_voice_tests` and run `build_test_ninja/tests/pico2seq_voice_tests`
 (`.exe` on Windows). This focused target includes voice/oscillator tests,
 VoiceManager integration, queue wrap/full cases, gate ordering, and concurrent
 producer/consumer stress. Use `[voice_transfer]` for ownership tests only.

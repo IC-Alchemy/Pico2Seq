@@ -10,6 +10,7 @@
 #include "../sensors/DistanceSensor.h"
 #include "../utils/FreezeWatchdog.h"
 #include "../utils/Debug.h"
+#include "../utils/SerialRateLimit.h"
 #include "../utils/StackWatermark.h"
 #include "../voice/MasterReverb.h"
 #include "../pico2seq-core/persistence/ProjectSnapshot.h"
@@ -158,15 +159,18 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
     // have moved across a full diagnostic interval. Boot, a failed I2S setup and
     // a parked recovery boot all report other phases, so they cannot trip this.
     // Log only: never reset or reboot from here.
-    static uint32_t lastAudioBufs = 0;
-    static bool haveAudioBaseline = false;
+    // This runs every loop() pass but a buffer completes only every ~5.3 ms, so the
+    // count must be compared once per interval (StallWatch), not once per pass:
+    // per-pass comparison printed this line hundreds of times a second on a healthy
+    // board.
+    static SerialRateLimit::StallWatch audioStallWatch(kDiagnosticIntervalMs);
     {
         const uint32_t bufs = AudioEngine::completedBufferCount();
         const auto phase = AudioEngine::phase();
         const bool renderingPhase = phase == AudioEngine::Phase::BufferWait ||
                                     phase == AudioEngine::Phase::Render ||
                                     phase == AudioEngine::Phase::Submit;
-        if (renderingPhase && haveAudioBaseline && bufs == lastAudioBufs && Serial)
+        if (audioStallWatch.poll(currentMillis, renderingPhase, bufs) && Serial)
         {
             Serial.printf("[DIAG C1] STALLED phase=%s i2sstage=%lu bufs=%lu (unchanged for %lums) - Core 1 is not rendering\n",
                           AudioEngine::phaseName(phase),
@@ -174,8 +178,6 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
                           static_cast<unsigned long>(bufs),
                           static_cast<unsigned long>(kDiagnosticIntervalMs));
         }
-        lastAudioBufs = bufs;
-        haveAudioBaseline = renderingPhase;
     }
 }
 #endif

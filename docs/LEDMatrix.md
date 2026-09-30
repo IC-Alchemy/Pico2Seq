@@ -17,7 +17,7 @@ The panel **mirrors the touch matrix**: the MPR121 touch surface (`src/matrix/`)
 - **LED Type:** WS2812B Addressable RGB LEDs
 - **Matrix Dimensions:** 8 columns × 4 rows (32 total LEDs)
 - **Data Pin:** `GPIO 1` (`LEDConstants::MATRIX_DATA_PIN`)
-- **Default Brightness:** `LEDConstants::DEFAULT_BRIGHTNESS` = 120 (on a 0–255 scale); the firmware initializes the matrix with `ledMatrix.begin(kStartupLedBrightness)` (brightness 150) on Core 0 during `Application::begin()` (via `ControlIO::beginMainBusAndLeds()`).
+- **Default Brightness:** `LEDConstants::DEFAULT_BRIGHTNESS` = 222 (on a 0–255 scale); the firmware initializes the matrix with `ledMatrix.begin(kStartupLedBrightness)` (brightness 150) on Core 0 during `Application::begin()` (via `ControlIO::beginMainBusAndLeds()`).
 - **Power Supply:** 5V rail capable of supplying up to ~1.5A for full-white illumination; internal brightness scaling is applied to limit peak current draw.
 
 ---
@@ -67,7 +67,7 @@ Control indicators (parameter buttons, voice pair, randomize) were moved off the
 Centralized namespace declarations for timing, layout geometry, color categories, and brightness levels:
 
 #### `namespace LEDConstants`
-- **Matrix Geometry:** `MATRIX_WIDTH = 8`, `MATRIX_HEIGHT = 4`, `MATRIX_DATA_PIN = 1`, `MATRIX_TOTAL_LEDS = 32`, `DEFAULT_BRIGHTNESS = 120`.
+- **Matrix Geometry:** `MATRIX_WIDTH = 8`, `MATRIX_HEIGHT = 4`, `MATRIX_DATA_PIN = 1`, `MATRIX_TOTAL_LEDS = 32`, `DEFAULT_BRIGHTNESS = 222`.
 - **Layout Offsets:**
   - `TOP_HALF_OFFSET = 0` (Band 0 start: pair low voice)
   - `BOTTOM_HALF_OFFSET = 16` (Band 1 start: pair high voice; touch rows 2–3)
@@ -154,6 +154,7 @@ Implements the multi-mode sequencing and navigation visualizer:
 3. **Polyrhythmic Track Overlays:** Visualizes independent parameter track step lengths and positions for Note, Velocity, and Filter tracks.
 4. **Parameter Edit Mode:** Shows step values, track lengths, and value adjustments when holding a parameter button or editing a step.
 5. **Settings & Preset Selection:** Lights every pad that holds a preset (pad N = preset N+1 in 1-based terms: pads 0–28 for the 29-preset bank, on one page) with bright pulsing on the selected voice's active preset and dim steady illumination on the others. Pads without a preset stay dark (29–31 today; pad 31 never holds one). The voice-parameter sub-mode instead shows the selected voice on pads 0–3.
+6. **Arpeggiator Chord-Map Mode:** While Arpeggiator mode is active (`uiState.arp.active()`), `renderArpPanel()` repaints the panel as the arp's 32-position scale map instead of the step grid — each LED is one physical scale position (seven-note scales lay out one octave per row, with the octave root repeated at the row boundaries so the octave ladder stays navigable). Colour carries the per-pad state: a finger on the pad paints the note's pitch hue at gate-on brightness, a latched pad keeps that hue at gate-off brightness, a sounding note keeps the pitch hue and adds a small white core (brighter for higher octaves and for the captured hand dynamics), and free positions stay a quiet shade of the selected voice's hue with roots lifted. Pitch classes are colorized by one stable bounded hue rotation (`ArpLedPalette::hueOffsetSteps()` in `ArpLedPalette.h`) around the active theme's voice hue, so neighbouring semitones stay related while remaining distinct and the same note keeps its colour in every octave.
 
 #### 10 LED Color Themes (`enum class LEDTheme`)
 
@@ -206,6 +207,7 @@ entry would show one theme's colors under another theme's name.
 ```
 src/LEDMatrix/
 ├── LEDConstants.h          # Hardware pins, timing, layout & OLED geometry constants
+├── ArpLedPalette.h         # Pitch-class -> hue-offset rules for the arp chord map
 ├── LEDmatrix.cpp           # FastLED driver wrapper implementation
 ├── ledMatrix.h             # LEDMatrix class definition
 ├── LEDMatrixFeedback.cpp   # Multi-mode step rendering & theme implementations
@@ -216,7 +218,7 @@ src/LEDMatrix/
 
 ## Performance & Concurrency Considerations
 
-- **Dual-Core Execution:** All LED rendering occurs exclusively on **Core 0** (`loop()`) at a ~50 Hz (20 ms) update rate, leaving Core 1 dedicated to real-time 48 kHz audio processing.
+- **Dual-Core Execution:** All LED rendering occurs exclusively on **Core 0** (`loop()`) on a 13 ms LED slice (~77 fps; `kLedIntervalMs` in `ControlIO.cpp`), leaving Core 1 dedicated to real-time 48 kHz audio processing.
 - **Batching:** Frame changes are drawn into an internal buffer and updated to hardware with a single `ledMatrix.show()` call per frame.
 - **Zero Heap Allocations:** All color calculations, blending tables, and state trackers use static memory.
 

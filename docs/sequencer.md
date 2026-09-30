@@ -132,13 +132,13 @@ constexpr ParameterDefinition CORE_PARAMETERS[] = {
   {"Velocity",     0.5f,    0.0f,  1.0f,  false,  16},
   {"Filter",       0.5f,    0.0f,  1.0f,  false,  16},
   {"Attack",       0.01f,   0.0f,  1.0f,  false,  16},
-  {"Decay",        0.3f,    0.0f,  1.0f,  false,  16},
+  {"Decay",        0.3f,    0.1f,  1.0f,  false,  16},
   {"Octave",       0.5f,    0.0f,  1.0f,  false,  16},
-  {"GateLength",   0.5f,    0.001f,1.0f,  false,  16},
+  {"GateLength",   0.8f,    0.1f,  1.0f,  false,  16},
   {"Gate",         false,   false, true,  true,   16},
   {"Slide",        false,   false, true,  true,   16},
   {"Sustain",      0.5f,    0.0f,  1.0f,  false,  16},
-  {"Release",      0.3f,    0.0f,  1.0f,  false,  16}
+  {"Release",      0.3f,    0.01f, 1.0f,  false,  16}
 };
 ```
 
@@ -164,7 +164,7 @@ public:
     void setValue(ParamId id, uint8_t stepIdx, float value);
     void setParameterValue(ParamId id, uint8_t stepIdx, float value);
     void copyStep(uint8_t srcStep, uint8_t dstStep);
-    void randomizeParameters(bool usePatchBases = false);
+    void randomizeParameters(uint8_t depthPercent = 35, uint64_t seed = 0);
 
 private:
     ParameterTrack<SequencerConstants::MAX_STEPS_COUNT> _tracks[static_cast<size_t>(ParamId::Count)];
@@ -174,11 +174,10 @@ private:
 - **Clamping and Rounding in `setValue`**:
   `setValue()` clamps the incoming value between `CORE_PARAMETERS[id].minValue` and `maxValue`. If `isBinary` is true, it thresholds at `> 0.5f` to produce `0.0f` or `1.0f`. If `minValue` is an integer variant, it rounds using `roundf()`.
 - **Randomization Algorithm (`randomizeParameters`)**:
-  Uses an internal Linear Congruential Generator (LCG) seeded from system time. Applies musical heuristics per parameter:
-  - `Gate`: Even steps have a 50% probability of being active (1/2 chance of 0); odd steps have a ~25% probability (1/4 chance of 1).
-  - `Slide`: 1/16 chance (~6.25%) per step; track is always resized to 64 steps for safety.
-  - `Attack` / `Decay`: Weighted towards short attacks and medium decays with occasional long swells.
-  - `Filter`: Uniform random in range `[0.2, 0.8]`.
+  Uses an internal Linear Congruential Generator (LCG). It rewrites the parameter lanes but never the groove: `Gate` and `Slide` are untouched, and amount-0 lanes are left alone.
+  - `Note`: Random scale degree 0–12, quantized into the current scale at playback.
+  - `Octave` / `GateLength`: Return to their neutral mid values.
+  - Remaining lanes: Triangular spread centered on the middle of the lane's range (most steps near the middle, a few reaching the depth edge) at the default depth of 35% (`ParameterManager.cpp:157-193`).
 
 ---
 
@@ -225,7 +224,7 @@ public:
     void start() { running = true; }
     void stop() { running = false; }
     bool isRunning() const { return running; }
-    void randomizeParameters();
+    void randomizeParameters(uint8_t depthPercent = 35, uint64_t seed = 0);
 
     // Note & Envelope Timing
     void startNote(uint8_t note, uint8_t velocity, uint16_t duration);
@@ -238,7 +237,7 @@ public:
     void advanceStep(uint32_t current_uclock_step, int mm_distance,
                      bool is_note_button_held, bool is_velocity_button_held,
                      bool is_filter_button_held, bool is_attack_button_held,
-                     bool is_decay_button_held, bool is_octave_button_held,
+                     bool is_release_button_held, bool is_octave_button_held,
                      int current_selected_step_for_edit,
                      VoiceState *voiceState);
 };
@@ -444,7 +443,7 @@ When a step has `hasSlide = true`:
 | Struct / Class | Location | Primary Purpose |
 |---|---|---|
 | `Sequencer` | `src/pico2seq-core/sequencer/Sequencer.h/.cpp` | Core step sequencer logic, parameter automation, note lifecycle |
-| `ParameterManager` | `src/pico2seq-core/sequencer/ParameterManager.h/.cpp` | 9 independent `ParameterTrack<64>` instances, value clamping, randomization |
+| `ParameterManager` | `src/pico2seq-core/sequencer/ParameterManager.h/.cpp` | 11 independent `ParameterTrack<64>` instances, value clamping, randomization |
 | `ParameterTrack<64>` | `src/rpdsp/src/rpdsp/parameter_track.h` | Fixed-size polymetric track with modulo wrapping |
 | `VoiceState` | `src/pico2seq-core/sequencer/SequencerDefs.h` | Control snapshot emitted on steps and note-duration expiry to configure `Voice` DSP |
 | `Step` | `src/pico2seq-core/sequencer/SequencerDefs.h` | Internal parameter snapshot for step editing and inspection |

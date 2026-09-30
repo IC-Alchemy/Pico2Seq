@@ -1,4 +1,5 @@
 #include "Debug.h"
+#include "SerialRateLimit.h"
 
 #if AUG_DEBUG_COMPILED
 
@@ -35,6 +36,17 @@ Level getLevel() { return s_level; }
 void vlogf(Level lvl, const char* fmt, va_list args) {
     if (!s_enabled) return;
     if ((uint8_t)lvl > (uint8_t)s_level) return;
+
+    // Global cap so no call site, present or future, can flood the port: a burst of
+    // 10 lines, then 20 lines/s sustained. Drops are summarized in one line.
+    static SerialRateLimit::LogBudget budget(10, 50);
+    const uint32_t now = millis();
+    if (!budget.allow(now)) return;
+    if (const uint32_t dropped = budget.takeSuppressed()) {
+        Serial.print(F("[W] log rate limit: "));
+        Serial.print(dropped);
+        Serial.println(F(" lines dropped"));
+    }
 
     // Fixed buffer, no heap; longer lines truncate (not split).
     char buf[160];
