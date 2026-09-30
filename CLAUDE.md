@@ -19,7 +19,7 @@ Two build systems coexist and never touch each other:
 Arduino/RP2040 dependency — they're deliberately kept reusable in other projects. Don't add
 `#include <Arduino.h>`, UI-layer (`UIState`), or hardware-glue includes back into this folder;
 firmware code that needs to bridge sequencer output to UI types (see
-`advanceSequencerStep()` in `src/ui/UIEventHandler.h/.cpp`) belongs in `src/`, not here.
+`advanceSequencerStep()` in `src/app/StepPlayback.h/.cpp`) belongs in `src/`, not here.
 (The former `digitalWrite()` hardware-gate-pin coupling in `Sequencer.cpp` was removed
 2026-09-01 — the pins moved to the PIO I2S output — so the folder is fully portable again.
 Keep it that way.)
@@ -96,7 +96,7 @@ hard-froze with no reboot → use method 2.
 The stable firmware baseline is **225 MHz**. Keep all normal build paths aligned at 225 MHz:
 
 - `scripts/build_pico2seq.ps1` defaults to `CpuMHz = 225`.
-- `.vscode/arduino.json` uses `freq=225`.
+- `.vscode/arduino.json` still carries `freq=150` — align it to `freq=225` when that file is next touched.
 - The documented CLI FQBN uses `freq=225`.
 - `scripts/build.ps1` requires an explicit CPU selection; it must never silently select 300 MHz.
 -  300 MHz is a performance experiment only and must be requested explicitly with
@@ -108,7 +108,8 @@ The fault postmortem is also corrected. The Arduino/FreeRTOS Core 0 task uses PS
 handler always read MSP, so its PC/LR values could be stale stack words and falsely appeared to point
 at LittleFS. `src/utils/FreezeWatchdog.cpp` now uses a naked `EXC_RETURN` stack selector, records
 `CFSR`/`HFSR`/`BFAR`/`MMFAR`/`EXC_RETURN` in NOINIT RAM, and avoids invalid frame reads for stacking
-errors. This improves future diagnosis; it is not a substitute for the 150 MHz hardware A/B result.
+errors. This improves future diagnosis; it is not a substitute for on-board audio timing
+measurements, which remain outstanding (see `docs/audio-performance.md`).
 Always decode a reported PC/LR against the ELF produced by the exact failing build—addresses are
 link-layout-specific.
 
@@ -166,14 +167,17 @@ What's tested vs. not, per `tests/CMakeLists.txt` (six focused targets: `pico2se
   the Wire-bound parts of `src/ui/AlchemyControlBridge.cpp`,
   `src/ui/{UIEventHandler,ButtonHandlers,ButtonManager}.cpp`, the rest of
   `src/app/` (`Application`, `ControlIO`, `AudioEngine`, `ClockService`,
-  `StepPlayback`, `SessionStorage`), `src/utils/Debug.cpp` and the linker-symbol binding
+  `SessionStorage`), `src/utils/Debug.cpp` and the linker-symbol binding
   `src/utils/StackWatermark.cpp`.
   There is no `src/midi/` module any more: it holds a removal notice only.
 
 When adding a new module to be tested:
 1. Check its `#include` chain for new hardware headers; add a minimal stub under `tests/stubs/`
    if needed (no-op functions are fine — stub the interface, not the implementation).
-2. Add the source file to `add_executable(pico2seq_tests ...)` in `tests/CMakeLists.txt`.
+2. In `tests/CMakeLists.txt`, add a portable source to the shared OBJECT libs
+   (`pico2seq_ui_code`/`pico2seq_voice_code`/`pico2seq_persist_code`) or the shared
+   `PICO2SEQ_UI_TEST_SOURCES`/`PICO2SEQ_VOICE_TEST_SOURCES` lists (since 8df780d);
+   only suite-unique files go directly into `add_executable(pico2seq_tests ...)`.
 3. If the file references `extern` globals defined in `Pico2Seq.ino`/`audio.cpp` (not compiled
    into the test binary), define them once in `tests/unit/test_helpers.cpp` — never in more than
    one test file, or the linker will complain about multiple definitions.
