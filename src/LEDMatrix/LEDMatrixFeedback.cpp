@@ -1189,6 +1189,38 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
     return;
   }
 
+  if (uiState.reverbPage.active) {
+    // One bar per fader row (row r is fader r+1 of the current layer): lit LEDs =
+    // 0..8 of that setting's fader travel. On the MAIN layer the fourth row is the
+    // Freeze switch: full white while frozen, one dim LED while not.
+    const ReverbSettings settings = voiceManager ? voiceManager->getReverbSettings() : ReverbSettings{};
+    const CRGB lit = getVoiceGateColor(*getActiveThemeColors(), uiState.selectedVoiceIndex, true);
+    for (uint8_t row = 0; row < 4; ++row) {
+      const auto control = ControlSurface::reverbControlForFader(uiState.reverbPage.layer, row);
+      uint8_t count = 0;
+      CRGB color = lit;
+      if (control == ControlSurface::ReverbControl::Count) {
+        count = settings.freeze ? 8 : 1;
+        color = lit;
+        if (settings.freeze)
+          color = CRGB::White;
+        else
+          color.nscale8(40);
+      } else {
+        const float travel = ControlSurface::reverbFaderForValue(
+            control, ControlSurface::reverbValueOf(settings, control));
+        count = static_cast<uint8_t>(travel * 8.0f + 0.5f);
+      }
+      for (uint8_t column = 0; column < 8; ++column) {
+        const int index = row * 8 + column; // LedLayout: linear index = y * 8 + x
+        const CRGB pixel = column < count ? color : CRGB::Black;
+        smoothedTargetColorBuffer[index] = pixel;
+        ledMatrix.getLeds()[index] = pixel;
+      }
+    }
+    return;
+  }
+
   if (uiState.settingsMode) {
     updateSettingsModeLEDs(ledMatrix, uiState);
     return;

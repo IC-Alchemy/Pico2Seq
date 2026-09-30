@@ -233,6 +233,11 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     commitFrame();
     return;
   }
+  if (uiState.reverbPage.active) {
+    displayReverbPage(uiState, voiceManager);
+    commitFrame();
+    return;
+  }
   // PARAM/UTIL strap flip: fullscreen banner for a short window.
   if (uiState.alchemyModeBannerUntil != 0 && millis() < uiState.alchemyModeBannerUntil)
   {
@@ -667,6 +672,45 @@ void OLEDDisplay::displayVoiceEnvelopePage(const UIState &state, VoiceManager *m
   displayHardware.setCursor(0, 56);
   displayHardware.print(config && !config->hasEnvelope ? "Env OFF Shift:exit" :
       state.arp.active() ? "Live    Shift:exit" : "All steps Shift:exit");
+  displayHardware.setTextWrap(true);
+}
+
+void OLEDDisplay::displayReverbPage(const UIState &state, VoiceManager *manager)
+{
+  using ControlSurface::ReverbControl;
+  displayHardware.setTextWrap(false);
+  displayHardware.setCursor(2, 0);
+  displayHardware.print(state.reverbPage.layer == 0 ? "REVERB MAIN" : "REVERB TONE");
+  const ReverbSettings settings = manager ? manager->getReverbSettings() : ReverbSettings{};
+  if (settings.freeze) {
+    displayHardware.setCursor(104, 0);
+    displayHardware.print("FRZ");
+  }
+  displayHardware.drawFastHLine(2, 10, 124, SH110X_WHITE);
+  for (uint8_t i = 0; i < 4; ++i) {
+    const int y = 13 + 10 * i;
+    const ReverbControl control = ControlSurface::reverbControlForFader(state.reverbPage.layer, i);
+    const bool marked = control != ReverbControl::Count &&
+                        state.reverbPage.lastControl == static_cast<uint8_t>(control);
+    displayHardware.setCursor(0, y);
+    displayHardware.print(marked ? ">" : " ");
+    displayHardware.print(i + 1);
+    displayHardware.print(" ");
+    char value[12];
+    if (control == ReverbControl::Count) {
+      // The MAIN layer's fourth fader is unassigned; its row is the Freeze switch.
+      displayHardware.print("Freeze");
+      snprintf(value, sizeof(value), "%s", settings.freeze ? "ON" : "OFF");
+    } else {
+      displayHardware.print(ControlSurface::reverbControlName(control));
+      ControlSurface::formatReverbValue(control, ControlSurface::reverbValueOf(settings, control),
+                                        value, sizeof(value));
+    }
+    displayHardware.setCursor(126 - 6 * static_cast<int>(strlen(value)), y);
+    displayHardware.print(value);
+  }
+  displayHardware.setCursor(0, 56);
+  displayHardware.print("1 Frz 2 Layer 8 Exit");
   displayHardware.setTextWrap(true);
 }
 

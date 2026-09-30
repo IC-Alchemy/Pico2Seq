@@ -82,6 +82,7 @@ set(PICO2SEQ_UI_TEST_SOURCES
   unit/test_control_surface_logic.cpp
   unit/test_arpeggiator.cpp
   unit/test_ui_transitions.cpp
+  unit/test_reverb_page.cpp
 )
 set(PICO2SEQ_VOICE_TEST_SOURCES
   unit/test_helpers.cpp
@@ -107,9 +108,11 @@ add_executable(pico2seq_tests
   unit/test_sequencer_view.cpp
   unit/test_voice_playback.cpp
   unit/test_voice_envelope.cpp
+  unit/test_reverb_editor.cpp
   unit/test_lidar_recording.cpp
   ${SRC_DIR}/app/VoicePlayback.cpp
   ${SRC_DIR}/app/VoiceEnvelope.cpp
+  ${SRC_DIR}/app/ReverbEditor.cpp
   ${SRC_DIR}/app/StepPlayback.cpp
   unit/test_alchemy_proto.cpp
   unit/test_app_runtime.cpp

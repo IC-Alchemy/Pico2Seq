@@ -113,6 +113,7 @@ void updateEncoderTarget(UIState &uiState)
   const float delta=magEncoder.takeParameterIncrement(-1.0f,1.0f,3);
   if (uiState.voiceEnvelope.active || uiState.voiceEnvelope.chordPending ||
       uiState.voiceEnvelope.waitRelease) return;
+  if (uiState.reverbPage.active || uiState.reverbPage.waitRelease) return; // the page has no dial
   const bool arpOwnsDial = uiState.arp.active() && !uiState.voiceEditor.active;
   if (arpOwnsDial != arpDialActive || uiState.shiftHeld != arpDialShift) {
     arpTempoMotion.reset();

@@ -256,6 +256,8 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
 {
   if (uiState.voiceEnvelope.active || uiState.voiceEnvelope.chordPending ||
       uiState.voiceEnvelope.waitRelease) return true;
+  // The reverb page owns the panel too: pads do nothing until it is closed.
+  if (uiState.reverbPage.active || uiState.reverbPage.waitRelease) return true;
   // Pads outside the 32-step grid have no voice; ignore them.
   if (evt.buttonIndex >= NUMBER_OF_STEP_PADS)
   {
