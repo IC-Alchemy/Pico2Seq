@@ -11,7 +11,7 @@ The Sequencer module is the core rhythmic and melodic engine of the Pico2Seq syn
                               │   uClock Timer ISR (90 BPM, 480 PPQN, Shuffle On)      │
                               │                           │ (every 16th note step)     │
                               │                           ▼                            │
-                              │      onStepCallback()  (stage into stepQueue)          │
+                              │   onStepCallback() (stage into clockEvents.steps)      │
                               │                           │                            │
                               │                           ▼  loop(): processClockEvents()
                               │                  processSequencerStep()                │
@@ -320,7 +320,7 @@ per-voice encoder values and publishes the resulting `VoiceState` snapshots
 through `VoiceManager`. Concrete `seq1`..`seq4` construction remains in
 `AppState.cpp`; callers borrow its routing table rather than assemble another.
 
-`ClockService::processPendingGateTicks()` drains PPQN ticks separately and calls
+`processPendingGateTicks()` drains PPQN ticks separately and calls
 `Sequencer::tickNoteDuration()` for each voice. On expiry, the updated gate-off
 snapshot is published immediately. This is the sole note-duration authority:
 there is no `VoiceSystem` gate countdown or two-voice MIDI lifecycle branch.

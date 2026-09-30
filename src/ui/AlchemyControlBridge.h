@@ -36,6 +36,10 @@ class SequencerView;
  *   - Shift + button 6 + Voice1..4 opens the live voice ADSR fader page.
  *     Voice buttons select its target; Shift exits. Shift+6 alone defers its
  *     existing short action until release so the chord has no side effects.
+ *   - Shift + button 6, then button 2, opens the live Reverb page: faders 1-3 are
+ *     Mix / Decay / Damping, button 1 toggles Freeze, button 2 switches to the
+ *     TONE layer (Low cut / Diffusion / Modulation / Width), Shift exits
+ *     (ui/ReverbPageControls.h, docs/manual.md).
  *   - ButtonModule8: parameter set (Note..Slide) or utility set (Play,
  *     Delay, Scale, Swing, Theme, Encoder, Randomize) per mode; Shift is
  *     bit 7 in both. In Utility mode, Shift + Randomize clears the selected
@@ -122,6 +126,7 @@ private:
 
   void handleModeStrap(uint32_t nowMs, UIState &uiState);
   void onModeFlip(uint32_t nowMs, UIState &uiState);
+  // Plain press selects, 400 ms hold edits that voice's gate sequence length.
   void handleVoiceButtons(uint32_t nowMs, UIState &uiState);
   void handleParamButtons(UIState &uiState);
   void handleUtilityButtons(uint32_t nowMs, UIState &uiState,
@@ -135,7 +140,12 @@ private:
   // cannot drift on the two buttons that must never change meaning.
   void handleTransportButton(const ButtonState &button, UIState &uiState);
   void handleSessionButton(const ButtonState &button);
+  void handleSessionOrDelayButton(const ButtonState &button, UIState &uiState);
   void handleFaders(UIState &uiState, const SequencerView &sequencers);
+  // Live Reverb page (Shift + 6 + 2). True when it owns this pass (open, opening,
+  // leaving or waiting for every button to lift): the caller returns immediately.
+  bool handleReverbPage(uint8_t buttons, uint8_t voices, UIState &uiState);
+  void handleReverbFaders(UIState &uiState);
 
   AlchemyPanel panel_;
   ControlSurface::ModeStabilizer mode_;
@@ -159,6 +169,7 @@ private:
   ButtonEdges buttonEdges_[kRoleCount][kButtonBits]; // [role][bit]
   bool playSettingsOpenedThisPress_ = false;
   bool saveLoadLatch_ = false; // session button: hold consumed, release suppressed
+  bool delayTogglePress_ = false; // Shift held at press: consume session hold/release
   // Voice 4 + Shift: a tap opens the voice editor, a hold toggles Arpeggiator
   // mode, so the press defers its action to release/hold (like Play below).
   bool editorHoldArmed_ = false;

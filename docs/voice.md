@@ -11,7 +11,7 @@ The voice module provides a comprehensive synthesizer voice system with multi-os
 The voice system consists of several key components:
 
 - **`Voice`**: Individual synthesizer voice encapsulating oscillators, a main filter (ladder or state-variable, per `filterType`), high-pass filter, ADSR envelope, overdrive waveshaper, and lock-free parameter/pitch staging.
-- **`VoiceManager`**: Manages multiple voices with allocation, deallocation, per-voice mix levels and unified block audio processing. The summed bus passes through `MasterDelay`, master volume, then the glue compressor (`rpdsp::Compressor`, last DSP before the DAC); see `VoiceManager::processBlock()`. The compressor is driven by the master macro knob (Shift + fader 3): 0 = Warm/Glue/Leveler, 0.5 = Neutral/Mild Glue, 1 = Punch/Smash/Pump (`settingsForMacro()`); the audio thread eases toward the fader target so moves never step the output. Fader 1 is tempo (Shift: delay feedback) and fader 2 is delay mix (Shift: delay time). The macro position is performance state, not part of the session snapshot.
+- **`VoiceManager`**: Manages multiple voices with allocation, deallocation, per-voice mix levels and unified block audio processing. The summed bus passes through `MasterDelay`, `MasterReverb` (mono in, stereo out), master volume, then the linked stereo glue compressor (`rpdsp::Compressor::processStereo()`, last DSP before the DAC); see `VoiceManager::processStereoBlock()` (`processBlock()` is the mono compatibility wrapper). The compressor is driven by the master macro knob (Shift + fader 3): 0 = Warm/Glue/Leveler, 0.5 = Neutral/Mild Glue, 1 = Punch/Smash/Pump (`settingsForMacro()`); the audio thread eases toward the fader target so moves never step the output. Fader 1 is tempo (Shift: delay feedback) and fader 2 is delay mix (Shift: delay time). The macro position is performance state, not part of the session snapshot.
 - **`VoiceSystem`**: Centralized structure consolidating voice IDs and control-core state snapshots into arrays for `MAX_VOICES = 4` voices.
 - **`VoicePresets`**: Registry of 29 presets, built from grouped preset headers and one `PresetBank.h` list. Fourteen recipe presets cover FM, phase distortion, DSF, formants, ring modulation, reversing sync and spectral/chaotic synthesis. See the [musical preset bank](../src/voice/README.md#musical-preset-bank) for the latest eight sounds and their controls.
 - **`VoiceOscillator`**: Variant-based dispatcher decoupling numeric waveform IDs from `rpdsp` oscillator classes.
@@ -309,8 +309,23 @@ public:
 
     // Audio Processing
     void init(float sampleRate);
-    void processBlock(float *out, uint32_t n) noexcept;
+    void processStereoBlock(float *left, float *right, uint32_t n) noexcept; // firmware path
+    void processBlock(float *out, uint32_t n) noexcept; // mono: 0.5 * (left + right)
     float processAllVoices() noexcept; // one-sample wrapper
+
+    // Master reverb (Core 0 setters; lock-free targets, audio-owned state)
+    void setReverbMix(float value) noexcept;
+    void setReverbDecaySeconds(float value) noexcept;
+    void setReverbDampingHz(float value) noexcept;
+    void setReverbLowCutHz(float value) noexcept;
+    void setReverbDiffusion(float value) noexcept;
+    void setReverbModDepth(float value) noexcept;
+    void setReverbModRateHz(float value) noexcept;
+    void setReverbWidth(float value) noexcept;
+    void setReverbFreeze(bool frozen) noexcept;
+    bool applyReverbSettings(const ReverbSettings &settings) noexcept; // coherent snapshot; false = ring full,
+                                                                      // the values still arrive via the targets
+    ReverbSettings getReverbSettings() const noexcept;                 // newest published
     float processVoice(uint8_t voiceId);
 
     // Voice Control
@@ -505,8 +520,14 @@ the resulting next-note differences are checked by PCM16 null tests.
 `VoiceManager::processBlock()` sums voice blocks in the original voice order.
 Per-voice mix, master-volume and mute targets are read once per block of up to
 256 frames (5.33 ms at 48 kHz). Master smoothing still advances every sample.
-`AudioSamples::toPcm16()` clamps and truncates the mix into identical left/right
-I2S samples. Block APIs overwrite their output and accept zero-length calls.
+`processStereoBlock()` renders the voices into the left buffer, runs the delay in
+place, then hands 64-frame quanta of that mono bus to `MasterReverb`, which returns
+the stereo blend. Master gain and the compressor macro apply to both channels and the
+compressor is linked (one detector on `max(|L|,|R|)`, one gain for both). With the
+reverb mix at zero the two channels are identical, so the bus equals the old mono bus
+bit for bit. `AudioSamples::interleavePcm16()` clamps and truncates left and right
+separately into the I2S buffer. Block APIs overwrite their output and accept
+zero-length calls; the mono `processBlock()` remains for callers and tests.
 
 ---
 
@@ -576,12 +597,9 @@ voiceManager.updateVoiceState(v1, newState);
 ### 6.3 Real-Time Block Audio Loop (Core 1)
 
 ```cpp
-// Fixed Core 1 scratch, outside the stack.
-static std::array<float, 256> mix;
-voiceManager.processBlock(mix.data(), mix.size());
-for (uint32_t i = 0; i < mix.size(); ++i) {
-    const int16_t pcm16 = AudioSamples::toPcm16(mix[i]);
-    out[2 * i] = pcm16;
-    out[2 * i + 1] = pcm16;
-}
+// Fixed Core 1 scratch, outside the stack (one buffer per channel).
+static std::array<float, 256> left, right;
+voiceManager.processStereoBlock(left.data(), right.data(), left.size());
+AudioSamples::interleavePcm16(left.data(), right.data(), out, left.size());
+// = for each frame: out[2*i] = toPcm16(left[i]); out[2*i+1] = toPcm16(right[i]);
 ```

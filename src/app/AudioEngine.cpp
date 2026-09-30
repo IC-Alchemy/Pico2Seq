@@ -1,5 +1,6 @@
 #include "AudioEngine.h"
 #include "../utils/AudioRam.h"
+#include "../utils/StackWatermark.h"
 #include "AppState.h"
 #include "HardwarePins.h"
 #include "../audio/audio.h"
@@ -11,8 +12,9 @@
 #include <algorithm>
 #include <atomic>
 
-// Core 1 render path: fill buffers from the published voices, duplicate mono to
-// stereo, and track timing so Core 0 can print dropouts without touching audio.
+// Core 1 render path: fill buffers from the published voices through the stereo
+// master bus (delay, reverb, linked compressor), convert left and right to PCM16
+// separately, and track timing so Core 0 can print dropouts without touching audio.
 
 static_assert(std::atomic<bool>::is_always_lock_free, "Audio readiness must not lock");
 static_assert(std::atomic<AudioEngine::Phase>::is_always_lock_free, "Audio diagnostics must not lock");
@@ -38,7 +40,9 @@ std::atomic<uint32_t> driverStage{0};
 bool audioStarted = false; // Core 1 only; never read blindly from Core 0
 SpscQueue<AudioEngine::Heartbeat, kHeartbeatQueueCapacity> heartbeats;
 audio_buffer_pool_t *producer_pool = nullptr;
-std::array<float, SAMPLES_PER_BUFFER> mixBuffer{}; // Core 1 render scratch (2 KiB stack limit)
+// Core 1 render scratch (2 KiB stack limit): one channel buffer each.
+std::array<float, SAMPLES_PER_BUFFER> leftBuffer{};
+std::array<float, SAMPLES_PER_BUFFER> rightBuffer{};
 
 
 
@@ -65,13 +69,10 @@ void PICO2SEQ_AUDIO_FUNC(fill_audio_buffer)(audio_buffer_t *buffer)
     for (int offset = 0; offset < N; offset += SAMPLES_PER_BUFFER)
     {
         const int count = std::min(N - offset, SAMPLES_PER_BUFFER);
-        voiceManager->processBlock(mixBuffer.data(), static_cast<uint32_t>(count));
-        for (int i = 0; i < count; ++i)
-        {
-            const int16_t sample = AudioSamples::toPcm16(mixBuffer[i]);
-            out[2 * (offset + i)] = sample;
-            out[2 * (offset + i) + 1] = sample;
-        }
+        voiceManager->processStereoBlock(leftBuffer.data(), rightBuffer.data(),
+                                         static_cast<uint32_t>(count));
+        AudioSamples::interleavePcm16(leftBuffer.data(), rightBuffer.data(),
+                                      out + 2 * offset, static_cast<uint32_t>(count));
     }
 
     buffer->sample_count = N;
@@ -126,6 +127,7 @@ extern "C" void audio_i2s_debug_stage(uint32_t stage)
 
 void AudioEngine::begin()
 {
+    StackWatermark::paintCore1(); // Core 0's [DIAG MEM] reports this stack's headroom
     // Core 0 owns control/voice setup and never waits for audio. A watchdog
     // recovery boot leaves voicesReady low so Core 1 parks instead of reviving
     // a failing hardware path behind the console.

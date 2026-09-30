@@ -56,12 +56,7 @@ namespace SequencerConstants
   static constexpr float LANE_FOLLOWS_PATCH = -1.0f;
 }
 
-// Old names kept for callers; prefer SequencerConstants::* in new code.
-constexpr uint16_t PULSES_PER_QUARTER_NOTE = SequencerConstants::PULSES_PER_QUARTER_NOTE_PPQN;
 constexpr uint8_t PULSES_PER_SEQUENCER_STEP = SequencerConstants::PULSES_PER_SEQUENCER_STEP_TICKS;
-constexpr uint8_t SEQUENCER_MAX_STEPS = SequencerConstants::MAX_STEPS_COUNT;
-constexpr uint8_t MIN_STEPS = SequencerConstants::MIN_STEPS_COUNT;
-constexpr uint8_t DEFAULT_STEPS = SequencerConstants::DEFAULT_STEPS_COUNT;
 
 /**
  * @brief One automatable lane per step (order must match CORE_PARAMETERS).
@@ -106,27 +101,6 @@ enum class EncoderParameterMode : uint8_t
   COUNT = 7          // Total mode count
 };
 
-/**
- * @brief Live encoder offsets added around the sequencer value at play time.
- * Lets the player bend pitch/filter/etc. around the pattern without rewriting it.
- */
-struct EncoderBaseValues
-{
-  // Normalized bipolar offsets combined with the step value at play time.
-  float note = 0.0f;          // Base note/pitch offset (normalized 0.0-1.0 domain)
-  float velocity = 0.0f;      // Base velocity (0.0-1.0)
-  float filter = 0.0f;        // Base filter cutoff (0.0-1.0)
-  float attack = 0.0f;        // Base attack time (0.0-1.0 seconds)
-  float decay = 0.0f;         // Base decay time (0.0-1.0 seconds)
-  float octave = 0.0f;        // Base octave offset (normalized 0.0-1.0 domain)
-  float slideTime = 0.0f;     // Slide time in seconds for voice glide
-};
-
-// Single-voice encoder bases; subtype exists for UI clarity, adds no state.
-struct EncoderBaseValuesVoice1 : public EncoderBaseValues
-{
-  // No additional members
-};
 // Which lanes the step-edit buttons currently target (UI-owned, read here).
 struct StepEditButtons
 {

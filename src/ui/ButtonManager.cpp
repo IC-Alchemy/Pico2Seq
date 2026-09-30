@@ -48,6 +48,7 @@ ParamId paramIdFromName(const char *name)
 void initButtonManager(UIState &uiState)
 {
   uiState.voiceEnvelope = {};
+  uiState.reverbPage = {};
   // Reset all parameter button hold states (no stuck lanes after boot).
   for (int paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
   {
@@ -63,6 +64,8 @@ void initButtonManager(UIState &uiState)
   // Initialize UI mode states
   uiState.modGateParamSeqLengthsMode = false;
   uiState.slideMode = false;
+  uiState.delaySynced = false;
+  uiState.delayNoteIndex = DelayTiming::kDefaultNoteIndex;
   uiState.selectedVoiceIndex = 0;
   uiState.selectedStepForEdit = -1;
 

@@ -74,17 +74,8 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
 
 static void autoSelectEncoderParameter(ParamId paramId, UIState &uiState);
 
-// Shared encoder-control hold/release implementation (used by the tile bridge)
-static void encoderControlShortPressAction(UIState &uiState);
-
-// Why: the encoder-control button is overloaded (short-press = switch target,
-// long-hold = gate-length entry) because the panel has no spare buttons, so one
-// shared body keeps the matrix path and the Alchemy tile bridge from drifting
-// into two different behaviors.
-// Shared body of a short encoder-control press: in Settings mode while
-// stopped it toggles between sub-modes; otherwise it cycles the encoder
-// parameter target.
-static void encoderControlShortPressAction(UIState &uiState)
+// Encoder target button: Settings page navigation or performance target cycle.
+void handleEncoderControlPress(UIState &uiState)
 {
   // In Settings mode the encoder button toggles between sub-modes — this now
   // also works while the transport runs, so presets can be browsed live.
@@ -98,37 +89,6 @@ static void encoderControlShortPressAction(UIState &uiState)
     // Existing behavior outside of settings: cycle encoder parameter
     handleControlButton(BUTTON_ENCODER_CONTROL, uiState);
   }
-}
-
-// Why: hold duration is tracked in UIState with millis() instead of blocking,
-// because Core 0 must keep scanning controls/displays every millisecond and
-// must never wait inside a button handler.
-void beginEncoderControlHold(UIState &uiState)
-{
-  uiState.encoderControlPressTime = millis();
-  uiState.encoderControlWasPressed = true;
-}
-
-// Why: short vs. long is decided on release (not on press) so a hold can still
-// promote into gate-length mode while held, and releasing always exits that
-// modal entry state even if the promotion never fired.
-void endEncoderControlHold(UIState &uiState)
-{
-  if (!uiState.encoderControlWasPressed)
-  {
-    return;
-  }
-  unsigned long pressDurationMs = millis() - uiState.encoderControlPressTime;
-  uiState.encoderControlWasPressed = false;
-
-  if (!isLongPress(pressDurationMs))
-  {
-    encoderControlShortPressAction(uiState);
-  }
-
-  // Exit gate sequence length mode on release
-  uiState.gateSeqLengthMode = false;
-  uiState.selectedStepForEdit = -1;
 }
 
 /**
@@ -296,6 +256,8 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
 {
   if (uiState.voiceEnvelope.active || uiState.voiceEnvelope.chordPending ||
       uiState.voiceEnvelope.waitRelease) return true;
+  // The reverb page owns the panel too: pads do nothing until it is closed.
+  if (uiState.reverbPage.active || uiState.reverbPage.waitRelease) return true;
   // Pads outside the 32-step grid have no voice; ignore them.
   if (evt.buttonIndex >= NUMBER_OF_STEP_PADS)
   {
@@ -358,16 +320,13 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
   // =======================
   //   GATE SEQ LENGTH MODE
   // =======================
-  // While holding encoder control (long press), allow setting Gate track length (2-16)
-  if (uiState.gateSeqLengthMode && evt.type == MATRIX_BUTTON_PRESSED)
+  // A long-held voice button owns length entry for its own bank (2..16).
+  if (uiState.gateSeqLengthMode)
   {
-    if (padSequencerPtr)
+    uiState.padPressTimestamps[evt.buttonIndex] = 0;
+    const uint8_t requested = UITransitions::gateLengthForPad(uiState, pad.voice, pad.step);
+    if (evt.type == MATRIX_BUTTON_PRESSED && requested != 0 && padSequencerPtr)
     {
-      uint8_t requested = static_cast<uint8_t>(pad.step + 1); // 1..16
-      if (requested < 2)
-        requested = 2;
-      if (requested > 16)
-        requested = 16;
       padSequencerPtr->setParameterStepCount(ParamId::Gate, requested);
       // Optional UI feedback flags
       uiState.resetStepsLightsFlag = true;
@@ -548,7 +507,7 @@ static void handleVoiceParameter(const MatrixButtonEvent &evt, UIState &uiState,
  * @param uiState Reference to UI state containing button press timing data
  * @param sequencers Fixed voice-order view of the voice sequencers
  * Why: long-press actions are polled (not interrupt-driven) because the matrix
- * only delivers edges — polling keeps reset/gate-length entry responsive without
+ * only delivers edges — polling keeps randomize resets responsive without
  * blocking the Core 0 scan loop, and suppressing them in Settings avoids
  * mistaking preset browsing for a destructive reset.
  */
@@ -580,29 +539,6 @@ void pollUIHeldButtons(UIState &uiState, const SequencerView &sequencers)
     }
   }
 
-  // Detect long hold of encoder control to enter Gate Sequence Length mode
-  // Suppress this feature while in settings menus (stopped state)
-  if (uiState.encoderControlWasPressed && !uiState.gateSeqLengthMode && !uiState.settingsMode)
-  {
-    unsigned long pressDurationMs = currentTimeMs - uiState.encoderControlPressTime;
-    if (isLongPress(pressDurationMs))
-    {
-      uiState.gateSeqLengthMode = true;
-      // Clear conflicting modes when entering this mode
-      uiState.slideMode = false;
-      for (int paramIndex = 0; paramIndex < PARAM_ID_COUNT; ++paramIndex)
-      {
-        uiState.parameterButtonHeld[paramIndex] = false;
-      }
-      uiState.selectedStepForEdit = -1;
-    }
-  }
-  // Safety: if the encoder control is no longer held, ensure we exit the mode
-  else if (!uiState.encoderControlWasPressed && uiState.gateSeqLengthMode)
-  {
-    uiState.gateSeqLengthMode = false;
-    uiState.selectedStepForEdit = -1;
-  }
 }
 
 // Slide mode is mutually exclusive with parameter-hold and gate-length

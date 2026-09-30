@@ -4,6 +4,10 @@ param(
     [string]$BuildDirectory,
     [ValidateSet(150, 225, 300)] [int]$CpuMHz = 225,
     [switch]$AudioInFlash,
+    # Extra compiler flags appended to build.extra_flags, e.g. the reverb A/B builds:
+    #   -ExtraFlags '-DPICO2SEQ_REVERB_STORAGE_HALF=0'  (Float tank; default is Half)
+    #   -ExtraFlags '-DPICO2SEQ_REVERB_BYPASS=1'        (bench baseline, no reverb)
+    [string]$ExtraFlags = '',
     [switch]$KeepStage,
     # User-facing build name (first prompt of build.ps1). publish_uf2.ps1
     # turns it into "<title>_Pico2Seq_<yyyy-MM-dd>.uf2".
@@ -77,7 +81,8 @@ function Copy-StageTree {
 
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     foreach ($item in Get-ChildItem -LiteralPath $Source -Force) {
-        if ($IsRepositoryRoot -and $item.Name -in @('.git', 'build', 'build_test', 'vendor')) {
+        if ($IsRepositoryRoot -and ($item.Name -in @('.git', 'build', 'build_test', 'vendor') -or
+                                    $item.Name -like 'build_*')) {
             continue
         }
 
@@ -120,12 +125,15 @@ try {
     Write-Host "Artifacts: $buildPath"
     Write-Host "CPU clock: $CpuMHz MHz"
     Write-Host "Audio code in RAM: $audioInRam"
+    if (-not [string]::IsNullOrWhiteSpace($ExtraFlags)) {
+        Write-Host "Extra flags: $ExtraFlags"
+    }
     & $arduinoCliCommand.Source compile `
         --fqbn 'rp2040:rp2040:rpipico2' `
         --board-options $boardOptions `
         --warnings all `
         --clean `
-        --build-property "build.extra_flags=-ffast-math -DPICO2SEQ_AUDIO_IN_RAM=$audioInRam" `
+        --build-property "build.extra_flags=-ffast-math -DPICO2SEQ_AUDIO_IN_RAM=$audioInRam $ExtraFlags" `
         --build-path $buildPath `
         $stageSketch
 
@@ -159,6 +167,11 @@ try {
 } finally {
     if (-not $KeepStage) {
         if (Test-Path -LiteralPath $stageRoot) {
+            $resolvedStage = (Resolve-Path -LiteralPath $stageRoot).Path
+            $resolvedTemp = (Resolve-Path -LiteralPath ([IO.Path]::GetTempPath())).Path.TrimEnd('\')
+            if (-not $resolvedStage.StartsWith($resolvedTemp + '\Pico2Seq-arduino-stage-', [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Refusing to remove a stage outside the expected temporary directory: $resolvedStage"
+            }
             Remove-Item -LiteralPath $stageRoot -Recurse -Force
         }
     } elseif ($buildSucceeded) {

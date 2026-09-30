@@ -212,19 +212,19 @@ static void wrap_producer_give(audio_connection_t *connection, audio_buffer_t *b
 
 static struct buffer_copying_on_consumer_take_connection m2s_audio_i2s_ct_connection = {
         .core = {
-                .consumer_pool_take = wrap_consumer_take,
-                .consumer_pool_give = consumer_pool_give_buffer_default,
                 .producer_pool_take = producer_pool_take_buffer_default,
                 .producer_pool_give = producer_pool_give_buffer_default,
+                .consumer_pool_take = wrap_consumer_take,
+                .consumer_pool_give = consumer_pool_give_buffer_default,
         }
 };
 
 static struct producer_pool_blocking_give_connection m2s_audio_i2s_pg_connection = {
         .core = {
-                .consumer_pool_take = consumer_pool_take_buffer_default,
-                .consumer_pool_give = consumer_pool_give_buffer_default,
                 .producer_pool_take = producer_pool_take_buffer_default,
                 .producer_pool_give = wrap_producer_give,
+                .consumer_pool_take = consumer_pool_take_buffer_default,
+                .consumer_pool_give = consumer_pool_give_buffer_default,
         }
 };
 
@@ -238,10 +238,10 @@ static void pass_thru_consumer_give(audio_connection_t *connection, audio_buffer
 
 static struct producer_pool_blocking_give_connection audio_i2s_pass_thru_connection = {
         .core = {
-                .consumer_pool_take = consumer_pool_take_buffer_default,
-                .consumer_pool_give = pass_thru_consumer_give,
                 .producer_pool_take = producer_pool_take_buffer_default,
                 .producer_pool_give = pass_thru_producer_give,
+                .consumer_pool_take = consumer_pool_take_buffer_default,
+                .consumer_pool_give = pass_thru_consumer_give,
         }
 };
 

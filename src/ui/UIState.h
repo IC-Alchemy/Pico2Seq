@@ -5,6 +5,8 @@
 #include "UIConstants.h" // NUMBER_OF_STEP_PADS sizes padPressTimestamps below
 #include "VoiceEditControls.h"
 #include "VoiceEnvelopeControls.h"
+#include "ReverbPageControls.h"
+#include "../voice/DelayTiming.h"
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
 
@@ -20,6 +22,8 @@ struct UIState
 {
     VoiceEdit::Controls voiceEditor;
     VoiceEnvelope::Controls voiceEnvelope;
+    // Live master-reverb page (Shift + 6 + 2): faders, Freeze and layer switch.
+    ReverbPage::Controls reverbPage;
     // Wait for all pads/tiles to release before performance input resumes
     // (prevents a held pad from firing a step toggle on mode exit).
     bool controlsWaitRelease = false;
@@ -50,6 +54,9 @@ struct UIState
     // Mutually exclusive step-edit modes: only one may own the pads at a time.
     bool modGateParamSeqLengthsMode = false;
     bool slideMode = false; // pads toggle legato per step instead of gates
+    // Shift + Utility Delay button toggles the master delay time scale.
+    bool delaySynced = false;
+    uint8_t delayNoteIndex = DelayTiming::kDefaultNoteIndex;
     // Selected voice index 0..3; all voice-dependent UI derives from this.
     uint8_t selectedVoiceIndex = 0;
     int selectedStepForEdit = -1;
@@ -62,7 +69,7 @@ struct UIState
     // the raw 0..31 pad; 0 = press was consumed by a mode, so release ignores it.
     unsigned long padPressTimestamps[NUMBER_OF_STEP_PADS] = {0};
     // --- Transient OLED notice (short confirmation banner; replaces the old control-cluster LED flashes) ---
-    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6, Macro = 7, DelayMix = 8, DelayTime = 9, DelayFeedback = 10, ArpOn = 11, ArpOff = 12 };
+    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6, Macro = 7, DelayMix = 8, DelayTime = 9, DelayFeedback = 10, ArpOn = 11, ArpOff = 12, DelaySync = 13, DelayMsMode = 14 };
     volatile unsigned long oledNoticeUntil = 0;
     volatile OledNoticeKind oledNoticeKind = OledNoticeKind::None;
     volatile uint8_t oledNoticeVoice = 0; // 0-based voice, valid for Randomized and VoiceCleared
@@ -111,12 +118,11 @@ struct UIState
     unsigned long playStopPressTime = 0;
     bool playStopWasPressed = false;
 
-    // --- Encoder Control Hold / Gate Seq Length Mode ---
-    // One overloaded tile button: tap cycles the encoder target, hold turns
-    // pads into Gate-track-length entry (2..16). Tracked non-blocking via millis().
-    unsigned long encoderControlPressTime = 0;
-    bool encoderControlWasPressed = false;
-    bool gateSeqLengthMode = false; // When true, step buttons set Gate track length (per selected voice)
+    // --- Voice Button Hold / Gate Sequence Length Mode ---
+    // A plain voice press selects immediately; holding it opens length entry
+    // for that voice until release. -1 means no armed/active voice hold.
+    int8_t gateSeqLengthVoice = -1;
+    bool gateSeqLengthMode = false;
 
     // --- Transient parameter feedback (independent of the settings page) ---
     bool voiceParameterFeedbackPending = false;

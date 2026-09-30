@@ -196,3 +196,72 @@ TEST_CASE("MasterDelay clamps its time target to the line", "[master_delay]")
     CHECK(delay.delaySamplesTarget() ==
           Approx(MasterDelay::kMinDelaySeconds * kSampleRate).margin(0.5f));
 }
+
+TEST_CASE("Tempo path reaches a whole note at 45 BPM without clamping", "[master_delay][delay_sync]")
+{
+    MasterDelay delay;
+    delay.prepare(kSampleRate);
+    delay.setSynced(true);
+    delay.setMix(1.0f);
+    delay.setFeedback(0.0f);
+    constexpr float kWholeSeconds = 4.0f * 60.0f / 45.0f;
+    REQUIRE(delay.maxSyncedDelaySeconds() >= kWholeSeconds);
+    delay.setDelaySeconds(kWholeSeconds);
+    REQUIRE(delay.delaySamplesTarget() == Approx(256000.0f).margin(0.1f));
+
+    float peak = 0.0f;
+    int peakAt = 0;
+    for (int n = 0; n < 256040; ++n)
+    {
+        const float out = delay.process(n == 0 ? 1.0f : 0.0f);
+        if (n < 255960) continue;
+        if (std::fabs(out) > peak)
+        {
+            peak = std::fabs(out);
+            peakAt = n;
+        }
+    }
+    CHECK(peak > 0.005f);
+    CHECK(std::abs(peakAt - 256000) <= 16);
+}
+
+TEST_CASE("Changing delay modes does not replay stale buffer contents", "[master_delay][delay_sync]")
+{
+    MasterDelay delay;
+    delay.prepare(kSampleRate);
+    delay.setMix(1.0f);
+    delay.setFeedback(0.0f);
+    delay.setDelaySeconds(0.010f);
+    delay.reset();
+    for (int n = 0; n < 2000; ++n)
+        delay.process(0.8f);
+    delay.setSynced(true);
+    delay.setDelaySeconds(0.050f);
+    for (int n = 0; n < 1200; ++n)
+        CHECK(std::fabs(delay.process(0.0f)) < 1e-5f);
+    delay.setSynced(false);
+    delay.setDelaySeconds(0.010f);
+    for (int n = 0; n < 300; ++n)
+        CHECK(std::fabs(delay.process(0.0f)) < 1e-5f);
+}
+
+TEST_CASE("Synced repeat line stays bounded at full feedback", "[master_delay][delay_sync]")
+{
+    MasterDelay delay;
+    delay.prepare(kSampleRate);
+    delay.setSynced(true);
+    delay.setDelaySeconds(0.0125f); // fastest 64th triplet at 200 BPM
+    delay.setMix(1.0f);
+    delay.setFeedback(1.0f);
+    float peak = 0.0f;
+    bool finite = true;
+    for (int n = 0; n < 96000; ++n)
+    {
+        const float out = delay.process(n < 48000 ? 0.9f : 0.0f);
+        finite = finite && std::isfinite(out);
+        peak = std::max(peak, std::fabs(out));
+    }
+    CHECK(finite);
+    CHECK(peak > 0.9f);
+    CHECK(peak < 4.0f);
+}

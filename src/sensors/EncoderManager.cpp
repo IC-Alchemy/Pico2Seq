@@ -105,7 +105,7 @@ bool editSelectedStep(UIState &uiState, float delta)
 // The magnetic encoder driver for the TMAG5273A Velocity Encoder board.
 MagEncoder magEncoder(makeMagEncoderConfig());
 
-void updateEncoderBaseValues(UIState &uiState)
+void updateEncoderTarget(UIState &uiState)
 {
   if (!magEncoder.isConnected() || uiState.controlsWaitRelease) return;
   // Every read's increment is forwarded, however small: the driver has
@@ -113,6 +113,7 @@ void updateEncoderBaseValues(UIState &uiState)
   const float delta=magEncoder.takeParameterIncrement(-1.0f,1.0f,3);
   if (uiState.voiceEnvelope.active || uiState.voiceEnvelope.chordPending ||
       uiState.voiceEnvelope.waitRelease) return;
+  if (uiState.reverbPage.active || uiState.reverbPage.waitRelease) return; // the page has no dial
   const bool arpOwnsDial = uiState.arp.active() && !uiState.voiceEditor.active;
   if (arpOwnsDial != arpDialActive || uiState.shiftHeld != arpDialShift) {
     arpTempoMotion.reset();
@@ -162,7 +163,7 @@ float getParameterMaxValueForParamId(ParamId paramId)
   }
   return SensorConstants::MagneticEncoder::PARAMETER_MAX_VALUE;
 }
-void initEncoderBaseValues()
+void initEncoderTarget()
 {
   // VoiceSetup initializes each patch's bases from its preset. The old
   // encoderBaseValues array was removed with that ownership change.

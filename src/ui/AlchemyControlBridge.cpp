@@ -3,6 +3,7 @@
 #include "AlchemyControlBridge.h"
 #include "../app/AppState.h"
 #include "../app/ArpPlayback.h"
+#include "../app/ReverbEditor.h"
 #include "../app/Session.h"
 #include "../app/StepPlayback.h"
 #include "../app/VoiceEditor.h"
@@ -16,6 +17,7 @@
 #include "../AlchemyUI/src/ButtonMap.h"
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
+#include "../voice/DelayTiming.h"
 
 #include <uClock.h>
 
@@ -109,6 +111,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
   for(uint8_t bit=0;bit<8;++bit) if(buttonAt(buttonSlot_,bit).held()) buttons|=1u<<bit;
   for(uint8_t bit=0;bit<4;++bit) if(buttonAt(sliderSlot_,bit).held()) voices|=1u<<bit;
   if(uiState.voiceEditor.active || uiState.controlsWaitRelease) {
+    UITransitions::cancelGateLengthHold(uiState);
     // Keep physical histories current even while their performance actions are
     // suppressed. No release can become a new action after leaving the editor.
     for(uint8_t bit=0;bit<8;++bit) {
@@ -120,12 +123,18 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
         faders_.accept(channel,panel_.tiles().faderRaw(channel));
     }
     latch_.reset(); playSettingsOpenedThisPress_=false;
+    uiState.reverbPage.observe(buttons, voices); // a button held across the editor is not a new press
     if(uiState.voiceEditor.active) VoiceEditor::buttons(buttons,voices,nowMs);
     else if(buttons==0 && voices==0) uiState.controlsWaitRelease=false;
     return;
   }
 
   handleModeStrap(nowMs, uiState);
+
+  // The Reverb page is the third key of the Shift + 6 chord, so it is decided before
+  // the ADSR chord below claims that modifier pair.
+  if (handleReverbPage(buttons, voices, uiState))
+    return;
 
   // Reserve Shift + button 6 before any single-button or Shift+voice action.
   // Keep histories current through the complete chord and its release tail.
@@ -138,9 +147,9 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
     if (uiState.voiceEnvelope.active || envelopeInput.exit) latch_.reset();
     for (auto &held : uiState.parameterButtonHeld) held = false;
     uiState.latchedParameter = -1;
-    uiState.encoderControlWasPressed = false;
+    UITransitions::cancelGateLengthHold(uiState);
     for (auto &held : uiState.randomizeWasPressed) held = false;
-    playSettingsOpenedThisPress_ = saveLoadLatch_ = false;
+    playSettingsOpenedThisPress_ = saveLoadLatch_ = delayTogglePress_ = false;
     clearChordThisPress_ = clearAllLatch_ = false;
     editorHoldArmed_ = editorHoldFired_ = false;
     uiState.shiftHeld = shiftWasHeld_ = (buttons & VoiceEnvelope::Controls::kShift) != 0;
@@ -173,8 +182,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
         uiState.latchedParameter = latch_.latched();
         handleParameterButtonById(lane, true, uiState);
       } else if (uiState.alchemyMode == UIState::AlchemyMode::Utility) {
-        beginEncoderControlHold(uiState);
-        endEncoderControlHold(uiState);
+        handleEncoderControlPress(uiState);
       }
     }
     if (!uiState.voiceEnvelope.active || uiState.voiceEnvelope.waitRelease ||
@@ -196,7 +204,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
     faders_.resetShiftTargets();
   }
 
-  // SliderModule buttons: voice select, or transport chords with Shift —
+  // SliderModule buttons: voice select/length hold, or transport chords with Shift —
   // identical in both modes.
   handleVoiceButtons(nowMs, uiState);
   if(uiState.voiceEditor.active) return;
@@ -237,6 +245,72 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
   handleFaders(uiState, sequencers);
 }
 
+// --- Reverb page ---------------------------------------------------------------
+
+// Why this runs before the ADSR chord: Shift + 6 is that chord's modifier pair, and
+// its deferred "Shift+6 alone" action would otherwise fire when the page closes.
+// Opening resets the ADSR chord state for the same reason. While the page is open
+// or draining its release tail every physical history keeps advancing, so no
+// release can become an action once normal input resumes.
+bool AlchemyControlBridge::handleReverbPage(uint8_t buttons, uint8_t voices, UIState &uiState)
+{
+  const bool canOpen = !uiState.voiceEnvelope.active && !uiState.voiceEnvelope.waitRelease &&
+                       !uiState.gateSeqLengthMode;
+  const auto input = uiState.reverbPage.poll(buttons, voices, canOpen);
+  if (!input.consumed)
+    return false;
+
+  for (uint8_t bit = 0; bit < 8; ++bit)
+  {
+    buttonEdges_[kButtonRole][bit].take(buttonAt(buttonSlot_, bit));
+    buttonEdges_[kSliderRole][bit].take(buttonAt(sliderSlot_, bit));
+  }
+  latch_.reset();
+  for (auto &held : uiState.parameterButtonHeld) held = false;
+  uiState.latchedParameter = -1;
+  UITransitions::cancelGateLengthHold(uiState);
+  for (auto &held : uiState.randomizeWasPressed) held = false;
+  playSettingsOpenedThisPress_ = saveLoadLatch_ = delayTogglePress_ = false;
+  clearChordThisPress_ = clearAllLatch_ = false;
+  editorHoldArmed_ = editorHoldFired_ = false;
+  uiState.shiftHeld = shiftWasHeld_ = (buttons & ReverbPage::Controls::kShift) != 0;
+
+  if (input.open)
+  {
+    UITransitions::openReverbPage(uiState); // also drops any half-finished ADSR chord
+    VoiceEditor::clearEncoder();
+    faders_.resetDeadband(); // faders must be moved to engage: no snapping to rest positions
+  }
+  if (input.exit)
+  {
+    UITransitions::closeReverbPage(uiState);
+    VoiceEditor::clearEncoder();
+    faders_.resetDeadband();
+  }
+  if (input.toggleFreeze)
+    ReverbEditor::toggleFreeze();
+  if (input.toggleLayer)
+    faders_.resetDeadband(); // the same physical faders now mean other settings
+
+  if (uiState.reverbPage.active && !uiState.reverbPage.waitRelease)
+    handleReverbFaders(uiState);
+  return true;
+}
+
+void AlchemyControlBridge::handleReverbFaders(UIState &uiState)
+{
+  if (!panel_.tiles().sliderFrameChanged())
+    return;
+  for (uint8_t channel = 0; channel < ControlSurface::FaderMap::kChannelCount; ++channel)
+  {
+    if (!faders_.accept(channel, panel_.tiles().faderRaw(channel)))
+      continue;
+    const auto control = ControlSurface::reverbControlForFader(uiState.reverbPage.layer, channel);
+    ReverbEditor::setFromFader(control,
+                               ControlSurface::FaderMap::normalize(faders_.filtered(channel)));
+  }
+}
+
 // --- Mode strap ----------------------------------------------------------------
 
 // Why debounce in software: the Param/Utility strap is a bare physical switch,
@@ -266,6 +340,7 @@ void AlchemyControlBridge::handleModeStrap(uint32_t nowMs, UIState &uiState)
 // this is the only point that knows a settled change just happened.
 void AlchemyControlBridge::onModeFlip(uint32_t nowMs, UIState &uiState)
 {
+  UITransitions::cancelGateLengthHold(uiState);
   // Nothing sticks across a mode change: drop the latch and every derived
   // hold, snap the fader deadband so the new mode's controls engage, and
   // raise the OLED banner flag.
@@ -294,15 +369,21 @@ void AlchemyControlBridge::handleVoiceButtons(uint32_t nowMs, UIState &uiState)
   {
     const TileButton &tileButton = buttonAt(sliderSlot_, voice);
     ButtonEdges &edges = buttonEdges_[kSliderRole][voice];
-    // An armed editor/arp press keeps being polled while it is held, so the
-    // long press is reachable; every other button acts on its press edge only.
+    const bool changed = edges.take(tileButton);
+    // Plain voice holds run in both panel modes, including passes with no
+    // edge. Release (or a missing tile) cancels only that voice's own hold.
+    if (UITransitions::updateGateLengthHold(uiState, voice, tileButton.held(),
+          tileButton.heldMilliseconds(nowMs), UITimingConstants::LONG_PRESS_THRESHOLD_MS))
+      latch_.reset();
+
+    // Shift+Voice 4 retains its editor tap / arpeggiator hold gesture.
     const bool actsWhileHeld = voice == 3 && editorHoldArmed_ && !editorHoldFired_;
-    if (!edges.take(tileButton) && !(actsWhileHeld && tileButton.held()))
+    if (!changed && !(actsWhileHeld && tileButton.held()))
     {
       continue;
     }
 
-    if (voice == 3 && (shift || editorHoldArmed_))
+    if (voice == 3 && ((edges.pressEdge && shift) || editorHoldArmed_))
     {
       if (edges.pressEdge)
       {
@@ -338,6 +419,7 @@ void AlchemyControlBridge::handleVoiceButtons(uint32_t nowMs, UIState &uiState)
     {
       // Direct voice select (also switches the pad banks via PadBank).
       selectVoice(uiState, voice);
+      UITransitions::beginGateLengthHold(uiState, voice);
       continue;
     }
 
@@ -407,6 +489,11 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
     }
 
     if (uiState.slideMode)
+      continue;
+
+    // Length entry owns the pads and OLED until the voice button is released.
+    // Still consume tile edges so no parameter press leaks out afterwards.
+    if (uiState.gateSeqLengthMode)
       continue;
 
     // Bits 0-5 follow ButtonMap.h order. The 5th button is silkscreened Decay
@@ -487,6 +574,39 @@ void AlchemyControlBridge::handleSessionButton(const ButtonState &button)
   }
 }
 
+void AlchemyControlBridge::handleSessionOrDelayButton(const ButtonState &button,
+                                                      UIState &uiState)
+{
+  if (button.pressEdge)
+  {
+    delayTogglePress_ = uiState.shiftHeld;
+    if (delayTogglePress_)
+    {
+      uiState.delaySynced = !uiState.delaySynced;
+      if (voiceManager)
+      {
+        voiceManager->setDelayNoteIndex(uiState.delayNoteIndex);
+        voiceManager->setDelaySynced(uiState.delaySynced);
+      }
+      uiState.oledNoticeKind = uiState.delaySynced
+                                   ? UIState::OledNoticeKind::DelaySync
+                                   : UIState::OledNoticeKind::DelayMsMode;
+      uiState.oledNoticeValue = voiceManager
+                                    ? static_cast<uint16_t>(lroundf(voiceManager->getDelayTime() * 1000.0f))
+                                    : 300;
+      uiState.oledNoticeUntil = millis() + OLED_NOTICE_DURATION_MS;
+      faders_.resetShiftTargets();
+      return;
+    }
+  }
+  if (delayTogglePress_)
+  {
+    if (button.releaseEdge) delayTogglePress_ = false;
+    return;
+  }
+  handleSessionButton(button);
+}
+
 // --- ButtonModule8, Arpeggiator mode --------------------------------------------
 
 // Why patterns are a single-select group rather than latchable holds: a step
@@ -553,8 +673,8 @@ void AlchemyControlBridge::handleArpUtilityButtons(uint32_t nowMs, UIState &uiSt
       handleTransportButton(state, uiState);
       break;
 
-    case 1: // Session save (tap) / load last saved (long-press)
-      handleSessionButton(state);
+    case 1: // Session; Shift + Delay toggles ms / tempo sync.
+      handleSessionOrDelayButton(state, uiState);
       break;
 
     case 2: // Scale cycle: the arp plays the same scale table as the sequencer.
@@ -646,8 +766,8 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
       handleTransportButton(state, uiState);
       break;
 
-    case 1: // Session save (tap) / load last saved (long-press)
-      handleSessionButton(state);
+    case 1: // Session; Shift + Delay toggles ms / tempo sync.
+      handleSessionOrDelayButton(state, uiState);
       break;
 
     case 2: // Scale cycle
@@ -665,15 +785,9 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
         handleControlButton(BUTTON_CHANGE_THEME, uiState);
       break;
 
-    case 5: // Encoder-control target cycle; hold enters gate seq length mode
+    case 5: // Encoder target / Settings page; length entry uses voice holds.
       if (edges.pressEdge)
-      {
-        beginEncoderControlHold(uiState);
-      }
-      else if (edges.releaseEdge)
-      {
-        endEncoderControlHold(uiState);
-      }
+        handleEncoderControlPress(uiState);
       break;
 
     case 6: // Randomize selected voice (long-press reset via pollUIHeldButtons).
@@ -854,12 +968,22 @@ void AlchemyControlBridge::handleFaders(UIState &uiState,
       // shape as the ENV lanes' Shift reset). Both report on the OLED.
       if (uiState.shiftHeld)
       {
-        const float seconds = ControlSurface::delaySecondsForFader(normalized);
-        if (voiceManager)
-          voiceManager->setDelayTime(seconds);
-        uiState.oledNoticeKind = UIState::OledNoticeKind::DelayTime;
-        uiState.oledNoticeValue =
-            static_cast<uint16_t>(lroundf(seconds * 1000.0f));
+        if (uiState.delaySynced)
+        {
+          uiState.delayNoteIndex = DelayTiming::indexForFader(normalized);
+          if (voiceManager)
+            voiceManager->setDelayNoteIndex(uiState.delayNoteIndex);
+          uiState.oledNoticeKind = UIState::OledNoticeKind::DelaySync;
+        }
+        else
+        {
+          const float seconds = ControlSurface::delaySecondsForFader(normalized);
+          if (voiceManager)
+            voiceManager->setDelayTime(seconds);
+          uiState.oledNoticeKind = UIState::OledNoticeKind::DelayTime;
+          uiState.oledNoticeValue =
+              static_cast<uint16_t>(lroundf(seconds * 1000.0f));
+        }
       }
       else
       {

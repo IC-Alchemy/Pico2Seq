@@ -99,7 +99,7 @@ What pads do, per situation:
 - **Hold a parameter button + tap a pad** — sets that parameter track's **length** to the
   pad number (pad 5 = 5 steps). This is how you make polymetric tracks (§3.2).
 - **Shift + pad** — clears that step (gate off, all parameters back to defaults).
-- **While Gate Length mode is active** (hold the Utility-mode encoder button) — a pad sets
+- **While Gate Length mode is active** (hold a voice button for 400 ms) — a pad in that voice's lit bank sets
   the selected voice's **Gate track length** (2–16 steps) instead of toggling a step.
 
 ### 1.3 Faders (slider slots)
@@ -203,9 +203,13 @@ range. It edits whatever the **encoder target** is — cycle targets with the Ut
   **base** instead, marked `Base` on the home screen and `BASE` on a parameter screen. A
   held parameter also shows the current lidar reading in mm.
 
-**Hold** the Utility-mode encoder button (about a second) to enter **Gate Sequence Length
-mode**: the LEDs show a blinking band on the selected voice's rows, and touching pads 1–16
-sets that voice's Gate track length (2–16 steps). Release the button to exit.
+**Hold Voice 1-4 without Shift for 400 ms** in either Param or Utility mode to enter
+**Gate Sequence Length mode** for that voice. The LEDs show a blinking band on its
+rows. Keep holding and touch pads 1–16 in that voice's lit bank to set its Gate track
+length (2–16 steps); the other bank is ignored.
+The same OLED length gauge shows the value; release the voice button to exit. A short
+press still selects immediately. Settings, Voice Editing, voice-envelope controls,
+and Arpeggiator mode retain their own controls.
 
 ### 1.7 VL53L1X distance sensor
 
@@ -473,10 +477,13 @@ time 300 ms and feedback 85%.
 
 ### 3.6 Master compressor and volume
 
-The summed voices pass through the delay, then master volume, then the
-compressor. Dry sound and repeats share compression; master volume and
-transport mute control the whole result. With delay mix at zero, the
-compressor keeps its existing dry-bus behavior.
+The summed voices pass through the delay, then the reverb (§3.7), then master
+volume, then the compressor. Dry sound, repeats and reverb share compression;
+master volume and transport mute control the whole result. The compressor is
+**linked**: one detector follows the louder of the left and right channels and
+both channels are turned down by the same amount, so the stereo image does not
+shift under compression. With delay and reverb mix at zero, the compressor keeps
+its existing dry-bus behavior.
 
 - **Master volume** — fader 3; saved with the session.
 - **Compressor macro** — hold **Shift** and move fader 3. The existing curve
@@ -488,6 +495,52 @@ compressor keeps its existing dry-bus behavior.
   the compressor leaves volume intact.
 - In **ENV mode**, all four faders retain their selected-step envelope
   controls and Shift-reset gestures; master effects are not edited there.
+
+### 3.7 Master reverb
+
+A long, dark stereo reverb sits after the delay, so delay repeats feed it, and
+before master volume and the compressor, so volume, transport mute and the
+compressor act on the whole result. It has **its own page**; the Utility faders
+are not reassigned.
+
+**Open the page:** hold **Shift** (button 8), hold **button 6**, then **press
+button 2**, and release everything. Playback continues. **Shift** leaves the page.
+The chord shares its first two keys with the ADSR page (Shift + 6 + a voice
+button) and with Shift + 6's own short action; only the third key decides.
+
+| Layer | Fader 1 | Fader 2 | Fader 3 | Fader 4 |
+|---|---|---|---|---|
+| **MAIN** (opens here) | **Mix** 0–100 % (default 0) | **Decay** 0.1–1000 s, log (20 s) | **Damping** 100 Hz–10.8 kHz, log (3 kHz) | *(unused)* |
+| **TONE** | **Low cut** 10–1000 Hz, log (40 Hz) | **Diffusion** 0–100 % (80 %) | **Mod** depth 0–100 % (50 %) | **Width** 0–200 % (100 %: natural, 0: mono wet, 200: exaggerated) |
+
+**Button 1** toggles **Freeze**, **button 2** switches MAIN ↔ TONE, **Shift** exits.
+Voice buttons, step pads and the encoder do nothing while the page is open.
+The faders use the same movement pickup, median filter and deadband as the ADSR
+page and are re-armed on entering, switching layer and leaving, so a fader only
+acts once you move it. The modulation *rate* (0.5 Hz) is saved with the project
+but has no fader.
+
+- **Mix 0 keeps the sound you had.** The reverb tank keeps running at any mix,
+  so raising Mix later reveals the tail that has been building; its CPU cost does
+  not depend on Mix.
+- **Nothing zips or clicks.** Every control eases in over about 30 ms; Mix is
+  smoothed per sample.
+- **Freeze** holds the current tail. It glides in over about 60 ms (decay and
+  damping open together, then the engine freezes) and glides out the same way.
+  Freezing a silent tank holds silence. Freeze is performance state: it is
+  **never saved** and is always off after boot or a load.
+- **Saving.** The eight reverb settings are part of the project (see
+  [persistence](persistence.md)); older projects load with Mix at 0 and sound
+  exactly as before. The tank itself is never saved, and loading a project does
+  not clear it: a tail rings on across the load while the new settings ease in.
+- **Display.** The OLED shows `REVERB MAIN` or `REVERB TONE`, `FRZ` while frozen,
+  the layer's four rows with the last-moved fader marked `>`, and the footer
+  `1 Frz 2 Layer 8 Exit`. On the LED matrix each row is a bar of 0–8 LEDs at that
+  fader's setting; the MAIN layer's fourth row is the Freeze switch (a full white
+  bar while frozen, one dim LED otherwise).
+- **Long tails add up.** A 1000 s decay fed loud, continuous material exceeds full
+  scale like a real space would; the compressor and the PCM clip are the only
+  limiters after the reverb. Use Mix and Decay accordingly.
 
 ---
 
@@ -533,7 +586,8 @@ Each voice runs a full synthesis chain at 48 kHz on the audio core:
         |
         v
  voice output level -> summed with the other 3 voices
- -> master delay -> master volume -> master compressor -> Stereo Out
+ -> master delay -> master reverb (mono in, stereo out) -> master volume
+ -> linked stereo master compressor -> Stereo Out (left and right)
 ```
 
 **The old delay effect was removed** (2026-09-11): the global delay line, its boot
@@ -610,7 +664,7 @@ Presets live in flash and are auditioned and applied per voice in the **preset b
 | Long-press a pad (~0.4 s) | Enter Step Edit mode for that step (encoder/faders/sensor edit it; OLED shows values) |
 | Shift + pad | Clear that step (gate off, parameters to defaults) |
 | Hold a parameter button + tap pad | Set that parameter track's length to the pad number |
-| Pad press while Gate Length mode is held | Set the selected voice's Gate track length (2–16 steps) |
+| Pad press in the lit bank while a voice button is long-held | Set the selected voice's Gate track length (2–16 steps) |
 | Tap a pad while the preset browser is open | Apply that preset to the selected voice — pads 0–28 = presets 1–29 (pads 0–30 are preset slots); V1–V4 switch the target voice |
 
 ### Faders
@@ -643,7 +697,7 @@ of the step to the patch value. See §1.3.
 | 3 Scale | Cycle forward through the 13 scales |
 | 4 Swing | Cycle through the 16 shuffle templates |
 | 5 Theme | Cycle the 10 LED matrix color themes |
-| 6 Encoder target | Short press: cycle encoder target. Hold: enter Gate Sequence Length mode (pads set the Gate track length) |
+| 6 Encoder target | Press: cycle encoder target (or toggle the Settings page) |
 | 7 Randomize | Short press (< 1 s): randomize the selected voice. Long press (≥ 1 s): reset it. **Shift + tap**: clear the selected voice's whole pattern (values, gates, track lengths). **Shift + long-press**: clear all four voices |
 | 8 Shift | Modifier for transport/utility chords |
 
@@ -715,7 +769,7 @@ voices: [`docs/arpeggiator.md`](arpeggiator.md).
 |---|---|
 | Turn magnetic encoder | Adjust the active encoder target; slow = fine, fast = coarse (velocity-sensitive) |
 | Utility button 6 | Change encoder target (Velocity → Filter → Attack → Decay → Note → Octave → Slide Time) |
-| Hold Utility button 6 | Gate Sequence Length mode |
+| Hold Voice 1-4 without Shift (400 ms) | Gate Sequence Length mode for that voice, in Param or Utility mode; release to exit |
 | Move hand over VL53L1X while a parameter is armed | Hands-free live recording of a relative modifier into that parameter's sequence at its playing step on the selected voice, continuously while held and heard at once (midpoint ≈ neutral) |
 | Mode switch (GPIO 7) | Select Param (LOW) or Utility (HIGH) button set; shows a banner on flip |
 | Shift + V4 (hold, release) | Enter Voice Editing mode (transport stops; see above) |

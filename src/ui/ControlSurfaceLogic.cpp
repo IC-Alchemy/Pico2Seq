@@ -3,8 +3,11 @@
 
 #include "ControlSurfaceLogic.h"
 
+#include "../voice/ReverbSettings.h"
+
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 namespace ControlSurface
 {
@@ -348,6 +351,134 @@ int EncoderMotion::takeSteps(float detent)
   const int steps = static_cast<int>(pending_ / detent); // truncates toward zero
   pending_ -= static_cast<float>(steps) * detent;
   return steps;
+}
+
+
+
+// --- Reverb page ----------------------------------------------------------------
+
+namespace
+{
+struct ReverbCurve
+{
+  const char *name;
+  float low;
+  float high;
+  bool logarithmic;
+};
+
+// One row per ReverbControl (Count excluded). The limits are ReverbParams', so the
+// fader, the audio adapter and the session file can never disagree about a range.
+constexpr ReverbCurve kReverbCurves[static_cast<size_t>(ReverbControl::Count)] = {
+    {"Mix", ReverbParams::kMixMin, ReverbParams::kMixMax, false},
+    {"Decay", ReverbParams::kDecayMin, ReverbParams::kDecayMax, true},
+    {"Damp", ReverbParams::kDampingMin, ReverbParams::kDampingMax, true},
+    {"LowCut", ReverbParams::kLowCutMin, ReverbParams::kLowCutMax, true},
+    {"Diffuse", ReverbParams::kDiffusionMin, ReverbParams::kDiffusionMax, false},
+    {"Mod", ReverbParams::kModDepthMin, ReverbParams::kModDepthMax, false},
+    {"Width", ReverbParams::kWidthMin, ReverbParams::kWidthMax, false},
+};
+
+const ReverbCurve *curveFor(ReverbControl control) noexcept
+{
+  const size_t index = static_cast<size_t>(control);
+  return index < static_cast<size_t>(ReverbControl::Count) ? &kReverbCurves[index] : nullptr;
+}
+
+// !(x > 0) also catches NaN without a NaN comparison the compiler may drop.
+float clampUnit(float value) noexcept
+{
+  if (!ReverbParams::finite(value) || !(value > 0.0f))
+    return 0.0f;
+  return value > 1.0f ? 1.0f : value;
+}
+} // namespace
+
+const char *reverbControlName(ReverbControl control) noexcept
+{
+  const ReverbCurve *curve = curveFor(control);
+  return curve ? curve->name : "";
+}
+
+float reverbValueForFader(ReverbControl control, float normalized) noexcept
+{
+  const ReverbCurve *curve = curveFor(control);
+  if (!curve)
+    return 0.0f;
+  const float n = clampUnit(normalized);
+  if (n <= 0.0f)
+    return curve->low;
+  if (n >= 1.0f)
+    return curve->high;
+  if (curve->logarithmic)
+    return curve->low * std::pow(curve->high / curve->low, n);
+  return curve->low + (curve->high - curve->low) * n;
+}
+
+float reverbFaderForValue(ReverbControl control, float value) noexcept
+{
+  const ReverbCurve *curve = curveFor(control);
+  if (!curve || !ReverbParams::finite(value))
+    return 0.0f;
+  if (value <= curve->low)
+    return 0.0f;
+  if (value >= curve->high)
+    return 1.0f;
+  if (curve->logarithmic)
+    return std::log(value / curve->low) / std::log(curve->high / curve->low);
+  return (value - curve->low) / (curve->high - curve->low);
+}
+
+float reverbValueOf(const ReverbSettings &settings, ReverbControl control) noexcept
+{
+  switch (control)
+  {
+  case ReverbControl::Mix: return settings.mix;
+  case ReverbControl::Decay: return settings.decaySeconds;
+  case ReverbControl::Damping: return settings.dampingHz;
+  case ReverbControl::LowCut: return settings.lowCutHz;
+  case ReverbControl::Diffusion: return settings.diffusion;
+  case ReverbControl::ModDepth: return settings.modDepth;
+  case ReverbControl::Width: return settings.width;
+  case ReverbControl::Count: break;
+  }
+  return 0.0f;
+}
+
+void formatReverbValue(ReverbControl control, float value, char *out, size_t size) noexcept
+{
+  if (!out || size == 0)
+    return;
+  const ReverbCurve *curve = curveFor(control);
+  if (!curve || !ReverbParams::finite(value))
+  {
+    std::snprintf(out, size, "--");
+    return;
+  }
+  value = std::clamp(value, curve->low, curve->high);
+  switch (control)
+  {
+  case ReverbControl::Decay:
+    if (value < 1.0f)
+      std::snprintf(out, size, "%.2fs", static_cast<double>(value));
+    else if (value < 10.0f)
+      std::snprintf(out, size, "%.1fs", static_cast<double>(value));
+    else
+      std::snprintf(out, size, "%.0fs", static_cast<double>(value));
+    break;
+  case ReverbControl::Damping:
+    if (value >= 1000.0f)
+      std::snprintf(out, size, "%.1fkHz", static_cast<double>(value) / 1000.0);
+    else
+      std::snprintf(out, size, "%.0fHz", static_cast<double>(value));
+    break;
+  case ReverbControl::LowCut:
+    std::snprintf(out, size, "%.0fHz", static_cast<double>(value));
+    break;
+  default: // Mix, Diffusion, Modulation depth, Width: percent of the natural setting
+    std::snprintf(out, size, "%ld%%", std::lround(static_cast<double>(value) * 100.0));
+    break;
+  }
 }
 
 } // namespace ControlSurface

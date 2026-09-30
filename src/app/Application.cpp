@@ -10,11 +10,20 @@
 #include "../sensors/DistanceSensor.h"
 #include "../utils/FreezeWatchdog.h"
 #include "../utils/Debug.h"
+#include "../utils/StackWatermark.h"
+#include "../voice/MasterReverb.h"
 #include "../pico2seq-core/persistence/ProjectSnapshot.h"
 #include "../pico2seq-core/persistence/SnapshotFormat.h"
 #include "../ui/UIConstants.h"
 #include <Arduino.h>
+#include <malloc.h>
 #include <uClock.h>
+
+#if AUG_DEBUG_COMPILED
+// Defined once in diagnostic.h (included by AudioEngine.cpp); the diagnostics
+// block below reads it. Without this declaration the firmware build fails.
+extern volatile uint8_t g_errorState;
+#endif
 
 // Application: Core 0 boot order + main-loop slices (see Application.h).
 // Musical role: power-on restores the performer's song, then each pass keeps
@@ -49,7 +58,7 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
             freezeWatchdogPrintPreviousRun();
             // lidar=-1: no recent reading. st is the ST range status: 0 valid,
             // 1 sigma fail (still used), 2 signal fail, 4 out of bounds, 255 none.
-            Serial.printf("[DIAG C0] ids=%u,%u,%u,%u mgrVoices=%u warmBoots=%lu steps=%lu audioBufs=%lu audio=%s i2sstage=%lu lidar=%dmm st=%u\n",
+            Serial.printf("[DIAG C0] ids=%u,%u,%u,%u mgrVoices=%u warmBoots=%lu steps=%lu audioBufs=%lu audio=%s err=%u i2sstage=%lu lidar=%dmm st=%u\n",
                           voiceSystem.getVoiceId(0), voiceSystem.getVoiceId(1),
                           voiceSystem.getVoiceId(2), voiceSystem.getVoiceId(3),
                           (unsigned)(voiceManager ? voiceManager->getVoiceCount() : 0),
@@ -57,9 +66,40 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
                           (unsigned long)g_processedStepCount,
                           (unsigned long)AudioEngine::completedBufferCount(),
                           AudioEngine::phaseName(AudioEngine::phase()),
+                          static_cast<unsigned>(g_errorState),
                           (unsigned long)AudioEngine::driverSetupStage(),
                           distanceSensor.getRawDistanceMm(),
                           static_cast<unsigned>(distanceSensor.getLastRangeStatus()));
+        }
+    }
+
+    // Memory headroom for the board checks (docs/audio-performance.md): heap and
+    // both stacks, plus which reverb build produced the numbers.
+    //   heapFree  = total - allocated now (fragmentation not subtracted).
+    //   heapFloor = total - heap ever taken from the system (sbrk arena). The arena
+    //               only grows, so this is a conservative floor for the free heap at
+    //               its lowest point, including allocations that came and went.
+    //   stackNFree = bytes of core N's stack never reached since painting at its
+    //               entry point (-1: not painted yet). It includes the entry depth
+    //               and a small margin, so real use is slightly overstated.
+    static uint32_t lastMemDiag = 0;
+    if (currentMillis - lastMemDiag >= kDiagnosticIntervalMs)
+    {
+        lastMemDiag = currentMillis;
+        if (Serial)
+        {
+            const struct mallinfo heap = mallinfo();
+            const int heapTotal = rp2040.getTotalHeap();
+            const int heapUsed = static_cast<int>(heap.uordblks);
+            const int heapArena = static_cast<int>(heap.arena);
+            Serial.printf("[DIAG MEM] reverb=%s heapTotal=%d heapUsed=%d heapFree=%d heapFloor=%d "
+                          "stack0=%u/%u stack1=%u/%u (free/total)\n",
+                          MasterReverb::kVariantName, heapTotal, heapUsed,
+                          heapTotal - heapUsed, heapTotal - heapArena,
+                          static_cast<unsigned>(StackWatermark::untouchedCore0()),
+                          static_cast<unsigned>(StackWatermark::sizeCore0()),
+                          static_cast<unsigned>(StackWatermark::untouchedCore1()),
+                          static_cast<unsigned>(StackWatermark::sizeCore1()));
         }
     }
 
@@ -143,6 +183,7 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
 
 void Application::begin()
 {
+    StackWatermark::paintCore0(); // first, so [DIAG MEM] covers everything after boot
     freezeWatchdogBootCheck();
     delay(kBootStabilizationMs);
     Serial.begin(kSerialBaud);
@@ -217,6 +258,7 @@ void Application::begin()
     initializeClock();
     if (g_bootSnapshotPending)
         Session::applyAfterClock(g_sessionSnapshot);
+    voiceManager->setDelayTempoBpm(uClock.getTempo());
     Serial.println("[VOICE EDIT] Patch bases + lidar modifiers; Shift + slider 4 opens editor");
     Serial.println("[CORE0] Setup complete!");
     voicesReady.store(true, std::memory_order_release);
@@ -371,6 +413,9 @@ void Application::update()
     freezeWatchdogFeed(FW_LOOP_PPQN);
     processPendingGateTicks();
     ControlIO::scanControls(nowMs);
+    // The clock can change from the tempo fader, the arp dial, or a loaded
+    // session. Publish its current BPM every pass so synced echoes follow it.
+    voiceManager->setDelayTempoBpm(uClock.getTempo());
     ControlIO::refreshLeds(nowMs);
     ControlIO::refreshOled(nowMs);
 }

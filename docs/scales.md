@@ -130,9 +130,9 @@ inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset, int 
 
 ### 4.2 Removed Firmware MIDI Conversion
 
-The former C2-base (+36) conversion in step playback served only the dormant
-`MidiNoteManager` tracker. That tracker and its firmware conversion path have
-been removed. Audio pitch is unchanged. See [MIDI status](midi.md) for the
+The former C2-base (+36) conversion in step playback served only a removed,
+firmware-only MIDI conversion path. That path is gone. Audio pitch is unchanged.
+See [MIDI status](midi.md) for the
 separate optional hooks retained in the portable sequencer.
 
 ---
