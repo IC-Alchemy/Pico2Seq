@@ -16,6 +16,12 @@
 #include <Arduino.h>
 #include <uClock.h>
 
+#if AUG_DEBUG_COMPILED
+// Defined once in diagnostic.h (included by AudioEngine.cpp); the diagnostics
+// block below reads it. Without this declaration the firmware build fails.
+extern volatile uint8_t g_errorState;
+#endif
+
 // Application: Core 0 boot order + main-loop slices (see Application.h).
 // Musical role: power-on restores the performer's song, then each pass keeps
 // clock, hands, lights, and display in step. Keep every slice short and
