@@ -1,12 +1,19 @@
 #include <catch2/catch_test_macros.hpp>
+#include <cmath>
 #include <cstring>
+#include <limits>
+#include <memory>
 #include <type_traits>
+#include <vector>
 #include "persistence/SnapshotFormat.h"
 #include "persistence/ProjectSnapshot.h"
 #include "persistence/PatternCodec.h"
 #include "persistence/RetainedSessionLogic.h"
 #include "sequencer/Sequencer.h"
+#include "voice/EffectsCodec.h"
 #include "voice/PatchCodec.h"
+#include "voice/ReverbSettings.h"
+#include "voice/VoiceManager.h"
 #include "voice/VoiceConfig.h"
 #include "voice/VoicePresets.h"
 
@@ -22,9 +29,21 @@ TEST_CASE("crc32 matches the ISO-HDLC check vector", "[persistence]")
 TEST_CASE("project snapshot size is locked", "[persistence]")
 {
     STATIC_REQUIRE(sizeof(ProjectSnapshotV1) == 10312u);
-    STATIC_REQUIRE(sizeof(ProjectSnapshot) == 12400u);
+    STATIC_REQUIRE(sizeof(ProjectSnapshotV2) == 12400u);
+    STATIC_REQUIRE(sizeof(EffectsSnapshot) == 48u);
+    STATIC_REQUIRE(sizeof(ProjectSnapshot) == 12448u);
     STATIC_REQUIRE(std::is_trivially_copyable_v<ProjectSnapshot>);
-    STATIC_REQUIRE(SNAPSHOT_FORMAT_VERSION == 2);
+    STATIC_REQUIRE(SNAPSHOT_FORMAT_VERSION == 3);
+    STATIC_REQUIRE(RETAINED_VERSION == SNAPSHOT_FORMAT_VERSION); // bumped together
+    // Every older payload is the exact prefix of the newer layout.
+    STATIC_REQUIRE(offsetof(ProjectSnapshotV2, envelopes) == sizeof(ProjectSnapshotV1));
+    STATIC_REQUIRE(offsetof(ProjectSnapshot, effects) == sizeof(ProjectSnapshotV2));
+    CHECK(payloadSizeForVersion(SNAPSHOT_FORMAT_VERSION_V1) == sizeof(ProjectSnapshotV1));
+    CHECK(payloadSizeForVersion(SNAPSHOT_FORMAT_VERSION_V2) == sizeof(ProjectSnapshotV2));
+    CHECK(payloadSizeForVersion(SNAPSHOT_FORMAT_VERSION) == sizeof(ProjectSnapshot));
+    CHECK(payloadSizeForVersion(0) == 0u);
+    CHECK(payloadSizeForVersion(SNAPSHOT_FORMAT_VERSION + 1) == 0u); // newer than this build
+    CHECK(payloadSizeForVersion(0xFFFF) == 0u);
 }
 
 namespace
@@ -41,6 +60,7 @@ void seedValidStepCounts(ProjectSnapshot &s)
             track.stepCount = 16;
     }
     s.laneModel = LANE_MODEL_ABSOLUTE;
+    applyEffectsDefaults(s.effects); // a zeroed effect record (decay 0 s) is invalid
 }
 } // namespace
 
@@ -352,6 +372,7 @@ TEST_CASE("golden full-project round-trip through frame bytes", "[persistence]")
     snap.settings.editorCursor[0] = 11; // VoiceEdit::Id::T60
     snap.settings.changedFlags = 0x05;
     snap.laneModel = LANE_MODEL_ABSOLUTE;
+    applyEffectsDefaults(snap.effects);
     REQUIRE(validateProjectSnapshot(snap));
 
     // Frame to bytes and back, like the flash file does.
@@ -408,4 +429,314 @@ TEST_CASE("retained validity and refresh", "[persistence]")
     REQUIRE(persistence::retainedValid(store));
     store.header.version = 99;
     REQUIRE_FALSE(persistence::retainedValid(store));
+    // RAM left by firmware with the previous layout (version 2, CRC over a
+    // different-sized snapshot) must never be replayed as a format-3 song.
+    persistence::retainedRefresh(store, snap);
+    store.header.version = SNAPSHOT_FORMAT_VERSION_V2;
+    REQUIRE_FALSE(persistence::retainedValid(store));
+}
+
+// ---- Format 3: effect settings, migration from v1/v2, validation --------------------
+namespace
+{
+constexpr float kNaN = std::numeric_limits<float>::quiet_NaN();
+constexpr float kInf = std::numeric_limits<float>::infinity();
+
+// A frame for `payloadBytes` of `snap` stamped with `version`, as that firmware wrote it.
+std::vector<uint8_t> makeFrame(const ProjectSnapshot &snap, uint16_t version, size_t payloadBytes)
+{
+    std::vector<uint8_t> frame(12 + payloadBytes);
+    std::memcpy(frame.data() + 12, &snap, payloadBytes);
+    writeFrameHeader(frame.data(), static_cast<uint32_t>(payloadBytes),
+                     crc32(frame.data() + 12, payloadBytes));
+    frame[4] = static_cast<uint8_t>(version);
+    frame[5] = static_cast<uint8_t>(version >> 8);
+    return frame;
+}
+
+bool decode(const std::vector<uint8_t> &frame, ProjectSnapshot &out)
+{
+    return decodeSnapshotFrame(frame.data(), frame.data() + 12, frame.size() - 12, out);
+}
+
+bool defaultsEqual(const EffectsSnapshot &e)
+{
+    EffectsSnapshot defaults;
+    applyEffectsDefaults(defaults);
+    return std::memcmp(&e, &defaults, sizeof e) == 0;
+}
+
+ProjectSnapshot validSnapshot()
+{
+    ProjectSnapshot snap{};
+    seedValidStepCounts(snap);
+    snap.settings.tempoBpm = 118.0f;
+    snap.settings.masterVolume = 0.7f;
+    snap.settings.currentScale = 3;
+    snap.patterns[2].tracks[static_cast<uint8_t>(ParamId::Note)].values[5] = 7.0f;
+    return snap;
+}
+} // namespace
+
+TEST_CASE("effect defaults are the documented audition values with reverb mix at zero", "[persistence][effects]")
+{
+    EffectsSnapshot e;
+    std::memset(&e, 0x5A, sizeof e);
+    applyEffectsDefaults(e);
+    CHECK(e.reverbMix == 0.0f); // an upgraded project sounds exactly as before
+    CHECK(e.reverbDecaySeconds == 20.0f);
+    CHECK(e.reverbDampingHz == 3000.0f);
+    CHECK(e.reverbLowCutHz == 40.0f);
+    CHECK(e.reverbDiffusion == 0.8f);
+    CHECK(e.reverbModDepth == 0.5f);
+    CHECK(e.reverbModRateHz == 0.5f);
+    CHECK(e.reverbWidth == 1.0f);
+    for (uint32_t word : e.reserved) CHECK(word == 0u);
+    CHECK(validateEffects(e));
+
+    // The flash-side limits and the audio-side ReverbParams are two copies of one
+    // set of numbers: they must never drift apart.
+    using namespace persistence::EffectsLimits;
+    CHECK(kReverbMixMin == ReverbParams::kMixMin);
+    CHECK(kReverbMixMax == ReverbParams::kMixMax);
+    CHECK(kReverbMixDefault == ReverbParams::kMixDefault);
+    CHECK(kReverbDecayMin == ReverbParams::kDecayMin);
+    CHECK(kReverbDecayMax == ReverbParams::kDecayMax);
+    CHECK(kReverbDecayDefault == ReverbParams::kDecayDefault);
+    CHECK(kReverbDampingMin == ReverbParams::kDampingMin);
+    CHECK(kReverbDampingMax == ReverbParams::kDampingMax);
+    CHECK(kReverbDampingDefault == ReverbParams::kDampingDefault);
+    CHECK(kReverbLowCutMin == ReverbParams::kLowCutMin);
+    CHECK(kReverbLowCutMax == ReverbParams::kLowCutMax);
+    CHECK(kReverbLowCutDefault == ReverbParams::kLowCutDefault);
+    CHECK(kReverbDiffusionMin == ReverbParams::kDiffusionMin);
+    CHECK(kReverbDiffusionMax == ReverbParams::kDiffusionMax);
+    CHECK(kReverbDiffusionDefault == ReverbParams::kDiffusionDefault);
+    CHECK(kReverbModDepthMin == ReverbParams::kModDepthMin);
+    CHECK(kReverbModDepthMax == ReverbParams::kModDepthMax);
+    CHECK(kReverbModDepthDefault == ReverbParams::kModDepthDefault);
+    CHECK(kReverbModRateMin == ReverbParams::kModRateMin);
+    CHECK(kReverbModRateMax == ReverbParams::kModRateMax);
+    CHECK(kReverbModRateDefault == ReverbParams::kModRateDefault);
+    CHECK(kReverbWidthMin == ReverbParams::kWidthMin);
+    CHECK(kReverbWidthMax == ReverbParams::kWidthMax);
+    CHECK(kReverbWidthDefault == ReverbParams::kWidthDefault);
+    // ...and the defaults are what a fresh ReverbSettings holds.
+    const ReverbSettings fresh;
+    CHECK(fresh.mix == kReverbMixDefault);
+    CHECK(fresh.decaySeconds == kReverbDecayDefault);
+    CHECK(fresh.dampingHz == kReverbDampingDefault);
+    CHECK(fresh.lowCutHz == kReverbLowCutDefault);
+    CHECK(fresh.diffusion == kReverbDiffusionDefault);
+    CHECK(fresh.modDepth == kReverbModDepthDefault);
+    CHECK(fresh.modRateHz == kReverbModRateDefault);
+    CHECK(fresh.width == kReverbWidthDefault);
+    CHECK_FALSE(fresh.freeze);
+}
+
+TEST_CASE("a format-2 file loads as the prefix of format 3 with default effects", "[persistence][effects]")
+{
+    ProjectSnapshot old = validSnapshot();
+    // Format-2 firmware never wrote the tail: whatever follows is not part of the file.
+    const auto frame = makeFrame(old, SNAPSHOT_FORMAT_VERSION_V2, sizeof(ProjectSnapshotV2));
+    REQUIRE(frameVersion(frame.data()) == SNAPSHOT_FORMAT_VERSION_V2);
+    REQUIRE(frame.size() == 12 + sizeof(ProjectSnapshotV2));
+
+    SECTION("into a separate buffer")
+    {
+        ProjectSnapshot loaded;
+        std::memset(&loaded, 0x5A, sizeof loaded); // garbage everywhere, including the tail
+        REQUIRE(decode(frame, loaded));
+        CHECK(defaultsEqual(loaded.effects));
+        CHECK(loaded.settings.tempoBpm == 118.0f);
+        CHECK(loaded.laneModel == LANE_MODEL_ABSOLUTE); // v2 keeps its lane model
+        CHECK(loaded.patterns[2].tracks[static_cast<uint8_t>(ParamId::Note)].values[5] == 7.0f);
+        CHECK(validateProjectSnapshot(loaded));
+    }
+    SECTION("in place, the way the flash loader decodes into its static buffer")
+    {
+        ProjectSnapshot buffer;
+        std::memset(&buffer, 0xC3, sizeof buffer);
+        std::memcpy(&buffer, frame.data() + 12, sizeof(ProjectSnapshotV2)); // what f.read() left there
+        REQUIRE(decodeSnapshotFrame(frame.data(), reinterpret_cast<const uint8_t *>(&buffer),
+                                    sizeof buffer, buffer));
+        CHECK(defaultsEqual(buffer.effects));
+        CHECK(buffer.settings.masterVolume == 0.7f);
+    }
+    SECTION("a v2 frame is not a v3 frame")
+    {
+        ProjectSnapshot loaded{};
+        CHECK(readFrameHeader(frame.data(), frame.data() + 12, frame.size() - 12, sizeof(ProjectSnapshotV2)) ==
+              FrameStatus::BadVersion); // expected version defaults to the current one
+        CHECK(readFrameHeader(frame.data(), frame.data() + 12, frame.size() - 12, sizeof(ProjectSnapshot),
+                              SNAPSHOT_FORMAT_VERSION_V2) == FrameStatus::BadSize);
+        (void)loaded;
+    }
+}
+
+TEST_CASE("a format-1 file upgrades through decodeSnapshotFrame with default effects", "[persistence][effects]")
+{
+    ProjectSnapshot old = validSnapshot();
+    old.laneModel = 0;
+    const auto frame = makeFrame(old, SNAPSHOT_FORMAT_VERSION_V1, sizeof(ProjectSnapshotV1));
+    ProjectSnapshot loaded;
+    std::memset(&loaded, 0x5A, sizeof loaded);
+    REQUIRE(decode(frame, loaded));
+    CHECK(loaded.laneModel == LANE_MODEL_OFFSETS); // Session converts the lanes later
+    CHECK(defaultsEqual(loaded.effects));
+    CHECK(loaded.settings.tempoBpm == 118.0f);
+    for (const auto &voice : loaded.envelopes)
+        for (const auto &track : voice.tracks)
+            CHECK(track.stepCount == SequencerConstants::DEFAULT_STEPS_COUNT);
+}
+
+TEST_CASE("a format-3 file round-trips its effect settings bit for bit", "[persistence][effects]")
+{
+    ProjectSnapshot snap = validSnapshot();
+    ReverbSettings live;
+    live.mix = 0.37f;
+    live.decaySeconds = 4.5f;
+    live.dampingHz = 1750.0f;
+    live.lowCutHz = 120.0f;
+    live.diffusion = 0.35f;
+    live.modDepth = 0.9f;
+    live.modRateHz = 2.25f;
+    live.width = 1.4f;
+    live.freeze = true; // performance state: must not be stored
+    effectscodec::captureEffects(live, snap.effects);
+
+    const auto frame = makeFrame(snap, SNAPSHOT_FORMAT_VERSION, sizeof(ProjectSnapshot));
+    REQUIRE(frameVersion(frame.data()) == SNAPSHOT_FORMAT_VERSION);
+    ProjectSnapshot loaded{};
+    REQUIRE(decode(frame, loaded));
+    CHECK(std::memcmp(&loaded.effects, &snap.effects, sizeof(EffectsSnapshot)) == 0);
+
+    ReverbSettings restored;
+    restored.freeze = true;
+    REQUIRE(effectscodec::applyEffects(loaded.effects, restored));
+    CHECK(restored.mix == 0.37f);
+    CHECK(restored.decaySeconds == 4.5f);
+    CHECK(restored.dampingHz == 1750.0f);
+    CHECK(restored.lowCutHz == 120.0f);
+    CHECK(restored.diffusion == 0.35f);
+    CHECK(restored.modDepth == 0.9f);
+    CHECK(restored.modRateHz == 2.25f);
+    CHECK(restored.width == 1.4f);
+    CHECK_FALSE(restored.freeze); // restored unfrozen, whatever the live state was
+}
+
+TEST_CASE("nonfinite or out-of-range effect fields reject the file", "[persistence][effects]")
+{
+    struct Field
+    {
+        const char *name;
+        float EffectsSnapshot::*member;
+        float low, high;
+    };
+    const Field fields[] = {
+        {"mix", &EffectsSnapshot::reverbMix, 0.0f, 1.0f},
+        {"decay", &EffectsSnapshot::reverbDecaySeconds, 0.1f, 1000.0f},
+        {"damping", &EffectsSnapshot::reverbDampingHz, 100.0f, 10800.0f},
+        {"low cut", &EffectsSnapshot::reverbLowCutHz, 10.0f, 1000.0f},
+        {"diffusion", &EffectsSnapshot::reverbDiffusion, 0.0f, 1.0f},
+        {"mod depth", &EffectsSnapshot::reverbModDepth, 0.0f, 1.0f},
+        {"mod rate", &EffectsSnapshot::reverbModRateHz, 0.01f, 5.0f},
+        {"width", &EffectsSnapshot::reverbWidth, 0.0f, 2.0f},
+    };
+    for (const Field &field : fields)
+    {
+        CAPTURE(field.name);
+        for (const float bad : {kNaN, kInf, -kInf, std::nextafter(field.low, -1.0e9f),
+                                std::nextafter(field.high, 1.0e9f), field.low - 1.0f, field.high + 1.0f})
+        {
+            CAPTURE(bad);
+            ProjectSnapshot snap = validSnapshot();
+            snap.effects.*(field.member) = bad;
+            CHECK_FALSE(validateEffects(snap.effects));
+            CHECK_FALSE(validateProjectSnapshot(snap));
+            const auto frame = makeFrame(snap, SNAPSHOT_FORMAT_VERSION, sizeof(ProjectSnapshot));
+            ProjectSnapshot loaded{};
+            CHECK_FALSE(decode(frame, loaded)); // CRC is fine; the values are not
+            ReverbSettings untouched;
+            untouched.mix = 0.5f;
+            CHECK_FALSE(effectscodec::applyEffects(snap.effects, untouched));
+            CHECK(untouched.mix == 0.5f); // nothing published from a bad record
+        }
+        // The exact limits are valid.
+        for (const float good : {field.low, field.high})
+        {
+            ProjectSnapshot snap = validSnapshot();
+            snap.effects.*(field.member) = good;
+            CHECK(validateEffects(snap.effects));
+        }
+    }
+}
+
+TEST_CASE("damaged and unknown frames are refused before anything is applied", "[persistence][effects]")
+{
+    const ProjectSnapshot snap = validSnapshot();
+    const auto good = makeFrame(snap, SNAPSHOT_FORMAT_VERSION, sizeof(ProjectSnapshot));
+    ProjectSnapshot out{};
+    REQUIRE(decode(good, out));
+
+    auto bad = good;
+    bad[0] ^= 0xFF; // magic
+    CHECK_FALSE(decode(bad, out));
+    bad = good;
+    bad[12 + 5000] ^= 0x01; // payload bit rot
+    CHECK_FALSE(decode(bad, out));
+    bad = good;
+    bad[12 + sizeof(ProjectSnapshot) - 1] ^= 0x80; // inside the effect record
+    CHECK_FALSE(decode(bad, out));
+    bad = good;
+    bad[6] = 0x00; bad[7] = 0x00; // payload size 0
+    CHECK_FALSE(decode(bad, out));
+    for (const uint16_t version : {uint16_t{0}, static_cast<uint16_t>(SNAPSHOT_FORMAT_VERSION + 1), uint16_t{99}})
+    {
+        bad = good;
+        bad[4] = static_cast<uint8_t>(version);
+        bad[5] = static_cast<uint8_t>(version >> 8);
+        CHECK_FALSE(decode(bad, out)); // a newer or unknown format is not guessed at
+    }
+    // A truncated capacity is refused rather than read past.
+    CHECK_FALSE(decodeSnapshotFrame(good.data(), good.data() + 12, sizeof(ProjectSnapshot) - 1, out));
+    // A v3-sized payload under a v2 header is a size mismatch.
+    bad = good;
+    bad[4] = static_cast<uint8_t>(SNAPSHOT_FORMAT_VERSION_V2);
+    CHECK_FALSE(decode(bad, out));
+}
+
+TEST_CASE("effects codec captures live settings and never stores freeze", "[persistence][effects]")
+{
+    EffectsSnapshot e;
+    std::memset(&e, 0xFF, sizeof e);
+    ReverbSettings hostile;
+    hostile.mix = 5.0f;          // out of range
+    hostile.decaySeconds = kNaN; // nonfinite
+    hostile.dampingHz = -3.0f;
+    hostile.freeze = true;
+    effectscodec::captureEffects(hostile, e);
+    // Whatever the live state, the saved record is valid and its reserved words are zero.
+    CHECK(validateEffects(e));
+    CHECK(e.reverbMix == 1.0f);
+    CHECK(e.reverbDecaySeconds == ReverbParams::kDecayDefault);
+    CHECK(e.reverbDampingHz == ReverbParams::kDampingMin);
+    for (uint32_t word : e.reserved) CHECK(word == 0u);
+
+    // A whole project through captureEffects/apply reproduces the live settings.
+    auto manager = std::make_unique<VoiceManager>(1);
+    ReverbSettings live;
+    live.mix = 0.6f;
+    live.decaySeconds = 12.0f;
+    live.freeze = true;
+    manager->applyReverbSettings(live);
+    ProjectSnapshot snap = validSnapshot();
+    effectscodec::captureEffects(manager->getReverbSettings(), snap.effects);
+    ReverbSettings back;
+    REQUIRE(effectscodec::applyEffects(snap.effects, back));
+    manager->applyReverbSettings(back); // what Session::applyAfterVoices does
+    const ReverbSettings now = manager->getReverbSettings();
+    CHECK(now.mix == 0.6f);
+    CHECK(now.decaySeconds == 12.0f);
+    CHECK_FALSE(now.freeze); // load turns a live freeze off
 }

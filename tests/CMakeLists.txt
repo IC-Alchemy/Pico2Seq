@@ -68,6 +68,7 @@ add_library(pico2seq_persist_code OBJECT
   ${CORE_DIR}/persistence/ProjectSnapshot.cpp
   ${CORE_DIR}/persistence/PatternCodec.cpp
   ${SRC_DIR}/voice/PatchCodec.cpp
+  ${SRC_DIR}/voice/EffectsCodec.cpp
 )
 
 foreach(_lib pico2seq_ui_code pico2seq_voice_code pico2seq_persist_code)

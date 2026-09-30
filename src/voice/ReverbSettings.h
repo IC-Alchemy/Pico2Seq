@@ -50,8 +50,10 @@ inline constexpr float kWidthMax = 2.0f;
 inline constexpr float kWidthDefault = 1.0f;
 
 // True for every finite value. Works from the bit pattern on purpose: the
-// firmware builds with -ffast-math (-ffinite-math-only), which lets the compiler
-// fold std::isfinite and NaN comparisons to "always finite".
+// firmware builds with -ffast-math (-ffinite-math-only), and with those flags
+// arm-none-eabi-gcc 16.1 compiles std::isfinite(x) to a constant "true" (and host
+// GCC 13.3 makes std::isnan(NaN) false), so the library predicates cannot be used
+// to reject a corrupt NaN.
 inline bool finite(float value) noexcept
 {
     uint32_t bits;
