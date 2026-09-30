@@ -206,7 +206,7 @@ Recorded 2026-09-30 (GCC 13.3, x86-64): the baseline fails 44 tests this way and
 (by name): the 33 above plus 11 that only fail under fast-math, all in older tests (Arpeggiator dynamics/gate/pattern
 buttons, `EncoderMotion` non-finite sizes, oscillator spans, `sinNormalizedPhase`). Every new test passes in both modes.
 Tolerances: comparisons are bit-exact wherever the code copies or runs the same path twice (mix zero equals the dry
-bus, persistence round trips, freeze/snapshot ordering). The two split-invariance checks (a render cut into different
+bus, persistence round trips). The two split-invariance checks (a render cut into different
 calls: `test_master_reverb.cpp`, and the whole bus in `test_master_bus.cpp`) are bit-exact in IEEE builds and use
 **2e-4 relative** under `__FAST_MATH__`, the slack rpdsp's own reverb test allows, because a compiler may contract or
 reassociate the block and per-sample loops differently; on GCC 13.3 they were bit-exact in fast-math too. The ARM
