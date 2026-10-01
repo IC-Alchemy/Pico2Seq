@@ -15,7 +15,8 @@ Two build systems coexist and never touch each other:
 - **CMake** builds *only* the host-side unit test suite in `tests/`. It cannot build or flash the firmware itself.
 
 `src/pico2seq-core/` holds the sequencer (`Sequencer`, `ParameterManager`, `SequencerDefs.h`,
-`ShuffleTemplates.h`) and `scales/` (scale tables). Both are plain, portable C++ with no
+`ShuffleTemplates.h`), `arpeggiator/`, `scales/` (scale tables) and `tuning/` (the 29-tuning
+library and pitch maths). All are plain, portable C++ with no
 Arduino/RP2040 dependency — they're deliberately kept reusable in other projects. Don't add
 `#include <Arduino.h>`, UI-layer (`UIState`), or hardware-glue includes back into this folder;
 firmware code that needs to bridge sequencer output to UI types (see
@@ -129,6 +130,9 @@ What's tested vs. not, per `tests/CMakeLists.txt` (six focused targets: `pico2se
   `tests/unit/test_rpdsp_additions.cpp`, `test_dsp_recipe_regressions.cpp`,
   and `test_recipe_optimization.cpp`,
   `src/pico2seq-core/scales/scales.cpp` via `test_scales.cpp`,
+  `src/pico2seq-core/tuning/` (library, pitch maths, per-tuning scale sets) via
+  `test_tuning.cpp` and `test_tuning_scales.cpp`, and the Tuning page via
+  `test_tuning_page.cpp` (all three also in `pico2seq_ui_tests`),
   `src/voice/VoiceOscillator.h` via `test_voiceoscillator.cpp`,
   `src/pico2seq-core/arpeggiator/Arpeggiator.cpp` via `test_arpeggiator.cpp`,
   `src/pico2seq-core/sequencer/{ParameterManager,Sequencer}.cpp` via
@@ -175,8 +179,8 @@ When adding a new module to be tested:
 1. Check its `#include` chain for new hardware headers; add a minimal stub under `tests/stubs/`
    if needed (no-op functions are fine — stub the interface, not the implementation).
 2. In `tests/CMakeLists.txt`, add a portable source to the shared OBJECT libs
-   (`pico2seq_ui_code`/`pico2seq_voice_code`/`pico2seq_persist_code`) or the shared
-   `PICO2SEQ_UI_TEST_SOURCES`/`PICO2SEQ_VOICE_TEST_SOURCES` lists (since 8df780d);
+   (`pico2seq_ui_code`/`pico2seq_voice_code`/`pico2seq_persist_code`/`pico2seq_tuning_code`)
+   or the shared `PICO2SEQ_UI_TEST_SOURCES`/`PICO2SEQ_VOICE_TEST_SOURCES` lists (since 8df780d);
    only suite-unique files go directly into `add_executable(pico2seq_tests ...)`.
 3. If the file references `extern` globals defined in `Pico2Seq.ino`/`audio.cpp` (not compiled
    into the test binary), define them once in `tests/unit/test_helpers.cpp` — never in more than

@@ -35,8 +35,8 @@ is not a promise of an unchanged or endless repeat.
    been measured on the board.
 
 2. **The full test suite already has unresolved failures.**
-   The recorded baseline (2026-09-30, see [testing.md](testing.md)) is 692
-   CTest checks with 33 known failures in `pico2seq_tests`/`pico2seq_voice_tests`;
+   The recorded baseline (2026-10-01, see [testing.md](testing.md)) is 938
+   CTest checks with 35 known failures in `pico2seq_tests`/`pico2seq_voice_tests`;
    some checks are registered in both general and focused executables. Failures involve
    octave/gate defaults, note names, pitch lookup, release defaults, cutoff limits
    and filter counts. They need classification, not blanket suppression.
@@ -82,15 +82,13 @@ is not a promise of an unchanged or endless repeat.
    limit was one consequence. A small shared description of master controls
    could keep names, units, defaults and ranges aligned.
 
-8. **Build defaults and some older documentation need reconciliation.**
-   The [build helper](../scripts/build_pico2seq.ps1) now defaults to the
-   stable 225 MHz baseline; higher clocks remain explicit choices — this
-   clock half is done (2026-09-30). Dependency
-   versions come from the installed Arduino environment. Some architecture
-   text also still describes a PPQN read/modify/write race, while the current
-   [clock consumer](../src/app/ClockService.cpp) disables interrupts around
-   taking and clearing the pending count. Verify the current ownership and
-   update the explanation rather than assuming an old warning is current.
+8. **~~Build defaults and some older documentation need reconciliation.~~
+   Done (2026-09-30).** The [build helper](../scripts/build_pico2seq.ps1)
+   defaults to the stable 225 MHz baseline and higher clocks remain explicit
+   choices, and the PPQN read/modify/write race text is gone from the
+   architecture docs: they now describe the interrupt-disabled take-and-clear
+   in the [clock consumer](../src/app/ClockService.cpp) instead. Dependency
+   versions still come from the installed Arduino environment.
 
 **The order I would work in**
 
@@ -221,8 +219,8 @@ is not a promise of an unchanged or endless repeat.
    Make the chosen clock explicit in the documented build command. Record
    parent/submodule revisions, dependency versions, firmware hashes, test
    results and hardware observations together. Reconcile obsolete documentation
-   with current code, including PPQN ownership and compressor-versus-clamp
-   terminology. Keep one concise manual table for the physical controls.
+   with current code, including compressor-versus-clamp terminology. Keep one
+   concise manual table for the physical controls.
 
    After software and hardware checks, package the verified artifact and the
    accepted changes for the next main-branch update. Commit and push only as

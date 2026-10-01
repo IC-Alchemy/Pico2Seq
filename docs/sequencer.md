@@ -278,6 +278,7 @@ When `advanceStep()` is called on each 16th note clock tick:
       - Stored `0.50` &rarr; `0` semitones (0 oct)
       - Stored `0.75` &rarr; `+12` semitones (+1 oct)
       - Stored `1.00` &rarr; `+24` semitones (+2 oct)
+    - The published `noteIndex` stays a raw scale degree (`Sequencer.cpp`: "audio quantizes it"): the audio core maps it through the selected scale row and the one global tuning (`Voice::setTuningPointer()`), so the same stored steps play in 12-EDO or any tuning of the library without being rewritten.
     - Slide Handling: If `!slideVal || !noteActive`, envelope retriggers (`voiceState->shouldRetrigger = true`). If sliding from an already active note (`slideVal && noteActive`), `shouldRetrigger = false` and note frequency transitions smoothly via slewing in `Voice`.
    - Gate-Controlled Voice Output: If Gate is LOW, the previous note, envelope, tone, and other voice settings are retained in `VoiceState`. Only the gate closes, allowing the release tail to finish with the triggering step's settings.
 

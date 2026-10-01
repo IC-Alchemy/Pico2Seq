@@ -16,6 +16,7 @@ work during each control-loop pass.
 | Clock registration, transport and queued clock events | `src/app/ClockService.h/.cpp` |
 | Step playback, voice-state publication and live recording | `src/app/StepPlayback.h/.cpp` |
 | Arpeggiator mode (chord/pattern engine, slot-to-voice playback) | `src/pico2seq-core/arpeggiator/`, `src/app/ArpPlayback.h/.cpp`; see [Arpeggiator mode](arpeggiator.md) |
+| A tuning, the Tuning page or a tuned scale row | `src/pico2seq-core/tuning/`, `src/ui/TuningPageControls.h`, `src/ui/TuningPageLogic.h`; see [Tuning system](tuning.md) |
 | Voice creation, preset application and track seeding | `src/app/VoiceSetup.h/.cpp` |
 | I2S buffers, stereo output and final-mix gain | `src/app/AudioEngine.h/.cpp` |
 | Voice Editing mode (parameter catalogue, editor transport) | `src/app/VoiceEditor.h/.cpp`, `src/voice/VoiceEditParameters.h/.cpp`, `src/ui/VoiceEditControls.h` |
@@ -177,10 +178,11 @@ not. RAM, stack and SRAM placement: [audio-performance.md](audio-performance.md#
 The tuning layer (2026-09-30) sits between the scale row and the oscillator frequency:
 `src/pico2seq-core/tuning/` holds the tuning library, the pitch maths and the per-tuning scale sets
 (`Tuning.*`, `TuningLibrary.cpp`, `TuningScales.*`, all portable); `tuning/TuningState.h` is the
-device-side selection and bank. Core 0 chooses the `tuning::Selection`; `VoiceManager` turns a change
-into a `PitchWorld` that each voice copies on its own control pass, so Core 1 only reads immutable
-flash tables. The Tuning page (Shift + Utility 3) is `src/ui/TuningPageControls.h` (gesture),
-`src/ui/TuningPageLogic.h` (what each gesture does and every string the page prints),
+device-side selection and bank. Core 0 chooses the `tuning::Selection`; `VoiceManager` injects it
+into each voice, and each voice turns a change into a `PitchWorld` on its own control pass, so
+Core 1 only reads immutable flash tables. The Tuning page (Shift + Utility 3) is
+`src/ui/TuningPageControls.h` (gesture), `src/ui/TuningPageLogic.h` (what each gesture does and
+every string the page prints),
 `AlchemyControlBridge` (faders), `EncoderManager` (library stepping), `UIEventHandler` (pads),
 `oled.cpp` and `LEDMatrixFeedback.cpp` (display). Project persistence is format 4.
 See [tuning.md](tuning.md).
@@ -203,8 +205,9 @@ ctest --test-dir build_test_ninja --output-on-failure
 ```
 
 `[app]` tests cover PCM conversion and distance calibration. Existing tests
-cover voices/queues, sequencing, control-surface logic, tile protocol and the
-Voice Editing mode (`test_voice_edit.cpp`).
+cover voices/queues, sequencing, control-surface logic, tile protocol, the
+tuning library and Tuning page, and the Voice Editing mode
+(`test_voice_edit.cpp`).
 Neither host tests nor compilation verify physical controls, bus timing,
 I2S timing or sound. See [testing.md](testing.md).
 

@@ -2,7 +2,7 @@
 
 ## 1. Overview & Architecture
 
-The `src/pico2seq-core/scales/` module defines the musical tuning system for the Pico2Seq synthesizer. It provides 47 scale definitions spanning up to 6 periods (48 steps), mapping sequencer step indices to semitone offsets (classic rows 0-17) or to tuning degrees (All Degrees and the 29 tuned rows 18-46) for internal audio synthesis. Which degrees sound at which pitch is the job of the tuning layer, see [tuning.md](tuning.md). Optional MIDI callbacks remain in the portable sequencer, but the firmware has no MIDI transport.
+The `src/pico2seq-core/scales/` module defines the musical tuning system for the Pico2Seq synthesizer. It provides 47 scale definitions spanning up to 6 periods (48 steps), mapping sequencer step indices to 12-EDO semitone slots (rows 0-12 and 14-17) or to the active tuning's own degrees (All Degrees, row 13, and the 29 tuned rows 18-46) for internal audio synthesis. Which degrees sound at which pitch is the job of the tuning layer, see [tuning.md](tuning.md). Optional MIDI callbacks remain in the portable sequencer, but the firmware has no MIDI transport.
 
 ```text
 Scale tables -> Voice scale-degree/pitch lookup -> oscillator frequency
@@ -29,15 +29,19 @@ All scale constants and arrays are declared in `src/pico2seq-core/scales/scales.
 
 ```cpp
 // Centralized scale size constants
-constexpr size_t CLASSIC_SCALES_COUNT = 18; // rows 0-17: 12-EDO semitone slots (13 = All Degrees is native)
-constexpr size_t SCALES_COUNT = 47;   // Number of distinct scale definitions (18 classic + 29 tuned)
-constexpr size_t SCALE_STEPS  = 48;   // Number of step-to-pitch entries per scale
+constexpr size_t CLASSIC_SCALES_COUNT = 18; // rows 0-17, the original thirteen plus All Degrees and four thaats
+constexpr size_t SCALES_COUNT = 47;         // classic rows plus 29 tuned rows
+constexpr size_t SCALE_STEPS  = 48;         // Number of step-to-pitch entries per scale
+
+// Native rows hold tuning degrees, not semitone slots: All Degrees plus every tuned row
 constexpr size_t SCALE_ALL_DEGREES = 13;
-constexpr uint64_t NATIVE_SCALE_MASK = /* bit 13 and bits 18..46 */;  // rows written in tuning degrees
+constexpr size_t SCALE_FIRST_TUNED = CLASSIC_SCALES_COUNT;
+constexpr uint64_t NATIVE_SCALE_MASK = /* bit 13 and bits 18..46 */;
 
 // Global scale data
-extern int scale[SCALES_COUNT][SCALE_STEPS]; // 2D semitone lookup tables
-extern const char* scaleNames[SCALES_COUNT]; // Human-readable scale names
+extern int scale[SCALES_COUNT][SCALE_STEPS];       // Step -> semitone slot or tuning degree
+extern const char* scaleNames[SCALES_COUNT];       // UI names, same order as tables
+extern const char* scaleShortNames[SCALES_COUNT];  // At most 10 characters, for the OLED
 extern uint8_t currentScale;                 // Active scale index (0..SCALES_COUNT-1)
 ```
 
@@ -52,7 +56,7 @@ extern uint8_t currentScale;                 // Active scale index (0..SCALES_CO
 
 ## 3. Scale Definitions
 
-The 13 scales encompass diatonic modes, exotic scales, whole-tone, and chromatic tunings. Each table contains 48 integer semitone values spanning 4 full octaves (0 to 72 semitones relative to root):
+The original thirteen classic scales encompass diatonic modes, exotic scales, whole-tone, and chromatic tunings. Each of their tables holds 48 integer 12-EDO semitone values spanning 4 full octaves (0 to 72 semitones relative to root); the 34 rows added with the tuning system follow in the next section:
 
 ```cpp
 const char* scaleNames[SCALES_COUNT] = {
@@ -69,6 +73,7 @@ const char* scaleNames[SCALES_COUNT] = {
     "Harmonic Minor",    // 10
     "Wholetone",         // 11
     "Chromatic"          // 12
+    // rows 13-46: "All Degrees", the four thaats and the 29 tuned rows (see section 3)
 };
 ```
 
@@ -124,8 +129,7 @@ Which tuning offers which scales is `tuning/TuningScales.cpp`, described in [tun
 
 ## 4. Dual Pitch Offset Architecture
 
-Scale semitones are converted to oscillator frequencies in the audio voice.
-The removed firmware MIDI tracker no longer has a parallel pitch path.
+Scale rows are converted to oscillator frequencies in the audio voice. While the unit plays the standard 12-EDO, tonic C, A4 = 440 Hz tuning, the historical table lookup runs unchanged so nothing that already sounded moves; any other global tuning maps the row through that tuning's `PitchWorld` instead. The removed firmware MIDI tracker no longer has a parallel pitch path.
 
 ### 4.1 Internal Audio Synthesis: C3 Base (+48)
 
@@ -134,28 +138,26 @@ In `src/voice/Voice.cpp` (`calculateNoteFrequency`):
 ```cpp
 inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset, int harmony) noexcept
 {
-  const int noteIndex = note;
-  uint8_t scaleIndex = 0;
-  if (currentScalePtr)
-    scaleIndex = *currentScalePtr;
-
-  int noteWithHarmony = noteIndex + harmony;
-
-  // Lookup semitone directly from scale table
-  int scaleSemitone = scale[scaleIndex][noteWithHarmony];
-
-  // Map to MIDI centered at 48 (C3) and apply octave offset
-  int midiNote = scaleSemitone + 48 + static_cast<int>(octaveOffset);
-
-  return frequencyLookupTable[midiNote];
+  const size_t scaleIndex = effectiveScaleIndex_();
+  const int *row = scaleTable && scaleTableCount ? scaleTable[scaleIndex] : nullptr;
+  if (world_.standard)
+  {
+    // 12-EDO, tonic C, A4 440: the historical table lookup, so nothing that sounded
+    // before moves by a single bit.
+    const int midiNote = MusicalValues::midiNote(note, octaveOffset, harmony, row);
+    return frequencyLookupTable[midiNote];
+  }
+  const int degree = MusicalValues::tuningDegree(note, harmony, row, world_,
+                                                 row && scaleIsNative(scaleIndex, nativeScaleMask_));
+  return tuning::frequencyHz(world_, degree, octaveOffset);
 }
 ```
 
-- **Base Pitch**: **C3** (MIDI note 48 = 130.81 Hz).
-- **Pitch Range**:
-  - Minimum step (0 semitones, -12 octave offset): MIDI note 36 (C2 = 65.41 Hz).
-  - Nominal root (0 semitones, 0 octave offset): MIDI note 48 (C3 = 130.81 Hz).
-  - High step (72 semitones, +12 octave offset): MIDI note 132 — beyond the table's 128 entries; sequencer parameter ranges keep the computed note inside the table (there is no runtime clamp on this synthesis path).
+- **Base Pitch**: **C3** (MIDI note 48 = 130.81 Hz) via `rootHz`; the tonic and A4 faders on the Tuning page move it (see [tuning.md](tuning.md)).
+- **Clamping** (both paths, `MusicalValues.h:14-24`):
+  - The step index is clamped to `[0, SCALE_STEPS - 1]` (`0..47`).
+  - The standard path clamps the final MIDI note to `[0, 127]` before the 128-entry `frequencyLookupTable`.
+  - A tuned path clamps the sounding frequency to 8.176–12,543.854 Hz (`tuning::kMinHz/kMaxHz`, applied in `tuning::frequencyHz`).
 - **Rationale**: Internal oscillator waveforms and ladder filter character are voiced to sound full and punchy centered in the C3 octave.
 
 ### 4.2 Removed Firmware MIDI Conversion
@@ -201,7 +203,7 @@ This three-zone fallback is not what the firmware plays: the sequencer's octave 
 To prevent out-of-bounds memory access and undefined behavior:
 1. **Step Index Bounds**: `state.noteIndex` is clamped to `[0, SCALE_STEPS - 1]` (`0..47`).
 2. **MIDI Note Clamping**: The final MIDI note number is clamped to `[0, 127]`.
-3. **Scale Index Bounds**: `currentScale` is constrained to `[0, SCALES_COUNT - 1]` (`0..12`). Out-of-bounds pointers fall back to scale index 0.
+3. **Scale Index Bounds**: `currentScale` is constrained to `[0, SCALES_COUNT - 1]` (`0..46`). Out-of-bounds pointers fall back to scale index 0.
 
 ---
 
@@ -224,12 +226,14 @@ To add a new musical scale to Pico2Seq:
    };
    ```
    and a `scaleShortNames[]` entry of at most 10 characters.
-3. **Define 48-Step Semitone Table in `scale[][]`**:
-   Ensure the array contains exactly 48 ascending integers covering 4 octaves (0 to 72 semitones):
+3. **Define 48-Step Table in `scale[][]`**:
+   A classic row holds exactly 48 ascending 12-EDO semitone integers covering 4 octaves (0 to 72 semitones):
    ```cpp
    {0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28, 31, 33, 36,
     38, 40, 43, 45, 48, 50, 52, 55, 57, 60, 62, 64, 67, 69, 72, 72,
     72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72}
    ```
+   A tuned (native) row instead holds the tuning's own degrees, climbing one period per
+   `k` steps and holding its top note after six periods (section 3's formula).
 4. **Run Unit Tests**:
    Execute `ctest` or run `pico2seq_tests "[scales]"` to ensure the new table satisfies monotonicity and range constraints.

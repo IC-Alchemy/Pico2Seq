@@ -15,7 +15,8 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 ### Advanced Sequencing
 - **Polymetric Sequencing**: Independent track step lengths for each parameter (Notes: 16 steps, Filter: 8 steps, Velocity: 12 steps, etc.)
 - **Real-time Recording**: Live parameter capture during playback using the TOF distance sensor, magnetic encoder, and physical faders
-- **Scale Support**: 13 built-in musical scales with chromatic fallback and precomputed rank tables
+- **Scale Support**: 47 scale rows over 48 steps — 18 classic rows (the original 13 plus All Degrees and four thaats) and 29 tuning-specific rows — with chromatic fallback
+- **Global Tuning System**: 29 tunings in five families (equal, just, historical temperaments, Indian, xenharmonic) with a movable tonic and A4 reference, shared by all four voices; the Tuning page (Shift + Utility 3) lays the library on the 32 pads with four hot favourites. See [Tuning system](docs/tuning.md)
 - **Shuffle & Swing**: 16 PPQN shuffle templates for groovy swing timing
 
 ### Intuitive Controls
@@ -32,7 +33,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **VoiceSystem Architecture**: Centralized, array-based voice management with safe accessor methods, holding control-core voice snapshots for all 4 voices (0–3); `VoiceState` owns gate truth and the sequencer owns note-duration timing
 - **Dual-Core Asymmetric Design**: Core 1 dedicated exclusively to 48kHz audio synthesis; Core 0 handles UI, sensors, clock, display rendering, and the USB CDC serial console
 - **Lock-Free Parameter Staging**: Atomic generation counters and lock-free SPSC queues allow Core 0 to stage parameter changes without blocking Core 1 audio processing
-- **Host Test Suite**: Catch2 v3 unit test suite with hardware stubs across 6 test executables (692 tests recorded 2026-09-30), built and run locally via CTest
+- **Host Test Suite**: Catch2 v3 unit test suite with hardware stubs across 6 test executables (938 tests recorded 2026-10-01), built and run locally via CTest
 
 ---
 
@@ -50,10 +51,11 @@ For a practical guide to changing the firmware, start with
 │   ├── app/                  # Startup, clock/playback glue, controls and audio output
 │   │   ├── ArpPlayback.*    # Arpeggiator mode: slot-to-voice mapping and VoiceState publishing
 │   ├── audio/                # I2S audio interface, PIO DMA, and buffer management
-│   ├── pico2seq-core/        # Portable core sequencer, ParameterTrack, and scale tables
+│   ├── pico2seq-core/        # Portable core sequencer, ParameterTrack, scale and tuning tables
 │   │   ├── arpeggiator/     # Portable chord/pattern/clock engine behind Arpeggiator mode
-│   │   ├── scales/          # 13 scale tables and MIDI mapping
-│   │   └── sequencer/       # Sequencer, ParameterManager, SequencerDefs, ShuffleTemplates
+│   │   ├── scales/          # 47 scale rows (18 classic + 29 tuned) over 48 steps
+│   │   ├── sequencer/       # Sequencer, ParameterManager, SequencerDefs, ShuffleTemplates
+│   │   └── tuning/          # 29-tuning library, pitch maths, per-tuning scale sets
 │   ├── rpdsp/                # Submodule: IC-Alchemy/RPDSP (header-only DSP algorithms)
 │   ├── VelocityEncoder/      # Submodule: IC-Alchemy/VelocityEncoder (TMAG5273 driver)
 │   ├── voice/                # Synthesizer voices, VoiceSystem, and VoicePresets
@@ -73,7 +75,7 @@ For a practical guide to changing the firmware, start with
 │   ├── midi/                 # Removal notice only; USB remains CDC-only
 │   ├── LEDMatrix/            # 8×4 WS2812B RGB visual feedback (pad-mirror) and 10 color themes
 │   ├── OLED/                 # 128×64 SH1106G OLED display manager and priority screens
-│   ├── utils/                # Debug logging utilities (Debug.h/.cpp)
+│   ├── utils/                # Debug logging (Debug.h/.cpp) with serial rate limiting (SerialRateLimit.h)
 │   └── AlchemyUI/            # Vendored Alchemy Modular UI tile library (tracked in-repo)
 ├── docs/                     # Comprehensive architecture and subsystem documentation
 ├── tests/                    # Host-side Catch2 v3.5.2 unit test suite and stubs
@@ -365,7 +367,7 @@ Pico2Seq leverages the dual ARM Cortex-M33 cores of the RP2350:
 
 ## Host Unit Testing
 
-Pico2Seq provides an automated host-side unit test suite powered by **Catch2 v3.5.2** and CMake across six test executables (`pico2seq_tests`, `pico2seq_ui_tests`, `pico2seq_voice_tests`, `pico2seq_watchdog_tests`, `pico2seq_audio_tests`, `pico2seq_reverb_bypass_tests` — 692 tests recorded 2026-09-30), plus an opt-in `pico2seq_recipe_benchmark` target:
+Pico2Seq provides an automated host-side unit test suite powered by **Catch2 v3.5.2** and CMake across six test executables (`pico2seq_tests`, `pico2seq_ui_tests`, `pico2seq_voice_tests`, `pico2seq_watchdog_tests`, `pico2seq_audio_tests`, `pico2seq_reverb_bypass_tests` — 938 tests recorded 2026-10-01), plus an opt-in `pico2seq_recipe_benchmark` target:
 
 ```bash
 # Configure and build test suite
@@ -392,7 +394,8 @@ Comprehensive subsystem documentation is maintained in the [`docs/`](docs/) dire
 - [`docs/voice-edit.md`](docs/voice-edit.md) — Voice Editing mode: musical OLED values, melody recording, and sequenced modifiers
 - [`docs/VoiceSystem.md`](docs/VoiceSystem.md) — Centralized VoiceSystem data structures, accessor pattern, and voice routing
 - [`docs/sequencer.md`](docs/sequencer.md) — 4-voice step sequencer engine, polymetric parameter tracks, and uClock integration
-- [`docs/scales.md`](docs/scales.md) — 13 musical scales, semitone offsets, rank caching, and pitch mapping
+- [`docs/scales.md`](docs/scales.md) — 47 scale rows (18 classic + 29 tuned), semitone and tuning-degree tables, scale selection
+- [`docs/tuning.md`](docs/tuning.md) — Global tuning system: 29 tunings in five families, the Tuning page, per-tuning scale sets
 - [`docs/matrix.md`](docs/matrix.md) — MPR121 32-pad touch input matrix, bank resolution, and Alchemy tile interaction
 - [`docs/LEDMatrix.md`](docs/LEDMatrix.md) — WS2812B 8×4 RGB LED matrix visualizer, 10 themes, and pair-based voice indicators
 - [`docs/oled.md`](docs/oled.md) — 128×64 SH1106G OLED display, 6-tier priority rendering hierarchy, and UI state

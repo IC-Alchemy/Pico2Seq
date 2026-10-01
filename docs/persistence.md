@@ -72,7 +72,7 @@ per second** (zero flash wear). After a watchdog freeze:
 
 ```
 src/pico2seq-core/persistence/        portable, tested, no Arduino
-  ProjectSnapshot.h / .cpp            the data: Track/Pattern/Patch/Settings/Effects/ProjectSnapshot + validate + v1/v2 upgrade
+  ProjectSnapshot.h / .cpp            the data: Track/Pattern/Patch/Settings/Effects/Tuning/ProjectSnapshot + validate + v1/v2/v3 upgrade
   PatternCodec.h / .cpp               Sequencer  <->  PatternSnapshot  (capturePattern / applyPattern)
   SnapshotFormat.h / .cpp             the frame: magic + version + size + CRC-32  (crc32, write/readFrameHeader)
   RetainedSessionLogic.h              retained-RAM policy: RetainedStore, retainedValid/Refresh, decideResume
@@ -210,7 +210,7 @@ if (SessionStorage::load(loaded) == SessionStorage::LoadResult::Ok) {
     // ... build voices ...
     Session::applyAfterVoices(loaded);   // patterns + patch values + editor cursors + volume + reverb settings
     // ... start clock ...
-    Session::applyAfterClock(loaded);    // tempo + shuffle template + scale + theme
+    Session::applyAfterClock(loaded);    // tempo + shuffle template + scale + theme + tuning
 }
 ```
 
@@ -372,8 +372,8 @@ Range checks only (structural validity, not musical sense). Bounds mirror the UI
 - every lane `stepCount` in 1..64 (note: a **zero-initialized** snapshot is
   *invalid* — seed lengths or `captureSession` first),
 - `presetIndices[v]` ≤ 63 (true bound re-checked against the preset count by `applyPatch`),
-- tempo 45..200 BPM, scale 0..12 (13 scales), shuffle 0..15 (16 templates),
-  theme 0..9 (10 themes), selected voice 0..3,
+- tempo 45..200 BPM, scale 0..46 (47 scales, `SCALES_COUNT`), shuffle 0..15
+  (16 templates), theme 0..9 (10 themes), selected voice 0..3,
 - effect fields (`validateEffects`), each finite and inside its `EffectsLimits` range:
   reverb mix 0..1, decay 0.1..1000 s, damping 100..10,800 Hz, low cut 10..1000 Hz,
   diffusion 0..1, mod depth 0..1, mod rate 0.01..5 Hz, width 0..2. **A bad effect field
@@ -382,6 +382,9 @@ Range checks only (structural validity, not musical sense). Bounds mirror the UI
   which lets the compiler assume no NaN or infinity exists, so finiteness is tested on the
   bit pattern (`std::isfinite`/`std::isnan` compile to constants under that flag);
   `tests/unit/test_persistence.cpp` feeds NaN and infinities into every effect field.
+- tuning fields (`validateTuning`): known tuning, A/B-partner and favourite
+  ids, tonic 0..11, A4 415.0–466.0 Hz in tenths. Same rule: a bad tuning
+  record rejects the whole file, nothing is clamped.
 
 Call it on **every** load path before applying. `SessionStorage::load` already
 does; the retained path relies on CRC + the same check at apply time.
@@ -449,7 +452,12 @@ sizes and offsets, effect defaults (mix 0), v1→v3 and v2→v3 loads through
 `decodeSnapshotFrame` (including in place), a bit-exact v3 round trip, NaN/infinity/
 out-of-range effect rejection for every field, damaged and unknown-version frames refused
 before anything is applied, the effects codec (freeze never stored), `EffectsLimits` equal
-to `ReverbParams`, and stale retained-RAM versions.
+to `ReverbParams`, and stale retained-RAM versions. Format 4 adds: locked v4 sizes/offsets,
+the default tuning record (12-EDO, tonic C, A4 440), v1/v2/v3→v4 loads through
+`decodeSnapshotFrame` (including in place), a bit-exact v4 tuning round trip, every library
+tuning/tonic/half-hertz reference surviving a save, unknown tuning/tonic/reference/favourite
+rejection, `restoreTuning` leaving state untouched on a bad record, and the per-tuning scale
+memory never reaching the file.
 
 When adding a field: update the struct, the `static_assert`, `capture`/`apply`,
 `validate` bounds if any, the size assertion in the test, and this manual —

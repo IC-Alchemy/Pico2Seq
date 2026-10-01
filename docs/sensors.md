@@ -42,7 +42,7 @@ Core 1 (Real-Time Audio):
   fill_audio_buffer() @ 48 kHz stereo I2S (GP10 BCLK, GP11 LRCK, GP12 DATA)
   -> 0% I2C / sensor involvement -> Never blocks, no dynamic allocations
 
-Core 0 (UI, Sensors, Matrix, MIDI):
+Core 0 (UI, Sensors, Matrix):
   loop() Control Slice (CONTROL_UPDATE_INTERVAL = 1 ms):
     +-- Matrix_scan()            -> checks the GP8 MPR121 IRQ flag; reads 32-pad status only on change
     +-- alchemyBridge.update()   -> 1 ms Alchemy tile polling (Wire1 @ 400 kHz)
@@ -72,6 +72,7 @@ The magnetic encoder subsystem consists of two architectural layers:
 - **`EncoderManager` (`src/sensors/EncoderManager.h/.cpp`)**: High-level parameter management subsystem bridging encoder delta increments to the synthesizer data model. Handles:
   - Forwarding every read's increment to `VoiceEditor::encoder()`, which edits the selected voice's base (or the editor cursor) in its `VoiceConfig`.
   - Outside Step Edit the encoder edits **per-voice base values**. With a step selected, `editSelectedStep()` edits that step's stored value for the toggled edit parameter (or the encoder target's lane): continuous lanes sweep with the accumulated, velocity-scaled encoder motion (`SLOW_TURN_SCALE` = 0.2 on slow turns), while notes, octaves and choices step once per `STEPPED_VALUE_DETENT` (0.03) of motion (`SensorConstants.h`).
+  - While the Tuning page is open it owns the dial: one detent steps one tuning in the library (`TuningPage::encoderStep`, `UITransitions::showTuningNotice`), with its own `EncoderMotion` so pending motion never leaks into another target. On that page the 32 pads each pick a tuning (`UIEventHandler.cpp`), not steps.
   - Slow turns are accumulated (`ControlSurface::EncoderMotion`) rather than compared against a per-read noise floor, which used to discard them. Continuous values apply the motion once it passes `MINIMUM_INCREMENT_THRESHOLD`; notes, octaves and choices step once per `STEPPED_VALUE_DETENT` of motion. A change of direction discards pending motion, so sensor jitter never adds up.
   - Dynamic boundary proximity flash zones (`FlashSpeedZone` — currently defined but with no consumer; dormant).
 

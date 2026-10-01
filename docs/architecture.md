@@ -21,9 +21,11 @@ Pico2Seq/
 ├── src/                    # Firmware source code organized by subsystem
 │   ├── audio/              # I2S DMA audio driver and producer buffer management (@48kHz)
 │   ├── app/                # Application startup, clock/playback glue, control I/O and audio rendering
-│   ├── pico2seq-core/      # Portable, zero-dependency sequencer and musical scale core
-│   │   ├── scales/         # Musical scale definitions (13 scales, 48 steps)
-│   │   └── sequencer/      # Polymetric Sequencer, ParameterManager, ShuffleTemplates
+│   ├── pico2seq-core/      # Portable, zero-dependency sequencer, scale and tuning core
+│   │   ├── arpeggiator/    # Portable chord/pattern/clock engine behind Arpeggiator mode
+│   │   ├── scales/         # Musical scale rows (18 classic + 29 tuned, 48 steps each)
+│   │   ├── sequencer/      # Polymetric Sequencer, ParameterManager, ShuffleTemplates
+│   │   └── tuning/         # 29-tuning library, pitch maths, per-tuning scale sets
 │   ├── voice/              # Voice synthesis, VoiceManager, master bus (MasterDelay, MasterReverb), VoiceSystem, VoicePresets
 │   ├── rpdsp/              # Submodule: header-only DSP library (IC-Alchemy/RPDSP)
 │   ├── ui/                 # UIState, ControlSurfaceLogic, UIEventHandler, ButtonHandlers
@@ -34,7 +36,7 @@ Pico2Seq/
 │   ├── LEDMatrix/          # 8x4 WS2812B FastLED matrix (mirrors the 4x8 touch matrix)
 │   ├── OLED/               # 128x64 SH1106G I2C OLED display driver and view hierarchy
 │   ├── midi/               # Removal notice only; no firmware MIDI module
-│   └── utils/              # Debug.h/.cpp lightweight logging utilities
+│   └── utils/              # Debug.h/.cpp logging (rate-limited via SerialRateLimit.h), StackWatermark, AudioRam
 └── tests/                  # Catch2 v3.5.2 host unit tests with hardware header stubs
 ```
 
@@ -345,7 +347,9 @@ Portable core with **no hardware, UI, or Arduino dependencies**:
 - `sequencer/SequencerDefs.h`: Polymetric `ParameterTrack<N>`, `ParamId` enum, `VoiceState`.
 - `sequencer/ParameterManager.h/.cpp`: Thread-safe parameter validation and clamping.
 - `sequencer/ShuffleTemplates.h`: Groove and shuffle timing templates.
-- `scales/scales.h/.cpp`: 13 musical scales across 48 steps, scale degree ranking, and frequency conversion.
+- `arpeggiator/Arpeggiator.h/.cpp`: Portable chord/pattern/clock engine behind Arpeggiator mode.
+- `scales/scales.h/.cpp`: 47 scale rows across 48 steps — 18 classic rows of 12-EDO semitone slots (the original thirteen plus All Degrees and four thaats) and 29 tuned rows written in a tuning's own degrees.
+- `tuning/Tuning.h/.cpp`, `tuning/TuningLibrary.cpp`, `tuning/TuningScales.h/.cpp`, `tuning/TuningState.h`: The global tuning system — 29 tunings in five families with movable tonic and A4 reference, the pitch maths (`makeWorld`, `frequencyHz`, `noteName`), the per-tuning scale sets, and the device-side selection/bank (see [tuning.md](tuning.md)).
 
 ### 6.3 `src/voice/`
 - `Voice.h/.cpp`: Synthesizer voice DSP chain with lock-free staging and gate-controlled pitch commits.
@@ -365,6 +369,7 @@ Portable core with **no hardware, UI, or Arduino dependencies**:
   `inPresetSelection` and `inVoiceParameterMode` mirrors are removed.
 - `ControlSurfaceLogic.h/.cpp`: Unit-tested decision logic (`ModeStabilizer`, `PadBank`, `ShiftLatch`, `FaderMap`, and the Reverb page's fader-to-value mapping, names and formatting).
 - `ReverbPageControls.h`: The Reverb page's entry gesture and pickup state (`ReverbPage::Controls`, held in `UIState`); `app/ReverbEditor.h/.cpp` writes the page's values to `VoiceManager`.
+- `TuningPageControls.h` / `TuningPageLogic.h`: The Tuning page (Shift + Utility 3): entry gesture and press/hold tracking, plus the pure logic that turns its pads, encoder, buttons and faders into a `tuning::Selection`, the playing scale and the `Bank`, and every string the page prints (see [tuning.md](tuning.md)).
 - `UIEventHandler.h/.cpp`: Event routing for MPR121 pads and control surface actions.
 - `AlchemyControlBridge.h/.cpp`: Hardware bridge polling the Alchemy tile panel on Wire1 @ 100kHz. Frames are decoded per tile TYPE (`AlchemyProto.h` `buttonBlockOffset()`: button bytes at DATA 8..10 on slider tiles, DATA 0..2 on button tiles), and the slider/button roles are resolved by tile `TYPE_ID` (`sliderSlot()` / `firstSlotOfType(kTypeButton4)`), not by fixed bus slots.
 - `ButtonHandlers.h/.cpp`: Button behavior implementations (play/stop, randomize, parameter cycling).
@@ -377,6 +382,7 @@ Portable core with **no hardware, UI, or Arduino dependencies**:
 
 ### 6.6 `src/utils/`
 - `Debug.h/.cpp`: Zero-allocation, lightweight logging system with runtime toggle and level control (`DBG_ERROR`, `DBG_WARN`, `DBG_INFO`, `DBG_VERBOSE`).
+- `SerialRateLimit.h`: Portable rate limiters keeping diagnostics off the serial flood path — `StallWatch` (one stall report per interval, however often it is polled; used by the Core 1 stall check in `Application.cpp`) and the `LogBudget` token bucket behind `Debug::vlogf`.
 - `StackWatermark.h/.cpp`: Paints each core's stack at its entry point and reports the never-reached bytes in the `[DIAG MEM]` serial line (portable paint/scan logic is unit-tested; the linker-symbol binding is firmware only).
 - `AudioRam.h`: `PICO2SEQ_AUDIO_FUNC` places hot audio functions in SRAM.
 
@@ -400,6 +406,7 @@ DBG_VERBOSE("Sensor distance: %u mm", distanceMm);
 ```
 
 - **Zero Cost When Disabled**: Set `AUG_DEBUG_COMPILED 0` to compile out all logging calls to `(void)0;`.
+- **Rate Limited**: Every line passes a `SerialRateLimit::LogBudget` token bucket (`src/utils/SerialRateLimit.h`): a burst of 10 lines, then 20 lines/s sustained; dropped lines are summarized in one `[W] log rate limit` message instead of flooding the port.
 - **Fixed-Buffer Formatting**: Uses an internal 160-byte stack buffer with `vsnprintf()` to eliminate heap fragmentation.
 
 ---
