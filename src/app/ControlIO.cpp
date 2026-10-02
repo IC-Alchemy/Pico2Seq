@@ -33,7 +33,14 @@ constexpr uint32_t kOledIntervalMs = 40; // ~25 fps: readable without hogging I2
 // Core 0 little. Blends in updateStepLEDs() are per frame, so fades settle
 // in a third of the time they did at the shared 40 ms cadence.
 constexpr uint32_t kLedIntervalMs = 13; // ~77 fps: fades settle fast, PIO+DMA hides cost
-constexpr uint32_t kTileBusFrequencyHz = 100000; // Tiles demand 100 kHz; 400 kHz stalls them
+// Must match the ClockSpeed both tile sketches program (kBusClockHz in
+// tiles/*/*.ino, each pinned to 400000 by its host test). Change all three
+// together or not at all. Older notes here said 400 kHz stalls this bank and
+// pinned it to 100 kHz. The one mismatch actually found in the sources was a
+// slider build programmed for 100 kHz on a 400 kHz bank -- a mismatch, which
+// is not proof the bank cannot run fast. Bench-verify at 400 kHz; if it
+// stalls, set all three to 100000.
+constexpr uint32_t kTileBusFrequencyHz = 400000;
 constexpr uint32_t kMainBusFrequencyHz = 400000; // Fast mode (400 kHz); OLED and sensors on Wire
 constexpr uint8_t kStartupLedBrightness = 150;
 constexpr uint8_t kTouchSensorAddress = 0x5A; // MPR121 32-pad address;
@@ -189,8 +196,8 @@ void ControlIO::beginMatrixAndTiles()
     Matrix_scan();
 
     // Alchemy tiles (faders/buttons) live on their own Wire1 bank + GP7 strap.
-    // Kept at 100 kHz: 400 kHz stalls transfers on this rig (same rate as the
-    // working Pico_DSP_Garden tile sketches).
+    // The rate is kTileBusFrequencyHz, which both tile sketches must match --
+    // read the note on that constant before changing it.
     freezeWatchdogFeed(FW_SETUP_ALCHEMY);
     pinMode(PIN_ALCHEMY_MODE_SWITCH, INPUT_PULLUP);
     Wire1.setSDA(PIN_ALCHEMY_WIRE1_SDA);

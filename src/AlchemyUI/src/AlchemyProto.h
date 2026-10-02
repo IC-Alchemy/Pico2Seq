@@ -179,6 +179,141 @@ inline bool frameChecksumOk(const std::uint8_t* frame, std::uint8_t dataLen) {
   return frameSum(frame[0], frame + 1, dataLen) == sum;
 }
 
+// --- The standardized state packet --------------------------------------------
+//
+// One compact snapshot of a satellite's whole control state, 11 bytes:
+//
+//   byte 0     sequence counter
+//   byte 1     button bits (level bitmap, bit n = button n down)
+//   bytes 2-3  slider 0, uint16 LE
+//   bytes 4-5  slider 1
+//   bytes 6-7  slider 2
+//   bytes 8-9  slider 3
+//   byte 10    status/error flags
+//
+// This is the hub's single representation of "what the satellite currently
+// reads", independent of which register layout the tile that produced it
+// serves. A v2 tile's STATUS+DATA+SUM frame maps onto it (decodeFrame below);
+// a future PY32 that serves this block natively needs no hub-side decode
+// change at all.
+//
+// What the packet deliberately does NOT carry: the sticky pressed/released
+// edge bytes. Those are events, not state — they are true exactly once, for
+// the one read that consumed them. Caching an edge and replaying it is the
+// precise failure the last-known-good machinery exists to prevent, so
+// decodeFrame hands edges back separately and SatelliteLink never stores
+// them.
+//
+// SEQ is an equality-only field. It is 8 bits wide here so a native producer
+// can use the full range, but a v2 tile fills it from a 4-bit counter; either
+// way "changed" means "not equal", never "greater than".
+
+inline constexpr std::uint8_t kStatePacketLen = 11;
+
+enum PacketOffset : std::uint8_t {
+  kPacketSeq = 0,
+  kPacketButtons = 1,
+  kPacketSliders = 2,  // 4 x uint16 LE
+  kPacketStatus = 10,
+};
+
+inline constexpr std::uint8_t kPacketSlidersPerTile = 4;
+
+// Byte 10 carries the STATUS flag bits only; SEQ has its own byte, so the
+// v2 STATUS byte's seq nibble is masked off on the way in.
+inline constexpr std::uint8_t kPacketStatusFlagsMask = 0x0F;
+
+struct StatePacket {
+  std::uint8_t seq = 0;
+  std::uint8_t buttons = 0;
+  std::uint16_t sliders[kPacketSlidersPerTile] = {0, 0, 0, 0};
+  std::uint8_t status = 0;  // kStatusHeartbeat / kStatusLocalFault / kStatusNotReady
+};
+
+/** Serialize a packet into the 11 wire bytes. */
+inline void encodeStatePacket(const StatePacket& packet, std::uint8_t* out) {
+  out[kPacketSeq] = packet.seq;
+  out[kPacketButtons] = packet.buttons;
+  for (std::uint8_t ch = 0; ch < kPacketSlidersPerTile; ++ch) {
+    const std::uint8_t i = static_cast<std::uint8_t>(kPacketSliders + ch * 2);
+    out[i] = static_cast<std::uint8_t>(packet.sliders[ch] & 0xFF);
+    out[i + 1] = static_cast<std::uint8_t>(packet.sliders[ch] >> 8);
+  }
+  out[kPacketStatus] =
+      static_cast<std::uint8_t>(packet.status & kPacketStatusFlagsMask);
+}
+
+/** Parse the 11 wire bytes back into a packet. */
+inline StatePacket decodeStatePacket(const std::uint8_t* in) {
+  StatePacket out;
+  out.seq = in[kPacketSeq];
+  out.buttons = in[kPacketButtons];
+  for (std::uint8_t ch = 0; ch < kPacketSlidersPerTile; ++ch) {
+    const std::uint8_t i = static_cast<std::uint8_t>(kPacketSliders + ch * 2);
+    out.sliders[ch] =
+        static_cast<std::uint16_t>(in[i] | (in[i + 1] << 8));
+  }
+  out.status = static_cast<std::uint8_t>(in[kPacketStatus] & kPacketStatusFlagsMask);
+  return out;
+}
+
+/** The satellite reported a fault of its own in this packet. */
+inline bool packetLocalFault(const StatePacket& packet) {
+  return (packet.status & kStatusLocalFault) != 0;
+}
+
+/** The satellite has not completed its first sample sweep yet. */
+inline bool packetNotReady(const StatePacket& packet) {
+  return (packet.status & kStatusNotReady) != 0;
+}
+
+/**
+ * One satellite read, decoded: the cached state as a StatePacket plus the
+ * transient sticky edges that came with it.
+ */
+struct DecodedFrame {
+  StatePacket packet{};
+  ButtonBlock edges{};  // sticky pressed/released — consumed once, never cached
+  bool valid = false;   // checksum passed and the frame was long enough
+};
+
+/**
+ * Map a v2 STATUS+DATA+SUM frame, read in one transaction starting at
+ * kRegStatus, onto the canonical packet.
+ *
+ * `frame` is the (1 + dataLen + 1) bytes as they came off the bus. A frame
+ * whose checksum fails, or that is too short for the block its TYPE_ID
+ * promises, decodes to valid == false and must not be trusted for any field:
+ * a corrupt frame that happens to carry a plausible fader word is exactly
+ * the garbage the link layer refuses to propagate.
+ *
+ * A tile type with no faders (kTypeButton4) leaves the slider words at 0 —
+ * callers get their fader values from the slider tile's own link.
+ */
+inline DecodedFrame decodeFrame(std::uint8_t typeId, const std::uint8_t* frame,
+                                std::uint8_t dataLen) {
+  DecodedFrame out;
+  const std::uint8_t buttonOffset = buttonBlockOffset(typeId);
+  if (dataLen < buttonOffset + kButtonDataLen) return out;
+  if (!frameChecksumOk(frame, dataLen)) return out;
+
+  const std::uint8_t status = frame[0];
+  const std::uint8_t* data = frame + 1;
+
+  out.packet.seq = decodeStatus(status).seq;
+  out.packet.status = static_cast<std::uint8_t>(status & kPacketStatusFlagsMask);
+  out.packet.buttons = data[buttonOffset];
+  out.edges = decodeButtonBlock(data[buttonOffset], data[buttonOffset + 1],
+                                data[buttonOffset + 2]);
+  if (typeId == kTypeSliderButton && dataLen >= kSliderDataLen) {
+    for (std::uint8_t ch = 0; ch < kPacketSlidersPerTile; ++ch) {
+      out.packet.sliders[ch] = decodeFader(data, ch);
+    }
+  }
+  out.valid = true;
+  return out;
+}
+
 // --- Identity -----------------------------------------------------------------
 
 // Bytes to read from kRegWhoAmI to cover the whole identity block (0x00..0x19).

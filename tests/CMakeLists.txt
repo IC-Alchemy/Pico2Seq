@@ -154,6 +154,7 @@ add_executable(pico2seq_tests
   ${SRC_DIR}/app/ReverbEditor.cpp
   ${SRC_DIR}/app/StepPlayback.cpp
   unit/test_alchemy_proto.cpp
+  unit/test_satellite_link.cpp
   unit/test_app_runtime.cpp
   unit/test_voice_edit.cpp
   unit/test_settings_pads.cpp
@@ -227,19 +228,50 @@ target_compile_definitions(pico2seq_audio_tests PRIVATE PICO_RP2350=1 ARDUINO_AR
 target_link_libraries(pico2seq_audio_tests PRIVATE Catch2::Catch2WithMain)
 catch_discover_tests(pico2seq_audio_tests TEST_PREFIX "audio: ")
 
-# The bench-only -DPICO2SEQ_REVERB_BYPASS=1 build of the master reverb (the
-# reverb-free baseline for the on-board CPU A/B). Compiled on its own so the
-# switch cannot leak into the suites above.
-add_executable(pico2seq_reverb_bypass_tests
-  unit/test_reverb_bypass.cpp
-  ${SRC_DIR}/voice/MasterReverb.cpp)
-target_include_directories(pico2seq_reverb_bypass_tests PRIVATE
-  ${STUB_DIR} ${PROJECT_SOURCE_DIR} ${SRC_DIR} ${CORE_DIR} ${RPDSP_DIR})
-target_compile_definitions(pico2seq_reverb_bypass_tests PRIVATE
-  AUG_DEBUG_COMPILED=0 PICO2SEQ_REVERB_BYPASS=1)
-target_compile_options(pico2seq_reverb_bypass_tests PRIVATE -Wall -Wno-unused-parameter)
-target_link_libraries(pico2seq_reverb_bypass_tests PRIVATE Catch2::Catch2WithMain)
-catch_discover_tests(pico2seq_reverb_bypass_tests TEST_PREFIX "reverb-bypass: ")
+# The real tile driver against a scriptable I2C bus. Covers the one-transaction
+# snapshot poll and the sequence/timeout/last-known-good behaviour that keeps a
+# flaky satellite out of the audio path; the Wire stub here shadows the no-op
+# one in tests/stubs, which still supplies Arduino.h.
+add_executable(pico2seq_tile_tests
+  unit/test_alchemy_tiles.cpp
+  ${SRC_DIR}/AlchemyUI/src/AlchemyTiles.cpp
+)
+target_include_directories(pico2seq_tile_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/tile_stubs ${STUB_DIR} ${SRC_DIR})
+target_link_libraries(pico2seq_tile_tests PRIVATE Catch2::Catch2WithMain)
+target_compile_options(pico2seq_tile_tests PRIVATE -Wall -Wno-unused-parameter)
+catch_discover_tests(pico2seq_tile_tests TEST_PREFIX "tiles: ")
+
+# The PY32 tile sketches themselves, compiled unmodified against a host shim
+# for the PY32Duino core and driven through their I2C slave ISR by a modelled
+# master (tests/py32_stubs/). Covers the slave state machine and the publish
+# path -- the half of the satellite contract the hub cannot check from its end.
+# Each sketch gets its own binary: they define the same symbols.
+add_executable(py32_slider_tests
+  unit/test_py32_slider_tile.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/py32_stubs/py32_stubs.cpp
+)
+target_include_directories(py32_slider_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/py32_stubs
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${PROJECT_SOURCE_DIR}/tiles)
+target_link_libraries(py32_slider_tests PRIVATE Catch2::Catch2WithMain)
+target_compile_options(py32_slider_tests PRIVATE -Wall -Wno-unused-parameter
+  -Wno-unused-function -Wno-unused-variable -x c++)
+catch_discover_tests(py32_slider_tests TEST_PREFIX "py32-slider: ")
+
+add_executable(py32_button_tests
+  unit/test_py32_button_tile.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/py32_stubs/py32_stubs.cpp
+)
+target_include_directories(py32_button_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/py32_stubs
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${PROJECT_SOURCE_DIR}/tiles)
+target_link_libraries(py32_button_tests PRIVATE Catch2::Catch2WithMain)
+target_compile_options(py32_button_tests PRIVATE -Wall -Wno-unused-parameter
+  -Wno-unused-function -Wno-unused-variable -x c++)
+catch_discover_tests(py32_button_tests TEST_PREFIX "py32-button: ")
 
 # Opt-in throughput measurement; timing thresholds do not belong in CTest.
 add_executable(pico2seq_recipe_benchmark EXCLUDE_FROM_ALL benchmarks/recipe_benchmark.cpp)

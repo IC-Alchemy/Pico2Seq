@@ -123,9 +123,9 @@ code with **no hardware dependencies**, using header stubs in `tests/stubs/` (e.
 `Wire.h`, `pico/sync.h`) to satisfy `#include`s without real hardware. `tests/stubs/` mirrors
 real header paths exactly — a stub for `pico/sync.h` must live at `tests/stubs/pico/sync.h`.
 
-What's tested vs. not, per `tests/CMakeLists.txt` (six focused targets: `pico2seq_tests`,
+What's tested vs. not, per `tests/CMakeLists.txt` (eight focused targets: `pico2seq_tests`,
 `pico2seq_ui_tests`, `pico2seq_voice_tests`, `pico2seq_watchdog_tests`, `pico2seq_audio_tests`,
-`pico2seq_reverb_bypass_tests`):
+`pico2seq_tile_tests`, `py32_slider_tests`, `py32_button_tests`):
 - **Tested**: `src/rpdsp/` additions via
   `tests/unit/test_rpdsp_additions.cpp`, `test_dsp_recipe_regressions.cpp`,
   and `test_recipe_optimization.cpp`,
@@ -152,7 +152,12 @@ What's tested vs. not, per `tests/CMakeLists.txt` (six focused targets: `pico2se
   `test_control_surface_logic.cpp` / `test_ui_transitions.cpp` / `test_reverb_page.cpp`
   (`pico2seq_ui_tests`),
   `src/ui/SettingsPads.h` via `test_settings_pads.cpp`,
-  `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` via `tests/unit/test_alchemy_proto.cpp`,
+  `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` via `tests/unit/test_alchemy_proto.cpp`
+  and `src/AlchemyUI/src/SatelliteLink.h` via `tests/unit/test_satellite_link.cpp`,
+  the `src/AlchemyUI/src/AlchemyTiles.cpp` bus master via `pico2seq_tile_tests`
+  (against the scriptable `TwoWire` in `tests/tile_stubs/`), the PY32 tile
+  sketches in `tiles/` via `py32_slider_tests` / `py32_button_tests` (compiled
+  unmodified against the PY32Duino shim in `tests/py32_stubs/`),
   `src/app/{VoicePlayback,VoiceEnvelope,StepPlayback}.cpp` via
   `test_voice_playback.cpp`, `test_voice_envelope.cpp`, and
   `test_lidar_recording.cpp`, plus `src/app/SequencerView.h` via
