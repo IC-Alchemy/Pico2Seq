@@ -47,7 +47,7 @@ Core 0 (UI, Sensors, Matrix):
     +-- Matrix_scan()            -> checks the GP8 MPR121 IRQ flag; reads 32-pad status only on change
     +-- alchemyBridge.update()   -> 1 ms Alchemy tile polling (Wire1 @ 400 kHz)
     +-- magEncoder.update()      -> 1 ms poll (5 ms internal throttle in driver)
-    +-- updateEncoderBaseValues()-> Applies rotary increments to active params
+    +-- updateEncoderTarget()-> Applies rotary increments to active params
     +-- distanceSensor.update()  -> 1 ms poll (10 ms data-ready check, 35 ms measurements)
     +-- pollUIHeldButtons()      -> Promotes long-press states (randomize reset, gate seq length)
   loop() LED Slice (kLedIntervalMs = 13 ms / ~77 Hz):
@@ -112,15 +112,14 @@ The magnetic encoder subsystem consists of two architectural layers:
 
 #### Parameter Processing & Step Editing
 ```cpp
-void updateEncoderBaseValues(UIState& uiState);
+void updateEncoderTarget(UIState& uiState);
 float getParameterMinValueForParamId(ParamId paramId);
 float getParameterMaxValueForParamId(ParamId paramId);
 ```
 
 #### Lifecycle & State Initialization
 ```cpp
-void resetEncoderBaseValues(UIState& uiState, bool currentVoiceOnly = true);
-void initEncoderBaseValues();
+void initEncoderTarget();
 
 extern MagEncoder magEncoder;
 ```
@@ -267,7 +266,7 @@ Tuning parameters configured in `MagEncoder::Config`:
 
 ## "Shift and Scale" Parameter Mapping
 
-To combine encoder base offsets with dynamic sequencer step tracks without clipping or introducing dead zones, `applyEncoderBaseValues` implements bidirectional "Shift and Scale":
+To combine encoder base offsets with dynamic sequencer step tracks without clipping or introducing dead zones, the encoder target path implements bidirectional "Shift and Scale":
 
 ```cpp
 float shiftAndScale(float seqValue, float encoderOffset) {
@@ -286,7 +285,9 @@ float shiftAndScale(float seqValue, float encoderOffset) {
 ## Example Initialization and Control Loop
 
 ```cpp
-#include "includes.h"
+#include "src/app/HardwarePins.h"
+#include "src/sensors/DistanceSensor.h"
+#include "src/sensors/EncoderManager.h"
 
 void setup() {
     // 1. Configure main I2C bus pins and initialize Wire
@@ -303,7 +304,7 @@ void setup() {
     if (!magEncoder.begin()) {
         Serial.println("TMAG5273 initialization failed!");
     }
-    initEncoderBaseValues();
+    initEncoderTarget();
 
     // 4. Initialize Touch Sensor Matrix (MPR121 @ 0x5A)
     if (!touchSensor.begin(0x5A)) {
@@ -327,7 +328,7 @@ void loop() {
 
         // Update magnetic encoder & apply base values
         magEncoder.update();
-        updateEncoderBaseValues(uiState);
+        updateEncoderTarget(uiState);
 
         // Update ToF distance sensor
         distanceSensor.update();

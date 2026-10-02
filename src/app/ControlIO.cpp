@@ -1,7 +1,19 @@
 #include "ControlIO.h"
 #include "AppState.h"
 #include "StepPlayback.h"
-#include "../../includes.h"
+#include <Wire.h>
+#include <Adafruit_MPR121.h> // MAKE SURE TO ENABLE AUTOCONFIG IN MPR121.H
+#include "HardwarePins.h"
+#include "../LEDMatrix/LedMatrix.h"
+#include "../LEDMatrix/LEDMatrixFeedback.h"
+#include "../matrix/Matrix.h"
+#include "../OLED/oled.h"
+#include "../sensors/DistanceSensor.h"
+#include "../sensors/EncoderManager.h"
+#include "../ui/AlchemyControlBridge.h"
+#include "../ui/UIEventHandler.h"
+#include "../ui/UIState.h"
+#include "../voice/VoiceManager.h"
 #include "../ui/ControlSurfaceLogic.h"
 #include "../utils/FreezeWatchdog.h"
 

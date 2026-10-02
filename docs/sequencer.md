@@ -58,7 +58,7 @@ The Sequencer module is the core rhythmic and melodic engine of the Pico2Seq syn
 1. **Portable `pico2seq-core/` Isolation**:
    The sequencer logic in `src/pico2seq-core/sequencer/` (`Sequencer`, `ParameterManager`, `SequencerDefs.h`, `ShuffleTemplates.h`) is clean, portable C++ with **no dependency on `UIState` or UI types**. This allows the sequencer engine to be compiled and unit-tested on host machines via CMake (`tests/unit/test_sequencer.cpp`).
 2. **UI Adapter Pattern (`advanceSequencerStep`)**:
-   Because `Sequencer::advanceStep()` accepts only primitive types (integers, floats, booleans), the firmware bridges the rich `UIState` struct via the private adapter function `advanceSequencerStep()` in `src/app/StepPlayback.cpp`.
+   Because `Sequencer::advanceStep()` accepts only portable types (integers, floats, and the plain `StepEditButtons` aggregate), the firmware bridges the rich `UIState` struct via the private adapter function `advanceSequencerStep()` in `src/app/StepPlayback.cpp`.
 3. **Polymetric Parameter Tracks**:
    Rather than advancing all synthesis parameters in lockstep, every parameter (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide, Sustain, Release) operates on an independent `ParameterTrack<64>` with its own step count (2–64 steps). This allows patterns such as a 16-step melody, an 8-step filter pattern, and a 5-step velocity cycle to run simultaneously on a single voice.
 4. **Dual-Core Execution**:
@@ -242,9 +242,7 @@ public:
 
     // Core Step Advancement (Primitive Signature)
     void advanceStep(uint32_t current_uclock_step, int mm_distance,
-                     bool is_note_button_held, bool is_velocity_button_held,
-                     bool is_filter_button_held, bool is_attack_button_held,
-                     bool is_release_button_held, bool is_octave_button_held,
+                     const StepEditButtons &buttons,
                      int current_selected_step_for_edit,
                      VoiceState *voiceState);
 };
@@ -301,15 +299,15 @@ The bridge between `UIState` and `Sequencer` is private to `src/app/StepPlayback
 void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_distance,
                           const UIState &uiState, VoiceState *voiceState)
 {
-  seq.advanceStep(current_uclock_step, mm_distance,
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Note)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Velocity)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Filter)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Attack)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Release)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Octave)],
-                  uiState.selectedStepForEdit,
-                  voiceState);
+  StepEditButtons buttons;
+  buttons.note = uiState.parameterButtonHeld[static_cast<int>(ParamId::Note)];
+  buttons.velocity = uiState.parameterButtonHeld[static_cast<int>(ParamId::Velocity)];
+  buttons.filter = uiState.parameterButtonHeld[static_cast<int>(ParamId::Filter)];
+  buttons.attack = uiState.parameterButtonHeld[static_cast<int>(ParamId::Attack)];
+  buttons.release = uiState.parameterButtonHeld[static_cast<int>(ParamId::Release)];
+  buttons.octave = uiState.parameterButtonHeld[static_cast<int>(ParamId::Octave)];
+  seq.advanceStep(current_uclock_step, mm_distance, buttons,
+                  uiState.selectedStepForEdit, voiceState);
 }
 ```
 

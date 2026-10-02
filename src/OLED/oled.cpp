@@ -7,10 +7,10 @@
 #include "../app/VoiceEditor.h"
 #include "../app/AppState.h"
 #include "../voice/VoiceSystem.h" // voice id -> slot lookup
-#include "../../includes.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 #include "../pico2seq-core/sequencer/ShuffleTemplates.h"
 #include "../pico2seq-core/scales/scales.h"
+#include "../sensors/DistanceSensor.h"
 #include "../ui/ButtonManager.h"
 #include "../ui/ControlSurfaceLogic.h"
 #include "../ui/SettingsPads.h"
@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cstring> // strcmp, strlen
 #include <Arduino.h>
+#include <uClock.h>
 
 // ========================= OLED Display Module =========================
 // What's editable now, on a 128x64 SH1106 (Core 0, I2C0 at 400 kHz).

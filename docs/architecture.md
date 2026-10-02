@@ -15,7 +15,6 @@ Pico2Seq is a 4-voice polyphonic step sequencer and synthesizer running as an Ar
 ```
 Pico2Seq/
 ├── Pico2Seq.ino            # Main sketch entry point (setup/loop on Core 0, setup1/loop1 on Core 1)
-├── includes.h              # Central aggregator of subsystem headers and pin definitions
 ├── diagnostic.h            # Structured diagnostic logging macros
 ├── docs/                   # System and subsystem documentation
 ├── src/                    # Firmware source code organized by subsystem
@@ -115,7 +114,7 @@ disabled; TinyUSB CDC remains available for the serial console.
 - **1ms Sensor and Control Loop**:
   - `Matrix_scan()`: Consumes MPR121 touch-status interrupts from GP8 and, only when pending, scans 32 capacitive touch step pads over I2C0 (Wire: GP4/GP5 @ 0x5A).
   - `alchemyBridge.update()`: Polls SliderModule (4 faders) and ButtonModule8 on dedicated I2C1 (Wire1: GP14/GP15 @ 100kHz) and reads the GP7 hardware mode strap.
-  - `magEncoder.update()`: Reads the TMAG5273A magnetic encoder on Wire @ 0x35 and updates base values via `updateEncoderBaseValues(uiState)`.
+  - `magEncoder.update()`: Reads the TMAG5273A magnetic encoder on Wire @ 0x35 and updates base values via `updateEncoderTarget(uiState)`.
   - `distanceSensor.update()`: Non-blocking VL53L1X distance sensor update on Wire @ 0x29 (55–700mm useful window).
   - `pollUIHeldButtons()`: Processes long-press events across all four sequencers (`seq1..seq4`).
 - **Display Refresh Loop** (OLED every 40 ms ≈ 25 fps; LED matrix every 13 ms ≈ 77 fps):

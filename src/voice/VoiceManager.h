@@ -133,7 +133,6 @@ public:
     void setVoiceUpdateCallback(VoiceUpdateCallback callback) { voiceUpdateCallback = callback; }
 
     // Preset Management
-    static std::vector<std::string> getAvailablePresets();
     static VoiceConfig getPresetConfig(const std::string &presetName);
 
     // Preset lookup by name; unknown names fall back to Analog.

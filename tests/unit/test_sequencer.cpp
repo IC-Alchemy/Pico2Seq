@@ -333,7 +333,7 @@ TEST_CASE("advanceStep phase follows global step modulo across the 8-bit wrap", 
     seq.setParameterStepCount(ParamId::Note, 12);
     VoiceState voiceState;
     for (uint32_t step = 0; step <= 512; ++step) {
-        seq.advanceStep(step, -1, false, false, false, false, false, false, -1, &voiceState);
+        seq.advanceStep(step, -1, StepEditButtons{}, -1, &voiceState);
         // 256 % 12 == 4: a counter truncated to uint8_t before the modulo would
         // land on 0 here instead.
         REQUIRE(seq.getCurrentStep() == step % 12);
@@ -559,12 +559,12 @@ TEST_CASE("Rest steps leave the triggering note's voice settings intact", "[sequ
     seq.setStepParameterValue(ParamId::GateLength, 1, 0.1f);
 
     VoiceState state;
-    seq.advanceStep(0, -1, false, false, false, false, false, false, -1, &state);
+    seq.advanceStep(0, -1, StepEditButtons{}, -1, &state);
     REQUIRE(state.isGateHigh);
     REQUIRE(state.shouldRetrigger);
     const VoiceState triggered = state;
 
-    seq.advanceStep(1, -1, false, false, false, false, false, false, -1, &state);
+    seq.advanceStep(1, -1, StepEditButtons{}, -1, &state);
     CHECK_FALSE(state.isGateHigh);
     CHECK_FALSE(state.shouldRetrigger);
     CHECK(state.noteIndex == triggered.noteIndex);
@@ -580,7 +580,7 @@ TEST_CASE("Rest steps leave the triggering note's voice settings intact", "[sequ
 
     seq.setStepParameterValue(ParamId::Gate, 2, 1.0f);
     seq.setStepParameterValue(ParamId::Release, 2, 0.0f);
-    seq.advanceStep(2, -1, false, false, false, false, false, false, -1, &state);
+    seq.advanceStep(2, -1, StepEditButtons{}, -1, &state);
     CHECK(state.isGateHigh);
     CHECK(state.shouldRetrigger);
     CHECK(state.releaseTimeSeconds == 0.0f);
@@ -600,13 +600,13 @@ TEST_CASE("Polyrhythmic advanceStep checks sounding gate step for Note recording
     VoiceState state;
     // Step 0: Note cursor 0, Gate cursor 0 (Gate is HIGH)
     // Note button held with recording distance 100mm -> normalized distance > 0
-    seq.advanceStep(0, 100, true, false, false, false, false, false, -1, &state);
+    seq.advanceStep(0, 100, StepEditButtons{true}, -1, &state);
     REQUIRE(seq.getStepParameterValue(ParamId::Note, 0) > 0.0f);
 
     // Step 1: Note cursor 1, Gate cursor 1 (Gate is LOW)
     // Reset step 1 note to 0 first
     seq.setStepParameterValue(ParamId::Note, 1, 0.0f);
-    seq.advanceStep(1, 100, true, false, false, false, false, false, -1, &state);
+    seq.advanceStep(1, 100, StepEditButtons{true}, -1, &state);
     // Gate is LOW at Gate step 1, so Note on step 1 must NOT be recorded
     REQUIRE(seq.getStepParameterValue(ParamId::Note, 1) == 0.0f);
 }
@@ -689,7 +689,7 @@ TEST_CASE("Playback decoding selects each lane cursor before transforming", "[se
     seq.start();
     VoiceState state{};
     constexpr uint32_t clockStep = 263; // Must not truncate before each lane's modulo.
-    seq.advanceStep(clockStep, -1, false, false, false, false, false, false, -1, &state);
+    seq.advanceStep(clockStep, -1, StepEditButtons{}, -1, &state);
     const auto currentStep = seq.getCurrentStep();
     const auto currentNote = seq.getCurrentNote();
     const bool notePlaying = seq.isNotePlaying();
@@ -729,7 +729,7 @@ TEST_CASE("previewActiveStep preserves independent polyrhythmic parameter cursor
     VoiceState state;
     // Advance 7 steps
     for (uint32_t i = 0; i <= 7; ++i) {
-        seq.advanceStep(i, -1, false, false, false, false, false, false, -1, &state);
+        seq.advanceStep(i, -1, StepEditButtons{}, -1, &state);
     }
     REQUIRE(seq.getCurrentStepForParameter(ParamId::Note) == 7 % 16);
     REQUIRE(seq.getCurrentStepForParameter(ParamId::Filter) == 7 % 5);
@@ -846,7 +846,7 @@ TEST_CASE("refreshVoiceParameters updates a sounding voice without retriggering"
     seq.start();
 
     VoiceState state;
-    seq.advanceStep(0, -1, false, false, false, false, false, false, -1, &state);
+    seq.advanceStep(0, -1, StepEditButtons{}, -1, &state);
     REQUIRE(state.isGateHigh);
     REQUIRE(state.shouldRetrigger);
     const bool wasPlaying = seq.isNotePlaying();
@@ -893,14 +893,14 @@ TEST_CASE("Step Edit waits for a selected future step while transport runs",
 
     VoiceState state;
     // Put the current lane cursors on step 0, then edit step 4.
-    seq.advanceStep(0, -1, false, false, false, false, false, false, -1, &state);
+    seq.advanceStep(0, -1, StepEditButtons{}, -1, &state);
     seq.editStepValue(ParamId::Filter, 4, 1.0f);
     seq.editStepValue(ParamId::Release, 4, 0.25f);
     seq.refreshVoiceParameters(&state, 4);
 
     CHECK(state.filterCutoff == Catch::Approx(0.0f));
     CHECK(state.releaseTimeSeconds == Catch::Approx(0.0f));
-    seq.advanceStep(4, -1, false, false, false, false, false, false, -1, &state);
+    seq.advanceStep(4, -1, StepEditButtons{}, -1, &state);
     CHECK(state.filterCutoff == Catch::Approx(1.0f));
     CHECK(state.releaseTimeSeconds == Catch::Approx(0.25f));
 }
@@ -913,7 +913,7 @@ TEST_CASE("Live values land on each lane's own playing step", "[sequencer][recor
     seq.setStepParameterValue(ParamId::Gate, 7, 1.0f);
     seq.start();
     VoiceState state;
-    seq.advanceStep(7, -1, false, false, false, false, false, false, -1, &state);
+    seq.advanceStep(7, -1, StepEditButtons{}, -1, &state);
     REQUIRE(seq.getCurrentStepForParameter(ParamId::Filter) == 2);
 
     // Between clock steps the playing step takes the value, not step 7.
@@ -932,7 +932,7 @@ TEST_CASE("Live pitch follows the playing gate, not the Note lane's own step", "
     seq.setStepParameterValue(ParamId::Gate, 1, 1.0f); // Note cursor 1 at step 5; gate step 5 is off
     seq.start();
     VoiceState state;
-    seq.advanceStep(5, -1, false, false, false, false, false, false, -1, &state);
+    seq.advanceStep(5, -1, StepEditButtons{}, -1, &state);
     REQUIRE(seq.getCurrentStepForParameter(ParamId::Note) == 1);
     CHECK_FALSE(seq.recordLiveValue(ParamId::Note, 9.0f));
     CHECK(seq.getStepParameterValue(ParamId::Note, 1) == 0.0f);
