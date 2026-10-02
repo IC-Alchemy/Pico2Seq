@@ -687,7 +687,7 @@ The sound bank contains 29 built-in presets (held as `constexpr` flash tables), 
 | 1 | **Analog** | osc | Single band-limited hard-sync saw (master/slave pair) through 24 dB ladder filter | Cutoff / Attack / Decay (Velocity = Slave pitch) |
 | 2 | **Digital** | osc | Dual band-limited square pair (near-unison detune), sharp 12 dB lowpass | Cutoff / Attack / Decay |
 | 3 | **Bass** | osc | Sub-octave sine + triangle bass with subtle overdrive | Cutoff / Attack / Decay |
-| 4 | **Lead** | osc | Dual-saw lead with a scale-harmony layer on the second oscillator | Cutoff / Attack / Decay |
+| 4 | **Lead** | osc | Dual-saw lead: two band-limited saws, the second detuned by a hair (+0.015 semitone), through a driven 24 dB ladder filter | Cutoff / Attack / Decay |
 | 5 | **Square** | osc | Narrow PWM pulse (20% width) with resonant bite; no sustain | Cutoff / Attack / Decay |
 | 6 | **Pad** | osc | Atmospheric 3-oscillator chord pad (harmonies 0/+4/+9), slow attack & release | Cutoff / Attack / Decay |
 | 7 | **Percussion** | osc | Fast-decaying noise-textured hit (no oscillators, pure noise burst) | Cutoff / Attack / Decay |

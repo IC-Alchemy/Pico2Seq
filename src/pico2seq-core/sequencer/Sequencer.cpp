@@ -370,8 +370,8 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
     }
     else
     {
-        // Rest: release, unless the previous step's slide is still carrying
-        // the phrase through it.
+        // Rest: release, unless the previous step had a slide. In that case only
+        // the note bookkeeping persists; isGateHigh still drops below.
         if (!previousStepHadSlide)
         {
             handleNoteOff(voiceState);
@@ -399,7 +399,7 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
         }
     }
 
-    // Remember slide-through-rests for the next step.
+    // Remember whether this step slid, so a following rest skips handleNoteOff().
     previousStepHadSlide = slideVal && gateOn;
 }
 

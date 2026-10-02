@@ -271,7 +271,7 @@ private:
     uint16_t noteDurationCounter;
     uint8_t channel;
     NoteDurationTracker noteDuration;
-    bool previousStepHadSlide; // Lets a slide ring through a following rest
+    bool previousStepHadSlide; // Skips handleNoteOff() on a rest after a slide; the voice gate still drops
 
     // Step sound engine (not transport): gate/slide/note lifecycle + VoiceState out
     void processStep(uint8_t stepIdx, VoiceState *voiceState);

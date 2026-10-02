@@ -21,8 +21,9 @@ constexpr float kStartingTempoBpm = 90.0f;
 struct ClockEvents
 {
     SpscQueue<uint32_t, kQueuedStepCapacity> steps;
-    // Same-core ISR visibility; increments can still be lost if loop() drains
-    // mid-burst. Retained policy: PPQN only shortens notes, never hangs them.
+    // Same-core ISR visibility. loop() reads and clears ppqnTicksPending under
+    // save_and_disable_interrupts() (processPendingGateTicks), so no increment
+    // is lost between the read and the clear. PPQN only shortens notes, never hangs them.
     volatile uint32_t ppqnTicksPending = 0;
     volatile uint32_t droppedSteps = 0;
 };

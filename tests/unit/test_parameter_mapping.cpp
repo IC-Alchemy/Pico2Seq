@@ -429,11 +429,11 @@ TEST_CASE("Recipe selection keeps a preset's own lanes until the recipe changes"
 }
 
 TEST_CASE("Octave parameter track distance zones map to discrete octaves", "[mapping][octave]") {
-    // Distance thresholds:
+    // Distance thresholds (SequencerConstants::OCTAVE_ZONE_*_MM):
     // -2 octaves: min (55 mm) to 90 mm
-    // -1 octave:  91 mm to 280 mm
-    //  0 octaves: 281 mm to 425 mm
-    // +1 octave:  426 mm to 550 mm
+    // -1 octave:  91 mm to 220 mm
+    //  0 octaves: 221 mm to 355 mm
+    // +1 octave:  356 mm to 550 mm
     // +2 octaves: 551 mm to max (700 mm)
 
     auto normFromDistanceMm = [](int distanceMm) -> float {
@@ -442,38 +442,44 @@ TEST_CASE("Octave parameter track distance zones map to discrete octaves", "[map
         const float clamped = std::clamp(static_cast<float>(distanceMm), minMm, maxMm);
         return (clamped - minMm) / (maxMm - minMm);
     };
+    auto octaveLane = [&](int distanceMm) {
+        return mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(distanceMm));
+    };
 
     // Minimum boundary (55 mm) and upper edge of -2 zone (90 mm)
-    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(55)) == 0.0f);
-    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(55))) == -24);
-    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(90)) == 0.0f);
-    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(90))) == -24);
+    REQUIRE(octaveLane(55) == 0.0f);
+    REQUIRE(VoiceEdit::mapOctave(octaveLane(55)) == -24);
+    REQUIRE(octaveLane(90) == 0.0f);
+    REQUIRE(VoiceEdit::mapOctave(octaveLane(90)) == -24);
 
-    // Lower edge of -1 zone (91 mm) and upper edge (280 mm)
-    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(91)) == 0.25f);
-    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(91))) == -12);
-    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(280)) == 0.25f);
-    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(280))) == -12);
+    // Lower edge of -1 zone (91 mm) and upper edge (220 mm)
+    REQUIRE(octaveLane(91) == 0.25f);
+    REQUIRE(VoiceEdit::mapOctave(octaveLane(91)) == -12);
+    REQUIRE(octaveLane(220) == 0.25f);
+    REQUIRE(VoiceEdit::mapOctave(octaveLane(220)) == -12);
 
-    // Lower edge of 0 zone (281 mm) and upper edge (425 mm)
-    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(281)) == 0.5f);
-    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(281))) == 0);
-    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(425)) == 0.5f);
-    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(425))) == 0);
+    // Lower edge of 0 zone (221 mm) and upper edge (355 mm)
+    REQUIRE(octaveLane(221) == 0.5f);
+    REQUIRE(VoiceEdit::mapOctave(octaveLane(221)) == 0);
+    REQUIRE(octaveLane(355) == 0.5f);
+    REQUIRE(VoiceEdit::mapOctave(octaveLane(355)) == 0);
 
-    // Midpoint normalization 0.5f sits safely in 0 octave zone
-    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, 0.5f) == 0.5f);
-    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, 0.5f)) == 0);
-
-    // Lower edge of +1 zone (426 mm) and upper edge (550 mm)
-    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(426)) == 0.75f);
-    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(426))) == 12);
-    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(550)) == 0.75f);
-    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(550))) == 12);
+    // Lower edge of +1 zone (356 mm) and upper edge (550 mm)
+    REQUIRE(octaveLane(356) == 0.75f);
+    REQUIRE(VoiceEdit::mapOctave(octaveLane(356)) == 12);
+    REQUIRE(octaveLane(550) == 0.75f);
+    REQUIRE(VoiceEdit::mapOctave(octaveLane(550)) == 12);
 
     // Lower edge of +2 zone (551 mm) and max sensor height (700 mm)
-    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(551)) == 1.0f);
-    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(551))) == 24);
-    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(700)) == 1.0f);
-    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, normFromDistanceMm(700))) == 24);
+    REQUIRE(octaveLane(551) == 1.0f);
+    REQUIRE(VoiceEdit::mapOctave(octaveLane(551)) == 24);
+    REQUIRE(octaveLane(700) == 1.0f);
+    REQUIRE(VoiceEdit::mapOctave(octaveLane(700)) == 24);
+
+    // A normalized 0.5 is about 377 mm, which is in the +1 zone, not the 0 zone.
+    // Randomize relies on this: it re-centers Octave to 0.5 itself afterwards.
+    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, 0.5f) == 0.75f);
+    REQUIRE(VoiceEdit::mapOctave(mapNormalizedValueToParamRange(ParamId::Octave, 0.5f)) == 12);
+    // The 0 zone's middle (about 288 mm, normalized 0.36) stays at the 0.5 lane value.
+    REQUIRE(mapNormalizedValueToParamRange(ParamId::Octave, 0.36f) == 0.5f);
 }

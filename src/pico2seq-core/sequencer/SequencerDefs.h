@@ -71,8 +71,9 @@ enum class ParamId : uint8_t
   Filter,     // 2 - Filter cutoff frequency (0.0-1.0)
   Attack,     // 3 - Envelope attack time (0.0-1.0 seconds)
   Decay,      // 4 - Envelope decay time (0.0-1.0 seconds)
-  Octave,     // 5 - Normalized octave control, mapped to -12/0/+12 semitones
-  GateLength, // 6 - Gate duration (0.001-1.0 as fraction of step)
+  Octave,     // 5 - Normalized octave detent lane (0/.25/.5/.75/1); firmware maps it to -24..+24 semitones
+              //     via VoiceEdit::mapOctave, the portable default (mapFloatToOctaveOffset) to -12/0/+12
+  GateLength, // 6 - Gate duration as a fraction of the step (lane range 0.1-1.0, see CORE_PARAMETERS)
   Gate,       // 7 - Gate on/off state (boolean)
   Slide,      // 8 - Portamento enable (boolean)
   Sustain,    // 9 - Envelope sustain level (0.0-1.0)

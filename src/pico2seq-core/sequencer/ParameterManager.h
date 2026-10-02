@@ -34,7 +34,9 @@ public:
     // Humanize: rewrite each lane around its center without touching the rhythm.
     // Triangular spread (sum of two uniform draws) keeps most steps near the base
     // with a few reaching the depth edge. Note draws scale steps 0-12, Octave and
-    // GateLength return to neutral, Gate/Slide are never touched (groove is sacred).
+    // GateLength are rewritten to mapNormalizedValueToParamRange(id, 0.5): Octave 0.75, GateLength
+    // 0.55 (Sequencer::randomizeParameters re-centers Octave to 0.5 afterwards). Gate/Slide are
+    // never touched (groove is sacred).
     // Lane amount 0 skips that lane; seed 0 seeds from the clock, else repeats.
     void randomizeParameters(uint8_t depthPercent = kDefaultRandomizeDepth, uint64_t seed = 0);
     void setLaneAmount(ParamId id, uint8_t percent); // Per-lane humanize depth, clamped 0-100
