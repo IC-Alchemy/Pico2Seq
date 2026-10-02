@@ -17,14 +17,14 @@ constexpr int kDistanceDisabled = -1;
 void advanceSequencerStep(Sequencer &seq, uint32_t clockStep, int distance,
                           const UIState &ui, VoiceState *state)
 {
-    seq.advanceStep(clockStep, distance,
-                    ui.parameterButtonHeld[static_cast<int>(ParamId::Note)],
-                    ui.parameterButtonHeld[static_cast<int>(ParamId::Velocity)],
-                    ui.parameterButtonHeld[static_cast<int>(ParamId::Filter)],
-                    ui.parameterButtonHeld[static_cast<int>(ParamId::Attack)],
-                    ui.parameterButtonHeld[static_cast<int>(ParamId::Release)],
-                    ui.parameterButtonHeld[static_cast<int>(ParamId::Octave)],
-                    ui.selectedStepForEdit, state);
+    StepEditButtons buttons;
+    buttons.note = ui.parameterButtonHeld[static_cast<int>(ParamId::Note)];
+    buttons.velocity = ui.parameterButtonHeld[static_cast<int>(ParamId::Velocity)];
+    buttons.filter = ui.parameterButtonHeld[static_cast<int>(ParamId::Filter)];
+    buttons.attack = ui.parameterButtonHeld[static_cast<int>(ParamId::Attack)];
+    buttons.release = ui.parameterButtonHeld[static_cast<int>(ParamId::Release)];
+    buttons.octave = ui.parameterButtonHeld[static_cast<int>(ParamId::Octave)];
+    seq.advanceStep(clockStep, distance, buttons, ui.selectedStepForEdit, state);
 }
 }
 
@@ -105,7 +105,8 @@ void updateActiveVoiceState(uint8_t stepIndex, Sequencer &activeSeq)
     activeSeq.refreshVoiceParameters(&activeVoiceState, stepIndex);
     if (!isClockRunning)
     {
-        const Step values = activeSeq.getPlaybackStep(stepIndex < SequencerConstants::MAX_STEPS_COUNT ? stepIndex : UINT8_MAX);
+        // Stopped preview: only pitch follows the selected step.
+        const VoiceState values = toVoiceState(activeSeq.getPlaybackStep(stepIndex < SequencerConstants::MAX_STEPS_COUNT ? stepIndex : UINT8_MAX));
         activeVoiceState.noteIndex = values.noteIndex;
         activeVoiceState.octaveOffset = values.octaveOffset;
     }

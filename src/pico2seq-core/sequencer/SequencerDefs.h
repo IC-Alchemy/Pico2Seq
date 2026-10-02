@@ -105,12 +105,12 @@ enum class EncoderParameterMode : uint8_t
 // Which lanes the step-edit buttons currently target (UI-owned, read here).
 struct StepEditButtons
 {
-  bool note;     // Note parameter edit button state
-  bool velocity; // Velocity parameter edit button state
-  bool filter;   // Filter parameter edit button state
-  bool attack;   // Attack parameter edit button state
-  bool decay;    // Decay parameter edit button state
-  bool octave;   // Octave parameter edit button state
+  bool note = false;     // Note parameter edit button state
+  bool velocity = false; // Velocity parameter edit button state
+  bool filter = false;   // Filter parameter edit button state
+  bool attack = false;   // Attack parameter edit button state
+  bool release = false;  // Release parameter edit button state
+  bool octave = false;   // Octave parameter edit button state
 };
 
 // Fixed-size lane storage, now from rpdsp (see src/rpdsp/src/rpdsp/parameter_track.h).
@@ -269,6 +269,46 @@ struct Step
   bool isGateActive = false; // Sounds (true) or rests (false)
   bool hasSlide = false; // Glide into this step
 };
+
+// Mechanical copies of the fields the two structs share. Transport-owned
+// fields differ on purpose: VoiceState::isGateHigh mirrors Step::isGateActive
+// here, shouldRetrigger is always cleared, and callers that must preserve
+// live gate/pitch state override those fields explicitly after converting.
+// Add any new shared field to BOTH functions.
+inline VoiceState toVoiceState(const Step &s)
+{
+  VoiceState v;
+  v.noteIndex = s.noteIndex;
+  v.velocityLevel = s.velocityLevel;
+  v.filterCutoff = s.filterCutoff;
+  v.attackTimeSeconds = s.attackTimeSeconds;
+  v.decayTimeSeconds = s.decayTimeSeconds;
+  v.sustainLevel = s.sustainLevel;
+  v.releaseTimeSeconds = s.releaseTimeSeconds;
+  v.octaveOffset = s.octaveOffset;
+  v.gateLengthTicks = s.gateLengthTicks;
+  v.isGateHigh = s.isGateActive;
+  v.hasSlide = s.hasSlide;
+  v.shouldRetrigger = false;
+  return v;
+}
+
+inline Step toStep(const VoiceState &v)
+{
+  Step s;
+  s.noteIndex = v.noteIndex;
+  s.velocityLevel = v.velocityLevel;
+  s.filterCutoff = v.filterCutoff;
+  s.attackTimeSeconds = v.attackTimeSeconds;
+  s.decayTimeSeconds = v.decayTimeSeconds;
+  s.sustainLevel = v.sustainLevel;
+  s.releaseTimeSeconds = v.releaseTimeSeconds;
+  s.octaveOffset = v.octaveOffset;
+  s.gateLengthTicks = v.gateLengthTicks;
+  s.isGateActive = v.isGateHigh;
+  s.hasSlide = v.hasSlide;
+  return s;
+}
 
 // --- Utilities (defined in Sequencer.cpp) ---
 float mapNormalizedValueToParamRange(ParamId id, float normalizedValue);

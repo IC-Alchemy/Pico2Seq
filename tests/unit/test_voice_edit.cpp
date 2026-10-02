@@ -26,7 +26,7 @@ TEST_CASE(
   seq.start();
   seq.setRecordingInput(0.75f);
   VoiceState state;
-  seq.advanceStep(0, 100, false, true, false, false, false, false, -1, &state);
+  seq.advanceStep(0, 100, StepEditButtons{false, true}, -1, &state);
   const auto step = seq.getCurrentStepForParameter(ParamId::Velocity);
   REQUIRE(seq.getStepParameterValue(ParamId::Velocity, step) == 0.75f);
   REQUIRE(state.velocityLevel == Approx(0.75f));
@@ -265,7 +265,7 @@ TEST_CASE("OLED snapshot matches playback and never triggers a note", "[voice_ed
   seq.setStepParameterValue(ParamId::Octave, 4, 0.75f);
   seq.start();
   VoiceState state;
-  seq.advanceStep(4, -1, false, false, false, false, false, false, -1, &state);
+  seq.advanceStep(4, -1, StepEditButtons{}, -1, &state);
   const auto before = seq.getCurrentStep();
   const auto read = seq.getPlaybackStep();
   REQUIRE(read.noteIndex == state.noteIndex);
@@ -494,7 +494,7 @@ TEST_CASE("An absent hand leaves recorded modifiers untouched",
   seq.start();
   seq.setRecordingInput(0.0f);
   VoiceState state;
-  seq.advanceStep(0, -1, false, false, true, false, false, false, -1, &state);
+  seq.advanceStep(0, -1, StepEditButtons{false, false, true}, -1, &state);
   REQUIRE(seq.getStepParameterValue(ParamId::Filter, 0) == Approx(0.8f));
 }
 namespace {
@@ -517,7 +517,7 @@ double rmsWhileEditing(uint8_t preset, void (*edit)(Sequencer &, VoiceState &)) 
   for (int i = 0; i < 480; ++i)
     manager.processAllVoices();
   VoiceState state;
-  seq.advanceStep(0, -1, false, false, false, false, false, false, -1, &state);
+  seq.advanceStep(0, -1, StepEditButtons{}, -1, &state);
   manager.updateVoiceState(id, state);
   state.shouldRetrigger = false; // the event belongs to the push above
   double sum = 0;
@@ -874,7 +874,7 @@ struct LiveVoice {
   }
   void step(uint32_t clockStep) {
     VoiceState next = state;
-    seq.advanceStep(clockStep, -1, false, false, false, false, false, false, -1, &next);
+    seq.advanceStep(clockStep, -1, StepEditButtons{}, -1, &next);
     publish(next);
   }
   // recordParameter() while playing: the lane's playing step, then an

@@ -243,9 +243,7 @@ void Sequencer::clearPattern()
     handleNoteOff(nullptr);
 }
 void Sequencer::advanceStep(uint32_t current_uclock_step, int mm_distance,
-                            bool is_note_button_held, bool is_velocity_button_held,
-                            bool is_filter_button_held, bool is_attack_button_held,
-                            bool is_release_button_held, bool is_octave_button_held,
+                            const StepEditButtons &buttons,
                             int current_selected_step_for_edit,
                             VoiceState *voiceState)
 {
@@ -295,12 +293,12 @@ void Sequencer::advanceStep(uint32_t current_uclock_step, int mm_distance,
             bool held;
         };
         const ParamButton paramButtons[] = {
-            {ParamId::Note, is_note_button_held},
-            {ParamId::Velocity, is_velocity_button_held},
-            {ParamId::Filter, is_filter_button_held},
-            {ParamId::Attack, is_attack_button_held},
-            {ParamId::Release, is_release_button_held},
-            {ParamId::Octave, is_octave_button_held}
+            {ParamId::Note, buttons.note},
+            {ParamId::Velocity, buttons.velocity},
+            {ParamId::Filter, buttons.filter},
+            {ParamId::Attack, buttons.attack},
+            {ParamId::Release, buttons.release},
+            {ParamId::Octave, buttons.octave}
             // Slide is step-pressed only: live overdub here used to erase slides.
         };
 
@@ -386,16 +384,22 @@ void Sequencer::processStep(uint8_t stepIdx, VoiceState *voiceState)
         // triggered the envelope, especially its release, through the tail.
         if (gateOn)
         {
-            voiceState->filterCutoff = filterVal;
-            voiceState->attackTimeSeconds = attackVal;
-            voiceState->decayTimeSeconds = decayVal;
-            voiceState->sustainLevel = sustainVal;
-            voiceState->releaseTimeSeconds = releaseVal;
-            voiceState->velocityLevel = velocityVal;
-            voiceState->hasSlide = slideVal;
-            voiceState->gateLengthTicks = noteDurationTicks;
-            voiceState->noteIndex = noteVal; // Raw scale degree; audio quantizes it
-            voiceState->octaveOffset = octaveOffset;
+            Step played;
+            played.filterCutoff = filterVal;
+            played.attackTimeSeconds = attackVal;
+            played.decayTimeSeconds = decayVal;
+            played.sustainLevel = sustainVal;
+            played.releaseTimeSeconds = releaseVal;
+            played.velocityLevel = velocityVal;
+            played.hasSlide = slideVal;
+            played.gateLengthTicks = noteDurationTicks;
+            played.noteIndex = noteVal; // Raw scale degree; audio quantizes it
+            played.octaveOffset = octaveOffset;
+            played.isGateActive = true;
+            // Gate and retrigger belong to the transport, not the step.
+            const bool retrigger = voiceState->shouldRetrigger;
+            *voiceState = toVoiceState(played);
+            voiceState->shouldRetrigger = retrigger;
         }
     }
 
@@ -487,19 +491,18 @@ void Sequencer::refreshVoiceParameters(VoiceState *voiceState,
     }
     // With transport stopped, an explicit index previews the selected step.
     const Step values = getPlaybackStep(stepIdx);
-    voiceState->velocityLevel = values.velocityLevel;
-    voiceState->filterCutoff = values.filterCutoff;
-    voiceState->attackTimeSeconds = values.attackTimeSeconds;
-    voiceState->decayTimeSeconds = values.decayTimeSeconds;
-    voiceState->sustainLevel = values.sustainLevel;
-    voiceState->releaseTimeSeconds = values.releaseTimeSeconds;
-    // Pitch tracks only a held gate, matching processStep().
-    if (voiceState->isGateHigh)
+    // Gate, gate length and slide stay as the last gated step left them;
+    // pitch tracks only a held gate, matching processStep().
+    VoiceState refreshed = toVoiceState(values);
+    refreshed.isGateHigh = voiceState->isGateHigh;
+    refreshed.gateLengthTicks = voiceState->gateLengthTicks;
+    refreshed.hasSlide = voiceState->hasSlide;
+    if (!voiceState->isGateHigh)
     {
-        voiceState->noteIndex = values.noteIndex;
-        voiceState->octaveOffset = values.octaveOffset;
+        refreshed.noteIndex = voiceState->noteIndex;
+        refreshed.octaveOffset = voiceState->octaveOffset;
     }
-    voiceState->shouldRetrigger = false;
+    *voiceState = refreshed;
 }
 
 void Sequencer::toggleStep(uint8_t stepIdx)
