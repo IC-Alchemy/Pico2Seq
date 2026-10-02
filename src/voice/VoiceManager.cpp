@@ -135,7 +135,7 @@ bool VoiceManager::setVoiceConfig(uint8_t voiceId, const VoiceConfig &config)
  * Looks up preset by name and applies its configuration to specified voice
  *
  * @param voiceId Target voice to apply preset to
- * @param presetName Name of preset to apply (see getAvailablePresets())
+ * @param presetName Name of preset to apply (see VoicePresets::getPresetName())
  * @return bool True if voice found and preset applied, false otherwise
  *
  * Convenience wrapper around setVoiceConfig() using preset system
@@ -455,30 +455,14 @@ void VoiceManager::disableVoice(uint8_t voiceId)
     // enableVoice logs; nothing else here to avoid duplicate prints
 }
 
-/** True when the voice exists and is enabled. */
+/** True when the voice exists and is enabled. Test-only: no firmware caller. */
 bool VoiceManager::isVoiceEnabled(uint8_t voiceId) const
 {
     const ManagedVoice *managedVoice = findVoice(voiceId);
     return managedVoice ? managedVoice->enabled : false;
 }
 
-/** All preset names, lowercased (setup/UI helper; never called by audio). */
 // Static methods for preset management
-std::vector<std::string> VoiceManager::getAvailablePresets()
-{
-    std::vector<std::string> names;
-    names.reserve(VoicePresets::getPresetCount());
-    for (uint8_t i = 0; i < VoicePresets::getPresetCount(); ++i)
-    {
-        std::string name = VoicePresets::getPresetName(i);
-        for (char &c : name)
-            if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
-        names.push_back(std::move(name));
-    }
-    return names; // setup/UI helper only; never called by audio
-
-}
-
 /** Patch for a preset name (unknown names fall back to Analog). */
 VoiceConfig VoiceManager::getPresetConfig(const std::string &presetName)
 {

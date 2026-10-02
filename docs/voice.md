@@ -360,7 +360,6 @@ public:
     void setVoiceUpdateCallback(VoiceUpdateCallback callback);
 
     // Preset Management
-    static std::vector<std::string> getAvailablePresets();
     static VoiceConfig getPresetConfig(const std::string& presetName);
 
     // Global Mixing
@@ -379,8 +378,7 @@ The compile-time registry in `VoicePresets.cpp` expands `PresetBank.h` to pair
 names and configs in flash. Appending one bank entry updates count and lookups.
 Unknown indices/config names fall back to Analog; unknown display indices return
 "Unknown". Existing per-preset getters remain available. Name matching is
-case-insensitive, and `VoiceManager::getAvailablePresets()` derives its list from
-the same bank. The bank currently holds 29 presets (indices 0–28): the 15 original
+case-insensitive; enumerate presets with `getPresetCount()` / `getPresetName()`. The bank currently holds 29 presets (indices 0–28): the 15 original
 presets are detailed below, followed by six recipe presets (15–20) and eight musical
 presets (21–28) described in the [voice and preset extension guide](../src/voice/README.md)
 and [musical preset bank](../src/voice/README.md#musical-preset-bank).
