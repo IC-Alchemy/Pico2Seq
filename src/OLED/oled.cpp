@@ -4,12 +4,13 @@
 #include "../voice/VoicePresets.h"
 #include "../voice/VoiceParameters.h"
 #include "../voice/VoiceSystem.h" // Added for complete VoiceSystem type
-#include "../../includes.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 #include "../pico2seq-core/sequencer/ShuffleTemplates.h"
 #include "../pico2seq-core/scales/scales.h"
+#include "../sensors/SensorConstants.h"
 #include "../ui/ButtonManager.h"
 #include "../utils/DspMapping.h" // dspmap::fmap for filter Hz formatting
+#include <algorithm>
 #include <cstring> // For strcmp, strlen
 #include <Arduino.h>
 
@@ -397,7 +398,7 @@ void OLEDDisplay::update(const UIState &uiState, const Sequencer &seq1, const Se
     const int left = 2;
     const int right = OLEDConstants::SCREEN_WIDTH - 2;
     const int totalW = right - left;
-    const uint8_t cappedLen = (gateLen == 0) ? 16 : min<uint8_t>(gateLen, 16);
+    const uint8_t cappedLen = (gateLen == 0) ? 16 : std::min<uint8_t>(gateLen, 16);
     // Outline
     displayHardware.drawRect(left, barY - 6, totalW, 6, SH110X_WHITE);
     // Fill proportional to cappedLen
@@ -966,7 +967,7 @@ void OLEDDisplay::drawStepIndicators(const Sequencer &sequencer, int yPosition)
   {
     stepCount = LEDConstants::MAX_STEP_BUTTONS; // Default to 16 steps
   }
-  stepCount = min(stepCount, static_cast<uint8_t>(32)); // Limit to display width
+  stepCount = std::min(stepCount, static_cast<uint8_t>(32)); // Limit to display width
 
   const uint8_t currentStepIndex = sequencer.getCurrentStep();
   const int leftMargin = 4;
@@ -979,7 +980,7 @@ void OLEDDisplay::drawStepIndicators(const Sequencer &sequencer, int yPosition)
     // Calculate step indicator position and width
     const int stepXPosition = leftMargin + (stepIndex * totalWidth) / stepCount;
     const int nextStepXPosition = leftMargin + ((stepIndex + 1) * totalWidth) / stepCount;
-    const int stepWidth = max(2, nextStepXPosition - stepXPosition - 1);
+    const int stepWidth = std::max(2, nextStepXPosition - stepXPosition - 1);
 
     // Get step gate state and determine if this is the current step
     const float gateValue = sequencer.getStepParameterValue(ParamId::Gate, stepIndex);

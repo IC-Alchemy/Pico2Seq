@@ -474,7 +474,6 @@ git commit -m "feat(led): 8x4 pad-mirror geometry, route all rendering through L
 
 **Files:**
 - Delete: `src/LEDMatrix/LEDController.h`, `src/LEDMatrix/LEDController.cpp`
-- Modify: `includes.h:26` (remove the include)
 - Modify: `Pico2Seq.ino:804` (remove `initLEDController();`) and `Pico2Seq.ino:1058` (remove `updateControlLEDs(ledMatrix, uiState);`)
 - Modify: `src/ui/UIState.h:34-36` (replace flash fields with notice fields)
 - Modify: `src/ui/ButtonHandlers.cpp:82,218,255`
@@ -488,10 +487,6 @@ git commit -m "feat(led): 8x4 pad-mirror geometry, route all rendering through L
 
 - [ ] **Step 1: Remove the call sites and files**
 
-Delete from `includes.h`:
-```cpp
-#include "src/LEDMatrix/LEDController.h"
-```
 Delete from `Pico2Seq.ino` (setup, line ~804):
 ```cpp
     initLEDController();
@@ -556,7 +551,7 @@ In `ButtonManager.cpp` (lines ~93-97) replace the three flash resets with:
 
 - [ ] **Step 5: Verify nothing dangles + suite green**
 
-Run: `grep -rn "flash23Until\|flash25Until\|flash31Until\|CONTROL_LED_FLASH_DURATION_MS\|updateControlLEDs\|initLEDController\|ControlLEDIndices" src Pico2Seq.ino includes.h tests`
+Run: `grep -rn "flash23Until\|flash25Until\|flash31Until\|CONTROL_LED_FLASH_DURATION_MS\|updateControlLEDs\|initLEDController\|ControlLEDIndices" src Pico2Seq.ino tests`
 Expected: no matches.
 Run: `cmake --build build_test --parallel && ./build_test/tests/pico2seq_tests --reporter console`
 Expected: PASS (none of these symbols were host-compiled, but UIState.h is included by tests — this catches syntax errors).
@@ -564,7 +559,7 @@ Expected: PASS (none of these symbols were host-compiled, but UIState.h is inclu
 - [ ] **Step 6: Commit**
 
 ```bash
-git add -A src/LEDMatrix/LEDController.h src/LEDMatrix/LEDController.cpp includes.h Pico2Seq.ino src/ui/UIState.h src/ui/ButtonHandlers.cpp src/ui/AlchemyControlBridge.cpp src/ui/ButtonManager.cpp src/ui/UIConstants.h
+git add -A src/LEDMatrix/LEDController.h src/LEDMatrix/LEDController.cpp Pico2Seq.ino src/ui/UIState.h src/ui/ButtonHandlers.cpp src/ui/AlchemyControlBridge.cpp src/ui/ButtonManager.cpp src/ui/UIConstants.h
 git commit -m "refactor(led): drop 8x8 control cluster; flash fields become OLED notice state"
 ```
 

@@ -1,9 +1,24 @@
 #include "ControlIO.h"
 #include "AppState.h"
 #include "StepPlayback.h"
-#include "../../includes.h"
+#include "HardwarePins.h"
 #include "../FeatureConfig.h" // PICO2SEQ_I2C_FASTMODE
+#include "../LEDMatrix/ledMatrix.h"
+#include "../LEDMatrix/LEDMatrixFeedback.h"
+#include "../matrix/Matrix.h"
+#include "../midi/MidiManager.h"
+#include "../OLED/oled.h"
+#include "../sensors/DistanceSensor.h"
+#include "../sensors/EncoderManager.h"
+#include "../ui/AlchemyControlBridge.h"
+#include "../ui/ButtonManager.h"
+#include "../ui/UIEventHandler.h"
+#include "../ui/UIState.h"
 #include "../utils/FreezeWatchdog.h"
+#include "../voice/VoiceSystem.h"
+#include <Adafruit_MPR121.h>
+#include <Arduino.h>
+#include <Wire.h>
 
 namespace
 {
@@ -173,7 +188,7 @@ void ControlIO::beginMatrixAndTiles()
     //   ALCHEMY TILE CONTROL SURFACE (Wire1 bank + GP7 mode strap)
     // =======================
     // SliderModule + ButtonModule8 live on their own Wire1 bank; Wire1 pin
-    // constants are bench-adjustable in includes.h. Standard mode (100 kHz),
+    // constants are bench-adjustable in HardwarePins.h. Standard mode (100 kHz),
     // not fast mode: 400 kHz stalls tile transfers on this rig, which is the
     // rate the working Pico_DSP_Garden sketches run these same tiles at.
     freezeWatchdogFeed(FW_SETUP_ALCHEMY);

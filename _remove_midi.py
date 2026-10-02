@@ -49,17 +49,6 @@ Adafruit_MPR121 touchSensor = Adafruit_MPR121();"""),
 """),
 ])
 
-# ---------- includes.h ----------
-flex_fix('includes.h', [
-("""#include <Adafruit_MPR121.h> // MAKE SURE TO ENABLE AUTOCONFIG IN MPR121.H
-#include <MIDI.h>
-#include <Adafruit_TinyUSB.h>""",
- """#include <Adafruit_MPR121.h> // MAKE SURE TO ENABLE AUTOCONFIG IN MPR121.H
-// <MIDI.h> / USB MIDI removed 2026-09-06. Adafruit_TinyUSB.h stays: it provides
-// the TinyUSB CDC serial console (Serial); usbstack=tinyusb is still required.
-#include <Adafruit_TinyUSB.h>"""),
-])
-
 # ---------- src/midi/MidiManager.h ----------
 s = load('src/midi/MidiManager.h')
 s2 = re.sub(r'#include <MIDI\.h>\r?\n', '', s, count=1)

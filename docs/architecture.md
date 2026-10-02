@@ -15,7 +15,6 @@ Pico2Seq is a 4-voice polyphonic step sequencer and synthesizer running as an Ar
 ```
 Pico2Seq/
 ├── Pico2Seq.ino            # Main sketch entry point (setup/loop on Core 0, setup1/loop1 on Core 1)
-├── includes.h              # Central aggregator of subsystem headers and pin definitions
 ├── diagnostic.h            # Structured diagnostic logging macros
 ├── docs/                   # System and subsystem documentation
 ├── src/                    # Firmware source code organized by subsystem

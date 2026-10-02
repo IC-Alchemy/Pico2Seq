@@ -29,7 +29,7 @@ time (voice pair 1+2 or 3+4).
 | SliderModule + ButtonModule8 | **Wire1**, dedicated bank, 100 kHz | param/utility buttons, voice select, faders |
 | GP7 | `INPUT_PULLUP`, switch to GND | mode select: **LOW = Param mode, HIGH = Utility mode** (constant `kModeParamLevel`, flippable) |
 
-Wire1 pins are named constants in `includes.h` (confirmed SDA=GP14, SCL=GP15;
+Wire1 pins are named constants in `src/app/HardwarePins.h` (confirmed SDA=GP14, SCL=GP15;
 main Wire bus is SDA=GP4, SCL=GP5). **Bench item:** GP15 is also the I2S DAC
 data pin (`PICO_AUDIO_I2S_DATA_PIN`) — resolve that collision before power-up.
 
