@@ -44,7 +44,6 @@ For a practical guide to changing the firmware, start with
 
 ```
 ├── Pico2Seq.ino              # Four Arduino entry points: controls and audio
-├── includes.h                # Library and header aggregator
 ├── CMakeLists.txt            # Host unit test CMake entry point
 ├── .gitmodules               # Git submodule configuration
 ├── src/

@@ -286,7 +286,9 @@ float shiftAndScale(float seqValue, float encoderOffset) {
 ## Example Initialization and Control Loop
 
 ```cpp
-#include "includes.h"
+#include "src/app/HardwarePins.h"
+#include "src/sensors/DistanceSensor.h"
+#include "src/sensors/EncoderManager.h"
 
 void setup() {
     // 1. Configure main I2C bus pins and initialize Wire
