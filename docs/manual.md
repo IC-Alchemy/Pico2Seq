@@ -255,8 +255,9 @@ strict priority chain (only the highest active view draws each frame):
 1. **Voice Editing screens** — while Voice Editing mode is active: `EDIT V1`–`EDIT V4`,
    a modified marker, the parameter name and units, and whether a sequencer lane modifies
    that base.
-2. **Live ADSR page, then Reverb page** — the Shift + 6 chords (ADSR: + a voice button,
-   reverb: + button 2, see §3.7) outrank everything below them.
+2. **Live ADSR page, then Reverb page, then Tuning page** — the Shift + 6 chords (ADSR:
+   + a voice button, reverb: + button 2, see §3.7) and the Tuning chord (Shift +
+   Utility 3, §3.8) outrank everything below them.
 3. **Mode banner** — transient `PARAM` / `UTIL` splash when the mode switch flips.
 4. **Confirmation notices** — transient `SAVED` / `LOADED` / `RANDOMIZED` + voice /
    `CLEARED` / `ALL CLEAR` / `MACRO` and the delay readouts.
@@ -413,19 +414,14 @@ Other track behaviors worth knowing:
 
 ### 3.3 Scales
 
-<<<<<<< HEAD
-Pitch is quantized to one of **47 scales**, each a 48-step (4-octave) row. Rows 0-17 are
-classic scales written in 12-EDO semitones; rows 18-46 are **tuned scales** written in the
+Pitch is quantized to one of **47 scales**, each a 48-step (4-octave) row. Rows 0-17 are the
+classic scales written in 12-EDO semitones (except All Degrees, 13, which holds the playing
+tuning's own degrees); rows 18-46 are **tuned scales** written in the
 degrees of one tuning (maqams, 19/31/22/17/41/53-EDO scales, Partch, Bohlen-Pierce...;
-see [tunings](tuning.md)). The Note parameter (0–21) indexes into it. Internal synthesis is voiced around C3.
+see [tunings](tuning.md)). The Note parameter (0–36) indexes into it. Internal synthesis is voiced around C3.
 Cycle scales with **Shift + V3** or Utility button 3. They step through the scales of the
 **playing tuning** only (see §3.8): in the standard 12-EDO that is the 17 twelve-note scales
 below, without All Degrees (which is the same as Chromatic there). The classic rows:
-=======
-Pitch is quantized to one of **13 built-in scales**, each a 48-step (4-octave) semitone
-table; the Note parameter (0–36) indexes into it. Internal synthesis is voiced around C3.
-Cycle scales with **Shift + V3** or Utility button 3:
->>>>>>> 00410476cfbab053cb141b908bbfec4b3c24a1b9
 
 | Index | Scale | Character |
 |---|---|---|
@@ -830,9 +826,9 @@ or the hold). The whole panel changes meaning for as long as the mode is on:
 | Utility 6 | Latch; Shift + tap restarts the walk |
 | Utility 7 | Random four-note chord (engages Latch); Shift + tap clears the chord |
 | V1–V4 | Select which voice the arp plays through |
-| Shift + pattern 1�6 | Rhythm: All, Pulse, Tresillo, Five, Orbit, Seven |
+| Shift + pattern 1–6 | Rhythm: All, Pulse, Tresillo, Five, Orbit, Seven |
 | Shift + faders 1–4 | Octave range 1–4, Gate length 5–95% of the interval, Swing depth (every second note delayed, pairs stay even), Filter lane of each note composed with the voice's patch |
-| Shift + dial | Tempo, 45�200 BPM |
+| Shift + dial | Tempo, 45–200 BPM |
 | Shift + Latch | Restart in either panel position |
 | OLED | Persistent preset, transport/rate/latch, pattern/range/scale, key summary, rhythm strip, tempo, gate ms, swing ratio, last primary pitch and Shift control guide |
 

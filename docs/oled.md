@@ -173,7 +173,8 @@ every other view until the editor exits:
 
 #### 2. Transitory Mode Strap Banner (Priority 2)
 Triggered for a brief timeout window whenever the hardware GP7 mode strap changes position:
-- **PARAM Mode:** Displays centered size-3 **"PARAM"** with subtitle `> params <`.
+- **PARAM Mode:** Displays centered size-3 **"PARAM"** with subtitle `> params <`
+  (**"ARP"** with `> patterns <` instead while the arpeggiator plays).
 - **UTIL Mode:** Displays centered size-3 **"UTIL"** with subtitle `> utility <`.
 
 #### 3. Transitory Confirmation Notice (Priority 3)

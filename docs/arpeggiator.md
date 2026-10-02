@@ -10,8 +10,8 @@ Shift + dial changes tempo. It is a *mode*, not a second
 sequencer: while it is on, the four step sequencers do not advance, and the pads
 neither toggle steps nor open the Step Edit pages.
 
-Everything the sequencer keeps — 4 voices, 29 presets, the scale table, the
-session snapshot, transport, LED themes — is shared with it. Each voice still
+Everything the sequencer keeps — 4 voices, 29 presets, the scale table and the
+global tuning, the session snapshot, transport, LED themes — is shared with it. Each voice still
 sounds through its own patch, and Chord pattern spreads a chord over the voices.
 
 ## First minute
@@ -131,7 +131,7 @@ thing in both modes; the step-only slots become arp functions.
 |---|---|---|
 | 0 | Play / Stop | Tap starts/stops while keeping the arp page; hold toggles the preset browser |
 | 1 | Session | Tap saves, hold loads the flash session |
-| 2 | Scale | Cycle the 13 scales the arp plays |
+| 2 | Scale | Step to the next scale of the playing tuning: the modes and thaats in 12-EDO, a tuning's own scales elsewhere |
 | 3 | Octaves | Cycle the octave range 1 -> 2 -> 3 -> 4 -> 1 |
 | 4 | Theme | Cycle the 10 LED themes |
 | 5 | Latch | Same toggle as the Param panel, so latching needs no strap change; Shift + tap re-syncs the walk to the chord root |
@@ -188,7 +188,9 @@ re-sync lives on Shift + Latch in either panel position.
 
 **Shift + turn = tempo**, 45..200 BPM, in one-BPM detents. Motion left over from
 Rate never carries into Tempo or back. The voice editor keeps ownership of the
-dial when open.
+dial when open, and so does the Tuning page while it is live: one detent steps
+one tuning, and the pad layout re-derives from the notes per octave of whatever
+scale is then playing.
 
 ### Distance sensor (VL53L1X)
 
@@ -216,7 +218,9 @@ The 128x64 play page uses eight fixed rows, with no scrolling or auto paging:
 | 7 | Gate duration in ms and swing ratio |
 | 8 | Last composed pitch of the primary arp voice and Shift hint; Play help when stopped |
 
-KEYS names describe the pad ladder. Last pitch is captured when the primary
+KEYS names describe the pad ladder. Both that row and the last pitch name notes
+in the playing tuning — a 24-EDO chord shows its quarter-tones — and read as
+plain 12-EDO names in the standard tuning. Last pitch is captured when the primary
 arp voice receives a note, including its patch harmonies/detuning; Chord mode
 also plays the other voices. `~` marks clipped long text. The stopped page has
 no moving playhead. The preset browser still takes priority when opened.
@@ -299,11 +303,11 @@ path is special-cased for the arp.
 
 ## Not persisted
 
-The mode and its settings are runtime state: the session snapshot is untouched,
-so a power cycle boots into the step sequencer with the arp at its defaults
+The mode and its settings are runtime state: the arp writes nothing to the
+session snapshot, so a power cycle boots into the step sequencer with the arp at its defaults
 (Up, 1/16, 1 octave, 50% gate, no swing, filter 0.5, rhythm All 8/8, rotation 0, accent off). Session load/save in this
-mode still saves and restores the *session* — voices, presets and patterns — it
-just does not carry the arp.
+mode still saves and restores the *session* — voices, presets, patterns and the
+global tuning — it just does not carry the arp.
 
 ## Checking it
 

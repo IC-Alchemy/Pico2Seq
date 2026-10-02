@@ -68,7 +68,7 @@ list of scales**, and choosing a tuning automatically switches to a scale that b
 2. else the scale you last used in that tuning (this session only);
 3. else the tuning's first scale.
 
-The OLED confirms it: `Applied 24-EDO > Rast`. The sets:
+The OLED confirms it: `24-EDO > Maqam Rast`. The sets:
 
 | Tuning | Scales offered |
 |---|---|
@@ -127,12 +127,12 @@ TUNING 13/29 JUST            <- position in the library, family
   Overtone 16-31
 Scale 3/17 Lydian            <- fader 3; ">" while it is the last fader touched
 Tonic C   A4 440.0Hz         <- faders 1 and 2
-Applied 7-Limit JI           <- confirmations for 1.5 s, else alternating:
+7-Limit JI                  <- the last gesture's notice, 1.5 s; else alternating:
                                 tuning detail / "1-6 Scl 7 A/B 8 Exit"
 ```
 
 The three list rows show the tuning before, the playing tuning (inverted bar) and the next. A
-confirmation names what just happened: `Applied 24-EDO > Rast`, `Saved to Hot 2`, `Cleared Hot 2`,
+confirmation names what just happened: `24-EDO > Maqam Rast`, `Saved to Hot 2`, `Cleared Hot 2`,
 `Hot 3 is empty`, `Only 4 scales here`. The status screen always shows the tuning and scale
 names too.
 

@@ -194,6 +194,13 @@ designated initializers in declaration order. The reverb work leaves the 33 fail
 assertion text unchanged (compare the Catch2 XML reporter output, not the count) and fixes the audio target
 by reordering the three initializers. Treat a failure outside that set as new.
 
+Re-recorded 2026-10-01 on Windows with clang, Debug, at `3e3f0ad` (the tuning-system merge): 938 checks, 35 fail.
+Five of them name tuning/scale pitch behavior that commit rewrote (`Displayed notes use the same tuning as rendered
+oscillator pitches`, `Pitch lookup honors the injected scale table over the global`, `No injected table falls back to
+chromatic mapping`, `Voice combines note indices with octave track semitones`, `Pitch lookup clamps out-of-range
+indices`); the rest fall in the recorded categories. The 33-name Linux set was never enumerated, so compare failure
+names, not the count, before treating one as new.
+
 **Normal versus fast-math.** The firmware is built with `-O3 -ffast-math`, so the same suites were also run that way:
 
 ```bash
@@ -228,7 +235,7 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 1 | `tests/unit/test_helpers.cpp` | Global Test Helper Symbols | Provides single definition of extern symbols (`slideMode`, `currentScale`) |
 | 2 | `tests/unit/test_rpdsp_additions.cpp` | `rpdsp` DSP Extensions | `dspmap::fmap` curves (local carry-over), Waveshaper transfer functions, DSPFunctions |
 | 3 | `tests/unit/test_dsp_recipe_regressions.cpp` | `rpdsp` Recipe Regressions | ADSR envelope curves and retriggers, compressor across sample rates, vowel/tape/frequency-shifter/buffer recipes (`[recipe_regression]`) |
-| 4 | `tests/unit/test_scales.cpp` | Musical Scale Lookup Tables | 13 scales monotonic ordering, root notes at 0, MIDI boundary validation, chromatic fallback |
+| 4 | `tests/unit/test_scales.cpp` | Musical Scale Lookup Tables | 47 rows (18 classic + 29 tuned): counts, monotonic ordering, root notes at 0, MIDI boundary validation, native-row degree tables, thaats, chromatic fallback |
 | 5 | `tests/unit/test_sequencer.cpp` | Core Step Sequencer | `ParameterTrack<N>` wrapping, `NoteDurationTracker` countdowns, start/stop, gate toggling |
 | 6 | `tests/unit/test_voice.cpp` | Synthesizer Voice Engine | Voice state transitions, staged parameter application on `process()`, scale injection, filter sweep, preset registry (29 named presets, engine selection, finite bounded audio per preset), waveguide / noise-FX engine behavior |
 | 7 | `tests/unit/test_voice_transfer.cpp` | `Voice` control→audio handoff | `SpscQueue` FIFO ordering, no torn multiword payloads under concurrent transfers, queued gate edges reach samples (`[voice_transfer]`) |
@@ -255,6 +262,10 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 28 | `tests/unit/test_voice_envelope.cpp` | `src/app/VoiceEnvelope.cpp` | ADSR chord entry/exit, movement pickup, all-voice scope, per-stage sequencer changes, release tails without retrigger (`[voice_envelope]`) |
 | 29 | `tests/unit/test_voice_playback.cpp` | `src/app/VoicePlayback.cpp` | Retriggers as events, gate expiry published once per tick, stop clearing lifecycles, voice focus keeping sounding notes (`[voice_playback]`) |
 | 30 | `tests/unit/test_lidar_recording.cpp` | `src/app/StepPlayback.cpp` (real recording/publication path) | Held/latched Filter/Release lanes, calibrated distance, independent lane lengths, selected-step edits while running/stopped, rendered filter contours and release tails (`[lidar][app]`) |
+| 31 | `tests/unit/test_tuning.cpp` | Tuning library and pitch maths (`src/pico2seq-core/tuning/`; also in `pico2seq_ui_tests`) | Library structure (ids, name lengths, ascending cents), tables checked against their ratios and published temperament values, note naming, frequency maths (`[tuning]`) |
+| 32 | `tests/unit/test_tuning_scales.cpp` | Per-tuning scale sets (`src/pico2seq-core/tuning/TuningScales.h`; also in `pico2seq_ui_tests`) | Which scales a tuning offers: twelve-note modes only in twelve-note tunings, tuned rows only in their own tuning, every tuning playable, scale coercion/remembering on tuning changes (`[tuning][tuning-scales]`) |
+| 33 | `tests/unit/test_tuning_page.cpp` | Tuning page (`src/ui/TuningPageControls.h`, `src/ui/TuningPageLogic.h`; also in `pico2seq_ui_tests`) | Open gesture and chord, scale buttons, hot favourites, A/B partner, gestures turned into a `tuning::Selection`, the playing scale and the `Bank` (`[tuning][tuning-page]`) |
+| 34 | `tests/unit/test_serial_rate_limit.cpp` | `src/utils/SerialRateLimit.h` | `StallWatch` stays quiet while counters advance however fast it is polled and reports a frozen count once per interval; `LogBudget` allows a burst then caps the sustained rate and counts drops for the summary (`[serial_rate]`) |
 
 ---
 
@@ -313,7 +324,7 @@ cmake --build build_test_ninja --parallel
 ./build_test_ninja/tests/pico2seq_reverb_bypass_tests  # Bench-only reverb bypass build
 ```
 
-*(On Windows PowerShell, append `.exe` to executable names; `ctest --test-dir build_test_ninja` runs every discovered test across the six targets: 692 on 2026-09-30, 33 of them the known baseline failures above.)*
+*(On Windows PowerShell, append `.exe` to executable names; `ctest --test-dir build_test_ninja` runs every discovered test across the six targets: 938 on 2026-10-01, 35 of them failing — see the baseline paragraphs above.)*
 
 ### 2. Run with CTest
 

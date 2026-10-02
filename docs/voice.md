@@ -161,26 +161,32 @@ public:
     void init(float sampleRate);
     void setConfig(const VoiceConfig& config);
     const VoiceConfig& getConfig() const noexcept;
-    VoiceConfig& getConfig() noexcept;
 
     // Real-time audio processing (runs on Core 1 @ 48kHz)
     float process() noexcept;
 
     // Parameter updates (called on the Core 0 control thread — uClock step drain
-    // in processClockEvents(), or live recording)
-    void updateParameters(const VoiceState& newState);
+    // in processClockEvents(), or live recording). liveEnvelopeMask makes
+    // deliberate live slider edits land on the running envelope stage.
+    void updateParameters(const VoiceState& newState, uint8_t liveEnvelopeMask = 0);
 
     // Sequencer integration
     void setSequencer(std::unique_ptr<Sequencer> seq);
     void setSequencer(Sequencer* seq);
     Sequencer* getSequencer() noexcept;
 
-    // Scale injection (removes global scale coupling)
-    void setScaleTable(const int (*table)[48], size_t scaleCount);
+    // Scale injection (removes global scale coupling). nativeScaleMask bit N
+    // marks row N as holding tuning degrees instead of 12-EDO semitone slots.
+    void setScaleTable(const int (*table)[48], size_t scaleCount,
+                       uint64_t nativeScaleMask = 0);
     void setCurrentScalePointer(const uint8_t* currentScalePtr);
 
+    // Global tuning injection (tuning/Tuning.h). The control thread samples the
+    // selection and queues a PitchWorld; the default 12-EDO / tonic C / A4 440
+    // selection keeps the historical pitch path bit for bit.
+    void setTuningPointer(const tuning::Selection* selection);
+
     // State and gate management
-    VoiceState& getState() noexcept;
     const VoiceState& getState() const noexcept;
     void setGate(bool gateState);
     bool getGate() const noexcept;
@@ -292,7 +298,6 @@ public:
     uint8_t addVoice(const VoiceConfig& config);
     uint8_t addVoice(const std::string& presetName);
     bool removeVoice(uint8_t voiceId);
-    void removeAllVoices();
 
     // Voice Configuration
     bool setVoiceConfig(uint8_t voiceId, const VoiceConfig& config);
@@ -300,8 +305,10 @@ public:
     const VoiceConfig* getVoiceConfig(uint8_t voiceId);
 
     // Voice State Management
-    bool updateVoiceState(uint8_t voiceId, const VoiceState& state);
+    bool updateVoiceState(uint8_t voiceId, const VoiceState& state,
+                          uint8_t liveEnvelopeMask = 0);
     const VoiceState* getVoiceState(uint8_t voiceId);
+    void flushControlUpdates(); // control thread, every loop including idle passes
 
     // Sequencer Attachment
     bool attachSequencer(uint8_t voiceId, std::unique_ptr<Sequencer> sequencer);
@@ -327,7 +334,16 @@ public:
     bool applyReverbSettings(const ReverbSettings &settings) noexcept; // coherent snapshot; false = ring full,
                                                                       // the values still arrive via the targets
     ReverbSettings getReverbSettings() const noexcept;                 // newest published
-    float processVoice(uint8_t voiceId);
+
+    // Master-bus delay and compressor macro (control-thread targets; the audio
+    // thread reads them per block and eases per sample)
+    void setDelayMix(float mix);
+    void setDelayTime(float seconds);
+    void setDelayFeedback(float feedback);
+    void setDelaySynced(bool synced);
+    void setDelayNoteIndex(uint8_t index);
+    void setMasterMacro(float macro);
+    float getMasterMacro() const;
 
     // Voice Control
     void enableVoice(uint8_t voiceId, bool enabled = true);
@@ -337,8 +353,6 @@ public:
     // Voice Information
     uint8_t getVoiceCount() const;
     uint8_t getMaxVoices() const;
-    std::vector<uint8_t> getActiveVoiceIds() const;
-    size_t getMemoryUsage() const;
     bool hasAvailableSlots() const;
 
     // Callbacks
@@ -349,13 +363,9 @@ public:
     static std::vector<std::string> getAvailablePresets();
     static VoiceConfig getPresetConfig(const std::string& presetName);
 
-    // Global & Per-Voice Mixing
+    // Global Mixing
     void setGlobalVolume(float volume);
     float getGlobalVolume() const;
-    void setVoiceMix(uint8_t voiceId, float mix);
-    float getVoiceMix(uint8_t voiceId) const;
-    void setVoiceVolume(uint8_t voiceId, float volume);
-    void setVoiceFrequency(uint8_t voiceId, float frequency);
     void setVoiceSlide(uint8_t voiceId, float slideTime);
 };
 ```
@@ -540,11 +550,12 @@ zero-length calls; the mono `processBlock()` remains for callers and tests.
 ### 5.2 Scale Data Injection
 Scale tables are injected via dependency injection, eliminating global couplings:
 ```cpp
-extern int scale[SCALES_COUNT][SCALE_STEPS];  // 13 scales, 48 steps
+extern int scale[SCALES_COUNT][SCALE_STEPS];  // 47 rows (semitone slots or tuning degrees), 48 steps
 extern uint8_t currentScale;
 
-voice->setScaleTable(scale, SCALES_COUNT);
+voice->setScaleTable(scale, SCALES_COUNT, NATIVE_SCALE_MASK);
 voice->setCurrentScalePointer(&currentScale);
+voice->setTuningPointer(&tuningSelection);
 ```
 - **Single pitch lookup path**: `calculateNoteFrequency()` reads the **injected** table through `scaleTable[effectiveScaleIndex_()][noteIndex + harmony]`. With no table injected (`nullptr`), it falls back to **chromatic mapping** (scale step = semitone above C3).
 - **Synthesis Pitch Offset**: Scale degrees are centered around C3 (+48) with octave offset:
@@ -552,6 +563,18 @@ voice->setCurrentScalePointer(&currentScale);
 - **Index clamping**: `noteIndex + harmony` is clamped to `0..47` and the resulting MIDI note is saturated to `0..127` before the lookup-table read, so extreme harmony/octave values cannot index out of bounds.
 - **Live scale switches**: the effective scale row is part of the pitch snapshot (`PitchSnapshot::scaleIndex`); a runtime `currentScale` change invalidates the static base frequency on the next pitch recompute (repeated notes repitch too).
 - No per-scale preprocessing happens at injection time — `setScaleTable()` only stores the pointer and marks the base frequency dirty (the former unique-rank caches were write-only and were removed 2026-09-05).
+- **Global tuning injection**: an additional injected pointer is the global tuning
+  selection (`tuning/Tuning.h`; 29 tunings plus tonic and A4 reference, selected on
+  the Tuning page). The control thread samples it in `flushControlUpdates()` and
+  queues a `PitchWorld` exactly like a scale change. The default selection
+  (12-EDO, tonic C, A4 440) sets `PitchWorld::standard` and keeps the MIDI-table
+  path above bit for bit; any other selection makes `calculateNoteFrequency()`
+  map the scale row's value to a tuning degree (`MusicalValues::tuningDegree()`)
+  and compute the frequency from the tonic and A4 instead of the lookup table.
+  Rows flagged in `NATIVE_SCALE_MASK` already hold tuning degrees (the All
+  Degrees scale); every other row holds 12-EDO semitone slots mapped to
+  degrees by the tuning's chroma table, or the nearest degree when the tuning
+  has no chroma.
 
 ### 5.3 Gate-Controlled Pitch Commit
 To prevent audible pitch clicks and glitches when release tails ring out after a sequencer step transition, pitch changes are **committed to oscillators only when `state.isGateHigh == true`**. When the gate is low, the active voice rings out at its last assigned frequency.
