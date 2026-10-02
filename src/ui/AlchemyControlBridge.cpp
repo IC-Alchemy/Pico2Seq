@@ -6,6 +6,7 @@
 #include "../app/ReverbEditor.h"
 #include "../app/Session.h"
 #include "../app/StepPlayback.h"
+#include "../app/VoiceDump.h"
 #include "../app/VoiceEditor.h"
 #include "../app/VoiceEnvelope.h"
 
@@ -884,9 +885,14 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
         handleControlButton(BUTTON_CHANGE_SWING_PATTERN, uiState);
       break;
 
-    case 4: // Theme cycle
+    case 4: // Theme cycle; Shift + Theme prints every voice's values to Serial
       if (edges.pressEdge)
-        handleControlButton(BUTTON_CHANGE_THEME, uiState);
+      {
+        if (uiState.shiftHeld)
+          printAllVoiceValues();
+        else
+          handleControlButton(BUTTON_CHANGE_THEME, uiState);
+      }
       break;
 
     case 5: // Encoder target / Settings page; length entry uses voice holds.
