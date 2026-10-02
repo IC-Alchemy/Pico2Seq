@@ -67,6 +67,7 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
 
 // Slide-mode and settings-page helpers (one owner each, called from the funnel).
 static void handleSlideModeStep(const MatrixButtonEvent &evt, UIState &uiState, const SequencerView &sequencers);
+static void handleTuningPadEvent(const MatrixButtonEvent &evt, UIState &uiState);
 
 // Settings sub-mode helpers.
 static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState);
@@ -117,6 +118,14 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
     uiState.arp.releaseAllHeldPads();
     return;
   }
+  // The Tuning page owns every pad: each is a tuning slot, so nothing below (steps, slide,
+  // the arp's chord ladder) may see the edge.
+  if (uiState.tuningPage.active || uiState.tuningPage.waitRelease)
+  {
+    handleTuningPadEvent(evt, uiState);
+    return;
+  }
+
   // Edge-only input: holds are promoted by polling so the loop never blocks.
   pollUIHeldButtons(uiState, sequencers);
 
@@ -178,6 +187,22 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
 // =======================
 //   INTERNAL HANDLERS
 // =======================
+
+// A pad on the Tuning page: touching it chooses the tuning under it, and the scale follows
+// to one that belongs to that tuning. Only the press acts; the release (and anything that
+// arrives while the page is still draining its opening chord) is swallowed here.
+static void handleTuningPadEvent(const MatrixButtonEvent &evt, UIState &uiState)
+{
+  const TuningPage::Controls &page = uiState.tuningPage;
+  if (!page.active || page.waitRelease || evt.type != MATRIX_BUTTON_PRESSED ||
+      evt.buttonIndex >= NUMBER_OF_STEP_PADS)
+    return;
+  UITransitions::showTuningNotice(
+      uiState,
+      TuningPage::padTap(static_cast<uint8_t>(evt.buttonIndex), tuningSelection, tuningBank, currentScale),
+      millis());
+  uiState.arp.setScaleNotesPerOctave(currentScaleNotesPerOctave());
+}
 
 /**
  * @brief Handles a parameter button edge keyed by ParamId (Alchemy tile path)
@@ -256,6 +281,8 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
 {
   if (uiState.voiceEnvelope.active || uiState.voiceEnvelope.chordPending ||
       uiState.voiceEnvelope.waitRelease) return true;
+  // The reverb page owns the panel too: pads do nothing until it is closed.
+  if (uiState.reverbPage.active || uiState.reverbPage.waitRelease) return true;
   // Pads outside the 32-step grid have no voice; ignore them.
   if (evt.buttonIndex >= NUMBER_OF_STEP_PADS)
   {

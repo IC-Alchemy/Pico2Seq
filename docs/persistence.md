@@ -24,7 +24,9 @@ One **project** = everything needed to resume exactly where you left off:
 |---|---|
 | 4 patterns | All 11 parameter lanes (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide, Sustain, Release) per voice, **including** each lane's independent step length (polymeter survives save/load) and the full 64-step tail behind a shortened lane |
 | 4 patches | Each voice's preset + every Voice Edit tweak (oscillators, filter, envelope, overdrive, waveguide/hypersaw/noise params, flags). The preset's *sound descriptors* are re-derived from flash at load, not stored |
-| Settings | Tempo (45–200 BPM), master volume, scale (0–12), shuffle template (0–15), LED theme (0–9), selected voice (0–3), per-voice preset indices, per-voice editor cursor + edited flags, slide mode |
+| Settings | Tempo (45–200 BPM), master volume, scale (0–46, stored by index; see [tuning.md](tuning.md)), shuffle template (0–15), LED theme (0–9), selected voice (0–3), per-voice preset indices, per-voice editor cursor + edited flags, slide mode |
+| Effects | The master reverb's eight settings: mix, decay, damping, low cut, diffusion, mod depth, mod rate, width. **Freeze is performance state and is never saved**, and neither is the reverb tank: a restored project starts unfrozen and the tail simply keeps evolving under the restored settings |
+| Tuning | The global tuning (id), tonic (Sa, 0–11 semitones above C), A4 reference (415.0–466.0 Hz in tenths), the A/B partner tuning and the four hot favourites (tuning id or empty). Which scale each tuning last used is **not** saved |
 
 ### 1.2 Save / load / autosave
 
@@ -34,6 +36,10 @@ One **project** = everything needed to resume exactly where you left off:
 | **Reload saved** | Utility button 2, **long-press ≥ 0.4 s** (or `Session::requestLoad()`) | OLED `LOADED` / `LOAD ERR`, serial `[STORAGE] loaded` / `load FAILED` |
 | **Autosave on stop** | Automatic, ~1 s after the transport stops, **only if something changed** (CRC differs from last save) | Serial `[STORAGE] autosaved on stop` |
 | **Boot restore** | Automatic: flash file first, factory defaults if none/invalid | OLED `LOADED` notice; serial `[STORAGE] session loaded` vs `no valid session; factory defaults` |
+
+Projects saved by older firmware still load. They come up with the reverb mix
+at zero and the tuning at 12-EDO, tonic C, A4 = 440 Hz (with the default favourites), so they
+sound exactly as they did before; the next save writes the new format (§3).
 
 Technical notes players rarely need but should know:
 
@@ -66,16 +72,17 @@ per second** (zero flash wear). After a watchdog freeze:
 
 ```
 src/pico2seq-core/persistence/        portable, tested, no Arduino
-  ProjectSnapshot.h / .cpp            the data: Track/Pattern/Patch/Settings/ProjectSnapshotV1 + validate
+  ProjectSnapshot.h / .cpp            the data: Track/Pattern/Patch/Settings/Effects/Tuning/ProjectSnapshot + validate + v1/v2/v3 upgrade
   PatternCodec.h / .cpp               Sequencer  <->  PatternSnapshot  (capturePattern / applyPattern)
   SnapshotFormat.h / .cpp             the frame: magic + version + size + CRC-32  (crc32, write/readFrameHeader)
   RetainedSessionLogic.h              retained-RAM policy: RetainedStore, retainedValid/Refresh, decideResume
 
 src/voice/PatchCodec.h / .cpp        VoiceConfig  <->  PatchSnapshot  (voicecodec::capturePatch / applyPatch)
+src/voice/EffectsCodec.h / .cpp      ReverbSettings  <->  EffectsSnapshot  (effectscodec::captureEffects / applyEffects)
 
 src/app/                              firmware glue (hardware-bound, NOT in pico2seq-core)
   Session.h / .cpp                    whole-project capture + 3-phase apply + deferred save/load requests
-  SessionStorage.h / .cpp             LittleFS file  (/session.p2s via /session.tmp)  +  static ~10 KB buffers
+  SessionStorage.h / .cpp             LittleFS file  (/session.p2s via /session.tmp)  +  static ~12.4 KB buffers
   RetainedSession.h / .cpp            NOLOAD retained-RAM store + 1 Hz refresh + boot-completed accounting
   Application.cpp                     boot order, 1 Hz mirror, deferred flash I/O, stop-autosave, recovery park
 ```
@@ -102,8 +109,12 @@ All in `persistence::` (`ProjectSnapshot.h`). Sizes are part of the format:
 | `PatchSnapshot` | 232 B | 55 × 4-byte value words (220 B) + 10 u8 (counts, engine/paramSet/filter/preset/waveforms/flags) + 2 `reserved` tail bytes, packed so there is **no** compiler-dependent padding |
 | `SettingsSnapshot` | 24 B | tempo, master volume, theme, scale, shuffle, selected voice, 4 preset indices, 4 editor cursors, `changedFlags` |
 | `ProjectSnapshotV1` | 10,312 B | Format 1: 4 patterns (9,360 B) + 4 patches (928 B) + settings (24 B). Only used to size old files |
-| **`ProjectSnapshot`** | **12,400 B** | Format 2: the format-1 layout unchanged, then 4 × `EnvelopeTracksSnapshot` (2,080 B), `laneModel` (u32) and `reserved` (u32) |
-| Flash file | 12,412 B | 12-byte frame header + 12,400-byte payload (format-1 files: 10,324 B) |
+| `ProjectSnapshotV2` | 12,400 B | Format 2: the format-1 layout unchanged, then 4 × `EnvelopeTracksSnapshot` (2,080 B), `laneModel` (u32) and `reserved` (u32). Only used to size old files |
+| `EffectsSnapshot` | 48 B | 8 floats (reverb mix, decay s, damping Hz, low cut Hz, diffusion, mod depth, mod rate Hz, width) + 4 `reserved` u32 (written zero, ignored on load) |
+| `ProjectSnapshotV3` | 12,448 B | Format 3: the format-2 layout unchanged, then `EffectsSnapshot` (48 B). Only used to size old files |
+| `TuningSnapshot` | 12 B | `tuningId` u8, `tonic` u8, `a4Tenths` u16, `previousId` u8, 3 `reserved` bytes (written zero, ignored on load), `favorites[4]` u8 (`0xFF` = empty) |
+| **`ProjectSnapshot`** | **12,460 B** | Format 4: the format-3 layout unchanged, then `TuningSnapshot` (12 B) |
+| Flash file | 12,472 B | 12-byte frame header + 12,460-byte payload (format-3 files: 12,460 B, format-2 files: 12,412 B, format-1 files: 10,324 B) |
 
 **Format 2 (2026-09-19).** A format-1 payload is byte-for-byte the prefix of
 format 2 (`static_assert(offsetof(ProjectSnapshot, envelopes) == sizeof(ProjectSnapshotV1))`).
@@ -118,6 +129,34 @@ from offsets around the loaded patch to the absolute values they played
 snapshot data because `Sequencer::setRawStepValue()` wraps at a lane's active length.
 The next save writes format 2. The retained-RAM store moved to `RETAINED_VERSION = 2`,
 so a watchdog resume across the firmware update falls back to the flash file.
+
+**Format 3 (2026-09-30).** A format-2 payload is byte-for-byte the prefix of format 3
+(`static_assert(offsetof(ProjectSnapshot, effects) == sizeof(ProjectSnapshotV2))`), which
+adds only the 48-byte `EffectsSnapshot`. `SessionStorage::load` reads the header's version,
+asks `payloadSizeForVersion()` how many bytes to read (10,312 / 12,400 / 12,448; **0 for a
+version this build does not know, which is refused**) and hands the frame to
+`decodeSnapshotFrame()`. That verifies magic/version/size/CRC against the file's own version,
+upgrades the payload **in place** in the static load buffer (`upgradeFromV1()` /
+`upgradeFromV2()`: the missing tail is filled, the effect record takes
+`applyEffectsDefaults()`, i.e. reverb mix 0 and the documented audition values) and validates
+the result. An upgraded project therefore sounds exactly as it did before, and the next save
+writes format 3. `RETAINED_VERSION` moved to 3, so retained RAM left by older firmware fails
+its version check and is ignored (the flash file is used instead).
+
+**Format 4 (2026-09-30).** A format-3 payload is byte-for-byte the prefix of format 4
+(`offsetof(ProjectSnapshot, tuning) == sizeof(ProjectSnapshotV3)`), which adds only the 12-byte
+`TuningSnapshot` (tuning, tonic, A4, A/B partner, four hot favourites). `payloadSizeForVersion()`
+now answers 10,312 / 12,400 / 12,448 / 12,460, and `upgradeFromV3()` fills the tail with
+`applyTuningDefaults()` (12-EDO, tonic C, A4 = 440 Hz, default favourites 12-EDO, 24-EDO, 5-Limit JI
+and 22 Shruti), so an older song sounds exactly as it did. `validateTuning()` refuses, rather than
+clamps, an unknown tuning or favourite id, a tonic above 11 or an A4 outside 415.0–466.0 Hz.
+`RETAINED_VERSION` moved to 4.
+
+On load, `Session::applyAfterClock()` restores the tuning (`restoreTuning()`, which also forgets
+the per-tuning scale memory) and then coerces the stored scale with `tuning::coerceScale()`: a scale
+the loaded tuning does not offer becomes the tuning's first scale, so a song can never load into a
+scale that means nothing in its tuning. The scale itself stays in `SettingsSnapshot`, by index, as
+before. Scales may therefore only be appended (see [scales.md](scales.md)).
 
 Field notes:
 
@@ -147,7 +186,7 @@ Field notes:
 #include "app/SessionStorage.h"
 
 // Core 0 only, never from an ISR / uClock callback:
-persistence::ProjectSnapshotV1 snap;
+persistence::ProjectSnapshot snap;
 Session::captureSession(snap);
 if (SessionStorage::save(snap))
     Session::setLastSavedCrc(persistence::crc32(
@@ -165,13 +204,13 @@ Session::requestLoad();
 ### 4.2 Load and apply (order matters)
 
 ```cpp
-persistence::ProjectSnapshotV1 loaded{};
+persistence::ProjectSnapshot loaded{};
 if (SessionStorage::load(loaded) == SessionStorage::LoadResult::Ok) {
     Session::applyBeforeVoices(loaded);  // preset indices only — initializeVoices() consumes them
     // ... build voices ...
-    Session::applyAfterVoices(loaded);   // patterns + patch values + editor cursors + volume
+    Session::applyAfterVoices(loaded);   // patterns + patch values + editor cursors + volume + reverb settings
     // ... start clock ...
-    Session::applyAfterClock(loaded);    // tempo + shuffle template + scale + theme
+    Session::applyAfterClock(loaded);    // tempo + shuffle template + scale + theme + tuning
 }
 ```
 
@@ -226,6 +265,28 @@ saved engine is `ENGINE_RECIPE` but the preset carries no recipe, it returns
 `false` (unreconstructable) with `out` reset to factory. An out-of-range
 `presetIndex` also returns `false`.
 
+### 4.4b Effect settings only (master reverb)
+
+```cpp
+#include "voice/EffectsCodec.h"
+
+persistence::EffectsSnapshot record;
+effectscodec::captureEffects(voiceManager->getReverbSettings(), record);  // freeze is not stored
+
+ReverbSettings settings;
+if (effectscodec::applyEffects(record, settings))       // validates: finite + in range
+    voiceManager->applyReverbSettings(settings);        // one coherent snapshot, freeze off
+```
+
+`captureEffects` writes every persisted field and zeroes `reserved`. `applyEffects`
+returns `false` (leaving `settings` untouched) for a non-finite or out-of-range field;
+a loaded snapshot has normally been validated already (`validateEffects`), so this is
+the last line of defence before values reach the audio thread. `applyReverbSettings`
+publishes all eight values as one snapshot that Core 1 applies in the same control tick,
+easing them in over ~30 ms; it never clears or reallocates the tank. Boot restore and
+`Session::requestLoad()` both go through `Session::applyAfterVoices()`, which is the only
+place effects are applied.
+
 ### 4.5 Retained-RAM mirror (crash resume)
 
 ```cpp
@@ -233,7 +294,7 @@ saved engine is `ENGINE_RECIPE` but the preset carries no recipe, it returns
 
 RetainedSession::bootInit();                 // once, at boot: validate magic + CRC
 if (RetainedSession::resumeAllowed()) {      // once per boot; escalates attempt counter
-    persistence::ProjectSnapshotV1 snap;
+    persistence::ProjectSnapshot snap;
     if (RetainedSession::takeResumeSnapshot(snap)) { /* apply like a load */ }
 }
 // in the healthy control loop, ~1 Hz:
@@ -255,7 +316,7 @@ only), `retainedRefresh()` (sets magic/version, `generation += 1`, CRC),
 | yes | yes | 0–2 | `ResumeRetained` |
 | yes | yes | ≥ 3 | `HaltRecovery` (park) |
 
-Constants: `RETAINED_MAGIC 'RET1'`, `RETAINED_VERSION 1`,
+Constants: `RETAINED_MAGIC 'RET1'`, `RETAINED_VERSION 4`,
 `MAX_RESUME_ATTEMPTS 3`, `RETAINED_FLAG_BOOT_COMPLETED`. `refresh()` never
 resets the attempt counter; only `markBootCompleted()` does — resetting it at
 the end of `begin()` would let a freeze that recurs right after every boot
@@ -270,8 +331,8 @@ is computed over the payload buffer directly, never over bytes past the header.
 ```
 offset  size  field
 0       4     magic   0x50325331 ('P2S1', LE)
-4       2     version SNAPSHOT_FORMAT_VERSION = 2 (1 still loads, see §3)
-6       2     payloadSize (u16; sizeof(ProjectSnapshot) = 12400, format 1: 10312)
+4       2     version SNAPSHOT_FORMAT_VERSION = 4 (1, 2 and 3 still load, see §3)
+6       2     payloadSize (u16; sizeof(ProjectSnapshot) = 12460, format 3: 12448, format 2: 12400, format 1: 10312)
 8       4     crc32   CRC-32/ISO-HDLC over payload (poly 0xEDB88320, init/xor 0xFFFFFFFF;
               check vector: "123456789" -> 0xCBF43926)
 ```
@@ -286,6 +347,12 @@ FrameStatus persistence::readFrameHeader(const uint8_t header[12], const uint8_t
                                          size_t payloadCapacity, uint16_t expectedPayloadSize,
                                          uint16_t expectedVersion = SNAPSHOT_FORMAT_VERSION) noexcept;
 // FrameStatus: Ok | TooShort | BadMagic | BadVersion | BadSize | BadCrc
+
+size_t persistence::payloadSizeForVersion(uint16_t version) noexcept;   // 0 for an unknown version
+bool persistence::decodeSnapshotFrame(const uint8_t header[12], const uint8_t* payload,
+                                      size_t payloadCapacity, ProjectSnapshot& out) noexcept;
+// Verifies the frame against the file's own version, upgrades an older payload to the
+// newest layout in `out` (payload and out may be the same buffer) and validates it.
 ```
 
 `payloadCapacity` must be ≥ declared size; the caller checks `TooShort` before
@@ -297,7 +364,7 @@ too); `NoFile` / `IoError` are distinct so boot can tell "first run" from
 ## 6. Validation
 
 ```cpp
-bool persistence::validateProjectSnapshot(const ProjectSnapshotV1& s) noexcept;
+bool persistence::validateProjectSnapshot(const ProjectSnapshot& s) noexcept;
 ```
 
 Range checks only (structural validity, not musical sense). Bounds mirror the UI:
@@ -305,8 +372,19 @@ Range checks only (structural validity, not musical sense). Bounds mirror the UI
 - every lane `stepCount` in 1..64 (note: a **zero-initialized** snapshot is
   *invalid* — seed lengths or `captureSession` first),
 - `presetIndices[v]` ≤ 63 (true bound re-checked against the preset count by `applyPatch`),
-- tempo 45..200 BPM, scale 0..12 (13 scales), shuffle 0..15 (16 templates),
-  theme 0..9 (10 themes), selected voice 0..3.
+- tempo 45..200 BPM, scale 0..46 (47 scales, `SCALES_COUNT`), shuffle 0..15
+  (16 templates), theme 0..9 (10 themes), selected voice 0..3,
+- effect fields (`validateEffects`), each finite and inside its `EffectsLimits` range:
+  reverb mix 0..1, decay 0.1..1000 s, damping 100..10,800 Hz, low cut 10..1000 Hz,
+  diffusion 0..1, mod depth 0..1, mod rate 0.01..5 Hz, width 0..2. **A bad effect field
+  rejects the whole file; nothing is clamped on load**, so a corrupt record can never
+  publish a surprising value to the audio thread. The firmware is built with `-ffast-math`,
+  which lets the compiler assume no NaN or infinity exists, so finiteness is tested on the
+  bit pattern (`std::isfinite`/`std::isnan` compile to constants under that flag);
+  `tests/unit/test_persistence.cpp` feeds NaN and infinities into every effect field.
+- tuning fields (`validateTuning`): known tuning, A/B-partner and favourite
+  ids, tonic 0..11, A4 415.0–466.0 Hz in tenths. Same rule: a bad tuning
+  record rejects the whole file, nothing is clamped.
 
 Call it on **every** load path before applying. `SessionStorage::load` already
 does; the retained path relies on CRC + the same check at apply time.
@@ -314,7 +392,7 @@ does; the retained path relies on CRC + the same check at apply time.
 ## 7. Gotchas (read before changing anything)
 
 1. **12 KB buffers are static, never stack.** `SessionStorage` keeps
-   `g_loadBuffer` (~12.4 KB) as file-static — Core 0's Arduino loop stack
+   `g_loadBuffer` (12,460 B) as file-static — Core 0's Arduino loop stack
    cannot hold it. `save()` needs no buffer: callers pass a file-static
    snapshot (e.g. `Application::g_sessionSnapshot`) that it CRCs and writes
    in place. `Application` also keeps a `g_bootSnapshotPending` flag for the
@@ -338,13 +416,18 @@ does; the retained path relies on CRC + the same check at apply time.
    successful save/load refresh it. If you add a field to the snapshot, dirty
    detection follows automatically — but so does CRC churn from uninitialized
    padding, hence rule 8.
-8. **Zero your structs.** Always start from `ProjectSnapshotV1{}` /
+8. **Zero your structs.** Always start from `ProjectSnapshot{}` /
    `PatternSnapshot{}` so `reserved`/padding CRC deterministically. `capturePattern`
    explicitly zeroes `track.reserved`.
 9. **Don't "fix" the `applyPattern` grow-first sequence.** It looks redundant;
    it prevents modulo-wrap corruption (see §4.3).
 10. **Recipe patches can't cross presets.** Saving `ENGINE_RECIPE` values onto
     a non-recipe preset slot fails closed to the factory preset by design.
+11. **Effect settings are values, not audio state.** Loading a project publishes the
+    reverb settings to the audio thread; it never resets the tank, so a tail rings on
+    across a load (and eases to the loaded settings). Freeze is never stored or restored.
+    `ReverbSettings` (audio side) and `EffectsLimits` (this folder must not include the
+    audio side) hold the same numbers; a test asserts they stay equal.
 
 ## 8. Testing
 
@@ -364,7 +447,17 @@ semantics, full random-pattern fidelity across all 9 lanes × 64 steps), patch
 round-trip (untouched preset, edited patch, `paramSet`-change clears layout
 pointer, recipe-without-source rejected, bad preset index rejected), golden
 full-project frame round-trip, resume decision table, retained
-validity/refresh/generation/CRC-damage/version-damage.
+validity/refresh/generation/CRC-damage/version-damage. Format 3 adds: locked v1/v2/v3
+sizes and offsets, effect defaults (mix 0), v1→v3 and v2→v3 loads through
+`decodeSnapshotFrame` (including in place), a bit-exact v3 round trip, NaN/infinity/
+out-of-range effect rejection for every field, damaged and unknown-version frames refused
+before anything is applied, the effects codec (freeze never stored), `EffectsLimits` equal
+to `ReverbParams`, and stale retained-RAM versions. Format 4 adds: locked v4 sizes/offsets,
+the default tuning record (12-EDO, tonic C, A4 440), v1/v2/v3→v4 loads through
+`decodeSnapshotFrame` (including in place), a bit-exact v4 tuning round trip, every library
+tuning/tonic/half-hertz reference surviving a save, unknown tuning/tonic/reference/favourite
+rejection, `restoreTuning` leaving state untouched on a bad record, and the per-tuning scale
+memory never reaching the file.
 
 When adding a field: update the struct, the `static_assert`, `capture`/`apply`,
 `validate` bounds if any, the size assertion in the test, and this manual —

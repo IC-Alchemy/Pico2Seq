@@ -42,12 +42,12 @@ Core 1 (Real-Time Audio):
   fill_audio_buffer() @ 48 kHz stereo I2S (GP10 BCLK, GP11 LRCK, GP12 DATA)
   -> 0% I2C / sensor involvement -> Never blocks, no dynamic allocations
 
-Core 0 (UI, Sensors, Matrix, MIDI):
+Core 0 (UI, Sensors, Matrix):
   loop() Control Slice (CONTROL_UPDATE_INTERVAL = 1 ms):
     +-- Matrix_scan()            -> checks the GP8 MPR121 IRQ flag; reads 32-pad status only on change
     +-- alchemyBridge.update()   -> 1 ms Alchemy tile polling (Wire1 @ 400 kHz)
     +-- magEncoder.update()      -> 1 ms poll (5 ms internal throttle in driver)
-    +-- updateEncoderBaseValues()-> Applies rotary increments to active params
+    +-- updateEncoderTarget()-> Applies rotary increments to active params
     +-- distanceSensor.update()  -> 1 ms poll (10 ms data-ready check, 35 ms measurements)
     +-- pollUIHeldButtons()      -> Promotes long-press states (randomize reset, gate seq length)
   loop() LED Slice (kLedIntervalMs = 13 ms / ~77 Hz):
@@ -71,7 +71,8 @@ The magnetic encoder subsystem consists of two architectural layers:
   - Adaptive low-pass speed filtering.
 - **`EncoderManager` (`src/sensors/EncoderManager.h/.cpp`)**: High-level parameter management subsystem bridging encoder delta increments to the synthesizer data model. Handles:
   - Forwarding every read's increment to `VoiceEditor::encoder()`, which edits the selected voice's base (or the editor cursor) in its `VoiceConfig`.
-  - Outside Step Edit the encoder edits **per-voice base values**. With a step selected, `editSelectedStep()` edits that step's stored value for the toggled edit parameter (or the encoder target's lane): continuous lanes move 5% of their range per unit of encoder motion, Note moves one scale step per detent.
+  - Outside Step Edit the encoder edits **per-voice base values**. With a step selected, `editSelectedStep()` edits that step's stored value for the toggled edit parameter (or the encoder target's lane): continuous lanes sweep with the accumulated, velocity-scaled encoder motion (`SLOW_TURN_SCALE` = 0.2 on slow turns), while notes, octaves and choices step once per `STEPPED_VALUE_DETENT` (0.03) of motion (`SensorConstants.h`).
+  - While the Tuning page is open it owns the dial: one detent steps one tuning in the library (`TuningPage::encoderStep`, `UITransitions::showTuningNotice`), with its own `EncoderMotion` so pending motion never leaks into another target. On that page the 32 pads each pick a tuning (`UIEventHandler.cpp`), not steps.
   - Slow turns are accumulated (`ControlSurface::EncoderMotion`) rather than compared against a per-read noise floor, which used to discard them. Continuous values apply the motion once it passes `MINIMUM_INCREMENT_THRESHOLD`; notes, octaves and choices step once per `STEPPED_VALUE_DETENT` of motion. A change of direction discards pending motion, so sensor jitter never adds up.
   - Dynamic boundary proximity flash zones (`FlashSpeedZone` — currently defined but with no consumer; dormant).
 
@@ -92,7 +93,7 @@ The magnetic encoder subsystem consists of two architectural layers:
 ### 3. MPR121 Capacitive Touch Matrix
 
 - **`Matrix` (`src/matrix/Matrix.h/.cpp`)**: 32-electrode capacitive touch matrix driver using `Adafruit_MPR121` on Wire at address `0x5A`.
-  - Autoconfig enabled with conservative touch/release thresholds: `touchSensor.setThresholds(55, 22)`.
+  - Autoconfig enabled with conservative touch/release thresholds: `touchSensor.setThresholds(45, 14)`.
   - Its active-low, open-drain `/IRQ` is connected to GP8. The ISR sets a pending flag; the 1 ms control slice calls `Matrix_scan()`, which reads the MPR121 only after an interrupt.
   - Drives 32 dedicated step pads across two 16-step voice banks resolved via `ControlSurface::PadBank::resolve(buttonIndex, selectedVoiceIndex)`:
     - Indices 0–15: Voice A steps 0–15.
@@ -111,15 +112,14 @@ The magnetic encoder subsystem consists of two architectural layers:
 
 #### Parameter Processing & Step Editing
 ```cpp
-void updateEncoderBaseValues(UIState& uiState);
+void updateEncoderTarget(UIState& uiState);
 float getParameterMinValueForParamId(ParamId paramId);
 float getParameterMaxValueForParamId(ParamId paramId);
 ```
 
 #### Lifecycle & State Initialization
 ```cpp
-void resetEncoderBaseValues(UIState& uiState, bool currentVoiceOnly = true);
-void initEncoderBaseValues();
+void initEncoderTarget();
 
 extern MagEncoder magEncoder;
 ```
@@ -164,7 +164,7 @@ class DistanceSensor {
 public:
     DistanceSensor();
     bool begin();                    // Configures Adafruit_VL53L1X on Wire @ 0x29
-    void update();                   // Non-blocking single data-ready poll (23ms interval)
+    void update();                   // Non-blocking single data-ready poll (10 ms interval, READ_INTERVAL_MS)
     int getRawDistanceMm() const;    // Returns raw measurement in mm (55-700mm useful window)
     bool isConnected() const;        // Connection status flag
 };
@@ -266,7 +266,7 @@ Tuning parameters configured in `MagEncoder::Config`:
 
 ## "Shift and Scale" Parameter Mapping
 
-To combine encoder base offsets with dynamic sequencer step tracks without clipping or introducing dead zones, `applyEncoderBaseValues` implements bidirectional "Shift and Scale":
+To combine encoder base offsets with dynamic sequencer step tracks without clipping or introducing dead zones, the encoder target path implements bidirectional "Shift and Scale":
 
 ```cpp
 float shiftAndScale(float seqValue, float encoderOffset) {
@@ -285,7 +285,9 @@ float shiftAndScale(float seqValue, float encoderOffset) {
 ## Example Initialization and Control Loop
 
 ```cpp
-#include "includes.h"
+#include "src/app/HardwarePins.h"
+#include "src/sensors/DistanceSensor.h"
+#include "src/sensors/EncoderManager.h"
 
 void setup() {
     // 1. Configure main I2C bus pins and initialize Wire
@@ -302,14 +304,14 @@ void setup() {
     if (!magEncoder.begin()) {
         Serial.println("TMAG5273 initialization failed!");
     }
-    initEncoderBaseValues();
+    initEncoderTarget();
 
     // 4. Initialize Touch Sensor Matrix (MPR121 @ 0x5A)
     if (!touchSensor.begin(0x5A)) {
         Serial.println("MPR121 initialization failed!");
     } else {
         touchSensor.setAutoconfig(true);
-        touchSensor.setThresholds(55, 22);
+        touchSensor.setThresholds(45, 14);
     }
     Matrix_init(&touchSensor);
 }
@@ -326,7 +328,7 @@ void loop() {
 
         // Update magnetic encoder & apply base values
         magEncoder.update();
-        updateEncoderBaseValues(uiState);
+        updateEncoderTarget(uiState);
 
         // Update ToF distance sensor
         distanceSensor.update();
@@ -356,14 +358,14 @@ void loop() {
 - **Sluggish Response**: Check if `magEncoder.update()` is called regularly every 1 ms in `loop()`.
 
 ### VL53L1X Distance Sensor
-- **Initialization Fails (`0x29`)**: Verify I2C bus address and 50 ms stabilization delay (`I2C_STABILIZATION_DELAY_MS`).
+- **Initialization Fails (`0x29`)**: Verify I2C bus address and 30 ms stabilization delay (`I2C_STABILIZATION_DELAY_MS`).
 - **Reading Stalls at -1**: Nothing the sensor accepts is in view (three rejected measurements in a row), or the optical cover glass is occluded. Check `st=` in the `[DIAG C0]` serial line.
 - **Reading Tops Out Below 700 mm**: Watch `lidar=` and `st=` while raising a hand. Repeated `st=2` (signal fail) near the top means the hand returns too little light at that height; try a longer `TIMING_BUDGET_MICROSECONDS` (50 ms, with `INTER_MEASUREMENT_PERIOD_MS` at least as long) or lower `MAX_DISTANCE_HEIGHT_MM`.
 - **Jitter or False Triggers**: Optical noise from high-brightness WS2812B LEDs or ambient infrared sunlight.
 
 ### MPR121 Capacitive Touch Matrix
 - **Matrix Unresponsive (`0x5A`)**: Check wiring to MPR121 breakout and confirm address jumper is pulled to GND (`0x5A`).
-- **Stuck Touches**: Verify `touchSensor.setThresholds(55, 22)` is applied and autoconfig is enabled. Avoid grounding pads during boot.
+- **Stuck Touches**: Verify `touchSensor.setThresholds(45, 14)` is applied and autoconfig is enabled. Avoid grounding pads during boot.
 
 ---
 
@@ -371,4 +373,3 @@ void loop() {
 - `docs/ButtonHandlers.md`: Alchemy tile control surface and MPR121 dual-surface architecture.
 - `docs/matrix.md`: MPR121 32-pad touch grid layout and bank resolution.
 - `docs/architecture.md`: Dual-core audio/UI separation architecture.
-- `docs/alchemyui-tmag5273-migration.md`: Historical migration log for TMAG5273 and AlchemyUI.

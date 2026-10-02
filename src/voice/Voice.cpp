@@ -141,6 +141,7 @@ void Voice::init(float sr)
   ControlUpdate unused;
   while (controlQueue_.tryPop(unused)) {}
   controls_.scaleIndex = currentScalePtr_ ? *currentScalePtr_ : 0;
+  sampleTuning_(true);
   controls_.changes = 0;
   controls_.liveEnvelopeMask = 0;
   config = controls_.config;
@@ -150,6 +151,8 @@ void Voice::init(float sr)
   scaleTable = controls_.scaleTable;
   scaleTableCount = controls_.scaleCount;
   audioScaleIndex_ = controls_.scaleIndex;
+  nativeScaleMask_ = controls_.nativeScaleMask;
+  world_ = controls_.world;
   slideTimeSeconds = controls_.slideSeconds;
   pitchBendSemitones_ = controls_.bendSemitones;
   pitchModSemitones_ = controls_.modulationSemitones;
@@ -241,12 +244,30 @@ void Voice::setConfig(const VoiceConfig &cfg)
   flushControlUpdates();
 }
 
-void Voice::setScaleTable(const int (*table)[48], size_t scaleCount)
+void Voice::setScaleTable(const int (*table)[48], size_t scaleCount, uint64_t nativeScaleMask)
 {
   controls_.scaleTable = table;
   controls_.scaleCount = scaleCount;
+  controls_.nativeScaleMask = nativeScaleMask;
   controls_.changes |= ScaleChanged;
   flushControlUpdates();
+}
+
+void Voice::setTuningPointer(const tuning::Selection *selection)
+{
+  tuningPtr_ = selection; // dereferenced by the control thread only
+  sampleTuning_(true);
+  flushControlUpdates();
+}
+
+void Voice::sampleTuning_(bool force) noexcept
+{
+  const tuning::Selection selection = tuningPtr_ ? *tuningPtr_ : tuning::Selection{};
+  if (!force && selection == sampledTuning_)
+    return;
+  sampledTuning_ = selection;
+  controls_.world = tuning::makeWorld(selection);
+  controls_.changes |= TuningChanged;
 }
 
 void Voice::setCurrentScalePointer(const uint8_t *ptr)
@@ -258,6 +279,7 @@ void Voice::setCurrentScalePointer(const uint8_t *ptr)
 
 bool Voice::flushControlUpdates() noexcept
 {
+  sampleTuning_(false);
   const size_t scaleIndex = currentScalePtr_ ? *currentScalePtr_ : 0;
   if (scaleIndex != controls_.scaleIndex)
   {
@@ -311,6 +333,12 @@ void PICO2SEQ_AUDIO_FUNC(Voice::applyControlUpdate_)() noexcept
     scaleTable = update.scaleTable;
     scaleTableCount = update.scaleCount;
     audioScaleIndex_ = update.scaleIndex;
+    nativeScaleMask_ = update.nativeScaleMask;
+    baseFreqDirty_ = true;
+  }
+  if (changes & TuningChanged)
+  {
+    world_ = update.world;
     baseFreqDirty_ = true;
   }
   if (changes & SlideChanged)
@@ -337,7 +365,7 @@ void PICO2SEQ_AUDIO_FUNC(Voice::applyControlUpdate_)() noexcept
     state.isGateHigh = gate;
     state.shouldRetrigger = false;
   }
-  if (changes & (ScaleChanged | BendChanged | ModulationChanged | PitchRefresh))
+  if (changes & (ScaleChanged | TuningChanged | BendChanged | ModulationChanged | PitchRefresh))
     updatePitchCache_();
   if (changes & FrequencyChanged)
     applyFrequency_(update.frequency);
@@ -1032,9 +1060,18 @@ size_t Voice::effectiveScaleIndex_() const noexcept
 inline float Voice::calculateNoteFrequency(float note, int8_t octaveOffset,
                                            int harmony) noexcept
 {
-  const int *row = scaleTable && scaleTableCount ? scaleTable[effectiveScaleIndex_()] : nullptr;
-  const int midiNote = MusicalValues::midiNote(note, octaveOffset, harmony, row);
-  return frequencyLookupTable[midiNote];
+  const size_t scaleIndex = effectiveScaleIndex_();
+  const int *row = scaleTable && scaleTableCount ? scaleTable[scaleIndex] : nullptr;
+  if (world_.standard)
+  {
+    // 12-EDO, tonic C, A4 440: the historical table lookup, so nothing that sounded
+    // before moves by a single bit.
+    const int midiNote = MusicalValues::midiNote(note, octaveOffset, harmony, row);
+    return frequencyLookupTable[midiNote];
+  }
+  const int degree = MusicalValues::tuningDegree(note, harmony, row, world_,
+                                                 row && scaleIsNative(scaleIndex, nativeScaleMask_));
+  return tuning::frequencyHz(world_, degree, octaveOffset);
 }
 
 void Voice::checkScaleIndexChanged_() noexcept

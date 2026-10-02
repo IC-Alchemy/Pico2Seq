@@ -12,11 +12,63 @@ and tempo-dial hint. Recent control movement changes only the middle rows for
 `src/ui/ArpDisplay.h` is shared with host checks; hardware rendering remains in
 `OLEDDisplay::displayArpPage()`.
 
+## Reverb page
+
+Shift + button 6 + a press of button 2 opens the live master-reverb page
+(`OLEDDisplay::displayReverbPage()`, [manual §3.7](manual.md#37-master-reverb)). It draws
+above the PARAM/UTIL banner, notices and every step/settings view, and below Voice
+Editing and the live ADSR page:
+
+```
+REVERB MAIN                FRZ      <- layer name; FRZ only while frozen
+--------------------------------
+ 1 Mix               35%           <- fader 1..4 of the layer, value right-aligned
+>2 Decay             20s           <- '>' marks the fader moved last
+ 3 Damp            3.0kHz
+ 4 Freeze            OFF           <- MAIN layer's fourth fader row is the Freeze switch
+1 Frz 2 Layer 8 Exit
+```
+
+The TONE layer shows `LowCut`, `Diffuse`, `Mod` and `Width` on rows 1-4. Values are
+formatted by `ControlSurface::formatReverbValue()` (shared with the host tests):
+Mix, Diffuse, Mod and Width as percent; Decay as `0.25s`, `6.0s` or `20s`; Damp as
+`850Hz` or `3.0kHz`; LowCut as `40Hz`. The page reads the control-side settings
+(`VoiceManager::getReverbSettings()`), i.e. what the performer last set, not the
+audio-owned values that ease toward it. Layout and timing on the physical display
+still need a hardware check.
+
+## Tuning page
+
+Shift (button 8) + a press of Utility button 3 opens the live Tuning page
+(`OLEDDisplay::displayTuningPage()`, [manual §3.8](manual.md#38-tunings),
+[tuning.md](tuning.md)). It has the same priority as the Reverb page, just below it, and the
+same rule for exit (Shift). There is one page for the whole 29-tuning library:
+
+```
+TUNING 13/29 JUST                   y0   header: position in the library, family (TuningPage::formatHeader)
+---------------------------        y9   rule
+ Pythagorean                        y11  the tuning before
+ 7-Limit JI                      *2 y21  the playing tuning on an inverted bar; *n = hot favourite n
+ Overtone 16-31                     y31  the tuning after
+ 3/17 Lydian                        y41  scale of the playing tuning; ">" while fader 3 was last moved
+ Tonic C  A4 440.0Hz                y49  fader 1 and 2 values; ">" for whichever moved last
+ Saved to Hot 2                     y57  notice for 1.5 s, else alternating every 2 s:
+                                         the tuning's detail line / "1-6 Scl 7 A/B 8 Exit"
+```
+
+All text is produced by `TuningPageLogic.h` (host-tested, 21 characters per line at text size 1;
+long names fall back to short names and never wrap). The page copies the selection and bank once
+per frame, which keeps one frame self-consistent while input keeps being handled. On the LED matrix the
+32 pads show the library, one pad per tuning in the colour of its family
+(`LEDMatrixFeedback.cpp`). The status screen alternates the scale name with the tuning name
+(and tonic) every 1.5 s while a non-standard tuning is selected, and the encoder, step, arp and
+voice-edit value lines print pitches with the tuning's note names.
+
 ## Overview
 
 The `src/OLED/` subsystem manages the 128×64 monochrome OLED display for Pico2Seq using an **Adafruit SH1106G** driver over I2C (`Wire`, I2C0 @ 400 kHz, address `0x3C`).
 
-The OLED provides real-time visualization of parameter values, sequence lengths, settings sub-menus, voice presets, and system status through a deterministic **7-tier priority rendering hierarchy**.
+The OLED provides real-time visualization of parameter values, sequence lengths, settings sub-menus, voice presets, and system status through a deterministic **priority rendering hierarchy** (numbered tiers; letter-suffixed tiers render between them).
 
 ---
 
@@ -45,6 +97,12 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
                                     | (if inactive)
                                     v
 +-------------------------------------------------------------------------+
+| Priority 1b: Live ADSR page, then Reverb page, then Tuning page         |
+| (voiceEnvelope.active, reverbPage.active, then tuningPage.active)       |
++-------------------------------------------------------------------------+
+                                    | (if inactive)
+                                    v
++-------------------------------------------------------------------------+
 | Priority 2: Transitory PARAM / UTIL Mode Strap Banner                  |
 | (Active when millis() < uiState.alchemyModeBannerUntil)                |
 +-------------------------------------------------------------------------+
@@ -69,6 +127,14 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
 | (Active when uiState.settingsMode == true)                              |
 |   ├── SubMode VOICE_PARAMETER: Parameter toggles (Filter/Env/Drive)     |
 |   └── SubMode PRESET_SELECTION: Preset browser & Sound Buffet 4-voice   |
++-------------------------------------------------------------------------+
+                                    | (if inactive)
+                                    v
++-------------------------------------------------------------------------+
+| Priority 4b: Arpeggiator Play Page                                      |
+| (Active when uiState.arp.active() — replaces every sequencer screen     |
+|  below it; Settings above still win, since the preset browser stays     |
+|  reachable while the arp plays)                                         |
 +-------------------------------------------------------------------------+
                                     | (if inactive)
                                     v
@@ -107,7 +173,8 @@ every other view until the editor exits:
 
 #### 2. Transitory Mode Strap Banner (Priority 2)
 Triggered for a brief timeout window whenever the hardware GP7 mode strap changes position:
-- **PARAM Mode:** Displays centered size-3 **"PARAM"** with subtitle `> params <`.
+- **PARAM Mode:** Displays centered size-3 **"PARAM"** with subtitle `> params <`
+  (**"ARP"** with `> patterns <` instead while the arpeggiator plays).
 - **UTIL Mode:** Displays centered size-3 **"UTIL"** with subtitle `> utility <`.
 
 #### 3. Transitory Confirmation Notice (Priority 3)
@@ -139,6 +206,14 @@ The parameter name/value screens are preset-aware: for voices whose preset re-pu
 Filter/Attack/Decay slots (`VoiceConfig::paramSet`), the OLED shows the slot's re-purposed
 name (e.g. Bright/Pick/T60 on a waveguide voice, via `VoicePresets::getSequencerParamName`)
 and formats the value in its own unit (%, seconds for T60, semitones for detune) via `MusicalValues::format`.
+
+#### 4b. Arpeggiator Play Page (Priority 4b)
+While `uiState.arp.active()`, `OLEDDisplay::update()` renders the eight-row arp play page
+(`displayArpPage()`) in place of every sequencer screen below it: no step is selected in
+arpeggiator mode, so the gate-length, envelope and parameter pages cannot describe what the
+panel is doing. Settings still outrank it, because the preset browser stays reachable while
+the arp plays. The page layout is described at the top of this document and in
+[arpeggiator.md](arpeggiator.md#oled).
 
 #### 5. Gate Sequence Length Gauge (Priority 5)
 Activated when `uiState.gateSeqLengthMode` is active (holding Voice 1–4 without Shift for 400 ms, in either panel mode):
@@ -172,7 +247,7 @@ step's own. `>` marks the lane a fader last moved (`uiState.envFaderLane`). The 
   - `Velocity`: `0%`–`100%`
   - `Filter`: Frequency in Hz (`20Hz`–`20000Hz` via `rpdsp::fmap`) or repurposed name
   - `Attack` / `Decay`: Milliseconds or seconds (e.g. `250ms`, `1.20s`)
-  - `Octave`: `-1`, `0`, `+1`
+  - `Octave`: Signed octaves over −2..+2, rendered `%+d oct` (e.g. `-2 oct`, `+1 oct`)
   - `GateLength`: `0%`–`100%`
   - `Gate` / `Slide`: `ON` / `OFF`
 - **Progress Bar:** 10px tall bordered progress bar for continuous parameters (Velocity, Filter, Attack, Decay, GateLength).

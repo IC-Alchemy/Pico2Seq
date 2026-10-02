@@ -67,7 +67,7 @@ In Param mode, ButtonModule8 provides instant parameter arming for real-time rec
 | **1** | `Velocity` | Hold-to-arm parameter recording + auto-selects encoder target |
 | **2** | `Filter` | Hold-to-arm parameter recording + auto-selects encoder target |
 | **3** | `Attack` | Hold-to-arm parameter recording + auto-selects encoder target |
-| **4** | `Decay` | Hold-to-arm parameter recording + auto-selects encoder target |
+| **4** | `Release` (silkscreened "Decay") | Hold-to-arm parameter recording + auto-selects encoder target |
 | **5** | `Octave` | Hold-to-arm parameter recording + auto-selects encoder target |
 | **6** | `Slide` | Toggles slide/portamento mode (clears conflicting edit modes) |
 | **7** | `Shift` | Modifier for parameter latching and secondary chords |
@@ -83,8 +83,8 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, and system contr
 | Bit / Button | Function | Behavior |
 |---|---|---|
 | **0** | `Play / Stop` | Starts/stops sequencer clock (stopping automatically opens Settings mode) |
-| **1** | `Session Save / Load` | Tap saves the session to flash (stops transport for the ~0.1–0.5 s write, then restarts); long-press (≥400 ms) reloads the last saved session. Edits also autosave ~1 s after every transport stop when changed |
-| **2** | `Scale Cycle` | Cycles forward through the 13 musical scales |
+| **1** | `Session Save / Load` | Tap saves the session to flash (stops transport for the ~0.1–0.5 s write, then restarts); long-press (≥400 ms) reloads the last saved session. Edits also autosave ~1 s after every transport stop when changed. Shift + press (instead of save/load) toggles the master delay between tempo-sync and free milliseconds, confirmed by a `DelaySync` / `DelayMsMode` OLED notice |
+| **2** | `Scale Cycle` | Steps to the next scale of the playing tuning — a twelve-note tuning cycles its modes, 24-EDO the maqams (`tuning::stepScale`). **Shift + press opens the live Tuning page** (the "Shift + Utility 3" chord, see §6) |
 | **3** | `Swing Pattern` | Cycles through the 16 groove/shuffle templates in `ShuffleTemplates.h` |
 | **4** | `Theme Cycle` | Cycles visual LED color themes across `LEDTheme` presets |
 | **5** | `Encoder Target` | Press cycles encoder target (or toggles the Settings page) |
@@ -96,8 +96,8 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, and system contr
 | Fader | No step selected | Step Edit = ENV mode (`selectedStepForEdit >= 0`) |
 |---|---|---|
 | **0** | Master Tempo (uClock BPM: 45–200 BPM) | Attack lane of the selected step |
-| **1** | Swing Amount (continuous shuffle depth) | Decay lane of the selected step |
-| **2** | Unassigned (the former Decay / Master Volume slot) | Sustain lane of the selected step |
+| **1** | Delay mix (master delay wet/dry blend) | Decay lane of the selected step |
+| **2** | Master volume (saved with the session) | Sustain lane of the selected step |
 | **3** | Gate Length across the selected voice's steps | Release lane of the selected step |
 
 - **ENV mode** writes the fader position as the step's absolute value through
@@ -111,7 +111,7 @@ In Utility mode, ButtonModule8 carries transport, scale, swing, and system contr
   fader only writes after an obvious move. Only fresh checksum-valid slider frames
   enter the rolling median filter; a cached read cannot count as another sample.
 - Faders no longer edit voice bases or live-record: the encoder edits bases, the
-  distance sensor records. Master volume is fader 3 in Utility mode, and is saved with the session (default 0.75).
+  distance sensor records. Master volume is fader 2, and is saved with the session (default 0.75).
 
 ---
 
@@ -129,7 +129,7 @@ The 4 buttons on the SliderModule tile act as direct Voice 1–4 selectors in bo
   - `Shift + Voice 1`: Play / Stop toggle
   - `Shift + Voice 2`: Randomize selected voice (short-press randomize only — the poll-driven long-press reset never triggers from a chord)
   - `Shift + Voice 3`: Cycle musical scale
-  - `Shift + Voice 4`: Enter **Voice Editing mode** (`VoiceEditor::enter()` — transport stops, audio mutes, editor consumes buttons until exit; see `docs/voice-edit.md`)
+  - `Shift + Voice 4`: Two commands share the button, decided on release — a **tap** (released under ~400 ms) enters **Voice Editing mode** (`VoiceEditor::enter()` — transport stops, audio mutes, editor consumes buttons until exit; see `docs/voice-edit.md`), while **holding it ≥400 ms** toggles **Arpeggiator mode**; the consumed hold means the release does not also open the editor (`AlchemyControlBridge.cpp`)
 
 ---
 
@@ -158,6 +158,18 @@ PadAddress addr = ControlSurface::PadBank::resolve(padIndex, uiState.selectedVoi
   - Bank 1 (Pads 16–31): Voice 4 steps 0–15
 
 Step actions resolve to the pad's bank-mapped voice. Gate sequence length entry accepts only the held voice's bank; gate toggles, step selection, parameter-length entry, and slide toggles can address either visible voice.
+
+---
+
+### 6. Tuning Page (Shift + Utility 3)
+
+Holding Shift and pressing Utility button 3 (bit 2, the Scale Cycle button) opens the live Tuning page (`TuningPage::Controls`, `src/ui/TuningPageControls.h`; the page itself is documented in [docs/tuning.md](tuning.md) and [docs/oled.md](oled.md)). `AlchemyControlBridge` decides that chord before every other Shift action, and only in Utility mode while no other modal chord (live ADSR, Reverb page, gate-length hold) owns the panel. While the page is open — and while its opening chord releases — it consumes **every** button, fader, pad and encoder edge:
+
+- **Step pads:** each of the 32 pads is one tuning of the library, in library order; a touch chooses it (`UIEventHandler.cpp` routes every pad edge to `TuningPage::padTap` while `tuningPage.active`).
+- **Buttons 1–6:** pick the first six scales of the playing tuning; **button 7** swaps the current and previous tuning (A/B); **Shift** exits.
+- **Voice buttons 1–4:** the four hot favourites — a tap recalls one, a 600 ms hold stores the playing tuning there (holding again clears the slot).
+- **Faders 1–3:** the tonic (Sa), the A4 reference and the scale (spread over the playing tuning's own scales).
+- **Encoder:** one detent steps one tuning through the library.
 
 ---
 
@@ -241,7 +253,7 @@ Dispatches system-wide control actions based on button ID defined in `UIConstant
 | `BUTTON_SLIDE_MODE` | Toggles global slide/portamento mode |
 | `BUTTON_ENCODER_CONTROL` | Cycles active magnetic encoder target parameter |
 | `BUTTON_PLAY_STOP` | Toggles transport; stopping opens Settings mode; starting clears Settings |
-| `BUTTON_CHANGE_SCALE` | Cycles through 13 musical scale tables (`currentScale = (currentScale + 1) % 13`) |
+| `BUTTON_CHANGE_SCALE` | Steps to the next scale of the playing tuning (`currentScale = tuning::stepScale(tuningSelection.tuningId, currentScale, 1)`) |
 | `BUTTON_CHANGE_THEME` | Cycles LED matrix visual feedback themes |
 | `BUTTON_CHANGE_SWING_PATTERN` | Cycles through 16 shuffle/swing groove templates |
 
@@ -321,8 +333,8 @@ struct UIState {
     VoiceEdit::Controls voiceEditor;
     bool controlsWaitRelease = false; // entry chord buttons pending release
 
-    // Transient OLED notice (randomize confirmations)
-    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1 };
+    // Transient OLED notice (short confirmation banner)
+    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6, Macro = 7, DelayMix = 8, DelayTime = 9, DelayFeedback = 10, ArpOn = 11, ArpOff = 12, DelaySync = 13, DelayMsMode = 14 };
     volatile unsigned long oledNoticeUntil = 0;
     volatile OledNoticeKind oledNoticeKind = OledNoticeKind::None;
     volatile uint8_t oledNoticeVoice = 0;
@@ -342,6 +354,8 @@ src/ui/
 ├── UIEventHandler.h/.cpp      # Matrix step pad event dispatch & shared bridge entry points
 ├── UIConstants.h              # Button ID definitions, timing constants, and matrix sizes
 ├── UIState.h                  # Centralized UI state structure
+├── TuningPageControls.h       # Tuning page gesture policy (open chord, favourites, scale keys)
+├── TuningPageLogic.h          # Tuning page pure logic: pad views, actions, notices, OLED text
 └── VoiceEditControls.h        # Hardware-free Voice Editing interaction state (inside UIState)
 
 src/app/
@@ -354,5 +368,3 @@ src/app/
 - `docs/sensors.md`: Magnetic encoder, ToF distance sensor, and MPR121 hardware specifications.
 - `docs/matrix.md`: 32-pad capacitive touch matrix scanning and debounce mechanics.
 - `docs/voice-edit.md`: Voice Editing mode controls and parameter catalogue.
-- `docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`: Full specification for the Dual-Surface Alchemy Tile control system.
-- `docs/alchemyui-tmag5273-migration.md`: Migration history and architectural decisions.

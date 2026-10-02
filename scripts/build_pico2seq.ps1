@@ -4,6 +4,10 @@ param(
     [string]$BuildDirectory,
     [ValidateSet(150, 225, 300)] [int]$CpuMHz = 225,
     [switch]$AudioInFlash,
+    # Extra compiler flags appended to build.extra_flags, e.g. the reverb A/B builds:
+    #   -ExtraFlags '-DPICO2SEQ_REVERB_STORAGE_HALF=0'  (Float tank; default is Half)
+    #   -ExtraFlags '-DPICO2SEQ_REVERB_BYPASS=1'        (bench baseline, no reverb)
+    [string]$ExtraFlags = '',
     [switch]$KeepStage,
     # User-facing build name (first prompt of build.ps1). publish_uf2.ps1
     # turns it into "<title>_Pico2Seq_<yyyy-MM-dd>.uf2".
@@ -46,9 +50,13 @@ if ($subStatus -match '^[\+\-U]') {
 }
 
 # Check both required submodules by their source entry points. A clean status line
-# alone is not enough on a partially materialized checkout.
+# alone is not enough on a partially materialized checkout, and it says nothing about
+# a pin that is in sync but too old: dark_reverb.h is the newest rpdsp header the
+# firmware includes (MasterReverb.h), so a pin that predates the reverb fails here
+# with a clear message instead of deep inside the compiler.
 $requiredSubmoduleFiles = @(
     'src/rpdsp/src/rpdsp/DSPFunctions.h',
+    'src/rpdsp/src/rpdsp/dark_reverb.h',
     'src/VelocityEncoder/src/MagEncoder.h'
 )
 $missingSubmoduleFiles = @($requiredSubmoduleFiles | Where-Object {
@@ -121,12 +129,15 @@ try {
     Write-Host "Artifacts: $buildPath"
     Write-Host "CPU clock: $CpuMHz MHz"
     Write-Host "Audio code in RAM: $audioInRam"
+    if (-not [string]::IsNullOrWhiteSpace($ExtraFlags)) {
+        Write-Host "Extra flags: $ExtraFlags"
+    }
     & $arduinoCliCommand.Source compile `
         --fqbn 'rp2040:rp2040:rpipico2' `
         --board-options $boardOptions `
         --warnings all `
         --clean `
-        --build-property "build.extra_flags=-ffast-math -DPICO2SEQ_AUDIO_IN_RAM=$audioInRam" `
+        --build-property "build.extra_flags=-ffast-math -DPICO2SEQ_AUDIO_IN_RAM=$audioInRam $ExtraFlags" `
         --build-path $buildPath `
         $stageSketch
 

@@ -25,7 +25,7 @@ The Sequencer module is the core rhythmic and melodic engine of the Pico2Seq syn
                               │        └──────────────┬──────────────────────┘         │
                               │                       ▼                                │
                               │             advanceSequencerStep()                     │
-                              │             (UI Adapter in src/ui/)                    │
+                              │             (adapter in src/app/)                      │
                               │                       │                                │
                               │                       ▼                                │
                               │             Sequencer::advanceStep()                   │
@@ -58,7 +58,7 @@ The Sequencer module is the core rhythmic and melodic engine of the Pico2Seq syn
 1. **Portable `pico2seq-core/` Isolation**:
    The sequencer logic in `src/pico2seq-core/sequencer/` (`Sequencer`, `ParameterManager`, `SequencerDefs.h`, `ShuffleTemplates.h`) is clean, portable C++ with **no dependency on `UIState` or UI types**. This allows the sequencer engine to be compiled and unit-tested on host machines via CMake (`tests/unit/test_sequencer.cpp`).
 2. **UI Adapter Pattern (`advanceSequencerStep`)**:
-   Because `Sequencer::advanceStep()` accepts only primitive types (integers, floats, booleans), the firmware bridges the rich `UIState` struct via the private adapter function `advanceSequencerStep()` in `src/app/StepPlayback.cpp`.
+   Because `Sequencer::advanceStep()` accepts only portable types (integers, floats, and the plain `StepEditButtons` aggregate), the firmware bridges the rich `UIState` struct via the private adapter function `advanceSequencerStep()` in `src/app/StepPlayback.cpp`.
 3. **Polymetric Parameter Tracks**:
    Rather than advancing all synthesis parameters in lockstep, every parameter (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide, Sustain, Release) operates on an independent `ParameterTrack<64>` with its own step count (2–64 steps). This allows patterns such as a 16-step melody, an 8-step filter pattern, and a 5-step velocity cycle to run simultaneously on a single voice.
 4. **Dual-Core Execution**:
@@ -118,32 +118,35 @@ Metadata and defaults for all parameters are defined in `CORE_PARAMETERS` (`Sequ
 ```cpp
 struct ParameterDefinition
 {
-  const char *name;                // Display name
-  ParameterValueType defaultValue; // std::variant<int, float, bool>
-  ParameterValueType minValue;     // Minimum valid value
-  ParameterValueType maxValue;     // Maximum valid value
-  bool isBinary;                   // True for gate/slide
-  uint8_t defaultSteps;            // Default step count (16)
-};
-
-constexpr ParameterDefinition CORE_PARAMETERS[] = {
-  // Name          Default  Min    Max    Binary  Default Steps
-  {"Note",         0,       0,     36,    false,  16},
-  {"Velocity",     0.5f,    0.0f,  1.0f,  false,  16},
-  {"Filter",       0.5f,    0.0f,  1.0f,  false,  16},
-  {"Attack",       0.01f,   0.0f,  1.0f,  false,  16},
-  {"Decay",        0.3f,    0.0f,  1.0f,  false,  16},
-  {"Octave",       0.5f,    0.0f,  1.0f,  false,  16},
-  {"GateLength",   0.5f,    0.001f,1.0f,  false,  16},
-  {"Gate",         false,   false, true,  true,   16},
-  {"Slide",        false,   false, true,  true,   16},
-  {"Sustain",      0.5f,    0.0f,  1.0f,  false,  16},
-  {"Release",      0.3f,    0.0f,  1.0f,  false,  16}
+  const char *name;                 // Display name for UI
+  ParameterValueType defaultValue;  // std::variant<int, float, bool>
+  ParameterValueType minValue;      // Minimum allowed value
+  ParameterValueType maxValue;      // Maximum allowed value
+  ParameterEditKind editKind;       // Continuous, Stepped (detented), or Toggle (gate/slide)
+  uint8_t defaultSteps;             // Default step count (16)
+  bool recordable;                  // Has a parameter-button live-record control
+  EncoderParameterMode encoderMode; // COUNT when the lane has no encoder base target
+  bool patchDefault;                // Absolute lane: a step may follow the patch value
 };
 ```
 
-The real table (`SequencerDefs.h`) also carries the edit kind, the live-record flag,
-the encoder base target and `patchDefault`. Lanes with `patchDefault` (Velocity,
+`CORE_PARAMETERS` (`SequencerDefs.h`, ordered like `ParamId`) holds one row per lane; every lane defaults to 16 steps:
+
+| Lane | Default | Min | Max | Edit kind | Recordable | Encoder base | `patchDefault` |
+|---|---|---|---|---|---|---|---|
+| Note | 0 | 0 | 36 | Stepped | yes | Note | no |
+| Velocity | 0.5 | 0.0 | 1.0 | Continuous | yes | Velocity | yes |
+| Filter | 0.5 | 0.0 | 1.0 | Continuous | yes | Filter | yes |
+| Attack | 0.01 | 0.0 | 1.0 | Continuous | yes | Attack | yes |
+| Decay | 0.3 | 0.1 | 1.0 | Continuous | no | none | yes |
+| Octave | 0.5 | 0.0 | 1.0 | Stepped | yes | Octave | no |
+| GateLength | 0.8 | 0.1 | 1.0 | Continuous | no | none | no |
+| Gate | false | false | true | Toggle | no | none | no |
+| Slide | false | false | true | Toggle | no | none | no |
+| Sustain | 0.5 | 0.0 | 1.0 | Continuous | no | none | yes |
+| Release | 0.3 | 0.01 | 1.0 | Continuous | yes | Release | yes |
+
+`recordable` only says whether a lane has a parameter-button live-record control; explicit step or fader edits are not restricted by it. Lanes with `patchDefault` (Velocity,
 Filter, Attack, Decay, Sustain, Release) are **absolute**: a step stores its own
 0–1 value, or `SequencerConstants::LANE_FOLLOWS_PATCH` (-1) to play the voice's
 patch value. `ParameterManager::setValue()` stores that sentinel unclamped;
@@ -158,13 +161,17 @@ class ParameterManager
 {
 public:
     void init();
+    void fillTrack(ParamId id, float value);   // all 64 slots, length unchanged
     void setStepCount(ParamId id, uint8_t steps);
     uint8_t getStepCount(ParamId id) const;
     float getValue(ParamId id, uint8_t stepIdx) const;
     void setValue(ParamId id, uint8_t stepIdx, float value);
-    void setParameterValue(ParamId id, uint8_t stepIdx, float value);
     void copyStep(uint8_t srcStep, uint8_t dstStep);
-    void randomizeParameters(bool usePatchBases = false);
+    float getRawValue(ParamId id, uint8_t stepIdx) const;        // save/load: no clamp/round
+    void setRawValue(ParamId id, uint8_t stepIdx, float value);
+    void randomizeParameters(uint8_t depthPercent = 35, uint64_t seed = 0);
+    void setLaneAmount(ParamId id, uint8_t percent);  // per-lane humanize depth, 0-100
+    uint8_t getLaneAmount(ParamId id) const;
 
 private:
     ParameterTrack<SequencerConstants::MAX_STEPS_COUNT> _tracks[static_cast<size_t>(ParamId::Count)];
@@ -172,13 +179,12 @@ private:
 ```
 
 - **Clamping and Rounding in `setValue`**:
-  `setValue()` clamps the incoming value between `CORE_PARAMETERS[id].minValue` and `maxValue`. If `isBinary` is true, it thresholds at `> 0.5f` to produce `0.0f` or `1.0f`. If `minValue` is an integer variant, it rounds using `roundf()`.
+  `setValue()` clamps the incoming value between `CORE_PARAMETERS[id].minValue` and `maxValue`. If the lane's `editKind` is `Toggle`, it thresholds at `> 0.5f` to produce `0.0f` or `1.0f`. If `minValue` is an integer variant (Note), it rounds using `roundf()`. On patch-default lanes the follow-patch sentinel (`LANE_FOLLOWS_PATCH`, -1) is stored unclamped. `getRawValue()`/`setRawValue()` bypass all of this for save/load.
 - **Randomization Algorithm (`randomizeParameters`)**:
-  Uses an internal Linear Congruential Generator (LCG) seeded from system time. Applies musical heuristics per parameter:
-  - `Gate`: Even steps have a 50% probability of being active (1/2 chance of 0); odd steps have a ~25% probability (1/4 chance of 1).
-  - `Slide`: 1/16 chance (~6.25%) per step; track is always resized to 64 steps for safety.
-  - `Attack` / `Decay`: Weighted towards short attacks and medium decays with occasional long swells.
-  - `Filter`: Uniform random in range `[0.2, 0.8]`.
+  Uses an internal Linear Congruential Generator (LCG). It rewrites the parameter lanes but never the groove: `Gate` and `Slide` are untouched, and amount-0 lanes are left alone.
+  - `Note`: Random scale degree 0–12, quantized into the current scale at playback.
+  - `Octave` / `GateLength`: At this layer each step is rewritten with `mapNormalizedValueToParamRange(id, 0.5f)`, which is not the neutral value for Octave: it lands in the +1 detent (0.75), and GateLength becomes 0.55 (midpoint of 0.1–1.0). `Sequencer::randomizeParameters()` then writes Octave back to 0.5 across all 64 slots (unless the Octave lane amount is 0); GateLength stays at 0.55.
+  - Remaining lanes: Triangular spread centered on the middle of the lane's range (most steps near the middle, a few reaching the depth edge) at the default depth of 35% (`ParameterManager.cpp:157-193`).
 
 ---
 
@@ -225,7 +231,7 @@ public:
     void start() { running = true; }
     void stop() { running = false; }
     bool isRunning() const { return running; }
-    void randomizeParameters();
+    void randomizeParameters(uint8_t depthPercent = 35, uint64_t seed = 0);
 
     // Note & Envelope Timing
     void startNote(uint8_t note, uint8_t velocity, uint16_t duration);
@@ -236,9 +242,7 @@ public:
 
     // Core Step Advancement (Primitive Signature)
     void advanceStep(uint32_t current_uclock_step, int mm_distance,
-                     bool is_note_button_held, bool is_velocity_button_held,
-                     bool is_filter_button_held, bool is_attack_button_held,
-                     bool is_decay_button_held, bool is_octave_button_held,
+                     const StepEditButtons &buttons,
                      int current_selected_step_for_edit,
                      VoiceState *voiceState);
 };
@@ -266,19 +270,20 @@ When `advanceStep()` is called on each 16th note clock tick:
    ```
 5. **Real-time Parameter Recording**:
    If `mm_distance >= 0` and not in step-edit mode (`current_selected_step_for_edit == -1`):
-   - Normalizes the hand: the calibrated value from `setRecordingInput()` (55–700 mm window), else `clamp(mm_distance / 1100.0f, 0.0f, 1.0f)`.
+   - Normalizes the hand: the calibrated value from `setRecordingInput()` (55–700 mm window), else the portable fallback `clamp(mm_distance / MAX_SENSOR_DISTANCE_MM, 0.0f, 1.0f)` with `MAX_SENSOR_DISTANCE_MM = 555.0f` (`Sequencer.cpp`). The firmware overrides the fallback: `processSequencerStep()` in `src/app/StepPlayback.cpp` calls `setRecordingInput(AppState::performanceInput.recordingValue())` on every voice before each advance, and the value is consumed (reset to -1) once per `advanceStep()`.
    - For each held parameter button, maps the value to the parameter's range and calls `recordLiveValue(paramId, value)`, which writes the lane's own playing step (`currentStepPerParam[paramId]`). For `ParamId::Note` it writes only while the playing Gate step is HIGH.
    - This is the step-boundary half of live recording: the new step starts from the hand's current height. Between steps the firmware keeps recording the continuous lanes (Velocity, Filter, Attack, Release; `ControlSurface::recordsBetweenSteps()`) through the same `recordLiveValue()` every control pass (`recordHeldParameters()` and `recordParameter()` in `src/app/StepPlayback.cpp`). It refreshes the voice while its gate is high; edits on rests remain stored until a gated step plays. Note and Octave stay one value per note.
 6. **Step Processing (`processStep`)**:
    Calls `processStep(UINT8_MAX, voiceState)` to populate the output `VoiceState`:
    - Extracts all parameter values at their respective `currentStepPerParam[id]` indices.
     - Calculates final note value and clamps to valid MIDI range `[0, 127]`.
-    - Converts octave parameter via `VoiceEdit::mapOctave()` (or injected `octaveMapper_`):
+    - Converts the octave lane through the injected `octaveMapper_`. The firmware injects `VoiceEdit::mapOctave()` (`src/app/VoiceSetup.cpp`), which gives the five detents below. The portable default, used when no mapper is injected (host tests), is `mapFloatToOctaveOffset()`: only -12, 0 or +12, with thresholds at 1/3 and 2/3 of the lane. Firmware mapping:
       - Stored `0.00` &rarr; `-24` semitones (-2 oct)
       - Stored `0.25` &rarr; `-12` semitones (-1 oct)
       - Stored `0.50` &rarr; `0` semitones (0 oct)
       - Stored `0.75` &rarr; `+12` semitones (+1 oct)
       - Stored `1.00` &rarr; `+24` semitones (+2 oct)
+    - The published `noteIndex` stays a raw scale degree (`Sequencer.cpp`: "audio quantizes it"): the audio core maps it through the selected scale row and the one global tuning (`Voice::setTuningPointer()`), so the same stored steps play in 12-EDO or any tuning of the library without being rewritten.
     - Slide Handling: If `!slideVal || !noteActive`, envelope retriggers (`voiceState->shouldRetrigger = true`). If sliding from an already active note (`slideVal && noteActive`), `shouldRetrigger = false` and note frequency transitions smoothly via slewing in `Voice`.
    - Gate-Controlled Voice Output: If Gate is LOW, the previous note, envelope, tone, and other voice settings are retained in `VoiceState`. Only the gate closes, allowing the release tail to finish with the triggering step's settings.
 
@@ -294,15 +299,15 @@ The bridge between `UIState` and `Sequencer` is private to `src/app/StepPlayback
 void advanceSequencerStep(Sequencer &seq, uint32_t current_uclock_step, int mm_distance,
                           const UIState &uiState, VoiceState *voiceState)
 {
-  seq.advanceStep(current_uclock_step, mm_distance,
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Note)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Velocity)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Filter)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Attack)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Release)],
-                  uiState.parameterButtonHeld[static_cast<int>(ParamId::Octave)],
-                  uiState.selectedStepForEdit,
-                  voiceState);
+  StepEditButtons buttons;
+  buttons.note = uiState.parameterButtonHeld[static_cast<int>(ParamId::Note)];
+  buttons.velocity = uiState.parameterButtonHeld[static_cast<int>(ParamId::Velocity)];
+  buttons.filter = uiState.parameterButtonHeld[static_cast<int>(ParamId::Filter)];
+  buttons.attack = uiState.parameterButtonHeld[static_cast<int>(ParamId::Attack)];
+  buttons.release = uiState.parameterButtonHeld[static_cast<int>(ParamId::Release)];
+  buttons.octave = uiState.parameterButtonHeld[static_cast<int>(ParamId::Octave)];
+  seq.advanceStep(current_uclock_step, mm_distance, buttons,
+                  uiState.selectedStepForEdit, voiceState);
 }
 ```
 
@@ -315,9 +320,9 @@ note. It only enqueues the step number in the 16-entry SPSC queue in
 calls `processSequencerStep()` in `src/app/StepPlayback.cpp`.
 
 Step playback iterates `AppState::sequencers` in voice order, advances all four
-sequencers, routes hand-distance input only to the selected voice, applies
-per-voice encoder values and publishes the resulting `VoiceState` snapshots
-through `VoiceManager`. Concrete `seq1`..`seq4` construction remains in
+sequencers, routes hand-distance input only to the selected voice, and publishes the
+resulting `VoiceState` snapshots through `VoiceManager`; it contains no encoder
+handling. Concrete `seq1`..`seq4` construction remains in
 `AppState.cpp`; callers borrow its routing table rather than assemble another.
 
 `processPendingGateTicks()` drains PPQN ticks separately and calls
@@ -434,7 +439,7 @@ Other lanes always take the value. `setStepParameterValue()` itself stays a plai
 When a step has `hasSlide = true`:
 1. `voiceState->shouldRetrigger = false`: The ADSR envelope is **not** retriggered, allowing the note to sustain continuously.
 2. `noteDuration.start(noteDurationTicks)`: The note duration timer is refreshed for the new step.
-3. `previousStepHadSlide`: If a gate-off step immediately follows a slide step, `handleNoteOff()` is bypassed so the sliding note can ring out smoothly.
+3. `previousStepHadSlide`: If a gate-off step immediately follows a slide step, `handleNoteOff()` is bypassed, so only the sequencer's note bookkeeping (`noteActive`, the note-duration timer) persists through the rest. The rest still publishes `isGateHigh = false`, so the voice's gate drops, the envelope enters release, and the next rising gate restarts the envelope (`Voice::handleGateEdges_()`). A slide therefore does not carry a sustained note across a rest.
 4. Pitch slewing is performed inside `Voice::processFrequencySlew()` using exponential filter coefficient `slideAlpha = 1.0f - std::exp(-1.0f / (slideTimeSeconds * sampleRate))`.
 
 ---
@@ -444,7 +449,7 @@ When a step has `hasSlide = true`:
 | Struct / Class | Location | Primary Purpose |
 |---|---|---|
 | `Sequencer` | `src/pico2seq-core/sequencer/Sequencer.h/.cpp` | Core step sequencer logic, parameter automation, note lifecycle |
-| `ParameterManager` | `src/pico2seq-core/sequencer/ParameterManager.h/.cpp` | 9 independent `ParameterTrack<64>` instances, value clamping, randomization |
+| `ParameterManager` | `src/pico2seq-core/sequencer/ParameterManager.h/.cpp` | 11 independent `ParameterTrack<64>` instances, value clamping, randomization |
 | `ParameterTrack<64>` | `src/rpdsp/src/rpdsp/parameter_track.h` | Fixed-size polymetric track with modulo wrapping |
 | `VoiceState` | `src/pico2seq-core/sequencer/SequencerDefs.h` | Control snapshot emitted on steps and note-duration expiry to configure `Voice` DSP |
 | `Step` | `src/pico2seq-core/sequencer/SequencerDefs.h` | Internal parameter snapshot for step editing and inspection |

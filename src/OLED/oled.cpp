@@ -7,17 +7,19 @@
 #include "../app/VoiceEditor.h"
 #include "../app/AppState.h"
 #include "../voice/VoiceSystem.h" // voice id -> slot lookup
-#include "../../includes.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
 #include "../pico2seq-core/sequencer/ShuffleTemplates.h"
 #include "../pico2seq-core/scales/scales.h"
+#include "../sensors/DistanceSensor.h"
 #include "../ui/ButtonManager.h"
 #include "../ui/ControlSurfaceLogic.h"
 #include "../ui/SettingsPads.h"
 #include "../ui/ArpDisplay.h"
+#include "../ui/TuningPageLogic.h"
 #include <algorithm>
 #include <cstring> // strcmp, strlen
 #include <Arduino.h>
+#include <uClock.h>
 
 // ========================= OLED Display Module =========================
 // What's editable now, on a 128x64 SH1106 (Core 0, I2C0 at 400 kHz).
@@ -230,6 +232,16 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
   }
   if (uiState.voiceEnvelope.active) {
     displayVoiceEnvelopePage(uiState, voiceManager);
+    commitFrame();
+    return;
+  }
+  if (uiState.reverbPage.active) {
+    displayReverbPage(uiState, voiceManager);
+    commitFrame();
+    return;
+  }
+  if (uiState.tuningPage.active) {
+    displayTuningPage(uiState);
     commitFrame();
     return;
   }
@@ -465,21 +477,34 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     const Step playing = sequence.getPlaybackStep();
     const Step values = showBase ? MusicalValues::baseStep(*config) : playing;
     char value[48] = "--";
+    const TuningView tuned = currentTuningView(currentScale);
     if (config) {
       if (lane != ParamId::Count)
         MusicalValues::format(lane, values, *config, scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)],
-                              uClock.getTempo(), value, sizeof(value), showBase);
+                              uClock.getTempo(), value, sizeof(value), showBase, &tuned.world,
+                              tuned.nativeScale);
       else VoiceEdit::format(encoderId, *config, value, sizeof(value));
     }
     displayHardware.setTextSize(1);
     displayHardware.setCursor(2, 31);
     displayHardware.print(config ? VoiceEdit::name(encoderId, *config) : "Value");
-    constexpr const char *shortScales[] = {
-      "Major", "Dorian", "Phrygian", "Lydian", "Mixolyd", "Minor", "Locrian",
-      "Min Pent", "Phryg Dom", "Lyd Dom", "Harm Min", "Whole", "Chromatic"};
-    static_assert(sizeof(shortScales) / sizeof(shortScales[0]) == SCALES_COUNT);
-    displayHardware.setCursor(68, 31);
-    displayHardware.print(showBase ? "Base" : shortScales[std::min<size_t>(currentScale, SCALES_COUNT - 1)]);
+    // The scale name and the tuning share this slot, alternating every 1.5 s while a
+    // non-standard tuning is selected; the standard one keeps the scale name all the time.
+    char tuningStatus[24];
+    TuningPage::formatStatus(tuningSelection, tuningStatus, sizeof(tuningStatus));
+    if (std::strlen(tuningStatus) > 11) {
+      // "22-SHRUTI D A432.0" does not fit the slot: drop the reference pitch (the page has it).
+      std::snprintf(tuningStatus, sizeof(tuningStatus), "%s %s",
+                    tuning::resolve(tuningSelection.tuningId).shortName,
+                    tuning::tonicName(tuningSelection.tonic));
+    }
+    if (!showBase && tuningStatus[0] && (millis() / 1500) % 2 == 1) {
+      displayHardware.setCursor(126 - 6 * static_cast<int>(std::strlen(tuningStatus)), 31);
+      displayHardware.print(tuningStatus);
+    } else {
+      displayHardware.setCursor(68, 31);
+      displayHardware.print(showBase ? "Base" : scaleShortNames[std::min<size_t>(currentScale, SCALES_COUNT - 1)]);
+    }
     if (!playing.isGateActive) {
       displayHardware.setCursor(92, 0); displayHardware.print("R");
     }
@@ -535,13 +560,11 @@ void OLEDDisplay::displayArpPage(const UIState &state)
     snprintf(text, sizeof(text), "Dial:tempo %.0fbpm", bpm);
     line(56, text);
   } else {
-    constexpr const char *scales[] = {"Major", "Dorian", "Phryg", "Lydian", "Mixolyd",
-        "Minor", "Locrian", "MinPent", "PhrDom", "LydDom", "HarmMin", "Whole", "Chrom"};
-    static_assert(sizeof(scales) / sizeof(scales[0]) == SCALES_COUNT);
-    snprintf(text, sizeof(text), "%s %uoct %s", arp.patternLabel(), unsigned(settings.octaves), scales[scaleIndex]);
+    snprintf(text, sizeof(text), "%s %uoct %s", arp.patternLabel(), unsigned(settings.octaves), scaleShortNames[scaleIndex]);
     line(16, text);
     ArpDisplay::Row chord;
-    ArpDisplay::chord(arp, scale[scaleIndex], chord);
+    const TuningView tuned = currentTuningView(scaleIndex);
+    ArpDisplay::chord(arp, scale[scaleIndex], chord, &tuned.world, tuned.nativeScale);
     line(24, chord);
     snprintf(text, sizeof(text), "%u/%u %s %.0fbpm", unsigned(settings.hits), unsigned(settings.length), rhythm, bpm);
     line(32, text);
@@ -670,6 +693,116 @@ void OLEDDisplay::displayVoiceEnvelopePage(const UIState &state, VoiceManager *m
   displayHardware.setTextWrap(true);
 }
 
+void OLEDDisplay::displayReverbPage(const UIState &state, VoiceManager *manager)
+{
+  using ControlSurface::ReverbControl;
+  displayHardware.setTextWrap(false);
+  displayHardware.setCursor(2, 0);
+  displayHardware.print(state.reverbPage.layer == 0 ? "REVERB MAIN" : "REVERB TONE");
+  const ReverbSettings settings = manager ? manager->getReverbSettings() : ReverbSettings{};
+  if (settings.freeze) {
+    displayHardware.setCursor(104, 0);
+    displayHardware.print("FRZ");
+  }
+  displayHardware.drawFastHLine(2, 10, 124, SH110X_WHITE);
+  for (uint8_t i = 0; i < 4; ++i) {
+    const int y = 13 + 10 * i;
+    const ReverbControl control = ControlSurface::reverbControlForFader(state.reverbPage.layer, i);
+    const bool marked = control != ReverbControl::Count &&
+                        state.reverbPage.lastControl == static_cast<uint8_t>(control);
+    displayHardware.setCursor(0, y);
+    displayHardware.print(marked ? ">" : " ");
+    displayHardware.print(i + 1);
+    displayHardware.print(" ");
+    char value[12];
+    if (control == ReverbControl::Count) {
+      // The MAIN layer's fourth fader is unassigned; its row is the Freeze switch.
+      displayHardware.print("Freeze");
+      snprintf(value, sizeof(value), "%s", settings.freeze ? "ON" : "OFF");
+    } else {
+      displayHardware.print(ControlSurface::reverbControlName(control));
+      ControlSurface::formatReverbValue(control, ControlSurface::reverbValueOf(settings, control),
+                                        value, sizeof(value));
+    }
+    displayHardware.setCursor(126 - 6 * static_cast<int>(strlen(value)), y);
+    displayHardware.print(value);
+  }
+  displayHardware.setCursor(0, 56);
+  displayHardware.print("1 Frz 2 Layer 8 Exit");
+  displayHardware.setTextWrap(true);
+}
+
+// The whole library on one page: the tuning list scrolls past a fixed highlight (the
+// playing tuning, with its neighbours above and below), and the LED matrix shows the same
+// library as one coloured pad per tuning. Why the page copies the selection and bank first:
+// a local copy keeps one frame self-consistent while Core 0 keeps handling input.
+void OLEDDisplay::displayTuningPage(const UIState &state)
+{
+  const tuning::Selection selection = tuningSelection;
+  const tuning::Bank bank = tuningBank;
+  const uint8_t scaleIndex = static_cast<uint8_t>(std::min<size_t>(currentScale, SCALES_COUNT - 1));
+  const TuningPage::Controls &page = state.tuningPage;
+  char text[32];
+  displayHardware.setTextWrap(false);
+
+  // Header: where the playing tuning sits in the library, and its family.
+  TuningPage::formatHeader(selection, text, sizeof(text));
+  displayHardware.setCursor(2, 0);
+  displayHardware.print(text);
+  displayHardware.drawFastHLine(2, 9, 124, SH110X_WHITE);
+
+  // The list: the tuning before, the playing one on a highlight bar, the tuning after. A
+  // number on the right marks a hot favourite (the voice button that recalls it).
+  const int count = static_cast<int>(tuning::libraryCount());
+  const int position = std::max(0, tuning::libraryIndexOf(selection.tuningId));
+  for (int offset = -1; offset <= 1; ++offset)
+  {
+    const tuning::Tuning &listed = tuning::libraryAt(static_cast<size_t>((position + offset + count) % count));
+    const int y = offset < 0 ? 11 : (offset == 0 ? 21 : 31);
+    if (offset == 0)
+    {
+      displayHardware.fillRect(0, 20, OLEDConstants::SCREEN_WIDTH, 10, SH110X_WHITE);
+      displayHardware.setTextColor(SH110X_BLACK);
+    }
+    std::snprintf(text, sizeof(text), "%.18s", listed.name);
+    displayHardware.setCursor(2, y);
+    displayHardware.print(text);
+    const uint8_t hot = TuningPage::hotSlotOf(bank, listed.id);
+    if (hot != TuningPage::kNoTuning)
+    {
+      std::snprintf(text, sizeof(text), "*%d", hot + 1);
+      displayHardware.setCursor(OLEDConstants::SCREEN_WIDTH - 2 - 6 * 2, y);
+      displayHardware.print(text);
+    }
+    displayHardware.setTextColor(SH110X_WHITE);
+  }
+
+  // The scale that plays in this tuning, and the tonic and reference pitch. A ">" follows
+  // the fader that was touched last.
+  TuningPage::formatScaleLine(selection, scaleIndex, text, TuningPage::kLine - 1);
+  displayHardware.setCursor(0, 41);
+  displayHardware.print(page.lastControl == static_cast<uint8_t>(TuningPage::Fader::Scale) ? ">" : " ");
+  displayHardware.print(text);
+
+  const bool pitchMarked = page.lastControl == static_cast<uint8_t>(TuningPage::Fader::Tonic) ||
+                           page.lastControl == static_cast<uint8_t>(TuningPage::Fader::Reference);
+  TuningPage::formatPitchLine(selection, text, sizeof(text));
+  displayHardware.setCursor(0, 49);
+  displayHardware.print(pitchMarked ? ">" : " ");
+  displayHardware.print(text);
+
+  // Bottom line: what the last gesture did; otherwise the tuning's own facts, alternating
+  // with the button legend.
+  displayHardware.setCursor(2, 57);
+  if (state.tuningNoticeUntil != 0 && millis() < state.tuningNoticeUntil && state.tuningNotice[0])
+    displayHardware.print(state.tuningNotice);
+  else if ((millis() / 2000) % 2 == 0)
+    displayHardware.print(tuning::resolve(selection.tuningId).detail);
+  else
+    displayHardware.print("1-6 Scl 7 A/B 8 Exit");
+  displayHardware.setTextWrap(true);
+}
+
 void OLEDDisplay::displayEnvelopePage(const UIState &state, const Sequencer &sequence,
                                       const VoiceConfig *config)
 {
@@ -757,9 +890,11 @@ void OLEDDisplay::displayParameterInfo(ParamId id, const Step &values,
   displayHardware.setCursor(104, 14);
   displayHardware.print("S"); displayHardware.print(step + 1);
   char value[48] = "--";
+  const TuningView tuned = currentTuningView(currentScale);
   if (config)
     MusicalValues::format(id, values, *config, scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)],
-                          uClock.getTempo(), value, sizeof(value), base);
+                          uClock.getTempo(), value, sizeof(value), base, &tuned.world,
+                          tuned.nativeScale);
   drawMusicalValue(value, 27);
   displayHardware.setTextSize(1);
   displayHardware.setCursor(2, 46);
@@ -780,7 +915,8 @@ void OLEDDisplay::displayParameterInfo(ParamId id, const Step &values,
   }
   displayHardware.setCursor(2, 56);
   if (id == ParamId::Note || id == ParamId::Octave)
-    displayHardware.print(scaleNames[std::min<size_t>(currentScale, SCALES_COUNT - 1)]);
+    displayHardware.print(TuningPage::scaleLabel(static_cast<uint8_t>(std::min<size_t>(currentScale, SCALES_COUNT - 1)),
+                                                 TuningPage::kLine - 1));
   else if (id == ParamId::GateLength) {
     displayHardware.print(values.gateLengthTicks); displayHardware.print("/120 step ticks");
   } else if (id == ParamId::Slide && config && values.hasSlide) {
@@ -1134,10 +1270,11 @@ void OLEDDisplay::displayVoiceEditor(const UIState &state, VoiceManager *manager
       const auto id=state.voiceEditor.cursor[index];
       char value[48];
       const auto lane = VoiceEdit::sequenceLane(id, *config);
+      const TuningView tuned = currentTuningView(currentScale);
       if (lane != ParamId::Count) {
         MusicalValues::format(lane, MusicalValues::baseStep(*config), *config,
             scale[std::min<size_t>(currentScale, SCALES_COUNT - 1)], uClock.getTempo(), value, sizeof(value),
-            /*baseView=*/true);
+            /*baseView=*/true, &tuned.world, tuned.nativeScale);
       } else VoiceEdit::format(id,*config,value,sizeof(value));
       displayHardware.setCursor(0,13);displayHardware.print(VoiceEdit::groupName(VoiceEdit::parameter(id).group));
       displayHardware.setCursor(0,25);displayHardware.print(VoiceEdit::name(id,*config));

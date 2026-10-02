@@ -1,5 +1,6 @@
 #pragma once
 
+#include "TuningPageLogic.h"
 #include "UIState.h"
 
 // UITransitions.h — the only place that mutates UI mode state.
@@ -29,7 +30,9 @@ inline void beginGateLengthHold(UIState &state, uint8_t voice) noexcept
     if (voice >= UIState::MAX_VOICES || state.shiftHeld || state.settingsMode ||
         state.arp.active() || state.voiceEditor.active || state.controlsWaitRelease ||
         state.voiceEnvelope.active || state.voiceEnvelope.chordPending ||
-        state.voiceEnvelope.waitRelease) return;
+        state.voiceEnvelope.waitRelease || state.reverbPage.active ||
+        state.reverbPage.waitRelease || state.tuningPage.active ||
+        state.tuningPage.waitRelease) return;
     state.gateSeqLengthVoice = static_cast<int8_t>(voice);
 }
 
@@ -41,7 +44,9 @@ inline bool updateGateLengthHold(UIState &state, uint8_t voice, bool held,
     if (!held || state.shiftHeld || state.settingsMode || state.arp.active() ||
         state.voiceEditor.active || state.controlsWaitRelease ||
         state.voiceEnvelope.active || state.voiceEnvelope.chordPending ||
-        state.voiceEnvelope.waitRelease || state.selectedVoiceIndex != voice)
+        state.voiceEnvelope.waitRelease || state.reverbPage.active ||
+        state.reverbPage.waitRelease || state.tuningPage.active ||
+        state.tuningPage.waitRelease || state.selectedVoiceIndex != voice)
     {
         cancelGateLengthHold(state);
         return false;
@@ -84,6 +89,67 @@ inline void openVoiceEnvelope(UIState &state, uint8_t voice) noexcept
     state.voiceParameterFeedbackPending = false;
     state.alchemyModeBannerUntil = state.oledNoticeUntil = 0;
     state.voiceSwitchTriggered = state.resetStepsLightsFlag = true;
+}
+
+// The reverb page is live too (transport keeps running): clear only the competing
+// UI gestures. ReverbPage::Controls::poll() has already set active/waitRelease.
+inline void openReverbPage(UIState &state) noexcept
+{
+    state.voiceEnvelope = {};
+    clearStepEdit(state);
+    state.settingsMode = state.slideMode = false;
+    cancelGateLengthHold(state);
+    state.modGateParamSeqLengthsMode = false;
+    state.latchedParameter = -1;
+    for (auto &held : state.parameterButtonHeld) held = false;
+    for (auto &held : state.randomizeWasPressed) held = false;
+    for (auto &time : state.padPressTimestamps) time = 0;
+    state.envFaderLane = ParamId::Count;
+    state.envViewUntil = state.encoderBaseViewUntil = 0;
+    state.voiceParameterFeedbackPending = false;
+    state.alchemyModeBannerUntil = state.oledNoticeUntil = 0;
+    state.voiceSwitchTriggered = state.resetStepsLightsFlag = true;
+}
+
+// Leaving redraws the step lights; the page struct already cleared its own flags.
+inline void closeReverbPage(UIState &state) noexcept
+{
+    state.reverbPage.lastControl = 255;
+    state.voiceSwitchTriggered = state.resetStepsLightsFlag = true;
+}
+
+// The Tuning page is live too (transport keeps running) and competes with the same
+// gestures the Reverb page does, so it drops the same ones. TuningPage::Controls::poll()
+// has already set active/waitRelease.
+inline void openTuningPage(UIState &state) noexcept
+{
+    openReverbPage(state);
+    state.tuningPage.lastControl = TuningPage::kNoControl;
+    state.tuningNotice[0] = '\0';
+    state.tuningNoticeUntil = 0;
+}
+
+// Leaving redraws the step lights; the page struct already cleared its own flags.
+inline void closeTuningPage(UIState &state) noexcept
+{
+    state.tuningPage.lastControl = TuningPage::kNoControl;
+    state.tuningNotice[0] = '\0';
+    state.tuningNoticeUntil = 0;
+    state.voiceSwitchTriggered = state.resetStepsLightsFlag = true;
+}
+
+// How long the OLED holds a Tuning page confirmation ("Saved to Hot 2").
+constexpr unsigned long kTuningNoticeMs = 1500;
+
+// Remember what a Tuning page gesture did, for the OLED's notice line. Gestures that changed
+// nothing (a dark pad, the tuning that is already playing) say nothing; a tuning that brought
+// a new scale along says so in the same line.
+inline void showTuningNotice(UIState &state, const TuningPage::Result &result,
+                             unsigned long nowMs) noexcept
+{
+    if (result.change == TuningPage::Change::None) return;
+    TuningPage::formatNotice(result, state.tuningNotice, sizeof(state.tuningNotice));
+    state.tuningNoticeUntil = nowMs + kTuningNoticeMs;
 }
 
 // Open the preset browser on the selected voice; always starts at presets so

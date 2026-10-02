@@ -1,5 +1,6 @@
 // VoiceManager.cpp — VoiceManager implementation (control thread, except
-// processBlock/processAllVoices which run on Core 1 and never allocate).
+// processStereoBlock/processBlock/processAllVoices which run on Core 1 and never
+// allocate).
 #include "VoiceManager.h"
 #include "../utils/AudioRam.h"
 #include <algorithm>
@@ -7,6 +8,7 @@
 #include <cstring>
 #include "../utils/Debug.h"
 #include "../pico2seq-core/scales/scales.h" // Inject scale data into voices
+#include "../pico2seq-core/tuning/TuningState.h" // ...and the global tuning
 #include "Voice.h"
 #include "VoicePresets.h"
 
@@ -66,8 +68,9 @@ uint8_t VoiceManager::addVoice(const VoiceConfig &config)
     auto voice = std::make_unique<Voice>(voiceId, config);
 
     // Inject scale context to avoid global coupling inside Voice
-    voice->setScaleTable(scale, SCALES_COUNT);
+    voice->setScaleTable(scale, SCALES_COUNT, NATIVE_SCALE_MASK);
     voice->setCurrentScalePointer(&currentScale);
+    voice->setTuningPointer(&tuningSelection);
 
     voice->init(sampleRate);
 
@@ -132,7 +135,7 @@ bool VoiceManager::setVoiceConfig(uint8_t voiceId, const VoiceConfig &config)
  * Looks up preset by name and applies its configuration to specified voice
  *
  * @param voiceId Target voice to apply preset to
- * @param presetName Name of preset to apply (see getAvailablePresets())
+ * @param presetName Name of preset to apply (see VoicePresets::getPresetName())
  * @return bool True if voice found and preset applied, false otherwise
  *
  * Convenience wrapper around setVoiceConfig() using preset system
@@ -267,6 +270,10 @@ void VoiceManager::init(float sr)
     masterDelay_.setFeedback(delayFeedback.load(std::memory_order_relaxed));
     masterDelay_.reset();
 
+    // Clears the reverb tank and re-derives its coefficients from the published
+    // targets. Setup only: init() runs before the audio thread is published.
+    masterReverb_.prepare(sampleRate);
+
     DBG_INFO("VoiceManager: init sampleRate=%.1f", sr);
     for (auto &managedVoice : voices)
     {
@@ -302,30 +309,23 @@ void VoiceManager::setMasterMacro(float macro)
     macroTarget_.store(macro, std::memory_order_relaxed);
 }
 
-void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noexcept
+void PICO2SEQ_AUDIO_FUNC(VoiceManager::renderBus_)(float *left, float *right, uint32_t n) noexcept
 {
     while (n > 0)
     {
         const uint32_t count = std::min(n, kMaxBlock);
-        std::fill_n(out, count, 0.0f);
+        // 1. Voice mix into `left`. voiceScratch_ holds one voice at a time.
+        std::fill_n(left, count, 0.0f);
         for (auto &managedVoice : voices)
         {
             if (!managedVoice->voice) continue;
             managedVoice->voice->processBlock(voiceScratch_.data(), count);
             const float mix = managedVoice->mixLevel.load(std::memory_order_relaxed);
             for (uint32_t k = 0; k < count; ++k)
-                out[k] += voiceScratch_[k] * mix;
+                left[k] += voiceScratch_[k] * mix;
         }
-        const float target = transportMuted_.load(std::memory_order_relaxed)
-                                 ? 0.0f : globalVolume.load(std::memory_order_relaxed);
-        const float macroTarget = macroTarget_.load(std::memory_order_relaxed);
-        float gain = masterGain_;
-        const float alpha = masterGainAlpha_;
-        float macro = macroCurrent_;
-        const float macroAlpha = macroAlpha_;
-        bool macroDirty = false;
-        // Delay targets are read once per block; the delay eases toward them
-        // per sample, the same contract as the master gain above.
+        // 2. Master delay, in place. Delay targets are read once per block; the
+        // delay eases toward them per sample, the same contract as the master gain.
         masterDelay_.setMix(delayMix.load(std::memory_order_relaxed));
         const bool synced = delaySynced.load(std::memory_order_relaxed);
         masterDelay_.setSynced(synced);
@@ -335,18 +335,62 @@ void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noe
             : delayTime.load(std::memory_order_relaxed));
         masterDelay_.setFeedback(delayFeedback.load(std::memory_order_relaxed));
         for (uint32_t k = 0; k < count; ++k)
+            left[k] = masterDelay_.process(left[k]);
+
+        // 3. Reverb, shared master gain, macro morph and the linked compressor,
+        // one control quantum at a time. The voice mix is finished, so
+        // voiceScratch_ now holds the reverb's wet left/right for the quantum.
+        const float target = transportMuted_.load(std::memory_order_relaxed)
+                                 ? 0.0f : globalVolume.load(std::memory_order_relaxed);
+        const float macroTarget = macroTarget_.load(std::memory_order_relaxed);
+        float gain = masterGain_;
+        const float alpha = masterGainAlpha_;
+        float macro = macroCurrent_;
+        const float macroAlpha = macroAlpha_;
+        bool macroDirty = false;
+        // One frame after the reverb: master gain (both channels), the macro morph
+        // (eased per sample, setters at most once per block so expf coefficient
+        // updates never run per sample), and the linked compressor — the last DSP
+        // before the DAC (AudioEngine's toPcm16 clamp remains the hard ceiling for
+        // pathological sums).
+        const auto finishFrame = [&](float &l, float &r)
         {
-            const float delayed = masterDelay_.process(out[k]);
             gain += alpha * (target - gain);
-            out[k] = delayed * gain;
-            // Master macro morph: eased per sample, setters at most once per
-            // block so expf coefficient updates never run per sample.
+            l *= gain;
+            r *= gain;
             macro += macroAlpha * (macroTarget - macro);
             if (!macroDirty && std::fabs(macro - macroApplied_) > kMacroApplyEpsilon)
                 macroDirty = true;
-            // Master-bus glue + limiter: last DSP before the DAC (AudioEngine's
-            // toPcm16 clamp remains the hard ceiling for pathological sums).
-            out[k] = compressor.process(out[k]);
+            compressor.processStereo(l, r);
+        };
+        float *const wetLeft = voiceScratch_.data();
+        float *const wetRight = wetLeft + MasterReverb::kControlQuantum;
+        for (uint32_t offset = 0; offset < count;)
+        {
+            const uint32_t span = std::min(count - offset, MasterReverb::kControlQuantum);
+            masterReverb_.render(left + offset, wetLeft, wetRight, span);
+            if (right)
+            {
+                for (uint32_t j = 0; j < span; ++j)
+                {
+                    float l = wetLeft[j];
+                    float r = wetRight[j];
+                    finishFrame(l, r);
+                    left[offset + j] = l;
+                    right[offset + j] = r;
+                }
+            }
+            else
+            {
+                for (uint32_t j = 0; j < span; ++j)
+                {
+                    float l = wetLeft[j];
+                    float r = wetRight[j];
+                    finishFrame(l, r);
+                    left[offset + j] = 0.5f * (l + r);
+                }
+            }
+            offset += span;
         }
         if (macroDirty)
         {
@@ -355,9 +399,21 @@ void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noe
         }
         macroCurrent_ = macro;
         masterGain_ = gain;
-        out += count;
+        left += count;
+        if (right) right += count;
         n -= count;
     }
+}
+
+void PICO2SEQ_AUDIO_FUNC(VoiceManager::processStereoBlock)(float *left, float *right, uint32_t n) noexcept
+{
+    // Overlapping channels cannot both be written: degrade to the mono downmix.
+    renderBus_(left, right == left ? nullptr : right, n);
+}
+
+void PICO2SEQ_AUDIO_FUNC(VoiceManager::processBlock)(float *out, uint32_t n) noexcept
+{
+    renderBus_(out, nullptr, n);
 }
 
 float PICO2SEQ_AUDIO_FUNC(VoiceManager::processAllVoices)() noexcept
@@ -399,30 +455,14 @@ void VoiceManager::disableVoice(uint8_t voiceId)
     // enableVoice logs; nothing else here to avoid duplicate prints
 }
 
-/** True when the voice exists and is enabled. */
+/** True when the voice exists and is enabled. Test-only: no firmware caller. */
 bool VoiceManager::isVoiceEnabled(uint8_t voiceId) const
 {
     const ManagedVoice *managedVoice = findVoice(voiceId);
     return managedVoice ? managedVoice->enabled : false;
 }
 
-/** All preset names, lowercased (setup/UI helper; never called by audio). */
 // Static methods for preset management
-std::vector<std::string> VoiceManager::getAvailablePresets()
-{
-    std::vector<std::string> names;
-    names.reserve(VoicePresets::getPresetCount());
-    for (uint8_t i = 0; i < VoicePresets::getPresetCount(); ++i)
-    {
-        std::string name = VoicePresets::getPresetName(i);
-        for (char &c : name)
-            if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
-        names.push_back(std::move(name));
-    }
-    return names; // setup/UI helper only; never called by audio
-
-}
-
 /** Patch for a preset name (unknown names fall back to Analog). */
 VoiceConfig VoiceManager::getPresetConfig(const std::string &presetName)
 {

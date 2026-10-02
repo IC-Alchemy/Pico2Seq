@@ -220,9 +220,9 @@ void handleControlButton(int buttonId, UIState &state)
     break;
 
   case BUTTON_CHANGE_SCALE:
-    currentScale = (currentScale + 1) % 13;
-    state.arp.setScaleNotesPerOctave(
-        scaleNotesPerOctave(scale[currentScale]));
+    // Next scale of the playing tuning: a twelve-note tuning cycles the modes, 24-EDO the maqams.
+    currentScale = tuning::stepScale(tuningSelection.tuningId, currentScale, 1);
+    state.arp.setScaleNotesPerOctave(currentScaleNotesPerOctave());
     Serial.print("Scale changed to: ");
     Serial.print(currentScale);
     Serial.print(" (");

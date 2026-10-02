@@ -8,14 +8,15 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **4 Independent Polyphonic Voices**: Each with a complete DSP chain (B-spline oscillator bank, resonant main filter, ADSR envelope, overdrive distortion)
 - **Five Sound Engines per Voice**: A classic oscillator bank (up to 3 oscillators, or raw noise), a Karplus-Strong **waveguide** engine for plucked/nylon/bell/shimmer strings, a **noise-FX texture** engine (prime-tap diffuser, regenerative allpass swarm, pitch-tracked Lorenz chaos growl), a native 7-voice **hypersaw** engine, and a **recipe** engine for modular rpdsp sound synthesis patches (FM, phase distortion, DSF, formant synthesis, ring modulation, reversing sync, spectral, and chaotic prisms)
 - **Two Filter Topologies**: A 24dB multi-mode ladder filter (LP12, LP24, BP12, BP24, HP12, HP24) with drive and passband gain compensation on the character voices, plus a clean modulation-stable state-variable filter (LP/BP/HP) everywhere else — including all three bass presets
-- **Effects Processing**: Per-voice overdrive distortion, followed by a master-bus analog-style delay and compressor. Shift + fader 1 sets feedback (0–100%). Fader 2 sets delay mix (Shift: time); Shift + Utility Delay/Session toggles the time fader between milliseconds and tempo divisions. Fader 3 sets master volume (Shift: Warm/Glue/Punch compressor macro).
+- **Effects Processing**: Per-voice overdrive distortion, followed by a master-bus analog-style delay, a stereo `rpdsp::DarkReverb` reverb, and a stereo-linked compressor. Shift + fader 1 sets feedback (0–100%). Fader 2 sets delay mix (Shift: time); Shift + Utility Delay/Session toggles the time fader between milliseconds and tempo divisions. Fader 3 sets master volume (Shift: Warm/Glue/Punch compressor macro).
 - **ADSR Envelopes**: Fast, analog-modeled attack, decay, sustain, and release stages with microsecond accuracy
 - **29 Voice Presets**: Stored as `constexpr` tables in flash (.rodata), all on one browser page, covering classic subtractive, sub-bass, waveguide string, hypersaw, noise-texture, and 14 recipe/musical sounds
 
 ### Advanced Sequencing
 - **Polymetric Sequencing**: Independent track step lengths for each parameter (Notes: 16 steps, Filter: 8 steps, Velocity: 12 steps, etc.)
 - **Real-time Recording**: Live parameter capture during playback using the TOF distance sensor, magnetic encoder, and physical faders
-- **Scale Support**: 13 built-in musical scales with chromatic fallback and precomputed rank tables
+- **Scale Support**: 47 scale rows over 48 steps — 18 classic rows (the original 13 plus All Degrees and four thaats) and 29 tuning-specific rows — with chromatic fallback
+- **Global Tuning System**: 29 tunings in five families (equal, just, historical temperaments, Indian, xenharmonic) with a movable tonic and A4 reference, shared by all four voices; the Tuning page (Shift + Utility 3) lays the library on the 32 pads with four hot favourites. See [Tuning system](docs/tuning.md)
 - **Shuffle & Swing**: 16 PPQN shuffle templates for groovy swing timing
 
 ### Intuitive Controls
@@ -29,10 +30,10 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **LED Matrix**: 8×4 WS2812B RGB LED display (mirroring the 4×8 touch matrix) with 10 vibrant color themes and playhead visualization
 
 ### Architecture Highlights
-- **VoiceSystem Architecture**: Centralized, array-based voice management with safe accessor methods, providing software gates and duration timers across all 4 voices (0–3)
+- **VoiceSystem Architecture**: Centralized, array-based voice management with safe accessor methods, holding control-core voice snapshots for all 4 voices (0–3); `VoiceState` owns gate truth and the sequencer owns note-duration timing
 - **Dual-Core Asymmetric Design**: Core 1 dedicated exclusively to 48kHz audio synthesis; Core 0 handles UI, sensors, clock, display rendering, and the USB CDC serial console
 - **Lock-Free Parameter Staging**: Atomic generation counters and lock-free SPSC queues allow Core 0 to stage parameter changes without blocking Core 1 audio processing
-- **Host Test Suite**: Catch2 v3 unit test suite with hardware stubs across 4 test executables (315 tests total), built and run locally via CTest
+- **Host Test Suite**: Catch2 v3 unit test suite with hardware stubs across 6 test executables (938 tests recorded 2026-10-01), built and run locally via CTest
 
 ---
 
@@ -43,17 +44,17 @@ For a practical guide to changing the firmware, start with
 
 ```
 ├── Pico2Seq.ino              # Four Arduino entry points: controls and audio
-├── includes.h                # Library and header aggregator
 ├── CMakeLists.txt            # Host unit test CMake entry point
 ├── .gitmodules               # Git submodule configuration
 ├── src/
 │   ├── app/                  # Startup, clock/playback glue, controls and audio output
 │   │   ├── ArpPlayback.*    # Arpeggiator mode: slot-to-voice mapping and VoiceState publishing
 │   ├── audio/                # I2S audio interface, PIO DMA, and buffer management
-│   ├── pico2seq-core/        # Portable core sequencer, ParameterTrack, and scale tables
+│   ├── pico2seq-core/        # Portable core sequencer, ParameterTrack, scale and tuning tables
 │   │   ├── arpeggiator/     # Portable chord/pattern/clock engine behind Arpeggiator mode
-│   │   ├── scales/          # 13 scale tables and MIDI mapping
-│   │   └── sequencer/       # Sequencer, ParameterManager, SequencerDefs, ShuffleTemplates
+│   │   ├── scales/          # 47 scale rows (18 classic + 29 tuned) over 48 steps
+│   │   ├── sequencer/       # Sequencer, ParameterManager, SequencerDefs, ShuffleTemplates
+│   │   └── tuning/          # 29-tuning library, pitch maths, per-tuning scale sets
 │   ├── rpdsp/                # Submodule: IC-Alchemy/RPDSP (header-only DSP algorithms)
 │   ├── VelocityEncoder/      # Submodule: IC-Alchemy/VelocityEncoder (TMAG5273 driver)
 │   ├── voice/                # Synthesizer voices, VoiceSystem, and VoicePresets
@@ -73,7 +74,7 @@ For a practical guide to changing the firmware, start with
 │   ├── midi/                 # Removal notice only; USB remains CDC-only
 │   ├── LEDMatrix/            # 8×4 WS2812B RGB visual feedback (pad-mirror) and 10 color themes
 │   ├── OLED/                 # 128×64 SH1106G OLED display manager and priority screens
-│   ├── utils/                # Debug logging utilities (Debug.h/.cpp)
+│   ├── utils/                # Debug logging (Debug.h/.cpp) with serial rate limiting (SerialRateLimit.h)
 │   └── AlchemyUI/            # Vendored Alchemy Modular UI tile library (tracked in-repo)
 ├── docs/                     # Comprehensive architecture and subsystem documentation
 ├── tests/                    # Host-side Catch2 v3.5.2 unit test suite and stubs
@@ -112,7 +113,7 @@ For a practical guide to changing the firmware, start with
     control core. Upstream 2.3.0 changed the callback API; re-verify before
     upgrading.)
 
-### Fresh GitHub clone and 150 MHz build
+### Fresh GitHub clone and 225 MHz build
 
 For a new checkout, run these commands from an empty directory:
 
@@ -127,16 +128,16 @@ The final submodule command is intentionally repeatable after switching branches
 never resets, cleans, or discards local work. If it reports stale or missing submodules, fix the
 checkout with the command above and review any local changes before retrying.
 
-On Windows with PowerShell, compile the stable firmware baseline explicitly at **150 MHz**:
+On Windows with PowerShell, compile the stable firmware baseline explicitly at **225 MHz**:
 
 ```powershell
 pwsh -NoProfile -File scripts/build_pico2seq.ps1 `
-  -CpuMHz 150 `
-  -BuildDirectory build/pico2seq-150 `
+  -CpuMHz 225 `
+  -BuildDirectory build/pico2seq-225 `
   -NoWorkingCopy
 ```
 
-The command writes `build/pico2seq-150/Pico2Seq.ino.uf2`, `.elf`, `.bin`, and `.map`. It compiles
+The command writes `build/pico2seq-225/Pico2Seq.ino.uf2`, `.elf`, `.bin`, and `.map`. It compiles
 only; it does not upload or hardware-test the board. The optional
 `scripts/publish_uf2.ps1` rename/copy step is skipped when that developer helper is absent; the
 required UF2/ELF/BIN/MAP artifacts remain in the requested build directory. The helper's required
@@ -177,7 +178,7 @@ function Copy-StageTree {
 
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     foreach ($item in Get-ChildItem -LiteralPath $Source -Force) {
-        if ($item.Name -in @('.git', 'build', 'build_test', 'build_fw', 'build_fw_on')) { continue }
+        if ($item.Name -in @('.git', 'build', 'build_test_ninja', 'build_fw', 'build_fw_on')) { continue }
 
         $target = Join-Path $Destination $item.Name
         if ($item.PSIsContainer) {
@@ -194,7 +195,7 @@ Copy-StageTree -Source $repoRoot -Destination $stageSketch
 $boardOptions = @(
     'flash=4194304_65536'
     'arch=arm'
-    'freq=150'
+    'freq=225'
     'opt=Optimize3'
     'profile=Disabled'
     'rtti=Disabled'
@@ -236,7 +237,7 @@ MIDI, displays, sensors, or controls on physical hardware.
 | **SH1106G OLED** | `Wire` (I2C0) | GP4 (SDA), GP5 (SCL) | Address `0x3C` (128×64 monochrome) |
 | **TMAG5273A Magnetic Encoder** | `Wire` (I2C0) | GP4 (SDA), GP5 (SCL) | Address `0x35` (`TMAG5273::ADDRESS_A`) |
 | **VL53L1X Distance Sensor** | `Wire` (I2C0) | GP4 (SDA), GP5 (SCL) | Address `0x29` (TOF optical sensor) |
-| **Alchemy Modular UI Tiles** | `Wire1` (I2C1) | GP14 (SDA), GP15 (SCL) | 400 kHz bus; SliderModule & ButtonModule8 |
+| **Alchemy Modular UI Tiles** | `Wire1` (I2C1) | GP14 (SDA), GP15 (SCL) | 100 kHz bus; SliderModule & ButtonModule8 |
 | **Mode Strap Switch** | GPIO | GP7 | LOW = Param mode, HIGH = Utility mode |
 | **WS2812B LED Matrix** | FastLED | GP1 | 8×4 RGB matrix data pin |
 
@@ -254,7 +255,7 @@ MIDI, displays, sensors, or controls on physical hardware.
 6. **Real-time recording:** Hold (or Shift+tap to latch) a parameter button and touch step pads to record automation into the pattern.
 7. **Switch function sets:** Toggle the GP7 mode strap between **Param** (Note, Velocity, Filter, Attack, Decay, Octave, Slide, Shift) and **Utility** (Play/Stop, Session Save/Load, Scale, Swing, Theme, Encoder Target, Randomize, Shift).
 8. **Voice Editing mode:** Hold **Shift** and press slider button 4 to stop transport and edit any voice's sound parameters directly with the encoder (button tiles navigate groups/parameters; slider buttons 1–4 pick the voice). See [`docs/voice-edit.md`](docs/voice-edit.md).
-9. **Delay & groove:** Fader 2 sets the master delay wet mix. Hold **Shift** and move it for delay time. In millisecond mode it spans 10–750 ms; **Shift + Utility Delay/Session** toggles tempo sync, where the fader selects whole through dotted and triplet 64th notes. The OLED shows the selected division. Tempo changes update the delay time automatically. Fader 3 keeps master volume; **Shift + fader 3** morphs the compressor across Warm/Glue/Punch. Shuffle/swing comes from the 16 templates (Utility button 4).
+9. **Delay & groove:** Fader 2 sets the master delay wet mix. Hold **Shift** and move it for delay time. In millisecond mode it spans 10–750 ms; **Shift + Utility Delay/Session** toggles tempo sync, where the fader selects whole through dotted and triplet 64th notes. The OLED shows the selected division. Tempo changes update the delay time automatically. Fader 3 keeps master volume; **Shift + fader 3** morphs the compressor across Warm/Glue/Punch. The **Reverb page** (Shift + 6 + 2, below) holds the reverb controls. Shuffle/swing comes from the 16 templates (Utility button 4).
 10. **Clear a voice / start fresh:** In Utility mode, **Shift + Randomize tap** wipes the selected voice's whole pattern (all step values, gates, slides and per-track lengths); **Shift + Randomize long-press** wipes all four voices the same way. Voice presets, tempo and transport state are kept.
 
 ### Live voice ADSR sliders
@@ -280,6 +281,20 @@ The OLED shows the selected voice, ADSR values, and last moved stage. Only that
 voice's LED band is lit. Sequence pads and the encoder are inactive on this page;
 arp pads still play chords. **Shift + button 6** without a voice press performs
 its existing short action on release; use unshifted button 6 for its normal hold.
+
+### Master reverb page
+
+Hold **Shift (button 8)**, hold **button 6**, then **press button 2**, and
+release. The **REVERB** page opens without stopping playback; **Shift** leaves it.
+Faders 1–3 on the MAIN layer are **Mix** (0 by default, so existing sounds are
+unchanged), **Decay** (0.1–1000 s) and **Damping**; **button 1** toggles
+**Freeze**. **Button 2** switches to the TONE layer: **Low cut**, **Diffusion**,
+**Mod** depth and **Width**. The reverb sits after the master delay and before
+master volume and the now stereo-linked compressor. Its settings are saved with
+the session (freeze is not), and the reverb output is genuinely stereo: left
+and right PCM16 are converted separately. See
+[the manual](docs/manual.md#37-master-reverb) and the
+[RAM/CPU audit](docs/audio-performance.md#master-reverb-ram-stack-and-sram-audit).
 
 ### Preset System
 
@@ -336,7 +351,7 @@ Pico2Seq leverages the dual ARM Cortex-M33 cores of the RP2350:
 | • 1ms sensor poll (TMAG, VL53L1X)   |    | • fill_audio_buffer() loop         |
 | • MPR121 32-pad touch matrix scan  |    | • VoiceManager::processBlock() |
 | • Alchemy tile panel polling (I2C1)|    | • 4-voice synthesis chain          |
-| • 50Hz OLED & WS2812B LED updates  |    | • FloatToPcm16() with __SSAT       |
+| • 13ms LED / 40ms OLED updates     |    | • FloatToPcm16() with __SSAT       |
 | • uClock sequencer step ticking    |    | • Non-blocking I2S DMA @ 48kHz     |
 | • USB CDC serial console            |    |                                    |
 +------------------------------------+    +------------------------------------+
@@ -351,18 +366,18 @@ Pico2Seq leverages the dual ARM Cortex-M33 cores of the RP2350:
 
 ## Host Unit Testing
 
-Pico2Seq provides an automated host-side unit test suite powered by **Catch2 v3.5.2** and CMake across four test executables (`pico2seq_tests`, `pico2seq_voice_tests`, `pico2seq_watchdog_tests`, `pico2seq_audio_tests` — 315 total tests):
+Pico2Seq provides an automated host-side unit test suite powered by **Catch2 v3.5.2** and CMake across six test executables (`pico2seq_tests`, `pico2seq_ui_tests`, `pico2seq_voice_tests`, `pico2seq_watchdog_tests`, `pico2seq_audio_tests`, `pico2seq_reverb_bypass_tests` — 938 tests recorded 2026-10-01), plus an opt-in `pico2seq_recipe_benchmark` target:
 
 ```bash
 # Configure and build test suite
-cmake -B build_test -DCMAKE_BUILD_TYPE=Debug
-cmake --build build_test --parallel
+cmake -B build_test_ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build_test_ninja --parallel
 
 # Run the full suite via CTest
-ctest --test-dir build_test/tests --output-on-failure
+ctest --test-dir build_test_ninja/tests --output-on-failure
 
 # Or run/filter the test binary directly
-./build_test/tests/pico2seq_tests "[voice]"
+./build_test_ninja/tests/pico2seq_tests "[voice]"
 ```
 
 For more details on test stubs and writing unit tests, see [`docs/testing.md`](docs/testing.md).
@@ -378,7 +393,8 @@ Comprehensive subsystem documentation is maintained in the [`docs/`](docs/) dire
 - [`docs/voice-edit.md`](docs/voice-edit.md) — Voice Editing mode: musical OLED values, melody recording, and sequenced modifiers
 - [`docs/VoiceSystem.md`](docs/VoiceSystem.md) — Centralized VoiceSystem data structures, accessor pattern, and voice routing
 - [`docs/sequencer.md`](docs/sequencer.md) — 4-voice step sequencer engine, polymetric parameter tracks, and uClock integration
-- [`docs/scales.md`](docs/scales.md) — 13 musical scales, semitone offsets, rank caching, and pitch mapping
+- [`docs/scales.md`](docs/scales.md) — 47 scale rows (18 classic + 29 tuned), semitone and tuning-degree tables, scale selection
+- [`docs/tuning.md`](docs/tuning.md) — Global tuning system: 29 tunings in five families, the Tuning page, per-tuning scale sets
 - [`docs/matrix.md`](docs/matrix.md) — MPR121 32-pad touch input matrix, bank resolution, and Alchemy tile interaction
 - [`docs/LEDMatrix.md`](docs/LEDMatrix.md) — WS2812B 8×4 RGB LED matrix visualizer, 10 themes, and pair-based voice indicators
 - [`docs/oled.md`](docs/oled.md) — 128×64 SH1106G OLED display, 6-tier priority rendering hierarchy, and UI state
@@ -386,13 +402,6 @@ Comprehensive subsystem documentation is maintained in the [`docs/`](docs/) dire
 - [`docs/sensors.md`](docs/sensors.md) — TMAG5273 magnetic encoder and VL53L1X TOF distance sensor integration
 - [`docs/ButtonHandlers.md`](docs/ButtonHandlers.md) — UI button event dispatching and debounce logic
 - [`docs/testing.md`](docs/testing.md) — Host-side Catch2 v3 unit testing guide, CMake/CTest workflow, and header stubs
-- [`docs/alchemyui-tmag5273-migration.md`](docs/alchemyui-tmag5273-migration.md) — Migration and architectural transition notes for Alchemy tiles & TMAG5273
-- [`docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md`](docs/superpowers/specs/2026-09-01-alchemy-tile-control-surface-design.md) — Specification for Alchemy modular UI tile control surface
-- [`docs/superpowers/specs/2026-09-02-modifier-layer-restoration.md`](docs/superpowers/specs/2026-09-02-modifier-layer-restoration.md) — Spec for the modifier layer; implemented 2026-09-11 via the Voice Editing mode (see [`docs/voice-edit.md`](docs/voice-edit.md))
-
-Interactive single-file HTML docs also live in `docs/`: [`PICO2SEQplayground.html`](docs/PICO2SEQplayground.html) and
-[`pico2seqinteractive_explainer.html`](docs/pico2seqinteractive_explainer.html) (hands-on explorers), [`synth_layout.html`](docs/synth_layout.html)
-(DSP/layout diagram), and [`voice_edit_playground.html`](docs/voice_edit_playground.html) (Voice Editing explorer).
 
 ---
 

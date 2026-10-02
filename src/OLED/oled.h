@@ -102,6 +102,12 @@ private:
   // ENV mode: the selected step's four envelope lanes (the ENV faders), the
   // last moved one marked, values in parentheses following the patch.
   void displayVoiceEnvelopePage(const UIState &state, VoiceManager *manager);
+  // Live Reverb page (Shift + 6 + 2): the four settings of the current layer, the
+  // last-moved one marked, and the Freeze switch on the MAIN layer's fourth row.
+  void displayReverbPage(const UIState &state, VoiceManager *manager);
+  // Live Tuning page (Shift + Utility 3): family page header, the tuning playing (or under a
+  // finger), its facts, the root / A4 line, the scale, and the last confirmation.
+  void displayTuningPage(const UIState &state);
   void displayEnvelopePage(const UIState &state, const Sequencer &sequence,
                            const VoiceConfig *config);
 

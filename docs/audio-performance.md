@@ -29,7 +29,7 @@ The existing gain, sample conversion, filters and envelope behavior are retained
 
 Audio startup still waits for Core 0's `voicesReady` publication. Automatic DMA
 channel claiming, the watchdog and freeze reports remain in place. No clock
-increase is required by these changes; validate at the stable **150 MHz** first.
+increase is required by these changes; validate at the stable **225 MHz** first.
 
 ## Hot audio code in SRAM
 
@@ -42,6 +42,11 @@ Oscillator span loops use explicit RAM helpers so an out-of-line `std::visit`
 dispatcher cannot move their sample processing into flash. Host builds use
 ordinary function placement.
 
+Class-template members that cannot be named at the definition (`rpdsp::DarkReverb::process`)
+take the same placement from the `RPDSP_HOT_FUNCTION` hook defined in the same header; see the
+[master reverb audit](#master-reverb-ram-stack-and-sram-audit) for why annotating their caller
+was not enough.
+
 This reduces instruction fetches competing with Core 0 for XIP cache space.
 It does not make the entire audio core independent of flash: preset/configuration
 handlers, recipe descriptors, other read-only data and board-core math/memory
@@ -50,9 +55,10 @@ helpers can still use XIP. In particular, Arduino's wrapped math routines in the
 DSP calculations, control ownership and diagnostic timing boundaries are unchanged.
 
 For a controlled hardware comparison, build both variants from the same source
-at the same clock (the helper's default clock is 150 MHz):
+at the same clock (the helper's default clock is 225 MHz):
 
 ```powershell
+# -CpuMHz 150 reproduces the original A/B comparison; the helper's default clock is 225 MHz.
 ./scripts/build_pico2seq.ps1 -CpuMHz 150 -AudioInFlash -BuildDirectory build/audio-xip-150
 ./scripts/build_pico2seq.ps1 -CpuMHz 150 -BuildDirectory build/audio-ram-150
 ```
@@ -219,6 +225,239 @@ Hardware A/B, upload and listening were omitted at the user's request. The
 software checks were accepted and a 225 MHz firmware build requested instead.
 Emulator and host results do not establish physical audio behavior.
 
+## Master reverb RAM, stack and SRAM audit
+
+Every number below was read from a linked ARM ELF, an ARM `sizeof` probe or a
+`-fstack-usage` build made on 2026-09-30 with the toolchain below. Each figure is
+labelled **measured** (read from an artifact), **counted** (arithmetic on measured sizes
+and the source) or **estimate**. Nothing here is a board measurement; the checks that
+need the board are listed at the end.
+
+### Builds
+
+arduino-cli 1.5.2-rc.1, `rp2040:rp2040` core 6.1.0, arm-none-eabi-gcc 16.1.0
+(`pqt-gcc 5.0.0-9576866`, `-mcpu=cortex-m33 -mfloat-abi=softfp -std=gnu++23`), **225 MHz**,
+`-O3 -ffast-math`, audio code in SRAM. Board options:
+`flash=4194304_65536,arch=arm,freq=225,opt=Optimize3,profile=Disabled,rtti=Disabled,stackprotect=Disabled,exceptions=Disabled,dbgport=Disabled,dbglvl=None,usbstack=tinyusb,ipbtstack=ipv4only,uploadmethod=default`.
+
+| Variant | Extra compiler flags | Purpose |
+|---|---|---|
+| Baseline | none (commit `93bb7a1` plus the two build fixes below) | Pre-reverb reference |
+| **Half (default)** | none | The shipping build |
+| Float | `-DPICO2SEQ_REVERB_STORAGE_HALF=0` | The plan's first choice, for comparison |
+| Bypass | `-DPICO2SEQ_REVERB_BYPASS=1` | Bench only: no tank, so the same bus without reverb CPU |
+
+```powershell
+./scripts/build_pico2seq.ps1 -CpuMHz 225 -BuildDirectory build/reverb-half
+./scripts/build_pico2seq.ps1 -CpuMHz 225 -ExtraFlags '-DPICO2SEQ_REVERB_STORAGE_HALF=0' -BuildDirectory build/reverb-float
+./scripts/build_pico2seq.ps1 -CpuMHz 225 -ExtraFlags '-DPICO2SEQ_REVERB_BYPASS=1' -BuildDirectory build/reverb-bypass
+```
+
+The audit builds used the equivalent `arduino-cli compile --fqbn rp2040:rp2040:rpipico2
+--board-options <above> --warnings all --build-property "build.extra_flags=-ffast-math
+-DPICO2SEQ_AUDIO_IN_RAM=1 <variant flags>"` on a staged copy of the sketch made the way
+`build_pico2seq.ps1` stages it (PowerShell was not available where the audit ran, so the
+script's new `-ExtraFlags` parameter is untested). Two problems already present at `93bb7a1`
+stopped the Arduino build before the audit could start and were fixed first: the sketch
+compiles every `.cpp` under `src/`, which picked up rpdsp's host-only test programs (now
+guarded with `#ifndef ARDUINO` in rpdsp), and `Application.cpp` used `g_errorState` without
+declaring it.
+
+### Static RAM (measured, `arm-none-eabi-size -A` on each ELF)
+
+| Bytes | Baseline | **Half** | Float | Bypass |
+|---|---:|---:|---:|---:|
+| `.text` (flash) | 326,268 | 336,236 | 336,236 | 336,236 |
+| `.rodata` (flash) | 55,576 | 56,272 | 56,272 | 56,272 |
+| `.data` (SRAM: initialized data **and RAM-placed code**) | 46,240 | 54,456 | 53,816 | 46,784 |
+| `.bss` | 55,568 | 56,696 | 56,696 | 56,696 |
+| `.uninitialized_data` (retained session store) | 12,460 | 12,508 | 12,508 | 12,508 |
+| **`.heap` (linked heap capacity)** | **409,744** | **400,352** | **400,992** | 408,024 |
+| `.bin` | 440,404 | 459,284 | 458,644 | 451,612 |
+
+The heap is whatever the 512 KiB main RAM has left after `.data`, `.bss` and the uninitialized
+data: the SDK's `_sbrk` refuses to grow past `__StackLimit`, and `rp2040.getTotalHeap()`
+reports the same span. Every byte the reverb adds to `.data`/`.bss` therefore shrinks the
+heap one for one (Half: 8,216 + 1,128 + 48 = 9,392 = 409,744 − 400,352). The `.bss` growth is
+the second channel buffer in `AudioEngine.cpp` (`leftBuffer` and `rightBuffer` replace one
+`mixBuffer`: +1,024 B), the two 12.4 KB session snapshot buffers growing by 48 B each, and a
+few flag bytes; the 48 bytes of `.uninitialized_data` are the effect record in the
+retained-RAM store.
+
+### Setup-time heap accounting
+
+`VoiceManager` (which owns `MasterDelay` and `MasterReverb` by value), the four `Voice`s and
+the audio buffer pool are the large heap allocations made during setup.
+
+| Allocation | Baseline | **Half** | Float | Source of the number |
+|---|---:|---:|---:|---|
+| `VoiceManager` (contains `MasterDelay` 209,700 B) | 210,896 | 244,268 | 277,036 | **measured**: ARM `sizeof` (`MasterReverb` 33,372 B Half, 66,140 B Float) |
+| `voices.reserve(4)` | 16 | 16 | 16 | **counted** (4 pointers) |
+| 4 × `Voice` | 121,312 | 121,312 | 121,312 | **measured**: ARM `sizeof` = 30,328 each |
+| 4 × `ManagedVoice` | 48 | 48 | 48 | **counted** (12 B each) |
+| Audio pool: 2 pool structs (32 B), 4-buffer array (96 B), 4 × (12 B header + 1,024 B PCM16 stereo) | 4,304 | 4,304 | 4,304 | **counted** from `audio.cpp`/`buffer.h` with measured struct sizes |
+| **Accounted payload** | **336,576** | **369,948** | **402,716** | |
+| Linked heap capacity (above) | 409,744 | 400,352 | 400,992 | **measured** |
+| **Left after the accounted payload** | **73,168** | **30,404** | **−1,724** | **counted** |
+
+Allocator overhead adds roughly 8 bytes to each of the 21 allocations (**estimate**, about
+0.2 KB; the newlib-nano internals were not measured). The table leaves out everything else
+that allocates during setup or running — LittleFS mount buffers, the OLED frame buffer,
+FastLED and TinyUSB state, `std::string` temporaries — because their sizes were not
+measured; they can only reduce the figures in the last row.
+
+**Result.** With Float the accounted allocations alone exceed the linked heap by 1.7 KB, so
+that build cannot be expected to finish setup (an allocation, most likely the audio pool
+created last, would fail). That shortfall does not depend on the unmeasured allocations: they
+can only make it larger. This is the plan's fallback case, "If Float fails the RAM gate,
+retain Half at the same capacity", so **Half is the default**
+(`PICO2SEQ_REVERB_STORAGE_HALF`, `src/voice/MasterReverb.h`). Half leaves about 30 KB
+before the unmeasured allocations (the baseline left about 73 KB); whether that is enough
+is confirmed only by the running system's `[DIAG MEM]` line (below). The reverb's total RAM
+cost with Half is 33,372 B (heap) + 9,392 B (static, of which 8,216 B is RAM-placed code) =
+42,764 B. Float becomes possible only after RAM is recovered elsewhere; the
+[follow-up below](#after-merging-masterdelays-two-rings) recovers 64 KiB in `MasterDelay`.
+(This audit's tables describe the layout before that change.)
+
+### After merging MasterDelay's two rings
+
+`MasterDelay` held a 36,004-float ring for 10–750 ms mode and, next to it, a 32,768-slot int16
+ring for tempo mode (the 209,700 B in the table above), but only one of the two is live at a
+time, so they now share one 144,016 B block. The arithmetic below is the audit's own, with the
+measured ARM `sizeof` reduced by the ring that was removed. **`sizeof` was not re-measured on
+ARM** (no ARM toolchain in the session that made the change; the host test only bounds it at
+under `kCapacitySamples * 4 + 512` bytes), and none of it has been checked on the board.
+
+| Allocation (counted) | Half | Float |
+|---|---:|---:|
+| `VoiceManager` (contains `MasterDelay` 144,164 B) | 178,732 | 211,500 |
+| Accounted payload | 304,412 | 337,180 |
+| Linked heap capacity (unchanged) | 400,352 | 400,992 |
+| **Left after the accounted payload** | **95,940** | **63,812** |
+
+Float now clears the gate the audit failed it on, and a Half tank at twice the capacity
+(+32,768 B) would fit. The default stays Half: switching it, or growing the tank, changes the
+sound and CPU cost and should be decided from the `[DIAG MEM]` numbers below. Sound is
+unchanged by the merge itself: the float ring's indexing and cubic read are the same, and
+`test_master_delay.cpp` checks that each mode after a switch is identical to a fresh delay.
+
+### Hot-code placement (measured, `nm -S` on the Half ELF; addresses `0x2000_0000..` are SRAM)
+
+| Function | Address | Region | Bytes |
+|---|---|---|---:|
+| `AudioEngine::renderNextBuffer` | `0x200032cc` | SRAM | 372 |
+| `fill_audio_buffer` (with `interleavePcm16` inlined) | `0x200031f0` | SRAM | 220 |
+| `VoiceManager::processStereoBlock` | `0x2000ddd0` | SRAM | 10 |
+| `VoiceManager::renderBus_` (delay, linked compressor, gain/macro inlined) | `0x2000d0d8` | SRAM | 3,320 |
+| `MasterReverb::render` | `0x2000530c` | SRAM | 202 |
+| `MasterReverb::blend_` | `0x2000524c` | SRAM | 192 |
+| `MasterReverb::applyTargets_` | `0x20004ad8` | SRAM | 1,908 |
+| `MasterReverb::readTargets_` | `0x20004a7c` | SRAM | 92 |
+| `DarkReverb<16384, Half>::process` (block) | `0x20003e40` | SRAM | 3,132 |
+| `DarkReverb<16384, Half>::process` (per sample) | `0x20003570` | SRAM | 2,256 |
+
+The first firmware build of this work had `render`, `blend_` and `applyTargets_` in SRAM but
+**both `DarkReverb::process` overloads in flash** (`0x1001ed34`, `0x1001e464`; 3,132 and
+2,256 bytes, reached from `render` through an SRAM veneer), and `readTargets_` in flash too.
+Annotating the wrapper does not move an out-of-line template callee, exactly the case the
+plan warned about. The fix is rpdsp's `RPDSP_HOT_FUNCTION` placement hook (empty by
+default; `src/utils/AudioRam.h` defines it as the `.time_critical.rpdsp` section for RAM
+builds, and `MasterReverb.h` includes that file before any rpdsp header). It costs exactly the
+5,388 bytes of the two functions in SRAM. One measured alternative was rejected:
+`__attribute__((flatten))` on `render` inlines the per-sample path twice and grows `render`
+to 9,804 bytes. In the Float ELF the same two functions are 2,798 + 1,952 = 4,750 bytes
+(12% smaller: no half-precision conversions), also in SRAM.
+
+Calls from the RAM path that still execute from flash (measured from the disassembly, each
+through an SRAM veneer): the Arduino core's wrapped `sinf`/`expf`/`logf` (called by
+`applyTargets_` only while a control is easing, at most once per 64-frame tick, all leaf
+functions) and `log10f`/`expf`/`memset`/`applyMasterCompSettings_` from `renderBus_`, which the
+pre-reverb `processBlock` called identically. `MasterDelay::process` and
+`Compressor::processStereo` have no symbol of their own: they are inlined into `renderBus_`.
+The stereo bus cost `renderBus_` 228 more bytes than the old `processBlock` (3,320 vs 3,092).
+
+`MasterReverb.cpp` fails to compile in a RAM build if `RPDSP_HOT_FUNCTION` is undefined, but it
+cannot see an rpdsp header parsed before `AudioRam.h`, so repeat the ELF check after touching
+the audio includes:
+
+```powershell
+arm-none-eabi-nm -S -C build/reverb-half/Pico2Seq.ino.elf | Select-String 'DarkReverb|MasterReverb::(render|blend_|applyTargets_|readTargets_)|renderBus_'
+```
+
+### Core 1 stack (2,048 bytes, measured frames, estimated chain)
+
+Core 1 runs on the linker's `__StackOneBottom..__StackOneTop`, 2,048 bytes; the sketch does
+not enable `core1_separate_stack`, and the build has no FreeRTOS (**measured**: symbols and
+`.stack1_dummy`). Frame sizes come from a `-fstack-usage` build whose code is identical to the
+Half build (`.text`, `.data`, `.bss` byte-equal):
+
+| Function | Frame (bytes, **measured**) |
+|---|---:|
+| `AudioEngine::renderNextBuffer` | 40 |
+| `fill_audio_buffer` | 32 |
+| `VoiceManager::renderBus_` | 200 |
+| `MasterReverb::render` | 64 |
+| `MasterReverb::applyTargets_` (then leaf libm) | 112 |
+| `DarkReverb::process` (block: state and coefficient copies, 128 B of chunk arrays) | 448 |
+| `DarkReverb::process` (per sample, called for an odd head or tail) | 112 |
+| `Voice::processBlock` → `renderSpan_` → `runMainFilter_` | 40 → 136 → 208 |
+
+**Estimate.** The deepest direct chain is the reverb block: 40 + 32 + 200 + 64 + 448 + 112 =
+**896 bytes**, against about 656 bytes for the deepest direct voice chain (40 + 32 + 200 + 40 +
+136 + 208). The earlier 640-byte emulator observation covered voice rendering only and
+excluded the outer audio loop, so it is not comparable with either number. The reverb and
+voice chains are siblings under `renderBus_`, so they do not add. A DMA interrupt while rendering adds the hardware exception
+frame (32 bytes, plus 72 when the FPU context is stacked lazily) and the handler chain
+(`audio_i2s_dma_irq_handler` and its callees, frames of 8 to 48 bytes each: roughly 100 more), so about **1.1 KB of
+2 KiB** in the worst case. The estimate leaves out indirect calls (recipe function pointers,
+`std::visit` dispatch) and the interrupt handler's exact depth. The reverb block's frame is
+the number to watch if the engine or its chunk size changes.
+
+Core 0's new frames are `displayReverbPage` 112, `formatReverbValue` 40, `handleReverbPage` 40,
+`ReverbEditor::toggleFreeze` 48 and `setFromFader` 16 bytes, all smaller than existing
+siblings (`displayArpPage` 504, `displayEnvelopePage` 168), so the Reverb page does not
+create a new deepest Core 0 chain (**measured** frames; the `snprintf` internals below them
+are the same as the existing formatters').
+
+### Assumptions behind these conclusions
+
+| Assumption | Status |
+|---|---|
+| The heap capacity is `__StackLimit − __bss_end__`, the `.heap` section | **Confirmed by evidence**: the SDK's `_sbrk` limits growth to `__StackLimit`; `rp2040.getTotalHeap()` uses the same symbols; both equal the `.heap` size in each ELF |
+| The listed objects come from that heap, `VoiceManager` and the voices before `voicesReady`, the audio pool afterwards on Core 1 | **Confirmed by evidence**: `VoiceSetup.cpp`, `VoiceManager.cpp`, `audio.cpp`, `buffer.h`, `AudioEngine.cpp` |
+| The `sizeof` values are what the firmware compiler produces | **Confirmed by evidence**: an ARM probe built with the firmware's flags |
+| Allocator overhead is about 8 bytes per allocation | **Unconfirmed** (newlib-nano internals not measured); worth about 0.2 KB either way |
+| No other setup-time allocation is larger than a few KB | **Unconfirmed**. Half's 30 KB is therefore an upper bound. Float's shortfall does not depend on this: further allocations only enlarge it |
+| A Float build fails during setup | **Unconfirmed** on hardware; only the arithmetic shortfall (−1,724 B before overhead) is confirmed |
+| Half's tank uses the M33's hardware half-precision conversion | **Confirmed by evidence**: 40 `vcvtb` instructions in each Half `process` overload |
+| `-fstack-usage` does not change the generated code | **Confirmed by evidence**: `.text`, `.data` and `.bss` are byte-equal between the two Half builds |
+| The stack estimate is the sum of direct-call frames | **Unconfirmed** until a board reports a high-water mark: it omits indirect calls and the exact interrupt depth |
+| Half's CPU cost fits the plan's 20 % headroom target | **Unconfirmed**: not measured, and the plan says to compare bypass, Half and Float on the board |
+
+### Board checks still to do
+
+Nothing above measured CPU time, the running heap, a real stack high-water mark, XIP cache
+behavior or sound. The firmware prints what those checks need, every two seconds, on Core 0's
+serial port (`[DIAG MEM]`, below). Build the three variants above, then for each
+(identical presets, dense gates/slides, synced and unsynced delay, reverb Mix at 0 and at
+100 %, faders moving on the Reverb page, freeze on and off, a 1000 s decay and a silent
+long tail):
+
+```powershell
+./scripts/measure_audio_timing.ps1 -UploadDir build/reverb-bypass -Label bypass -Seconds 60 -RawLog build/reverb-bypass/diag.log
+./scripts/measure_audio_timing.ps1 -UploadDir build/reverb-half   -Label half   -Seconds 60 -RawLog build/reverb-half/diag.log
+Select-String '\[DIAG MEM\]' build/reverb-half/diag.log | Select-Object -Last 3
+```
+
+The plan's timing gate is **at least 20 % worst-case render headroom (`max_us` at or below
+about 4,267 µs of the 5,333 µs budget)** with no growth in `underruns`, `txstalls` or
+sustained `over`. Bypass minus Half is the reverb's CPU cost at the same clock; mix zero does
+not remove it (the tank always runs). The plan sets no memory threshold. Proposed, not
+measured: `heapFloor` of at least 8 KB and a Core 1 `stack1` free of at least 512 bytes;
+`heapFloor` far below the estimate in the accounting table (about 30 KB) means something
+allocates that this audit did not count. The Float build is expected to fail during setup
+(unconfirmed; a run would only confirm it).
+
 ## Reading the serial heartbeat
 
 The existing `[DIAG C1]` report now includes:
@@ -231,6 +470,21 @@ The existing `[DIAG C1]` report now includes:
 | `over` | Cumulative renders exceeding that budget |
 | `underruns` | Cumulative empty-queue events where DMA played a block of silence |
 | `txstalls` | Cumulative observations of the PIO TX-stall flag |
+
+A separate Core 0 line reports memory headroom (every two seconds, next to the
+`[DIAG C0]` line, so the timing parser above is unaffected):
+
+```text
+[DIAG MEM] reverb=half16384 heapTotal=400352 heapUsed=... heapFree=... heapFloor=... stack0=1234/2048 stack1=1500/2048 (free/total)
+```
+
+| Field | Meaning |
+|---|---|
+| `reverb` | Compiled variant: `half16384`, `float16384` or `bypass` (labels a capture with its build) |
+| `heapTotal` | Linked heap capacity (`__StackLimit - __bss_end__`) |
+| `heapUsed` / `heapFree` | Allocated now (`mallinfo().uordblks`) and the difference; fragmentation is not subtracted |
+| `heapFloor` | `heapTotal` minus the heap ever taken from the system (the arena only grows), a conservative floor for the free heap at its lowest point |
+| `stack0` / `stack1` | Bytes of each core's stack never reached since it was painted with a pattern at the core's entry point, over its total size. `-1` means not painted yet. It includes the entry depth and a small margin, so real use is slightly overstated |
 
 Render timing excludes waiting for a free buffer and includes interrupts that
 occur during rendering. It is elapsed render time, not an exact CPU utilization
@@ -246,7 +500,7 @@ still producing an audible discontinuity.
 
 ## Hardware check
 
-Build with `scripts/build_pico2seq.ps1 -CpuMHz 150`, flash the resulting UF2, and
+Build with `scripts/build_pico2seq.ps1 -CpuMHz 225`, flash the resulting UF2, and
 listen to one voice followed by all four. Exercise preset changes, fast gates,
 slides, controls and OLED/LED updates. Check that `underruns` and `txstalls` stay
 at zero and that typical rendering leaves room below 5333 microseconds. An

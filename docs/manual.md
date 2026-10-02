@@ -10,7 +10,9 @@ analog faders, an 8-button function set, a magnetic encoder joystick, a hands-fr
 distance sensor, an OLED display, and a USB CDC diagnostics console — all on one panel.
 
 > This manual was compiled from the firmware source and documentation in this repository
-> (2026-09-03; updated 2026-09-16 for Project Snapshot persistence / flash session management,
+> (2026-09-03; updated 2026-09-30 for the stereo master bus, tempo-synced master delay, the
+> live ADSR/Reverb/ARP OLED pages and current ranges; updated 2026-09-16 for Project Snapshot
+> persistence / flash session management,
 > hot audio in SRAM, the 29-preset sound bank on one browser page, the 55–700 mm lidar window with
 > pause-on-out-of-range, and encoder base value editing; updated for Arpeggiator mode
 > — see [`docs/arpeggiator.md`](arpeggiator.md)). The code is authoritative; anything that
@@ -224,7 +226,7 @@ your hand, and the sounding note changes without retriggering — cutoff and vel
 once, attack and release from the next note (a running attack or release keeps its length, so
 live edits never click). The 5th button records **Release**, not Decay: on 20 of the 29
 presets the Decay lane is an engine control rather than an envelope stage, while Release
-reaches the envelope on every preset and is what sets how long a step rings (up to 10 s,
+reaches the envelope on every preset and is what sets how long a step rings (up to 8 s,
 enough for one downbeat note to cover 16 steps). Decay itself is still editable per step
 with the ENV-mode faders. Hand height **is** the value: near the sensor is the bottom of the
 parameter's range, 700 mm the top, whatever the voice's patch value. Note and Octave take one value per note, on the step, so hand
@@ -248,29 +250,37 @@ the settings and sequence-length screens.
 ### 1.8 OLED display
 
 A 128x64 monochrome OLED (SH1106G). It renders the highest-priority active view from a
-five-tier hierarchy:
+strict priority chain (only the highest active view draws each frame):
 
-1. **Mode banner** — transient `PARAM` / `UTIL` splash when the mode switch flips.
-2. **Settings & presets** — a preset browser for
+1. **Voice Editing screens** — while Voice Editing mode is active: `EDIT V1`–`EDIT V4`,
+   a modified marker, the parameter name and units, and whether a sequencer lane modifies
+   that base.
+2. **Live ADSR page, then Reverb page, then Tuning page** — the Shift + 6 chords (ADSR:
+   + a voice button, reverb: + button 2, see §3.7) and the Tuning chord (Shift +
+   Utility 3, §3.8) outrank everything below them.
+3. **Mode banner** — transient `PARAM` / `UTIL` splash when the mode switch flips.
+4. **Confirmation notices** — transient `SAVED` / `LOADED` / `RANDOMIZED` + voice /
+   `CLEARED` / `ALL CLEAR` / `MACRO` and the delay readouts.
+5. **Held parameter screen** — when a parameter button is held/Shift-latched: parameter
+   name, voice and step indicators, the formatted value at the playing (or selected)
+   step, `LIVE`/`STEP` and `NOTE`/`REST`, and the distance sensor reading in mm. A held
+   parameter outranks the settings screens below.
+6. **Settings & presets** — a preset browser for
    the selected voice (current name in large type, `<`/`>` neighbors, "Sound Buffet" list
    of all four voices' presets) and voice-architecture toggles (envelope on/off, overdrive
    on/off, filter mode, filter resonance). Reached by stopping the transport or by
    long-pressing Play, which toggles Settings without stopping playback (preset applies
    are staged and click-safe while running).
-3. **Gate Sequence Length gauge** — while Gate Length mode is held: voice number, length
+7. **ARP play page** — while Arpeggiator mode is active; it replaces the step screens
+   below it, which would describe values the panel can no longer reach. The preset
+   browser (6) stays above it.
+8. **Gate Sequence Length gauge** — while Gate Length mode is held: voice number, length
    value, and a proportional bar.
-4. **Parameter edit screens** — when a parameter button is held/latched or a step is in
-   edit: parameter name, voice and step indicators, the formatted value at the playing
-   (or selected) step, `LIVE`/`STEP` and `NOTE`/`REST`, and — while a parameter button is
-   held — the distance sensor reading in mm. A held parameter outranks tiers 2 and 3.
-5. **Voice Editing screens** — while Voice Editing mode is active: `EDIT V1`–`EDIT V4`,
-   a modified marker, the parameter name and units, and whether a sequencer lane modifies
-   that base.
-6. **Status screen** (default) — scale name, shuffle template name, selected voice (shown
-   0-based as `Voice: 0`–`Voice: 3`), and a beat-synchronized playhead dot row.
-
-Transient confirmations (`RANDOMIZED` + voice) also appear here,
-as does the `ENC: <param> <value>` line while the encoder is active.
+9. **Step Edit screens** — when a step is in edit and no parameter button is held: the
+   ENV envelope page, or the edited parameter's value at the selected step.
+10. **Status screen** (default) — scale name, shuffle template name, selected voice (shown
+   0-based as `Voice: 0`–`Voice: 3`), and a beat-synchronized playhead dot row. The
+   `ENC: <param> <value>` line appears here while the encoder is active.
 
 ### 1.9 LED matrix (pad mirror)
 
@@ -292,7 +302,7 @@ Ten color themes are available (cycle with Utility button 5) — see §6.
 
 | Connector | Function |
 |---|---|
-| **Stereo Out** (3.5 mm jack pair on the panel's left) | The main audio output: 48 kHz, 16-bit stereo I2S audio from the PIO/I2S pins (BCLK GP10, LRCK GP11, DATA GP12), e.g. to a PCM5102A-class DAC. All four voices are mixed here (mono mix duplicated to both channels). |
+| **Stereo Out** (3.5 mm jack pair on the panel's left) | The main audio output: 48 kHz, 16-bit stereo I2S audio from the PIO/I2S pins (BCLK GP10, LRCK GP11, DATA GP12), e.g. to a PCM5102A-class DAC. All four voices are mixed into a stereo master bus before this output: mono voice sum → master delay → stereo reverb (mono in, stereo wet L/R) → volume/macro → linked stereo compressor. |
 | **Gate Input** (panel label) | **[unverified]** No gate/external-clock input is referenced anywhere in the firmware source or docs. Treat this panel hole as non-functional in the current firmware. |
 | **USB** (Pico 2) | Power + serial diagnostics console at 115200 baud (USB CDC only — USB MIDI was removed 2026-09-06). |
 | **Bottom-edge jack row** | Mounting/connector positions for the wired peripherals (I2S DAC, I2C buses, tile bus). **[unverified: exact per-hole assignments are a build-time wiring matter, see `README.md` wiring table.]** |
@@ -322,7 +332,9 @@ to audio on expiry. Nothing is transmitted over MIDI.
    pad and use faders 1–4 (Attack / Decay / Sustain / Release).
 7. **Try polymeter** — hold a parameter button (e.g. Filter) and tap pad 5: the Filter
    track is now 5 steps long and cycles against the 16-step Gate track.
-8. **Change key feel** — hold Shift and tap V3 to cycle through the 13 scales.
+8. **Change key feel** — hold Shift and tap V3 to cycle through the playing tuning's scales.
+   For a different tuning (quarter-tones, just intonation, shrutis...), hold Shift and press
+   Utility button 3 to open the Tuning page (section 3.8).
 9. **Groove & delay** — fader 1 sets tempo; on **Utility**, button 4 cycles the
    swing templates. Fader 2 is the master delay wet mix, and **Shift + fader 2**
    sweeps the delay time (§3.5).
@@ -347,23 +359,23 @@ parameters are entirely separate. This is what makes polymetry possible: Voice 1
 
 ### 3.2 Polymetric parameter tracks
 
-Each voice's sequencer holds **nine independent parameter tracks**, one per automatable
+Each voice's sequencer holds **eleven independent parameter tracks**, one per automatable
 parameter, each with its own step count (default 16, adjustable from the pads; the core
 supports up to 64):
 
 | # | Parameter | Range | What it does |
 |---|---|---|---|
-| 0 | **Note** | 0–21 scale steps | Scale-degree index for pitch |
+| 0 | **Note** | 0–36 scale steps | Scale-degree index for pitch |
 | 1 | **Velocity** | 0–100 % | Voice amplitude |
 | 2 | **Filter** | 0–100 % | Filter cutoff (mapped exponentially, ~20 Hz–20 kHz) |
-| 3 | **Attack** | 0–1 s | Envelope attack time |
-| 4 | **Decay** | 0–1 s | Envelope decay time |
+| 3 | **Attack** | 1 ms–2 s | Envelope attack time |
+| 4 | **Decay** | 1 ms–10 s | Envelope decay time |
 | 5 | **Octave** | −2 / −1 / 0 / +1 / +2 | Quantized octave shift |
 | 6 | **GateLength** | 0.1–100 % of a step | How long each note is held |
 | 7 | **Gate** | on/off | Whether the step triggers at all |
 | 8 | **Slide** | on/off | Portamento into that step (no envelope retrigger; pitch glides) |
 | 9 | **Sustain** | 0–100 % | Envelope sustain level (ENV fader 3) |
-| 10 | **Release** | 1 ms–10 s | Envelope release time (ENV fader 4) |
+| 10 | **Release** | 10 ms–8 s | Envelope release time (ENV fader 4) |
 
 Velocity, Filter, Attack, Decay, Sustain and Release steps either hold their own value or
 **follow the patch** (play the voice's preset/base value). Fresh and cleared steps follow
@@ -377,7 +389,7 @@ tracks' independent positions are shown as tinted overlays.
 **The Gate track defines the pattern length.** The sequencer's master position is
 `clockStep modulo Gate track length`, so the **Gate track's step count is the whole
 pattern length for that voice** — make it 16 for a standard bar, 13 for polymetric
-madness. Hold the Utility encoder button and tap a pad to set it (2–16 via pads).
+madness. Hold a voice button for 400 ms (Gate Length mode) and tap a pad to set it (2–16 via pads).
 
 Other track behaviors worth knowing:
 
@@ -386,10 +398,12 @@ Other track behaviors worth knowing:
 - **Slide steps don't retrigger the envelope**; the pitch slews smoothly into the new note
   at the Slide Time set by the encoder. A gate-off step right after a slide step lets the
   note ring out instead of choking it.
-- **Randomize** (Utility button 7 short press, or Shift + V2) applies musical heuristics:
-  even steps have a 75 % gate chance, odd steps ~33 %, slides ~8 %, and velocity, filter
-  and the envelope spread around each voice's patch values (attacks kept short enough to
-  sound inside a short gate). **Long-press** Randomize (≥ 1 s) resets
+- **Randomize** (Utility button 7 short press, or Shift + V2) rewrites the parameter
+  lanes but never the groove: Gate and Slide are untouched. Note gets a random scale
+  degree 0–12 (quantized into the current scale at playback), Octave and GateLength
+  are set to their neutral mid values, and the remaining lanes get a triangular spread
+  centered on the middle of the lane's range (most steps near the middle, a few reaching
+  the depth edge) at the default depth of 35 %. **Long-press** Randomize (≥ 1 s) resets
   the selected voice's parameters instead.
 - **Shift + Randomize tap** clears the selected voice completely: every stored step
   value, all gates and slides off, and all track lengths back to their 16-step
@@ -400,9 +414,14 @@ Other track behaviors worth knowing:
 
 ### 3.3 Scales
 
-Pitch is quantized to one of **13 built-in scales**, each a 48-step (4-octave) semitone
-table; the Note parameter (0–21) indexes into it. Internal synthesis is voiced around C3.
-Cycle scales with **Shift + V3** or Utility button 3:
+Pitch is quantized to one of **47 scales**, each a 48-step (4-octave) row. Rows 0-17 are the
+classic scales written in 12-EDO semitones (except All Degrees, 13, which holds the playing
+tuning's own degrees); rows 18-46 are **tuned scales** written in the
+degrees of one tuning (maqams, 19/31/22/17/41/53-EDO scales, Partch, Bohlen-Pierce...;
+see [tunings](tuning.md)). The Note parameter (0–36) indexes into it. Internal synthesis is voiced around C3.
+Cycle scales with **Shift + V3** or Utility button 3. They step through the scales of the
+**playing tuning** only (see §3.8): in the standard 12-EDO that is the 17 twelve-note scales
+below, without All Degrees (which is the same as Chromatic there). The classic rows:
 
 | Index | Scale | Character |
 |---|---|---|
@@ -419,13 +438,27 @@ Cycle scales with **Shift + V3** or Utility button 3:
 | 10 | Harmonic Minor | Dramatic classical minor |
 | 11 | Wholetone | Symmetrical, impressionistic |
 | 12 | Chromatic | All 12 semitones, 1:1 mapping |
+| 13 | All Degrees | Every note of the tuning in order (24 in 24-EDO, 22 shrutis in 22 Shruti) |
+| 14 | Bhairav Thaat | Hindustani: Sa re Ga Ma Pa dha Ni |
+| 15 | Marwa Thaat | Hindustani: Sa re Ga Ma# Pa Dha Ni |
+| 16 | Poorvi Thaat | Hindustani: Sa re Ga Ma# Pa dha Ni |
+| 17 | Todi Thaat | Hindustani: Sa re ga Ma# Pa dha Ni |
 
-The **Octave** parameter is quantized to five discrete positions mapped from hand distance:
-- **-2 octaves**: sensor minimum (55 mm) to 90 mm (stored `0.00`)
-- **-1 octave**: 91 mm to 280 mm (stored `0.25`)
-- **0 octaves**: 281 mm to 425 mm (stored `0.50`)
-- **+1 octave**: 426 mm to 550 mm (stored `0.75`)
-- **+2 octaves**: 551 mm to sensor maximum 700 mm (stored `1.00`)
+Rows 18-46 belong to a tuning (Maqam Rast/Bayati/Hijaz/Saba for 24-EDO, a Major, Minor and
+Pentatonic for 19/31/22/41/53-EDO, and so on); a Dorian has no meaning in 24 notes per octave,
+so choosing a tuning switches to one of its own scales. The full list is in §3.8 and
+[tuning.md](tuning.md).
+
+The **Octave** parameter is quantized to five discrete positions (±2 octaves) from the
+recorded hand height: the normalized 55–700 mm reading is split into five zones at
+roughly 136 / 297 / 458 / 619 mm (`VoiceEdit::mapOctave`; the older stored-zone tables
+are not used at runtime):
+
+- **-2 octaves**: sensor minimum (55 mm) to ≈136 mm
+- **-1 octave**: ≈136 mm to ≈297 mm
+- **0 octaves**: ≈297 mm to ≈458 mm
+- **+1 octave**: ≈458 mm to ≈619 mm
+- **+2 octaves**: ≈619 mm to sensor maximum 700 mm
 
 ### 3.4 Shuffle / swing
 
@@ -467,20 +500,27 @@ instead, so the delay is unreachable there).
   repeats pitch-bend like a tape machine.
 - **Feedback** — hold **Shift** and move fader 1: 0–100%, shown as
   `DELAY FB nn %`. Plain fader 1 still controls tempo. Feedback eases over
-  a 45 ms time constant and defaults to 85%. At 0%, there is one delayed
+  a 45 ms time constant and defaults to 75%. At 0%, there is one delayed
   copy without regeneration. At 100%, the feedback coefficient is 1.0;
   the existing lowpass, DC blocker and saturation still shape the repeats.
-  This is a free-running delay, not a freeze or tempo-sync mode.
+  The delay can also run tempo-synced: **Shift + tap on Utility button 2** (Save/Load)
+  toggles between milliseconds and synced mode (OLED: `DELAY SYNC` / `DELAY MS`), and in
+  synced mode **Shift + fader 2** selects one of 19 divisions from whole note down to
+  1/64 triplet (dotted and triplet values included); tempo changes retune the delay
+  automatically. Reboots come up in millisecond mode.
 
 Delay controls are not saved in the session; reboot restores mix 0,
-time 300 ms and feedback 85%.
+time 300 ms and feedback 75%.
 
 ### 3.6 Master compressor and volume
 
-The summed voices pass through the delay, then master volume, then the
-compressor. Dry sound and repeats share compression; master volume and
-transport mute control the whole result. With delay mix at zero, the
-compressor keeps its existing dry-bus behavior.
+The summed voices pass through the delay, then the reverb (§3.7), then master
+volume, then the compressor. Dry sound, repeats and reverb share compression;
+master volume and transport mute control the whole result. The compressor is
+**linked**: one detector follows the louder of the left and right channels and
+both channels are turned down by the same amount, so the stereo image does not
+shift under compression. With delay and reverb mix at zero, the compressor keeps
+its existing dry-bus behavior.
 
 - **Master volume** — fader 3; saved with the session.
 - **Compressor macro** — hold **Shift** and move fader 3. The existing curve
@@ -492,6 +532,89 @@ compressor keeps its existing dry-bus behavior.
   the compressor leaves volume intact.
 - In **ENV mode**, all four faders retain their selected-step envelope
   controls and Shift-reset gestures; master effects are not edited there.
+
+### 3.7 Master reverb
+
+A long, dark stereo reverb sits after the delay, so delay repeats feed it, and
+before master volume and the compressor, so volume, transport mute and the
+compressor act on the whole result. It has **its own page**; the Utility faders
+are not reassigned.
+
+**Open the page:** hold **Shift** (button 8), hold **button 6**, then **press
+button 2**, and release everything. Playback continues. **Shift** leaves the page.
+The chord shares its first two keys with the ADSR page (Shift + 6 + a voice
+button) and with Shift + 6's own short action; only the third key decides.
+
+| Layer | Fader 1 | Fader 2 | Fader 3 | Fader 4 |
+|---|---|---|---|---|
+| **MAIN** (opens here) | **Mix** 0–100 % (default 0) | **Decay** 0.1–1000 s, log (20 s) | **Damping** 100 Hz–10.8 kHz, log (3 kHz) | *(unused)* |
+| **TONE** | **Low cut** 10–1000 Hz, log (40 Hz) | **Diffusion** 0–100 % (80 %) | **Mod** depth 0–100 % (50 %) | **Width** 0–200 % (100 %: natural, 0: mono wet, 200: exaggerated) |
+
+**Button 1** toggles **Freeze**, **button 2** switches MAIN ↔ TONE, **Shift** exits.
+Voice buttons, step pads and the encoder do nothing while the page is open.
+The faders use the same movement pickup, median filter and deadband as the ADSR
+page and are re-armed on entering, switching layer and leaving, so a fader only
+acts once you move it. The modulation *rate* (0.5 Hz) is saved with the project
+but has no fader.
+
+- **Mix 0 keeps the sound you had.** The reverb tank keeps running at any mix,
+  so raising Mix later reveals the tail that has been building; its CPU cost does
+  not depend on Mix.
+- **Nothing zips or clicks.** Every control eases in over about 30 ms; Mix is
+  smoothed per sample.
+- **Freeze** holds the current tail. It glides in over about 60 ms (decay and
+  damping open together, then the engine freezes) and glides out the same way.
+  Freezing a silent tank holds silence. Freeze is performance state: it is
+  **never saved** and is always off after boot or a load.
+- **Saving.** The eight reverb settings are part of the project (see
+  [persistence](persistence.md)); older projects load with Mix at 0 and sound
+  exactly as before. The tank itself is never saved, and loading a project does
+  not clear it: a tail rings on across the load while the new settings ease in.
+- **Display.** The OLED shows `REVERB MAIN` or `REVERB TONE`, `FRZ` while frozen,
+  the layer's four rows with the last-moved fader marked `>`, and the footer
+  `1 Frz 2 Layer 8 Exit`. On the LED matrix each row is a bar of 0–8 LEDs at that
+  fader's setting; the MAIN layer's fourth row is the Freeze switch (a full white
+  bar while frozen, one dim LED otherwise).
+- **Long tails add up.** A 1000 s decay fed loud, continuous material exceeds full
+  scale like a real space would; the compressor and the PCM clip are the only
+  limiters after the reverb. Use Mix and Decay accordingly.
+
+### 3.8 Tunings
+
+A **tuning** decides how far apart the notes of a scale sound. The unit holds **29 tunings** in
+five families: Equal (12, 24, 19, 31, 22, 17, 15, 10, 7, 5, 41 and 53 notes per octave), Just
+(5-limit, 7-limit, Pythagorean, Overtone, Undertone, Partch 43), Temperament (meantone,
+Werckmeister III, Kirnberger III, Vallotti), Indian (22 Shruti, 12 Svara, Pythagorean Svara) and
+Xeno (Bohlen-Pierce, Carlos Alpha/Beta/Gamma). There is **one global tuning** for all voices,
+with a movable **tonic** (Sa) and **A4 reference** (415-466 Hz). A fresh unit, and any older
+song, plays 12-EDO, tonic C, A4 = 440 Hz exactly as before.
+
+Every tuning carries its own short list of scales, and **choosing a tuning switches to a scale
+that belongs to it**: the scale you have if the tuning offers it, else the one you last used
+there, else its first (for example 24-EDO goes to Maqam Rast, 22 Shruti to Bhairav Thaat).
+
+**Open the page:** hold **Shift** (button 8) in Utility mode, press **button 3**, release
+everything. Playback continues. **Shift** leaves the page. (This chord used to cycle the scale;
+Utility 3 alone and Shift + V3 still do.)
+
+One page does everything:
+
+| Control | Action |
+|---|---|
+| **Step pads** | The whole library at once, one pad per tuning in library order, each lit in its family colour: blue Equal, amber Just, magenta Temperament, green Indian, red Xeno. **Tap** a pad to choose that tuning (and its scale) |
+| **Encoder** | Step through the tunings in library order |
+| **Buttons 1-6** | Choose scale 1-6 of the playing tuning |
+| **Button 7** | A/B swap with the previous tuning (each keeps its own scale) |
+| **Voice buttons 1-4** | Four hot favourites: **tap** recalls, **hold** stores the playing tuning (hold again on the same tuning to clear) |
+| **Faders 1-3** | Tonic (Sa), A4 reference, scale (spread over the tuning's own list) |
+
+The playing tuning breathes on the LED matrix, the A/B partner blinks, and hot favourites are
+pale. The OLED lists the tuning before, the playing one and the next, the scale line, the tonic
+and A4, and confirms each gesture for 1.5 s (`24-EDO > Maqam Rast`, `Saved to Hot 2`). The status
+screen alternates the scale name and the tuning while a non-standard tuning plays, and pitches
+on the other screens use the tuning's own names (`E3-14c`, `C+3`, `Ga3`, `3:07`).
+The tuning, tonic, A4 and favourites are saved with the project. Everything about them, the
+library and the scale list of each tuning is in [tuning.md](tuning.md).
 
 ---
 
@@ -537,7 +660,8 @@ Each voice runs a full synthesis chain at 48 kHz on the audio core:
         |
         v
  voice output level -> summed with the other 3 voices
- -> master delay -> master volume -> master compressor -> Stereo Out
+ -> master delay -> master reverb (mono in, stereo out) -> master volume
+ -> linked stereo master compressor -> Stereo Out (left and right)
 ```
 
 **The old delay effect was removed** (2026-09-11): the global delay line, its boot
@@ -563,7 +687,7 @@ The sound bank contains 29 built-in presets (held as `constexpr` flash tables), 
 | 1 | **Analog** | osc | Single band-limited hard-sync saw (master/slave pair) through 24 dB ladder filter | Cutoff / Attack / Decay (Velocity = Slave pitch) |
 | 2 | **Digital** | osc | Dual band-limited square pair (near-unison detune), sharp 12 dB lowpass | Cutoff / Attack / Decay |
 | 3 | **Bass** | osc | Sub-octave sine + triangle bass with subtle overdrive | Cutoff / Attack / Decay |
-| 4 | **Lead** | osc | Dual-saw lead with a scale-harmony layer on the second oscillator | Cutoff / Attack / Decay |
+| 4 | **Lead** | osc | Dual-saw lead: two band-limited saws, the second detuned by a hair (+0.015 semitone), through a driven 24 dB ladder filter | Cutoff / Attack / Decay |
 | 5 | **Square** | osc | Narrow PWM pulse (20% width) with resonant bite; no sustain | Cutoff / Attack / Decay |
 | 6 | **Pad** | osc | Atmospheric 3-oscillator chord pad (harmonies 0/+4/+9), slow attack & release | Cutoff / Attack / Decay |
 | 7 | **Percussion** | osc | Fast-decaying noise-textured hit (no oscillators, pure noise burst) | Cutoff / Attack / Decay |
@@ -633,7 +757,7 @@ of the step to the patch value. See §1.3.
 
 | Button | Action |
 |---|---|
-| Note / Velocity / Filter / Attack / Decay / Octave | Hold to arm real-time recording for that parameter (distance sensor / encoder); auto-selects it as the encoder target |
+| Note / Velocity / Filter / Attack / Release / Octave | Hold to arm real-time recording for that parameter (distance sensor / encoder); auto-selects it as the encoder target |
 | Shift + tap a parameter | **Latches** the hold (no finger needed). One latch at a time: pressing another parameter moves the latch; tapping the latched one clears it |
 | Slide | Toggles slide/portamento mode (clears conflicting edit modes) |
 | Shift | Modifier for latches and voice-button chords |
@@ -644,7 +768,7 @@ of the step to the patch value. See §1.3.
 |---|---|
 | 1 Play / Stop | Start/stop the transport (and all 4 sequencers). Stopping opens the OLED Settings/preset browser; starting closes it. Long-press toggles Settings without stopping |
 | 2 Save / Load | **Tap**: save everything to flash (the transport pauses ~0.5 s for the write, then resumes). **Long-press (≥ 0.4 s)**: reload the last saved session. OLED shows `SAVED` / `LOADED` / `LOAD ERR` |
-| 3 Scale | Cycle forward through the 13 scales |
+| 3 Scale | Cycle forward through the playing tuning's scales. **Shift + 3** opens the Tuning page (§3.8) |
 | 4 Swing | Cycle through the 16 shuffle templates |
 | 5 Theme | Cycle the 10 LED matrix color themes |
 | 6 Encoder target | Press: cycle encoder target (or toggle the Settings page) |
@@ -666,7 +790,7 @@ itself — no power-cycle needed.
 | Tap V1–V4 | Select voice 1–4 |
 | Shift + V1 | Play / Stop |
 | Shift + V2 | Randomize selected voice (short-press behavior) |
-| Shift + V3 | Cycle scale |
+| Shift + V3 | Cycle scale (within the playing tuning's scales) |
 | Shift + V4 | Enter Voice Editing mode (hold both, then release) |
 
 ### Voice Editing mode (Shift + V4)
@@ -689,10 +813,10 @@ or the hold). The whole panel changes meaning for as long as the mode is on:
 |---|---|
 | Touch pads | A 32-degree scale keyboard: pad 0 is the scale root, pad 31 is 31 scale steps up. Touch pads to build a chord; releasing drops a note unless Latch is on |
 | LED matrix | The chord map: the arp voice's hue under a finger, dim when latched, accent-bright while a note sounds (brighter with higher octaves and with the lidar), breathing when the chord is empty |
-| Fader 1 | Octave range 1–4 |
-| Fader 2 | Gate length 5–95% of the interval |
-| Fader 3 | Swing depth (every second note delayed, pairs stay even) |
-| Fader 4 | Filter lane of each note, composed with the voice's patch |
+| Fader 1 | Hits: 0 to Length hits spaced evenly across the rhythm (zero = silence) |
+| Fader 2 | Length: 1–16 steps; reducing it also caps Hits and wraps Rotate |
+| Fader 3 | Rotate: moves the rhythm right by 0 to Length-1 steps |
+| Fader 4 | Accent: the first hit stays full, the rest soften down to 0.25x |
 | Encoder turn | Rate: 1/4, 1/4T, 1/8, 1/8T, 1/16, 1/16T, 1/32, 1/32T |
 | Hand over the lidar | Note dynamics: velocity from a quarter of the patch value (hand close) to full (hand raised); no hand leaves the preset's velocity alone |
 | Param buttons 1–6 | Pattern: Up, Down, Up-Dn, Rnd, Order, Chord |
@@ -702,9 +826,9 @@ or the hold). The whole panel changes meaning for as long as the mode is on:
 | Utility 6 | Latch; Shift + tap restarts the walk |
 | Utility 7 | Random four-note chord (engages Latch); Shift + tap clears the chord |
 | V1–V4 | Select which voice the arp plays through |
-| Shift + pattern 1�6 | Rhythm: All, Pulse, Tresillo, Five, Orbit, Seven |
-| Shift + faders 1�4 | Hits, Length (1�16), Rotate, Accent |
-| Shift + dial | Tempo, 45�200 BPM |
+| Shift + pattern 1–6 | Rhythm: All, Pulse, Tresillo, Five, Orbit, Seven |
+| Shift + faders 1–4 | Octave range 1–4, Gate length 5–95% of the interval, Swing depth (every second note delayed, pairs stay even), Filter lane of each note composed with the voice's patch |
+| Shift + dial | Tempo, 45–200 BPM |
 | Shift + Latch | Restart in either panel position |
 | OLED | Persistent preset, transport/rate/latch, pattern/range/scale, key summary, rhythm strip, tempo, gate ms, swing ratio, last primary pitch and Shift control guide |
 
@@ -718,7 +842,7 @@ voices: [`docs/arpeggiator.md`](arpeggiator.md).
 | Gesture | Result |
 |---|---|
 | Turn magnetic encoder | Adjust the active encoder target; slow = fine, fast = coarse (velocity-sensitive) |
-| Utility button 6 | Change encoder target (Velocity → Filter → Attack → Decay → Note → Octave → Slide Time) |
+| Utility button 6 | Change encoder target (Velocity → Filter → Attack → Release → Note → Octave → Slide Time) |
 | Hold Voice 1-4 without Shift (400 ms) | Gate Sequence Length mode for that voice, in Param or Utility mode; release to exit |
 | Move hand over VL53L1X while a parameter is armed | Hands-free live recording of a relative modifier into that parameter's sequence at its playing step on the selected voice, continuously while held and heard at once (midpoint ≈ neutral) |
 | Mode switch (GPIO 7) | Select Param (LOW) or Utility (HIGH) button set; shows a banner on flip |
@@ -854,13 +978,13 @@ cmake --build build_test --parallel
   avoid touching pads during boot.
 - **TMAG5273 not detected** (I2C `0x35`): check 3.3 V, pull-ups, and that the diametric
   magnet sits on-axis ~1–3 mm above the sensor. Erratic readings = off-axis magnet.
-- **VL53L1X init fails** (I2C `0x29`): check bus wiring and the 50 ms stabilization delay.
+- **VL53L1X init fails** (I2C `0x29`): check bus wiring and the 30 ms stabilization delay.
 - **OLED blank** (I2C `0x3C`): check `Wire` (GP4/GP5) shared bus.
-- **Audio distortion/clicks**: the output is a mono mix duplicated to both I2S channels at
-  48 kHz; excessive per-voice overdrive + preset output levels can clip the 16-bit
-  converter.
+- **Audio distortion/clicks**: the output is a stereo master bus (mono voice sum → master
+  delay → stereo reverb → linked stereo compressor) at 48 kHz; excessive per-voice
+  overdrive + preset output levels can clip the 16-bit converter.
 - **LED matrix dim/flickering**: the 8x4 WS2812B matrix on GP1 wants a 5 V rail capable of
-  ~1.5 A for full white; firmware caps brightness at 120/255.
+  ~1.5 A for full white; firmware boots the matrix at 150/255 and caps it at 222/255.
 
 **Documentation staleness notes (for readers cross-referencing other docs):**
 
@@ -886,7 +1010,7 @@ cmake --build build_test --parallel
 | **Follows the patch** | A step with no value of its own on an absolute lane; it plays the voice's preset/base value |
 | **Polymetric / polymeter** | Parameter tracks of different lengths cycling against each other on the same voice |
 | **PPQN** | Pulses per quarter note; the internal clock runs at 480 PPQN (no MIDI clock is transmitted) |
-| **Preset** | One of 15 factory voice configurations (§4.2) |
+| **Preset** | One of 29 factory voice configurations (§4.2) |
 | **Shuffle template** | One of 16 per-16th-note micro-timing groove tables |
 | **Slide** | Per-step portamento flag: no envelope retrigger, pitch glides over the Slide Time |
 | **Sound Buffet** | The OLED overview of all four voices' current presets, shown in the Settings screen |

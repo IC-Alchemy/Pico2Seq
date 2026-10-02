@@ -1,6 +1,7 @@
 #pragma once
 #include "VoiceEditParameters.h"
 #include "../pico2seq-core/scales/scales.h"
+#include "../pico2seq-core/tuning/Tuning.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -13,6 +14,13 @@ namespace MusicalValues {
 inline int midiNote(float note, int octave, int harmony, const int *row) noexcept {
   const int index = std::clamp(static_cast<int>(note) + harmony, 0, int(SCALE_STEPS) - 1);
   return std::clamp(48 + (row ? row[index] : index) + octave, 0, 127);
+}
+// Ladder degree of a Note-lane step in a non-standard tuning: the scale row's value for
+// the step (plus harmony), mapped from a 12-EDO slot to a degree unless the scale is native.
+inline int tuningDegree(float note, int harmony, const int *row, const tuning::PitchWorld &world,
+                        bool nativeScale) noexcept {
+  const int index = std::clamp(static_cast<int>(note) + harmony, 0, int(SCALE_STEPS) - 1);
+  return tuning::rowValueToDegree(world, row ? row[index] : index, nativeScale);
 }
 inline float envelopeSeconds(float normalized) noexcept {
   return 0.001f * std::pow(10000.0f, std::clamp(normalized, 0.0f, 1.0f));
@@ -46,14 +54,23 @@ inline void time(float seconds, char *out, size_t size) noexcept {
   if (seconds < 1.0f) std::snprintf(out, size, "%.1fms", seconds * 1000);
   else std::snprintf(out, size, "%.2fs", seconds);
 }
-inline void noteName(float note, int octave, const int *row, char *out, size_t size) noexcept {
+// `world` (optional) names the pitch in the active tuning; null or the standard world keeps
+// the plain 12-EDO name.
+inline void noteName(float note, int octave, const int *row, char *out, size_t size,
+                     const tuning::PitchWorld *world = nullptr, bool nativeScale = false) noexcept {
+  if (world && !world->standard) {
+    tuning::noteName(*world, tuningDegree(note, 0, row, *world, nativeScale), octave, out, size);
+    return;
+  }
   constexpr const char *names[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
   const int midi = midiNote(note, octave, 0, row);
   std::snprintf(out, size, "%s%d", names[midi % 12], midi / 12 - 1);
 }
 inline void voiceNotes(const Step &step, const VoiceConfig &config, const int *row,
-                       char *out, size_t size) noexcept {
+                       char *out, size_t size, const tuning::PitchWorld *world = nullptr,
+                       bool nativeScale = false) noexcept {
   if (!out || !size) return;
+  const bool tuned = world && !world->standard;
   const bool oscillatorBank = config.engine == ENGINE_OSC;
   const bool enginePitch = config.engine == ENGINE_HYPERSAW || config.engine == ENGINE_RECIPE;
   const uint8_t count = oscillatorBank ? std::min<uint8_t>(config.oscillatorCount, 3) : 1;
@@ -63,15 +80,21 @@ inline void voiceNotes(const Step &step, const VoiceConfig &config, const int *r
     if (oscillatorBank && (config.oscAmplitudes[i] <= 0 || config.oscWaveforms[i] == WAVE_NOISE)) continue;
     const int harmony = oscillatorBank || enginePitch ? config.harmony[i] : 0;
     const float detune = oscillatorBank || enginePitch ? config.oscDetuning[i] : 0;
-    const float pitch = midiNote(step.noteIndex, step.octaveOffset, harmony, row) + detune;
-    const int nearest = static_cast<int>(std::round(pitch));
-    const int cents = static_cast<int>(std::round((pitch - nearest) * 100));
-    constexpr const char *names[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
     char note[24];
-    const int pitchClass = (nearest % 12 + 12) % 12;
-    const int octave = (nearest - pitchClass) / 12 - 1;
-    if (cents) std::snprintf(note, sizeof(note), "%s%d%+dc", names[pitchClass], octave, cents);
-    else std::snprintf(note, sizeof(note), "%s%d", names[pitchClass], octave);
+    if (tuned) {
+      // The name of the pitch the oscillator actually plays in this tuning.
+      tuning::noteName(*world, tuningDegree(step.noteIndex, harmony, row, *world, nativeScale),
+                       step.octaveOffset, note, sizeof(note), detune * 100.0f);
+    } else {
+      const float pitch = midiNote(step.noteIndex, step.octaveOffset, harmony, row) + detune;
+      const int nearest = static_cast<int>(std::round(pitch));
+      const int cents = static_cast<int>(std::round((pitch - nearest) * 100));
+      constexpr const char *names[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+      const int pitchClass = (nearest % 12 + 12) % 12;
+      const int octave = (nearest - pitchClass) / 12 - 1;
+      if (cents) std::snprintf(note, sizeof(note), "%s%d%+dc", names[pitchClass], octave, cents);
+      else std::snprintf(note, sizeof(note), "%s%d", names[pitchClass], octave);
+    }
     if (std::strcmp(previous, note) == 0) continue;
     const size_t used = std::strlen(out);
     std::snprintf(out + used, size - used, "%s%s", used ? "/" : "", note);
@@ -106,14 +129,15 @@ inline Step baseStep(const VoiceConfig &config) noexcept {
 // cutoff in Hz but the lane is an envelope amount.
 inline void format(ParamId id, const Step &step, const VoiceConfig &config,
                    const int *row, float bpm, char *out, size_t size,
-                   bool baseView = false) noexcept {
+                   bool baseView = false, const tuning::PitchWorld *world = nullptr,
+                   bool nativeScale = false) noexcept {
   if (!out || !size) return;
   float normalized = 0;
   switch (id) {
   case ParamId::Note:
     if ((config.engine == ENGINE_OSC && config.oscillatorCount == 0) || config.engine == ENGINE_NOISEFX)
       std::snprintf(out, size, "Noise");
-    else voiceNotes(step, config, row, out, size);
+    else voiceNotes(step, config, row, out, size, world, nativeScale);
     return;
   case ParamId::Octave: std::snprintf(out, size, "%+d oct", step.octaveOffset / 12); return;
   case ParamId::Gate: std::snprintf(out, size, "%s", step.isGateActive ? "On" : "Rest"); return;

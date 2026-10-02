@@ -10,11 +10,21 @@
 #include "../sensors/DistanceSensor.h"
 #include "../utils/FreezeWatchdog.h"
 #include "../utils/Debug.h"
+#include "../utils/SerialRateLimit.h"
+#include "../utils/StackWatermark.h"
+#include "../voice/MasterReverb.h"
 #include "../pico2seq-core/persistence/ProjectSnapshot.h"
 #include "../pico2seq-core/persistence/SnapshotFormat.h"
 #include "../ui/UIConstants.h"
 #include <Arduino.h>
+#include <malloc.h>
 #include <uClock.h>
+
+#if AUG_DEBUG_COMPILED
+// Defined once in diagnostic.h (included by AudioEngine.cpp); the diagnostics
+// block below reads it. Without this declaration the firmware build fails.
+extern volatile uint8_t g_errorState;
+#endif
 
 // Application: Core 0 boot order + main-loop slices (see Application.h).
 // Musical role: power-on restores the performer's song, then each pass keeps
@@ -61,6 +71,36 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
                           (unsigned long)AudioEngine::driverSetupStage(),
                           distanceSensor.getRawDistanceMm(),
                           static_cast<unsigned>(distanceSensor.getLastRangeStatus()));
+        }
+    }
+
+    // Memory headroom for the board checks (docs/audio-performance.md): heap and
+    // both stacks, plus which reverb build produced the numbers.
+    //   heapFree  = total - allocated now (fragmentation not subtracted).
+    //   heapFloor = total - heap ever taken from the system (sbrk arena). The arena
+    //               only grows, so this is a conservative floor for the free heap at
+    //               its lowest point, including allocations that came and went.
+    //   stackNFree = bytes of core N's stack never reached since painting at its
+    //               entry point (-1: not painted yet). It includes the entry depth
+    //               and a small margin, so real use is slightly overstated.
+    static uint32_t lastMemDiag = 0;
+    if (currentMillis - lastMemDiag >= kDiagnosticIntervalMs)
+    {
+        lastMemDiag = currentMillis;
+        if (Serial)
+        {
+            const struct mallinfo heap = mallinfo();
+            const int heapTotal = rp2040.getTotalHeap();
+            const int heapUsed = static_cast<int>(heap.uordblks);
+            const int heapArena = static_cast<int>(heap.arena);
+            Serial.printf("[DIAG MEM] reverb=%s heapTotal=%d heapUsed=%d heapFree=%d heapFloor=%d "
+                          "stack0=%u/%u stack1=%u/%u (free/total)\n",
+                          MasterReverb::kVariantName, heapTotal, heapUsed,
+                          heapTotal - heapUsed, heapTotal - heapArena,
+                          static_cast<unsigned>(StackWatermark::untouchedCore0()),
+                          static_cast<unsigned>(StackWatermark::sizeCore0()),
+                          static_cast<unsigned>(StackWatermark::untouchedCore1()),
+                          static_cast<unsigned>(StackWatermark::sizeCore1()));
         }
     }
 
@@ -119,15 +159,18 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
     // have moved across a full diagnostic interval. Boot, a failed I2S setup and
     // a parked recovery boot all report other phases, so they cannot trip this.
     // Log only: never reset or reboot from here.
-    static uint32_t lastAudioBufs = 0;
-    static bool haveAudioBaseline = false;
+    // This runs every loop() pass but a buffer completes only every ~5.3 ms, so the
+    // count must be compared once per interval (StallWatch), not once per pass:
+    // per-pass comparison printed this line hundreds of times a second on a healthy
+    // board.
+    static SerialRateLimit::StallWatch audioStallWatch(kDiagnosticIntervalMs);
     {
         const uint32_t bufs = AudioEngine::completedBufferCount();
         const auto phase = AudioEngine::phase();
         const bool renderingPhase = phase == AudioEngine::Phase::BufferWait ||
                                     phase == AudioEngine::Phase::Render ||
                                     phase == AudioEngine::Phase::Submit;
-        if (renderingPhase && haveAudioBaseline && bufs == lastAudioBufs && Serial)
+        if (audioStallWatch.poll(currentMillis, renderingPhase, bufs) && Serial)
         {
             Serial.printf("[DIAG C1] STALLED phase=%s i2sstage=%lu bufs=%lu (unchanged for %lums) - Core 1 is not rendering\n",
                           AudioEngine::phaseName(phase),
@@ -135,8 +178,6 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
                           static_cast<unsigned long>(bufs),
                           static_cast<unsigned long>(kDiagnosticIntervalMs));
         }
-        lastAudioBufs = bufs;
-        haveAudioBaseline = renderingPhase;
     }
 }
 #endif
@@ -144,6 +185,7 @@ void printRuntimeDiagnostics(uint32_t currentMillis)
 
 void Application::begin()
 {
+    StackWatermark::paintCore0(); // first, so [DIAG MEM] covers everything after boot
     freezeWatchdogBootCheck();
     delay(kBootStabilizationMs);
     Serial.begin(kSerialBaud);

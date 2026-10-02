@@ -36,6 +36,17 @@ class SequencerView;
  *   - Shift + button 6 + Voice1..4 opens the live voice ADSR fader page.
  *     Voice buttons select its target; Shift exits. Shift+6 alone defers its
  *     existing short action until release so the chord has no side effects.
+ *   - Shift + button 6, then button 2, opens the live Reverb page: faders 1-3 are
+ *     Mix / Decay / Damping, button 1 toggles Freeze, button 2 switches to the
+ *     TONE layer (Low cut / Diffusion / Modulation / Width), Shift exits
+ *     (ui/ReverbPageControls.h, docs/manual.md).
+ *   - Utility mode, hold Shift then press button 3, opens the live Tuning page: one page
+ *     holds the whole library, one tuning per pad, lit in its family's colour (tap = choose,
+ *     and the scale switches to one that belongs to the tuning). Buttons 1-6 pick a scale
+ *     of the playing tuning, button 7 swaps with the previous tuning, voice buttons 1-4
+ *     recall (tap) or store (hold) the four hot favourites, faders 1-3 set tonic / A4 /
+ *     scale and the encoder steps through the tunings. Shift exits
+ *     (ui/TuningPageControls.h, docs/tuning.md).
  *   - ButtonModule8: parameter set (Note..Slide) or utility set (Play,
  *     Delay, Scale, Swing, Theme, Encoder, Randomize) per mode; Shift is
  *     bit 7 in both. In Utility mode, Shift + Randomize clears the selected
@@ -138,6 +149,13 @@ private:
   void handleSessionButton(const ButtonState &button);
   void handleSessionOrDelayButton(const ButtonState &button, UIState &uiState);
   void handleFaders(UIState &uiState, const SequencerView &sequencers);
+  // Live Reverb page (Shift + 6 + 2). True when it owns this pass (open, opening,
+  // leaving or waiting for every button to lift): the caller returns immediately.
+  bool handleReverbPage(uint8_t buttons, uint8_t voices, UIState &uiState);
+  void handleReverbFaders(UIState &uiState);
+  // Live Tuning page (Shift + Utility 3), same contract as handleReverbPage.
+  bool handleTuningPage(uint8_t buttons, uint8_t voices, uint32_t nowMs, UIState &uiState);
+  void handleTuningFaders(UIState &uiState);
 
   AlchemyPanel panel_;
   ControlSurface::ModeStabilizer mode_;

@@ -16,6 +16,13 @@ std::unique_ptr<VoiceManager> voiceManager;
 std::atomic<bool> voicesReady{false};
 VoiceSystem voiceSystem;
 uint8_t currentScale = 0;
+tuning::Selection tuningSelection;
+tuning::Bank tuningBank = []
+{
+    tuning::Bank bank;
+    tuning::defaultBank(bank);
+    return bank;
+}();
 bool isClockRunning = true;
 
 namespace AppState

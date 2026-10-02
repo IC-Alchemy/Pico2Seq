@@ -62,8 +62,8 @@ TEST_CASE("Preset names share one case-insensitive registry", "[voice][presets]"
     REQUIRE(VoicePresets::findPreset("fMgLaSs") == static_cast<int>(VoicePresets::Id::FmGlass));
     REQUIRE(VoicePresets::findPreset("") == -1);
     REQUIRE(&VoicePresets::getPresetConfigByName("missing") == &VoicePresets::getAnalogVoice());
-    REQUIRE(VoiceManager::getAvailablePresets().size() == VoicePresets::getPresetCount());
-    for (const auto &name : VoiceManager::getAvailablePresets()) REQUIRE(VoicePresets::findPreset(name) >= 0);
+    for (uint8_t i = 0; i < VoicePresets::getPresetCount(); ++i)
+        REQUIRE(VoicePresets::findPreset(VoicePresets::getPresetName(i)) == static_cast<int>(i));
     VoiceManager manager(1);
     const auto id = manager.addVoice("spectral");
     REQUIRE(id != 0);

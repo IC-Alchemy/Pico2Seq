@@ -11,11 +11,10 @@ The voice module provides a comprehensive synthesizer voice system with multi-os
 The voice system consists of several key components:
 
 - **`Voice`**: Individual synthesizer voice encapsulating oscillators, a main filter (ladder or state-variable, per `filterType`), high-pass filter, ADSR envelope, overdrive waveshaper, and lock-free parameter/pitch staging.
-- **`VoiceManager`**: Manages multiple voices with allocation, deallocation, per-voice mix levels and unified block audio processing. The summed bus passes through `MasterDelay`, master volume, then the glue compressor (`rpdsp::Compressor`, last DSP before the DAC); see `VoiceManager::processBlock()`. The compressor is driven by the master macro knob (Shift + fader 3): 0 = Warm/Glue/Leveler, 0.5 = Neutral/Mild Glue, 1 = Punch/Smash/Pump (`settingsForMacro()`); the audio thread eases toward the fader target so moves never step the output. Fader 1 is tempo (Shift: delay feedback) and fader 2 is delay mix (Shift: delay time). The macro position is performance state, not part of the session snapshot.
+- **`VoiceManager`**: Manages multiple voices with allocation, deallocation, per-voice mix levels and unified block audio processing. The summed bus passes through `MasterDelay`, `MasterReverb` (mono in, stereo out), master volume, then the linked stereo glue compressor (`rpdsp::Compressor::processStereo()`, last DSP before the DAC); see `VoiceManager::processStereoBlock()` (`processBlock()` is the mono compatibility wrapper). The compressor is driven by the master macro knob (Shift + fader 3): 0 = Warm/Glue/Leveler, 0.5 = Neutral/Mild Glue, 1 = Punch/Smash/Pump (`settingsForMacro()`); the audio thread eases toward the fader target so moves never step the output. Fader 1 is tempo (Shift: delay feedback) and fader 2 is delay mix (Shift: delay time). The macro position is performance state, not part of the session snapshot.
 - **`VoiceSystem`**: Centralized structure consolidating voice IDs and control-core state snapshots into arrays for `MAX_VOICES = 4` voices.
 - **`VoicePresets`**: Registry of 29 presets, built from grouped preset headers and one `PresetBank.h` list. Fourteen recipe presets cover FM, phase distortion, DSF, formants, ring modulation, reversing sync and spectral/chaotic synthesis. See the [musical preset bank](../src/voice/README.md#musical-preset-bank) for the latest eight sounds and their controls.
 - **`VoiceOscillator`**: Variant-based dispatcher decoupling numeric waveform IDs from `rpdsp` oscillator classes.
-- **Supporting Classes**: `VoiceManagerBuilder` and `VoiceFactory` for builder-pattern and pre-configured voice setups.
 
 ### 1.2 VoiceSystem Centralization
 
@@ -162,26 +161,32 @@ public:
     void init(float sampleRate);
     void setConfig(const VoiceConfig& config);
     const VoiceConfig& getConfig() const noexcept;
-    VoiceConfig& getConfig() noexcept;
 
     // Real-time audio processing (runs on Core 1 @ 48kHz)
     float process() noexcept;
 
     // Parameter updates (called on the Core 0 control thread — uClock step drain
-    // in processClockEvents(), or live recording)
-    void updateParameters(const VoiceState& newState);
+    // in processClockEvents(), or live recording). liveEnvelopeMask makes
+    // deliberate live slider edits land on the running envelope stage.
+    void updateParameters(const VoiceState& newState, uint8_t liveEnvelopeMask = 0);
 
     // Sequencer integration
     void setSequencer(std::unique_ptr<Sequencer> seq);
     void setSequencer(Sequencer* seq);
     Sequencer* getSequencer() noexcept;
 
-    // Scale injection (removes global scale coupling)
-    void setScaleTable(const int (*table)[48], size_t scaleCount);
+    // Scale injection (removes global scale coupling). nativeScaleMask bit N
+    // marks row N as holding tuning degrees instead of 12-EDO semitone slots.
+    void setScaleTable(const int (*table)[48], size_t scaleCount,
+                       uint64_t nativeScaleMask = 0);
     void setCurrentScalePointer(const uint8_t* currentScalePtr);
 
+    // Global tuning injection (tuning/Tuning.h). The control thread samples the
+    // selection and queues a PitchWorld; the default 12-EDO / tonic C / A4 440
+    // selection keeps the historical pitch path bit for bit.
+    void setTuningPointer(const tuning::Selection* selection);
+
     // State and gate management
-    VoiceState& getState() noexcept;
     const VoiceState& getState() const noexcept;
     void setGate(bool gateState);
     bool getGate() const noexcept;
@@ -216,12 +221,14 @@ Defined in `src/pico2seq-core/sequencer/SequencerDefs.h`:
 
 ```cpp
 struct VoiceState {
-    float noteIndex = 0.0f;                                                   // Scale step index (0-21)
+    float noteIndex = 0.0f;                                                   // Scale degree (0-36) for the scale-table lookup
     float velocityLevel = 0.5f;                                               // Voice amplitude (0.0-1.0); hard-sync presets use this centered value as zero slave-frequency offset
     float filterCutoff = 0.37f;                                               // Filter cutoff frequency (0.0-1.0 normalized)
     float attackTimeSeconds = 0.01f;                                          // Envelope attack time (0.0-1.0s)
-    float decayTimeSeconds = 0.01f;                                           // Envelope decay time (0.0-1.0s)
-    float octaveOffset = 0.0f;                                                // Normalized octave offset (0.0=C2, 0.5=C3, 1.0=C4)
+    float decayTimeSeconds = 0.2f;                                            // Envelope decay time: fall toward sustain
+    float sustainLevel = 0.5f;                                                // Held level while the gate stays high (0.0-1.0)
+    float releaseTimeSeconds = 0.3f;                                          // Ring-out after gate off (normalized)
+    int8_t octaveOffset = 0;                                                  // Transpose in semitones from the Octave lane (-24..+24)
     uint16_t gateLengthTicks = SequencerConstants::DEFAULT_GATE_LENGTH_TICKS; // Gate duration (default 60 ticks @ 480 PPQN)
     bool isGateHigh = false;                                                  // Voice gate state (active note on)
     bool hasSlide = false;                                                    // Portamento / slide enable flag
@@ -291,7 +298,6 @@ public:
     uint8_t addVoice(const VoiceConfig& config);
     uint8_t addVoice(const std::string& presetName);
     bool removeVoice(uint8_t voiceId);
-    void removeAllVoices();
 
     // Voice Configuration
     bool setVoiceConfig(uint8_t voiceId, const VoiceConfig& config);
@@ -299,8 +305,10 @@ public:
     const VoiceConfig* getVoiceConfig(uint8_t voiceId);
 
     // Voice State Management
-    bool updateVoiceState(uint8_t voiceId, const VoiceState& state);
+    bool updateVoiceState(uint8_t voiceId, const VoiceState& state,
+                          uint8_t liveEnvelopeMask = 0);
     const VoiceState* getVoiceState(uint8_t voiceId);
+    void flushControlUpdates(); // control thread, every loop including idle passes
 
     // Sequencer Attachment
     bool attachSequencer(uint8_t voiceId, std::unique_ptr<Sequencer> sequencer);
@@ -309,9 +317,33 @@ public:
 
     // Audio Processing
     void init(float sampleRate);
-    void processBlock(float *out, uint32_t n) noexcept;
+    void processStereoBlock(float *left, float *right, uint32_t n) noexcept; // firmware path
+    void processBlock(float *out, uint32_t n) noexcept; // mono: 0.5 * (left + right)
     float processAllVoices() noexcept; // one-sample wrapper
-    float processVoice(uint8_t voiceId);
+
+    // Master reverb (Core 0 setters; lock-free targets, audio-owned state)
+    void setReverbMix(float value) noexcept;
+    void setReverbDecaySeconds(float value) noexcept;
+    void setReverbDampingHz(float value) noexcept;
+    void setReverbLowCutHz(float value) noexcept;
+    void setReverbDiffusion(float value) noexcept;
+    void setReverbModDepth(float value) noexcept;
+    void setReverbModRateHz(float value) noexcept;
+    void setReverbWidth(float value) noexcept;
+    void setReverbFreeze(bool frozen) noexcept;
+    bool applyReverbSettings(const ReverbSettings &settings) noexcept; // coherent snapshot; false = ring full,
+                                                                      // the values still arrive via the targets
+    ReverbSettings getReverbSettings() const noexcept;                 // newest published
+
+    // Master-bus delay and compressor macro (control-thread targets; the audio
+    // thread reads them per block and eases per sample)
+    void setDelayMix(float mix);
+    void setDelayTime(float seconds);
+    void setDelayFeedback(float feedback);
+    void setDelaySynced(bool synced);
+    void setDelayNoteIndex(uint8_t index);
+    void setMasterMacro(float macro);
+    float getMasterMacro() const;
 
     // Voice Control
     void enableVoice(uint8_t voiceId, bool enabled = true);
@@ -321,8 +353,6 @@ public:
     // Voice Information
     uint8_t getVoiceCount() const;
     uint8_t getMaxVoices() const;
-    std::vector<uint8_t> getActiveVoiceIds() const;
-    size_t getMemoryUsage() const;
     bool hasAvailableSlots() const;
 
     // Callbacks
@@ -330,16 +360,11 @@ public:
     void setVoiceUpdateCallback(VoiceUpdateCallback callback);
 
     // Preset Management
-    static std::vector<std::string> getAvailablePresets();
     static VoiceConfig getPresetConfig(const std::string& presetName);
 
-    // Global & Per-Voice Mixing
+    // Global Mixing
     void setGlobalVolume(float volume);
     float getGlobalVolume() const;
-    void setVoiceMix(uint8_t voiceId, float mix);
-    float getVoiceMix(uint8_t voiceId) const;
-    void setVoiceVolume(uint8_t voiceId, float volume);
-    void setVoiceFrequency(uint8_t voiceId, float frequency);
     void setVoiceSlide(uint8_t voiceId, float slideTime);
 };
 ```
@@ -353,8 +378,7 @@ The compile-time registry in `VoicePresets.cpp` expands `PresetBank.h` to pair
 names and configs in flash. Appending one bank entry updates count and lookups.
 Unknown indices/config names fall back to Analog; unknown display indices return
 "Unknown". Existing per-preset getters remain available. Name matching is
-case-insensitive, and `VoiceManager::getAvailablePresets()` derives its list from
-the same bank. The bank currently holds 29 presets (indices 0–28): the 15 original
+case-insensitive; enumerate presets with `getPresetCount()` / `getPresetName()`. The bank currently holds 29 presets (indices 0–28): the 15 original
 presets are detailed below, followed by six recipe presets (15–20) and eight musical
 presets (21–28) described in the [voice and preset extension guide](../src/voice/README.md)
 and [musical preset bank](../src/voice/README.md#musical-preset-bank).
@@ -364,9 +388,9 @@ and [musical preset bank](../src/voice/README.md#musical-preset-bank).
 | **0** | **Analog** | osc | 1x `WAVE_HARDSYNC_SAW` | `[1.0]` | `[0.0]` | `[0]` | **LP24** (ladder) | Res: 0.33, Drive: 2.1, Passband: 0.23, HPF: 120 Hz | Off (Gain: 0.8, Drive: 0.25) | `0.07s / 0.24s / 0.5 / 0.16s` | `0.5` |
 | **1** | **Digital** | osc | 2x `WAVE_BSP_SQUARE` | `[0.75, 0.65]` | `[0.0, +0.01]` | `[0, 0]` | **LP12** (SVF) | Res: 0.40, SVF low-pass, HPF: 111 Hz (Res: 0.15) | Off (Gain: 0.7, Drive: 0.51) | `0.015s / 0.1s / 0.5 / 0.15s` | `0.5` |
 | **2** | **Bass** | osc | 2x (`WAVE_SIN`, `WAVE_TRI`) | `[1.0, 1.0]` | `[-12.0, 0.0]` | `[0, 0]` | **LP12** (SVF) | Res: 0.45, SVF low-pass, HPF: 45 Hz (Res: 0.4) | On (Gain: 0.95, Drive: 0.16) | `0.01s / 0.3s / 0.85 / 0.2s` | `0.85` |
-| **3** | **Lead** | osc | 2x `WAVE_BSP_SAW` | `[0.6, 0.4]` | `[0.0, 0.0]` | `[0, 3]` | **LP12** (ladder) | Res: 0.40, Drive: 3.0, Passband: 0.23, HPF: 160 Hz | Off (Gain: 0.7, Drive: 0.45) | `0.02s / 0.2s / 0.5 / 0.15s` | `0.5` |
+| **3** | **Lead** | osc | 2x `WAVE_BSP_SAW` | `[0.6, 0.55]` | `[0.0, +0.015]` | `[0, 0]` | **LP24** (ladder) | Res: 0.70, Drive: 3.5, Passband: 0.23, HPF: 160 Hz | Off (Gain: 0.7, Drive: 0.45) | `0.01s / 0.2s / 0.3 / 0.35s` | `0.5` |
 | **4** | **Square** | osc | 1x `WAVE_BSP_SQUARE` (PW: 0.2) | `[1.0]` | `[0.0]` | `[0]` | **BP24** (SVF) | Res: 0.60, SVF band-pass, HPF: 150 Hz | Off (Gain: 0.75, Drive: 0.35) | `0.02s / 0.4s / 0.0 / 0.25s` | `0.56` |
-| **5** | **Pad** | osc | 3x `WAVE_BSP_SAW` | `[0.33, 0.33, 0.33]` | `[0.0, 0.0, 0.0]` | `[0, +4, +9]` | **LP12** (SVF) | Res: 0.30, SVF low-pass, HPF: 140 Hz (Res: 0.08) | Off (Gain: 0.85, Drive: 0.25) | `0.02s / 0.2s / 0.5 / 0.5s` | `0.5` |
+| **5** | **Pad** | osc | 3x `WAVE_BSP_SAW` | `[0.33, 0.33, 0.33]` | `[0.0, 0.0, 0.0]` | `[0, +4, +9]` | **LP12** (SVF) | Res: 0.30, SVF low-pass, HPF: 140 Hz (Res: 0.08) | Off (Gain: 0.85, Drive: 0.25) | `0.4s / 0.2s / 0.5 / 0.5s` | `0.5` |
 | **6** | **Percussion** | osc | **0 oscs** (`WAVE_NOISE`, `NoiseOscillator`) | `[1.0]` | `[0.0]` | `[0]` | **LP24** (SVF) | Res: 0.40, SVF low-pass, HPF: 200 Hz | Off (Gain: 0.45, Drive: 0.30) | `0.005s / 0.08s / 0.0 / 0.07s` | `0.5` |
 | **7** | **SubFunk** | osc | (`WAVE_SIN`, `WAVE_BSP_SQUARE`, `WAVE_SIN`) | `[1.0, 0.35, 0.65]` | `[-12.0, -12.0, 0.0]` | `[0, 0, 0]` | **LP12** (SVF) | Res: 0.60, SVF low-pass, HPF: 25 Hz | On (Gain: 0.9, Drive: 0.45) | `0.004s / 0.22s / 0.35 / 0.12s` | `0.9` |
 | **8** | **RubberSub** | osc | (`WAVE_SIN`, `WAVE_BSP_SQUARE`, `WAVE_TRI`) | `[0.9, 0.3, 0.5]` | `[-12.0, -12.0, 0.0]` | `[0, 0, 0]` | **BP24** (SVF) | Res: 0.70, SVF band-pass, HPF: 25 Hz | On (Gain: 1.0, Drive: 0.55) | `0.002s / 0.16s / 0.25 / 0.09s` | `0.85` |
@@ -430,7 +454,7 @@ values survive the first sequencer update.
 |---|---|---|---|---|---|
 | HARDSYNC | 0 | Master pitch / Slave offset (-24..+24 st; 0.5 = follow master) | Cutoff | Attack | Decay |
 | STANDARD | 1–8 | Note / velocity | Cutoff (120 Hz–5 kHz, EXP) | Attack (0.002–0.75 s) | Decay (0.01–0.5 s, LOG) |
-| WAVEGUIDE | 9–12 | Note / velocity | Brightness (0–1) | Pick hardness (0–1) | T60 (0.05–7 s at runtime, EXP; `wgT60ToNormalized` seeding assumes a 0.05–10 s curve) |
+| WAVEGUIDE | 9–12 | Note / velocity | Brightness (0–1) | Pick hardness (0–1) | T60 (0.05–10 s, EXP; seeded via `wgT60ToNormalized`) |
 | HYPERSAW | 13 | Note / velocity | Cutoff (live) | Native seven-voice detune (0–1) | Native center/side mix (0–1) |
 | NOISESTORM | 14 | Note / velocity | Swarm color | Swarm regen | Chaos level (the SVF keeps the preset's static `filterCutoffBase`) |
 
@@ -505,8 +529,14 @@ the resulting next-note differences are checked by PCM16 null tests.
 `VoiceManager::processBlock()` sums voice blocks in the original voice order.
 Per-voice mix, master-volume and mute targets are read once per block of up to
 256 frames (5.33 ms at 48 kHz). Master smoothing still advances every sample.
-`AudioSamples::toPcm16()` clamps and truncates the mix into identical left/right
-I2S samples. Block APIs overwrite their output and accept zero-length calls.
+`processStereoBlock()` renders the voices into the left buffer, runs the delay in
+place, then hands 64-frame quanta of that mono bus to `MasterReverb`, which returns
+the stereo blend. Master gain and the compressor macro apply to both channels and the
+compressor is linked (one detector on `max(|L|,|R|)`, one gain for both). With the
+reverb mix at zero the two channels are identical, so the bus equals the old mono bus
+bit for bit. `AudioSamples::interleavePcm16()` clamps and truncates left and right
+separately into the I2S buffer. Block APIs overwrite their output and accept
+zero-length calls; the mono `processBlock()` remains for callers and tests.
 
 ---
 
@@ -518,11 +548,12 @@ I2S samples. Block APIs overwrite their output and accept zero-length calls.
 ### 5.2 Scale Data Injection
 Scale tables are injected via dependency injection, eliminating global couplings:
 ```cpp
-extern int scale[SCALES_COUNT][SCALE_STEPS];  // 13 scales, 48 steps
+extern int scale[SCALES_COUNT][SCALE_STEPS];  // 47 rows (semitone slots or tuning degrees), 48 steps
 extern uint8_t currentScale;
 
-voice->setScaleTable(scale, SCALES_COUNT);
+voice->setScaleTable(scale, SCALES_COUNT, NATIVE_SCALE_MASK);
 voice->setCurrentScalePointer(&currentScale);
+voice->setTuningPointer(&tuningSelection);
 ```
 - **Single pitch lookup path**: `calculateNoteFrequency()` reads the **injected** table through `scaleTable[effectiveScaleIndex_()][noteIndex + harmony]`. With no table injected (`nullptr`), it falls back to **chromatic mapping** (scale step = semitone above C3).
 - **Synthesis Pitch Offset**: Scale degrees are centered around C3 (+48) with octave offset:
@@ -530,6 +561,18 @@ voice->setCurrentScalePointer(&currentScale);
 - **Index clamping**: `noteIndex + harmony` is clamped to `0..47` and the resulting MIDI note is saturated to `0..127` before the lookup-table read, so extreme harmony/octave values cannot index out of bounds.
 - **Live scale switches**: the effective scale row is part of the pitch snapshot (`PitchSnapshot::scaleIndex`); a runtime `currentScale` change invalidates the static base frequency on the next pitch recompute (repeated notes repitch too).
 - No per-scale preprocessing happens at injection time — `setScaleTable()` only stores the pointer and marks the base frequency dirty (the former unique-rank caches were write-only and were removed 2026-09-05).
+- **Global tuning injection**: an additional injected pointer is the global tuning
+  selection (`tuning/Tuning.h`; 29 tunings plus tonic and A4 reference, selected on
+  the Tuning page). The control thread samples it in `flushControlUpdates()` and
+  queues a `PitchWorld` exactly like a scale change. The default selection
+  (12-EDO, tonic C, A4 440) sets `PitchWorld::standard` and keeps the MIDI-table
+  path above bit for bit; any other selection makes `calculateNoteFrequency()`
+  map the scale row's value to a tuning degree (`MusicalValues::tuningDegree()`)
+  and compute the frequency from the tonic and A4 instead of the lookup table.
+  Rows flagged in `NATIVE_SCALE_MASK` already hold tuning degrees (the All
+  Degrees scale); every other row holds 12-EDO semitone slots mapped to
+  degrees by the tuning's chroma table, or the nearest degree when the tuning
+  has no chroma.
 
 ### 5.3 Gate-Controlled Pitch Commit
 To prevent audible pitch clicks and glitches when release tails ring out after a sequencer step transition, pitch changes are **committed to oscillators only when `state.isGateHigh == true`**. When the gate is low, the active voice rings out at its last assigned frequency.
@@ -567,7 +610,7 @@ newState.velocityLevel = 0.85f;       // 85% velocity
 newState.filterCutoff = 0.6f;         // 60% filter cutoff
 newState.isGateHigh = true;           // Gate ON
 newState.hasSlide = false;
-newState.octaveOffset = 0.0f;
+newState.octaveOffset = 0;            // Semitone transpose
 newState.gateLengthTicks = 60;        // 60 PPQN ticks
 
 voiceManager.updateVoiceState(v1, newState);
@@ -576,12 +619,9 @@ voiceManager.updateVoiceState(v1, newState);
 ### 6.3 Real-Time Block Audio Loop (Core 1)
 
 ```cpp
-// Fixed Core 1 scratch, outside the stack.
-static std::array<float, 256> mix;
-voiceManager.processBlock(mix.data(), mix.size());
-for (uint32_t i = 0; i < mix.size(); ++i) {
-    const int16_t pcm16 = AudioSamples::toPcm16(mix[i]);
-    out[2 * i] = pcm16;
-    out[2 * i + 1] = pcm16;
-}
+// Fixed Core 1 scratch, outside the stack (one buffer per channel).
+static std::array<float, 256> left, right;
+voiceManager.processStereoBlock(left.data(), right.data(), left.size());
+AudioSamples::interleavePcm16(left.data(), right.data(), out, left.size());
+// = for each frame: out[2*i] = toPcm16(left[i]); out[2*i+1] = toPcm16(right[i]);
 ```

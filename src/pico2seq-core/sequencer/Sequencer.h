@@ -186,14 +186,12 @@ public:
      * @param current_uclock_step Global clock counter (full 32-bit; narrow only
      *                            after per-lane modulo to avoid 256-step aliasing)
      * @param mm_distance Hand distance in mm (0-400 musical zone; <0 disables)
-     * @param is_note_button_held etc: which lanes the held buttons overdub
+     * @param buttons Which lanes the held buttons overdub
      * @param current_selected_step_for_edit Step-edit target, or -1 for live record
      * @param voiceState Played-step output for the audio engine
      */
     void advanceStep(uint32_t current_uclock_step, int mm_distance,
-                     bool is_note_button_held, bool is_velocity_button_held,
-                     bool is_filter_button_held, bool is_attack_button_held,
-                     bool is_release_button_held, bool is_octave_button_held,
+                     const StepEditButtons &buttons,
                      int current_selected_step_for_edit,
                      VoiceState *voiceState);
 
@@ -271,7 +269,7 @@ private:
     uint16_t noteDurationCounter;
     uint8_t channel;
     NoteDurationTracker noteDuration;
-    bool previousStepHadSlide; // Lets a slide ring through a following rest
+    bool previousStepHadSlide; // Skips handleNoteOff() on a rest after a slide; the voice gate still drops
 
     // Step sound engine (not transport): gate/slide/note lifecycle + VoiceState out
     void processStep(uint8_t stepIdx, VoiceState *voiceState);

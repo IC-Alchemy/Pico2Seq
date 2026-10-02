@@ -22,10 +22,35 @@ if(NOT EXISTS "${RPDSP_DIR}/rpdsp/parameter_track.h")
     "src/rpdsp submodule is not checked out. Run:\n"
     "  git submodule update --init --recursive")
 endif()
+# Checked out but too old: dark_reverb.h is the newest rpdsp header the firmware
+# includes (voice/MasterReverb.h), so a pin that predates the reverb lacks it.
+if(NOT EXISTS "${RPDSP_DIR}/rpdsp/dark_reverb.h")
+  message(FATAL_ERROR
+    "src/rpdsp is checked out at a commit without dark_reverb.h, so it is older than "
+    "this tree needs. Run:\n"
+    "  git submodule update --init --recursive\n"
+    "and if that does not fix it, the submodule pin recorded in this repository is "
+    "wrong (it must be an rpdsp commit that contains src/rpdsp/dark_reverb.h).")
+endif()
 if(NOT EXISTS "${SRC_DIR}/VelocityEncoder/src/MagEncoder.h")
   message(FATAL_ERROR
     "src/VelocityEncoder submodule is not checked out. Run:\n"
     "  git submodule update --init --recursive")
+endif()
+
+# Reverb tank storage the host tests build against. HALF mirrors the firmware
+# default (MasterReverb.h); FLOAT re-runs the same suites against the 24-bit tank:
+#   cmake -B build_test_float -DPICO2SEQ_REVERB_STORAGE=FLOAT
+# Applied to every target here, so MasterReverb (embedded in VoiceManager) has one
+# definition per executable.
+set(PICO2SEQ_REVERB_STORAGE "HALF" CACHE STRING "DarkReverb storage for the host tests: HALF or FLOAT")
+set_property(CACHE PICO2SEQ_REVERB_STORAGE PROPERTY STRINGS HALF FLOAT)
+if(PICO2SEQ_REVERB_STORAGE STREQUAL "FLOAT")
+  add_compile_definitions(PICO2SEQ_REVERB_STORAGE_HALF=0)
+elseif(PICO2SEQ_REVERB_STORAGE STREQUAL "HALF")
+  add_compile_definitions(PICO2SEQ_REVERB_STORAGE_HALF=1)
+else()
+  message(FATAL_ERROR "PICO2SEQ_REVERB_STORAGE must be HALF or FLOAT, not '${PICO2SEQ_REVERB_STORAGE}'")
 endif()
 
 # Portable sources compiled once, grouped the way the suites consume them.
@@ -48,10 +73,9 @@ add_library(pico2seq_ui_code OBJECT
   ${CORE_DIR}/arpeggiator/Arpeggiator.cpp
 )
 
-# Scale data, sequencer logic and voice synthesis (DSP comes from header-only
-# src/rpdsp).
+# Sequencer logic and voice synthesis (DSP comes from header-only src/rpdsp). The scale tables
+# live with the tuning code below: which scales a tuning offers is part of the tuning library.
 add_library(pico2seq_voice_code OBJECT
-  ${CORE_DIR}/scales/scales.cpp
   ${CORE_DIR}/sequencer/ParameterManager.cpp
   ${CORE_DIR}/sequencer/Sequencer.cpp
   ${SRC_DIR}/voice/Voice.cpp
@@ -59,6 +83,7 @@ add_library(pico2seq_voice_code OBJECT
   ${SRC_DIR}/voice/VoiceParameters.cpp
   ${SRC_DIR}/voice/VoiceEditParameters.cpp
   ${SRC_DIR}/voice/VoiceManager.cpp
+  ${SRC_DIR}/voice/MasterReverb.cpp
 )
 
 # Session persistence (portable snapshot + codecs); only the full suite uses it.
@@ -67,9 +92,20 @@ add_library(pico2seq_persist_code OBJECT
   ${CORE_DIR}/persistence/ProjectSnapshot.cpp
   ${CORE_DIR}/persistence/PatternCodec.cpp
   ${SRC_DIR}/voice/PatchCodec.cpp
+  ${SRC_DIR}/voice/EffectsCodec.cpp
 )
 
-foreach(_lib pico2seq_ui_code pico2seq_voice_code pico2seq_persist_code)
+# Tuning library, pitch maths and the scale tables (portable, flash tables only): the voices,
+# the song file and the Tuning page logic all use them, so every suite that links one of
+# them links this.
+add_library(pico2seq_tuning_code OBJECT
+  ${CORE_DIR}/scales/scales.cpp
+  ${CORE_DIR}/tuning/Tuning.cpp
+  ${CORE_DIR}/tuning/TuningLibrary.cpp
+  ${CORE_DIR}/tuning/TuningScales.cpp
+)
+
+foreach(_lib pico2seq_ui_code pico2seq_voice_code pico2seq_persist_code pico2seq_tuning_code)
   target_include_directories(${_lib} PRIVATE ${PICO2SEQ_TEST_INCLUDE_DIRS})
   target_compile_definitions(${_lib} PRIVATE AUG_DEBUG_COMPILED=0)
   target_compile_options(${_lib} PRIVATE -Wall -Wno-unused-parameter)
@@ -80,6 +116,10 @@ set(PICO2SEQ_UI_TEST_SOURCES
   unit/test_control_surface_logic.cpp
   unit/test_arpeggiator.cpp
   unit/test_ui_transitions.cpp
+  unit/test_reverb_page.cpp
+  unit/test_tuning.cpp
+  unit/test_tuning_scales.cpp
+  unit/test_tuning_page.cpp
 )
 set(PICO2SEQ_VOICE_TEST_SOURCES
   unit/test_helpers.cpp
@@ -92,6 +132,7 @@ set(PICO2SEQ_VOICE_TEST_SOURCES
   unit/test_master_compressor.cpp
   unit/test_master_bus.cpp
   unit/test_master_delay.cpp
+  unit/test_master_reverb.cpp
 )
 
 add_executable(pico2seq_tests
@@ -104,9 +145,13 @@ add_executable(pico2seq_tests
   unit/test_sequencer_view.cpp
   unit/test_voice_playback.cpp
   unit/test_voice_envelope.cpp
+  unit/test_reverb_editor.cpp
+  unit/test_stack_watermark.cpp
+  unit/test_serial_rate_limit.cpp
   unit/test_lidar_recording.cpp
   ${SRC_DIR}/app/VoicePlayback.cpp
   ${SRC_DIR}/app/VoiceEnvelope.cpp
+  ${SRC_DIR}/app/ReverbEditor.cpp
   ${SRC_DIR}/app/StepPlayback.cpp
   unit/test_alchemy_proto.cpp
   unit/test_satellite_link.cpp
@@ -119,6 +164,7 @@ add_executable(pico2seq_tests
   $<TARGET_OBJECTS:pico2seq_ui_code>
   $<TARGET_OBJECTS:pico2seq_voice_code>
   $<TARGET_OBJECTS:pico2seq_persist_code>
+  $<TARGET_OBJECTS:pico2seq_tuning_code>
 )
 
 # Stub headers must come first so they shadow Arduino.h / Wire.h / pico/sync.h
@@ -146,7 +192,8 @@ catch_discover_tests(pico2seq_tests)
 # UI policies can be checked without linking firmware glue or rendering audio.
 add_executable(pico2seq_ui_tests
   ${PICO2SEQ_UI_TEST_SOURCES}
-  $<TARGET_OBJECTS:pico2seq_ui_code>)
+  $<TARGET_OBJECTS:pico2seq_ui_code>
+  $<TARGET_OBJECTS:pico2seq_tuning_code>)
 target_include_directories(pico2seq_ui_tests PRIVATE
   ${STUB_DIR} ${PROJECT_SOURCE_DIR} ${SRC_DIR} ${CORE_DIR} ${RPDSP_DIR})
 target_link_libraries(pico2seq_ui_tests PRIVATE Catch2::Catch2WithMain)
@@ -155,7 +202,8 @@ catch_discover_tests(pico2seq_ui_tests TEST_PREFIX "ui-focused: ")
 # Focused voice/ownership suite can run independently of the DSP recipe tests.
 add_executable(pico2seq_voice_tests
   ${PICO2SEQ_VOICE_TEST_SOURCES}
-  $<TARGET_OBJECTS:pico2seq_voice_code>)
+  $<TARGET_OBJECTS:pico2seq_voice_code>
+  $<TARGET_OBJECTS:pico2seq_tuning_code>)
 target_include_directories(pico2seq_voice_tests PRIVATE
   ${STUB_DIR} ${PROJECT_SOURCE_DIR} ${SRC_DIR} ${CORE_DIR} ${RPDSP_DIR})
 target_link_libraries(pico2seq_voice_tests PRIVATE Catch2::Catch2WithMain Threads::Threads)

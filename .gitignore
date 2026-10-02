@@ -27,3 +27,6 @@ build*
 
 # Golden firmware images live in GitHub Releases, not in git.
 WorkingUF2/
+nul
+Pico2SeqDocumentation/00-start-here.md
+Pico2SeqDocumentation/quizzes/00-start-here-quiz.md

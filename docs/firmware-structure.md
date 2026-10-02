@@ -16,6 +16,7 @@ work during each control-loop pass.
 | Clock registration, transport and queued clock events | `src/app/ClockService.h/.cpp` |
 | Step playback, voice-state publication and live recording | `src/app/StepPlayback.h/.cpp` |
 | Arpeggiator mode (chord/pattern engine, slot-to-voice playback) | `src/pico2seq-core/arpeggiator/`, `src/app/ArpPlayback.h/.cpp`; see [Arpeggiator mode](arpeggiator.md) |
+| A tuning, the Tuning page or a tuned scale row | `src/pico2seq-core/tuning/`, `src/ui/TuningPageControls.h`, `src/ui/TuningPageLogic.h`; see [Tuning system](tuning.md) |
 | Voice creation, preset application and track seeding | `src/app/VoiceSetup.h/.cpp` |
 | I2S buffers, stereo output and final-mix gain | `src/app/AudioEngine.h/.cpp` |
 | Voice Editing mode (parameter catalogue, editor transport) | `src/app/VoiceEditor.h/.cpp`, `src/voice/VoiceEditParameters.h/.cpp`, `src/ui/VoiceEditControls.h` |
@@ -53,7 +54,8 @@ Each `Application::update()` pass:
 4. Runs the due control scan: pads, tiles, encoder, distance, step recording.
 5. Runs the due display refresh: voice-switch notice, step LEDs, OLED, LED show.
 
-Controls are due every 1 ms; displays every 20 ms (50 Hz). These are minimum
+Controls are due every 1 ms; the LED matrix every 13 ms (~77 fps) and the OLED
+every 40 ms (~25 fps). These are minimum
 intervals, not deadlines or catch-up loops. Slow bus/display work can extend a
 pass. Unsigned subtraction preserves timer-wrap behavior.
 
@@ -111,7 +113,9 @@ Core 1 owns the I2S pool. Output remains 48 kHz, PCM16 stereo, 256 frames per
 buffer. Four producer buffers pass directly to DMA, with no separate consumer
 sample storage or buffer copying in the interrupt. This retains the previous
 effective depth (three queued buffers plus one playing). Startup fills all four
-before enabling I2S. The mono mix is converted once and copied to left and right. Conversion clamps, truncates
+before enabling I2S. The master reverb makes the bus stereo, and
+`AudioSamples::interleavePcm16()` then converts left and right separately.
+Conversion clamps, truncates
 toward zero, then uses ARM `SSAT`; it does not round to nearest.
 
 The existing blocking `take_audio_buffer(pool, true)` is the audio pacing
@@ -141,10 +145,13 @@ reclaiming the ~338 KiB the delay line would have reserved.
 
 A redesigned master delay returned (2026-09-20): `MasterDelay`
 (`src/voice/MasterDelay.h`) rides the summed block inside
-`VoiceManager::processBlock()` — a 48,000-float (~187.5 KiB) rpdsp
-`DelayLine` owned by the heap-allocated `VoiceManager`, read fractionally
+`VoiceManager::processBlock()` — a 36,004-float (~140.6 KiB) ring owned by
+the heap-allocated `VoiceManager` (tempo mode's 16-bit ring lives in the same
+block; only one is live at a time), read fractionally
 with cubic interpolation, with a DC blocker + one-pole lowpass + tanh bound
-in the feedback loop. Core 0 publishes mix, delay time and feedback through lock-free
+in the feedback loop. Capacity (`kCapacitySamples` = 36,004) is decoupled
+from the tuned 750 ms maximum (`kMaxDelaySamples` = 36,000 at 48 kHz).
+Core 0 publishes mix, delay time and feedback through lock-free
 `std::atomic<float>` targets on `VoiceManager`; the audio core reads them
 once per block and eases per sample. Fader 2 is the wet mix; Shift + fader 2
 is the delay time (10–750 ms at 48 kHz, using the delay branch's tuned cap).
@@ -154,6 +161,31 @@ Warm/Glue/Punch compressor macro. Shift + fader 1 sets 0–100% feedback
 without changing tempo. Faders 1–3 re-arm on Shift edges; feedback eases
 with the same 45 ms time constant as wet mix.
 Delay/filter/compressor history belongs to Core 1; Core 0 only writes targets.
+
+`MasterReverb` (`src/voice/MasterReverb.h/.cpp`, 2026-09-30) follows the delay: an
+`rpdsp::DarkReverb<16384>` (Half storage by default) whose mono input is the
+post-delay bus and whose left/right output makes the bus stereo. The compressor
+became a linked stereo compressor and `AudioEngine.cpp` converts left and right
+to PCM16 separately (`AudioSamples::interleavePcm16()`). Core 0 publishes eight
+reverb controls plus freeze through atomics and, for a project restore, one
+coherent snapshot through a small SPSC ring; only Core 1 touches the tank and eases
+the coefficients. The Reverb page (Shift + 6 + 2) is `src/ui/ReverbPageControls.h`
+(gesture), `src/app/ReverbEditor.cpp` (values to `VoiceManager`),
+`AlchemyControlBridge` (fader routing), `oled.cpp` and `LEDMatrixFeedback.cpp`
+(display). Settings persist in format 3 (`src/voice/EffectsCodec.*`); freeze does
+not. RAM, stack and SRAM placement: [audio-performance.md](audio-performance.md#master-reverb-ram-stack-and-sram-audit).
+
+The tuning layer (2026-09-30) sits between the scale row and the oscillator frequency:
+`src/pico2seq-core/tuning/` holds the tuning library, the pitch maths and the per-tuning scale sets
+(`Tuning.*`, `TuningLibrary.cpp`, `TuningScales.*`, all portable); `tuning/TuningState.h` is the
+device-side selection and bank. Core 0 chooses the `tuning::Selection`; `VoiceManager` injects it
+into each voice, and each voice turns a change into a `PitchWorld` on its own control pass, so
+Core 1 only reads immutable flash tables. The Tuning page (Shift + Utility 3) is
+`src/ui/TuningPageControls.h` (gesture), `src/ui/TuningPageLogic.h` (what each gesture does and
+every string the page prints),
+`AlchemyControlBridge` (faders), `EncoderManager` (library stepping), `UIEventHandler` (pads),
+`oled.cpp` and `LEDMatrixFeedback.cpp` (display). Project persistence is format 4.
+See [tuning.md](tuning.md).
 
 ## Building and checking changes
 
@@ -165,16 +197,17 @@ staging script. Host CMake tests remain separate from the hardware build.
 On this Windows setup:
 
 ```powershell
-cmake -S . -B build_test -G Ninja '-DCMAKE_CXX_COMPILER=C:/Program Files/LLVM/bin/clang++.exe' '-DCMAKE_C_COMPILER=C:/Program Files/LLVM/bin/clang.exe' -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=-D_USE_MATH_DEFINES
-cmake --build build_test --parallel 8
-.\build_test\tests\pico2seq_tests.exe --reporter console
-ctest --test-dir build_test --output-on-failure
+cmake -S . -B build_test_ninja -G Ninja '-DCMAKE_CXX_COMPILER=C:/Program Files/LLVM/bin/clang++.exe' '-DCMAKE_C_COMPILER=C:/Program Files/LLVM/bin/clang.exe' -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=-D_USE_MATH_DEFINES
+cmake --build build_test_ninja --parallel 8
+.\build_test_ninja\tests\pico2seq_tests.exe --reporter console
+ctest --test-dir build_test_ninja --output-on-failure
 .\scripts\build_pico2seq.ps1 -KeepStage
 ```
 
 `[app]` tests cover PCM conversion and distance calibration. Existing tests
-cover voices/queues, sequencing, control-surface logic, tile protocol and the
-Voice Editing mode (`test_voice_edit.cpp`).
+cover voices/queues, sequencing, control-surface logic, tile protocol, the
+tuning library and Tuning page, and the Voice Editing mode
+(`test_voice_edit.cpp`).
 Neither host tests nor compilation verify physical controls, bus timing,
 I2S timing or sound. See [testing.md](testing.md).
 

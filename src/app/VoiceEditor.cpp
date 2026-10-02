@@ -49,6 +49,8 @@ void clearPerformanceControls() {
 namespace VoiceEditor {
 void enter() {
   uiState.voiceEnvelope = {};
+  uiState.reverbPage = {};
+  uiState.tuningPage = {};
   stopClockForEditor();
   clearPerformanceControls();
   uiState.voiceEditor.enter();
@@ -123,6 +125,8 @@ void clearEncoder() {
 void encoder(float delta) {
   if (uiState.voiceEnvelope.active || uiState.voiceEnvelope.chordPending ||
       uiState.voiceEnvelope.waitRelease) return;
+  if (uiState.reverbPage.active || uiState.reverbPage.waitRelease) return;
+  if (uiState.tuningPage.active || uiState.tuningPage.waitRelease) return;
   const auto &editor = uiState.voiceEditor;
   const auto index = uiState.selectedVoiceIndex;
   if (!voiceManager || index >= VoiceSystem::MAX_VOICES ||

@@ -42,7 +42,9 @@ namespace SensorConstants
     // distance is discarded as stale.
     static constexpr uint8_t INVALID_READINGS_BEFORE_DROPOUT = 3;
 
-    // Octave parameter track distance zones (in millimeters)
+    // Octave parameter track distance zones (in millimeters).
+    // Legacy and unreferenced: the sequencer uses SequencerConstants::OCTAVE_ZONE_*_MM
+    // (90/220/355/550 mm) in SequencerDefs.h. Keep these in step with it or remove them.
     static constexpr int OCTAVE_ZONE_MINUS_2_MAX_MM = 90;   // -2 octaves: min (55 mm) to 90 mm
     static constexpr int OCTAVE_ZONE_MINUS_1_MAX_MM = 280;  // -1 octave:  91 mm to 280 mm
     static constexpr int OCTAVE_ZONE_ZERO_MAX_MM    = 425;  //  0 octaves: 281 mm to 425 mm

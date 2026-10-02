@@ -16,6 +16,7 @@
 #include "../rpdsp/src/rpdsp/DSPFunctions.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
+#include "../pico2seq-core/tuning/Tuning.h"
 #include "../utils/SpscQueue.h"
 #include <array>
 #include <memory>
@@ -158,11 +159,23 @@ public:
    * @brief Inject scale data (48-step per-scale tables) to remove global dependencies
    * @param table Pointer to a 2D array of shape [scaleCount][48] containing semitone offsets
    * @param scaleCount Number of scales available in the table (0-255)
+   * @param nativeScaleMask Bit N set: row N holds tuning degrees, not 12-EDO semitone
+   *        slots (the All Degrees scale). Zero, the default, means every row is slots.
    *
    * The Voice will use this table to map scale step indices (0-47) to semitone offsets.
    * Pass nullptr to disable and fall back to chromatic mapping.
    */
-  void setScaleTable(const int (*table)[48], size_t scaleCount);
+  void setScaleTable(const int (*table)[48], size_t scaleCount, uint64_t nativeScaleMask = 0);
+
+  /**
+   * @brief Inject a pointer to the global tuning selection (tuning/Tuning.h)
+   * @param selection Pointer to an externally managed tuning::Selection
+   *
+   * The control core samples it in setters / flushControlUpdates(), exactly like the
+   * current-scale pointer; audio reads only the queued PitchWorld. Null, or a selection
+   * of 12-EDO / tonic C / A4 440, keeps the historical MIDI-table pitch path bit for bit.
+   */
+  void setTuningPointer(const tuning::Selection *selection);
 
   /**
    * @brief Inject a pointer to the current scale index used with the injected table
@@ -292,6 +305,8 @@ private:
   const int (*scaleTable)[48] = nullptr;
   size_t scaleTableCount = 0;
   size_t audioScaleIndex_ = 0; // Copied through the queue; never reads UI globals
+  uint64_t nativeScaleMask_ = 0;  // Bit N: scale row N holds tuning degrees (audio-owned copy)
+  tuning::PitchWorld world_{};    // Tuning, tonic and A4 the pitch path uses (audio-owned copy)
 
   // Audio processing components
   std::array<VoiceOscillator, 3> oscillators;
@@ -448,7 +463,8 @@ private:
     GateChanged = 1u << 2, ScaleChanged = 1u << 3,
     SlideChanged = 1u << 4, BendChanged = 1u << 5,
     ModulationChanged = 1u << 6, FrequencyChanged = 1u << 7,
-    FilterChanged = 1u << 8, PitchRefresh = 1u << 9
+    FilterChanged = 1u << 8, PitchRefresh = 1u << 9,
+    TuningChanged = 1u << 10
   };
   struct ControlUpdate
   {
@@ -457,6 +473,8 @@ private:
     const int (*scaleTable)[48] = nullptr; // immutable, outlives queued use
     size_t scaleCount = 0;
     size_t scaleIndex = 0;
+    uint64_t nativeScaleMask = 0;
+    tuning::PitchWorld world{}; // immutable tuning tables; see tuning/Tuning.h
     float slideSeconds = 0.06f;
     float bendSemitones = 0.0f;
     float modulationSemitones = 0.0f;
@@ -469,6 +487,8 @@ private:
   // pending changes coalesce here without touching any published queue slot.
   ControlUpdate controls_{};
   const uint8_t *currentScalePtr_ = nullptr;
+  const tuning::Selection *tuningPtr_ = nullptr; // control thread only
+  tuning::Selection sampledTuning_{};            // last selection turned into controls_.world
   SpscQueue<ControlUpdate, CONTROL_QUEUE_CAPACITY> controlQueue_;
   // Audio-owned copy, initialized once. A stack-local ControlUpdate applies
   // all its default member initializers even when the queue is empty: the
@@ -550,6 +570,8 @@ private:
   // Cross-core application helpers. process() pops into audioUpdate_ before
   // calling applyControlUpdate_(), so empty queues need no out-of-line call.
   void applyControlUpdate_() noexcept;
+  // Control thread: turn a changed tuning selection into a queued PitchWorld.
+  void sampleTuning_(bool force) noexcept;
   void applyParameters_(const VoiceState &newState) noexcept;
   void applyConfig_(const VoiceConfig &newConfig) noexcept;
   void refreshPitch_();
@@ -690,7 +712,9 @@ private:
    *
    * Single pitch lookup path: resolves the step via the injected scale table
    * (chromatic mapping when no table was injected) to a MIDI note centered at
-   * C5 (72), clamped to the 128-entry frequency lookup table.
+   * C5 (72), clamped to the 128-entry frequency lookup table. A non-standard tuning
+   * (tuning/Tuning.h) instead maps the row value to a tuning degree and computes its
+   * frequency from the tonic and A4; the standard world keeps the table path untouched.
    */
   float calculateNoteFrequency(float note, int8_t octaveOffset, int harmony) noexcept;
 

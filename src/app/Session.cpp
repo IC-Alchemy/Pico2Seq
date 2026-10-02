@@ -4,6 +4,7 @@
 #include "../ui/UIConstants.h"
 #include "../ui/UIState.h"
 #include "../LEDMatrix/LEDMatrixFeedback.h"
+#include "../voice/EffectsCodec.h"
 #include "../voice/PatchCodec.h"
 #include "../voice/VoiceEditParameters.h"
 #include "../voice/VoicePresets.h"
@@ -60,6 +61,12 @@ void Session::captureSession(persistence::ProjectSnapshot &out)
     if (uiState.slideMode)
         out.settings.changedFlags |= 0x10u;
     out.laneModel = persistence::LANE_MODEL_ABSOLUTE;
+    // Master reverb settings as the performer last set them (not the tank, and not
+    // the freeze switch). Without a manager the defaults are written, never zeros.
+    effectscodec::captureEffects(voiceManager ? voiceManager->getReverbSettings() : ReverbSettings{},
+                                 out.effects);
+    // The one global tuning and the favourites the performer organised.
+    persistence::captureTuning(tuningSelection, tuningBank, out.tuning);
 }
 
 void Session::applyBeforeVoices(const persistence::ProjectSnapshot &s)
@@ -122,7 +129,17 @@ void Session::applyAfterVoices(persistence::ProjectSnapshot &s)
     uiState.selectedVoiceIndex = s.settings.selectedVoice;
     uiState.slideMode = (s.settings.changedFlags & 0x10u) != 0;
     if (voiceManager)
+    {
         voiceManager->setGlobalVolume(s.settings.masterVolume);
+        // One coherent snapshot for the audio thread. Freeze is forced off (it is
+        // performance state), and the tank itself is left alone: the tail simply
+        // keeps evolving under the restored settings, which ease in over ~30 ms.
+        // A record that fails validation cannot reach here (the file is rejected
+        // on load); if one did, the running settings stay as they are.
+        ReverbSettings reverb;
+        if (effectscodec::applyEffects(s.effects, reverb))
+            voiceManager->applyReverbSettings(reverb);
+    }
 }
 
 void Session::applyAfterClock(const persistence::ProjectSnapshot &s)
@@ -133,7 +150,13 @@ void Session::applyAfterClock(const persistence::ProjectSnapshot &s)
     uClock.setShuffleTemplate(const_cast<int8_t *>(tmpl.ticks), SHUFFLE_TEMPLATE_SIZE);
     uClock.setShuffle(s.settings.shuffleIndex > 0);
     uiState.currentShufflePatternIndex = s.settings.shuffleIndex;
-    currentScale = s.settings.currentScale;
+    // Voices sample the selection on their next control pass. A record that fails
+    // validation cannot reach here (the file is rejected on load); if one did, the running
+    // tuning stays as it is. The saved scale is kept when the saved tuning offers it, else
+    // it becomes that tuning's first scale (a file edited by hand, or written by a build
+    // whose tuning-to-scale sets differed): never a twelve-note mode across 24 notes.
+    persistence::restoreTuning(s.tuning, tuningSelection, tuningBank);
+    currentScale = tuning::coerceScale(tuningSelection.tuningId, s.settings.currentScale);
     uiState.currentThemeIndex = s.settings.themeIndex;
     setLEDTheme(static_cast<LEDTheme>(s.settings.themeIndex));
 }

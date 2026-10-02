@@ -3,6 +3,7 @@
 
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/scales/scales.h"
+#include "../pico2seq-core/tuning/Tuning.h"
 
 #include <algorithm>
 #include <cmath>
@@ -61,7 +62,12 @@ inline void gate(const Arpeggiator::Settings &settings, float bpm, Row &row)
         std::snprintf(row, sizeof(row), "%u-%ums", low, high);
 }
 
-inline void chord(const Arpeggiator::Engine &arp, const int *scaleRow, Row &row)
+// With a pitch world the chord is named the way the Note lane names it: in a tuning other than
+// the standard one (or from a native scale row, which holds tuning degrees) each note reads as
+// the tuning's own name, so a 24-EDO chord shows its quarter-tones. Without one, or in standard
+// 12-EDO, the row values are semitones and print as plain note names, exactly as before.
+inline void chord(const Arpeggiator::Engine &arp, const int *scaleRow, Row &row,
+                  const tuning::PitchWorld *world = nullptr, bool nativeScale = false)
 {
     if (arp.chordCount() == 0)
     {
@@ -90,8 +96,12 @@ inline void chord(const Arpeggiator::Engine &arp, const int *scaleRow, Row &row)
         const int pitchClass = ((semitone % 12) + 12) % 12;
         const int octave = 3 + semitone / 12;
 
-        char token[8];
-        std::snprintf(token, sizeof(token), "%s%d", kPitchNames[pitchClass], octave);
+        char token[16];
+        if (world && scaleRow && (nativeScale || !world->standard))
+            tuning::noteName(*world, tuning::rowValueToDegree(*world, semitone, nativeScale), 0,
+                             token, sizeof(token));
+        else
+            std::snprintf(token, sizeof(token), "%s%d", kPitchNames[pitchClass], octave);
 
         const uint8_t omitted = static_cast<uint8_t>(arp.chordCount() - (i + 1));
         char candidate[64];
