@@ -6,6 +6,7 @@
 #include "VoiceEditControls.h"
 #include "VoiceEnvelopeControls.h"
 #include "ReverbPageControls.h"
+#include "LoopPageControls.h"
 #include "TuningPageControls.h"
 #include "../voice/DelayTiming.h"
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
@@ -25,6 +26,9 @@ struct UIState
     VoiceEnvelope::Controls voiceEnvelope;
     // Live master-reverb page (Shift + 6 + 2): faders, Freeze and layer switch.
     ReverbPage::Controls reverbPage;
+    // Live Loop Settings page (Shift + loop button): loop volume, loop length, sequencer
+    // volume and regen on the four faders. The loop itself lives in LoopController.
+    LoopPage::Controls loopPage;
     // Live Tuning page (Shift + Utility 3): pads choose a tuning, voice buttons recall
     // hot favourites, faders set tonic / A4 / scale. The tuning itself is the global
     // tuningSelection (pico2seq-core/tuning/TuningState.h), not UI state.
@@ -78,12 +82,15 @@ struct UIState
     // the raw 0..31 pad; 0 = press was consumed by a mode, so release ignores it.
     unsigned long padPressTimestamps[NUMBER_OF_STEP_PADS] = {0};
     // --- Transient OLED notice (short confirmation banner; replaces the old control-cluster LED flashes) ---
-    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6, Macro = 7, DelayMix = 8, DelayTime = 9, DelayFeedback = 10, ArpOn = 11, ArpOff = 12, DelaySync = 13, DelayMsMode = 14 };
+    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6, Macro = 7, DelayMix = 8, DelayTime = 9, DelayFeedback = 10, ArpOn = 11, ArpOff = 12, DelaySync = 13, DelayMsMode = 14,
+                                LoopArmed = 15, LoopRecording = 16, LoopPlaying = 17, LoopOverdub = 18,
+                                LoopCleared = 19, LoopUnavailable = 20 };
     volatile unsigned long oledNoticeUntil = 0;
     volatile OledNoticeKind oledNoticeKind = OledNoticeKind::None;
     volatile uint8_t oledNoticeVoice = 0; // 0-based voice, valid for Randomized and VoiceCleared
     volatile uint8_t macroNoticePercent = 50; // 0..100 macro position, valid for Macro
     // Numeric payload for DelayMix/DelayFeedback (0-100 %) or DelayTime (ms).
+    // For the Loop notices it is the loop size in steps.
     volatile uint16_t oledNoticeValue = 0;
     unsigned long lastEncoderButtonPressTime = 0;
     // Until this time the OLED shows the base the encoder just changed instead

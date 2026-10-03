@@ -145,16 +145,16 @@ reclaiming the ~338 KiB the delay line would have reserved.
 
 A redesigned master delay returned (2026-09-20): `MasterDelay`
 (`src/voice/MasterDelay.h`) rides the summed block inside
-`VoiceManager::processBlock()` — a 36,004-float (~140.6 KiB) ring owned by
+`VoiceManager::processBlock()` — an 18,004-float (~70.3 KiB) ring owned by
 the heap-allocated `VoiceManager` (tempo mode's 16-bit ring lives in the same
 block; only one is live at a time), read fractionally
 with cubic interpolation, with a DC blocker + one-pole lowpass + tanh bound
 in the feedback loop. Capacity (`kCapacitySamples` = 36,004) is decoupled
-from the tuned 750 ms maximum (`kMaxDelaySamples` = 36,000 at 48 kHz).
+from the tuned 375 ms maximum (`kMaxDelaySamples` = 18,000 at 48 kHz; both halved from 36,004 / 36,000 to give the looper its heap).
 Core 0 publishes mix, delay time and feedback through lock-free
 `std::atomic<float>` targets on `VoiceManager`; the audio core reads them
 once per block and eases per sample. Fader 2 is the wet mix; Shift + fader 2
-is the delay time (10–750 ms at 48 kHz, using the delay branch's tuned cap).
+is the delay time (10–375 ms at 48 kHz, using the delay branch's tuned cap).
 The resulting dry-plus-wet signal passes through master gain, then the
 master compressor. Fader 3 keeps volume, and Shift + fader 3 keeps its
 Warm/Glue/Punch compressor macro. Shift + fader 1 sets 0–100% feedback

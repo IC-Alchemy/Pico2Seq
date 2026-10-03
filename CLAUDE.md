@@ -144,7 +144,9 @@ What's tested vs. not, per `tests/CMakeLists.txt` (eight focused targets: `pico2
   editing via `test_voice_edit.cpp`; the master
   delay/compressor/bus via `test_master_delay.cpp`, `test_master_compressor.cpp`
   and `test_master_bus.cpp`; the master reverb adapter `MasterReverb.cpp` via
-  `test_master_reverb.cpp` (and `[reverb_bus]` in `test_master_bus.cpp`); focused
+  `test_master_reverb.cpp` (and `[reverb_bus]` in `test_master_bus.cpp`); the looper
+  (`src/voice/LoopEngine.cpp`, `src/app/LoopController.cpp`, `src/ui/LoopPageControls.h`) via
+  `test_loop_engine.cpp` / `test_loop_controller.cpp` (`[loop]`); focused
   ownership via `pico2seq_voice_tests`),
   session, patch and effect-settings serialization (`src/pico2seq-core/persistence/*`,
   `src/voice/{PatchCodec,EffectsCodec}.cpp`) via `test_persistence.cpp`,
@@ -241,8 +243,9 @@ Matrix/TMAG5273/VL53L1X input  (Core 0)
     processClockEvents() and runs processSequencerStep)
   → VoiceSystem (ID tags + the published VoiceState snapshot) → VoiceManager
   → Voice spans (sources → envelope gain → effects → velocity → main filter → HPF)
-  → master bus: sum → MasterDelay → MasterReverb (mono in, stereo out; controls on the
-    Reverb page, Shift + 6 + 2) → shared master gain → linked stereo compressor
+  → master bus: sum → MasterDelay → LoopEngine (records the mono bus, mixes the loop in; GP6
+    button, Loop Settings page = Shift + loop button) → MasterReverb (mono in, stereo out; controls
+    on the Reverb page, Shift + 6 + 2) → shared master gain → linked stereo compressor
   → fill_audio_buffer()  (Core 1)  → separate L/R PCM16 → I2S @ 48kHz (the master
     volume from `VoiceManager::setGlobalVolume()` is restored from the session and
     driven by Utility-mode fader 3)
@@ -269,6 +272,13 @@ is what makes "Note track at 16 steps, Filter track at 8 steps" possible on the 
   at mix 0 by design. It uses Half tank storage by default because, with Float, the counted
   setup-time allocations exceed the linked heap by ~1.7 KB (Half leaves ~30 KB before the
   uncounted ones; `docs/audio-performance.md`, "Master reverb RAM, stack and SRAM audit").
+- **The looper is audio-owned.** Core 0 may only call `LoopEngine`'s setters and `post*()` (one
+  producer thread); everything else, the packed 12-bit buffer included, is Core 1's. The buffer is
+  a setup-time allocation sized from the free heap (`VoiceManager::allocateLoopBuffer`, called last
+  in `initializeVoices()` with a 40 KiB reserve) and is never grown or freed. Its RAM came from
+  halving `MasterDelay` to 375 ms and dropping `SessionStorage`'s private load buffer; keep
+  `kDelayTimeMaxSeconds` equal to `MasterDelay::kMaxDelaySamples / 48000`. GP7 is the mode strap;
+  the loop button is `PIN_LOOP_BUTTON` (GP6).
 - **Hot rpdsp template members are placed by hook, not by their caller.** Annotating
   `PICO2SEQ_AUDIO_FUNC` on a wrapper does not move the out-of-line template callee it calls.
   `RPDSP_HOT_FUNCTION` (defined in `src/utils/AudioRam.h`, honored by `DarkReverb::process`)

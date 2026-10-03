@@ -418,6 +418,7 @@ void Application::update()
     // The clock can change from the tempo fader, the arp dial, or a loaded
     // session. Publish its current BPM every pass so synced echoes follow it.
     voiceManager->setDelayTempoBpm(uClock.getTempo());
+    loopController.update(uClock.getTempo()); // keep the loop's length on the step grid
     ControlIO::refreshLeds(nowMs);
     ControlIO::refreshOled(nowMs);
 }

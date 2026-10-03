@@ -21,6 +21,7 @@ The Pico2Seq hardware separates sensors, displays, and control surfaces across t
 | **Wire** (I2C0) | GP4 (SDA)<br>GP5 (SCL) | 400 kHz (`kMainBusFrequencyHz`) | TMAG5273A Magnetic Encoder<br>VL53L1X Distance Sensor<br>MPR121 Touch Matrix<br>SH1106 OLED Display | `0x35` (`TMAG5273::ADDRESS_A`)<br>`0x29` (VL53L1X)<br>`0x5A` (MPR121)<br>`0x3C` (OLED) | Primary sensor acquisition & display bus |
 | **Wire1** (I2C1) | GP14 (SDA)<br>GP15 (SCL) | 400 kHz (`kTileBusFrequencyHz`) | Alchemy Modular UI Tiles:<br>- SliderModule (Slot 0)<br>- ButtonModule8 (Slot 1) | `0x08` (SliderModule)<br>`0x0B` (ButtonModule8) | Dedicated control surface tile bus |
 | **GPIO** | GP7 (Input Pullup) | N/A | Hardware Mode Strap Switch | N/A | Selects Param Mode (LOW) vs Utility Mode (HIGH) for Alchemy tiles |
+| **GPIO** | GP6 (Input Pullup) | N/A | Loop Button (momentary to GND) | N/A | Tap/hold/Shift-chord gestures for the looper; debounced 20 ms in software (`LoopPage::Button`) |
 
 ### Interrupt & Hardware Pin Map
 
@@ -29,6 +30,7 @@ The Pico2Seq hardware separates sensors, displays, and control surfaces across t
 - `PIN_ALCHEMY_WIRE1_SDA` = `14` (GP14)
 - `PIN_ALCHEMY_WIRE1_SCL` = `15` (GP15)
 - `PIN_ALCHEMY_MODE_SWITCH` = `7` (GP7, `INPUT_PULLUP`)
+- `PIN_LOOP_BUTTON` = `6` (GP6, `INPUT_PULLUP`, pressed = LOW)
 - Legacy touch-IRQ pin: **removed**. GP10–GP12 are now owned by the I2S audio output (BCLK/LRCK/DATA).
 
 ---

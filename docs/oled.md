@@ -12,6 +12,23 @@ and tempo-dial hint. Recent control movement changes only the middle rows for
 `src/ui/ArpDisplay.h` is shared with host checks; hardware rendering remains in
 `OLEDDisplay::displayArpPage()`.
 
+## Loop Settings page
+
+Shift + the loop button (GP6) opens the live looper page (`OLEDDisplay::displayLoopPage()`,
+[manual §3.9](manual.md#39-looper)). It has the Reverb page's priority (just below it), and the
+loop's own banners (`LOOP ARMED`, `LOOP REC`, `LOOP PLAY`, `LOOP DUB`, `LOOP CLEAR`, `NO LOOP`)
+are ordinary notices that this page covers while it is open:
+
+```
+LOOP SETTINGS
+--------------------------------
+ 1 Loop Vol          80%           <- fader 1..4, value right-aligned
+>2 Length          16 st           <- '>' marks the fader moved last
+ 3 Seq Vol          100%
+ 4 Regen             90%
+REC 5/16               8 Exit      <- the loop's state: EMPTY, ARM in n, REC, PLAY, DUB
+```
+
 ## Reverb page
 
 Shift + button 6 + a press of button 2 opens the live master-reverb page
@@ -97,8 +114,8 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
                                     | (if inactive)
                                     v
 +-------------------------------------------------------------------------+
-| Priority 1b: Live ADSR page, then Reverb page, then Tuning page         |
-| (voiceEnvelope.active, reverbPage.active, then tuningPage.active)       |
+| Priority 1b: Live ADSR page, then Reverb, Loop, then Tuning page        |
+| (voiceEnvelope.active, reverbPage.active, loopPage.active, tuningPage.active) |
 +-------------------------------------------------------------------------+
                                     | (if inactive)
                                     v

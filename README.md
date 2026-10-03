@@ -24,6 +24,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **32-Button Touch Matrix**: MPR121 capacitive touch grid providing 32 dedicated step sequencing pads across two voice banks
 - **Alchemy Modular UI Tiles**: Dedicated `SliderModule` (4 faders + 4 voice selects) and `ButtonModule8` (8 multi-function buttons) on a dedicated I2C1 bus
 - **Hardware Mode Strap (GP7)**: Instant hardware toggle between Parameter mode and Utility mode
+- **Tempo-synced Looper (GP6 button)**: records the mono master bus before the reverb for 4, 8, 16, 32 or 64 steps starting on the next loop boundary, plays it back in sync, and layers further takes over it; `Shift` + the loop button opens a Loop Settings page for loop volume, loop length, sequencer volume and regen. See [Looper](#looper)
 - **Real-time Sensors**: TMAG5273 magnetic encoder (Velocity Encoder board) for responsive parameter dialing
 - **Distance Control**: VL53L1X TOF sensor for hands-free optical parameter modulation (55–700 mm usable range, normalized 0–1)
 - **Visual Feedback**: 128×64 SH1106G OLED display with 6-tier priority screen rendering
@@ -93,6 +94,7 @@ For a practical guide to changing the firmware, start with
 - MPR121 capacitive touch sensor (4×8 grid wired as 32 dedicated step pads)
 - Alchemy Modular UI tiles: `SliderModule` (4 faders + 4 buttons) and `ButtonModule8` (8 buttons) on Wire1
 - GP7 mode strap switch (LOW = Param mode, HIGH = Utility mode)
+- GP6 loop button (momentary, to GND; `INPUT_PULLUP`, LOW = pressed)
 - OLED display (128×64 SH1106G on I2C `Wire` @ `0x3C`)
 - Velocity Encoder board (TMAG5273A magnetic encoder on I2C `Wire` @ `0x35`)
 - VL53L1X time-of-flight distance sensor (I2C `Wire` @ `0x29`)
@@ -239,6 +241,7 @@ MIDI, displays, sensors, or controls on physical hardware.
 | **VL53L1X Distance Sensor** | `Wire` (I2C0) | GP4 (SDA), GP5 (SCL) | Address `0x29` (TOF optical sensor) |
 | **Alchemy Modular UI Tiles** | `Wire1` (I2C1) | GP14 (SDA), GP15 (SCL) | 100 kHz bus; SliderModule & ButtonModule8 |
 | **Mode Strap Switch** | GPIO | GP7 | LOW = Param mode, HIGH = Utility mode |
+| **Loop Button** | GPIO | GP6 | Momentary to GND, internal pull-up; LOW = pressed |
 | **WS2812B LED Matrix** | FastLED | GP1 | 8×4 RGB matrix data pin |
 
 ---
@@ -255,7 +258,7 @@ MIDI, displays, sensors, or controls on physical hardware.
 6. **Real-time recording:** Hold (or Shift+tap to latch) a parameter button and touch step pads to record automation into the pattern.
 7. **Switch function sets:** Toggle the GP7 mode strap between **Param** (Note, Velocity, Filter, Attack, Decay, Octave, Slide, Shift) and **Utility** (Play/Stop, Session Save/Load, Scale, Swing, Theme, Encoder Target, Randomize, Shift).
 8. **Voice Editing mode:** Hold **Shift** and press slider button 4 to stop transport and edit any voice's sound parameters directly with the encoder (button tiles navigate groups/parameters; slider buttons 1–4 pick the voice). See [`docs/voice-edit.md`](docs/voice-edit.md).
-9. **Delay & groove:** Fader 2 sets the master delay wet mix. Hold **Shift** and move it for delay time. In millisecond mode it spans 10–750 ms; **Shift + Utility Delay/Session** toggles tempo sync, where the fader selects whole through dotted and triplet 64th notes. The OLED shows the selected division. Tempo changes update the delay time automatically. Fader 3 keeps master volume; **Shift + fader 3** morphs the compressor across Warm/Glue/Punch. The **Reverb page** (Shift + 6 + 2, below) holds the reverb controls. Shuffle/swing comes from the 16 templates (Utility button 4).
+9. **Delay & groove:** Fader 2 sets the master delay wet mix. Hold **Shift** and move it for delay time. In millisecond mode it spans 10–375 ms; **Shift + Utility Delay/Session** toggles tempo sync, where the fader selects whole through dotted and triplet 64th notes. The OLED shows the selected division. Tempo changes update the delay time automatically. Fader 3 keeps master volume; **Shift + fader 3** morphs the compressor across Warm/Glue/Punch. The **Reverb page** (Shift + 6 + 2, below) holds the reverb controls. Shuffle/swing comes from the 16 templates (Utility button 4).
 10. **Clear a voice / start fresh:** In Utility mode, **Shift + Randomize tap** wipes the selected voice's whole pattern (all step values, gates, slides and per-track lengths); **Shift + Randomize long-press** wipes all four voices the same way. Voice presets, tempo and transport state are kept.
 
 ### Live voice ADSR sliders
@@ -295,6 +298,45 @@ the session (freeze is not), and the reverb output is genuinely stereo: left
 and right PCM16 are converted separately. See
 [the manual](docs/manual.md#37-master-reverb) and the
 [RAM/CPU audit](docs/audio-performance.md#master-reverb-ram-stack-and-sram-audit).
+
+### Looper
+
+A tempo-synced audio looper sits on the mono master bus after the delay and **before the
+reverb**: it records what the voices and delay are playing, and plays it back mixed into the
+same bus, so the reverb, master volume and compressor act on the loop like everything else.
+
+| Gesture | Result |
+|---|---|
+| **Tap the loop button** (GP6) | Arms a take. It begins on the next loop boundary (every 4 or 8 steps for the short loops, every bar for 16/32/64), records exactly the chosen number of steps, then **stops by itself and plays in sync**. With the transport stopped it begins at once. |
+| Tap while armed | Disarms. Tap while the first take is recording: abandons it. |
+| Tap while a loop plays | Arms a **layer**: on the loop's next boundary a new take is recorded over it for one pass. |
+| **Hold the loop button** (0.8 s) | Clears the loop. |
+| **Shift + loop button** | Opens the **Loop Settings** page; **Shift** leaves it. Playback and the loop keep running. |
+
+On the page, the four faders are (the top 15% of every percent fader's travel reads 100%):
+
+1. **Loop volume**: 0–100%, the level of the played-back loop.
+2. **Loop length**: 4, 8, 16, 32 or 64 steps (five equal zones). It sizes the *next* take; a loop that is already recorded keeps its length.
+3. **Sequencer volume**: 0–100%, the level of the live bus in the mix. The recording is taken *before* it, so turning the sequencer down to hear the loop never records quieter.
+4. **Regen**: 10–100%, the share of the loop kept on each repeat. 100% never fades; at 10% the loop is gone after a few passes. A layer bakes in the level the old loop was heard at, then plays at full level again.
+
+The loop is **tempo-locked**: it is a fixed number of steps, so a tempo change speeds it up or
+slows it down with the sequencer (pitch moves with it, like a tape), and the engine re-aligns it
+to the step clock at every repeat. The transport restart plays it from the top.
+
+**Memory and sound.** The loop is stored as packed **12-bit** samples (±2.0 full scale) in
+up to 120 KiB of heap, which is 81,920 samples. A long loop cannot fit at 48 kHz, so the store
+rate follows the loop: 4 and 8 steps are full rate at 90–140 BPM, 16 steps about 31–48 kHz, 32
+steps 15–24 kHz and 64 steps 8–12 kHz (a 64-step loop at 45 BPM is about 4 kHz). The buffer
+is sized from the free heap at boot and shrinks to leave a 40 KiB reserve; the serial console prints a
+`[LOOP] buffer ...` line, and with no buffer the looper is disabled (the bus is unaffected). The delay
+line was halved to **375 ms** (it was 750 ms) to make room, and the session loader no longer keeps a
+private 12 KB buffer. Loop audio and loop settings are not saved with the session. See
+[the manual](docs/manual.md#39-looper) and the
+[RAM audit](docs/audio-performance.md#looper-ram-and-store-rate).
+
+**Wiring.** GP7 is the Param/Utility mode strap, so the loop button is on **GP6**
+(`PIN_LOOP_BUTTON` in `src/app/HardwarePins.h`; change that one constant to move it).
 
 ### Preset System
 

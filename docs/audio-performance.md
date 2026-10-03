@@ -341,6 +341,73 @@ sound and CPU cost and should be decided from the `[DIAG MEM]` numbers below. So
 unchanged by the merge itself: the float ring's indexing and cubic read are the same, and
 `test_master_delay.cpp` checks that each mode after a switch is identical to a fresh delay.
 
+### Looper RAM and store rate
+
+The master-bus looper (`src/voice/LoopEngine.*`, [manual §3.9](manual.md#39-looper)) holds its
+loop as packed 12-bit samples (two in three bytes, ±2.0 full scale) in one heap block that
+`VoiceManager::allocateLoopBuffer()` takes at the very end of `initializeVoices()`, from the heap
+that is free by then. Nothing here was built or run for ARM (no ARM toolchain in the session
+that wrote it); every figure is **counted** from the sources and the earlier audit's measured
+sizes, and the checks that need the board are listed at the end.
+
+**Where the heap came from** (counted, against the Half row of the setup-time accounting above):
+
+| Change | Heap |
+|---|---:|
+| `MasterDelay` millisecond ring 750 ms → 375 ms (`kCapacitySamples` 36,004 → 18,004 words; the 64 KiB synced ring still fits inside the 72,016 B block, so the 5.3 s tempo-synced range is unchanged) | +72,000 B |
+| `SessionStorage` private load buffer removed (`g_loadBuffer`, a 12,460 B `.bss` object; the loader now decodes in place in the caller's snapshot, byte-identical, see [persistence](persistence.md)) | +12,460 B |
+| Left after the accounted payload before the looper: 95,940 + 72,000 + 12,460 | 180,400 B |
+| Loop buffer, at most (`LoopEngine::kDefaultBufferBytes`, 120 KiB = 81,920 samples) | −122,880 B |
+| **Left after the accounted payload with the loop buffer** | **57,520 B** |
+
+The unmeasured allocations (LittleFS, OLED, FastLED, TinyUSB, `std::string` temporaries) come out of that
+57,520 B, so the buffer is **sized at run time** instead of trusted to the arithmetic: `planBufferBytes()`
+takes the lesser of 120 KiB and `rp2040.getFreeHeap()` minus a **40 KiB reserve** (the audio buffer pool
+that Core 1 creates afterwards, LittleFS at save time, and slack), rounded to whole pairs, and gives up
+below 2,048 samples; if the allocator refuses (fragmentation) it retries at half. The boot log says what
+it got: `[LOOP] buffer <bytes> bytes = <samples> samples (heap free <n>)`, or `[LOOP] disabled: ...`, in which
+case the looper is off and the bus is bit-for-bit what it was. The code is also placed in SRAM like the rest
+of the audio path (`PICO2SEQ_AUDIO_FUNC`), which adds to `.data` and shrinks the heap one for one; that
+size is not measured (expect low single-digit KiB).
+
+**Other RAM looked at and left alone** (non-destructive candidates, none taken):
+
+| Candidate | Size | Why not |
+|---|---:|---|
+| `Voice::noiseDiffuseBuf_` (2048 floats) and `Voice::waveguide_` (`PluckedStringVoice<2048>`, 16,536 B) are never used by the same voice at once (`ENGINE_NOISEFX` vs `ENGINE_WAVEGUIDE`) and could share one arena | 8,192 B × 4 voices = 32 KiB | An engine swap would have to re-prepare the waveguide in the shared storage while the audio thread runs; it touches live DSP state and needs board time, so it stays a follow-up |
+| `Application::g_sessionSnapshot` could be the retained store's snapshot | 12,460 B | Capture/load would then write into the crash-recovery copy; a freeze mid-load would invalidate resume |
+| `AudioEngine` L/R buffers, OLED framebuffer and shadow, `blendCache`, `frequencyLookupTable` | ≈ 2–3 KiB together | Not worth the risk |
+
+**What the loop sounds like.** One head walks the stored samples; the number stored is
+`min(capacity, loop frames)`, so a loop that fits is stored at 48 kHz and a longer one is box-averaged
+down on the way in and linearly interpolated and smoothed (two one-pole stages, only below 90% of the full
+rate) on the way out. At the full 81,920-sample buffer the effective store rate is:
+
+| BPM | 4 steps | 8 steps | 16 steps | 32 steps | 64 steps |
+|---:|---:|---:|---:|---:|---:|
+| 60 | 48.0 kHz | 41.0 kHz | 20.5 kHz | 10.2 kHz | 5.1 kHz |
+| 90 (power-on tempo) | 48.0 | 48.0 | 30.7 | 15.4 | 7.7 |
+| 120 | 48.0 | 48.0 | 41.0 | 20.5 | 10.2 |
+| 140 | 48.0 | 48.0 | 47.8 | 23.9 | 11.9 |
+| 180 | 48.0 | 48.0 | 48.0 | 30.7 | 15.4 |
+
+The slowest case, 64 steps at 45 BPM, is 21.3 s in 81,920 samples: 3.8 kHz. The 12-bit store is 72 dB
+of range with one count = 1/1024 (about −60 dBFS re 1.0); there is no dither. A smaller buffer from the
+run-time sizing scales every rate in the table proportionally.
+
+**CPU** (estimate, not measured): per output frame the engine does one 64-bit add and compare, a linear
+interpolation, two gain multiplies and, while recording, an add; a stored-sample step (up to once per frame)
+adds a 12-bit unpack, and a take bakes (unpack, add, soft clip, pack) once per stored sample. That is a few
+tens of cycles per frame, on the order of 1% of one 225 MHz core at 48 kHz. Idle, it is a queue probe and two
+atomic loads per 32-frame span. Check the `render_us` / `max_us` of `[DIAG C1]` with a loop playing and
+recording.
+
+**To confirm on the board:** (1) the `[LOOP] buffer ...` line and `[DIAG MEM] heapFloor` after boot (the
+accounting predicts a floor above the 40 KiB reserve); (2) `[DIAG C1] max_us` stays well under 5,333 with a
+16-step loop recording and with it playing; (3) `arm-none-eabi-nm -S -C` shows `LoopEngine::renderSpan_`,
+`advance_`, `bake_` and the other audio-thread members at `0x200...` addresses; (4) the loop button on GP6
+reads LOW when pressed; (5) the Loop Settings page, regen and the sync behave by ear at several tempos.
+
 ### Hot-code placement (measured, `nm -S` on the Half ELF; addresses `0x2000_0000..` are SRAM)
 
 | Function | Address | Region | Bytes |

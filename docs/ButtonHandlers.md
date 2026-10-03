@@ -161,6 +161,19 @@ Step actions resolve to the pad's bank-mapped voice. Gate sequence length entry 
 
 ---
 
+### 5b. Loop button and Loop Settings page (GP6)
+
+The loop button is its own pin, not a tile button, and means the same in Param and Utility mode.
+`LoopPage::Button` (`src/ui/LoopPageControls.h`) debounces it (20 ms) and sorts each press: **tap**
+(released inside 0.8 s) arms or disarms a take, or abandons an unfinished first take; **hold**
+(0.8 s, fires once mid-press) clears the loop; a press with **Shift held at the press edge** is a
+chord and opens the Loop Settings page instead. `AlchemyControlBridge::handleLoopButton` acts on
+tap and hold on every screen except the voice editor; `handleLoopPage` follows the Reverb page's
+contract: the opening fingers must lift first (`waitRelease`), Shift leaves, and while it is open
+every tile button, voice button, pad and the encoder are swallowed. Faders 1–4 are loop volume,
+loop length, sequencer volume and regen (`ControlSurface::loop*ForFader`, top 15% = 100%), engaged
+by the usual pickup move. The policy that decides *when* a take starts is `app/LoopController`.
+
 ### 6. Tuning Page (Shift + Utility 3)
 
 Holding Shift and pressing Utility button 3 (bit 2, the Scale Cycle button) opens the live Tuning page (`TuningPage::Controls`, `src/ui/TuningPageControls.h`; the page itself is documented in [docs/tuning.md](tuning.md) and [docs/oled.md](oled.md)). `AlchemyControlBridge` decides that chord before every other Shift action, and only in Utility mode while no other modal chord (live ADSR, Reverb page, gate-length hold) owns the panel. While the page is open — and while its opening chord releases — it consumes **every** button, fader, pad and encoder edge:

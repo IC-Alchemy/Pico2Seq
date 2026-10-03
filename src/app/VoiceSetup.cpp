@@ -28,6 +28,20 @@ void initializeVoices()
         VoiceEdit::seedModifiers(*AppState::sequencers[i]);
     }
 
+    // The looper's 12-bit buffer comes LAST, from whatever heap the voices, delay and reverb
+    // left, keeping a reserve for the audio pool and flash I/O. No buffer just means no
+    // looper: the bus is unaffected.
+    const int freeHeap = rp2040.getFreeHeap();
+    const bool looper = voiceManager->allocateLoopBuffer(freeHeap > 0 ? static_cast<size_t>(freeHeap) : 0);
+    loopController.bind(&voiceManager->loop(), 48000.0f);
+    if (looper)
+        Serial.printf("[LOOP] buffer %u bytes = %u samples (heap free %d)\n",
+                      static_cast<unsigned>(voiceManager->loopBufferBytes()),
+                      static_cast<unsigned>(voiceManager->loop().capacitySamples()), freeHeap);
+    else
+        Serial.printf("[LOOP] disabled: heap free %d is under the %u byte reserve plus a usable buffer\n",
+                      freeHeap, static_cast<unsigned>(LoopEngine::kHeapReserveBytes));
+
     // Publishing happens later in Application::begin(), after the rest of setup.
 }
 

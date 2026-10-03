@@ -76,7 +76,7 @@ disabled; TinyUSB CDC remains available for the serial console.
   }
   ```
   Uses the ARM Cortex-M33 hardware saturation instruction `__SSAT` to clamp the scaled 32-bit integer into signed 16-bit range in a single cycle.
-- **Stereo output**: The voices sum to one mono bus, which the master delay processes in place. The master reverb (DarkReverb) then turns it into distinct left/right signals, master gain and the Warm/Glue/Punch macro apply to both, and a **linked stereo compressor** ducks both channels by the same amount. `fill_audio_buffer()` calls `VoiceManager::processStereoBlock()` into two static float buffers and `AudioSamples::interleavePcm16()` converts each channel separately (`out[2*i] = toPcm16(left[i]); out[2*i+1] = toPcm16(right[i]);`). With the reverb mix at zero the two channels are bit-identical, so an unchanged project sounds exactly as before. The legacy mono `processBlock()` remains for existing callers and tests: it returns `0.5f * (left + right)`.
+- **Stereo output**: The voices sum to one mono bus, which the master delay processes in place and the looper (`LoopEngine`) records and mixes into, still in place and still mono. The master reverb (DarkReverb) then turns it into distinct left/right signals, master gain and the Warm/Glue/Punch macro apply to both, and a **linked stereo compressor** ducks both channels by the same amount. `fill_audio_buffer()` calls `VoiceManager::processStereoBlock()` into two static float buffers and `AudioSamples::interleavePcm16()` converts each channel separately (`out[2*i] = toPcm16(left[i]); out[2*i+1] = toPcm16(right[i]);`). With the reverb mix at zero the two channels are bit-identical, so an unchanged project sounds exactly as before. The legacy mono `processBlock()` remains for existing callers and tests: it returns `0.5f * (left + right)`.
 
 ### 2.2 Core 0: System Control, UI, Sensors & Clock
 - **Execution**: Runs Arduino `setup()` and `loop()`.
@@ -201,7 +201,7 @@ documented in the
 The master delay does not share the removed global delay's races: Core 0
 publishes mix, time mode, note division, BPM and feedback through lock-free
 atomics on `VoiceManager`, and Core 1 reads them once per block. Millisecond
-mode keeps the original full-rate 10–750 ms path. Tempo mode stores a
+mode keeps the original full-rate 10–375 ms path (it was 10–750 ms until the delay line was halved to free heap for the looper). Tempo mode stores a
 low-passed 6 kHz, 16-bit repeat line so a whole note at 45 BPM fits in SRAM
 (in the same memory block as the millisecond ring, since only one is live at a time);
 the live uClock tempo changes its target time without moving the fader.
@@ -294,6 +294,8 @@ VoiceManager::processBlock() (Core 1, up to 256 frames per block)
     Add voice samples * mixLevel to the block
   Master delay on the summed block: eased mix/time, fractional cubic read,
   DC blocker + lowpass + tanh in the feedback loop
+  Looper (LoopEngine, in 32-frame spans) on the delayed mono bus: drain loop commands, tap the
+  bus into the recording head, mix sequencer volume * bus + loop volume * loop
   Master reverb (rpdsp::DarkReverb, 16384-sample tank at half rate) on the delayed mono bus,
   in 64-frame control quanta: the mono bus feeds both engine inputs; wet and dry blend with
   one shared per-sample mix (a settled mix of zero is the dry bus exactly, but the tank
@@ -352,8 +354,10 @@ Portable core with **no hardware, UI, or Arduino dependencies**:
 
 ### 6.3 `src/voice/`
 - `Voice.h/.cpp`: Synthesizer voice DSP chain with lock-free staging and gate-controlled pitch commits.
-- `VoiceManager.h/.cpp`: Multi-voice lifecycle management, master mixing, the stereo master bus (delay → reverb → shared master gain → linked compressor), and preset attachment.
-- `MasterDelay.h`: Master delay on the summed mono bus.
+- `VoiceManager.h/.cpp`: Multi-voice lifecycle management, master mixing, the stereo master bus (delay → looper → reverb → shared master gain → linked compressor), and preset attachment.
+- `MasterDelay.h`: Master delay on the summed mono bus (375 ms maximum in millisecond mode).
+- `LoopEngine.h/.cpp`: The tempo-synced looper (audio thread): packed 12-bit store, one head for record/play/overdub, regen as a per-pass gain, sync-snap with crossfade, lock-free control targets and a small SPSC command ring.
+- `LoopTiming.h`: Loop sizes (4/8/16/32/64 steps), frames per step and the take-start quantisation, shared by the engine, the Core 0 controller and the tests.
 - `MasterReverb.h/.cpp`: Audio-owned adapter around `rpdsp::DarkReverb<16384>` (Half storage by default): lock-free control targets, eased coefficients, smoothed mix, freeze ramp, host-observable applied state.
 - `ReverbSettings.h`: The reverb's eight user controls and freeze as plain data, with `ReverbParams` ranges/defaults and sanitizing; portable, shared by the audio adapter, the session codec and the control surface.
 - `EffectsCodec.h/.cpp`: `ReverbSettings` ↔ the format-3 `EffectsSnapshot` (see [persistence](persistence.md)).
@@ -367,6 +371,7 @@ Portable core with **no hardware, UI, or Arduino dependencies**:
   `settingsMode` and `currentSubMode`; the former `isVoice2Mode`,
   `inPresetSelection` and `inVoiceParameterMode` mirrors are removed.
 - `ControlSurfaceLogic.h/.cpp`: Unit-tested decision logic (`ModeStabilizer`, `PadBank`, `ShiftLatch`, `FaderMap`, and the Reverb page's fader-to-value mapping, names and formatting).
+- `LoopPageControls.h`: The loop button's debounce and tap/hold/Shift-chord classifier (`LoopPage::Button`) and the Loop Settings page's gesture state (`LoopPage::Controls`, held in `UIState`); `app/LoopController.h/.cpp` is the Core 0 policy (quantised arming, step-synced starts, boundary syncs, tempo tracking) over the engine's command ring.
 - `ReverbPageControls.h`: The Reverb page's entry gesture and pickup state (`ReverbPage::Controls`, held in `UIState`); `app/ReverbEditor.h/.cpp` writes the page's values to `VoiceManager`.
 - `TuningPageControls.h` / `TuningPageLogic.h`: The Tuning page (Shift + Utility 3): entry gesture and press/hold tracking, plus the pure logic that turns its pads, encoder, buttons and faders into a `tuning::Selection`, the playing scale and the `Bank`, and every string the page prints (see [tuning.md](tuning.md)).
 - `UIEventHandler.h/.cpp`: Event routing for MPR121 pads and control surface actions.
@@ -434,7 +439,7 @@ VoiceSystem (voice IDs and control VoiceState snapshots)
          ▼ (bounded SPSC control queues)
 VoiceManager / 4x Voice DSP Chains (Core 1)
          │
-         ▼ master bus: delay → reverb → master gain → linked stereo compressor
+         ▼ master bus: delay → looper → reverb → master gain → linked stereo compressor
          │
          ▼ (fill_audio_buffer @ 48kHz)
 AudioSamples::interleavePcm16() [ARM Cortex-M33 __SSAT, left and right separately]

@@ -481,4 +481,32 @@ void formatReverbValue(ReverbControl control, float value, char *out, size_t siz
   }
 }
 
+const char *loopControlName(LoopControl control) noexcept
+{
+  switch (control)
+  {
+  case LoopControl::LoopVolume: return "Loop Vol";
+  case LoopControl::LoopLength: return "Length";
+  case LoopControl::SequencerVolume: return "Seq Vol";
+  case LoopControl::Regen: return "Regen";
+  case LoopControl::Count: break;
+  }
+  return "";
+}
+
+void formatLoopValue(LoopControl control, float value, char *out, size_t size) noexcept
+{
+  if (!out || size == 0)
+    return;
+  if (control == LoopControl::Count || !(value == value))
+  {
+    std::snprintf(out, size, "--");
+    return;
+  }
+  if (control == LoopControl::LoopLength)
+    std::snprintf(out, size, "%u st", static_cast<unsigned>(std::lround(static_cast<double>(value))));
+  else
+    std::snprintf(out, size, "%ld%%", std::lround(static_cast<double>(std::clamp(value, 0.0f, 1.0f)) * 100.0));
+}
+
 } // namespace ControlSurface

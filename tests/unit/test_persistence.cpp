@@ -607,6 +607,41 @@ TEST_CASE("a format-1 file upgrades through decodeSnapshotFrame with default eff
             CHECK(track.stepCount == SequencerConstants::DEFAULT_STEPS_COUNT);
 }
 
+TEST_CASE("loading in place, as SessionStorage::load does, matches loading through a private buffer", "[persistence]")
+{
+    // SessionStorage used to read into its own static buffer and copy out; it now reads
+    // straight into the caller's snapshot (12,460 bytes of heap saved). Same bytes, every format.
+    const struct { uint16_t version; size_t bytes; } formats[] = {
+        {SNAPSHOT_FORMAT_VERSION_V1, sizeof(ProjectSnapshotV1)},
+        {SNAPSHOT_FORMAT_VERSION_V2, sizeof(ProjectSnapshotV2)},
+        {SNAPSHOT_FORMAT_VERSION_V3, sizeof(ProjectSnapshotV3)},
+        {SNAPSHOT_FORMAT_VERSION, sizeof(ProjectSnapshot)},
+    };
+    for (const auto &format : formats)
+    {
+        CAPTURE(format.version);
+        ProjectSnapshot written = validSnapshot();
+        if (format.version == SNAPSHOT_FORMAT_VERSION_V1)
+            written.laneModel = 0;
+        const auto frame = makeFrame(written, format.version, format.bytes);
+
+        ProjectSnapshot viaPrivateBuffer;
+        std::memset(&viaPrivateBuffer, 0, sizeof viaPrivateBuffer); // the old static buffer
+        REQUIRE(decode(frame, viaPrivateBuffer));
+
+        // What load() does: the caller's snapshot holds an earlier song; clear the tail the
+        // frame does not cover, read the payload in, decode where it lies.
+        ProjectSnapshot caller;
+        std::memset(&caller, 0xC3, sizeof caller);
+        if (format.bytes < sizeof caller)
+            std::memset(reinterpret_cast<uint8_t *>(&caller) + format.bytes, 0, sizeof caller - format.bytes);
+        std::memcpy(&caller, frame.data() + 12, format.bytes);
+        REQUIRE(decodeSnapshotFrame(frame.data(), reinterpret_cast<const uint8_t *>(&caller),
+                                    sizeof caller, caller));
+        CHECK(std::memcmp(&caller, &viaPrivateBuffer, sizeof caller) == 0);
+    }
+}
+
 TEST_CASE("a format-3 file round-trips its effect settings bit for bit", "[persistence][effects]")
 {
     ProjectSnapshot snap = validSnapshot();

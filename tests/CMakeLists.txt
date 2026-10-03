@@ -84,6 +84,7 @@ add_library(pico2seq_voice_code OBJECT
   ${SRC_DIR}/voice/VoiceEditParameters.cpp
   ${SRC_DIR}/voice/VoiceManager.cpp
   ${SRC_DIR}/voice/MasterReverb.cpp
+  ${SRC_DIR}/voice/LoopEngine.cpp
 )
 
 # Session persistence (portable snapshot + codecs); only the full suite uses it.
@@ -133,6 +134,7 @@ set(PICO2SEQ_VOICE_TEST_SOURCES
   unit/test_master_bus.cpp
   unit/test_master_delay.cpp
   unit/test_master_reverb.cpp
+  unit/test_loop_engine.cpp
 )
 
 add_executable(pico2seq_tests
@@ -149,6 +151,8 @@ add_executable(pico2seq_tests
   unit/test_stack_watermark.cpp
   unit/test_serial_rate_limit.cpp
   unit/test_lidar_recording.cpp
+  unit/test_loop_controller.cpp
+  ${SRC_DIR}/app/LoopController.cpp
   ${SRC_DIR}/app/VoicePlayback.cpp
   ${SRC_DIR}/app/VoiceEnvelope.cpp
   ${SRC_DIR}/app/ReverbEditor.cpp

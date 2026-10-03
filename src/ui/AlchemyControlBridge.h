@@ -5,7 +5,9 @@
 #include <Wire.h>
 
 #include "../AlchemyUI/src/AlchemyPanel.h"
+#include "../app/LoopController.h"
 #include "ControlSurfaceLogic.h"
+#include "LoopPageControls.h"
 #include "UIState.h"
 
 class Sequencer;
@@ -40,6 +42,12 @@ class SequencerView;
  *     Mix / Decay / Damping, button 1 toggles Freeze, button 2 switches to the
  *     TONE layer (Low cut / Diffusion / Modulation / Width), Shift exits
  *     (ui/ReverbPageControls.h, docs/manual.md).
+ *   - The loop button (GP6, its own pin): tap arms or cancels a take that starts on the next
+ *     loop boundary and records the chosen number of steps; tapping a playing loop layers a
+ *     new take; hold clears it. Shift + the loop button opens the live Loop Settings page:
+ *     faders 1-4 are loop volume, loop length (4/8/16/32/64 steps), sequencer volume and
+ *     regen, and Shift exits (ui/LoopPageControls.h, docs/manual.md). The loop button
+ *     works on every screen; only the voice editor and its release tail mute it.
  *   - Utility mode, hold Shift then press button 3, opens the live Tuning page: one page
  *     holds the whole library, one tuning per pad, lit in its family's colour (tap = choose,
  *     and the scale switches to one that belongs to the tuning). Buttons 1-6 pick a scale
@@ -70,6 +78,8 @@ public:
    * @param modeSwitchPin GP-pin number of the mode strap (PIN_ALCHEMY_MODE_SWITCH).
    */
   void setModeSwitchPin(uint8_t modeSwitchPin) { modeSwitchPin_ = modeSwitchPin; }
+  /** GP-pin of the loop button (PIN_LOOP_BUTTON, INPUT_PULLUP, pressed = LOW). */
+  void setLoopButtonPin(uint8_t loopButtonPin) { loopButtonPin_ = loopButtonPin; }
   void begin(TwoWire &bankA, TwoWire *bankB, uint32_t nowMs);
 
   /**
@@ -153,6 +163,14 @@ private:
   // leaving or waiting for every button to lift): the caller returns immediately.
   bool handleReverbPage(uint8_t buttons, uint8_t voices, UIState &uiState);
   void handleReverbFaders(UIState &uiState);
+  // Loop button and Loop Settings page (Shift + loop button). handleLoopButton acts on a
+  // tap or hold; handleLoopPage has the handleReverbPage contract (true = the page owns
+  // this pass, the caller returns).
+  void handleLoopButton(LoopPage::Button::Event event, uint32_t nowMs, UIState &uiState);
+  bool handleLoopPage(uint8_t buttons, uint8_t voices, LoopPage::Button::Event event,
+                      UIState &uiState);
+  void handleLoopFaders(UIState &uiState);
+  void announceLoopPhase(uint32_t nowMs, UIState &uiState);
   // Live Tuning page (Shift + Utility 3), same contract as handleReverbPage.
   bool handleTuningPage(uint8_t buttons, uint8_t voices, uint32_t nowMs, UIState &uiState);
   void handleTuningFaders(UIState &uiState);
@@ -192,6 +210,9 @@ private:
   // Shift edges re-arm tempo/feedback, mix/time and volume/macro.
   bool shiftWasHeld_ = false;
   uint8_t modeSwitchPin_ = 7; // GP7 default; setup1 sets PIN_ALCHEMY_MODE_SWITCH
+  uint8_t loopButtonPin_ = 6; // GP6 default; setup1 sets PIN_LOOP_BUTTON
+  LoopPage::Button loopButton_;
+  LoopController::Phase lastLoopPhase_ = LoopController::Phase::Empty;
   uint8_t lastVoiceIndex_ = 0;
   int lastStepForEdit_ = -1;
   bool lastArpShift_ = false;

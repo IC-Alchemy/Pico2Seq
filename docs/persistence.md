@@ -82,7 +82,7 @@ src/voice/EffectsCodec.h / .cpp      ReverbSettings  <->  EffectsSnapshot  (effe
 
 src/app/                              firmware glue (hardware-bound, NOT in pico2seq-core)
   Session.h / .cpp                    whole-project capture + 3-phase apply + deferred save/load requests
-  SessionStorage.h / .cpp             LittleFS file  (/session.p2s via /session.tmp)  +  static ~12.4 KB buffers
+  SessionStorage.h / .cpp             LittleFS file  (/session.p2s via /session.tmp); no buffer of its own
   RetainedSession.h / .cpp            NOLOAD retained-RAM store + 1 Hz refresh + boot-completed accounting
   Application.cpp                     boot order, 1 Hz mirror, deferred flash I/O, stop-autosave, recovery park
 ```
@@ -136,7 +136,7 @@ adds only the 48-byte `EffectsSnapshot`. `SessionStorage::load` reads the header
 asks `payloadSizeForVersion()` how many bytes to read (10,312 / 12,400 / 12,448; **0 for a
 version this build does not know, which is refused**) and hands the frame to
 `decodeSnapshotFrame()`. That verifies magic/version/size/CRC against the file's own version,
-upgrades the payload **in place** in the static load buffer (`upgradeFromV1()` /
+upgrades the payload **in place** in the caller's snapshot (`upgradeFromV1()` /
 `upgradeFromV2()`: the missing tail is filled, the effect record takes
 `applyEffectsDefaults()`, i.e. reverb mix 0 and the documented audition values) and validates
 the result. An upgraded project therefore sounds exactly as it did before, and the next save
@@ -391,11 +391,14 @@ does; the retained path relies on CRC + the same check at apply time.
 
 ## 7. Gotchas (read before changing anything)
 
-1. **12 KB buffers are static, never stack.** `SessionStorage` keeps
-   `g_loadBuffer` (12,460 B) as file-static — Core 0's Arduino loop stack
-   cannot hold it. `save()` needs no buffer: callers pass a file-static
-   snapshot (e.g. `Application::g_sessionSnapshot`) that it CRCs and writes
-   in place. `Application` also keeps a `g_bootSnapshotPending` flag for the
+1. **The 12 KB snapshot is static, never stack.** Core 0's Arduino loop stack
+   cannot hold it, so callers pass a file-static snapshot
+   (`Application::g_sessionSnapshot`). `SessionStorage::load()` clears the part of it an
+   older frame does not cover, reads the payload straight into it and decodes in place;
+   it used to read into a private second 12,460 B static buffer and copy out, which cost
+   12,460 B of heap for nothing (removed with the looper's RAM budget). The price: `out`
+   is scratch on any result other than `Ok`, and both callers only read it after `Ok`.
+   `save()` needs no buffer either: it CRCs and writes the same snapshot in place. `Application` also keeps a `g_bootSnapshotPending` flag for the
    deferred 3-phase boot apply.
 2. **Never do flash I/O in ISR / uClock callback / input-scan context.**
    Use `Session::requestSave/requestLoad` → `consumePendingAction` in

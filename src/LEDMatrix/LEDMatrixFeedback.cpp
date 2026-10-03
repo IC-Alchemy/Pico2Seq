@@ -1264,6 +1264,36 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
     return;
   }
 
+  if (uiState.loopPage.active) {
+    // One bar per fader row, the same as the reverb page: lit LEDs = 0..8 of each setting's
+    // travel (loop length shows its zone, 1..5 of 5, as 1/3/4/6/8 lit).
+    const LoopEngine *loop = voiceManager ? &voiceManager->loop() : nullptr;
+    const CRGB lit = getVoiceGateColor(*getActiveThemeColors(), uiState.selectedVoiceIndex, true);
+    for (uint8_t row = 0; row < 4; ++row) {
+      float travel = 0.0f;
+      switch (ControlSurface::loopControlForFader(row)) {
+      case ControlSurface::LoopControl::LoopVolume: travel = loop ? loop->loopVolume() : 0.0f; break;
+      case ControlSurface::LoopControl::LoopLength:
+        travel = static_cast<float>(LoopTiming::indexForSteps(loopController.sizeSteps()) + 1) /
+                 static_cast<float>(LoopTiming::kSizeCount);
+        break;
+      case ControlSurface::LoopControl::SequencerVolume: travel = loop ? loop->sequencerVolume() : 1.0f; break;
+      case ControlSurface::LoopControl::Regen:
+        travel = loop ? (loop->regen() - LoopTiming::kMinRegen) / (1.0f - LoopTiming::kMinRegen) : 1.0f;
+        break;
+      case ControlSurface::LoopControl::Count: break;
+      }
+      const uint8_t count = static_cast<uint8_t>(std::min(std::max(travel, 0.0f), 1.0f) * 8.0f + 0.5f);
+      for (uint8_t column = 0; column < 8; ++column) {
+        const int index = row * 8 + column; // LedLayout: linear index = y * 8 + x
+        const CRGB pixel = column < count ? lit : CRGB::Black;
+        smoothedTargetColorBuffer[index] = pixel;
+        ledMatrix.getLeds()[index] = pixel;
+      }
+    }
+    return;
+  }
+
   if (uiState.tuningPage.active) {
     renderTuningPage(ledMatrix, uiState);
     return;

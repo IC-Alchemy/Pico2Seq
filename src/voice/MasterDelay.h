@@ -19,19 +19,21 @@
 class MasterDelay
 {
 public:
-    // The original full-rate path keeps its 10..750 ms sound and precision.
-    // The long synced path stores 6 kHz, 16-bit repeats: 32,768 slots cover
-    // a whole note at the slowest supported 45 BPM.
+    // The full-rate path keeps its sound and precision over 10..375 ms (it was
+    // 10..750 ms; halving the line returned 72,000 bytes of heap to the looper, see
+    // docs/audio-performance.md). The long synced path stores 6 kHz, 16-bit
+    // repeats: 32,768 slots cover a whole note at the slowest supported 45 BPM.
     //
     // Only one of the two rings is live at a time (synced_ picks it), so they share
     // one block of kCapacitySamples * 4 bytes: the float ring uses it as
     // kCapacitySamples floats, the synced ring as kSyncCapacitySamples int16s at the
     // start of the same bytes. That saves the 64 KiB a separate synced ring would
-    // cost. Switching modes marks the incoming ring empty (fastValid_/syncValid_ = 0)
+    // cost, and at the halved line the synced ring still fits (65,536 of 72,016
+    // bytes). Switching modes marks the incoming ring empty (fastValid_/syncValid_ = 0)
     // and reads before a slot is rewritten return silence, so the other ring's bytes
     // are never interpreted. reset() zeroes the block, which is silence in both views.
-    static constexpr size_t kCapacitySamples = 36004;
-    static constexpr size_t kMaxDelaySamples = 36000;
+    static constexpr size_t kCapacitySamples = 18004;
+    static constexpr size_t kMaxDelaySamples = 18000;
     static constexpr size_t kSyncCapacitySamples = 32768;
     static constexpr uint8_t kSyncDecimation = 8;
     static_assert(sizeof(float) == sizeof(uint32_t), "the shared block holds one float per word");

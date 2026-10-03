@@ -31,7 +31,8 @@ inline void beginGateLengthHold(UIState &state, uint8_t voice) noexcept
         state.arp.active() || state.voiceEditor.active || state.controlsWaitRelease ||
         state.voiceEnvelope.active || state.voiceEnvelope.chordPending ||
         state.voiceEnvelope.waitRelease || state.reverbPage.active ||
-        state.reverbPage.waitRelease || state.tuningPage.active ||
+        state.reverbPage.waitRelease || state.loopPage.active ||
+        state.loopPage.waitRelease || state.tuningPage.active ||
         state.tuningPage.waitRelease) return;
     state.gateSeqLengthVoice = static_cast<int8_t>(voice);
 }
@@ -45,7 +46,8 @@ inline bool updateGateLengthHold(UIState &state, uint8_t voice, bool held,
         state.voiceEditor.active || state.controlsWaitRelease ||
         state.voiceEnvelope.active || state.voiceEnvelope.chordPending ||
         state.voiceEnvelope.waitRelease || state.reverbPage.active ||
-        state.reverbPage.waitRelease || state.tuningPage.active ||
+        state.reverbPage.waitRelease || state.loopPage.active ||
+        state.loopPage.waitRelease || state.tuningPage.active ||
         state.tuningPage.waitRelease || state.selectedVoiceIndex != voice)
     {
         cancelGateLengthHold(state);
@@ -115,6 +117,22 @@ inline void openReverbPage(UIState &state) noexcept
 inline void closeReverbPage(UIState &state) noexcept
 {
     state.reverbPage.lastControl = 255;
+    state.voiceSwitchTriggered = state.resetStepsLightsFlag = true;
+}
+
+// The Loop Settings page is live as well (transport and loop keep running) and competes with
+// the same gestures, so it drops the same ones. LoopPage::Controls::poll() has already set
+// active/waitRelease.
+inline void openLoopPage(UIState &state) noexcept
+{
+    openReverbPage(state);
+    state.loopPage.lastControl = 255;
+}
+
+// Leaving redraws the step lights; the page struct already cleared its own flags.
+inline void closeLoopPage(UIState &state) noexcept
+{
+    state.loopPage.lastControl = 255;
     state.voiceSwitchTriggered = state.resetStepsLightsFlag = true;
 }
 
