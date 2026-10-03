@@ -1,9 +1,11 @@
 // LoopController.h — Core 0 policy of the looper: when a take starts, what it is called,
 // and how the playing loop stays on the step grid.
 //
-// Musical role: tap the loop button and the take waits for the next loop boundary (a bar
-// for the long loops), records exactly the chosen number of steps, then plays in sync;
-// tap again to layer another pass over it, hold to clear it. Technical role: a thin state
+// Musical role: tap the loop button and the take waits for the next loop boundary, records
+// exactly the chosen number of steps (4, 8 or 16), then plays in sync. Every further tap
+// layers: one more pass mixes the live bus into the loop and writes the sum back over it, so
+// many layers share the one small buffer. A tap while a pass is still running queues the
+// next layer to start the instant that pass ends. Hold to clear. Technical role: a thin state
 // machine over LoopEngine's command ring. It owns no audio and no hardware: the step
 // clock, the tempo and the button gestures are passed in, so it is portable and tested
 // against the real engine (tests/unit/test_loop_controller.cpp). Core 0 only.
@@ -25,10 +27,10 @@ public:
     {
         Unavailable, // no loop buffer (not enough heap)
         Empty,
-        Armed,       // waiting for the next boundary
+        Armed,       // waiting for the next boundary to start a take
         Recording,   // first take in progress
         Playing,
-        Overdubbing, // layering a take over the playing loop
+        Overdubbing, // a layer pass: live bus mixed into the loop and baked back
     };
 
     // Attach the engine this controller drives. `engine` must outlive the controller.
@@ -45,7 +47,7 @@ public:
     uint8_t sizeSteps() const noexcept { return LoopTiming::stepsForIndex(sizeIndex_); }
 
     // --- Button gestures ---------------------------------------------------------
-    void tap(float bpm) noexcept;  // arm / disarm / cancel a take
+    void tap(float bpm) noexcept;  // arm / disarm a take; during a pass, queue / withdraw the next layer
     void clear() noexcept;         // forget the loop
 
     // --- Clock (call from the step-processing slice) -----------------------------
@@ -60,6 +62,8 @@ public:
     Phase phase() const noexcept;
     uint8_t loopSteps() const noexcept { return playingSteps_; }   // steps of the loop in the engine, 0 = none
     uint8_t armedSteps() const noexcept { return armSteps_; }      // steps of the take being waited for
+    // True while a layer is queued behind the pass that is running (shown as "+DUB").
+    bool layerQueued() const noexcept;
     // Steps until an armed take begins (1 = the very next step); 0 when not armed.
     uint8_t stepsUntilStart() const noexcept;
     // Step (1-based) the loop is at, for "REC 5/16"; 0 when nothing is moving.
@@ -68,6 +72,7 @@ public:
 private:
     bool postRecord_(uint32_t stepIndex, float bpm) noexcept;
     void flushPending_() noexcept;
+    Phase enginePhase_() const noexcept;
     bool takePending_() const noexcept;
     bool firstTakeInFlight_() const noexcept;
 

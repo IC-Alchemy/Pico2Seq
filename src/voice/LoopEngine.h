@@ -1,19 +1,21 @@
 // LoopEngine.h — tempo-synced audio looper on the mono master bus.
 //
-// Musical role: tap the loop button and, at the next bar line, the engine records the
-// mono mix (voices + delay, BEFORE the reverb) for exactly the chosen number of steps,
-// then plays it back in sync, mixed into the same bus ahead of the reverb, so the room
-// sits on the loop like it sits on everything else. Pressing again layers a new take over
-// it; "regen" says how much of the loop is left on each repeat (100% = it never fades).
+// Musical role: tap the loop button and, at the next loop boundary, the engine records the
+// mono mix (voices + delay, BEFORE the reverb) for exactly the chosen number of steps (4, 8
+// or 16), then plays it back in sync, mixed into the same bus ahead of the reverb, so the
+// room sits on the loop like it sits on everything else. Every further tap LAYERS: one more
+// pass mixes the live bus into the stored loop and writes the sum back over it, so any
+// number of layers live in the one small buffer. "Regen" says how much of the loop is left
+// on each repeat (100% = it never fades).
 //
 // Technical role: audio-thread DSP plus the small cross-core surface around it.
 //
 //   * Storage is one packed 12-bit buffer (two samples in three bytes, +-2.0 full scale)
-//     allocated once at setup (VoiceManager::allocateLoopBuffer). A long loop cannot fit
+//     allocated once at setup (VoiceManager::allocateLoopBuffer). A bar does not always fit
 //     at 48 kHz, so the buffer always holds the WHOLE loop and the store rate follows:
 //     stored samples = min(capacity, loop frames), box-averaged on the way in and linearly
 //     interpolated + smoothed on the way out. Short loops therefore run at the full rate;
-//     the long ones trade bandwidth for length (docs/audio-performance.md has the table).
+//     a slow bar trades bandwidth for length (docs/audio-performance.md has the table).
 //   * One head drives everything. `pos_` walks the stored samples; the same step reads the
 //     old sample, plays it, and writes the new one behind itself, so recording, overdubbing
 //     and playing are one loop with different write rules.
@@ -24,8 +26,16 @@
 //     left alone, so jitter never causes clicks, and a real offset snaps with a short
 //     crossfade.
 //   * Regen is a per-pass playback gain, not a rewrite of the buffer: the stored loop is
-//     never degraded by repeating it. A take bakes the gain it was heard at into the
-//     buffer (old * gain + new) and the next pass starts at unity again.
+//     never degraded by repeating it. A layer pass is a repeat: it plays the old loop at the
+//     gain that repeat would have had, mixes the live bus in and bakes the sum back
+//     (old * gain + live), so the buffer then holds exactly what was heard and the next
+//     plain pass starts at unity again.
+//   * Layers chain. A Record that arrives while a pass is still running (the player tapped
+//     during the take or during a layer, or the step clock reached the boundary a hair before
+//     the audio thread did) queues one more layer that starts the instant that pass ends, so
+//     a run of taps is a run of back-to-back passes with no plain repeat between them. Which
+//     side of the seam the command lands on changes nothing: a layer always mixes the old
+//     loop at the previous pass's gain times regen (a freshly written loop counts as unity).
 //
 // Threading follows the rest of the master bus: Core 0 owns the setters and post*()
 // calls (one producer), Core 1 owns everything else and only calls processBlock().
@@ -48,14 +58,17 @@ public:
         Empty,       // nothing recorded (or the last loop faded out)
         Recording,   // first take: writing the loop, loop output silent
         Playing,     // loop playing, decaying by regen on every repeat
-        Overdubbing, // one pass layering the live bus onto the playing loop
+        Overdubbing, // one pass mixing the live bus into the loop and writing it back
     };
 
     // --- Storage ---------------------------------------------------------------
     static constexpr size_t kBytesPerPair = 3;       // two 12-bit samples
     static constexpr uint32_t kMinSamples = 2048;    // below this the loop is not worth having
-    // Default budget: 120 KiB = 81,920 samples = 1.7 s at the full 48 kHz.
-    static constexpr size_t kDefaultBufferBytes = 120u * 1024u;
+    // Default budget: 64 KiB = 43,690 samples = 0.9 s at the full 48 kHz. Layers mix into the
+    // same loop, so memory does not grow with the number of layers. At this size 4 steps are
+    // full rate from 66 BPM, 8 steps from 132 BPM, and a bar at 120 BPM is stored at about
+    // 22 kHz (docs/audio-performance.md has the table).
+    static constexpr size_t kDefaultBufferBytes = 64u * 1024u;
     // Heap left alone when sizing the buffer: the audio buffer pool, LittleFS and the
     // other things that allocate after the voices exist.
     static constexpr size_t kHeapReserveBytes = 40u * 1024u;
@@ -94,7 +107,7 @@ public:
 
     // Commands cross to the audio thread through a small ring; each returns false when
     // the ring is full (retry on the next pass). Only one thread may call these.
-    bool postRecord(uint32_t periodFrames) noexcept; // start a take now (record, or overdub if playing)
+    bool postRecord(uint32_t periodFrames) noexcept; // start a take now: record, layer over a playing loop, or queue the layer after the running pass
     bool postCancel() noexcept;                      // drop an unfinished first take
     bool postClear() noexcept;                       // stop and forget the loop
     bool postSync() noexcept;                        // the step clock reached a loop boundary
@@ -174,6 +187,9 @@ private:
     float passGain_ = 1.0f;     // regen applied so far this life of the loop
     float regenNow_ = 1.0f;     // regen as read for this span
     uint32_t appliedPeriod_ = 0;
+    bool chainDub_ = false;     // a layer is queued behind the pass that is running
+    bool justBaked_ = false;    // the pass in progress is the first after a take or layer: its unity gain was
+                                // set by that wrap, not decayed by it
     uint32_t edgeSamples_ = 1;  // stored samples in the seam fade
     float edgeInv_ = 1.0f;
     uint64_t fadePos_ = 0;      // the pre-snap head, still fading out

@@ -275,7 +275,10 @@ is what makes "Note track at 16 steps, Filter track at 8 steps" possible on the 
 - **The looper is audio-owned.** Core 0 may only call `LoopEngine`'s setters and `post*()` (one
   producer thread); everything else, the packed 12-bit buffer included, is Core 1's. The buffer is
   a setup-time allocation sized from the free heap (`VoiceManager::allocateLoopBuffer`, called last
-  in `initializeVoices()` with a 40 KiB reserve) and is never grown or freed. Its RAM came from
+  in `initializeVoices()` with a 40 KiB reserve, 64 KiB by default) and is never grown or freed.
+  The loop is at most 16 steps and layers are mixed into it in place, so memory does not grow with
+  the number of layers; a Record that arrives while a pass is running chains a layer behind it
+  (`chainDub_`), and a layer's gain is the same on either side of the seam (`justBaked_`). Its RAM came from
   halving `MasterDelay` to 375 ms and dropping `SessionStorage`'s private load buffer; keep
   `kDelayTimeMaxSeconds` equal to `MasterDelay::kMaxDelaySamples / 48000`. GP7 is the mode strap;
   the loop button is `PIN_LOOP_BUTTON` (GP6).

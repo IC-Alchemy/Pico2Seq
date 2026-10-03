@@ -5,15 +5,17 @@
 // agree on one definition of "how long is N steps".
 //
 // A step is a sixteenth note (the sequencer's unit), so at `bpm` one step lasts
-// 15 / bpm seconds. The loop sizes the player can choose are 4, 8, 16, 32 and 64
-// steps: a quarter-note beat, two beats, a bar, two bars and four bars of 4/4.
+// 15 / bpm seconds. The loop sizes the player can choose are 4, 8 and 16 steps: a
+// quarter-note beat, two beats and a bar of 4/4. A bar is the longest loop on purpose: it
+// keeps the buffer small, and longer material is built by layering passes over it.
 
 #include <cstdint>
 
 namespace LoopTiming {
 
-inline constexpr uint8_t kSizeCount = 5;
-inline constexpr uint8_t kSteps[kSizeCount] = {4, 8, 16, 32, 64};
+inline constexpr uint8_t kSizeCount = 3;
+inline constexpr uint8_t kSteps[kSizeCount] = {4, 8, 16};
+inline constexpr uint8_t kMaxSteps = 16;
 inline constexpr uint8_t kDefaultSizeIndex = 2; // one bar
 
 // Regen: the share of the loop kept on each repeat. 100% never fades; the floor keeps
@@ -25,8 +27,8 @@ inline constexpr float kMinRegen = 0.10f;
 inline constexpr float kMinBpm = 20.0f;
 inline constexpr float kMaxBpm = 300.0f;
 
-// Longest possible loop: 64 steps at kMinBpm at 48 kHz is 2.4 M frames; the engine
-// refuses nothing below this, it only has to fit a uint32_t.
+// Longest possible loop: 16 steps at kMinBpm at 48 kHz is 576,000 frames. The cap is
+// generous; the engine refuses nothing below it, it only has to fit a uint32_t.
 inline constexpr uint32_t kMaxFrames = 4u * 1000u * 1000u;
 
 constexpr uint8_t clampIndex(uint8_t index) noexcept
@@ -48,11 +50,11 @@ constexpr uint8_t indexForSteps(uint8_t steps) noexcept
     return kDefaultSizeIndex;
 }
 
-// How often a take can start: every loop boundary for the short loops, every bar
-// (16 steps) for the long ones, so the wait for a 64-step loop is at most one bar.
+// How often a take can start: on every loop boundary, so the longest wait is one loop
+// (at most a bar). Clamped to 1..kMaxSteps.
 constexpr uint8_t quantizeSteps(uint8_t loopSteps) noexcept
 {
-    return loopSteps < 16 ? (loopSteps == 0 ? uint8_t{1} : loopSteps) : uint8_t{16};
+    return loopSteps < kMaxSteps ? (loopSteps == 0 ? uint8_t{1} : loopSteps) : kMaxSteps;
 }
 
 // Frames in `steps` steps at `bpm`, rounded to the nearest frame and clamped to

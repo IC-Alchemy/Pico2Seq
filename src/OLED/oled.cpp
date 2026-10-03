@@ -801,12 +801,12 @@ void OLEDDisplay::displayLoopPage(const UIState &state, VoiceManager *manager)
       snprintf(status, sizeof(status), "ARMED");
     break;
   case Phase::Recording:
-    snprintf(status, sizeof(status), "REC %u/%u", static_cast<unsigned>(loopController.currentStep()),
-             static_cast<unsigned>(steps));
+    snprintf(status, sizeof(status), "REC %u/%u%s", static_cast<unsigned>(loopController.currentStep()),
+             static_cast<unsigned>(steps), loopController.layerQueued() ? " +DUB" : "");
     break;
   case Phase::Overdubbing:
-    snprintf(status, sizeof(status), "DUB %u/%u", static_cast<unsigned>(loopController.currentStep()),
-             static_cast<unsigned>(steps));
+    snprintf(status, sizeof(status), "DUB %u/%u%s", static_cast<unsigned>(loopController.currentStep()),
+             static_cast<unsigned>(steps), loopController.layerQueued() ? " +DUB" : "");
     break;
   case Phase::Playing:
     snprintf(status, sizeof(status), "PLAY %u/%u", static_cast<unsigned>(loopController.currentStep()),

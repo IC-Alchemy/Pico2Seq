@@ -43,9 +43,10 @@ class SequencerView;
  *     TONE layer (Low cut / Diffusion / Modulation / Width), Shift exits
  *     (ui/ReverbPageControls.h, docs/manual.md).
  *   - The loop button (GP6, its own pin): tap arms or cancels a take that starts on the next
- *     loop boundary and records the chosen number of steps; tapping a playing loop layers a
- *     new take; hold clears it. Shift + the loop button opens the live Loop Settings page:
- *     faders 1-4 are loop volume, loop length (4/8/16/32/64 steps), sequencer volume and
+ *     loop boundary and records the chosen number of steps; every further tap layers another
+ *     pass (the live bus mixed into the loop and written back), also while a pass is running;
+ *     hold clears it. Shift + the loop button opens the live Loop Settings page:
+ *     faders 1-4 are loop volume, loop length (4/8/16 steps), sequencer volume and
  *     regen, and Shift exits (ui/LoopPageControls.h, docs/manual.md). The loop button
  *     works on every screen; only the voice editor and its release tail mute it.
  *   - Utility mode, hold Shift then press button 3, opens the live Tuning page: one page

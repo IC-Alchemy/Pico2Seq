@@ -23,10 +23,10 @@ are ordinary notices that this page covers while it is open:
 LOOP SETTINGS
 --------------------------------
  1 Loop Vol          80%           <- fader 1..4, value right-aligned
->2 Length          16 st           <- '>' marks the fader moved last
+>2 Length          16 st           <- 4, 8 or 16 steps; '>' marks the fader moved last
  3 Seq Vol          100%
  4 Regen             90%
-REC 5/16               8 Exit      <- the loop's state: EMPTY, ARM in n, REC, PLAY, DUB
+REC 5/16 +DUB          8 Exit      <- the loop's state: EMPTY, ARM in n, REC, PLAY, DUB; +DUB = a layer is queued
 ```
 
 ## Reverb page

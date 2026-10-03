@@ -165,8 +165,9 @@ Step actions resolve to the pad's bank-mapped voice. Gate sequence length entry 
 
 The loop button is its own pin, not a tile button, and means the same in Param and Utility mode.
 `LoopPage::Button` (`src/ui/LoopPageControls.h`) debounces it (20 ms) and sorts each press: **tap**
-(released inside 0.8 s) arms or disarms a take, or abandons an unfinished first take; **hold**
-(0.8 s, fires once mid-press) clears the loop; a press with **Shift held at the press edge** is a
+(released inside 0.8 s) arms or disarms a take, and once a loop exists every tap is another **layer**
+(a tap while a take or layer is running queues the next one behind it, a second tap withdraws it);
+**hold** (0.8 s, fires once mid-press) clears the loop, an unfinished first take included; a press with **Shift held at the press edge** is a
 chord and opens the Loop Settings page instead. `AlchemyControlBridge::handleLoopButton` acts on
 tap and hold on every screen except the voice editor; `handleLoopPage` follows the Reverb page's
 contract: the opening fingers must lift first (`waitRelease`), Shift leaves, and while it is open

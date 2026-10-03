@@ -108,8 +108,10 @@ TEST_CASE("Loop buffer sizing respects the heap reserve and whole pairs", "[loop
     CHECK(LoopEngine::planBufferBytes(kReserve, kReserve, 120 * 1024) == 0);
     CHECK(LoopEngine::planBufferBytes(10000, kReserve, 120 * 1024) == 0);
     CHECK(LoopEngine::planBufferBytes(kReserve + 100, kReserve, 120 * 1024) == 0);
-    // The default budget is 80 K samples at 12 bits.
-    CHECK(LoopEngine::kDefaultBufferBytes / LoopEngine::kBytesPerPair * 2 == 81920);
+    // The default budget is 64 KiB: 43,690 samples at 12 bits. Layers mix into the same loop,
+    // so this is all the memory any number of layers will ever use.
+    CHECK(LoopEngine::kDefaultBufferBytes == 64u * 1024u);
+    CHECK(LoopEngine::kDefaultBufferBytes / LoopEngine::kBytesPerPair * 2 == 43690);
 }
 
 // --- Pass-through ---------------------------------------------------------------
@@ -506,34 +508,164 @@ TEST_CASE("The command ring reports a full queue instead of dropping", "[loop]")
     CHECK_FALSE(loop.postClear());
 }
 
+// --- Layering: many passes mixed into one small buffer -------------------------
+
+TEST_CASE("Layers mix into the same buffer: any number of passes, no more memory", "[loop][loop_layers]")
+{
+    constexpr uint32_t L = 3000;
+    Rig rig;
+    rig.loop.setRegen(1.0f);
+    REQUIRE(rig.loop.postRecord(L));
+    rig.run(std::vector<float>(L, 0.2f));
+    const uint32_t stored = rig.loop.storedSamples();
+    const uint32_t capacity = rig.loop.capacitySamples();
+    // Three further passes, each started the instant the last one ends: tap, tap, tap.
+    for (int layer = 1; layer <= 3; ++layer)
+    {
+        CAPTURE(layer);
+        REQUIRE(rig.loop.postRecord(L));
+        const auto heard = rig.run(std::vector<float>(L, 0.2f));
+        // While layering you hear the live bus plus everything laid down so far.
+        CHECK(heard[L / 2] == Approx(0.2f * static_cast<float>(layer + 1)).margin(4 * kLsb));
+    }
+    CHECK(rig.loop.audioState() == LoopEngine::State::Playing);
+    // Four takes of 0.2 sum to 0.8 in the one loop, and the buffer did not grow.
+    CHECK(rig.silence(L)[L / 2] == Approx(0.8f).margin(4 * kLsb));
+    CHECK(rig.loop.storedSamples() == stored);
+    CHECK(rig.loop.capacitySamples() == capacity);
+}
+
+TEST_CASE("With regen below 100% each layer fades what was there, so layers settle instead of piling up", "[loop][loop_layers]")
+{
+    constexpr uint32_t L = 3000;
+    Rig rig;
+    rig.loop.setRegen(0.5f);
+    REQUIRE(rig.loop.postRecord(L));
+    rig.run(std::vector<float>(L, 0.2f));
+    // Each layer is a repeat: stored = stored * 0.5 + live. 0.2 -> 0.3 -> 0.35 -> ... -> 0.4.
+    float expected = 0.2f;
+    for (int layer = 1; layer <= 6; ++layer)
+    {
+        REQUIRE(rig.loop.postRecord(L));
+        rig.run(std::vector<float>(L, 0.2f));
+        expected = expected * 0.5f + 0.2f;
+    }
+    CHECK(rig.silence(L)[L / 2] == Approx(expected).margin(0.01f));
+    CHECK(expected == Approx(0.4f).margin(0.01f));
+}
+
+TEST_CASE("A tap during a pass queues a layer that follows it with no plain repeat between", "[loop][loop_layers]")
+{
+    constexpr uint32_t L = 3000;
+    Rig rig;
+    REQUIRE(rig.loop.postRecord(L));
+    rig.run(std::vector<float>(L / 2, 0.2f));
+    CHECK(rig.loop.audioState() == LoopEngine::State::Recording);
+    // Halfway through the first take two requests arrive: the first is queued, and the second,
+    // being for the same hand-over, is the same request.
+    REQUIRE(rig.loop.postRecord(L));
+    REQUIRE(rig.loop.postRecord(L));
+    rig.run(std::vector<float>(L / 2 - 1, 0.2f));
+    CHECK(rig.loop.audioState() == LoopEngine::State::Recording);   // one frame short of the seam
+    CHECK(rig.loop.takesStarted() == 2);                            // counted once
+    rig.run(std::vector<float>(1, 0.2f));
+    CHECK(rig.loop.audioState() == LoopEngine::State::Overdubbing); // straight into the layer
+    // Mid-way through that layer another is queued behind it.
+    rig.run(std::vector<float>(L / 2, 0.2f));
+    REQUIRE(rig.loop.postRecord(L));
+    rig.run(std::vector<float>(L / 2 - 1, 0.2f));
+    CHECK(rig.loop.audioState() == LoopEngine::State::Overdubbing);
+    rig.run(std::vector<float>(1, 0.2f));
+    CHECK(rig.loop.audioState() == LoopEngine::State::Overdubbing); // a second layer, chained
+    CHECK(rig.loop.takesStarted() == 3);
+    // Nothing is queued behind the last one: it ends in plain playback.
+    rig.run(std::vector<float>(L - 1, 0.2f));
+    CHECK(rig.loop.audioState() == LoopEngine::State::Overdubbing);
+    rig.run(std::vector<float>(1, 0.2f));
+    CHECK(rig.loop.audioState() == LoopEngine::State::Playing);
+    // Three passes of 0.2 are in the loop.
+    CHECK(rig.silence(L)[L / 2] == Approx(0.6f).margin(4 * kLsb));
+}
+
+TEST_CASE("The layer's mix level does not depend on which side of the seam the command fell", "[loop][loop_layers]")
+{
+    constexpr uint32_t L = 3000;
+    // A layer is a repeat, so it mixes the old loop in at regen (0.5 here) however the request
+    // lands. `requestFrame` counts frames from the start of the take: L +- 20 is either side of
+    // the seam that ends the take (a request before it is queued behind the take, one after it
+    // meets a loop that has just been written), and 2L +- 20 is either side of the seam that
+    // ends one plain repeat. All four must lay down the same sum.
+    for (const uint32_t requestFrame : {L - 20, L + 20, 2 * L - 20, 2 * L + 20})
+    {
+        CAPTURE(requestFrame);
+        Rig rig;
+        rig.loop.setRegen(0.5f);
+        REQUIRE(rig.loop.postRecord(L));
+        std::vector<float> before(requestFrame);
+        for (uint32_t f = 0; f < requestFrame; ++f)
+            before[f] = f < L ? 0.8f : 0.0f;                 // the live bus: a take of 0.8, then quiet
+        rig.run(before);
+        REQUIRE(rig.loop.postRecord(L));
+        // The rest of the take (if the request beat its end), then the layer pass of 0.2.
+        const uint32_t takeLeft = requestFrame < L ? L - requestFrame : 0;
+        std::vector<float> rest(takeLeft + L, 0.2f);
+        std::fill(rest.begin(), rest.begin() + takeLeft, 0.8f);
+        const auto heard = rig.run(rest);
+        // The old loop at 0.5 under the live 0.2.
+        CHECK(heard[takeLeft + L / 2] == Approx(0.2f + 0.8f * 0.5f).margin(0.02f));
+        CHECK(rig.loop.audioState() == LoopEngine::State::Playing);
+        CHECK(rig.loop.passGain() == 1.0f);                  // baked: the next repeat is unity again
+        CHECK(rig.silence(L)[L / 2] == Approx(0.6f).margin(0.02f));
+    }
+}
+
+TEST_CASE("Clearing drops a queued layer, so the next take is a plain take", "[loop][loop_layers]")
+{
+    constexpr uint32_t L = 3000;
+    Rig rig;
+    REQUIRE(rig.loop.postRecord(L));
+    rig.run(std::vector<float>(L / 2, 0.3f));
+    REQUIRE(rig.loop.postRecord(L)); // queued behind the take
+    REQUIRE(rig.loop.postClear());
+    rig.silence(64);
+    CHECK(rig.loop.audioState() == LoopEngine::State::Empty);
+    REQUIRE(rig.loop.postRecord(L));
+    rig.run(std::vector<float>(L, 0.3f));
+    CHECK(rig.loop.audioState() == LoopEngine::State::Playing); // not Overdubbing: the queue was dropped
+}
+
 // --- Timing helpers -------------------------------------------------------------
 
 TEST_CASE("Loop sizes and step timing", "[loop][loop_timing]")
 {
-    CHECK(LoopTiming::kSizeCount == 5);
-    const uint8_t expected[5] = {4, 8, 16, 32, 64};
-    for (uint8_t i = 0; i < 5; ++i)
+    // A bar is the longest loop.
+    CHECK(LoopTiming::kSizeCount == 3);
+    CHECK(LoopTiming::kMaxSteps == 16);
+    const uint8_t expected[3] = {4, 8, 16};
+    for (uint8_t i = 0; i < 3; ++i)
     {
         CHECK(LoopTiming::stepsForIndex(i) == expected[i]);
         CHECK(LoopTiming::indexForSteps(expected[i]) == i);
     }
-    CHECK(LoopTiming::stepsForIndex(9) == 64);
+    CHECK(LoopTiming::stepsForIndex(9) == 16);       // out of range clamps to the longest
     CHECK(LoopTiming::indexForSteps(5) == LoopTiming::kDefaultSizeIndex);
+    CHECK(LoopTiming::indexForSteps(32) == LoopTiming::kDefaultSizeIndex); // no longer a size
+    CHECK(LoopTiming::indexForSteps(64) == LoopTiming::kDefaultSizeIndex);
     // A step is a sixteenth: 120 BPM = 0.125 s = 6000 frames; a bar is 96,000 frames.
     CHECK(LoopTiming::loopFrames(1, 120.0f, kSr) == 6000);
     CHECK(LoopTiming::loopFrames(16, 120.0f, kSr) == 96000);
-    CHECK(LoopTiming::loopFrames(64, 90.0f, kSr) == 512000);
+    CHECK(LoopTiming::loopFrames(16, 90.0f, kSr) == 128000);
     // Hostile tempos clamp instead of dividing by zero or overflowing.
-    CHECK(LoopTiming::loopFrames(64, 0.0f, kSr) == LoopTiming::loopFrames(64, LoopTiming::kMinBpm, kSr));
-    CHECK(LoopTiming::loopFrames(64, -50.0f, kSr) > 0);
-    CHECK(LoopTiming::loopFrames(64, 1.0e9f, kSr) == LoopTiming::loopFrames(64, LoopTiming::kMaxBpm, kSr));
-    CHECK(LoopTiming::loopFrames(64, 20.0f, kSr) <= LoopTiming::kMaxFrames);
-    // Takes start every loop for short loops, every bar for long ones.
+    CHECK(LoopTiming::loopFrames(16, 0.0f, kSr) == LoopTiming::loopFrames(16, LoopTiming::kMinBpm, kSr));
+    CHECK(LoopTiming::loopFrames(16, -50.0f, kSr) > 0);
+    CHECK(LoopTiming::loopFrames(16, 1.0e9f, kSr) == LoopTiming::loopFrames(16, LoopTiming::kMaxBpm, kSr));
+    CHECK(LoopTiming::loopFrames(16, 20.0f, kSr) == 576000);
+    CHECK(LoopTiming::loopFrames(16, 20.0f, kSr) <= LoopTiming::kMaxFrames);
+    // A take starts on a loop boundary, so the longest wait is one loop (at most a bar).
     CHECK(LoopTiming::quantizeSteps(4) == 4);
     CHECK(LoopTiming::quantizeSteps(8) == 8);
     CHECK(LoopTiming::quantizeSteps(16) == 16);
-    CHECK(LoopTiming::quantizeSteps(32) == 16);
-    CHECK(LoopTiming::quantizeSteps(64) == 16);
+    CHECK(LoopTiming::quantizeSteps(64) == 16); // never longer than a bar
     CHECK(LoopTiming::quantizeSteps(0) == 1);
 }
 

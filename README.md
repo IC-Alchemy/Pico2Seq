@@ -24,7 +24,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **32-Button Touch Matrix**: MPR121 capacitive touch grid providing 32 dedicated step sequencing pads across two voice banks
 - **Alchemy Modular UI Tiles**: Dedicated `SliderModule` (4 faders + 4 voice selects) and `ButtonModule8` (8 multi-function buttons) on a dedicated I2C1 bus
 - **Hardware Mode Strap (GP7)**: Instant hardware toggle between Parameter mode and Utility mode
-- **Tempo-synced Looper (GP6 button)**: records the mono master bus before the reverb for 4, 8, 16, 32 or 64 steps starting on the next loop boundary, plays it back in sync, and layers further takes over it; `Shift` + the loop button opens a Loop Settings page for loop volume, loop length, sequencer volume and regen. See [Looper](#looper)
+- **Tempo-synced Looper (GP6 button)**: records the mono master bus before the reverb for 4, 8 or 16 steps starting on the next loop boundary, plays it back in sync, and every further press layers the live bus into the same loop; `Shift` + the loop button opens a Loop Settings page for loop volume, loop length, sequencer volume and regen. See [Looper](#looper)
 - **Real-time Sensors**: TMAG5273 magnetic encoder (Velocity Encoder board) for responsive parameter dialing
 - **Distance Control**: VL53L1X TOF sensor for hands-free optical parameter modulation (55–700 mm usable range, normalized 0–1)
 - **Visual Feedback**: 128×64 SH1106G OLED display with 6-tier priority screen rendering
@@ -304,35 +304,38 @@ and right PCM16 are converted separately. See
 A tempo-synced audio looper sits on the mono master bus after the delay and **before the
 reverb**: it records what the voices and delay are playing, and plays it back mixed into the
 same bus, so the reverb, master volume and compressor act on the loop like everything else.
+The loop is **4, 8 or 16 steps** long (16 steps, a bar, is the maximum), and it is built by
+**layering**: one press records the loop, and every further press mixes the live bus into the
+loop and writes the sum back over it, so any number of layers live in one small buffer.
 
 | Gesture | Result |
 |---|---|
-| **Tap the loop button** (GP6) | Arms a take. It begins on the next loop boundary (every 4 or 8 steps for the short loops, every bar for 16/32/64), records exactly the chosen number of steps, then **stops by itself and plays in sync**. With the transport stopped it begins at once. |
-| Tap while armed | Disarms. Tap while the first take is recording: abandons it. |
-| Tap while a loop plays | Arms a **layer**: on the loop's next boundary a new take is recorded over it for one pass. |
-| **Hold the loop button** (0.8 s) | Clears the loop. |
+| **Tap the loop button** (GP6) | Arms a take. It begins on the next loop boundary, records exactly the chosen number of steps, then **stops by itself and plays in sync**. With the transport stopped it begins at once. |
+| **Tap again** (any time after the first) | Another **layer**: one pass in which what you hear live is mixed with the previous loop and **written back over it**. Tap while a loop plays and the layer starts on its next boundary. Tap while a take or layer is still running and the next layer is queued to start the instant that pass ends, so a run of taps is a run of back-to-back layers. |
+| Tap while armed or while a layer is queued | Withdraws it. |
+| **Hold the loop button** (0.8 s) | Clears the loop (also abandons an unfinished first take). |
 | **Shift + loop button** | Opens the **Loop Settings** page; **Shift** leaves it. Playback and the loop keep running. |
 
 On the page, the four faders are (the top 15% of every percent fader's travel reads 100%):
 
 1. **Loop volume**: 0–100%, the level of the played-back loop.
-2. **Loop length**: 4, 8, 16, 32 or 64 steps (five equal zones). It sizes the *next* take; a loop that is already recorded keeps its length.
+2. **Loop length**: 4, 8 or 16 steps (three equal zones). It sizes the *next* take; a loop that is already recorded keeps its length.
 3. **Sequencer volume**: 0–100%, the level of the live bus in the mix. The recording is taken *before* it, so turning the sequencer down to hear the loop never records quieter.
-4. **Regen**: 10–100%, the share of the loop kept on each repeat. 100% never fades; at 10% the loop is gone after a few passes. A layer bakes in the level the old loop was heard at, then plays at full level again.
+4. **Regen**: 10–100%, the share of the loop kept on each repeat, **layers included**. At 100% layers simply add up (the sum saturates softly instead of clipping); below 100% each layer fades what was already there, so a long run of layers settles at a level instead of piling up (at 50% a steady input settles at twice its own level).
 
 The loop is **tempo-locked**: it is a fixed number of steps, so a tempo change speeds it up or
 slows it down with the sequencer (pitch moves with it, like a tape), and the engine re-aligns it
 to the step clock at every repeat. The transport restart plays it from the top.
 
 **Memory and sound.** The loop is stored as packed **12-bit** samples (±2.0 full scale) in
-up to 120 KiB of heap, which is 81,920 samples. A long loop cannot fit at 48 kHz, so the store
-rate follows the loop: 4 and 8 steps are full rate at 90–140 BPM, 16 steps about 31–48 kHz, 32
-steps 15–24 kHz and 64 steps 8–12 kHz (a 64-step loop at 45 BPM is about 4 kHz). The buffer
-is sized from the free heap at boot and shrinks to leave a 40 KiB reserve; the serial console prints a
-`[LOOP] buffer ...` line, and with no buffer the looper is disabled (the bus is unaffected). The delay
-line was halved to **375 ms** (it was 750 ms) to make room, and the session loader no longer keeps a
-private 12 KB buffer. Loop audio and loop settings are not saved with the session. See
-[the manual](docs/manual.md#39-looper) and the
+**64 KiB** of heap, which is 43,690 samples. Because layers share the loop, that is all the memory any
+number of layers uses. A bar does not always fit at 48 kHz, so the store rate follows the loop: 4 steps
+are full rate from 66 BPM, 8 steps from 132 BPM, and a bar is about 16 kHz at 90 BPM, 22 kHz at 120
+and 25 kHz at 140 (about 8 kHz at 45 BPM). The buffer is sized from the free heap at boot and shrinks
+to leave a 40 KiB reserve; the serial console prints a `[LOOP] buffer ...` line, and with no buffer the
+looper is disabled (the bus is unaffected). The delay line was halved to **375 ms** (it was 750 ms) to
+make room, and the session loader no longer keeps a private 12 KB buffer. Loop audio and loop settings
+are not saved with the session. See [the manual](docs/manual.md#39-looper) and the
 [RAM audit](docs/audio-performance.md#looper-ram-and-store-rate).
 
 **Wiring.** GP7 is the Param/Utility mode strap, so the loop button is on **GP6**

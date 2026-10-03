@@ -211,9 +211,20 @@ void PICO2SEQ_AUDIO_FUNC(LoopEngine::setPeriod_)(uint32_t periodFrames) noexcept
 
 void PICO2SEQ_AUDIO_FUNC(LoopEngine::beginTake_)(uint32_t periodFrames) noexcept
 {
-    if (periodFrames == 0 || !store_ || state_ == State::Recording ||
-        state_ == State::Overdubbing || state_ == State::Disabled)
+    if (periodFrames == 0 || !store_ || state_ == State::Disabled)
         return;
+    if (state_ == State::Recording || state_ == State::Overdubbing)
+    {
+        // A pass is still running (the step clock reached the boundary before the audio
+        // thread did, or the player tapped mid-pass): the layer follows it directly. A second
+        // request for the same hand-over changes nothing.
+        if (!chainDub_)
+        {
+            chainDub_ = true;
+            takes_.fetch_add(1, std::memory_order_relaxed);
+        }
+        return;
+    }
     if (state_ == State::Empty)
     {
         const uint32_t samples = std::min(capacity_, periodFrames);
@@ -221,6 +232,7 @@ void PICO2SEQ_AUDIO_FUNC(LoopEngine::beginTake_)(uint32_t periodFrames) noexcept
             return;
         count_ = samples;
         passGain_ = 1.0f;
+        justBaked_ = false;
         setPeriod_(periodFrames);
         pos_ = 0;
         index_ = 0;
@@ -233,7 +245,14 @@ void PICO2SEQ_AUDIO_FUNC(LoopEngine::beginTake_)(uint32_t periodFrames) noexcept
     }
     else
     {
-        // Layer a new take over the playing loop, from its top.
+        // Layer a new take over the playing loop, from its top. A layer is a repeat, so the old
+        // loop is mixed in at the previous pass's gain times regen, wherever the command fell
+        // relative to the seam. Before the seam (the head is still in the second half) the wrap has
+        // not applied that regen yet. After it, a wrap that followed a plain repeat already
+        // has; a wrap that followed a take or layer only reset the gain to unity, so the regen
+        // is still owed. That is the same gain a layer chained behind the pass gets.
+        if (pos_ > (end_ >> 1) || justBaked_)
+            passGain_ *= regen_.load(std::memory_order_relaxed);
         setPeriod_(periodFrames);
         snapToStart_();
         state_ = State::Overdubbing;
@@ -273,6 +292,7 @@ void PICO2SEQ_AUDIO_FUNC(LoopEngine::drainCommands_)() noexcept
                 state_ = State::Empty;
                 count_ = 0;
                 fadeLeft_ = 0;
+                chainDub_ = false;
             }
             break;
         case kClear:
@@ -280,6 +300,8 @@ void PICO2SEQ_AUDIO_FUNC(LoopEngine::drainCommands_)() noexcept
             {
                 state_ = State::Empty;
                 count_ = 0;
+                chainDub_ = false;
+                justBaked_ = false;
                 passGain_ = 1.0f;
                 acc_ = 0.0f;
                 accCount_ = 0;
@@ -332,12 +354,26 @@ void PICO2SEQ_AUDIO_FUNC(LoopEngine::onWrap_)() noexcept
     {
     case State::Recording:
     case State::Overdubbing:
-        // The buffer now holds the loop as it was heard; play it at unity from here.
-        state_ = State::Playing;
-        passGain_ = 1.0f;
-        recon1_ = recon2_ = 0.0f;
+        if (chainDub_)
+        {
+            // Another layer straight away. It is a repeat of the loop just written, so the
+            // old material is mixed in at regen (the plain repeat that would have played at
+            // unity was skipped, which is what makes the second pass of any run decay).
+            chainDub_ = false;
+            state_ = State::Overdubbing;
+            passGain_ = regenNow_;
+        }
+        else
+        {
+            // The buffer now holds the loop as it was heard; play it at unity from here.
+            state_ = State::Playing;
+            passGain_ = 1.0f;
+            justBaked_ = true;
+            recon1_ = recon2_ = 0.0f;
+        }
         break;
     case State::Playing:
+        justBaked_ = false;
         passGain_ *= regenNow_;
         if (passGain_ < kMinPassGain)
         {

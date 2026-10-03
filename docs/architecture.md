@@ -356,8 +356,8 @@ Portable core with **no hardware, UI, or Arduino dependencies**:
 - `Voice.h/.cpp`: Synthesizer voice DSP chain with lock-free staging and gate-controlled pitch commits.
 - `VoiceManager.h/.cpp`: Multi-voice lifecycle management, master mixing, the stereo master bus (delay → looper → reverb → shared master gain → linked compressor), and preset attachment.
 - `MasterDelay.h`: Master delay on the summed mono bus (375 ms maximum in millisecond mode).
-- `LoopEngine.h/.cpp`: The tempo-synced looper (audio thread): packed 12-bit store, one head for record/play/overdub, regen as a per-pass gain, sync-snap with crossfade, lock-free control targets and a small SPSC command ring.
-- `LoopTiming.h`: Loop sizes (4/8/16/32/64 steps), frames per step and the take-start quantisation, shared by the engine, the Core 0 controller and the tests.
+- `LoopEngine.h/.cpp`: The tempo-synced looper (audio thread): packed 12-bit store (64 KiB by default), one head for record/play/layer, layers mixed into the stored loop and baked back (chainable back-to-back), regen as a per-pass gain, sync-snap with crossfade, lock-free control targets and a small SPSC command ring.
+- `LoopTiming.h`: Loop sizes (4/8/16 steps, a bar at most), frames per step and the take-start quantisation, shared by the engine, the Core 0 controller and the tests.
 - `MasterReverb.h/.cpp`: Audio-owned adapter around `rpdsp::DarkReverb<16384>` (Half storage by default): lock-free control targets, eased coefficients, smoothed mix, freeze ramp, host-observable applied state.
 - `ReverbSettings.h`: The reverb's eight user controls and freeze as plain data, with `ReverbParams` ranges/defaults and sanitizing; portable, shared by the audio adapter, the session codec and the control surface.
 - `EffectsCodec.h/.cpp`: `ReverbSettings` ↔ the format-3 `EffectsSnapshot` (see [persistence](persistence.md)).

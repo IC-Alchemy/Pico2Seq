@@ -17,12 +17,11 @@ bool LoopController::firstTakeInFlight_() const noexcept
     return (takePending_() && !takeIsOverdub_) || engine_->state() == EngineState::Recording;
 }
 
-Phase LoopController::phase() const noexcept
+// What the audio side is doing, counting a take that was posted but has not started yet.
+Phase LoopController::enginePhase_() const noexcept
 {
     if (!engine_ || engine_->state() == EngineState::Disabled)
         return Phase::Unavailable;
-    if (armed_)
-        return Phase::Armed;
     if (takePending_())
         return takeIsOverdub_ ? Phase::Overdubbing : Phase::Recording;
     switch (engine_->state())
@@ -32,6 +31,23 @@ Phase LoopController::phase() const noexcept
     case EngineState::Overdubbing: return Phase::Overdubbing;
     default: return Phase::Empty;
     }
+}
+
+// "Armed" is the wait for a take to START. A layer queued behind a pass that is already
+// running is not a state of its own: the pass is what is happening, layerQueued() says
+// another is coming.
+Phase LoopController::phase() const noexcept
+{
+    const Phase running = enginePhase_();
+    if (armed_ && (running == Phase::Empty || running == Phase::Playing))
+        return Phase::Armed;
+    return running;
+}
+
+bool LoopController::layerQueued() const noexcept
+{
+    const Phase running = enginePhase_();
+    return armed_ && (running == Phase::Recording || running == Phase::Overdubbing);
 }
 
 uint8_t LoopController::stepsUntilStart() const noexcept
@@ -63,8 +79,13 @@ uint8_t LoopController::currentStep() const noexcept
 // fresh loop, every loop length (counted from where the loop began) for a layer.
 bool LoopController::postRecord_(uint32_t stepIndex, float bpm) noexcept
 {
-    // A layer armed over a loop that has since faded out is just a fresh take.
-    if (armOverdub_ && (playingSteps_ == 0 || engine_->state() != EngineState::Playing))
+    // A layer armed over a loop that has since gone (faded out, cleared) is just a fresh take.
+    // A loop that is playing, being recorded or already being layered can take the layer.
+    const EngineState engineState = engine_->state();
+    const bool layerable = playingSteps_ != 0 && (takePending_() || engineState == EngineState::Playing ||
+                                                  engineState == EngineState::Recording ||
+                                                  engineState == EngineState::Overdubbing);
+    if (armOverdub_ && !layerable)
         armOverdub_ = false;
     const uint32_t frames = LoopTiming::loopFrames(armSteps_, bpm, sampleRate_);
     const uint32_t before = engine_->takesStarted();
@@ -91,17 +112,25 @@ void LoopController::tap(float bpm) noexcept
     switch (phase())
     {
     case Phase::Unavailable:
-    case Phase::Overdubbing: // a layer in flight finishes its pass
         return;
     case Phase::Armed:
-        armed_ = false;
+        armed_ = false; // disarm
         return;
     case Phase::Recording:
-        // Abandon the first take: it has no use until it is whole.
-        pendingCancel_ = true;
-        awaitingTake_ = false;
-        playingSteps_ = 0;
-        flushPending_();
+    case Phase::Overdubbing:
+        // A pass is running (the first take or a layer). A tap queues one more layer that
+        // starts the moment this pass ends; a second tap before then withdraws it. Nothing
+        // is lost by tapping early, and the take itself is only abandoned by a hold.
+        if (armed_)
+        {
+            armed_ = false;
+            return;
+        }
+        armOverdub_ = true;
+        armSteps_ = playingSteps_;
+        armed_ = true;
+        if (!clockRunning_) // no step clock to wait for: the engine chains it behind the pass
+            postRecord_(0, bpm);
         return;
     case Phase::Empty:
     case Phase::Playing:

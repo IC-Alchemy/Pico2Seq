@@ -91,10 +91,10 @@ TEST_CASE("A tap waits for the next boundary, records the chosen size and then p
     CHECK(rig.engine.storedSamples() == 4 * kStepFrames);
 }
 
-TEST_CASE("Long loops start on the bar and layered takes on the loop's own boundary", "[loop][loop_controller]")
+TEST_CASE("A bar-long take starts on the bar; a tap during it queues a layer instead of abandoning it", "[loop][loop_controller]")
 {
-    Rig rig(131072);
-    rig.controller.setSizeIndex(4); // 64 steps: quantised to the bar
+    Rig rig;
+    rig.controller.setSizeIndex(2); // 16 steps: the longest loop, one bar
     rig.start();
     rig.steps(5);
     rig.controller.tap(kBpm);
@@ -103,16 +103,108 @@ TEST_CASE("Long loops start on the bar and layered takes on the loop's own bound
     CHECK(rig.engine.takesStarted() == 0);
     rig.step();
     CHECK(rig.engine.takesStarted() == 1);
-    CHECK(rig.controller.loopSteps() == 64);
+    CHECK(rig.controller.loopSteps() == 16);
 
-    // While recording a tap abandons the first take.
     rig.steps(3);
     CHECK(rig.controller.phase() == Phase::Recording);
+    CHECK_FALSE(rig.controller.layerQueued());
+    // A tap mid-take queues a layer. The take carries on (it is not abandoned), the state
+    // stays "Recording" rather than turning into "Armed", and the page can show +DUB.
     rig.controller.tap(kBpm);
+    CHECK(rig.controller.phase() == Phase::Recording);
+    CHECK(rig.controller.layerQueued());
+    // Tapping again withdraws it.
+    rig.controller.tap(kBpm);
+    CHECK_FALSE(rig.controller.layerQueued());
+    CHECK(rig.controller.phase() == Phase::Recording);
     rig.controller.update(kBpm);
     rig.render(256);
-    CHECK(rig.controller.phase() == Phase::Empty);
-    CHECK(rig.controller.loopSteps() == 0);
+    CHECK(rig.controller.phase() == Phase::Recording);
+    CHECK(rig.controller.loopSteps() == 16);
+}
+
+TEST_CASE("Every tap is another layer: back-to-back passes mixed into one loop", "[loop][loop_controller][loop_layers]")
+{
+    Rig rig;
+    rig.controller.setSizeIndex(0); // 4 steps
+    rig.start();
+    rig.live = 0.2f;
+    const uint32_t memory = rig.engine.capacitySamples();
+    rig.controller.tap(kBpm);       // 1st press: begins on step 0 and records the loop length
+    rig.steps(1);
+    CHECK(rig.engine.takesStarted() == 1);
+    rig.controller.tap(kBpm);       // 2nd press, during the take: the next pass is a layer
+    CHECK(rig.controller.layerQueued());
+    rig.steps(3);                   // steps 1..3: the take ends with step 3
+    rig.step();                     // step 4: the boundary; the layer begins
+    CHECK(rig.engine.takesStarted() == 2);
+    CHECK(rig.controller.phase() == Phase::Overdubbing);
+    CHECK_FALSE(rig.controller.layerQueued());
+    rig.controller.tap(kBpm);       // 3rd press, during that layer: one more behind it
+    CHECK(rig.controller.layerQueued());
+    rig.steps(3);
+    rig.step();                     // step 8: the boundary again
+    CHECK(rig.engine.takesStarted() == 3);
+    CHECK(rig.controller.phase() == Phase::Overdubbing);
+    // No further press: that layer is the last (steps 8..11), and the loop settles into plain
+    // playback. The live bus stays on until the layer is done.
+    rig.steps(3);
+    rig.live = 0.0f;
+    rig.steps(1);                   // step 12: the layer has ended
+    CHECK(rig.controller.phase() == Phase::Playing);
+    CHECK(rig.controller.loopSteps() == 4);
+    // Three passes of 0.2 were mixed into the one loop; the loop did not grow to hold them.
+    const size_t before = rig.heard.size();
+    rig.steps(2);
+    CHECK(rig.heard[before + kStepFrames] == Approx(0.6f).margin(0.01f));
+    CHECK(rig.engine.capacitySamples() == memory);
+    CHECK(rig.engine.storedSamples() == 4 * kStepFrames);
+}
+
+TEST_CASE("A clock edge that reaches the controller before the audio thread still chains the layer", "[loop][loop_controller][loop_layers]")
+{
+    Rig rig;
+    rig.controller.setSizeIndex(0);
+    rig.start();
+    rig.live = 0.2f;
+    rig.controller.tap(kBpm);
+    rig.steps(1);                              // step 0 delivered: the take is under way
+    rig.controller.tap(kBpm);                  // queue a layer behind it
+    rig.steps(2);                              // steps 1 and 2
+    // Step 3 is delivered normally; step 4's clock edge arrives 40 frames before the audio
+    // thread has finished the take, so the controller's Record reaches an engine that is
+    // still Recording.
+    rig.controller.onStep(kBpm);
+    rig.controller.update(kBpm);
+    rig.render(kStepFrames - 40);
+    rig.controller.onStep(kBpm);               // step 4, early
+    rig.controller.update(kBpm);
+    rig.render(40);
+    CHECK(rig.engine.audioState() == LoopEngine::State::Overdubbing); // straight into the layer
+    CHECK(rig.engine.takesStarted() == 2);
+    rig.live = 0.0f;
+    rig.render(kStepFrames);
+    rig.steps(3);
+    rig.controller.update(kBpm);
+    CHECK(rig.controller.phase() == Phase::Playing);
+}
+
+TEST_CASE("Stopping the transport withdraws a queued layer", "[loop][loop_controller][loop_layers]")
+{
+    Rig rig;
+    rig.controller.setSizeIndex(0);
+    rig.start();
+    rig.controller.tap(kBpm);
+    rig.steps(5);                              // the take ended; a loop is playing
+    REQUIRE(rig.controller.phase() == Phase::Playing);
+    rig.controller.tap(kBpm);
+    rig.controller.tap(kBpm);                  // arm, then (while Armed) disarm
+    CHECK(rig.controller.phase() == Phase::Playing);
+    rig.controller.tap(kBpm);                  // arm a layer for the loop's next boundary
+    CHECK(rig.controller.phase() == Phase::Armed);
+    rig.controller.onClockStop();
+    CHECK_FALSE(rig.controller.layerQueued());
+    CHECK(rig.controller.phase() == Phase::Playing);
 }
 
 TEST_CASE("Tapping a playing loop arms a layer on the loop's own boundary", "[loop][loop_controller]")
@@ -288,7 +380,7 @@ TEST_CASE("Without a loop buffer the controller does nothing", "[loop][loop_cont
     controller.clear();
     CHECK(controller.phase() == Phase::Unavailable);
     controller.setSizeIndex(200);
-    CHECK(controller.sizeSteps() == 64);
+    CHECK(controller.sizeSteps() == 16); // out of range clamps to the longest
 }
 
 // --- Loop Settings page ---------------------------------------------------------
@@ -330,24 +422,24 @@ TEST_CASE("Regen runs 10% to 100% with the top 15% at 100%", "[loop][loop_page]"
     CHECK(loopRegenForFader(std::nanf("")) == Approx(0.10f));
 }
 
-TEST_CASE("The length fader picks 4, 8, 16, 32 or 64 steps in equal zones", "[loop][loop_page]")
+TEST_CASE("The length fader picks 4, 8 or 16 steps in equal zones", "[loop][loop_page]")
 {
     using namespace ControlSurface;
-    const uint8_t expected[5] = {4, 8, 16, 32, 64};
-    for (uint8_t zone = 0; zone < 5; ++zone)
+    const uint8_t expected[3] = {4, 8, 16};
+    for (uint8_t zone = 0; zone < 3; ++zone)
         for (float within : {0.02f, 0.5f, 0.98f})
         {
-            const float x = (static_cast<float>(zone) + within) / 5.0f;
+            const float x = (static_cast<float>(zone) + within) / 3.0f;
             CHECK(LoopTiming::stepsForIndex(loopSizeIndexForFader(x)) == expected[zone]);
         }
     CHECK(loopSizeIndexForFader(0.0f) == 0);
-    CHECK(loopSizeIndexForFader(1.0f) == 4);       // the very top is the longest, not out of range
-    CHECK(loopSizeIndexForFader(5.0f) == 4);
+    CHECK(loopSizeIndexForFader(1.0f) == 2);       // the very top is the longest, not out of range
+    CHECK(loopSizeIndexForFader(5.0f) == 2);
     CHECK(loopSizeIndexForFader(-1.0f) == 0);
     CHECK(loopSizeIndexForFader(std::nanf("")) == 0);
-    // The top 15% of travel (>= 85%) is all inside the 64-step zone.
+    // The top 15% of travel (>= 85%) is all inside the 16-step zone.
     for (float x = 0.85f; x <= 1.0f; x += 0.01f)
-        CHECK(loopSizeIndexForFader(x) == 4);
+        CHECK(loopSizeIndexForFader(x) == 2);
 }
 
 TEST_CASE("Loop page faders and labels", "[loop][loop_page]")

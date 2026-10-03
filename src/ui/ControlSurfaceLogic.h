@@ -553,7 +553,7 @@ void formatReverbValue(ReverbControl control, float value, char *out, size_t siz
 enum class LoopControl : uint8_t
 {
   LoopVolume,      // level of the played-back loop
-  LoopLength,      // steps in the NEXT take: 4, 8, 16, 32 or 64
+  LoopLength,      // steps in the NEXT take: 4, 8 or 16
   SequencerVolume, // level of the live sequencer bus in the mix
   Regen,           // share of the loop kept on every repeat
   Count,           // unassigned
@@ -594,7 +594,7 @@ constexpr float loopRegenForFader(float normalized) noexcept
   return LoopTiming::kMinRegen + (1.0f - LoopTiming::kMinRegen) * loopPercentForFader(normalized);
 }
 
-/** Loop length: the fader's travel in five equal zones, 4, 8, 16, 32, 64 steps (index 0..4). */
+/** Loop length: the fader's travel in three equal zones, 4, 8, 16 steps (index 0..2). */
 constexpr uint8_t loopSizeIndexForFader(float normalized) noexcept
 {
   if (!(normalized > 0.0f))

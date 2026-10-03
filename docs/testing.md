@@ -167,9 +167,10 @@ loop actually does.
 | `[loop_overdub]` | same | A layer bakes in the heard level and adds the new take; sums are bounded by the soft clip |
 | `[loop_sync]` | same | A tempo change varispeeds the loop onto the grid; a sync within a few ms of the seam changes nothing (identical to an unsynced twin); a sync far off snaps to the start with a crossfade; restart replays from the top |
 | `[loop_bus]` | same | On the real `VoiceManager`: a voice is recorded and keeps playing after it stops; sequencer volume 0 mutes the live bus but not the loop; allocation refused cleanly when the heap is short |
-| `[loop_timing]` | same | Sizes 4/8/16/32/64, frames per step, hostile tempos, take-start quantisation |
+| `[loop_layers]` | same, `test_loop_controller.cpp` | Many layers share one buffer (four passes of 0.2 sum to 0.8 and the stored length and capacity do not change); with regen below 100% layers settle (0.2 → 0.3 → 0.35 → … → 0.4); a request during a pass queues a layer that follows it with no plain repeat, and a repeat of the same request is the same request; **the layer's mix level is the same on either side of the seam**, after a take and after a plain repeat (mutation-checked: the test fails without the `justBaked_` rule); clear drops a queued layer; the controller test chains three presses into three back-to-back passes, and an early clock edge still chains |
+| `[loop_timing]` | same | Sizes 4/8/16 (a bar at most), frames per step, hostile tempos, take-start quantisation |
 | `[loop_controller]` | `test_loop_controller.cpp` | A tap waits for the boundary and records the chosen size; long loops start on the bar; layers start on the loop's own boundary; healthy loops are never moved by the per-repeat sync; tempo retimes the loop; hold clears; stopping abandons a first take; stopped transport records at once; restart plays from the top; no buffer = inert |
-| `[loop_page]` | same | Fader maps (top 15% = 100%, regen 10–100%, five length zones, NaN safe), labels and OLED text, loop-button debounce and tap/hold/chord classification, page open/close/consume gesture, transitions that clear competing UI |
+| `[loop_page]` | same | Fader maps (top 15% = 100%, regen 10–100%, three length zones, NaN safe), labels and OLED text, loop-button debounce and tap/hold/chord classification, page open/close/consume gesture, transitions that clear competing UI |
 
 ```bash
 ./build_test_ninja/tests/pico2seq_tests "[loop]"           # everything above
