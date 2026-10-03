@@ -1,9 +1,9 @@
 // VoiceManager.h — owns the voices (setup-time unique_ptr only; Core 1 never
 // allocates) and renders the master bus:
-//   voices → master delay → master reverb → shared master gain → linked stereo
-//   macro compressor → L/R.
-// The voices, delay and gain path are mono until the reverb; the reverb is where
-// the bus becomes stereo, and the compressor sees both channels through one
+//   voices → master delay → looper (records the mono bus, mixes the loop back in)
+//   → master reverb → shared master gain → linked stereo macro compressor → L/R.
+// The voices, delay, looper and gain path are mono until the reverb; the reverb is
+// where the bus becomes stereo, and the compressor sees both channels through one
 // detector and one gain. Control thread configures; Core 1 calls
 // processStereoBlock() (or the mono wrapper processBlock()) only. Cross-core
 // knobs use lock-free atomics; reverb changes may also arrive as a coherent
@@ -13,6 +13,7 @@
 #include "Voice.h"
 #include "MasterDelay.h"
 #include "MasterReverb.h"
+#include "LoopEngine.h"
 #include "ReverbSettings.h"
 #include "DelayTiming.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
@@ -186,6 +187,21 @@ public:
     // values still reach the audio thread through the individual targets.
     bool applyReverbSettings(const ReverbSettings &settings) noexcept { return masterReverb_.publishSettings(settings); }
 
+    // Master-bus looper (see LoopEngine.h): records the mono bus after the delay and
+    // before the reverb, and mixes the loop back in at the same point. Control-thread
+    // calls go through loop(); the audio thread only runs it from renderBus_.
+    LoopEngine &loop() noexcept { return loop_; }
+    const LoopEngine &loop() const noexcept { return loop_; }
+    // Setup only (control thread, before the audio thread runs): size the loop's packed
+    // 12-bit buffer from the heap the caller measured as free, allocate it and attach it.
+    // The loop never takes the last `reserveBytes` of the heap, and a buffer that cannot
+    // be had leaves the looper disabled while the rest of the bus is unaffected. True
+    // when a buffer is attached.
+    bool allocateLoopBuffer(size_t freeHeapBytes,
+                            size_t wantedBytes = LoopEngine::kDefaultBufferBytes,
+                            size_t reserveBytes = LoopEngine::kHeapReserveBytes);
+    size_t loopBufferBytes() const noexcept { return loopStorageBytes_; }
+
     void setTransportMuted(bool muted) noexcept { transportMuted_.store(muted, std::memory_order_relaxed); }
 
     // Voice Parameter Control
@@ -236,6 +252,11 @@ private:
     static_assert(std::atomic<bool>::is_always_lock_free && std::atomic<uint8_t>::is_always_lock_free,
                   "Delay mode and division must be lock-free");
     MasterDelay masterDelay_;
+    // The looper sits between the delay and the reverb: it records the delayed mono bus
+    // and the loop it plays back reaches the reverb, gain and compressor like the voices.
+    LoopEngine loop_;
+    std::unique_ptr<uint8_t[]> loopStorage_; // setup-time allocation, Core 1 only reads it
+    size_t loopStorageBytes_ = 0;
     // Reverb follows the delay (repeats feed the tank) and precedes master gain.
     MasterReverb masterReverb_;
 

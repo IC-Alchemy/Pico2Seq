@@ -12,7 +12,7 @@ distance sensor, an OLED display, and a USB CDC diagnostics console — all on o
 > This manual was compiled from the firmware source and documentation in this repository
 > (2026-09-03; updated 2026-09-30 for the stereo master bus, tempo-synced master delay, the
 > live ADSR/Reverb/ARP OLED pages and current ranges; updated 2026-09-16 for Project Snapshot
-> persistence / flash session management,
+> persistence / flash session management, the tempo-synced looper (§3.9),
 > hot audio in SRAM, the 29-preset sound bank on one browser page, the 55–700 mm lidar window with
 > pause-on-out-of-range, and encoder base value editing; updated for Arpeggiator mode
 > — see [`docs/arpeggiator.md`](arpeggiator.md)). The code is authoritative; anything that
@@ -115,7 +115,7 @@ the firmware only maps four faders.]** The mode switch does not change the fader
 | Fader | Controls |
 |---|---|
 | 1 | Master tempo (uClock BPM, 45–200); Shift held: delay feedback (0–100%) |
-| 2 | Delay wet mix (Shift held: delay time, 10–750 ms — §3.5) |
+| 2 | Delay wet mix (Shift held: delay time, 10–375 ms — §3.5) |
 | 3 | Master volume (saved with the session); Shift held: compressor macro (Warm/Glue/Punch) |
 | 4 | Gate length across the selected voice's active steps |
 
@@ -177,6 +177,9 @@ Eight buttons (ButtonModule8) change meaning with the **mode switch** on GPIO 7:
 
 Full behavior of each is in §5. When the switch flips, holds and latches are cleared and a
 brief **PARAM** / **UTIL** banner appears on the OLED.
+
+The **loop button** is a separate momentary switch on **GPIO 6** (to ground, internal
+pull-up). It is not part of the 8-button set and does not change with the mode switch; see §3.9.
 
 ### 1.6 TMAG5273 magnetic encoder (joystick)
 
@@ -495,7 +498,7 @@ instead, so the delay is unreachable there).
 
 - **Wet mix** — fader 2 position, 0 (dry) to 100 % added wet signal; dry stays present. The OLED shows
   `DELAY MIX nn %` while you move it.
-- **Delay time** — hold **Shift** and move fader 2: 10 to 750 ms on a log
+- **Delay time** — hold **Shift** and move fader 2: 10 to 375 ms on a log
   curve (`DELAY TIME nnn ms`). The read head glides to the new time, so the
   repeats pitch-bend like a tape machine.
 - **Feedback** — hold **Shift** and move fader 1: 0–100%, shown as
@@ -514,8 +517,8 @@ time 300 ms and feedback 75%.
 
 ### 3.6 Master compressor and volume
 
-The summed voices pass through the delay, then the reverb (§3.7), then master
-volume, then the compressor. Dry sound, repeats and reverb share compression;
+The summed voices pass through the delay, then the looper (§3.9), then the
+reverb (§3.7), then master volume, then the compressor. Dry sound, repeats and reverb share compression;
 master volume and transport mute control the whole result. The compressor is
 **linked**: one detector follows the louder of the left and right channels and
 both channels are turned down by the same amount, so the stereo image does not
@@ -618,6 +621,72 @@ library and the scale list of each tuning is in [tuning.md](tuning.md).
 
 ---
 
+### 3.9 Looper
+
+A tempo-synced audio looper records the **mono master bus after the delay and before the
+reverb**, and plays it back mixed into the same point, so reverb, master volume and the
+compressor treat the loop like any other sound. It is driven by the **loop button** (GPIO 6)
+and the **Loop Settings** page. The loop is **4, 8 or 16 steps** long (16, a bar, is the
+maximum), and it is built by **layering**: one press records the loop, every further press mixes
+the live bus into it and writes the sum back over it. Layers share the one buffer, so any number
+of them fit in a small amount of memory.
+
+**Making a loop**
+
+1. Pick a length on the Loop Settings page (below): 4, 8 or 16 steps.
+2. Tap the loop button. The OLED shows `LOOP ARMED` and the take waits for the next loop
+   boundary (at most one loop away, so at most a bar). If the transport is stopped the take
+   begins at once.
+3. The take records exactly that many steps (`LOOP REC`), then stops by itself and plays
+   in sync (`LOOP PLAY`).
+4. **Tap again to layer.** During the next pass (`LOOP DUB`) what you hear live is mixed with the
+   previous loop, and the sum is written back over the loop, so the next time round it plays as one
+   loop. Tap while the loop plays and the layer starts on the loop's next boundary. Tap while a take
+   or a layer is still running and the next layer is *queued* to start the instant that pass ends
+   (the Loop Settings page shows `+DUB`), so tapping once per pass stacks layer on layer with no
+   plain repeat between. Tap again before it starts to withdraw it.
+5. **Hold** the button for 0.8 s to clear the loop (`LOOP CLEAR`); this also abandons an
+   unfinished first take.
+
+Stopping the transport abandons an unfinished first take and withdraws a queued layer.
+Restarting it plays the loop from its top, with the sequencers. A tempo change retimes the loop
+with the grid (the pitch moves, like a tape). The loop button works on every screen except the
+voice editor.
+
+**Loop Settings page.** Hold **Shift** and press the loop button, then release both. Playback
+keeps running. **Faders 1–4** (the pickup rule applies: move a fader to engage it):
+
+| Fader | Setting | Range |
+|---|---|---|
+| 1 | Loop volume | 0–100% |
+| 2 | Loop length | 4 / 8 / 16 steps, three equal zones; applies to the **next** take |
+| 3 | Sequencer volume | 0–100%: the level of the live bus; the loop records the bus *before* it |
+| 4 | Regen | 10–100%: share of the loop kept on each repeat, layers included |
+
+The **top 15% of travel on faders 1, 3 and 4 is all 100%**, so full level is a zone you can
+rest on. The loop button keeps its meaning on the page, the footer shows the loop's state
+(`EMPTY`, `ARM in 3`, `REC 5/16`, `PLAY 3/16`, `DUB 9/16`, plus `+DUB` while a layer is queued),
+and the LED matrix shows the four settings as bars. Voice buttons, tile buttons, pads and the
+encoder do nothing on the page; **Shift** leaves it.
+
+**Regen and layers.** Every time the loop goes round again it is played at *regen* times the level
+of the previous pass, and a layer is such a repeat: it mixes the old loop in at regen, whichever side
+of the loop's end your tap landed. At 100% nothing fades and layers simply add up (the sum saturates
+softly towards ±2 rather than clipping hard). Below 100% each layer fades what was already there, so a
+long run of layers settles at a level instead of piling up: at 50%, layering the same steady input
+settles at twice its own level. Plain repeats you let play fade the same way (at 50% each is half
+the last), and at 10% the loop is gone after four or five of them and the looper empties.
+
+**Sound and memory.** The loop is held as packed **12-bit** samples (±2.0 full scale) in
+**64 KiB**, which is 43,690 samples. Short loops are full rate (4 steps from 66 BPM, 8 steps from 132
+BPM); a longer one stores fewer samples per second so that it always fits, and playback is smoothed.
+A bar is about 16 kHz at 90 BPM, 22 kHz at 120 BPM and 25 kHz at 140 BPM (8 kHz at 45 BPM), so expect
+a lo-fi, sampler-like character on a slow bar. The buffer is allocated at boot from whatever heap is
+free (keeping a 40 KiB reserve); if there is not enough, the OLED shows `NO LOOP` when you tap and the
+rest of the instrument is unchanged. To make room the delay line is 375 ms and the session loader no
+longer keeps a private 12 KB buffer. Neither the loop nor its settings are saved with the session.
+[`docs/audio-performance.md`](audio-performance.md#looper-ram-and-store-rate) has the numbers.
+
 ## 4. Voices & presets
 
 ### 4.1 The DSP chain
@@ -660,7 +729,7 @@ Each voice runs a full synthesis chain at 48 kHz on the audio core:
         |
         v
  voice output level -> summed with the other 3 voices
- -> master delay -> master reverb (mono in, stereo out) -> master volume
+ -> master delay -> looper (§3.9) -> master reverb (mono in, stereo out) -> master volume
  -> linked stereo master compressor -> Stereo Out (left and right)
 ```
 
@@ -846,6 +915,7 @@ voices: [`docs/arpeggiator.md`](arpeggiator.md).
 | Hold Voice 1-4 without Shift (400 ms) | Gate Sequence Length mode for that voice, in Param or Utility mode; release to exit |
 | Move hand over VL53L1X while a parameter is armed | Hands-free live recording of a relative modifier into that parameter's sequence at its playing step on the selected voice, continuously while held and heard at once (midpoint ≈ neutral) |
 | Mode switch (GPIO 7) | Select Param (LOW) or Utility (HIGH) button set; shows a banner on flip |
+| Loop button (GPIO 6) | Tap: record the loop, then each further tap layers the live bus into it (queued behind a running pass). Hold 0.8 s: clear. Shift + press: Loop Settings page (§3.9) |
 | Shift + V4 (hold, release) | Enter Voice Editing mode (transport stops; see above) |
 
 ---

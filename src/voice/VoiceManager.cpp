@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <new>
 #include "../utils/Debug.h"
 #include "../pico2seq-core/scales/scales.h" // Inject scale data into voices
 #include "../pico2seq-core/tuning/TuningState.h" // ...and the global tuning
@@ -284,6 +285,32 @@ void VoiceManager::init(float sr)
     }
 }
 
+bool VoiceManager::allocateLoopBuffer(size_t freeHeapBytes, size_t wantedBytes, size_t reserveBytes)
+{
+    if (loopStorage_)
+        return true; // already attached; the audio thread may be reading it
+    size_t bytes = LoopEngine::planBufferBytes(freeHeapBytes, reserveBytes, wantedBytes);
+    while (bytes != 0)
+    {
+        std::unique_ptr<uint8_t[]> storage(new (std::nothrow) uint8_t[bytes]);
+        if (storage)
+        {
+            loop_.attach(storage.get(), bytes, sampleRate);
+            loopStorage_ = std::move(storage);
+            loopStorageBytes_ = bytes;
+            DBG_INFO("VoiceManager: loop buffer %u bytes (%u samples)",
+                     static_cast<unsigned>(bytes), static_cast<unsigned>(loop_.capacitySamples()));
+            return true;
+        }
+        // A fragmented heap can refuse what the free total allows: try half.
+        bytes /= 2;
+        bytes -= bytes % LoopEngine::kBytesPerPair;
+        if ((bytes / LoopEngine::kBytesPerPair) * 2 < LoopEngine::kMinSamples)
+            bytes = 0;
+    }
+    return false;
+}
+
 void VoiceManager::configureMasterCompressor_()
 {
     compressor.prepare(sampleRate);
@@ -336,6 +363,11 @@ void PICO2SEQ_AUDIO_FUNC(VoiceManager::renderBus_)(float *left, float *right, ui
         masterDelay_.setFeedback(delayFeedback.load(std::memory_order_relaxed));
         for (uint32_t k = 0; k < count; ++k)
             left[k] = masterDelay_.process(left[k]);
+
+        // 2b. Looper, in place: records this mono bus (before the sequencer volume it
+        // applies) and mixes the loop in. With nothing recorded and the sequencer at
+        // unity the bus is left untouched.
+        loop_.processBlock(left, count);
 
         // 3. Reverb, shared master gain, macro morph and the linked compressor,
         // one control quantum at a time. The voice mix is finished, so

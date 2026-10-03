@@ -114,7 +114,7 @@ Bench regression checklist (host tests cannot verify the physical tile/LED/OLED 
 delay and compressor processing in the order: voices, delay, master gain,
 compressor. It covers dry bypass, all three compressor anchors, block sizes
 through 513 samples, tails after voices go silent, transport mute, zero
-master volume, the 10–750 ms fader range, and synced time following BPM at 48 kHz. The block suite also
+master volume, the 10–375 ms fader range, and synced time following BPM at 48 kHz. The block suite also
 compares scalar and block rendering while delay mix/time change.
 
 `test_master_delay.cpp` retains fractional timing, repeat darkening, bounded
@@ -150,6 +150,40 @@ feedback changes are checked through the real combined bus at 0%, 100% and
 35%, and the saturated-delay test now exercises a full 1.0 feedback coefficient.
 The 150 MHz firmware was rebuilt with all four artifacts verified; physical
 fader/OLED behavior and audio timing remain unverified.
+
+## Looper
+
+`LoopEngine` (audio thread), `LoopController` (Core 0 policy) and the Loop Settings page are tested
+against the real engine. The engine tests run `processBlock()` the way Core 1 does; the controller
+tests drive it with a simulated step clock and a simulated audio thread, so a tap is checked by what the
+loop actually does.
+
+| Tag | File | What it pins |
+|---|---|---|
+| `[loop_storage]` | `test_loop_engine.cpp` | 12-bit pack/unpack round trip of every value at both parities without touching neighbours, the 3-byte layout, run-time buffer sizing (reserve, whole pairs, minimum) |
+| `[loop][loop_record]` | same | An idle looper leaves the bus bit-for-bit untouched; a take records exactly one period (at block sizes 1 to 513) and then plays it back 12-bit accurate with only the seam faded; store-rate decimation keeps the loop's length; loud takes saturate inside ±2 instead of wrapping; cancel and clear |
+| `[loop_mix]` | same | Loop volume and sequencer volume, eased without a step; the recording is taken before the sequencer volume |
+| `[loop_regen]` | same | Regen is the level kept per repeat (exact 0.5 sequence, no loss after 25 repeats at 100%); a loop fades out and the looper empties; clamps |
+| `[loop_overdub]` | same | A layer bakes in the heard level and adds the new take; sums are bounded by the soft clip |
+| `[loop_sync]` | same | A tempo change varispeeds the loop onto the grid; a sync within a few ms of the seam changes nothing (identical to an unsynced twin); a sync far off snaps to the start with a crossfade; restart replays from the top |
+| `[loop_bus]` | same | On the real `VoiceManager`: a voice is recorded and keeps playing after it stops; sequencer volume 0 mutes the live bus but not the loop; allocation refused cleanly when the heap is short |
+| `[loop_layers]` | same, `test_loop_controller.cpp` | Many layers share one buffer (four passes of 0.2 sum to 0.8 and the stored length and capacity do not change); with regen below 100% layers settle (0.2 → 0.3 → 0.35 → … → 0.4); a request during a pass queues a layer that follows it with no plain repeat, and a repeat of the same request is the same request; **the layer's mix level is the same on either side of the seam**, after a take and after a plain repeat (mutation-checked: the test fails without the `justBaked_` rule); clear drops a queued layer; the controller test chains three presses into three back-to-back passes, and an early clock edge still chains |
+| `[loop_timing]` | same | Sizes 4/8/16 (a bar at most), frames per step, hostile tempos, take-start quantisation |
+| `[loop_controller]` | `test_loop_controller.cpp` | A tap waits for the boundary and records the chosen size; long loops start on the bar; layers start on the loop's own boundary; healthy loops are never moved by the per-repeat sync; tempo retimes the loop; hold clears; stopping abandons a first take; stopped transport records at once; restart plays from the top; no buffer = inert |
+| `[loop_page]` | same | Fader maps (top 15% = 100%, regen 10–100%, three length zones, NaN safe), labels and OLED text, loop-button debounce and tap/hold/chord classification, page open/close/consume gesture, transitions that clear competing UI |
+
+```bash
+./build_test_ninja/tests/pico2seq_tests "[loop]"           # everything above
+./build_test_ninja/tests/pico2seq_voice_tests "[loop]"     # the engine and bus tests alone
+```
+
+`SessionStorage::load()` reads into the caller's snapshot instead of a private buffer; the host test
+`loading in place, as SessionStorage::load does, ...` (`[persistence]`) checks that for every format version
+the result is byte-identical to the old separate-buffer path. The LittleFS calls themselves are not host-testable.
+
+The hardware-bound firmware glue for the looper (`AlchemyControlBridge` loop handling, `ControlIO`'s
+GP6 pin, the OLED page, the LED bars, `VoiceSetup`'s allocation) is not run on the host; it was only
+syntax-checked against stub headers.
 
 ## Master reverb, stereo bus and Reverb page
 
@@ -260,6 +294,7 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 20 | `tests/unit/test_master_bus.cpp` | Combined delay, reverb and compressor | Bus order, dry bypass, tails, mute, volume, audible fader range, stereo reverb bus (`[master_bus]`, `[reverb_bus]`) |
 | 21 | `tests/unit/test_master_reverb.cpp` | `MasterReverb` adapter | Mix-zero bit-exactness, lock-free control hand-off, snapshots, eased controls, freeze, storage variants, allocation (`[reverb][master_reverb]`) |
 | 22 | `tests/unit/test_reverb_page.cpp`, `test_reverb_editor.cpp` | Reverb page | Entry gesture, fader layers and curves, OLED formatting, published values (`[reverb_page]`) |
+| 22b | `tests/unit/test_loop_engine.cpp`, `test_loop_controller.cpp` | Looper (`src/voice/LoopEngine.*`, `src/app/LoopController.*`, `src/ui/LoopPageControls.h`) | 12-bit store, record/play/overdub, regen, sync, tempo, bus integration, controller policy, Loop Settings page (`[loop]`; see the Looper section above) |
 | 23 | `tests/unit/test_stack_watermark.cpp` | `StackWatermark` | Paint/scan arithmetic (`[stack]`) |
 | 24 | `tests/unit/test_reverb_bypass.cpp` | Bench bypass build (`pico2seq_reverb_bypass_tests`) | Dry bus, control hand-off |
 | 25 | `tests/unit/test_arpeggiator.cpp` | Arpeggiator mode note engine (`src/pico2seq-core/arpeggiator/Arpeggiator.cpp`; also in `pico2seq_ui_tests`) | Seven-note pad layout and octave rows, chord/latch semantics, pattern walks, rate/gate/swing timing at 480 PPQN, encoder rate, lidar dynamics (`[arpeggiator]`) |

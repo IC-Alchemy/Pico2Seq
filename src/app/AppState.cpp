@@ -24,6 +24,7 @@ tuning::Bank tuningBank = []
     return bank;
 }();
 bool isClockRunning = true;
+LoopController loopController;
 
 namespace AppState
 {

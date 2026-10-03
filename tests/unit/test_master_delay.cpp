@@ -312,6 +312,22 @@ TEST_CASE("MasterDelay's two rings share one block of memory", "[master_delay][d
     CHECK(sizeof(MasterDelay) < kFloatRingBytes + 512);
 }
 
+TEST_CASE("The delay line is 375 ms, half its old size, and the synced ring still fits", "[master_delay][delay_sync]")
+{
+    // 72,000 bytes of heap went to the looper: the shared block holds 18,004 words, not 36,004.
+    static_assert(MasterDelay::kCapacitySamples == 18004);
+    static_assert(MasterDelay::kMaxDelaySamples == 18000);
+    static_assert(MasterDelay::kCapacitySamples * sizeof(uint32_t) == 72016);
+    CHECK(sizeof(MasterDelay) < 72016 + 512);
+    MasterDelay delay;
+    delay.prepare(kSampleRate);
+    CHECK(delay.maxDelaySeconds() == Approx(0.375f));
+    delay.setDelaySeconds(0.75f); // the old ceiling now clamps to the new one
+    CHECK(delay.delaySamplesTarget() == Approx(18000.0f).margin(0.5f));
+    // The tempo-synced ring is untouched: a whole note at 45 BPM still fits.
+    CHECK(delay.maxSyncedDelaySeconds() >= 4.0f * 60.0f / 45.0f);
+}
+
 TEST_CASE("Switching delay modes over the shared block matches a fresh delay", "[master_delay][delay_sync]")
 {
     constexpr int kPrime = 2600;    // longer than the 2400-sample delay plus the guard

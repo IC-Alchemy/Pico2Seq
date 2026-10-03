@@ -9,6 +9,7 @@
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../pico2seq-core/tuning/TuningState.h"
 #include "../voice/VoiceManager.h"
+#include "LoopController.h"
 #include "../voice/VoiceSystem.h"
 #include "SequencerView.h"
 #include <atomic>
@@ -23,6 +24,8 @@ extern std::unique_ptr<VoiceManager> voiceManager;
 extern VoiceSystem voiceSystem;
 extern uint8_t currentScale;
 extern bool isClockRunning;
+// Core 0 policy of the master-bus looper; it drives voiceManager->loop() once bound.
+extern LoopController loopController;
 
 // Set once by Core 0 after control setup; Core 1 spins on it at boot, then
 // reads voices lock-free. Release/acquire pairing — never clear it afterwards.

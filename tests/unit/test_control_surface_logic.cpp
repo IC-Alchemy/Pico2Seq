@@ -520,12 +520,14 @@ TEST_CASE("FaderMap: without a selected step the faders are tempo/delay mix/volu
         CHECK(FaderMap::assignmentFor(false, channel).paramId == ParamId::Count);
 }
 
-TEST_CASE("Delay time fader mapping spans 10 ms to 750 ms on a log curve", "[control_surface][fader]")
+TEST_CASE("Delay time fader mapping spans 10 ms to 375 ms on a log curve", "[control_surface][fader]")
 {
+    CHECK(kDelayTimeMaxSeconds == Approx(0.375f));
     CHECK(delaySecondsForFader(0.0f) == Approx(kDelayTimeMinSeconds).margin(1e-6f));
     CHECK(delaySecondsForFader(1.0f) == Approx(kDelayTimeMaxSeconds).margin(1e-6f));
-    // Geometric midpoint of the tuned range: sqrt(0.01 * 0.75).
-    CHECK(delaySecondsForFader(0.5f) == Approx(std::sqrt(0.0075f)).epsilon(0.001));
+    // Geometric midpoint of the tuned range: sqrt(0.01 * 0.375).
+    CHECK(delaySecondsForFader(0.5f) ==
+          Approx(std::sqrt(kDelayTimeMinSeconds * kDelayTimeMaxSeconds)).epsilon(0.001));
     CHECK(delaySecondsForFader(-1.0f) == Approx(kDelayTimeMinSeconds).margin(1e-6f));
     CHECK(delaySecondsForFader(2.0f) == Approx(kDelayTimeMaxSeconds).margin(1e-6f));
 

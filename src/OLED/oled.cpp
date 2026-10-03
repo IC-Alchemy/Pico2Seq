@@ -240,6 +240,11 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     commitFrame();
     return;
   }
+  if (uiState.loopPage.active) {
+    displayLoopPage(uiState, voiceManager);
+    commitFrame();
+    return;
+  }
   if (uiState.tuningPage.active) {
     displayTuningPage(uiState);
     commitFrame();
@@ -280,6 +285,15 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     case UIState::OledNoticeKind::DelaySync:    line1 = "DELAY SYNC"; break;
     case UIState::OledNoticeKind::DelayMsMode:  line1 = "DELAY MS"; break;
     case UIState::OledNoticeKind::DelayFeedback: line1 = "DELAY FB"; break;
+    case UIState::OledNoticeKind::LoopArmed:    line1 = "LOOP ARMED"; break;
+    case UIState::OledNoticeKind::LoopRecording: line1 = "LOOP REC"; break;
+    case UIState::OledNoticeKind::LoopPlaying:  line1 = "LOOP PLAY"; break;
+    case UIState::OledNoticeKind::LoopOverdub:  line1 = "LOOP DUB"; break;
+    case UIState::OledNoticeKind::LoopCleared:  line1 = "LOOP CLEAR"; break;
+    case UIState::OledNoticeKind::LoopUnavailable:
+      line1 = "NO LOOP";
+      line2 = "not enough RAM";
+      break;
     case UIState::OledNoticeKind::ArpOn:
       line1 = "ARP ON";
       line2 = "Touch pads, then Play";
@@ -318,6 +332,19 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
       const uint8_t voiceLineWidth = static_cast<uint8_t>(strlen(voiceLine) * 6);
       displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - voiceLineWidth) / 2, 44);
       displayHardware.print(voiceLine);
+    }
+    else if (uiState.oledNoticeKind == UIState::OledNoticeKind::LoopArmed ||
+             uiState.oledNoticeKind == UIState::OledNoticeKind::LoopRecording ||
+             uiState.oledNoticeKind == UIState::OledNoticeKind::LoopPlaying ||
+             uiState.oledNoticeKind == UIState::OledNoticeKind::LoopOverdub)
+    {
+      // The size of the take being waited for, made, or playing.
+      displayHardware.setTextSize(1);
+      char sizeLine[16];
+      snprintf(sizeLine, sizeof(sizeLine), "%u steps", static_cast<unsigned>(uiState.oledNoticeValue));
+      const uint8_t sizeLineWidth = static_cast<uint8_t>(strlen(sizeLine) * 6);
+      displayHardware.setCursor((OLEDConstants::SCREEN_WIDTH - sizeLineWidth) / 2, 44);
+      displayHardware.print(sizeLine);
     }
     else if (uiState.oledNoticeKind == UIState::OledNoticeKind::DelayMix ||
              uiState.oledNoticeKind == UIState::OledNoticeKind::DelayTime ||
@@ -729,6 +756,68 @@ void OLEDDisplay::displayReverbPage(const UIState &state, VoiceManager *manager)
   }
   displayHardware.setCursor(0, 56);
   displayHardware.print("1 Frz 2 Layer 8 Exit");
+  displayHardware.setTextWrap(true);
+}
+
+void OLEDDisplay::displayLoopPage(const UIState &state, VoiceManager *manager)
+{
+  using ControlSurface::LoopControl;
+  displayHardware.setTextWrap(false);
+  displayHardware.setCursor(2, 0);
+  displayHardware.print("LOOP SETTINGS");
+  displayHardware.drawFastHLine(2, 10, 124, SH110X_WHITE);
+  const LoopEngine *loop = manager ? &manager->loop() : nullptr;
+  for (uint8_t i = 0; i < 4; ++i) {
+    const int y = 13 + 10 * i;
+    const LoopControl control = ControlSurface::loopControlForFader(i);
+    float value = 0.0f;
+    switch (control) {
+    case LoopControl::LoopVolume: value = loop ? loop->loopVolume() : 0.0f; break;
+    case LoopControl::LoopLength: value = static_cast<float>(loopController.sizeSteps()); break;
+    case LoopControl::SequencerVolume: value = loop ? loop->sequencerVolume() : 1.0f; break;
+    case LoopControl::Regen: value = loop ? loop->regen() : 1.0f; break;
+    case LoopControl::Count: break;
+    }
+    displayHardware.setCursor(0, y);
+    displayHardware.print(state.loopPage.lastControl == static_cast<uint8_t>(control) ? ">" : " ");
+    displayHardware.print(i + 1);
+    displayHardware.print(" ");
+    displayHardware.print(ControlSurface::loopControlName(control));
+    char text[12];
+    ControlSurface::formatLoopValue(control, value, text, sizeof(text));
+    displayHardware.setCursor(126 - 6 * static_cast<int>(strlen(text)), y);
+    displayHardware.print(text);
+  }
+  // Footer: what the loop is doing right now, and how to leave.
+  char status[24];
+  using Phase = LoopController::Phase;
+  const uint8_t steps = loopController.loopSteps();
+  switch (loopController.phase()) {
+  case Phase::Unavailable: snprintf(status, sizeof(status), "NO LOOP"); break;
+  case Phase::Armed:
+    if (loopController.stepsUntilStart() != 0)
+      snprintf(status, sizeof(status), "ARM in %u", static_cast<unsigned>(loopController.stepsUntilStart()));
+    else
+      snprintf(status, sizeof(status), "ARMED");
+    break;
+  case Phase::Recording:
+    snprintf(status, sizeof(status), "REC %u/%u%s", static_cast<unsigned>(loopController.currentStep()),
+             static_cast<unsigned>(steps), loopController.layerQueued() ? " +DUB" : "");
+    break;
+  case Phase::Overdubbing:
+    snprintf(status, sizeof(status), "DUB %u/%u%s", static_cast<unsigned>(loopController.currentStep()),
+             static_cast<unsigned>(steps), loopController.layerQueued() ? " +DUB" : "");
+    break;
+  case Phase::Playing:
+    snprintf(status, sizeof(status), "PLAY %u/%u", static_cast<unsigned>(loopController.currentStep()),
+             static_cast<unsigned>(steps));
+    break;
+  default: snprintf(status, sizeof(status), "EMPTY"); break;
+  }
+  displayHardware.setCursor(0, 56);
+  displayHardware.print(status);
+  displayHardware.setCursor(126 - 6 * 6, 56);
+  displayHardware.print("8 Exit");
   displayHardware.setTextWrap(true);
 }
 

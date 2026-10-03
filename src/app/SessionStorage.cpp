@@ -2,14 +2,12 @@
 #include "../pico2seq-core/persistence/SnapshotFormat.h"
 #include <Arduino.h>
 #include <LittleFS.h>
+#include <cstring>
 
 namespace
 {
 constexpr const char *kSavePath = "/session.p2s";
 constexpr const char *kTempPath = "/session.tmp";
-
-// Static, not stack: ~12.4 KB, beyond what the Core 0 loop stack can hold.
-persistence::ProjectSnapshot g_loadBuffer;
 } // namespace
 
 bool SessionStorage::begin()
@@ -51,7 +49,16 @@ SessionStorage::LoadResult SessionStorage::load(persistence::ProjectSnapshot &ou
         f.close();
         return LoadResult::BadFrame;
     }
-    if (f.read(reinterpret_cast<uint8_t *>(&g_loadBuffer), payloadSize) !=
+    // The caller's snapshot is a file-static (~12.4 KB, too big for the stack), so the
+    // frame is read and decoded straight into it: a private second copy here cost
+    // 12,460 bytes of heap for nothing. The price is that `out` is scratch on any
+    // result other than Ok; both callers (Application boot and the Load action) only
+    // read it after Ok and rebuild it with captureSession() before anything else.
+    // An older frame is a prefix of the layout: clear the rest so the upgrade (and the
+    // CRC the caller takes of the result) never sees whatever `out` held before.
+    if (payloadSize < sizeof(out))
+        std::memset(reinterpret_cast<uint8_t *>(&out) + payloadSize, 0, sizeof(out) - payloadSize);
+    if (f.read(reinterpret_cast<uint8_t *>(&out), payloadSize) !=
         static_cast<int>(payloadSize))
     {
         f.close();
@@ -59,11 +66,11 @@ SessionStorage::LoadResult SessionStorage::load(persistence::ProjectSnapshot &ou
     }
     f.close();
     // Header and payload CRC separately: never read past the 12-byte header. The
-    // payload is decoded in place in the static buffer (too large for the stack).
-    if (!persistence::decodeSnapshotFrame(header, reinterpret_cast<const uint8_t *>(&g_loadBuffer),
-                                          sizeof(g_loadBuffer), g_loadBuffer))
+    // payload is decoded in place (decodeSnapshotFrame skips the copy when the
+    // payload already is `out`, then upgrades older layouts and validates).
+    if (!persistence::decodeSnapshotFrame(header, reinterpret_cast<const uint8_t *>(&out),
+                                          sizeof(out), out))
         return LoadResult::BadFrame;
-    out = g_loadBuffer;
     return LoadResult::Ok;
 }
 

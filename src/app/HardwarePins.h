@@ -15,6 +15,9 @@ constexpr uint8_t PIN_ALCHEMY_WIRE1_SCL = 15;
 constexpr uint8_t PIN_ALCHEMY_MODE_SWITCH = 7;
 // MPR121 /IRQ: active-low, open-drain; Matrix configures INPUT_PULLUP.
 constexpr uint8_t PIN_MPR121_INT = 8;
+// Loop button, to GND (INPUT_PULLUP): tap = arm/cancel a take, hold = clear, Shift + press =
+// Loop Settings page. GP7 is the mode strap above, so the loop button lives next door.
+constexpr uint8_t PIN_LOOP_BUTTON = 6;
 
 // I2S owns these pads; PIO derives LRCK as clock base + 1. Moving them breaks sound.
 constexpr uint8_t PICO_AUDIO_I2S_DATA_PIN = 12;

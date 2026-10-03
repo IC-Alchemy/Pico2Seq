@@ -118,6 +118,7 @@ void updateEncoderTarget(UIState &uiState)
   if (uiState.voiceEnvelope.active || uiState.voiceEnvelope.chordPending ||
       uiState.voiceEnvelope.waitRelease) return;
   if (uiState.reverbPage.active || uiState.reverbPage.waitRelease) return; // the page has no dial
+  if (uiState.loopPage.active || uiState.loopPage.waitRelease) return;     // neither has this one
   const bool tuningOwnsDial = uiState.tuningPage.active && !uiState.tuningPage.waitRelease;
   if (tuningOwnsDial != tuningDialActive)
   {

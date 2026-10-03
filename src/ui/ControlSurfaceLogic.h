@@ -6,6 +6,7 @@
 #include <cmath>
 
 #include "../pico2seq-core/sequencer/SequencerDefs.h"
+#include "../voice/LoopTiming.h"
 #include "../voice/ReverbSettings.h"
 
 // ControlSurfaceLogic — the decisions of the Alchemy tile control surface,
@@ -28,6 +29,8 @@
 //   Reverb page    — which reverb control a fader drives on each page layer,
 //                    the fader curves (0..1 <-> seconds/Hz/percent) and the
 //                    value text the OLED shows.
+//   Loop page      — the four looper faders: loop volume, loop length, sequencer
+//                    volume and regen, with the top 15% of travel pinned to 100%.
 
 namespace ControlSurface
 {
@@ -385,7 +388,7 @@ inline const char *masterMacroZoneName(float macro)
 // range, so a short-throw fader spends its travel evenly over musical
 // distance. Pure so the host tests can pin the endpoints and the curve.
 inline constexpr float kDelayTimeMinSeconds = 0.010f;
-inline constexpr float kDelayTimeMaxSeconds = 0.750f;
+inline constexpr float kDelayTimeMaxSeconds = 0.375f; // MasterDelay::kMaxDelaySamples / 48 kHz
 inline float delaySecondsForFader(float normalized)
 {
   if (!(normalized > 0.0f))
@@ -541,6 +544,73 @@ float reverbValueOf(const ReverbSettings &settings, ReverbControl control) noexc
  * "3.0kHz", "40Hz". At most 7 characters plus the terminator; always terminated.
  */
 void formatReverbValue(ReverbControl control, float value, char *out, size_t size) noexcept;
+
+// ---------------------------------------------------------------------------
+// Loop Settings page (Shift + loop button): live looper faders
+// ---------------------------------------------------------------------------
+
+/** The looper settings the four faders drive, in fader order (1..4). */
+enum class LoopControl : uint8_t
+{
+  LoopVolume,      // level of the played-back loop
+  LoopLength,      // steps in the NEXT take: 4, 8 or 16
+  SequencerVolume, // level of the live sequencer bus in the mix
+  Regen,           // share of the loop kept on every repeat
+  Count,           // unassigned
+};
+
+constexpr LoopControl loopControlForFader(uint8_t channel) noexcept
+{
+  return channel < 4 ? static_cast<LoopControl>(channel) : LoopControl::Count;
+}
+
+/** Short OLED label ("Loop Vol", "Length", "Seq Vol", "Regen"). */
+const char *loopControlName(LoopControl control) noexcept;
+
+/**
+ * Where the percent faders (loop volume, sequencer volume, regen) reach their maximum.
+ * The top 15% of travel all reads 100%, so unity is a zone you can rest on rather than
+ * one count at the end of the fader.
+ */
+inline constexpr float kLoopFaderFullTravel = 0.85f;
+
+/** Fader position 0..1 -> 0..1 over the lower 85% of travel, then flat at 1. Non-finite reads 0. */
+constexpr float loopPercentForFader(float normalized) noexcept
+{
+  if (!(normalized > 0.0f))
+    return 0.0f;
+  if (normalized >= kLoopFaderFullTravel)
+    return 1.0f;
+  return normalized / kLoopFaderFullTravel;
+}
+
+/** Loop volume and sequencer volume: 0% .. 100% (linear gain), top 15% = 100%. */
+constexpr float loopVolumeForFader(float normalized) noexcept { return loopPercentForFader(normalized); }
+constexpr float sequencerVolumeForFader(float normalized) noexcept { return loopPercentForFader(normalized); }
+
+/** Regen: 10% .. 100%, top 15% = 100%. */
+constexpr float loopRegenForFader(float normalized) noexcept
+{
+  return LoopTiming::kMinRegen + (1.0f - LoopTiming::kMinRegen) * loopPercentForFader(normalized);
+}
+
+/** Loop length: the fader's travel in three equal zones, 4, 8, 16 steps (index 0..2). */
+constexpr uint8_t loopSizeIndexForFader(float normalized) noexcept
+{
+  if (!(normalized > 0.0f))
+    return 0;
+  const float scaled = normalized * static_cast<float>(LoopTiming::kSizeCount);
+  const uint8_t index = scaled >= static_cast<float>(LoopTiming::kSizeCount)
+                            ? static_cast<uint8_t>(LoopTiming::kSizeCount - 1)
+                            : static_cast<uint8_t>(scaled);
+  return index;
+}
+
+/**
+ * OLED text for a setting: "80%" for the percent controls, "16 st" for the length
+ * (`value` is the step count there). At most 7 characters plus the terminator.
+ */
+void formatLoopValue(LoopControl control, float value, char *out, size_t size) noexcept;
 
 // ---------------------------------------------------------------------------
 // Encoder motion
