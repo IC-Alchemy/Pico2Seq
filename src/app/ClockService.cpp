@@ -57,11 +57,13 @@ void onClockStart()
     // the downbeat instead of wherever the walk was left.
     arpTransportStart();
     isClockRunning = true;
+    loopController.onClockStart(); // the loop goes back to its top with the sequencers
 }
 
 void onClockStop()
 {
     isClockRunning = false;
+    loopController.onClockStop();
     if (voiceManager)
         voiceManager->setTransportMuted(true);
     for (uint8_t i = 0; i < VoiceSystem::MAX_VOICES; ++i)
@@ -78,8 +80,14 @@ void processClockEvents()
         // Arpeggiator mode consumes no clock steps: the arp advances on the PPQN
         // path below, where its note divisions live. The queue still drains so
         // it cannot back up while the mode is on.
-        if (isClockRunning && !uiState.voiceEditor.active && !uiState.arp.active())
-            processSequencerStep(step);
+        if (isClockRunning && !uiState.voiceEditor.active)
+        {
+            // The loop counts every step, Arpeggiator mode included, and hears it BEFORE the
+            // step's notes are published so a take that begins here catches their attack.
+            loopController.onStep(uClock.getTempo());
+            if (!uiState.arp.active())
+                processSequencerStep(step);
+        }
     }
 }
 

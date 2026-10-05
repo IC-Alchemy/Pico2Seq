@@ -80,6 +80,9 @@ void AlchemyControlBridge::begin(TwoWire &bankA, TwoWire *bankB, uint32_t nowMs)
                                            : ControlSurface::Mode::Utility;
   mode_.begin(initial, nowMs);
 
+  // Same for the loop button: held through reset is not a press.
+  loopButton_.begin(digitalRead(loopButtonPin_) == LOW, nowMs);
+
   // Start edge tracking from the boot-time button levels so a button held
   // through reset does not fire a phantom press.
   const int roleSlot[kRoleCount] = {sliderSlot_, buttonSlot_};
@@ -111,6 +114,9 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
   uint8_t buttons=0, voices=0;
   for(uint8_t bit=0;bit<8;++bit) if(buttonAt(buttonSlot_,bit).held()) buttons|=1u<<bit;
   for(uint8_t bit=0;bit<4;++bit) if(buttonAt(sliderSlot_,bit).held()) voices|=1u<<bit;
+  // The loop button is its own pin: debounce it every pass, whatever screen is up.
+  const auto loopEvent = loopButton_.update(digitalRead(loopButtonPin_) == LOW, nowMs,
+                                            (buttons & LoopPage::Controls::kShift) != 0);
   if(uiState.voiceEditor.active || uiState.controlsWaitRelease) {
     UITransitions::cancelGateLengthHold(uiState);
     // Keep physical histories current even while their performance actions are
@@ -125,6 +131,7 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
     }
     latch_.reset(); playSettingsOpenedThisPress_=false;
     uiState.reverbPage.observe(buttons, voices); // a button held across the editor is not a new press
+    uiState.loopPage.observe(buttons, voices);
     uiState.tuningPage.observe(buttons, voices);
     if(uiState.voiceEditor.active) VoiceEditor::buttons(buttons,voices,nowMs);
     else if(buttons==0 && voices==0) uiState.controlsWaitRelease=false;
@@ -132,6 +139,17 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
   }
 
   handleModeStrap(nowMs, uiState);
+
+  // The loop button acts on every screen (a take can start while the reverb is being set).
+  // A chord press is not an action: it only opens the page, below.
+  handleLoopButton(loopEvent, nowMs, uiState);
+  announceLoopPhase(nowMs, uiState);
+
+  // The Loop Settings page is decided before the other pages: it is the only one whose chord
+  // starts on the loop pin, so nothing below can claim it. While it is open or draining it
+  // owns every tile button, fader and pad.
+  if (handleLoopPage(buttons, voices, loopEvent, uiState))
+    return;
 
   // The Tuning page (Shift + Utility 3) is decided first: nothing else claims that chord,
   // and while it is open or draining it owns every button, fader and pad.
@@ -315,6 +333,141 @@ void AlchemyControlBridge::handleReverbFaders(UIState &uiState)
     const auto control = ControlSurface::reverbControlForFader(uiState.reverbPage.layer, channel);
     ReverbEditor::setFromFader(control,
                                ControlSurface::FaderMap::normalize(faders_.filtered(channel)));
+  }
+}
+
+// --- Loop button and Loop Settings page ----------------------------------------
+
+// Why taps and holds are handled here, outside the page: the loop button is a pin of its
+// own, so it needs no tile and no Shift. Tap and hold keep their meaning on the Loop page,
+// which lets a take be started while the levels are being set.
+void AlchemyControlBridge::handleLoopButton(LoopPage::Button::Event event, uint32_t nowMs,
+                                            UIState &uiState)
+{
+  using Event = LoopPage::Button::Event;
+  if (event != Event::Tap && event != Event::Hold)
+    return;
+  // The page's own opening/closing release tail is not an action.
+  if (uiState.loopPage.waitRelease)
+    return;
+  if (loopController.phase() == LoopController::Phase::Unavailable)
+  {
+    uiState.oledNoticeKind = UIState::OledNoticeKind::LoopUnavailable;
+    uiState.oledNoticeUntil = nowMs + OLED_NOTICE_DURATION_MS;
+    return;
+  }
+  if (event == Event::Tap)
+    loopController.tap(uClock.getTempo());
+  else
+    loopController.clear();
+}
+
+// One short banner per change of state ("LOOP ARMED" -> "LOOP REC" -> "LOOP PLAY"), so the
+// player is never guessing what a tap did. The Loop page shows the live state instead.
+void AlchemyControlBridge::announceLoopPhase(uint32_t nowMs, UIState &uiState)
+{
+  using Phase = LoopController::Phase;
+  const Phase phase = loopController.phase();
+  if (phase == lastLoopPhase_)
+    return;
+  lastLoopPhase_ = phase;
+  UIState::OledNoticeKind kind = UIState::OledNoticeKind::None;
+  switch (phase)
+  {
+  case Phase::Armed: kind = UIState::OledNoticeKind::LoopArmed; break;
+  case Phase::Recording: kind = UIState::OledNoticeKind::LoopRecording; break;
+  case Phase::Playing: kind = UIState::OledNoticeKind::LoopPlaying; break;
+  case Phase::Overdubbing: kind = UIState::OledNoticeKind::LoopOverdub; break;
+  case Phase::Empty: kind = UIState::OledNoticeKind::LoopCleared; break;
+  case Phase::Unavailable: break;
+  }
+  if (kind == UIState::OledNoticeKind::None)
+    return;
+  uiState.oledNoticeKind = kind;
+  uiState.oledNoticeValue = phase == Phase::Armed ? loopController.armedSteps() : loopController.loopSteps();
+  uiState.oledNoticeUntil = nowMs + OLED_NOTICE_DURATION_MS;
+}
+
+// Why this mirrors the Reverb page: the page is live (the transport and the loop keep
+// running), so every physical history keeps advancing while it is open or draining its
+// release tail and no release can become an action once normal input resumes.
+bool AlchemyControlBridge::handleLoopPage(uint8_t buttons, uint8_t voices,
+                                          LoopPage::Button::Event event, UIState &uiState)
+{
+  const bool canOpen = !uiState.voiceEnvelope.active && !uiState.voiceEnvelope.chordPending &&
+                       !uiState.voiceEnvelope.waitRelease && !uiState.gateSeqLengthMode &&
+                       !uiState.reverbPage.active && !uiState.reverbPage.waitRelease &&
+                       !uiState.tuningPage.active && !uiState.tuningPage.waitRelease;
+  const auto input = uiState.loopPage.poll(buttons, voices, loopButton_.held(),
+                                           event == LoopPage::Button::Event::ChordPress, canOpen);
+  if (!input.consumed)
+    return false;
+
+  for (uint8_t bit = 0; bit < 8; ++bit)
+  {
+    buttonEdges_[kButtonRole][bit].take(buttonAt(buttonSlot_, bit));
+    buttonEdges_[kSliderRole][bit].take(buttonAt(sliderSlot_, bit));
+  }
+  // The pages that did not run this pass must not read what was held across it as new.
+  uiState.reverbPage.observe(buttons, voices);
+  uiState.tuningPage.observe(buttons, voices);
+  latch_.reset();
+  for (auto &held : uiState.parameterButtonHeld) held = false;
+  uiState.latchedParameter = -1;
+  UITransitions::cancelGateLengthHold(uiState);
+  for (auto &held : uiState.randomizeWasPressed) held = false;
+  playSettingsOpenedThisPress_ = saveLoadLatch_ = delayTogglePress_ = false;
+  clearChordThisPress_ = clearAllLatch_ = false;
+  editorHoldArmed_ = editorHoldFired_ = false;
+  uiState.shiftHeld = shiftWasHeld_ = (buttons & LoopPage::Controls::kShift) != 0;
+
+  if (input.open)
+  {
+    UITransitions::openLoopPage(uiState);
+    VoiceEditor::clearEncoder();
+    faders_.resetDeadband(); // faders must be moved to engage: no snapping to rest positions
+  }
+  if (input.exit)
+  {
+    UITransitions::closeLoopPage(uiState);
+    VoiceEditor::clearEncoder();
+    faders_.resetDeadband();
+  }
+
+  if (uiState.loopPage.active && !uiState.loopPage.waitRelease)
+    handleLoopFaders(uiState);
+  return true;
+}
+
+void AlchemyControlBridge::handleLoopFaders(UIState &uiState)
+{
+  if (!panel_.tiles().sliderFrameChanged() || !voiceManager)
+    return;
+  for (uint8_t channel = 0; channel < ControlSurface::FaderMap::kChannelCount; ++channel)
+  {
+    if (!faders_.accept(channel, panel_.tiles().faderRaw(channel)))
+      continue;
+    const float position = ControlSurface::FaderMap::normalize(faders_.filtered(channel));
+    const ControlSurface::LoopControl control = ControlSurface::loopControlForFader(channel);
+    switch (control)
+    {
+    case ControlSurface::LoopControl::LoopVolume:
+      voiceManager->loop().setLoopVolume(ControlSurface::loopVolumeForFader(position));
+      break;
+    case ControlSurface::LoopControl::LoopLength:
+      // The length of the NEXT take; a loop already recorded keeps its own.
+      loopController.setSizeIndex(ControlSurface::loopSizeIndexForFader(position));
+      break;
+    case ControlSurface::LoopControl::SequencerVolume:
+      voiceManager->loop().setSequencerVolume(ControlSurface::sequencerVolumeForFader(position));
+      break;
+    case ControlSurface::LoopControl::Regen:
+      voiceManager->loop().setRegen(ControlSurface::loopRegenForFader(position));
+      break;
+    case ControlSurface::LoopControl::Count:
+      continue;
+    }
+    uiState.loopPage.lastControl = static_cast<uint8_t>(control); // the OLED highlights it
   }
 }
 

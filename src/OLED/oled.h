@@ -105,6 +105,9 @@ private:
   // Live Reverb page (Shift + 6 + 2): the four settings of the current layer, the
   // last-moved one marked, and the Freeze switch on the MAIN layer's fourth row.
   void displayReverbPage(const UIState &state, VoiceManager *manager);
+  // Live Loop Settings page (Shift + loop button): loop volume, length, sequencer volume and
+  // regen on the four faders, the last-moved one marked, and the loop's live state below.
+  void displayLoopPage(const UIState &state, VoiceManager *manager);
   // Live Tuning page (Shift + Utility 3): family page header, the tuning playing (or under a
   // finger), its facts, the root / A4 line, the scale, and the last confirmation.
   void displayTuningPage(const UIState &state);

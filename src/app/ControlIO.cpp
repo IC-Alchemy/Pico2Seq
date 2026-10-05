@@ -200,11 +200,13 @@ void ControlIO::beginMatrixAndTiles()
     // read the note on that constant before changing it.
     freezeWatchdogFeed(FW_SETUP_ALCHEMY);
     pinMode(PIN_ALCHEMY_MODE_SWITCH, INPUT_PULLUP);
+    pinMode(PIN_LOOP_BUTTON, INPUT_PULLUP); // before begin(): it seeds the button from the pin
     Wire1.setSDA(PIN_ALCHEMY_WIRE1_SDA);
     Wire1.setSCL(PIN_ALCHEMY_WIRE1_SCL);
     Wire1.begin();
     Wire1.setClock(kTileBusFrequencyHz);
     controls.alchemyBridge.setModeSwitchPin(PIN_ALCHEMY_MODE_SWITCH);
+    controls.alchemyBridge.setLoopButtonPin(PIN_LOOP_BUTTON);
     controls.alchemyBridge.begin(Wire1, /*bankB=*/nullptr, millis());
     printAlchemyTileScanReport();
 
