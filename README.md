@@ -1,6 +1,8 @@
 # Pico2Seq
 
-A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry Pi Pico 2 (RP2350 microcontroller), featuring real-time parameter control, polymetric sequencing, and comprehensive synthesizer voice management.
+Pico2Seq is a 4-voice polyphonic step sequencer and synthesizer for the Raspberry Pi Pico 2 (RP2350), with real-time parameter control, polymetric sequencing, and five sound engines.
+
+[Getting started](#getting-started) · [Contributing](CONTRIBUTING.md) · [Documentation](docs/README.md) · [User manual](docs/manual.md)
 
 ## Features
 
@@ -33,7 +35,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **VoiceSystem Architecture**: Centralized, array-based voice management with safe accessor methods, holding control-core voice snapshots for all 4 voices (0–3); `VoiceState` owns gate truth and the sequencer owns note-duration timing
 - **Dual-Core Asymmetric Design**: Core 1 dedicated exclusively to 48kHz audio synthesis; Core 0 handles UI, sensors, clock, display rendering, and the USB CDC serial console
 - **Lock-Free Parameter Staging**: Atomic generation counters and lock-free SPSC queues allow Core 0 to stage parameter changes without blocking Core 1 audio processing
-- **Host Test Suite**: Catch2 v3 unit test suite with hardware stubs across 6 test executables (938 tests recorded 2026-10-01), built and run locally via CTest
+- **Host Test Suite**: Eight Catch2 v3 test executables exercise portable logic, DSP, audio-driver stubs, and tile firmware through CMake and CTest
 
 ---
 
@@ -42,43 +44,17 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 For a practical guide to changing the firmware, start with
 [Finding your way around the firmware](docs/firmware-structure.md).
 
-```
-├── Pico2Seq.ino              # Four Arduino entry points: controls and audio
-├── CMakeLists.txt            # Host unit test CMake entry point
-├── .gitmodules               # Git submodule configuration
-├── src/
-│   ├── app/                  # Startup, clock/playback glue, controls and audio output
-│   │   ├── ArpPlayback.*    # Arpeggiator mode: slot-to-voice mapping and VoiceState publishing
-│   ├── audio/                # I2S audio interface, PIO DMA, and buffer management
-│   ├── pico2seq-core/        # Portable core sequencer, ParameterTrack, scale and tuning tables
-│   │   ├── arpeggiator/     # Portable chord/pattern/clock engine behind Arpeggiator mode
-│   │   ├── scales/          # 47 scale rows (18 classic + 29 tuned) over 48 steps
-│   │   ├── sequencer/       # Sequencer, ParameterManager, SequencerDefs, ShuffleTemplates
-│   │   └── tuning/          # 29-tuning library, pitch maths, per-tuning scale sets
-│   ├── rpdsp/                # Submodule: IC-Alchemy/RPDSP (header-only DSP algorithms)
-│   ├── VelocityEncoder/      # Submodule: IC-Alchemy/VelocityEncoder (TMAG5273 driver)
-│   ├── voice/                # Synthesizer voices, VoiceSystem, and VoicePresets
-│   │   ├── Voice.h/.cpp      # Synthesizer voice DSP chain and staged parameters
-│   │   ├── VoiceSystem.h     # Centralized 4-voice container and accessors
-│   │   ├── VoicePresets.h/.cpp # 29 built-in voice presets as constexpr flash tables
-│   │   ├── VoiceOscillator.h # Variant-based oscillator dispatch
-│   │   └── VoiceManager.h    # Multi-voice lifecycle and master mix processing
-│   ├── ui/                   # UI state, button handling, and control surface logic
-│   │   ├── UIState.h         # Centralized UI state container
-│   │   ├── ControlSurfaceLogic.h/.cpp # Pure control surface state machines (unit-tested)
-│   │   ├── AlchemyControlBridge.h/.cpp# Alchemy I2C tile panel hardware bridge
-│   │   ├── ButtonHandlers.h/.cpp      # Hardware button event handlers
-│   │   └── UIEventHandler.h/.cpp      # Sequencer step adapter logic
-│   ├── matrix/               # MPR121 4×8 touch matrix — 32 dedicated step pads
-│   ├── sensors/              # Sensor management (EncoderManager and VL53L1X DistanceSensor)
-│   ├── midi/                 # Removal notice only; USB remains CDC-only
-│   ├── LEDMatrix/            # 8×4 WS2812B RGB visual feedback (pad-mirror) and 10 color themes
-│   ├── OLED/                 # 128×64 SH1106G OLED display manager and priority screens
-│   ├── utils/                # Debug logging (Debug.h/.cpp) with serial rate limiting (SerialRateLimit.h)
-│   └── AlchemyUI/            # Vendored Alchemy Modular UI tile library (tracked in-repo)
-├── docs/                     # Comprehensive architecture and subsystem documentation
-├── tests/                    # Host-side Catch2 v3.5.2 unit test suite and stubs
-└── diagnostic.h             # Hardware diagnostics
+```text
+├── Pico2Seq.ino       # Arduino entry points for controls and audio
+├── CMakeLists.txt     # Host test build
+├── CONTRIBUTING.md    # Development setup and contribution guidelines
+├── src/              # Firmware modules, portable sequencer, and DSP submodules
+├── tests/            # Catch2 suites, hardware stubs, and documentation checks
+├── tiles/            # PY32 slider and button tile firmware
+├── scripts/          # Firmware build and hardware measurement helpers
+├── docs/             # User manual, architecture, and subsystem guides
+├── vendor/           # Separately packaged library sources
+└── diagnostic.h      # Hardware diagnostics
 ```
 
 ---
@@ -108,6 +84,8 @@ For a practical guide to changing the firmware, start with
   - `Adafruit SH110X` 2.1.15
   - `Adafruit TinyUSB Library` 3.7.7
   - `FastLED` 3.9.20
+  - `OneButton` 2.6.2
+  - `Adafruit BusIO` 1.17.4 and `Adafruit GFX Library` 1.12.6 (Adafruit driver dependencies)
   - `uClock` 2.2.1 (stock library-manager install; the rp2040 backend runs the
     uClock timer in the SDK default alarm pool, so the ISR fires on core 0 — the
     control core. Upstream 2.3.0 changed the callback API; re-verify before
@@ -118,9 +96,8 @@ For a practical guide to changing the firmware, start with
 For a new checkout, run these commands from an empty directory:
 
 ```bash
-git clone --recurse-submodules https://github.com/IC-Alchemy/Pico2Seq.git
+git clone --branch DeCluttered --recurse-submodules https://github.com/IC-Alchemy/Pico2Seq.git
 cd Pico2Seq
-git switch DeCluttered
 git submodule update --init --recursive
 ```
 
@@ -366,15 +343,19 @@ Pico2Seq leverages the dual ARM Cortex-M33 cores of the RP2350:
 
 ## Host Unit Testing
 
-Pico2Seq provides an automated host-side unit test suite powered by **Catch2 v3.5.2** and CMake across six test executables (`pico2seq_tests`, `pico2seq_ui_tests`, `pico2seq_voice_tests`, `pico2seq_watchdog_tests`, `pico2seq_audio_tests`, `pico2seq_reverb_bypass_tests` — 938 tests recorded 2026-10-01), plus an opt-in `pico2seq_recipe_benchmark` target:
+The CMake host build provides eight Catch2 v3.5.2 executables: the main suite,
+focused UI and voice suites, watchdog and audio-driver suites, a tile-master
+suite, and two PY32 tile firmware suites. Recipe throughput measurement is an
+optional target. Known baseline failures are documented in the
+[testing guide](docs/testing.md).
 
 ```bash
 # Configure and build test suite
-cmake -B build_test_ninja -DCMAKE_BUILD_TYPE=Debug
-cmake --build build_test_ninja --parallel
+cmake -S . -B build_test_ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build_test_ninja --parallel 4
 
 # Run the full suite via CTest
-ctest --test-dir build_test_ninja/tests --output-on-failure
+ctest --test-dir build_test_ninja --output-on-failure
 
 # Or run/filter the test binary directly
 ./build_test_ninja/tests/pico2seq_tests "[voice]"
@@ -386,22 +367,16 @@ For more details on test stubs and writing unit tests, see [`docs/testing.md`](d
 
 ## Documentation Index
 
-Comprehensive subsystem documentation is maintained in the [`docs/`](docs/) directory:
+The [documentation index](docs/README.md) groups guides by architecture,
+synthesis, sequencing, and hardware. Start with the [user manual](docs/manual.md)
+for operating the instrument or the [firmware guide](docs/firmware-structure.md)
+for understanding its modules.
 
-- [`docs/architecture.md`](docs/architecture.md) — System architecture, dual-core division, and component interactions
-- [`docs/voice.md`](docs/voice.md) — Synthesizer voice DSP pipeline, VoiceOscillator, filters, ADSR, and preset definitions
-- [`docs/voice-edit.md`](docs/voice-edit.md) — Voice Editing mode: musical OLED values, melody recording, and sequenced modifiers
-- [`docs/VoiceSystem.md`](docs/VoiceSystem.md) — Centralized VoiceSystem data structures, accessor pattern, and voice routing
-- [`docs/sequencer.md`](docs/sequencer.md) — 4-voice step sequencer engine, polymetric parameter tracks, and uClock integration
-- [`docs/scales.md`](docs/scales.md) — 47 scale rows (18 classic + 29 tuned), semitone and tuning-degree tables, scale selection
-- [`docs/tuning.md`](docs/tuning.md) — Global tuning system: 29 tunings in five families, the Tuning page, per-tuning scale sets
-- [`docs/matrix.md`](docs/matrix.md) — MPR121 32-pad touch input matrix, bank resolution, and Alchemy tile interaction
-- [`docs/LEDMatrix.md`](docs/LEDMatrix.md) — WS2812B 8×4 RGB LED matrix visualizer, 10 themes, and pair-based voice indicators
-- [`docs/oled.md`](docs/oled.md) — 128×64 SH1106G OLED display, 6-tier priority rendering hierarchy, and UI state
-- [`docs/midi.md`](docs/midi.md) — MIDI subsystem (USB MIDI removed 2026-09-06; internal note lifecycle + CDC console)
-- [`docs/sensors.md`](docs/sensors.md) — TMAG5273 magnetic encoder and VL53L1X TOF distance sensor integration
-- [`docs/ButtonHandlers.md`](docs/ButtonHandlers.md) — UI button event dispatching and debounce logic
-- [`docs/testing.md`](docs/testing.md) — Host-side Catch2 v3 unit testing guide, CMake/CTest workflow, and header stubs
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, test commands, firmware design
+rules, and pull request guidance. Keep build outputs and personal tooling out
+of Git; durable project documentation belongs in `docs/`.
 
 ---
 

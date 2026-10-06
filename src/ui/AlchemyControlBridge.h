@@ -19,13 +19,12 @@ class SequencerView;
  * UIEventHandler entry points). Not unit-tested — all decisions worth testing
  * live in ControlSurfaceLogic; everything here is hardware-bound translation.
  *
- * Call begin() from setup1() (after Wire1 pins/clock are configured) and
- * update() from the 1 ms control slice of loop1(), alongside Matrix_scan().
+ * Call begin() from Core 0 startup (after Wire1 pins/clock are configured) and
+ * update() from the 1 ms control slice of loop(), alongside Matrix_scan().
  * One update() pass never blocks longer than one tile transaction (~1.9 ms
  * at 100 kHz) because AlchemyTiles paces tiles round-robin.
  *
- * Semantics implemented here (see docs/superpowers/specs/
- * 2026-09-01-alchemy-tile-control-surface-design.md):
+ * Semantics implemented here (see docs/ButtonHandlers.md and docs/manual.md):
  *   - GP7 mode strap, software-debounced, drives the Param/Utility tile
  *     function sets; a flip clears holds/latches, flashes a control LED and
  *     raises the OLED banner flag.

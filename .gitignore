@@ -1,32 +1,59 @@
-.vscode/*
-build/*
-build_fw/*
-build_fw_on/*
-.editorconfig
-.clang-format
+# CMake and Arduino build directories (keep scripts/build*.ps1 trackable).
+/build*/
+/cmake-build*/
+/out/
+/WorkingUF2/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
 
-build_test/
-TODO.md
-AGENTS.md
-.zcode/*
-.vscode/settings.json
-.agents/*
-# ...except the Delta checkout hook, which must be tracked to reach new checkouts.
-!.agents/prepare
+# Compiled objects, libraries, and firmware images.
+*.o
+*.obj
+*.a
+*.so
+*.dll
+*.exe
+*.elf
+*.uf2
+*.bin
+*.hex
+*.map
 
-CLAUDE.md
-build_fw/*
-build_fw_on/*
-build/
-build_fw/
-build_review/
-build_test_ninja/
-build_clang/
-build_desktop/*
-build*
+# Python caches and local virtual environments.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
 
-# Golden firmware images live in GitHub Releases, not in git.
-WorkingUF2/
+# Personal editor settings and operating-system files.
+.vscode/
+.idea/
+*.code-workspace
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
 nul
-Pico2SeqDocumentation/00-start-here.md
-Pico2SeqDocumentation/quizzes/00-start-here-quiz.md
+
+# Local credentials; keep shareable examples available.
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Personal AI tooling and session artifacts.
+/.agents/
+/.superpowers/
+/.claude/
+/.codex/
+/.cursor/
+/.zcode/
+/.zcodeignore
+/docs/superpowers/
+/AGENTS.md
+/CLAUDE.md
+/.aider*

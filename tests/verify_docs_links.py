@@ -110,6 +110,9 @@ def find_all_markdown_files():
     md_files = []
     for root, dirs, files in os.walk(ROOT_DIR):
         dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS and not any(part in EXCLUDE_DIRS for part in Path(os.path.join(root, d)).parts)]
+        # Root build trees contain downloaded dependency docs, not project docs.
+        if Path(root) == ROOT_DIR:
+            dirs[:] = [d for d in dirs if not d.startswith(('build', 'cmake-build')) and d != 'out']
         for f in files:
             if f.endswith('.md'):
                 full_path = os.path.normpath(os.path.join(root, f))

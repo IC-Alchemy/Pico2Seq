@@ -1,5 +1,5 @@
 # Normalize all text files to LF in the repository; git auto-detects and
-# leaves binary files (e.g. *.uf2, *.pyc) untouched.
+# leaves binary files untouched.
 * text=auto
 
 # Source and docs are checked out with LF everywhere, so Windows checkouts
@@ -8,8 +8,7 @@
 *.html  text eol=lf
 *.ino   text eol=lf
 *.h     text eol=lf
+*.c     text eol=lf
 *.cpp   text eol=lf
-
-# The Delta checkout hook is a POSIX shell script; CRLF would break its shebang
-# and every command in it on the shells Delta runs it with.
-.agents/prepare text eol=lf
+*.py    text eol=lf
+*.sh    text eol=lf

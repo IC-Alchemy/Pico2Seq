@@ -151,6 +151,10 @@ footer{padding:30px 26px 60px;color:var(--fg3);font-size:13px;max-width:1720px;m
 </style>
 </head>
 <body>
+<p class="note info">Historical architecture snapshot of commit <code>229079b</code>.
+Source line numbers and implementation details describe that revision. For current
+behavior, see the <a href="firmware-structure.md">firmware guide</a> and
+<a href="../CONTRIBUTING.md">contribution guidelines</a>.</p>
 
 <header>
   <h1>Pico2Seq — interactive codebase map</h1>
@@ -324,7 +328,6 @@ footer{padding:30px 26px 60px;color:var(--fg3);font-size:13px;max-width:1720px;m
    Pico2Seq interactive map — data
    Every claim below cites a file and line in this repository.
    ========================================================================= */
-const WT = `f01395ca-c72d-4c97-a611-0ce9dd5b7307`;
 const SUBMODULE_PREFIXES = [`src/rpdsp`, `src/VelocityEncoder`];
 
 const LAYERS = {
@@ -1054,7 +1057,7 @@ const TRACE = [
  where:[[`src/ui/UIState.h`,17,`struct UIState`],[`src/ui/UIState.h`,44,`parameterButtonHeld[]`],[`src/ui/UIState.h`,51,`selectedVoiceIndex`],[`src/ui/UITransitions.h`,9,`the only place mode state is mutated`]],
  what:`Everything the gesture meant, in one struct: the selected voice, the step under edit, which lane the hand is recording into, which mode owns the pads. Every later stage reads from here rather than from the hardware.`,
  example:`selectedVoiceIndex   = 1      (0-based; the UI shows 2)\nselectedStepForEdit  = 3\nparameterButtonHeld  = { Velocity: true, others: false }\narp.active()         = false\nslideMode            = false`,
- exampleNote:`Internal APIs are 0-based (0..3) by rule; only some display and log text is 1-based (CLAUDE.md conventions, VoiceSetup.cpp:59).`},
+ exampleNote:`Internal APIs are 0-based (0..3) by rule; only some display and log text is 1-based (CONTRIBUTING.md conventions, VoiceSetup.cpp:59).`},
 {id:`t4`, title:`A clock step arrives`, mine:`Core 0 · interrupt stages, loop drains`, tags:[`seq`,`audio`],
  where:[[`src/app/ClockService.cpp`,31,`onStepCallback() — the ISR`],[`src/app/ClockService.cpp`,71,`processClockEvents() — the drain`],[`src/app/ClockService.cpp`,40,`onOutputPPQNCallback()`],[`src/app/ClockService.cpp`,85,`initializeClock() — 90 BPM, 480 PPQN`]],
  what:`uClock's interrupt runs on Core 0 and does nothing but stamp the step number into a 16-deep ring. The control loop drains it and does the musical work. Note length is ticked separately on the PPQN path, so a short gate ends exactly on its tick instead of waiting for the next step.`,
@@ -1102,20 +1105,20 @@ const STRUCTS = [
 {title:`VoiceSystem — ID tags plus one snapshot each`, open:true, files:[[`src/voice/VoiceSystem.h`,15,`struct VoiceSystem`]], html:`
 <p><b>Musical analogy:</b> the conductor's score markings — which voice is which, and what each is currently being told to play. It does not make sound and it does not keep time.</p>
 <ul>
-<li><code>MAX_VOICES = 4</code> (<a href="worktree://${WT}/src/voice/VoiceSystem.h#L17">VoiceSystem.h:17</a>). Four because the instrument is four-part; there is no dynamic voice count in the firmware.</li>
+<li><code>MAX_VOICES = 4</code> (<a href="../src/voice/VoiceSystem.h#L17">VoiceSystem.h:17</a>). Four because the instrument is four-part; there is no dynamic voice count in the firmware.</li>
 <li>Two arrays: <code>voiceIds[4]</code> (opaque handles from VoiceManager, 0 meaning invalid) and <code>voiceStates[4]</code> (ControlUpdate snapshots).</li>
 <li><b>Accessors clamp.</b> <code>getVoiceState(9)</code> returns voice 0, and <code>getVoiceId(9)</code> returns 0. That is deliberate: a bad index plays the wrong voice rather than reading out of bounds. Always use the accessors — never index the arrays directly.</li>
-<li><b>0-based internally, occasionally 1-based in display.</b> Every internal API is 0..3; some serial text and screen labels print 1..4 (<a href="worktree://${WT}/src/app/VoiceSetup.cpp#L59">VoiceSetup.cpp:59</a> notes it explicitly). Do not conflate them.</li>
-<li><b>What it no longer holds:</b> per-voice gate flags, gate timers, or MIDI note lifecycle tracking. Those were removed; <code>Sequencer::tickNoteDuration()</code> is now the sole note-length authority and the <code>VoiceState</code> owns gate truth (<a href="worktree://${WT}/docs/firmware-structure.md#L60">firmware-structure.md:60-63</a>).</li>
+<li><b>0-based internally, occasionally 1-based in display.</b> Every internal API is 0..3; some serial text and screen labels print 1..4 (<a href="../src/app/VoiceSetup.cpp#L59">VoiceSetup.cpp:59</a> notes it explicitly). Do not conflate them.</li>
+<li><b>What it no longer holds:</b> per-voice gate flags, gate timers, or MIDI note lifecycle tracking. Those were removed; <code>Sequencer::tickNoteDuration()</code> is now the sole note-length authority and the <code>VoiceState</code> owns gate truth (<a href="../docs/firmware-structure.md#L60">firmware-structure.md:60-63</a>).</li>
 <li><b>Never read from Core 1.</b> Audio state crosses only through each voice's control queue.</li>
 </ul>`},
 
 {title:`UIState — the single source of UI truth`, open:true, files:[[`src/ui/UIState.h`,17,`struct UIState`]], html:`
 <p><b>Musical analogy:</b> the performer's current intention — which voice is in focus, which step is being edited, which modifier is held down.</p>
 <ul>
-<li><b>The no-loose-globals rule:</b> every mode flag, hold, debounce timestamp and transient notice lives here. Adding UI state means extending this struct and resetting it in <code>initButtonManager()</code>, never adding a new global file-scope variable (<a href="worktree://${WT}/src/ui/UIState.h#L9">UIState.h:9-16</a>).</li>
+<li><b>The no-loose-globals rule:</b> every mode flag, hold, debounce timestamp and transient notice lives here. Adding UI state means extending this struct and resetting it in <code>initButtonManager()</code>, never adding a new global file-scope variable (<a href="../src/ui/UIState.h#L9">UIState.h:9-16</a>).</li>
 <li><b>Derived, not mirrored:</b> <code>isPresetSelection()</code> and <code>isVoiceParameterSettings()</code> are computed from <code>settingsMode</code> and <code>currentSubMode</code>. The old mirror booleans are gone on purpose, so two views cannot disagree.</li>
-<li><b>The arpeggiator lives inside it.</b> <code>UIState::arp</code> is a whole note engine, placed here so that pads, tiles, encoder, LEDs and the OLED all read the same chord and walk (<a href="worktree://${WT}/src/ui/UIState.h#L28">UIState.h:28</a>).</li>
+<li><b>The arpeggiator lives inside it.</b> <code>UIState::arp</code> is a whole note engine, placed here so that pads, tiles, encoder, LEDs and the OLED all read the same chord and walk (<a href="../src/ui/UIState.h#L28">UIState.h:28</a>).</li>
 <li><b>Mode state has exactly one writer:</b> <code>UITransitions</code>. Handlers call it rather than assigning mode fields, which is what stops modal residue after leaving slide, settings or the editor.</li>
 <li><b>Core 0 only.</b> Core 1 never sees this struct; it sees a <code>VoiceState</code>.</li>
 </ul>`},
@@ -1124,32 +1127,32 @@ const STRUCTS = [
 <p><b>Musical analogy:</b> one instrument's part in a score, where a repeat mark can say “loop this bar twice while the drums loop theirs four times”.</p>
 <ul>
 <li>A fixed-size array of values plus its own <code>currentStepCount</code>, read through a wrapping index: <code>uclock_step % laneLength</code>.</li>
-<li><b>This is the whole polymeter mechanism.</b> &ldquo;Note over 16 steps, Filter over 8&rdquo; is just two tracks with different lengths — legal, and the reason phrases and tone drift in and out of phase. Wrapping is applied per lane at <a href="worktree://${WT}/src/pico2seq-core/sequencer/Sequencer.cpp#L270">Sequencer.cpp:270-283</a>.</li>
-<li>Eleven lanes exist, one per <code>ParamId</code>: Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide, Sustain, Release (<a href="worktree://${WT}/src/pico2seq-core/sequencer/SequencerDefs.h#L188">SequencerDefs.h:188</a>).</li>
-<li>Lengths run 2..64 steps with 16 as the boot default (<a href="worktree://${WT}/src/pico2seq-core/sequencer/SequencerDefs.h#L17">SequencerDefs.h:17-19</a>).</li>
+<li><b>This is the whole polymeter mechanism.</b> &ldquo;Note over 16 steps, Filter over 8&rdquo; is just two tracks with different lengths — legal, and the reason phrases and tone drift in and out of phase. Wrapping is applied per lane at <a href="../src/pico2seq-core/sequencer/Sequencer.cpp#L270">Sequencer.cpp:270-283</a>.</li>
+<li>Eleven lanes exist, one per <code>ParamId</code>: Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide, Sustain, Release (<a href="../src/pico2seq-core/sequencer/SequencerDefs.h#L188">SequencerDefs.h:188</a>).</li>
+<li>Lengths run 2..64 steps with 16 as the boot default (<a href="../src/pico2seq-core/sequencer/SequencerDefs.h#L17">SequencerDefs.h:17-19</a>).</li>
 <li>Storage is static on purpose: no <code>std::vector</code> and no <code>new</code> is reachable from the step path.</li>
-<li>The implementation comes from the rpdsp submodule (<code>parameter_track.h</code>), with two deliberate differences: <code>init()</code> defaults to 64 steps and <code>resize()</code> clamps into range instead of ignoring out-of-range input (<a href="worktree://${WT}/src/pico2seq-core/sequencer/SequencerDefs.h#L141">SequencerDefs.h:141-145</a>).</li>
+<li>The implementation comes from the rpdsp submodule (<code>parameter_track.h</code>), with two deliberate differences: <code>init()</code> defaults to 64 steps and <code>resize()</code> clamps into range instead of ignoring out-of-range input (<a href="../src/pico2seq-core/sequencer/SequencerDefs.h#L141">SequencerDefs.h:141-145</a>).</li>
 </ul>`},
 
 {title:`Voice and VoiceManager — one player, one mixing desk`, open:false, files:[[`src/voice/Voice.h`,58,`class Voice`]], html:`
 <p><b>Musical analogy:</b> <code>Voice</code> is one player with one instrument; <code>VoiceManager</code> is the desk that balances four players and adds the master effects.</p>
 <ul>
-<li><b>The voice chain, in order</b> (<a href="worktree://${WT}/src/voice/Voice.cpp#L369">Voice.cpp:369-439</a>): gate edges → ADSR envelope → sources → VCA and pre-filter effects → velocity → main filter → high-pass → output level.</li>
-<li><b>Staging is a real trap.</b> <code>updateParameters()</code> writes into a pending <code>controls_</code> struct and publishes it to the queue; the audio side applies it in <code>applyControlUpdate_()</code>. Reading <code>getState()</code> immediately after <code>updateParameters()</code> still shows the old value — the change lands on the next <code>process()</code> (<a href="worktree://${WT}/docs/testing.md#L254">docs/testing.md, gotcha 1</a>).</li>
-<li><b>Span discipline:</b> while updates are queued, exactly one update is applied and exactly one sample rendered. When the queue is empty, up to <code>kMaxSpan = 32</code> samples are rendered before probing again, so a concurrent publish can wait at most 0.67 ms at 48 kHz (<a href="worktree://${WT}/src/voice/Voice.h#L131">Voice.h:131</a>).</li>
-<li><b>Master chain:</b> voices → MasterDelay → master gain → compressor. The macro knob morphs the compressor along Warm (m=0) → Neutral (m=0.5) → Punch (m=1) and the audio thread eases toward the target (<a href="worktree://${WT}/src/voice/VoiceManager.h#L92">VoiceManager.h:92-98</a>).</li>
-<li><b>Solo tap:</b> <code>processVoice()</code> bypasses both master effects and never advances their state, so a solo does not disturb the delay tail (<a href="worktree://${WT}/src/voice/VoiceManager.h#L195">VoiceManager.h:195-197</a>).</li>
+<li><b>The voice chain, in order</b> (<a href="../src/voice/Voice.cpp#L369">Voice.cpp:369-439</a>): gate edges → ADSR envelope → sources → VCA and pre-filter effects → velocity → main filter → high-pass → output level.</li>
+<li><b>Staging is a real trap.</b> <code>updateParameters()</code> writes into a pending <code>controls_</code> struct and publishes it to the queue; the audio side applies it in <code>applyControlUpdate_()</code>. Reading <code>getState()</code> immediately after <code>updateParameters()</code> still shows the old value — the change lands on the next <code>process()</code> (<a href="../docs/testing.md#L254">docs/testing.md, gotcha 1</a>).</li>
+<li><b>Span discipline:</b> while updates are queued, exactly one update is applied and exactly one sample rendered. When the queue is empty, up to <code>kMaxSpan = 32</code> samples are rendered before probing again, so a concurrent publish can wait at most 0.67 ms at 48 kHz (<a href="../src/voice/Voice.h#L131">Voice.h:131</a>).</li>
+<li><b>Master chain:</b> voices → MasterDelay → master gain → compressor. The macro knob morphs the compressor along Warm (m=0) → Neutral (m=0.5) → Punch (m=1) and the audio thread eases toward the target (<a href="../src/voice/VoiceManager.h#L92">VoiceManager.h:92-98</a>).</li>
+<li><b>Solo tap:</b> <code>processVoice()</code> bypasses both master effects and never advances their state, so a solo does not disturb the delay tail (<a href="../src/voice/VoiceManager.h#L195">VoiceManager.h:195-197</a>).</li>
 <li><b>Ownership:</b> <code>std::unique_ptr</code> is used for setup-time ownership only. Never add or remove voices during playback.</li>
 </ul>`},
 
 {title:`ParameterManager — the eleven lanes and how writes are treated`, open:false, files:[[`src/pico2seq-core/sequencer/ParameterManager.h`,12,`class ParameterManager`]], html:`
 <p><b>Musical analogy:</b> the paper the part is written on, plus the rule that says a pencil mark is quantized to the nearest sensible value before it is stored.</p>
 <ul>
-<li>Owns one <code>ParameterTrack</code> per lane and the write rules: clamp to the lane's declared range, round stepped lanes, store booleans in the float domain (<a href="worktree://${WT}/src/pico2seq-core/sequencer/SequencerDefs.h#L168">ParameterDefinition</a>).</li>
+<li>Owns one <code>ParameterTrack</code> per lane and the write rules: clamp to the lane's declared range, round stepped lanes, store booleans in the float domain (<a href="../src/pico2seq-core/sequencer/SequencerDefs.h#L168">ParameterDefinition</a>).</li>
 <li><b>Two read paths.</b> <code>getStepParameterValue()</code> is wrapped to the active loop length for playback and display; <code>getRawStepValue()</code> is unwrapped so the codec can save and restore a lane's whole tail even when the loop is short.</li>
-<li><b>Patch-following lanes.</b> Velocity, Filter, Attack, Decay, Sustain and Release can each hold their own value or store <code>LANE_FOLLOWS_PATCH</code> (-1), meaning &ldquo;play the patch value&rdquo;. That single rule is what lets a preset change re-voice a whole pattern without rewriting every step (<a href="worktree://${WT}/src/pico2seq-core/sequencer/SequencerDefs.h#L53">SequencerDefs.h:53-56</a>).</li>
-<li><b>Offsets vs absolutes.</b> Note, Octave and GateLength are offset lanes around a patch base; the patch-default lanes are absolute. <code>VoiceEdit::composeLane()</code> is the one place that resolves both (<a href="worktree://${WT}/src/voice/VoiceEditParameters.cpp#L1014">VoiceEditParameters.cpp:1014</a>).</li>
-<li><b>Recording is separate from editing.</b> <code>recordLiveValue()</code> overdubs whatever lane cursor is sounding; <code>editStepValue()</code> targets an explicit step. Note accepts a live write only on a sounding step, so silent steps keep their pitch (<a href="worktree://${WT}/src/pico2seq-core/sequencer/Sequencer.cpp#L151">Sequencer.cpp:151-176</a>).</li>
+<li><b>Patch-following lanes.</b> Velocity, Filter, Attack, Decay, Sustain and Release can each hold their own value or store <code>LANE_FOLLOWS_PATCH</code> (-1), meaning &ldquo;play the patch value&rdquo;. That single rule is what lets a preset change re-voice a whole pattern without rewriting every step (<a href="../src/pico2seq-core/sequencer/SequencerDefs.h#L53">SequencerDefs.h:53-56</a>).</li>
+<li><b>Offsets vs absolutes.</b> Note, Octave and GateLength are offset lanes around a patch base; the patch-default lanes are absolute. <code>VoiceEdit::composeLane()</code> is the one place that resolves both (<a href="../src/voice/VoiceEditParameters.cpp#L1014">VoiceEditParameters.cpp:1014</a>).</li>
+<li><b>Recording is separate from editing.</b> <code>recordLiveValue()</code> overdubs whatever lane cursor is sounding; <code>editStepValue()</code> targets an explicit step. Note accepts a live write only on a sounding step, so silent steps keep their pitch (<a href="../src/pico2seq-core/sequencer/Sequencer.cpp#L151">Sequencer.cpp:151-176</a>).</li>
 </ul>`}
 ];
 
@@ -1190,7 +1193,7 @@ const HANDOFFS = [
 {shape:`SpscQueue<uint32_t, 16>`, what:`clock steps`,
  where:`src/app/ClockService.cpp:23`, detail:`Same core, ISR → loop. 16 usable entries; a full ring drops the newest step and counts it. No locking, because both sides are on Core 0 and it is single-producer/single-consumer.`},
 {shape:`ClockEvents::ppqnTicksPending`, what:`pending PPQN ticks (file-static volatile, not a global)`,
- where:`src/app/ClockService.cpp:26`, detail:`Lives in an anonymous namespace inside <code>ClockEvents</code>, so it is not reachable from other translation units at all. The ISR increments it; the loop takes and clears it with interrupts disabled (<a href="worktree://${WT}/src/app/ClockService.cpp#L103">ClockService.cpp:103-106</a>) and then consumes the local copy, so no tick can be lost — an increment lands either before the read or after the clear. `},
+ where:`src/app/ClockService.cpp:26`, detail:`Lives in an anonymous namespace inside <code>ClockEvents</code>, so it is not reachable from other translation units at all. The ISR increments it; the loop takes and clears it with interrupts disabled (<a href="../src/app/ClockService.cpp#L103">ClockService.cpp:103-106</a>) and then consumes the local copy, so no tick can be lost — an increment lands either before the read or after the clear. `},
 {shape:`SpscQueue<Heartbeat, 4>`, what:`Core 1 → Core 0 diagnostics`,
  where:`src/app/AudioEngine.cpp:39`, detail:`Core 1 never prints. It pushes a heartbeat every two seconds; a full queue drops the report rather than delaying audio. Core 0 drains and writes the serial line.`},
 {shape:`std::atomic<float>`, what:`master volume, compressor macro, delay mix / time / feedback`,
@@ -1202,18 +1205,18 @@ const HANDOFFS = [
 const RENAMED = `
 <b>Three names you may have seen before no longer exist — don't go looking for them.</b>
 <table style="margin-top:10px"><thead><tr><th>Older name</th><th>Where it went</th></tr></thead><tbody>
-<tr><td class="mono">VoiceSystem::gates</td><td><code>VoiceSystem</code> holds only <code>voiceIds[]</code> and <code>voiceStates[]</code> now. Per-voice gates, gate timers and the internal <code>MidiNoteManager</code> note lifecycle were all removed; <code>Sequencer::tickNoteDuration()</code> is the sole note-length authority and <code>VoiceState::isGateHigh</code> owns gate truth (<a href="worktree://${WT}/src/voice/VoiceSystem.h#L15">VoiceSystem.h:15-23</a>, <a href="worktree://${WT}/docs/firmware-structure.md#L60">firmware-structure.md:60-63</a>).</td></tr>
-<tr><td class="mono">stepQueue</td><td>Now <code>clockEvents.steps</code> — still an <code>SpscQueue&lt;uint32_t, 16&gt;</code>, in <a href="worktree://${WT}/src/app/ClockService.cpp#L21">ClockService.cpp:21-28</a>. docs/architecture.md still uses the old name.</td></tr>
-<tr><td class="mono">ppqnTicksPending</td><td>Still exists, but not as a global: it is <code>ClockEvents::ppqnTicksPending</code>, a file-static volatile in an anonymous namespace (<a href="worktree://${WT}/src/app/ClockService.cpp#L26">ClockService.cpp:26</a>).</td></tr>
+<tr><td class="mono">VoiceSystem::gates</td><td><code>VoiceSystem</code> holds only <code>voiceIds[]</code> and <code>voiceStates[]</code> now. Per-voice gates, gate timers and the internal <code>MidiNoteManager</code> note lifecycle were all removed; <code>Sequencer::tickNoteDuration()</code> is the sole note-length authority and <code>VoiceState::isGateHigh</code> owns gate truth (<a href="../src/voice/VoiceSystem.h#L15">VoiceSystem.h:15-23</a>, <a href="../docs/firmware-structure.md#L60">firmware-structure.md:60-63</a>).</td></tr>
+<tr><td class="mono">stepQueue</td><td>Now <code>clockEvents.steps</code> — still an <code>SpscQueue&lt;uint32_t, 16&gt;</code>, in <a href="../src/app/ClockService.cpp#L21">ClockService.cpp:21-28</a>. docs/architecture.md still uses the old name.</td></tr>
+<tr><td class="mono">ppqnTicksPending</td><td>Still exists, but not as a global: it is <code>ClockEvents::ppqnTicksPending</code>, a file-static volatile in an anonymous namespace (<a href="../src/app/ClockService.cpp#L26">ClockService.cpp:26</a>).</td></tr>
 </tbody></table>`;
 
 const RT_RULES = `
 <b>Real-time rules that shape this code (each one is enforced somewhere real):</b>
 <ul style="margin:10px 0 0;padding-left:20px">
-<li><b>Core 1 renders at most 32 samples at a time.</b> <code>kMaxSpan = 32</code> — 0.67 ms at 48 kHz. While control updates are queued it applies exactly one update and renders exactly one sample (<a href="worktree://${WT}/src/voice/Voice.cpp#L344">Voice.cpp:344-360</a>).</li>
+<li><b>Core 1 renders at most 32 samples at a time.</b> <code>kMaxSpan = 32</code> — 0.67 ms at 48 kHz. While control updates are queued it applies exactly one update and renders exactly one sample (<a href="../src/voice/Voice.cpp#L344">Voice.cpp:344-360</a>).</li>
 <li><b>No heap, no <code>new</code>, no <code>std::vector</code> in the audio or step path.</b> Lane storage is fixed-size; <code>VoiceManager</code> is one of the few places using <code>std::unique_ptr</code>, and only for setup-time ownership.</li>
-<li><b>Core 1's stack is 2 KiB.</b> Span buffers and mixer scratch are members or static storage, never stack locals (<a href="worktree://${WT}/src/app/AudioEngine.cpp#L40">AudioEngine.cpp:40</a>, <a href="worktree://${WT}/src/voice/VoiceManager.h#L165">VoiceManager.h:165</a>).</li>
-<li><b>Nothing on Core 1 blocks except the buffer wait.</b> That blocking <code>take_audio_buffer(pool, true)</code> is <i>deliberately</i> the pacing mechanism for everything upstream (<a href="worktree://${WT}/src/app/AudioEngine.cpp#L176">AudioEngine.cpp:176</a>).</li>
+<li><b>Core 1's stack is 2 KiB.</b> Span buffers and mixer scratch are members or static storage, never stack locals (<a href="../src/app/AudioEngine.cpp#L40">AudioEngine.cpp:40</a>, <a href="../src/voice/VoiceManager.h#L165">VoiceManager.h:165</a>).</li>
+<li><b>Nothing on Core 1 blocks except the buffer wait.</b> That blocking <code>take_audio_buffer(pool, true)</code> is <i>deliberately</i> the pacing mechanism for everything upstream (<a href="../src/app/AudioEngine.cpp#L176">AudioEngine.cpp:176</a>).</li>
 <li><b>No locks anywhere.</b> Cross-core state uses atomics and SPSC queues only. There is not a single mutex in this firmware.</li>
 <li><b>One control update per span, then recheck.</b> The queue is re-probed at the next span boundary, so a publish waits at most 0.67 ms.</li>
 <li><b>Core 0 must not stall either.</b> The watchdog reboots after two seconds; every setup stage and loop slice feeds it with the phase about to run.</li>
@@ -1284,8 +1287,8 @@ const PORT_RULE = `
 <b>Portability rule for <code>src/pico2seq-core/</code> — keep it clean.</b>
 Never add <code>Arduino.h</code>, <code>UIState</code>, or any hardware/UI include into <code>src/pico2seq-core/</code>. That folder must stay plain, portable C++ so it can be reused in other projects and driven by host tests.
 <ul style="margin:10px 0 0;padding-left:20px">
-<li>The three include-guard comments say so directly: <a href="worktree://${WT}/src/pico2seq-core/sequencer/SequencerDefs.h#L9">SequencerDefs.h:9</a>, <a href="worktree://${WT}/src/pico2seq-core/scales/scales.h#L8">scales.h:8</a>, <a href="worktree://${WT}/src/pico2seq-core/persistence/ProjectSnapshot.h#L3">ProjectSnapshot.h:3</a>.</li>
-<li>When firmware code needs to bridge the core to UI types, the bridge lives in <code>src/</code> — <code>advanceSequencerStep()</code> in <code>src/app/StepPlayback.cpp</code> exists for exactly this reason (<a href="worktree://${WT}/src/app/StepPlayback.cpp#L15">StepPlayback.cpp:15-27</a>).</li>
+<li>The three include-guard comments say so directly: <a href="../src/pico2seq-core/sequencer/SequencerDefs.h#L9">SequencerDefs.h:9</a>, <a href="../src/pico2seq-core/scales/scales.h#L8">scales.h:8</a>, <a href="../src/pico2seq-core/persistence/ProjectSnapshot.h#L3">ProjectSnapshot.h:3</a>.</li>
+<li>When firmware code needs to bridge the core to UI types, the bridge lives in <code>src/</code> — <code>advanceSequencerStep()</code> in <code>src/app/StepPlayback.cpp</code> exists for exactly this reason (<a href="../src/app/StepPlayback.cpp#L15">StepPlayback.cpp:15-27</a>).</li>
 <li>Corollary: if a portable file starts needing a UI type, that is a design smell. Add an adapter in <code>src/</code> instead.</li>
 </ul>`;
 
@@ -1293,10 +1296,10 @@ const DRIFT = `
 <b>Repository state you should know about before trusting the docs.</b>
 <ul style="margin:10px 0 0;padding-left:20px">
 <li><b>Merge-conflict markers have been resolved.</b> docs/testing.md and docs/voice.md previously carried committed <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt; HEAD</code> blocks. Both are cleaned up now, and docs/testing.md lists all 20 registered test files.</li>
-<li><b>The PPQN race was documentation, not code — and the doc is now corrected.</b> firmware-structure.md used to warn that the tick counter could lose a tick. It could not: the drain takes and clears the count inside an IRQ-disabled window (<a href="worktree://${WT}/src/app/ClockService.cpp#L103">ClockService.cpp:103-106</a>) and does the per-tick work on a local copy. The warning is replaced with an explanation of why it is safe, which is the ask in <code>docs/next-steps.md</code> item 8.</li>
-<li><b>docs/architecture.md has drifted.</b> It still describes a <code>stepQueue</code> name, a 20 ms/50 Hz display cadence, and MIDI read bookkeeping. The current code uses <code>clockEvents.steps</code> (ClockService.cpp:23), a 13 ms LED and 40 ms OLED cadence (ControlIO.cpp:14-23), and has no MIDI read at all. Treat <a href="worktree://${WT}/docs/firmware-structure.md#L1">docs/firmware-structure.md</a> as the current guide.</li>
-<li><b>Two docs disagree about the scale rank cache.</b> docs/scales.md describes precomputed rank caches; docs/voice.md says they were removed. The code matches the removal: <code>setScaleTable()</code> only stores the pointer and queues a change (<a href="worktree://${WT}/src/voice/Voice.cpp#L243">Voice.cpp:243-249</a>).</li>
-<li><b>CLAUDE.md is stale where it matters most.</b> It describes <code>gates[]</code>/<code>gateTimers[]</code> and <code>MidiNoteManager</code> in VoiceSystem, and a <code>stepQueue</code>, none of which exist (<a href="worktree://${WT}/CLAUDE.md#L191">CLAUDE.md:191-207</a>). Its tested-vs-untested list also predates the arpeggiator, master-bus, UI-transition and settings-pad suites. Since agents read it first, it is worth correcting.</li>
+<li><b>The PPQN race was documentation, not code — and the doc is now corrected.</b> firmware-structure.md used to warn that the tick counter could lose a tick. It could not: the drain takes and clears the count inside an IRQ-disabled window (<a href="../src/app/ClockService.cpp#L103">ClockService.cpp:103-106</a>) and does the per-tick work on a local copy. The warning is replaced with an explanation of why it is safe, which is the ask in <code>docs/next-steps.md</code> item 8.</li>
+<li><b>docs/architecture.md has drifted.</b> It still describes a <code>stepQueue</code> name, a 20 ms/50 Hz display cadence, and MIDI read bookkeeping. The current code uses <code>clockEvents.steps</code> (ClockService.cpp:23), a 13 ms LED and 40 ms OLED cadence (ControlIO.cpp:14-23), and has no MIDI read at all. Treat <a href="../docs/firmware-structure.md#L1">docs/firmware-structure.md</a> as the current guide.</li>
+<li><b>Two docs disagree about the scale rank cache.</b> docs/scales.md describes precomputed rank caches; docs/voice.md says they were removed. The code matches the removal: <code>setScaleTable()</code> only stores the pointer and queues a change (<a href="../src/voice/Voice.cpp#L243">Voice.cpp:243-249</a>).</li>
+<li><b>Contributor guidance.</b> The former agent-specific instructions have been replaced by <a href="../CONTRIBUTING.md#firmware-design-rules">CONTRIBUTING.md</a>, which describes the current core ownership and development rules.</li>
 <li><b>This map follows the code, not the docs,</b> wherever the two disagree — and says so where it matters, for example in stage 7 of the trace.</li>
 </ul>`;
 
@@ -1325,7 +1328,7 @@ function isSub(p){ return SUBMODULE_PREFIXES.some(pre => p.startsWith(pre)); }
 function ref(p, l, text){
   const label = text || (p + (l ? `:` + l : ``));
   if (isSub(p)) return `<span class="sub" title="submodule file, not checked out in this worktree">` + esc(label) + `</span>`;
-  const href = `worktree://` + WT + `/` + p + (l ? `#L` + l : ``);
+  const href = `../` + p + (l ? `#L` + l : ``);
   return `<a href="` + href + `">` + esc(label) + `</a>`;
 }
 function fileList(files){

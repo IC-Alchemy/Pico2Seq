@@ -10,7 +10,7 @@ work during each control-loop pass.
 | You want to change... | Start here |
 |---|---|
 | Startup or control-loop order | `src/app/Application.cpp` |
-| Bus, I2S or mode-switch pins | `src/app/HardwarePins.h` (LED pin remains in `src/LEDMatrix/ledMatrix.h`) |
+| Bus, I2S or mode-switch pins | `src/app/HardwarePins.h` (LED pin remains in `src/LEDMatrix/LedMatrix.h`) |
 | Sensor startup, polling or display cadence | `src/app/ControlIO.cpp` |
 | Shared objects and hand-distance calibration | `src/app/AppState.h/.cpp` |
 | Clock registration, transport and queued clock events | `src/app/ClockService.h/.cpp` |

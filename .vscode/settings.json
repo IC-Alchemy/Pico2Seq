@@ -1,9 +1,0 @@
-{
-    "files.associations": {
-        "cmath": "cpp",
-        "memory": "cpp",
-        "semaphore": "cpp",
-        "stop_token": "cpp"
-    },
-    "telemetry.feedback.enabled": false
-}
