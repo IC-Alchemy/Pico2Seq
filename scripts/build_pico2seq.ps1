@@ -33,7 +33,7 @@ $stageSketch = Join-Path $stageRoot 'Pico2Seq'
 if ([string]::IsNullOrWhiteSpace($BuildDirectory)) {
     $buildPath = Join-Path (Join-Path (Join-Path $repoRoot 'build') 'arduino-cli') "Pico2Seq-current-$stamp"
 } else {
-    $buildPath = [IO.Path]::GetFullPath($BuildDirectory)
+    $buildPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($BuildDirectory)
 }
 
 $subStatus = git -C $repoRoot submodule status --recursive

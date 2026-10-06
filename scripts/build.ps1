@@ -41,7 +41,15 @@ if ($LASTEXITCODE -ne 0) {
 $ports = @(
     ($boardList | ConvertFrom-Json).detected_ports |
         Where-Object {
-            $_.matching_boards.fqbn -contains 'rp2040:rp2040:rpipico2'
+            $matchingBoards = $_.PSObject.Properties['matching_boards']
+            if ($null -ne $matchingBoards -and $null -ne $matchingBoards.Value) {
+                @($matchingBoards.Value | Where-Object {
+                    $fqbn = $_.PSObject.Properties['fqbn']
+                    $null -ne $fqbn -and $fqbn.Value -eq 'rp2040:rp2040:rpipico2'
+                }).Count -gt 0
+            } else {
+                $false
+            }
         } |
         ForEach-Object { $_.port.address }
 )
