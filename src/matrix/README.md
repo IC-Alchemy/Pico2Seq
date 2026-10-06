@@ -91,7 +91,7 @@ void loop() {
 ## Related Documentation
 
 - [Touch Matrix Documentation](../../docs/matrix.md): In-depth subsystem and voice pair bank architecture
-- [LED Matrix Documentation](../../docs/LEDMatrix.md): Visualizes sequencer/play states triggered by button input
+- [LED Matrix Documentation](../../docs/led-matrix.md): Visualizes sequencer/play states triggered by button input
 - [Sequencer Documentation](../../docs/sequencer.md): Uses button events to drive real-time step parameter changes
 - [Architecture Documentation](../../docs/architecture.md): Dual-core division and system overview
 - [Main Project README](../../README.md): Project overview and setup instructions

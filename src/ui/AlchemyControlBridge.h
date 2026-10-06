@@ -24,7 +24,7 @@ class SequencerView;
  * One update() pass never blocks longer than one tile transaction (~1.9 ms
  * at 100 kHz) because AlchemyTiles paces tiles round-robin.
  *
- * Semantics implemented here (see docs/ButtonHandlers.md and docs/manual.md):
+ * Semantics implemented here (see docs/button-handlers.md and docs/manual.md):
  *   - GP7 mode strap, software-debounced, drives the Param/Utility tile
  *     function sets; a flip clears holds/latches, flashes a control LED and
  *     raises the OLED banner flag.

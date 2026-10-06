@@ -7,7 +7,7 @@ The `src/LEDMatrix/` subsystem provides comprehensive visual feedback for Pico2S
 The panel **mirrors the touch matrix**: the MPR121 touch surface (`src/matrix/`) is 4 rows × 8 columns, and the LED panel is 8 wide × 4 tall, so **the same (band, step) always lands on the same physical index on both surfaces** — band 0 (the selected voice pair's low voice) at indices 0–15 (touch/LED rows 0–1) and band 1 (the pair's high voice) at indices 16–31 (touch/LED rows 2–3). All rendering goes through the host-tested `ControlSurface::LedLayout` helper (`src/ui/ControlSurfaceLogic.h`) so this alignment cannot drift.
 
 > **Disambiguation Note:**
-> - `docs/LEDMatrix.md` (this document) describes the **WS2812B 8×4 RGB LED visual output system** on GPIO 1 (`src/LEDMatrix/`).
+> - `docs/led-matrix.md` (this document) describes the **WS2812B 8×4 RGB LED visual output system** on GPIO 1 (`src/LEDMatrix/`).
 > - [`docs/matrix.md`](matrix.md) describes the **MPR121 capacitive touch input matrix** providing 32 dedicated step pads on I2C `Wire` @ `0x5A` (`src/matrix/`).
 
 ---

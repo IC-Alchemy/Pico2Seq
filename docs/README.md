@@ -20,7 +20,7 @@ For playing the instrument, start with the [user manual](manual.md).
 | Guide | What it covers |
 |---|---|
 | [Voices](voice.md) | Oscillators, filters, envelopes, and the master bus |
-| [Voice system](VoiceSystem.md) | Voice identifiers and control snapshots |
+| [Voice system](voice-system.md) | Voice identifiers and control snapshots |
 | [Voice editing](voice-edit.md) | Patch controls and sequenced modifiers |
 | [Sequencer](sequencer.md) | Parameter tracks, polymeter, gates, and clocking |
 | [Arpeggiator](arpeggiator.md) | Chord input, patterns, and playback |
@@ -31,11 +31,11 @@ For playing the instrument, start with the [user manual](manual.md).
 
 | Guide | What it covers |
 |---|---|
-| [Buttons](ButtonHandlers.md) | Control surface state machines and dispatch |
+| [Buttons](button-handlers.md) | Control surface state machines and dispatch |
 | [Satellite link](alchemy-satellite-link.md) | Tile packets, freshness, and bus robustness |
 | [Tile firmware](../tiles/README.md) | PY32 slider/button firmware and its protocol |
 | [Touch matrix](matrix.md) | Capacitive pads and voice banks |
-| [LED matrix](LEDMatrix.md) | Themes, playheads, and pad feedback |
+| [LED matrix](led-matrix.md) | Themes, playheads, and pad feedback |
 | [OLED](oled.md) | Display priorities and screens |
 | [Sensors](sensors.md) | Encoder and distance control |
 | [USB and MIDI status](midi.md) | CDC console and the removed MIDI transport |

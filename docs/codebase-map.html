@@ -455,7 +455,7 @@ const NODES = [
 {id:`led`, label:`LED matrix`, sub:`8x4 stage mirror`, layer:`input`, col:1, row:8,
  core:`Core 0 · PIO + DMA, 13 ms cadence`, paths:[`ui`],
  what:`The RGB panel under the pads: the sounding step blooms white, gated steps glow in their voice's colour, rests stay dark. It runs at three times the screen's rate because the transfer is cheap and fades settle faster.`,
- files:[[`src/LEDMatrix/LEDMatrixFeedback.cpp`,1131,`updateStepLEDs()`],[`src/LEDMatrix/LEDmatrix.cpp`,42,`LEDMatrix::show() — hand the frame to the driver`],[`src/LEDMatrix/LEDMatrixFeedback.cpp`,768,`setLEDTheme()`],[`src/LEDMatrix/LEDMatrixFeedback.h`,21,`enum class LEDTheme — 10 palettes, saved by index`],[`src/app/ControlIO.cpp`,23,`kLedIntervalMs = 13 (about 77 fps)`],[`src/app/ControlIO.cpp`,255,`the render + show pair`]],
+ files:[[`src/LEDMatrix/LEDMatrixFeedback.cpp`,1131,`updateStepLEDs()`],[`src/LEDMatrix/LedMatrix.cpp`,42,`LEDMatrix::show() — hand the frame to the driver`],[`src/LEDMatrix/LEDMatrixFeedback.cpp`,768,`setLEDTheme()`],[`src/LEDMatrix/LEDMatrixFeedback.h`,21,`enum class LEDTheme — 10 palettes, saved by index`],[`src/app/ControlIO.cpp`,23,`kLedIntervalMs = 13 (about 77 fps)`],[`src/app/ControlIO.cpp`,255,`the render + show pair`]],
  reads:`UIState, the sequencer routing table, note conversions for hue.`,
  writes:`WS2812B pixels over the FastLED PIO+DMA driver (about 1 ms on the wire, no interrupt blackout).`,
  note:`Fades are wall-clock based (frameBlend), never frame-counted, so tempo and loop load cannot change the look (LEDMatrixFeedback.h:15-17).`},
@@ -537,7 +537,7 @@ const NODES = [
 {id:`vsys`, label:`VoiceSystem`, sub:`ID tags + snapshot`, layer:`voice`, col:3, row:2,
  core:`Core 0 · thread context`, paths:[`audio`],
  what:`Voice ID tags plus one control snapshot each. That is all it holds now — no gate flags, no timers, no MIDI lifecycle tracking. The sequencer owns note length, and the VoiceState owns gate truth.`,
- files:[[`src/voice/VoiceSystem.h`,15,`struct VoiceSystem`],[`src/voice/VoiceSystem.h`,17,`MAX_VOICES = 4`],[`src/voice/VoiceSystem.h`,28,`getVoiceId() — returns 0 (invalid) when out of range`],[`src/voice/VoiceSystem.h`,47,`getVoiceState() — clamps an out-of-range index to voice 0`],[`docs/firmware-structure.md`,65,`“VoiceSystem holds only IDs and control snapshots”`],[`docs/VoiceSystem.md`,0,`the design note for the change that removed the parallel arrays`]],
+ files:[[`src/voice/VoiceSystem.h`,15,`struct VoiceSystem`],[`src/voice/VoiceSystem.h`,17,`MAX_VOICES = 4`],[`src/voice/VoiceSystem.h`,28,`getVoiceId() — returns 0 (invalid) when out of range`],[`src/voice/VoiceSystem.h`,47,`getVoiceState() — clamps an out-of-range index to voice 0`],[`docs/firmware-structure.md`,65,`“VoiceSystem holds only IDs and control snapshots”`],[`docs/voice-system.md`,0,`the design note for the change that removed the parallel arrays`]],
  reads:`Nothing.`,
  writes:`voiceIds[4] and voiceStates[4], both index-clamped on access.`,
  note:`Accessors clamp rather than assert, so a bad index plays voice 0 instead of corrupting memory — always go through them, never index the arrays directly.`},
@@ -1242,7 +1242,7 @@ const LOSTS = [
 /* ======================= HONESTY ======================= */
 const UNTESTED = [
 {t:`PIO / DMA I2S driver`, files:`src/audio/audio_i2s.c, src/audio/audio_i2s.pio.h, src/audio/audio.cpp, src/audio/buffer.h`, note:`The pool and driver logic <i>is</i> host-tested, because tests/unit/test_audio_i2s.cpp <code>#include</code>s audio.cpp and audio_i2s.c directly against deterministic PIO/DMA/IRQ doubles in tests/audio_stubs/. What no host test can answer is real bit timing, DMA latency and PIO scheduling on the chip. Underrun and transmit-stall counters exist because the host cannot.`},
-{t:`LED matrix (WS2812B)`, files:`src/LEDMatrix/LEDmatrix.cpp, src/LEDMatrix/LEDMatrixFeedback.cpp`, note:`GPIO/PIO register work and colour rendering. 1382 lines of feedback logic, validated only by eye and by the bench checklist.`},
+{t:`LED matrix (WS2812B)`, files:`src/LEDMatrix/LedMatrix.cpp, src/LEDMatrix/LEDMatrixFeedback.cpp`, note:`GPIO/PIO register work and colour rendering. 1382 lines of feedback logic, validated only by eye and by the bench checklist.`},
 {t:`OLED (I2C SH1106)`, files:`src/OLED/oled.cpp`, note:`I2C transport and page-diffed pushes. A headless panel leaves the firmware running, so a failure here degrades gracefully rather than crashing.`},
 {t:`Touch matrix (MPR121)`, files:`src/matrix/Matrix.cpp`, note:`IRQ arming and I2C reads. A missing chip blocks boot deliberately, so a dead pad row cannot masquerade as a working instrument.`},
 {t:`Sensors (VL53L1X, TMAG5273)`, files:`src/sensors/DistanceSensor.cpp, src/sensors/EncoderManager.cpp`, note:`Bus timing and device quirks. SensorConstants.h is pure constants and <i>is</i> covered, and the calibration arithmetic on top of the readings is host-tested in test_app_runtime.cpp — but the readings themselves are not. The knob driver also lives behind the src/VelocityEncoder submodule.`},

@@ -329,7 +329,7 @@ handling. Concrete `seq1`..`seq4` construction remains in
 `Sequencer::tickNoteDuration()` for each voice. On expiry, the updated gate-off
 snapshot is published immediately. This is the sole note-duration authority:
 there is no `VoiceSystem` gate countdown or two-voice MIDI lifecycle branch.
-See [VoiceSystem](VoiceSystem.md#4-step-and-duration-flow) for ownership.
+See [VoiceSystem](voice-system.md#4-step-and-duration-flow) for ownership.
 
 ---
 

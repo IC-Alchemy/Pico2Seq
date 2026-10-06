@@ -7,7 +7,7 @@
 //
 // Short-press vs long-press splits one physical control into audition vs
 // commit (randomize vs wipe, tap vs step-edit). All state lives in UIState;
-// these helpers only interpret edges. See docs/ButtonHandlers.md.
+// these helpers only interpret edges. See docs/button-handlers.md.
 
 // Forward declarations to avoid circular deps
 class UIState;

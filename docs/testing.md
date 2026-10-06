@@ -456,7 +456,7 @@ one-transaction snapshot poll can actually be proven.
 - [`docs/architecture.md`](architecture.md) — System architecture and dual-core division
 - [`docs/voice.md`](voice.md) — Voice synthesis and DSP chain documentation
 - [`docs/sequencer.md`](sequencer.md) — Sequencer engine and polymetric parameter tracks
-- [`docs/ButtonHandlers.md`](ButtonHandlers.md) — Control surface state machines and button dispatch
+- [`docs/button-handlers.md`](button-handlers.md) — Control surface state machines and button dispatch
 - [`docs/alchemy-satellite-link.md`](alchemy-satellite-link.md) — Satellite state packet format and the sequence/timeout/last-known-good contract
 - [`tiles/README.md`](../tiles/README.md) — PY32 tile firmware, its build, and the three rules the hub is built on
 

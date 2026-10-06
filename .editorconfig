@@ -1,0 +1,19 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+
+# Generated and separately maintained sources own their formatting.
+[src/audio/audio_i2s.pio.h]
+insert_final_newline = unset
+
+[vendor/**]
+insert_final_newline = unset
+
+[src/rpdsp/**]
+insert_final_newline = unset
+
+[src/VelocityEncoder/**]
+insert_final_newline = unset

@@ -370,6 +370,6 @@ void loop() {
 ---
 
 ## Related Documentation
-- `docs/ButtonHandlers.md`: Alchemy tile control surface and MPR121 dual-surface architecture.
+- `docs/button-handlers.md`: Alchemy tile control surface and MPR121 dual-surface architecture.
 - `docs/matrix.md`: MPR121 32-pad touch grid layout and bank resolution.
 - `docs/architecture.md`: Dual-core audio/UI separation architecture.

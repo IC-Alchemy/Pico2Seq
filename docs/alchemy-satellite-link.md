@@ -232,5 +232,5 @@ is re-probed about once a second.
 ## Related documentation
 
 - [`docs/testing.md`](testing.md) — test suites and the stub sets each target builds against
-- [`docs/ButtonHandlers.md`](ButtonHandlers.md) — what the faders and buttons control
+- [`docs/button-handlers.md`](button-handlers.md) — what the faders and buttons control
 - [`docs/architecture.md`](architecture.md) — the dual-core split

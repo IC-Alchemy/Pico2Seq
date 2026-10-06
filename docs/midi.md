@@ -38,6 +38,6 @@ second duration countdown to implement it.
 ## Related Documentation
 
 - [Architecture](architecture.md) — dual-core ownership and clock drains
-- [VoiceSystem](VoiceSystem.md) — voice IDs, snapshots and routing
+- [VoiceSystem](voice-system.md) — voice IDs, snapshots and routing
 - [Sequencer](sequencer.md) — portable note lifecycle and polymetric tracks
 - [Scales](scales.md) — scale tables and pitch conversion

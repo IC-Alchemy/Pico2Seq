@@ -21,7 +21,7 @@ The voice system consists of several key components:
 The `VoiceSystem` struct provides centralized voice tracking. Each sequencer
 owns note duration; PPQN expiry publishes gate-off through `VoiceManager`.
 There are no separate gate timers or MIDI trackers in this structure. See
-[VoiceSystem ownership](VoiceSystem.md#3-ownership-and-routing).
+[VoiceSystem ownership](voice-system.md#3-ownership-and-routing).
 
 
 ```cpp

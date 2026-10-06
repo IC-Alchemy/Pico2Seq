@@ -853,7 +853,7 @@ voices: [`docs/arpeggiator.md`](arpeggiator.md).
 ## 6. LED themes
 
 Ten color themes for the 8x4 LED matrix, cycled with **Utility button 5**. Enum names are
-from the firmware; display names are as documented in `docs/LEDMatrix.md`:
+from the firmware; display names are as documented in `docs/led-matrix.md`:
 
 | # | Enum | Display name | Character |
 |---|---|---|---|

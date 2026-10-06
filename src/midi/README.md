@@ -10,5 +10,5 @@ input, notes, CC or clock output. Optional MIDI callbacks in the portable
 sequencer remain available to other applications; they are not a firmware
 transport.
 
-See [MIDI status](../../docs/midi.md), [VoiceSystem](../../docs/VoiceSystem.md)
+See [MIDI status](../../docs/midi.md), [VoiceSystem](../../docs/voice-system.md)
 and the [architecture](../../docs/architecture.md).

@@ -1,7 +1,7 @@
 // ButtonMap.h — the logical buttons of the Pico2Seq Alchemy control surface
 // ---------------------------------------------------------------------------
 // The physical rig is two tiles on one bank (see tiles/README.md and
-// docs/ButtonHandlers.md):
+// docs/button-handlers.md):
 //
 //   slot 0  SliderModule (TYPE 0x01, 0x08-0x0A)  — 4 faders + 4 buttons,
 //           whose buttons are the direct Voice 1..4 selects.
