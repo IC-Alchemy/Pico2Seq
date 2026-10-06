@@ -9,7 +9,8 @@ For playing the instrument, start with the [user manual](manual.md).
 |---|---|
 | [Firmware structure](firmware-structure.md) | Entry points, module boundaries, and where to make a change |
 | [Architecture](architecture.md) | Core ownership, startup, and data flow |
-| [Testing](testing.md) | Host suites, hardware stubs, and known failures |
+| [Testing](testing.md) | Host suites, hardware stubs, and test workflow |
+| [Test baseline](test-baseline.md) | Recorded toolchain, per-suite results, and exact known failure names |
 | [Audio performance](audio-performance.md) | Timing, SRAM, stack, and hardware measurements |
 | [Recipe performance](recipe-performance.md) | Recipe-engine optimization and measurements |
 | [Persistence](persistence.md) | Project snapshots, codecs, flash, and retained state |

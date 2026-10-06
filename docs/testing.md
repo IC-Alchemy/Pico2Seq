@@ -2,6 +2,9 @@
 
 ## Overview
 
+The default build runs nine executables. The [current baseline](test-baseline.md)
+records 1,023 checks, with 991 passing and 32 existing failures on GCC 14.2 Debug.
+
 Pico2Seq firmware targets the Raspberry Pi Pico 2 (RP2350 microcontroller). Because microcontrollers execute bare-metal firmware without an underlying OS, executing device binaries natively on host development machines (Linux, macOS, Windows) is impossible without hardware emulation.
 
 To enable rapid, automated regression testing, Pico2Seq employs a **host-side unit testing architecture**:
@@ -125,7 +128,7 @@ faders 1–3 re-arm on Shift edges while gate length stays engaged,
 the 19 note divisions and retains the step-envelope assignments and compressor macro gesture.
 
 ```powershell
-cmake --build build_test_ninja --parallel
+cmake --build build_test_ninja --parallel 4
 & ./build_test_ninja/tests/pico2seq_tests.exe '[master],[master_delay],[control_surface]'
 ctest --test-dir build_test_ninja -C Release --output-on-failure
 ```
@@ -188,7 +191,15 @@ cmake --build build_test_float --parallel
 ctest --test-dir build_test_float --output-on-failure
 ```
 
-**Known baseline failures.** Recorded 2026-09-30 on Linux with GCC 13.3, Debug: at `93bb7a1` 33 tests fail in
+**Current baseline.** See [test-baseline.md](test-baseline.md) for the exact
+32 failure names, per-executable results, dependency pins, and reproduction command.
+Compare failure names and assertions when assessing regressions.
+
+**Historical observations (2026-09-30 and 2026-10-01).** These older compiler and
+source revisions are retained for context; their counts do not describe the
+current build.
+
+Recorded 2026-09-30 on Linux with GCC 13.3, Debug: at `93bb7a1` 33 tests fail in
 `pico2seq_tests`/`pico2seq_voice_tests`. Their assertions concern octave/gate defaults, note names, pitch lookup,
 release defaults, cutoff limits and filter counts; whether the code or the expectation is stale was not
 investigated. `pico2seq_audio_tests` also did not compile: the host test builds `audio_i2s.c` as C++, which requires
@@ -230,7 +241,8 @@ device, DMA timing and listening. Those are the board checks in
 
 ## Host Unit Test Suites
 
-The host test executable (`pico2seq_tests`) links all unit suites under `tests/unit/`:
+The main executable (`pico2seq_tests`) links the portable logic and DSP suites.
+Hardware-isolated and bypass suites have separate targets, as noted below:
 
 | # | Test Suite File | Tested Components | Key Test Areas |
 |---|---|---|---|
@@ -310,28 +322,34 @@ tests/stubs/
 
 ### 1. Build and Run the Test Suite Locally
 
-The known-good configure is the Ninja + LLVM clang one into `build_test_ninja/` (as used in `docs/firmware-structure.md`); an old directory left over from an earlier default-generator (Visual Studio) configure can be deleted.
+Use a C++17 compiler and a fresh build directory for each generator, compiler,
+and build variant. The current baseline uses Ninja and GCC 14.2; Clang is also
+supported. Ninja is optional when configuring a new directory.
 
 ```bash
 # Configure the build directory (Debug mode)
-cmake -B build_test_ninja -DCMAKE_BUILD_TYPE=Debug
+cmake -S . -B build_test_ninja -DCMAKE_BUILD_TYPE=Debug
 
 # Compile the test runner executables
-cmake --build build_test_ninja --parallel
+cmake --build build_test_ninja --parallel 4
 
 # Execute the main test runner directly
 ./build_test_ninja/tests/pico2seq_tests
 
 # Or run individual specialized test executables:
-./build_test/tests/pico2seq_voice_tests      # Focused voice ownership & queue suite (70 tests)
-./build_test/tests/pico2seq_watchdog_tests   # FreezeWatchdog forensics suite (4 tests)
-./build_test/tests/pico2seq_audio_tests      # I2S DMA/pool driver suite (1 test)
-./build_test/tests/pico2seq_tile_tests       # Tile bus master against a scriptable I2C bus
-./build_test/tests/py32_slider_tests         # SliderModule.ino itself, against a PY32Duino shim
-./build_test/tests/py32_button_tests         # ButtonModule8.ino itself
+./build_test_ninja/tests/pico2seq_ui_tests         # Focused UI policies
+./build_test_ninja/tests/pico2seq_voice_tests      # Focused voice ownership & queue suite
+./build_test_ninja/tests/pico2seq_watchdog_tests   # FreezeWatchdog forensics suite (4 tests)
+./build_test_ninja/tests/pico2seq_audio_tests      # I2S DMA/pool driver suite (1 test)
+./build_test_ninja/tests/pico2seq_tile_tests       # Tile bus master against a scriptable I2C bus
+./build_test_ninja/tests/py32_slider_tests         # SliderModule.ino itself, against a PY32Duino shim
+./build_test_ninja/tests/py32_button_tests         # ButtonModule8.ino itself
+./build_test_ninja/tests/pico2seq_reverb_bypass_tests # Bench-only dry-bus and control checks
 ```
 
-*(On Windows PowerShell, append `.exe` to executable names; `ctest --test-dir build_test_ninja` runs every discovered test across the six targets: 938 on 2026-10-01, 35 of them failing — see the baseline paragraphs above.)*
+On Windows PowerShell, append `.exe` to executable names.
+`ctest --test-dir build_test_ninja` runs every discovered check across all nine
+executables; see the [current baseline](test-baseline.md) for recorded results.
 
 ### 2. Run with CTest
 
@@ -362,10 +380,10 @@ ctest --test-dir build_test_ninja --output-on-failure
 ./build_test_ninja/tests/pico2seq_tests "[alchemy_proto]"
 
 # Run only the satellite link-state tests (sequence / timeout / last-known-good)
-./build_test/tests/pico2seq_tests "[satellite_link]"
+./build_test_ninja/tests/pico2seq_tests "[satellite_link]"
 
 # Run the tile driver against the scriptable I2C bus (separate target)
-./build_test/tests/pico2seq_tile_tests
+./build_test_ninja/tests/pico2seq_tile_tests
 
 # Run only voice engine tests
 ./build_test_ninja/tests/pico2seq_tests "[voice]"

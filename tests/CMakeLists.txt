@@ -212,6 +212,18 @@ target_compile_options(pico2seq_voice_tests PRIVATE -Wall -Wno-unused-parameter)
 catch_discover_tests(pico2seq_voice_tests TEST_PREFIX "voice-focused: "
   PROPERTIES TIMEOUT 60)
 
+# Bench-only reverb bypass, compiled separately so its definition never mixes
+# with the normal voice objects. The same private flag applies to both sources.
+add_executable(pico2seq_reverb_bypass_tests
+  unit/test_reverb_bypass.cpp
+  ${SRC_DIR}/voice/MasterReverb.cpp)
+target_include_directories(pico2seq_reverb_bypass_tests PRIVATE
+  ${PICO2SEQ_TEST_INCLUDE_DIRS})
+target_compile_definitions(pico2seq_reverb_bypass_tests PRIVATE
+  PICO2SEQ_REVERB_BYPASS=1)
+target_link_libraries(pico2seq_reverb_bypass_tests PRIVATE Catch2::Catch2WithMain)
+catch_discover_tests(pico2seq_reverb_bypass_tests TEST_PREFIX "reverb-bypass: ")
+
 # Exercise the real watchdog report code with isolated hardware/serial stubs.
 add_executable(pico2seq_watchdog_tests unit/test_freeze_watchdog.cpp)
 target_include_directories(pico2seq_watchdog_tests PRIVATE

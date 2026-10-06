@@ -35,7 +35,7 @@ Pico2Seq is a 4-voice polyphonic step sequencer and synthesizer for the Raspberr
 - **VoiceSystem Architecture**: Centralized, array-based voice management with safe accessor methods, holding control-core voice snapshots for all 4 voices (0–3); `VoiceState` owns gate truth and the sequencer owns note-duration timing
 - **Dual-Core Asymmetric Design**: Core 1 dedicated exclusively to 48kHz audio synthesis; Core 0 handles UI, sensors, clock, display rendering, and the USB CDC serial console
 - **Lock-Free Parameter Staging**: Atomic generation counters and lock-free SPSC queues allow Core 0 to stage parameter changes without blocking Core 1 audio processing
-- **Host Test Suite**: Eight Catch2 v3 test executables exercise portable logic, DSP, audio-driver stubs, and tile firmware through CMake and CTest
+- **Host Test Suite**: Nine Catch2 v3 test executables exercise portable logic, DSP, audio-driver stubs, and tile firmware through CMake and CTest
 
 ---
 
@@ -269,9 +269,9 @@ Pico2Seq leverages the dual ARM Cortex-M33 cores of the RP2350:
 |       (UI, Sensors & MIDI)         |    |       (Real-Time Audio DSP)        |
 +------------------------------------+    +------------------------------------+
 | • 1ms sensor poll (TMAG, VL53L1X)   |    | • fill_audio_buffer() loop         |
-| • MPR121 32-pad touch matrix scan  |    | • VoiceManager::processBlock() |
+| • MPR121 32-pad touch matrix scan  |    | • VoiceManager::processStereoBlock() |
 | • Alchemy tile panel polling (I2C1)|    | • 4-voice synthesis chain          |
-| • 13ms LED / 40ms OLED updates     |    | • FloatToPcm16() with __SSAT       |
+| • 13ms LED / 40ms OLED updates     |    | • AudioSamples::interleavePcm16()       |
 | • uClock sequencer step ticking    |    | • Non-blocking I2S DMA @ 48kHz     |
 | • USB CDC serial console            |    |                                    |
 +------------------------------------+    +------------------------------------+
@@ -286,11 +286,11 @@ Pico2Seq leverages the dual ARM Cortex-M33 cores of the RP2350:
 
 ## Host Unit Testing
 
-The CMake host build provides eight Catch2 v3.5.2 executables: the main suite,
+The CMake host build provides nine Catch2 v3.5.2 executables: the main suite,
 focused UI and voice suites, watchdog and audio-driver suites, a tile-master
-suite, and two PY32 tile firmware suites. Recipe throughput measurement is an
+suite, two PY32 tile firmware suites, and a reverb-bypass suite. Recipe throughput measurement is an
 optional target. Known baseline failures are documented in the
-[testing guide](docs/testing.md).
+[test baseline](docs/test-baseline.md).
 
 ```bash
 # Configure and build test suite

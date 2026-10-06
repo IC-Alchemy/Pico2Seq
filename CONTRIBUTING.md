@@ -45,8 +45,8 @@ For a focused check, run a Catch2 tag directly:
 ```
 
 On Windows, append `.exe` when running a test executable directly.
-The [testing guide](docs/testing.md) describes all eight executables, their
-hardware stubs, and known baseline failures. Compare failed names and
+The [testing guide](docs/testing.md) describes all nine executables and their
+hardware stubs. The [current baseline](docs/test-baseline.md) lists known failures. Compare failed names and
 assertions with the baseline; report existing failures separately from any
 introduced by your change.
 
