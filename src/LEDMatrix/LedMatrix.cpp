@@ -1,4 +1,4 @@
-#include "ledMatrix.h"
+#include "LedMatrix.h"
 
 // LEDmatrix.cpp — 8x4 WS2812B driver (Core 0): thin FastLED wrapper.
 // Player view: the stage mirror — hue per voice, brightness per gate, white

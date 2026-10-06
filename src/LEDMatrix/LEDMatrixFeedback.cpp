@@ -20,7 +20,7 @@
 #include "../utils/Debug.h"
 #include "../voice/VoicePresets.h"
 #include "LEDConstants.h"
-#include "ledMatrix.h"
+#include "LedMatrix.h"
 
 // LEDMatrixFeedback.cpp — per-frame 8x4 stage render (Core 0).
 // Hue = voice, brightness = gate, white bloom = sounding step; settings pages
@@ -1119,7 +1119,7 @@ static void renderArpPanel(LEDMatrix &ledMatrix, const UIState &uiState) {
       const uint8_t chordValue = arp.padHeld(pad)
                                      ? voiceValue
                                      : scaleGateChannel(voiceValue, 1, GATE_OFF_DIVISOR);
-      target = hsv2rgb_rainbow(CHSV(noteHue, voiceSaturation, chordValue));
+      hsv2rgb_rainbow(CHSV(noteHue, voiceSaturation, chordValue), target);
     } else if ((notesPerOctave == Arpeggiator::kSevenNoteScale &&
                 degree % Arpeggiator::kSevenNoteScale == 0) ||
                (notesPerOctave != Arpeggiator::kSevenNoteScale &&
@@ -1146,7 +1146,7 @@ static void renderArpPanel(LEDMatrix &ledMatrix, const UIState &uiState) {
       }
       const uint8_t brightness = static_cast<uint8_t>(std::min<int>(
           255, dynamicScale + (octave * kOctaveBrightnessStep)));
-      target = hsv2rgb_rainbow(CHSV(noteHue, voiceSaturation, voiceValue));
+      hsv2rgb_rainbow(CHSV(noteHue, voiceSaturation, voiceValue), target);
       nblend(target, CRGB::White, kSoundingWhiteCore);
       target.nscale8_video(brightness);
     }

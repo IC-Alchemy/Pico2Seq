@@ -81,9 +81,8 @@ command exits with code 0 and produces UF2, ELF, BIN, and MAP artifacts. Keep th
 ELF from the exact build when decoding a crash. Compilation does not establish
 physical audio timing, sensor behavior, or successful flashing.
 
-At the current baseline, FastLED 3.9.20 rejects two single-argument
-`hsv2rgb_rainbow` calls in `src/LEDMatrix/LEDMatrixFeedback.cpp`. This source/API
-mismatch remains open; repository cleanup does not resolve it.
+The 225 MHz configuration was compile-checked on Linux on 2026-10-06 with
+Arduino-Pico 6.0.0 and the README's library versions, including FastLED 3.9.20.
 
 ## Firmware design rules
 
