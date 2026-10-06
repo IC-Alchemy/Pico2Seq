@@ -8,14 +8,7 @@ param(
     #   -ExtraFlags '-DPICO2SEQ_REVERB_STORAGE_HALF=0'  (Float tank; default is Half)
     #   -ExtraFlags '-DPICO2SEQ_REVERB_BYPASS=1'        (bench baseline, no reverb)
     [string]$ExtraFlags = '',
-    [switch]$KeepStage,
-    # User-facing build name (first prompt of build.ps1). publish_uf2.ps1
-    # turns it into "<title>_Pico2Seq_<yyyy-MM-dd>.uf2".
-    [string]$FirmwareTitle = '',
-    # Working-copy destination. Keep this default in sync with
-    # publish_uf2.ps1 -WorkingUf2Dir.
-    [string]$WorkingUf2Dir = 'Z:\Codezzz\workingUF2',
-    [switch]$NoWorkingCopy
+    [switch]$KeepStage
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,15 +27,19 @@ if ($null -eq $arduinoCliCommand) {
 }
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$stageRoot = Join-Path ([IO.Path]::GetTempPath()) "Pico2Seq-arduino-stage-$stamp"
+$stageName = "Pico2Seq-arduino-stage-$stamp-$([Guid]::NewGuid().ToString('N'))"
+$stageRoot = Join-Path ([IO.Path]::GetTempPath()) $stageName
 $stageSketch = Join-Path $stageRoot 'Pico2Seq'
 if ([string]::IsNullOrWhiteSpace($BuildDirectory)) {
-    $buildPath = Join-Path $repoRoot "build\arduino-cli\Pico2Seq-current-$stamp"
+    $buildPath = Join-Path (Join-Path (Join-Path $repoRoot 'build') 'arduino-cli') "Pico2Seq-current-$stamp"
 } else {
     $buildPath = [IO.Path]::GetFullPath($BuildDirectory)
 }
 
 $subStatus = git -C $repoRoot submodule status --recursive
+if ($LASTEXITCODE -ne 0) {
+    throw "Submodule status failed with exit code $LASTEXITCODE."
+}
 # git prefixes each line with ' ' (in sync), '+' (different commit checked out),
 # '-' (not initialized) or 'U' (merge conflicts). Only the last three are stale.
 if ($subStatus -match '^[\+\-U]') {
@@ -79,23 +76,18 @@ if ($conflictMarkerSearchExit -ne 1) {
 function Copy-StageTree {
     param(
         [Parameter(Mandatory)] [string]$Source,
-        [Parameter(Mandatory)] [string]$Destination,
-        [bool]$IsRepositoryRoot = $false
+        [Parameter(Mandatory)] [string]$Destination
     )
 
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     foreach ($item in Get-ChildItem -LiteralPath $Source -Force) {
-        if ($IsRepositoryRoot -and ($item.Name -in @('.git', 'build', 'build_test', 'vendor') -or
-                                    $item.Name -like 'build_*')) {
+        # Arduino CLI recursively compiles sketch/src. Skip dependency examples
+        # and Git metadata (including submodule .git files) at every depth.
+        if ($item.Name -in @('.git', 'examples')) {
             continue
         }
 
         if ($item.PSIsContainer) {
-            # Arduino CLI recursively compiles sketch/src, so do not stage library examples.
-            if ($item.Name -eq 'examples') {
-                continue
-            }
-
             Copy-StageTree -Source $item.FullName -Destination (Join-Path $Destination $item.Name)
         } else {
             Copy-Item -LiteralPath $item.FullName -Destination (Join-Path $Destination $item.Name) -Force
@@ -122,7 +114,11 @@ $boardOptions = @(
 $buildSucceeded = $false
 $audioInRam = if ($AudioInFlash) { 0 } else { 1 }
 try {
-    Copy-StageTree -Source $repoRoot -Destination $stageSketch -IsRepositoryRoot $true
+    New-Item -ItemType Directory -Path $stageSketch -Force | Out-Null
+    foreach ($name in @('Pico2Seq.ino', 'diagnostic.h')) {
+        Copy-Item -LiteralPath (Join-Path $repoRoot $name) -Destination $stageSketch -Force
+    }
+    Copy-StageTree -Source (Join-Path $repoRoot 'src') -Destination (Join-Path $stageSketch 'src')
     New-Item -ItemType Directory -Path $buildPath -Force | Out-Null
 
     Write-Host "Building Pico2Seq with $($arduinoCliCommand.Source)"
@@ -147,23 +143,12 @@ try {
 
     $artifacts = @('.uf2', '.elf', '.bin', '.map')
     $missingArtifacts = @($artifacts | Where-Object {
-        -not (Get-ChildItem -LiteralPath $buildPath -Recurse -File -Filter "*$PSItem" | Select-Object -First 1)
+        $artifact = Join-Path $buildPath "Pico2Seq.ino$PSItem"
+        -not (Test-Path -LiteralPath $artifact -PathType Leaf) -or
+            (Get-Item -LiteralPath $artifact).Length -eq 0
     })
     if ($missingArtifacts.Count -gt 0) {
         throw "Arduino CLI exited with code 0, but these expected artifacts were not found: $($missingArtifacts -join ', ')."
-    }
-
-    # Rename/copy the UF2 from wherever this build landed: publish_uf2.ps1
-    # finds the newest *.uf2 recursively, stages the canonical
-    # "<title>_Pico2Seq_<date>.uf2" next to the original (the original stays
-    # for `arduino-cli upload --input-dir`), and copies it to the working folder.
-    $publishScript = Join-Path $PSScriptRoot 'publish_uf2.ps1'
-    if (Test-Path -LiteralPath $publishScript -PathType Leaf) {
-        & $publishScript -BuildDir $buildPath -FirmwareTitle $FirmwareTitle `
-            -WorkingUf2Dir $WorkingUf2Dir -NoWorkingCopy:$NoWorkingCopy
-    } else {
-        # Publishing is an optional developer convenience. A fresh clone only
-        # needs the standard UF2/ELF/BIN/MAP artifacts in BuildDirectory.
     }
 
     $buildSucceeded = $true
@@ -172,8 +157,8 @@ try {
     if (-not $KeepStage) {
         if (Test-Path -LiteralPath $stageRoot) {
             $resolvedStage = (Resolve-Path -LiteralPath $stageRoot).Path
-            $resolvedTemp = (Resolve-Path -LiteralPath ([IO.Path]::GetTempPath())).Path.TrimEnd('\')
-            if (-not $resolvedStage.StartsWith($resolvedTemp + '\Pico2Seq-arduino-stage-', [StringComparison]::OrdinalIgnoreCase)) {
+            $resolvedTemp = (Resolve-Path -LiteralPath ([IO.Path]::GetTempPath())).Path
+            if ($resolvedStage -ne (Join-Path $resolvedTemp $stageName)) {
                 throw "Refusing to remove a stage outside the expected temporary directory: $resolvedStage"
             }
             Remove-Item -LiteralPath $stageRoot -Recurse -Force

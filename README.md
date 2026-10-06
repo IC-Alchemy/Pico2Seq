@@ -105,20 +105,18 @@ The final submodule command is intentionally repeatable after switching branches
 never resets, cleans, or discards local work. If it reports stale or missing submodules, fix the
 checkout with the command above and review any local changes before retrying.
 
-On Windows with PowerShell, compile the stable firmware baseline explicitly at **225 MHz**:
+With PowerShell 7 and Arduino CLI, compile the firmware explicitly at **225 MHz**:
 
 ```powershell
 pwsh -NoProfile -File scripts/build_pico2seq.ps1 `
   -CpuMHz 225 `
-  -BuildDirectory build/pico2seq-225 `
-  -NoWorkingCopy
+  -BuildDirectory build/pico2seq-225
 ```
 
 The command writes `build/pico2seq-225/Pico2Seq.ino.uf2`, `.elf`, `.bin`, and `.map`. It compiles
-only; it does not upload or hardware-test the board. The optional
-`scripts/publish_uf2.ps1` rename/copy step is skipped when that developer helper is absent; the
-required UF2/ELF/BIN/MAP artifacts remain in the requested build directory. The helper's required
-submodule and source-marker checks remain hard errors.
+only; it does not upload or hardware-test the board. The helper checks submodule pins and
+source conflict markers before compiling. See the [script guide](scripts/README.md) for options,
+logs, and the explicit upload command.
 
 ### Installation & Flashing
 
@@ -132,76 +130,21 @@ submodule and source-marker checks remain hard errors.
    - Compile and flash to the Pico 2 board
    - Monitor the USB serial console (115200 baud) for startup diagnostics
 
-### Building with Arduino CLI on Windows
+### Building with Arduino CLI
 
-Arduino CLI recursively compiles C/C++ files below a sketch's `src` directory. Pico2Seq's
-`src` tree includes Git submodules with their own example source files, so the verified build
-uses a disposable, correctly named `Pico2Seq/Pico2Seq.ino` staging directory and omits every
-`examples` directory. This leaves the checkout unchanged while compiling only the firmware and
-the submodules' library sources.
+The [compile helper](scripts/build_pico2seq.ps1) stages `Pico2Seq.ino`,
+`diagnostic.h`, and `src/` in a disposable sketch directory. It excludes dependency
+examples and Git metadata because Arduino recursively compiles `src/`.
+The checkout is left unchanged, and output goes to the requested build directory.
 
-Run the following PowerShell from the repository root:
+The helper selects Pico 2 (`rp2040:rp2040:rpipico2`), ARM, 225 MHz by default,
+Adafruit TinyUSB, 4 MiB flash with 64 KiB filesystem, `Optimize3`, and audio in
+SRAM with `-ffast-math`. Other board options are listed in the script; use
+`-CpuMHz`, `-AudioInFlash`, or `-ExtraFlags` for an intentional build variant.
+Use `-KeepStage` when inspecting a failed build.
 
-```powershell
-$repoRoot = (Get-Location).Path
-$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$stageRoot = Join-Path ([IO.Path]::GetTempPath()) "Pico2Seq-arduino-stage-$stamp"
-$stageSketch = Join-Path $stageRoot 'Pico2Seq'
-$buildPath = Join-Path $repoRoot "build\arduino-cli\Pico2Seq-current-$stamp"
-New-Item -ItemType Directory -Path $stageSketch -Force | Out-Null
-
-function Copy-StageTree {
-    param([string]$Source, [string]$Destination)
-
-    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
-    foreach ($item in Get-ChildItem -LiteralPath $Source -Force) {
-        if ($item.Name -in @('.git', 'build', 'build_test_ninja', 'build_fw', 'build_fw_on')) { continue }
-
-        $target = Join-Path $Destination $item.Name
-        if ($item.PSIsContainer) {
-            if ($item.Name -eq 'examples') { continue }
-            Copy-StageTree -Source $item.FullName -Destination $target
-        } else {
-            Copy-Item -LiteralPath $item.FullName -Destination $target -Force
-        }
-    }
-}
-
-Copy-StageTree -Source $repoRoot -Destination $stageSketch
-
-$boardOptions = @(
-    'flash=4194304_65536'
-    'arch=arm'
-    'freq=225'
-    'opt=Optimize3'
-    'profile=Disabled'
-    'rtti=Disabled'
-    'stackprotect=Disabled'
-    'exceptions=Disabled'
-    'dbgport=Disabled'
-    'dbglvl=None'
-    'usbstack=tinyusb'
-    'ipbtstack=ipv4only'
-    'uploadmethod=default'
-) -join ','
-
-arduino-cli compile `
-    --fqbn rp2040:rp2040:rpipico2 `
-    --board-options $boardOptions `
-    --warnings all `
-    --clean `
-    --build-property 'build.extra_flags=-ffast-math' `
-    --build-path $buildPath `
-    $stageSketch
-```
-
-The build is successful only when the foreground command finishes with exit code 0. Its `.uf2`,
-`.elf`, `.bin`, and `.map` files are written to the timestamped directory under
-`build/arduino-cli/`. The required `usbstack=tinyusb` option selects Adafruit TinyUSB; omitting it
-causes the TinyUSB headers to reject the configuration.
-
-This command compiles the firmware but does not upload it or validate the Pico 2, audio output,
-MIDI, displays, sensors, or controls on physical hardware.
+See the [script guide](scripts/README.md) for compiling, optional uploading,
+and audio timing measurements.
 
 ---
 

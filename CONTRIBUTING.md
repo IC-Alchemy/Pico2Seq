@@ -72,8 +72,7 @@ and leaves the checkout unchanged:
 ```powershell
 pwsh -NoProfile -File scripts/build_pico2seq.ps1 `
   -CpuMHz 225 `
-  -BuildDirectory build/pico2seq-225 `
-  -NoWorkingCopy
+  -BuildDirectory build/pico2seq-225
 ```
 
 See the [README build instructions](README.md#fresh-github-clone-and-225-mhz-build)
