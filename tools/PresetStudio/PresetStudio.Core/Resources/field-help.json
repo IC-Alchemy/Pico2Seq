@@ -1,0 +1,473 @@
+{
+  "format": "pico2seq-field-help",
+  "version": 1,
+  "identity": {
+    "name": {
+      "title": "Preset name",
+      "summary": "What the box's display and this list call the preset.",
+      "detail": "Up to 15 plain keyboard characters (letters, digits, punctuation, spaces). The box shows it in large type while you browse, and in the voice header while you play. Names longer than 10 characters are shown in smaller type on the box.",
+      "tips": ["Short names stay large and readable on the OLED.", "Two presets may share a name, but you will not be able to tell them apart on the box."]
+    },
+    "color": {
+      "title": "LED colour",
+      "summary": "The colour of this preset's pad on the box's LED grid.",
+      "detail": "On the preset page, each preset lights its pad in the colour you pick. Presets you are not using glow at about a quarter strength so you can still read their colour; the preset the selected voice is playing breathes at full strength. The LEDs are brighter and more saturated than a screen, so very dark colours look black and pale colours look white.",
+      "tips": ["Use colour as a code: one hue per kind of sound (basses blue, leads orange, pads green) and the grid becomes readable at a glance.", "Avoid grey and near-white: the page key on pad 31 is a dim white, and it should stay easy to spot."]
+    },
+    "page": {
+      "title": "Page",
+      "summary": "Which page of the preset browser holds this preset.",
+      "detail": "The browser's first page is always the factory bank. Your presets live on the pages after it, 31 pads each. Press pad 31 on the box to flip to the next page; pages with no presets are skipped. Page 2 and page 3 are the two user pages.",
+      "tips": ["Keep related sounds on one page so you can find them without looking."]
+    },
+    "pad": {
+      "title": "Pad",
+      "summary": "Where on the 8 x 4 grid the preset sits (pad 0 is top-left, counting along each row).",
+      "detail": "Pads 0 to 30 can hold presets. Pad 31, the bottom-right pad, is the page key and cannot hold a preset. Each pad on a page holds at most one preset. The grid on the right shows the layout; click a pad to place the selected preset there, or drag a preset onto another pad to move or swap it.",
+      "tips": ["Row 1 is pads 0-7, row 2 is pads 8-15, row 3 is pads 16-23, row 4 is pads 24-31."]
+    },
+    "base": {
+      "title": "Built on",
+      "summary": "The factory preset this one is built on. It supplies the sound engine's internals.",
+      "detail": "Every user preset starts from a factory preset and then changes its values. The factory preset also provides things a list of numbers cannot carry: what the sequencer's lanes (Filter, Attack, Decay...) control on this sound, the shape of the filter sweep, and, for recipe presets, the sound recipe itself. You can change any value freely. Switching the engine away from the base's engine drops that preset's lane layout for the engine's default one. Changing 'Built on' afterwards keeps your values but re-applies the new base's layout, so re-check the sound.",
+      "tips": ["To make a new preset, pick the factory preset closest to what you want, then change it.", "The Recipe engine can only be used when the base preset is itself a recipe preset."]
+    },
+    "notes": {
+      "title": "Notes",
+      "summary": "Your own remarks about this preset. Saved in the library file only.",
+      "detail": "Notes never go to the box; they exist so you can remember what a preset is for, what you changed, or where an idea came from.",
+      "tips": []
+    }
+  },
+  "tabs": [
+    {
+      "id": "sound",
+      "title": "Sound",
+      "summary": "The sound generator, and how loud the voice is.",
+      "sections": [
+        { "title": "Source", "fields": ["source.engine", "source.oscCount"] },
+        { "title": "Output", "fields": ["out.level", "out.enabled"] }
+      ]
+    },
+    {
+      "id": "oscillators",
+      "title": "Oscillators",
+      "summary": "Up to three oscillators mixed together (Oscillators engine only).",
+      "sections": [
+        { "title": "Oscillator 1", "fields": ["osc1.wave", "osc1.level", "osc1.detune", "osc1.pulse", "osc1.harmony"] },
+        { "title": "Oscillator 2", "fields": ["osc2.wave", "osc2.level", "osc2.detune", "osc2.pulse", "osc2.harmony"] },
+        { "title": "Oscillator 3", "fields": ["osc3.wave", "osc3.level", "osc3.detune", "osc3.pulse", "osc3.harmony"] }
+      ]
+    },
+    {
+      "id": "engine",
+      "title": "Engine",
+      "summary": "Controls that belong to one specific sound engine. Only the ones for the engine you chose are active.",
+      "sections": [
+        { "title": "Plucked string (Waveguide)", "fields": ["string.t60", "string.brightness", "string.pickPosition", "string.pickHardness", "string.stiffness", "string.detune"] },
+        { "title": "Hypersaw", "fields": ["saw.detune", "saw.mix"] },
+        { "title": "Noise FX", "fields": ["noise.level", "noise.chaosRate", "noise.diffuseSize", "noise.diffuseMix", "noise.swarmColor", "noise.swarmRegen", "noise.chaosLevel"] },
+        { "title": "Recipe", "fields": ["recipe.macro1", "recipe.macro2", "recipe.macro3", "recipe.retrigger", "recipe.fmFeedback", "recipe.phaseFold", "recipe.subRatio", "recipe.subShape", "recipe.driftChaos"] }
+      ]
+    },
+    {
+      "id": "envelope",
+      "title": "Envelope",
+      "summary": "How loudness grows when a note starts and fades when it ends.",
+      "sections": [
+        { "title": "Envelope", "fields": ["env.enabled", "env.attack", "env.decay", "env.sustain", "env.release"] }
+      ]
+    },
+    {
+      "id": "filter",
+      "title": "Filter",
+      "summary": "Shapes the brightness of the sound.",
+      "sections": [
+        { "title": "Main filter", "fields": ["filter.enabled", "filter.type", "filter.mode", "filter.cutoff", "filter.resonance", "filter.drive", "filter.passband", "filter.envOctaves", "filter.envRest"] },
+        { "title": "High-pass", "fields": ["hp.cutoff", "hp.resonance"] }
+      ]
+    },
+    {
+      "id": "drive",
+      "title": "Overdrive",
+      "summary": "A warm saturation stage after the oscillators.",
+      "sections": [
+        { "title": "Overdrive", "fields": ["drive.enabled", "drive.amount", "drive.gain"] }
+      ]
+    },
+    {
+      "id": "performance",
+      "title": "Performance",
+      "summary": "Starting values for what the sequencer plays: pitch, loudness, gate length and glide.",
+      "sections": [
+        { "title": "Sequencer bases", "fields": ["base.note", "base.velocity", "base.octave", "base.gateLength", "base.gate", "base.slide", "base.glide"] }
+      ]
+    }
+  ],
+  "fields": {
+    "source.engine": {
+      "title": "Sound engine",
+      "summary": "Which kind of sound generator makes the raw tone.",
+      "detail": "Oscillators: up to three classic oscillators (sine, triangle, saw, square, hard-sync, noise) mixed together, the most flexible choice for bass, leads and pads. Waveguide: a plucked-string model, good for guitars, harps and bells; it has no envelope of its own because the string rings out by itself. Noise FX: noise and chaos pushed through diffusers and swarming filters for textures and storms. Hypersaw: seven detuned saw voices in one, the classic big trance lead. Recipe: a fixed, finely tuned synthesis recipe (FM, phase distortion, spectral, prism and others) that comes with the base preset, so it is only available when the base preset is a recipe preset. All engines share the same envelope, filter, high-pass and output stages.",
+      "tips": ["Changing the engine shows its own controls on the Engine tab and hides the others.", "Switching away from the base preset's engine replaces that preset's sequencer-lane layout with the new engine's standard one."]
+    },
+    "source.oscCount": {
+      "title": "Number of oscillators",
+      "summary": "How many oscillators are mixed (1 to 3).",
+      "detail": "Only the first N oscillators are heard; the rest are ignored. More oscillators make a thicker sound but use more of the box's processing time. With 0 oscillators the voice makes raw noise. Each oscillator has its own waveform, level, detune and harmony.",
+      "tips": ["Two oscillators detuned a few cents apart give instant width."]
+    },
+    "out.level": {
+      "title": "Output level",
+      "summary": "How loud this voice is in the mix.",
+      "detail": "Scales the whole voice after the filter and high-pass, before the master bus. Presets are balanced against each other, so changing it moves this preset louder or quieter than the factory ones. Several loud presets together can add up and overload the output converter, so leave headroom.",
+      "tips": ["Match the level to a factory preset by ear (the base preset's level is shown as the starting value)."]
+    },
+    "out.enabled": {
+      "title": "Voice enabled",
+      "summary": "Switches the voice on or off.",
+      "detail": "A disabled voice makes no sound. This is rarely useful to save in a preset; it exists so a patch can be stored exactly as it was.",
+      "tips": ["Leave on unless you really want a silent preset."]
+    },
+    "osc1.wave": {
+      "title": "Oscillator 1 waveform",
+      "summary": "The basic shape of oscillator 1.",
+      "detail": "Sine is pure and soft. Triangle is hollow and gentle. Saw is bright and buzzy. Square is hollow and reedy, and its pulse width can be changed. BS Saw and BS Square are band-limited versions that stay clean at high pitches and are the usual choice. Hard sync is a saw locked to a second, independently tuned oscillator, producing the classic tearing lead sound; choosing it gives the sequencer's Velocity lane a second job as the sync pitch. Noise is a hiss with no pitch.",
+      "tips": ["BS Saw is the best all-round starting point for subtractive sounds."]
+    },
+    "osc1.level": {
+      "title": "Oscillator 1 level",
+      "summary": "How much of oscillator 1 is in the mix.",
+      "detail": "The three oscillators are added together, so their levels share the available headroom; if you turn all of them up the sound can clip. The factory presets keep the total around 1.0 or below.",
+      "tips": ["When adding an oscillator, bring the others down a little."]
+    },
+    "osc1.detune": {
+      "title": "Oscillator 1 detune",
+      "summary": "Pitch offset of oscillator 1 in semitones.",
+      "detail": "Plus or minus 12 semitones. Tiny amounts (0.05 to 0.15) between two oscillators make chorus-like thickness; +7 gives a fifth; +12 an octave up; -12 an octave down. The value is continuous, so it can also be used for out-of-tune effects.",
+      "tips": ["A few hundredths of a semitone is enough for a wide, slowly beating sound."]
+    },
+    "osc1.pulse": {
+      "title": "Oscillator 1 pulse width",
+      "summary": "How narrow or wide the square wave is.",
+      "detail": "Only used with the square waveforms. 50% is a normal square (hollow). Moving toward the ends makes the tone thinner and more nasal. The factory sounds rarely go beyond 10% to 90%.",
+      "tips": ["A narrow pulse sounds like a reed or a small speaker."]
+    },
+    "osc1.harmony": {
+      "title": "Oscillator 1 harmony",
+      "summary": "Plays this oscillator a number of scale steps away from the note.",
+      "detail": "Counted in steps of the current scale, not in semitones, so a +2 harmony is a third in a major or minor scale and stays in key. It is also how a single note becomes a chord: set oscillator 2 to +2 and oscillator 3 to +4. For the Waveguide, Hypersaw, Noise FX and Recipe engines, oscillator 1's harmony still transposes the whole sound.",
+      "tips": ["Because it follows the scale, harmony keeps chords in key when you change scale."]
+    },
+    "osc2.wave": { "title": "Oscillator 2 waveform", "summary": "The basic shape of oscillator 2.", "detail": "See oscillator 1. Pairing different shapes (a saw with a square, a sine with a triangle) gives a richer tone than two of the same.", "tips": [] },
+    "osc2.level": { "title": "Oscillator 2 level", "summary": "How much of oscillator 2 is in the mix.", "detail": "See oscillator 1's level. The oscillators' levels add up.", "tips": [] },
+    "osc2.detune": { "title": "Oscillator 2 detune", "summary": "Pitch offset of oscillator 2 in semitones.", "detail": "See oscillator 1's detune. A small offset against oscillator 1 is the classic way to thicken a sound.", "tips": [] },
+    "osc2.pulse": { "title": "Oscillator 2 pulse width", "summary": "How narrow or wide oscillator 2's square wave is.", "detail": "Only used with the square waveforms. See oscillator 1's pulse width.", "tips": [] },
+    "osc2.harmony": { "title": "Oscillator 2 harmony", "summary": "Plays oscillator 2 a number of scale steps from the note.", "detail": "See oscillator 1's harmony. Steps of the current scale, so the interval stays in key.", "tips": [] },
+    "osc3.wave": { "title": "Oscillator 3 waveform", "summary": "The basic shape of oscillator 3.", "detail": "See oscillator 1. Oscillator 3 is often used as a sub-octave (detune -12) or as a noise layer.", "tips": [] },
+    "osc3.level": { "title": "Oscillator 3 level", "summary": "How much of oscillator 3 is in the mix.", "detail": "See oscillator 1's level. The oscillators' levels add up.", "tips": [] },
+    "osc3.detune": { "title": "Oscillator 3 detune", "summary": "Pitch offset of oscillator 3 in semitones.", "detail": "See oscillator 1's detune. -12 makes a sub-octave that adds weight.", "tips": [] },
+    "osc3.pulse": { "title": "Oscillator 3 pulse width", "summary": "How narrow or wide oscillator 3's square wave is.", "detail": "Only used with the square waveforms. See oscillator 1's pulse width.", "tips": [] },
+    "osc3.harmony": { "title": "Oscillator 3 harmony", "summary": "Plays oscillator 3 a number of scale steps from the note.", "detail": "See oscillator 1's harmony. Steps of the current scale, so the interval stays in key.", "tips": [] },
+    "string.t60": {
+      "title": "String decay time (T60)",
+      "summary": "How long the string rings, in seconds.",
+      "detail": "T60 is the time for the ringing to die away to one thousandth of its starting level (60 dB), the usual way to describe a decaying sound. Short values (0.2 to 0.5 s) are damped, muted plucks; long values (5 to 10 s) are sustained harp or bell sounds. On waveguide presets the sequencer's Decay lane controls this value, so recorded Decay steps change how long each note rings.",
+      "tips": ["Use the Decay lane on the box to vary it from note to note."]
+    },
+    "string.brightness": {
+      "title": "String brightness",
+      "summary": "How much high-frequency sparkle survives as the string rings.",
+      "detail": "Low values are dark and nylon-like because the highs die away fast; high values stay glassy and bright for longer. On waveguide presets the sequencer's Filter lane controls this value.",
+      "tips": ["Dark plus a long T60 is a warm harp; bright plus a long T60 is a bell."]
+    },
+    "string.pickPosition": {
+      "title": "Pick position",
+      "summary": "Where along the string it is plucked.",
+      "detail": "Near the bridge (low values) gives a thin, nasal, twangy tone; near the middle (0.5) gives a round, full tone with the even harmonics removed. On waveguide presets the sequencer's Sustain lane controls this value.",
+      "tips": ["Values around 0.1 to 0.25 give a natural plucked-guitar tone."]
+    },
+    "string.pickHardness": {
+      "title": "Pick hardness",
+      "summary": "How hard the string is struck.",
+      "detail": "Soft values sound like a fingertip or felt hammer: mellow with a gentle attack. Hard values sound like a plectrum: bright, with a clicky attack. On waveguide presets the sequencer's Attack lane controls this value.",
+      "tips": ["Hard picks with a dark brightness setting can sound like a muted bass guitar."]
+    },
+    "string.stiffness": {
+      "title": "String stiffness",
+      "summary": "How inharmonic (bell-like) the string is.",
+      "detail": "A perfectly flexible string has overtones in exact whole-number multiples. Real stiff strings, bars and bells have overtones slightly sharp of that, which is what makes them sound like metal rather than a plain pluck. Zero is harmonic; high values are bell- or marimba-like. On waveguide presets the sequencer's Release lane controls this value.",
+      "tips": ["A little stiffness (0.1 to 0.3) makes a piano-like pluck."]
+    },
+    "string.detune": {
+      "title": "String course detune",
+      "summary": "Spread between the two strings of the pair, in cents.",
+      "detail": "The waveguide plays two slightly detuned strings, like the paired strings of a twelve-string guitar or a piano's unison strings. 0 cents is a single clean string; around 6 cents gives a gently shimmering chorus; more is a widely detuned honky-tonk sound. 100 cents is one semitone.",
+      "tips": ["Values above 20 cents sound clearly out of tune."]
+    },
+    "saw.detune": {
+      "title": "Hypersaw detune",
+      "summary": "How far apart the seven saw voices are tuned.",
+      "detail": "Zero makes the seven voices unison (a single big saw). Raising it spreads them apart, giving the wide, swirling supersaw sound. On Hypersaw presets the sequencer's Attack lane controls this value.",
+      "tips": ["The default is 0.2; higher values get wider and more chaotic."]
+    },
+    "saw.mix": {
+      "title": "Hypersaw mix",
+      "summary": "Balance between the centre voice and the detuned side voices.",
+      "detail": "Low values emphasise the centre saw and make the sound focused; high values bring up the detuned side voices and make it wide and washy. On Hypersaw presets the sequencer's Decay lane controls this value.",
+      "tips": ["Lower the mix to keep a hypersaw bass tight."]
+    },
+    "noise.level": {
+      "title": "Noise level",
+      "summary": "How loud the raw noise source is.",
+      "detail": "The noise feeds the diffuser and swarm stages below. More level means a denser, rougher texture; less lets the chaos and swarm stages stand out.",
+      "tips": []
+    },
+    "noise.chaosRate": {
+      "title": "Chaos rate",
+      "summary": "How fast the chaos generator evolves.",
+      "detail": "The chaos source is a Lorenz attractor, a simple equation whose output never repeats. Slow rates (below 1) give lazy, wandering movement; fast rates (above 2) give nervous, buzzing instability.",
+      "tips": []
+    },
+    "noise.diffuseSize": {
+      "title": "Diffuser size",
+      "summary": "How widely the noise is smeared in time.",
+      "detail": "The diffuser spreads the noise through a network of short delays at prime-number lengths so it does not ring at one pitch. Small sizes sound tight; large sizes sound like a big, dense room.",
+      "tips": []
+    },
+    "noise.diffuseMix": {
+      "title": "Diffuser mix",
+      "summary": "How much of the diffused sound is heard against the dry noise.",
+      "detail": "Zero is the unprocessed noise; one is all diffused. Middle settings keep some of the original grit on top of the smear.",
+      "tips": []
+    },
+    "noise.swarmColor": {
+      "title": "Swarm colour",
+      "summary": "The tone of the swarming, pitched resonances.",
+      "detail": "The swarm stage is a bank of all-pass filters that fold the noise back on itself, giving it pitched, shimmering resonances. Colour moves their tone from dark to bright. On Noise FX presets the sequencer's Filter lane controls this value.",
+      "tips": []
+    },
+    "noise.swarmRegen": {
+      "title": "Swarm regeneration",
+      "summary": "How much of the swarm feeds back into itself.",
+      "detail": "Low values die away quickly; values approaching 1 ring on and build up; values above 1 can run away into self-oscillation, which makes dramatic, unstable storms (and loud ones: lower the output level to compensate). On Noise FX presets the sequencer's Attack lane controls this value.",
+      "tips": ["Be careful above 1.0: the sound can grow without limit."]
+    },
+    "noise.chaosLevel": {
+      "title": "Chaos level",
+      "summary": "How much pitch-following chaos growl is mixed in.",
+      "detail": "The chaos generator is tuned to the note, so it adds a rough, vocal growl that moves with the melody. Zero is none; one is a lot. On Noise FX presets the sequencer's Decay lane controls this value.",
+      "tips": []
+    },
+    "recipe.macro1": {
+      "title": "Recipe control 1",
+      "summary": "The recipe's first main control. What it does depends on the recipe.",
+      "detail": "Recipes expose three controls whose names and ranges are specific to each sound (for example Index, Ratio and Feedback for FM; Focus, Spread and Drift for Prism). This editor shows the name and range the base preset uses. The sequencer's Filter lane controls this value on recipe presets.",
+      "tips": []
+    },
+    "recipe.macro2": {
+      "title": "Recipe control 2",
+      "summary": "The recipe's second main control. What it does depends on the recipe.",
+      "detail": "See recipe control 1. The sequencer's Attack lane controls this value on recipe presets.",
+      "tips": []
+    },
+    "recipe.macro3": {
+      "title": "Recipe control 3",
+      "summary": "The recipe's third main control. What it does depends on the recipe.",
+      "detail": "See recipe control 1. The sequencer's Decay lane controls this value on recipe presets.",
+      "tips": []
+    },
+    "recipe.retrigger": {
+      "title": "Reset on gate",
+      "summary": "Whether each new note restarts the recipe from the beginning.",
+      "detail": "On: every note starts the same way, which suits plucks, bells and leads that should sound identical each time. Off: the recipe keeps running between notes, so phases carry over; this suits pads, where a restart would be heard as a click.",
+      "tips": []
+    },
+    "recipe.fmFeedback": {
+      "title": "FM modulator feedback",
+      "summary": "Feeds the FM modulator back into itself (Feedback FM recipe).",
+      "detail": "A little feedback makes the FM tone brighter and edgier; beyond about a third it tips into noise. Used only by the Feedback FM recipe.",
+      "tips": []
+    },
+    "recipe.phaseFold": {
+      "title": "Triangle fold",
+      "summary": "How hard the phase-distortion wave is folded (Phase morph recipe).",
+      "detail": "Folding the waveform back on itself adds bright, metallic harmonics. Used only by the Phase morph recipe.",
+      "tips": []
+    },
+    "recipe.subRatio": {
+      "title": "Sub ratio",
+      "summary": "Frequency of the sub oscillator relative to the note (Spectral recipe).",
+      "detail": "0.5 is one octave below, 1 is unison, 2 is an octave above. Used only by the Spectral DSF recipe.",
+      "tips": []
+    },
+    "recipe.subShape": {
+      "title": "Sub shape",
+      "summary": "Waveform shape of the sub oscillator, from sine toward harder (Spectral recipe).",
+      "detail": "Zero is a pure sine sub for weight without edge; higher values add harmonics so the sub is audible on small speakers. Used only by the Spectral DSF recipe.",
+      "tips": []
+    },
+    "recipe.driftChaos": {
+      "title": "Drift chaos",
+      "summary": "How unsteadily the Prism voices wander in pitch.",
+      "detail": "Low values are a stable chorus; high values sound seasick. Used only by the Prism recipe.",
+      "tips": []
+    },
+    "env.enabled": {
+      "title": "Envelope on",
+      "summary": "Turns the volume envelope on or off.",
+      "detail": "With the envelope on, each note fades in and out according to the controls below. With it off the voice is simply on while the gate is held. Strings and some recipes do their own shaping and are usually used with the envelope off.",
+      "tips": ["Leave on for oscillator sounds unless you want a pure organ-style on/off gate."]
+    },
+    "env.attack": {
+      "title": "Attack",
+      "summary": "How long the note takes to reach full volume.",
+      "detail": "Very short (a few milliseconds) is percussive and plucky; long (hundreds of milliseconds to seconds) fades in like a pad or a bowed string. On Oscillators-engine presets this is limited to 2 seconds, because the sequencer's Attack lane uses the same scale; other engines allow up to 10 seconds.",
+      "tips": ["Anything under about 5 ms still sounds instant."]
+    },
+    "env.decay": {
+      "title": "Decay",
+      "summary": "How long the level takes to fall from its peak to the sustain level.",
+      "detail": "Together with Sustain this shapes the body of the note: a short decay to a low sustain is a pluck, a long decay to a high sustain is an organ-like swell and settle. On presets where the Decay lane controls an engine setting (strings, hypersaw, recipes) this value still sets the envelope's decay.",
+      "tips": []
+    },
+    "env.sustain": {
+      "title": "Sustain",
+      "summary": "The level held while the gate stays open.",
+      "detail": "At 100% the note stays at full volume until the gate closes; at 0% the note dies after the decay stage even while the key is held, which is how plucks and bells are made. For stages with an engine-specific meaning (strings), the Sustain lane controls something else.",
+      "tips": ["With sustain at 0, short gates still sound if the decay is long enough."]
+    },
+    "env.release": {
+      "title": "Release",
+      "summary": "How long the sound takes to fade out after the gate closes.",
+      "detail": "Short release is staccato; long release lets notes run into each other like a pedalled piano. A step's own Release (set on the box) overrides this per note. The range is 10 ms to 8 seconds.",
+      "tips": []
+    },
+    "filter.enabled": {
+      "title": "Filter on",
+      "summary": "Turns the main filter on or off.",
+      "detail": "Off passes the sound straight through unfiltered, with velocity scaling the volume instead. Strings and some recipes have their own tone controls and are usually used with the filter off.",
+      "tips": []
+    },
+    "filter.type": {
+      "title": "Filter type",
+      "summary": "Ladder (warm, characterful) or State-variable (clean).",
+      "detail": "The ladder filter is the character filter: it can be driven into warm saturation, its resonance thins the bass unless compensated (see Passband gain), and its slope is 12 or 24 dB per octave. The state-variable filter (SVF) is a clean, two-pole resonant filter with no drive; use it when you want precise tone-shaping without colour.",
+      "tips": ["Use the ladder for basses and leads, the SVF for clean pads and plucks."]
+    },
+    "filter.mode": {
+      "title": "Filter response",
+      "summary": "Low-pass, band-pass or high-pass, at 12 or 24 dB per octave.",
+      "detail": "Low-pass removes highs (the usual choice), band-pass keeps a band around the cutoff and removes both highs and lows, high-pass removes lows. 24 dB is a steeper, stronger filter than 12 dB. The state-variable filter is always two-pole, so for it the 12 and 24 dB versions sound the same.",
+      "tips": []
+    },
+    "filter.cutoff": {
+      "title": "Cutoff",
+      "summary": "The filter's resting brightness.",
+      "detail": "A position from 0 to 100% along the filter's range, shown with the frequency it corresponds to on the base preset. Low values are dark and muffled, high values are open and bright. It is the starting point for the filter envelope, which opens the filter upward from here on each note; sequencer steps with their own Filter value override it. The actual frequency range depends on the base preset.",
+      "tips": ["The Hz shown is the cutoff before the envelope opens it."]
+    },
+    "filter.resonance": {
+      "title": "Resonance",
+      "summary": "Emphasis at the cutoff frequency.",
+      "detail": "Zero is a plain filter; higher values add a whistling peak at the cutoff, giving the classic filter-sweep sound. Very high settings approach self-oscillation. On the ladder filter, resonance also thins the bass (compensate with Passband gain).",
+      "tips": ["Around 20% to 40% adds character without whistling."]
+    },
+    "filter.drive": {
+      "title": "Filter drive",
+      "summary": "How hard the signal is pushed into the ladder filter.",
+      "detail": "Ladder filter only. Higher drive saturates the signal inside the filter, adding warmth and harmonics that react to resonance and cutoff. The range is 0 to 4; the default is 1.8.",
+      "tips": []
+    },
+    "filter.passband": {
+      "title": "Passband gain",
+      "summary": "Restores bass lost when resonance is raised.",
+      "detail": "Ladder filter only. Raising the resonance of a ladder filter takes level out of the low frequencies. Passband gain adds some back, so the sound does not get thin as you turn resonance up.",
+      "tips": []
+    },
+    "filter.envOctaves": {
+      "title": "Filter envelope depth",
+      "summary": "How many octaves the envelope opens the cutoff by.",
+      "detail": "At full sequencer Filter lane, each note sweeps the cutoff this many octaves upward from its resting value, following the envelope. The default 4 octaves leaves a sequenced sweep room to open; 2 octaves is a classic subtractive amount. Zero removes the sweep altogether.",
+      "tips": []
+    },
+    "filter.envRest": {
+      "title": "Filter envelope floor",
+      "summary": "Where the envelope level rests relative to the dialled cutoff.",
+      "detail": "Zero makes the cutoff the floor: the envelope can only open the filter upward from it, like an analog contour control, and a note's tail returns to the cutoff you dialled. Larger values let the filter close below the base for the first part of the sweep.",
+      "tips": []
+    },
+    "hp.cutoff": {
+      "title": "High-pass cutoff",
+      "summary": "Removes frequencies below this one, in Hz. 0 means off.",
+      "detail": "A gentle high-pass after the main filter. It stops rumble and sub-bass from muddying the mix, and keeps strings from collecting low-frequency noise. At 20 Hz or below, with resonance near zero, it is bypassed entirely (shown as Off). Basses need it low (25 to 45 Hz); leads and pads can have it higher (120 to 220 Hz).",
+      "tips": ["Raise it on pads and leads to leave room for the bass."]
+    },
+    "hp.resonance": {
+      "title": "High-pass resonance",
+      "summary": "Emphasis at the high-pass cutoff.",
+      "detail": "Usually left near zero. A little adds a bump at the cutoff.",
+      "tips": []
+    },
+    "drive.enabled": {
+      "title": "Overdrive on",
+      "summary": "Turns the overdrive stage on or off.",
+      "detail": "Overdrive adds harmonic saturation after the oscillators, making a sound thicker and more aggressive. It is separate from the ladder filter's own drive.",
+      "tips": []
+    },
+    "drive.amount": {
+      "title": "Overdrive amount",
+      "summary": "How hard the overdrive is driven.",
+      "detail": "Low values add gentle warmth; high values distort heavily.",
+      "tips": []
+    },
+    "drive.gain": {
+      "title": "Overdrive output gain",
+      "summary": "Level after the overdrive.",
+      "detail": "Overdrive adds loudness as well as distortion. Use this to bring the level back down (or up) so that switching it on does not change the volume.",
+      "tips": []
+    },
+    "base.note": {
+      "title": "Base note (transpose)",
+      "summary": "Moves every note by this many steps of the scale.",
+      "detail": "A whole number from 0 to 36, counted in steps of the current scale. The sequencer's recorded notes are added to it. Leave at 0 unless you want the preset to sit higher.",
+      "tips": []
+    },
+    "base.velocity": {
+      "title": "Base velocity",
+      "summary": "How hard notes are played by default.",
+      "detail": "Steps that have no velocity of their own play at this value. It scales loudness and, on some presets, brightness. On hard-sync presets the Velocity lane becomes the sync (slave) tuning instead and this value positions it.",
+      "tips": []
+    },
+    "base.octave": {
+      "title": "Base octave",
+      "summary": "Shifts the preset up or down in whole octaves.",
+      "detail": "Plus or minus 24 semitones in steps of 12. Recorded octave steps are added to this. Bass presets sit low (-12 or -24); leads sit high.",
+      "tips": []
+    },
+    "base.gateLength": {
+      "title": "Base gate length",
+      "summary": "How long notes are held by default, as a fraction of a step.",
+      "detail": "1.0 holds a note for a whole step; the default 0.75 is three quarters of a sixteenth note. A step's Gate length lane offsets this value around its middle position, so a lane left in the middle plays exactly this length. Short gates are staccato; with sustain at 0 they matter less.",
+      "tips": []
+    },
+    "base.gate": {
+      "title": "Gate enable",
+      "summary": "Master switch for the sequencer's gates on this voice.",
+      "detail": "On is normal. When off, the voice's pattern does not trigger any notes, even though the pattern is still recorded. Mostly useful for storing a patch exactly as it was.",
+      "tips": ["Leave on."]
+    },
+    "base.slide": {
+      "title": "Slide on every step",
+      "summary": "Makes every step glide into the next (legato).",
+      "detail": "With this on, all steps glide from the previous note to the next one over the glide time, as if every step had Slide set. With it off, only steps where you set Slide glide.",
+      "tips": []
+    },
+    "base.glide": {
+      "title": "Glide time",
+      "summary": "How long a slide takes to travel to the next note.",
+      "detail": "Used by slide steps (and every step if 'Slide on every step' is on). Very short glides are subtle legato; long glides are dramatic swoops between notes. The range is 1 ms to 10 s.",
+      "tips": ["Around 60 ms is a natural legato glide."]
+    }
+  }
+}

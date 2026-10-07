@@ -11,6 +11,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **Effects Processing**: Per-voice overdrive distortion, followed by a master-bus analog-style delay, a stereo `rpdsp::DarkReverb` reverb, and a stereo-linked compressor. Shift + fader 1 sets feedback (0–100%). Fader 2 sets delay mix (Shift: time); Shift + Utility Delay/Session toggles the time fader between milliseconds and tempo divisions. Fader 3 sets master volume (Shift: Warm/Glue/Punch compressor macro).
 - **ADSR Envelopes**: Fast, analog-modeled attack, decay, sustain, and release stages with microsecond accuracy
 - **29 Voice Presets**: Stored as `constexpr` tables in flash (.rodata), all on one browser page, covering classic subtractive, sub-bass, waveguide string, hypersaw, noise-texture, and 14 recipe/musical sounds
+- **Your Own Presets, Designed on the PC**: **Preset Studio**, a Windows program in `tools/PresetStudio/`, edits every value of a sound with plain-language help and live audition on the Pico, lets you name a preset, give it an LED colour and a pad on extra browser pages, and sends up to 62 of them over USB; they persist in flash. See [Preset Studio](docs/preset-studio.md)
 
 ### Advanced Sequencing
 - **Polymetric Sequencing**: Independent track step lengths for each parameter (Notes: 16 steps, Filter: 8 steps, Velocity: 12 steps, etc.)
@@ -71,12 +72,14 @@ For a practical guide to changing the firmware, start with
 │   │   └── UIEventHandler.h/.cpp      # Sequencer step adapter logic
 │   ├── matrix/               # MPR121 4×8 touch matrix — 32 dedicated step pads
 │   ├── sensors/              # Sensor management (EncoderManager and VL53L1X DistanceSensor)
+│   ├── presetlink/           # USB-serial link to the PC preset editor: frames, commands, user-preset bank store
 │   ├── midi/                 # Removal notice only; USB remains CDC-only
 │   ├── LEDMatrix/            # 8×4 WS2812B RGB visual feedback (pad-mirror) and 10 color themes
 │   ├── OLED/                 # 128×64 SH1106G OLED display manager and priority screens
 │   ├── utils/                # Debug logging (Debug.h/.cpp) with serial rate limiting (SerialRateLimit.h)
 │   └── AlchemyUI/            # Vendored Alchemy Modular UI tile library (tracked in-repo)
 ├── docs/                     # Comprehensive architecture and subsystem documentation
+├── tools/PresetStudio/       # Windows preset editor (WPF, .NET 8): design, audition, name, colour, place and send presets
 ├── tests/                    # Host-side Catch2 v3.5.2 unit test suite and stubs
 └── diagnostic.h             # Hardware diagnostics
 ```

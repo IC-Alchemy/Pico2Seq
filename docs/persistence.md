@@ -173,9 +173,27 @@ Field notes:
 - `SettingsSnapshot::editorCursor[]` stores `VoiceEdit::Id` stable IDs per voice.
 - `PatchSnapshot::presetIndex` is **stamped by the caller** (`Session`), not by
   `capturePatch` — a `VoiceConfig` doesn't know which factory preset it came from.
+  For a voice loaded from a *user preset* (see [preset-studio.md](preset-studio.md)) it holds the
+  preset's factory base, which is what rebuilds the voice's flash-resident lane layout.
+- `PatchSnapshot::reserved[0..1]` carry where a voice's sound came from, written by `Session` and read
+  back by `UserPresetStorage::restoreFromSession()`: `reserved[0]` = user slot + 1 (0 = a factory
+  preset), `reserved[1]` = an 8-bit hash of the preset's name at the time. On load the tag is honoured
+  only if that slot still holds a preset with that name and base; otherwise the voice keeps its
+  sound and simply has no user preset behind it. No format bump was needed: older firmware writes
+  zeros (= factory) and ignores the bytes it reads.
 - `PatchSnapshot::flags` bit packing: bit0 `usePatchBases`, bit1 `baseGate`,
   bit2 `baseSlide`, bit3 `recipeRetrigger`, bit4 `hasOverdrive`, bit5
   `hasEnvelope`, bit6 `hasFilter`, bit7 `enabled`.
+
+### 3.1 The user preset bank (a second file)
+
+User presets uploaded from the PC editor are **not** part of the song. They live in their own
+file, `/presets.p2u`, with its own magic (`P2UB`), version and trailing CRC-32 — see
+[preset-studio.md](preset-studio.md#54-the-bank-file-on-flash) for the layout, the 256-byte record
+(`persistence::UserPresetRecord`, a name, colour and place plus a `PatchSnapshot`) and the streaming,
+atomic write. Code: `src/pico2seq-core/persistence/UserPresetBank.*`, `src/presetlink/UserPresetStore.*`,
+`src/app/UserPresetStorage.*`. The song stores each voice's *values*, so replacing the bank never changes
+how a saved song sounds.
 
 ## 4. Developer cookbook
 

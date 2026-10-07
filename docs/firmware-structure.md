@@ -18,6 +18,7 @@ work during each control-loop pass.
 | Arpeggiator mode (chord/pattern engine, slot-to-voice playback) | `src/pico2seq-core/arpeggiator/`, `src/app/ArpPlayback.h/.cpp`; see [Arpeggiator mode](arpeggiator.md) |
 | A tuning, the Tuning page or a tuned scale row | `src/pico2seq-core/tuning/`, `src/ui/TuningPageControls.h`, `src/ui/TuningPageLogic.h`; see [Tuning system](tuning.md) |
 | Voice creation, preset application and track seeding | `src/app/VoiceSetup.h/.cpp` |
+| The user presets sent from the PC (bank file, validation, USB protocol, browser pages) | `src/presetlink/`, `src/voice/UserPresetCodec.*`, `src/voice/PatchFields.*`, `src/app/UserPresetStorage.*`, `src/app/PresetLinkService.*`, `src/ui/PresetBrowser.h`; the Windows editor is `tools/PresetStudio/`; see [Preset Studio](preset-studio.md) |
 | I2S buffers, stereo output and final-mix gain | `src/app/AudioEngine.h/.cpp` |
 | Voice Editing mode (parameter catalogue, editor transport) | `src/app/VoiceEditor.h/.cpp`, `src/voice/VoiceEditParameters.h/.cpp`, `src/ui/VoiceEditControls.h` |
 | Float-to-DAC sample conversion | `src/app/Pcm16.h` |

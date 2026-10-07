@@ -1,0 +1,4946 @@
+{
+  "format": "pico2seq-factory-presets",
+  "layoutVersion": 1,
+  "presets": [
+    {
+      "index": 0,
+      "name": "Analog",
+      "engine": 0,
+      "paramSet": 4,
+      "recipe": null,
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 0,
+        "source.oscCount": 1,
+        "osc1.wave": 6,
+        "osc1.level": 1,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.0700000003,
+        "env.decay": 0.239999995,
+        "env.sustain": 0.5,
+        "env.release": 0.159999996,
+        "filter.enabled": 1,
+        "filter.type": 0,
+        "filter.mode": 0,
+        "filter.cutoff": 0.5,
+        "filter.resonance": 0.330000013,
+        "filter.drive": 2.0999999,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 120,
+        "hp.resonance": 0.100000001,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.800000012,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.5,
+        "recipe.macro2": 0.5,
+        "recipe.macro3": 0.5,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.5,
+        "out.enabled": 1
+      },
+      "limits": {
+        "env.attack": [0.00100000005, 2],
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0, 8]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Master",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Slave",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "FiltEnv",
+          "field": "filter.cutoff"
+        },
+        {
+          "lane": "Attack",
+          "name": "Attack",
+          "field": "env.attack"
+        },
+        {
+          "lane": "Decay",
+          "name": "Decay",
+          "field": "env.decay"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        null,
+        null,
+        null
+      ],
+      "cutoff": {
+        "min": 90,
+        "max": 3000,
+        "curve": "octave",
+        "center": 400,
+        "samples": [
+          [0, 90],
+          [0.100000001, 121.284698],
+          [0.25, 189.736649],
+          [0.370000005, 271.411011],
+          [0.5, 400],
+          [0.75, 1095.44519],
+          [1, 3000]
+        ]
+      }
+    },
+    {
+      "index": 1,
+      "name": "Digital",
+      "engine": 0,
+      "paramSet": 0,
+      "recipe": null,
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 0,
+        "source.oscCount": 2,
+        "osc1.wave": 5,
+        "osc1.level": 0.75,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 5,
+        "osc2.level": 0.649999976,
+        "osc2.detune": 0.00999999978,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.0149999997,
+        "env.decay": 0.100000001,
+        "env.sustain": 0.200000003,
+        "env.release": 0.449999988,
+        "filter.enabled": 1,
+        "filter.type": 0,
+        "filter.mode": 0,
+        "filter.cutoff": 0.5,
+        "filter.resonance": 0.800000012,
+        "filter.drive": 3.5,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 160,
+        "hp.resonance": 0.150000006,
+        "drive.enabled": 1,
+        "drive.amount": 0.50999999,
+        "drive.gain": 0.699999988,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.5,
+        "recipe.macro2": 0.5,
+        "recipe.macro3": 0.5,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.5,
+        "out.enabled": 1
+      },
+      "limits": {
+        "env.attack": [0.00100000005, 2],
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0, 8]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "FiltEnv",
+          "field": "filter.cutoff"
+        },
+        {
+          "lane": "Attack",
+          "name": "Attack",
+          "field": "env.attack"
+        },
+        {
+          "lane": "Decay",
+          "name": "Decay",
+          "field": "env.decay"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        null,
+        null,
+        null
+      ],
+      "cutoff": {
+        "min": 90,
+        "max": 4000,
+        "curve": "octave",
+        "center": 400,
+        "samples": [
+          [0, 90],
+          [0.100000001, 121.284698],
+          [0.25, 189.736649],
+          [0.370000005, 271.411011],
+          [0.5, 400],
+          [0.75, 1264.91113],
+          [1, 4000]
+        ]
+      }
+    },
+    {
+      "index": 2,
+      "name": "Bass",
+      "engine": 0,
+      "paramSet": 0,
+      "recipe": null,
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 0,
+        "source.oscCount": 2,
+        "osc1.wave": 0,
+        "osc1.level": 1,
+        "osc1.detune": -12,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 1,
+        "osc2.level": 1,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.00999999978,
+        "env.decay": 0.300000012,
+        "env.sustain": 0.850000024,
+        "env.release": 0.5,
+        "filter.enabled": 1,
+        "filter.type": 1,
+        "filter.mode": 1,
+        "filter.cutoff": 0.5,
+        "filter.resonance": 0.449999988,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 45,
+        "hp.resonance": 0.200000003,
+        "drive.enabled": 1,
+        "drive.amount": 0.75999999,
+        "drive.gain": 0.949999988,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.5,
+        "recipe.macro2": 0.5,
+        "recipe.macro3": 0.5,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.850000024,
+        "out.enabled": 1
+      },
+      "limits": {
+        "env.attack": [0.00100000005, 2],
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0, 8]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "FiltEnv",
+          "field": "filter.cutoff"
+        },
+        {
+          "lane": "Attack",
+          "name": "Attack",
+          "field": "env.attack"
+        },
+        {
+          "lane": "Decay",
+          "name": "Decay",
+          "field": "env.decay"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        null,
+        null,
+        null
+      ],
+      "cutoff": {
+        "min": 60,
+        "max": 1500,
+        "curve": "octave",
+        "center": 320,
+        "samples": [
+          [0, 60],
+          [0.100000001, 83.8592606],
+          [0.25, 138.564056],
+          [0.370000005, 207.076263],
+          [0.5, 320],
+          [0.75, 692.820374],
+          [1, 1500]
+        ]
+      }
+    },
+    {
+      "index": 3,
+      "name": "Lead",
+      "engine": 0,
+      "paramSet": 0,
+      "recipe": null,
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 0,
+        "source.oscCount": 2,
+        "osc1.wave": 4,
+        "osc1.level": 0.600000024,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.550000012,
+        "osc2.detune": 0.0149999997,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.00999999978,
+        "env.decay": 0.200000003,
+        "env.sustain": 0.300000012,
+        "env.release": 0.349999994,
+        "filter.enabled": 1,
+        "filter.type": 0,
+        "filter.mode": 0,
+        "filter.cutoff": 0.5,
+        "filter.resonance": 0.699999988,
+        "filter.drive": 3.5,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 160,
+        "hp.resonance": 0.100000001,
+        "drive.enabled": 0,
+        "drive.amount": 0.449999988,
+        "drive.gain": 0.699999988,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.5,
+        "recipe.macro2": 0.5,
+        "recipe.macro3": 0.5,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.5,
+        "out.enabled": 1
+      },
+      "limits": {
+        "env.attack": [0.00100000005, 2],
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0, 8]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "FiltEnv",
+          "field": "filter.cutoff"
+        },
+        {
+          "lane": "Attack",
+          "name": "Attack",
+          "field": "env.attack"
+        },
+        {
+          "lane": "Decay",
+          "name": "Decay",
+          "field": "env.decay"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        null,
+        null,
+        null
+      ],
+      "cutoff": {
+        "min": 90,
+        "max": 2000,
+        "curve": "octave",
+        "center": 400,
+        "samples": [
+          [0, 90],
+          [0.100000001, 121.284698],
+          [0.25, 189.736649],
+          [0.370000005, 271.411011],
+          [0.5, 400],
+          [0.75, 894.427185],
+          [1, 2000]
+        ]
+      }
+    },
+    {
+      "index": 4,
+      "name": "Square",
+      "engine": 0,
+      "paramSet": 0,
+      "recipe": null,
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 0,
+        "source.oscCount": 1,
+        "osc1.wave": 5,
+        "osc1.level": 1,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.449999988,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.0199999996,
+        "env.decay": 0.400000006,
+        "env.sustain": 0,
+        "env.release": 0.25,
+        "filter.enabled": 1,
+        "filter.type": 1,
+        "filter.mode": 2,
+        "filter.cutoff": 0.5,
+        "filter.resonance": 0.600000024,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 150,
+        "hp.resonance": 0.100000001,
+        "drive.enabled": 0,
+        "drive.amount": 0.349999994,
+        "drive.gain": 0.75,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.5,
+        "recipe.macro2": 0.5,
+        "recipe.macro3": 0.5,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.560000002,
+        "out.enabled": 1
+      },
+      "limits": {
+        "env.attack": [0.00100000005, 2],
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0, 8]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "FiltEnv",
+          "field": "filter.cutoff"
+        },
+        {
+          "lane": "Attack",
+          "name": "Attack",
+          "field": "env.attack"
+        },
+        {
+          "lane": "Decay",
+          "name": "Decay",
+          "field": "env.decay"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        null,
+        null,
+        null
+      ],
+      "cutoff": {
+        "min": 90,
+        "max": 3000,
+        "curve": "octave",
+        "center": 400,
+        "samples": [
+          [0, 90],
+          [0.100000001, 121.284698],
+          [0.25, 189.736649],
+          [0.370000005, 271.411011],
+          [0.5, 400],
+          [0.75, 1095.44519],
+          [1, 3000]
+        ]
+      }
+    },
+    {
+      "index": 5,
+      "name": "Pad",
+      "engine": 0,
+      "paramSet": 0,
+      "recipe": null,
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 0,
+        "source.oscCount": 3,
+        "osc1.wave": 4,
+        "osc1.level": 0.330000013,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.330000013,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 4,
+        "osc3.wave": 4,
+        "osc3.level": 0.330000013,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 9,
+        "env.enabled": 1,
+        "env.attack": 0.400000006,
+        "env.decay": 0.200000003,
+        "env.sustain": 0.5,
+        "env.release": 0.5,
+        "filter.enabled": 1,
+        "filter.type": 1,
+        "filter.mode": 1,
+        "filter.cutoff": 0.5,
+        "filter.resonance": 0.300000012,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 140,
+        "hp.resonance": 0.0799999982,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.850000024,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.5,
+        "recipe.macro2": 0.5,
+        "recipe.macro3": 0.5,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.5,
+        "out.enabled": 1
+      },
+      "limits": {
+        "env.attack": [0.00100000005, 2],
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0, 8]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "FiltEnv",
+          "field": "filter.cutoff"
+        },
+        {
+          "lane": "Attack",
+          "name": "Attack",
+          "field": "env.attack"
+        },
+        {
+          "lane": "Decay",
+          "name": "Decay",
+          "field": "env.decay"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        null,
+        null,
+        null
+      ],
+      "cutoff": {
+        "min": 90,
+        "max": 4000,
+        "curve": "octave",
+        "center": 400,
+        "samples": [
+          [0, 90],
+          [0.100000001, 121.284698],
+          [0.25, 189.736649],
+          [0.370000005, 271.411011],
+          [0.5, 400],
+          [0.75, 1264.91113],
+          [1, 4000]
+        ]
+      }
+    },
+    {
+      "index": 6,
+      "name": "Percussion",
+      "engine": 0,
+      "paramSet": 0,
+      "recipe": null,
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 0,
+        "source.oscCount": 0,
+        "osc1.wave": 255,
+        "osc1.level": 1,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.00499999989,
+        "env.decay": 0.0799999982,
+        "env.sustain": 0,
+        "env.release": 0.0700000003,
+        "filter.enabled": 1,
+        "filter.type": 1,
+        "filter.mode": 0,
+        "filter.cutoff": 0.5,
+        "filter.resonance": 0.400000006,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 200,
+        "hp.resonance": 0.100000001,
+        "drive.enabled": 0,
+        "drive.amount": 0.300000012,
+        "drive.gain": 0.449999988,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.5,
+        "recipe.macro2": 0.5,
+        "recipe.macro3": 0.5,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.5,
+        "out.enabled": 1
+      },
+      "limits": {
+        "env.attack": [0.00100000005, 2],
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0, 8]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "FiltEnv",
+          "field": "filter.cutoff"
+        },
+        {
+          "lane": "Attack",
+          "name": "Attack",
+          "field": "env.attack"
+        },
+        {
+          "lane": "Decay",
+          "name": "Decay",
+          "field": "env.decay"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        null,
+        null,
+        null
+      ],
+      "cutoff": {
+        "min": 90,
+        "max": 2000,
+        "curve": "octave",
+        "center": 400,
+        "samples": [
+          [0, 90],
+          [0.100000001, 121.284698],
+          [0.25, 189.736649],
+          [0.370000005, 271.411011],
+          [0.5, 400],
+          [0.75, 894.427185],
+          [1, 2000]
+        ]
+      }
+    },
+    {
+      "index": 7,
+      "name": "SubFunk",
+      "engine": 0,
+      "paramSet": 0,
+      "recipe": null,
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 0,
+        "source.oscCount": 3,
+        "osc1.wave": 0,
+        "osc1.level": 1,
+        "osc1.detune": -12,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 5,
+        "osc2.level": 0.349999994,
+        "osc2.detune": -12,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 0,
+        "osc3.level": 0.649999976,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.00400000019,
+        "env.decay": 0.219999999,
+        "env.sustain": 0.349999994,
+        "env.release": 0.119999997,
+        "filter.enabled": 1,
+        "filter.type": 1,
+        "filter.mode": 1,
+        "filter.cutoff": 0.5,
+        "filter.resonance": 0.600000024,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 25,
+        "hp.resonance": 0,
+        "drive.enabled": 1,
+        "drive.amount": 0.449999988,
+        "drive.gain": 0.899999976,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.5,
+        "recipe.macro2": 0.5,
+        "recipe.macro3": 0.5,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.899999976,
+        "out.enabled": 1
+      },
+      "limits": {
+        "env.attack": [0.00100000005, 2],
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0, 8]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "FiltEnv",
+          "field": "filter.cutoff"
+        },
+        {
+          "lane": "Attack",
+          "name": "Attack",
+          "field": "env.attack"
+        },
+        {
+          "lane": "Decay",
+          "name": "Decay",
+          "field": "env.decay"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        null,
+        null,
+        null
+      ],
+      "cutoff": {
+        "min": 90,
+        "max": 1600,
+        "curve": "octave",
+        "center": 420,
+        "samples": [
+          [0, 90],
+          [0.100000001, 122.473984],
+          [0.25, 194.422211],
+          [0.370000005, 281.389252],
+          [0.5, 420],
+          [0.75, 819.756042],
+          [1, 1600]
+        ]
+      }
+    },
+    {
+      "index": 8,
+      "name": "RubberSub",
+      "engine": 0,
+      "paramSet": 0,
+      "recipe": null,
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 0,
+        "source.oscCount": 3,
+        "osc1.wave": 0,
+        "osc1.level": 0.899999976,
+        "osc1.detune": -12,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 5,
+        "osc2.level": 0.300000012,
+        "osc2.detune": -12,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 1,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.00200000009,
+        "env.decay": 0.159999996,
+        "env.sustain": 0.25,
+        "env.release": 0.0900000036,
+        "filter.enabled": 1,
+        "filter.type": 1,
+        "filter.mode": 2,
+        "filter.cutoff": 0.5,
+        "filter.resonance": 0.699999988,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 25,
+        "hp.resonance": 0,
+        "drive.enabled": 1,
+        "drive.amount": 0.550000012,
+        "drive.gain": 1,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.5,
+        "recipe.macro2": 0.5,
+        "recipe.macro3": 0.5,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.850000024,
+        "out.enabled": 1
+      },
+      "limits": {
+        "env.attack": [0.00100000005, 2],
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0, 8]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "FiltEnv",
+          "field": "filter.cutoff"
+        },
+        {
+          "lane": "Attack",
+          "name": "Attack",
+          "field": "env.attack"
+        },
+        {
+          "lane": "Decay",
+          "name": "Decay",
+          "field": "env.decay"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        null,
+        null,
+        null
+      ],
+      "cutoff": {
+        "min": 90,
+        "max": 1200,
+        "curve": "octave",
+        "center": 320,
+        "samples": [
+          [0, 90],
+          [0.100000001, 115.990929],
+          [0.25, 169.705627],
+          [0.370000005, 230.098648],
+          [0.5, 320],
+          [0.75, 619.677368],
+          [1, 1200]
+        ]
+      }
+    },
+    {
+      "index": 9,
+      "name": "WgPluck",
+      "engine": 1,
+      "paramSet": 1,
+      "recipe": null,
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 1,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 0,
+        "env.attack": 0.0399999991,
+        "env.decay": 0.140000001,
+        "env.sustain": 0.5,
+        "env.release": 0.400000006,
+        "filter.enabled": 0,
+        "filter.type": 0,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.200000003,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 55,
+        "hp.resonance": 0,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 1.79999995,
+        "string.brightness": 0.779999971,
+        "string.pickPosition": 0.25999999,
+        "string.pickHardness": 0.850000024,
+        "string.stiffness": 0,
+        "string.detune": 4,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.5,
+        "recipe.macro2": 0.5,
+        "recipe.macro3": 0.5,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.850000024,
+        "out.enabled": 1
+      },
+      "limits": {
+        "string.t60": [0.150000006, 4],
+        "string.brightness": [0.200000003, 0.949999988],
+        "string.pickHardness": [0.200000003, 1],
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0, 8]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Bright",
+          "field": "string.brightness"
+        },
+        {
+          "lane": "Attack",
+          "name": "Pick",
+          "field": "string.pickHardness"
+        },
+        {
+          "lane": "Decay",
+          "name": "T60",
+          "field": "string.t60"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Position",
+          "field": "string.pickPosition"
+        },
+        {
+          "lane": "Release",
+          "name": "Stiffness",
+          "field": "string.stiffness"
+        }
+      ],
+      "macros": [
+        null,
+        null,
+        null
+      ],
+      "cutoff": {
+        "min": 120,
+        "max": 5000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 120],
+          [0.100000001, 168.800003],
+          [0.25, 425],
+          [0.370000005, 788.072021],
+          [0.5, 1340],
+          [0.75, 2865],
+          [1, 5000]
+        ]
+      }
+    },
+    {
+      "index": 10,
+      "name": "WgNylon",
+      "engine": 1,
+      "paramSet": 1,
+      "recipe": null,
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 1,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 0,
+        "env.attack": 0.0399999991,
+        "env.decay": 0.140000001,
+        "env.sustain": 0.5,
+        "env.release": 0.400000006,
+        "filter.enabled": 0,
+        "filter.type": 0,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.200000003,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 66,
+        "hp.resonance": 0,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 3.20000005,
+        "string.brightness": 0.280000001,
+        "string.pickPosition": 0.419999987,
+        "string.pickHardness": 0.219999999,
+        "string.stiffness": 0.0500000007,
+        "string.detune": 9,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.5,
+        "recipe.macro2": 0.5,
+        "recipe.macro3": 0.5,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.899999976,
+        "out.enabled": 1
+      },
+      "limits": {
+        "string.t60": [0.600000024, 8],
+        "string.brightness": [0.0500000007, 0.600000024],
+        "string.pickHardness": [0.0500000007, 0.600000024],
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0, 8]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Bright",
+          "field": "string.brightness"
+        },
+        {
+          "lane": "Attack",
+          "name": "Pick",
+          "field": "string.pickHardness"
+        },
+        {
+          "lane": "Decay",
+          "name": "T60",
+          "field": "string.t60"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Position",
+          "field": "string.pickPosition"
+        },
+        {
+          "lane": "Release",
+          "name": "Stiffness",
+          "field": "string.stiffness"
+        }
+      ],
+      "macros": [
+        null,
+        null,
+        null
+      ],
+      "cutoff": {
+        "min": 120,
+        "max": 5000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 120],
+          [0.100000001, 168.800003],
+          [0.25, 425],
+          [0.370000005, 788.072021],
+          [0.5, 1340],
+          [0.75, 2865],
+          [1, 5000]
+        ]
+      }
+    },
+    {
+      "index": 11,
+      "name": "WgBell",
+      "engine": 1,
+      "paramSet": 1,
+      "recipe": null,
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 1,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 0,
+        "env.attack": 0.0399999991,
+        "env.decay": 0.140000001,
+        "env.sustain": 0.5,
+        "env.release": 0.400000006,
+        "filter.enabled": 0,
+        "filter.type": 0,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.200000003,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 0,
+        "hp.resonance": 0,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 1.39999998,
+        "string.brightness": 0.899999976,
+        "string.pickPosition": 0.0799999982,
+        "string.pickHardness": 1,
+        "string.stiffness": 0.879999995,
+        "string.detune": 0,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.5,
+        "recipe.macro2": 0.5,
+        "recipe.macro3": 0.5,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.75,
+        "out.enabled": 1
+      },
+      "limits": {
+        "string.t60": [0.25, 3],
+        "string.brightness": [0.550000012, 0.980000019],
+        "string.pickHardness": [0.699999988, 1],
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0, 8]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Bright",
+          "field": "string.brightness"
+        },
+        {
+          "lane": "Attack",
+          "name": "Pick",
+          "field": "string.pickHardness"
+        },
+        {
+          "lane": "Decay",
+          "name": "T60",
+          "field": "string.t60"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Position",
+          "field": "string.pickPosition"
+        },
+        {
+          "lane": "Release",
+          "name": "Stiffness",
+          "field": "string.stiffness"
+        }
+      ],
+      "macros": [
+        null,
+        null,
+        null
+      ],
+      "cutoff": {
+        "min": 120,
+        "max": 5000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 120],
+          [0.100000001, 168.800003],
+          [0.25, 425],
+          [0.370000005, 788.072021],
+          [0.5, 1340],
+          [0.75, 2865],
+          [1, 5000]
+        ]
+      }
+    },
+    {
+      "index": 12,
+      "name": "WgShimmer",
+      "engine": 1,
+      "paramSet": 1,
+      "recipe": null,
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 1,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 0,
+        "env.attack": 0.0399999991,
+        "env.decay": 0.140000001,
+        "env.sustain": 0.5,
+        "env.release": 0.400000006,
+        "filter.enabled": 0,
+        "filter.type": 0,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.200000003,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 0,
+        "hp.resonance": 0,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 6.5,
+        "string.brightness": 0.550000012,
+        "string.pickPosition": 0.349999994,
+        "string.pickHardness": 0.600000024,
+        "string.stiffness": 0.150000006,
+        "string.detune": 26,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.5,
+        "recipe.macro2": 0.5,
+        "recipe.macro3": 0.5,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.800000012,
+        "out.enabled": 1
+      },
+      "limits": {
+        "string.t60": [1.5, 10],
+        "string.brightness": [0.300000012, 0.800000012],
+        "string.pickHardness": [0.300000012, 0.899999976],
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0, 8]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Bright",
+          "field": "string.brightness"
+        },
+        {
+          "lane": "Attack",
+          "name": "Pick",
+          "field": "string.pickHardness"
+        },
+        {
+          "lane": "Decay",
+          "name": "T60",
+          "field": "string.t60"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Position",
+          "field": "string.pickPosition"
+        },
+        {
+          "lane": "Release",
+          "name": "Stiffness",
+          "field": "string.stiffness"
+        }
+      ],
+      "macros": [
+        null,
+        null,
+        null
+      ],
+      "cutoff": {
+        "min": 120,
+        "max": 5000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 120],
+          [0.100000001, 168.800003],
+          [0.25, 425],
+          [0.370000005, 788.072021],
+          [0.5, 1340],
+          [0.75, 2865],
+          [1, 5000]
+        ]
+      }
+    },
+    {
+      "index": 13,
+      "name": "Hypersaw",
+      "engine": 3,
+      "paramSet": 2,
+      "recipe": null,
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 3,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.0120000001,
+        "env.decay": 0.300000012,
+        "env.sustain": 0.800000012,
+        "env.release": 0.25,
+        "filter.enabled": 1,
+        "filter.type": 1,
+        "filter.mode": 0,
+        "filter.cutoff": 0.5,
+        "filter.resonance": 0.349999994,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 180,
+        "hp.resonance": 0.100000001,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.5,
+        "recipe.macro2": 0.5,
+        "recipe.macro3": 0.5,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.5,
+        "out.enabled": 1
+      },
+      "limits": {
+        "saw.detune": [0, 0.75],
+        "saw.mix": [0.150000006, 0.949999988],
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0, 8]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "FiltEnv",
+          "field": "filter.cutoff"
+        },
+        {
+          "lane": "Attack",
+          "name": "Detune",
+          "field": "saw.detune"
+        },
+        {
+          "lane": "Decay",
+          "name": "Mix",
+          "field": "saw.mix"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        null,
+        null,
+        null
+      ],
+      "cutoff": {
+        "min": 80,
+        "max": 4000,
+        "curve": "octave",
+        "center": 400,
+        "samples": [
+          [0, 80],
+          [0.100000001, 110.378372],
+          [0.25, 178.885437],
+          [0.370000005, 263.225403],
+          [0.5, 400],
+          [0.75, 1264.91113],
+          [1, 4000]
+        ]
+      }
+    },
+    {
+      "index": 14,
+      "name": "NoiseStorm",
+      "engine": 2,
+      "paramSet": 3,
+      "recipe": null,
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 2,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.00300000003,
+        "env.decay": 0.5,
+        "env.sustain": 0.550000012,
+        "env.release": 0.449999988,
+        "filter.enabled": 1,
+        "filter.type": 1,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.720000029,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 220,
+        "hp.resonance": 0.100000001,
+        "drive.enabled": 1,
+        "drive.amount": 0.400000006,
+        "drive.gain": 0.800000012,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.850000024,
+        "noise.diffuseMix": 0.649999976,
+        "noise.swarmColor": 0.600000024,
+        "noise.swarmRegen": 0.949999988,
+        "noise.chaosLevel": 0.400000006,
+        "recipe.macro1": 0.5,
+        "recipe.macro2": 0.5,
+        "recipe.macro3": 0.5,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.449999988,
+        "out.enabled": 1
+      },
+      "limits": {
+        "noise.chaosLevel": [0, 0.800000012],
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0, 8]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Color",
+          "field": "noise.swarmColor"
+        },
+        {
+          "lane": "Attack",
+          "name": "Regen",
+          "field": "noise.swarmRegen"
+        },
+        {
+          "lane": "Decay",
+          "name": "Chaos",
+          "field": "noise.chaosLevel"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        null,
+        null,
+        null
+      ],
+      "cutoff": {
+        "min": 150,
+        "max": 8000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 150],
+          [0.100000001, 228.5],
+          [0.25, 640.625],
+          [0.370000005, 1224.66504],
+          [0.5, 2112.5],
+          [0.75, 4565.625],
+          [1, 8000]
+        ]
+      }
+    },
+    {
+      "index": 15,
+      "name": "FMGlass",
+      "engine": 4,
+      "paramSet": 0,
+      "recipe": "Feedback FM",
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 4,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.00300000003,
+        "env.decay": 0.400000006,
+        "env.sustain": 0.119999997,
+        "env.release": 0.5,
+        "filter.enabled": 0,
+        "filter.type": 1,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.200000003,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 30,
+        "hp.resonance": 0,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.319999993,
+        "recipe.macro2": 3.5,
+        "recipe.macro3": 0.0799999982,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.649999976,
+        "out.enabled": 1
+      },
+      "limits": {
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0.5, 4.76999998],
+        "recipe.macro3": [0, 0.349999994]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Index",
+          "field": "recipe.macro1"
+        },
+        {
+          "lane": "Attack",
+          "name": "Ratio",
+          "field": "recipe.macro2"
+        },
+        {
+          "lane": "Decay",
+          "name": "Feedback",
+          "field": "recipe.macro3"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        {
+          "label": "Index",
+          "unit": "Percent",
+          "curve": "exp",
+          "min": 0,
+          "max": 1,
+          "center": 0.300000012
+        },
+        {
+          "label": "Ratio",
+          "unit": "Ratio",
+          "curve": "octave",
+          "min": 0.5,
+          "max": 4.76999998,
+          "center": 2
+        },
+        {
+          "label": "Feedback",
+          "unit": "Percent",
+          "curve": "exp",
+          "min": 0,
+          "max": 0.349999994,
+          "center": 0.100000001
+        }
+      ],
+      "cutoff": {
+        "min": 120,
+        "max": 5000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 120],
+          [0.100000001, 168.800003],
+          [0.25, 425],
+          [0.370000005, 788.072021],
+          [0.5, 1340],
+          [0.75, 2865],
+          [1, 5000]
+        ]
+      }
+    },
+    {
+      "index": 16,
+      "name": "FMBass",
+      "engine": 4,
+      "paramSet": 0,
+      "recipe": "Feedback FM",
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 4,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.00300000003,
+        "env.decay": 0.159999996,
+        "env.sustain": 0.449999988,
+        "env.release": 0.0799999982,
+        "filter.enabled": 0,
+        "filter.type": 1,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.200000003,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 30,
+        "hp.resonance": 0,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.180000007,
+        "recipe.macro2": 1,
+        "recipe.macro3": 0.200000003,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.649999976,
+        "out.enabled": 1
+      },
+      "limits": {
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0.5, 4.76999998],
+        "recipe.macro3": [0, 0.349999994]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Index",
+          "field": "recipe.macro1"
+        },
+        {
+          "lane": "Attack",
+          "name": "Ratio",
+          "field": "recipe.macro2"
+        },
+        {
+          "lane": "Decay",
+          "name": "Feedback",
+          "field": "recipe.macro3"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        {
+          "label": "Index",
+          "unit": "Percent",
+          "curve": "exp",
+          "min": 0,
+          "max": 1,
+          "center": 0.300000012
+        },
+        {
+          "label": "Ratio",
+          "unit": "Ratio",
+          "curve": "octave",
+          "min": 0.5,
+          "max": 4.76999998,
+          "center": 2
+        },
+        {
+          "label": "Feedback",
+          "unit": "Percent",
+          "curve": "exp",
+          "min": 0,
+          "max": 0.349999994,
+          "center": 0.100000001
+        }
+      ],
+      "cutoff": {
+        "min": 120,
+        "max": 5000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 120],
+          [0.100000001, 168.800003],
+          [0.25, 425],
+          [0.370000005, 788.072021],
+          [0.5, 1340],
+          [0.75, 2865],
+          [1, 5000]
+        ]
+      }
+    },
+    {
+      "index": 17,
+      "name": "PhaseMorph",
+      "engine": 4,
+      "paramSet": 0,
+      "recipe": "Phase morph",
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 4,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.00300000003,
+        "env.decay": 0.400000006,
+        "env.sustain": 0.449999988,
+        "env.release": 0.200000003,
+        "filter.enabled": 0,
+        "filter.type": 1,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.200000003,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 30,
+        "hp.resonance": 0,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.600000024,
+        "recipe.macro2": 0.200000003,
+        "recipe.macro3": 0.25,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.649999976,
+        "out.enabled": 1
+      },
+      "limits": {
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [-1, 1]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Shape",
+          "field": "recipe.macro1"
+        },
+        {
+          "lane": "Attack",
+          "name": "Skew",
+          "field": "recipe.macro2"
+        },
+        {
+          "lane": "Decay",
+          "name": "Blend",
+          "field": "recipe.macro3"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        {
+          "label": "Shape",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 1,
+          "center": 0.5
+        },
+        {
+          "label": "Skew",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": -1,
+          "max": 1,
+          "center": 0
+        },
+        {
+          "label": "Blend",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 1,
+          "center": 0.5
+        }
+      ],
+      "cutoff": {
+        "min": 120,
+        "max": 5000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 120],
+          [0.100000001, 168.800003],
+          [0.25, 425],
+          [0.370000005, 788.072021],
+          [0.5, 1340],
+          [0.75, 2865],
+          [1, 5000]
+        ]
+      }
+    },
+    {
+      "index": 18,
+      "name": "Spectral",
+      "engine": 4,
+      "paramSet": 0,
+      "recipe": "Spectral DSF",
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 4,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.00300000003,
+        "env.decay": 0.400000006,
+        "env.sustain": 0.449999988,
+        "env.release": 0.200000003,
+        "filter.enabled": 0,
+        "filter.type": 1,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.200000003,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 30,
+        "hp.resonance": 0,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.649999976,
+        "recipe.macro2": 2,
+        "recipe.macro3": 0.150000006,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.649999976,
+        "out.enabled": 1
+      },
+      "limits": {
+        "recipe.macro1": [0, 0.899999976],
+        "recipe.macro2": [0.5, 5.07000017]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Bright",
+          "field": "recipe.macro1"
+        },
+        {
+          "lane": "Attack",
+          "name": "Spacing",
+          "field": "recipe.macro2"
+        },
+        {
+          "lane": "Decay",
+          "name": "Sub",
+          "field": "recipe.macro3"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        {
+          "label": "Bright",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 0.899999976,
+          "center": 0.449999988
+        },
+        {
+          "label": "Spacing",
+          "unit": "Ratio",
+          "curve": "octave",
+          "min": 0.5,
+          "max": 5.07000017,
+          "center": 2
+        },
+        {
+          "label": "Sub",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 1,
+          "center": 0.300000012
+        }
+      ],
+      "cutoff": {
+        "min": 120,
+        "max": 5000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 120],
+          [0.100000001, 168.800003],
+          [0.25, 425],
+          [0.370000005, 788.072021],
+          [0.5, 1340],
+          [0.75, 2865],
+          [1, 5000]
+        ]
+      }
+    },
+    {
+      "index": 19,
+      "name": "Prism",
+      "engine": 4,
+      "paramSet": 0,
+      "recipe": "Prism",
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 4,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.0399999991,
+        "env.decay": 0.400000006,
+        "env.sustain": 0.699999988,
+        "env.release": 0.200000003,
+        "filter.enabled": 0,
+        "filter.type": 1,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.200000003,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 30,
+        "hp.resonance": 0,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.300000012,
+        "recipe.macro2": 0.600000024,
+        "recipe.macro3": 0.119999997,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.649999976,
+        "out.enabled": 1
+      },
+      "limits": {
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0, 1],
+        "recipe.macro3": [0, 0.850000024]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Focus",
+          "field": "recipe.macro1"
+        },
+        {
+          "lane": "Attack",
+          "name": "Spread",
+          "field": "recipe.macro2"
+        },
+        {
+          "lane": "Decay",
+          "name": "Drift",
+          "field": "recipe.macro3"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        {
+          "label": "Focus",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 1,
+          "center": 0.449999988
+        },
+        {
+          "label": "Spread",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 1,
+          "center": 0.550000012
+        },
+        {
+          "label": "Drift",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 0.850000024,
+          "center": 0.300000012
+        }
+      ],
+      "cutoff": {
+        "min": 120,
+        "max": 5000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 120],
+          [0.100000001, 168.800003],
+          [0.25, 425],
+          [0.370000005, 788.072021],
+          [0.5, 1340],
+          [0.75, 2865],
+          [1, 5000]
+        ]
+      }
+    },
+    {
+      "index": 20,
+      "name": "ChaosPrism",
+      "engine": 4,
+      "paramSet": 0,
+      "recipe": "Prism",
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 4,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.00300000003,
+        "env.decay": 0.400000006,
+        "env.sustain": 0.449999988,
+        "env.release": 0.200000003,
+        "filter.enabled": 0,
+        "filter.type": 1,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.200000003,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 30,
+        "hp.resonance": 0,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.699999988,
+        "recipe.macro2": 0.300000012,
+        "recipe.macro3": 0.649999976,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.649999976,
+        "out.enabled": 1
+      },
+      "limits": {
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0, 1],
+        "recipe.macro3": [0, 0.850000024]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Focus",
+          "field": "recipe.macro1"
+        },
+        {
+          "lane": "Attack",
+          "name": "Spread",
+          "field": "recipe.macro2"
+        },
+        {
+          "lane": "Decay",
+          "name": "Drift",
+          "field": "recipe.macro3"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        {
+          "label": "Focus",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 1,
+          "center": 0.449999988
+        },
+        {
+          "label": "Spread",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 1,
+          "center": 0.550000012
+        },
+        {
+          "label": "Drift",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 0.850000024,
+          "center": 0.300000012
+        }
+      ],
+      "cutoff": {
+        "min": 120,
+        "max": 5000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 120],
+          [0.100000001, 168.800003],
+          [0.25, 425],
+          [0.370000005, 788.072021],
+          [0.5, 1340],
+          [0.75, 2865],
+          [1, 5000]
+        ]
+      }
+    },
+    {
+      "index": 21,
+      "name": "VelvetKeys",
+      "engine": 4,
+      "paramSet": 0,
+      "recipe": "Feedback FM",
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 4,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.00600000005,
+        "env.decay": 0.850000024,
+        "env.sustain": 0.159999996,
+        "env.release": 0.449999988,
+        "filter.enabled": 0,
+        "filter.type": 1,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.200000003,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 30,
+        "hp.resonance": 0,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.100000001,
+        "recipe.macro2": 2,
+        "recipe.macro3": 0.0250000004,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.620000005,
+        "out.enabled": 1
+      },
+      "limits": {
+        "recipe.macro1": [0, 1],
+        "recipe.macro2": [0.5, 4.76999998],
+        "recipe.macro3": [0, 0.349999994]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Index",
+          "field": "recipe.macro1"
+        },
+        {
+          "lane": "Attack",
+          "name": "Ratio",
+          "field": "recipe.macro2"
+        },
+        {
+          "lane": "Decay",
+          "name": "Feedback",
+          "field": "recipe.macro3"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        {
+          "label": "Index",
+          "unit": "Percent",
+          "curve": "exp",
+          "min": 0,
+          "max": 1,
+          "center": 0.300000012
+        },
+        {
+          "label": "Ratio",
+          "unit": "Ratio",
+          "curve": "octave",
+          "min": 0.5,
+          "max": 4.76999998,
+          "center": 2
+        },
+        {
+          "label": "Feedback",
+          "unit": "Percent",
+          "curve": "exp",
+          "min": 0,
+          "max": 0.349999994,
+          "center": 0.100000001
+        }
+      ],
+      "cutoff": {
+        "min": 120,
+        "max": 5000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 120],
+          [0.100000001, 168.800003],
+          [0.25, 425],
+          [0.370000005, 788.072021],
+          [0.5, 1340],
+          [0.75, 2865],
+          [1, 5000]
+        ]
+      }
+    },
+    {
+      "index": 22,
+      "name": "CopperBass",
+      "engine": 4,
+      "paramSet": 0,
+      "recipe": "Spectral DSF",
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 4,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.00400000019,
+        "env.decay": 0.219999999,
+        "env.sustain": 0.379999995,
+        "env.release": 0.100000001,
+        "filter.enabled": 0,
+        "filter.type": 1,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.200000003,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 20,
+        "hp.resonance": 0,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.419999987,
+        "recipe.macro2": 1,
+        "recipe.macro3": 0.319999993,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.720000029,
+        "out.enabled": 1
+      },
+      "limits": {
+        "recipe.macro1": [0, 0.899999976],
+        "recipe.macro2": [0.5, 5.07000017]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Bright",
+          "field": "recipe.macro1"
+        },
+        {
+          "lane": "Attack",
+          "name": "Spacing",
+          "field": "recipe.macro2"
+        },
+        {
+          "lane": "Decay",
+          "name": "Sub",
+          "field": "recipe.macro3"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        {
+          "label": "Bright",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 0.899999976,
+          "center": 0.449999988
+        },
+        {
+          "label": "Spacing",
+          "unit": "Ratio",
+          "curve": "octave",
+          "min": 0.5,
+          "max": 5.07000017,
+          "center": 2
+        },
+        {
+          "label": "Sub",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 1,
+          "center": 0.300000012
+        }
+      ],
+      "cutoff": {
+        "min": 120,
+        "max": 5000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 120],
+          [0.100000001, 168.800003],
+          [0.25, 425],
+          [0.370000005, 788.072021],
+          [0.5, 1340],
+          [0.75, 2865],
+          [1, 5000]
+        ]
+      }
+    },
+    {
+      "index": 23,
+      "name": "ReedPipe",
+      "engine": 4,
+      "paramSet": 0,
+      "recipe": "Reed pipe",
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 4,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.0250000004,
+        "env.decay": 0.200000003,
+        "env.sustain": 0.75,
+        "env.release": 0.159999996,
+        "filter.enabled": 0,
+        "filter.type": 1,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.200000003,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 30,
+        "hp.resonance": 0,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 3,
+        "recipe.macro2": 0.74000001,
+        "recipe.macro3": 0.319999993,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.720000029,
+        "out.enabled": 1
+      },
+      "limits": {
+        "recipe.macro1": [1, 6],
+        "recipe.macro2": [0, 1],
+        "recipe.macro3": [0.100000001, 0.800000012]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Formant",
+          "field": "recipe.macro1"
+        },
+        {
+          "lane": "Attack",
+          "name": "Bloom",
+          "field": "recipe.macro2"
+        },
+        {
+          "lane": "Decay",
+          "name": "Body",
+          "field": "recipe.macro3"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        {
+          "label": "Formant",
+          "unit": "Ratio",
+          "curve": "octave",
+          "min": 1,
+          "max": 6,
+          "center": 3
+        },
+        {
+          "label": "Bloom",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 1,
+          "center": 0.699999988
+        },
+        {
+          "label": "Body",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0.100000001,
+          "max": 0.800000012,
+          "center": 0.400000006
+        }
+      ],
+      "cutoff": {
+        "min": 120,
+        "max": 5000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 120],
+          [0.100000001, 168.800003],
+          [0.25, 425],
+          [0.370000005, 788.072021],
+          [0.5, 1340],
+          [0.75, 2865],
+          [1, 5000]
+        ]
+      }
+    },
+    {
+      "index": 24,
+      "name": "SilkPad",
+      "engine": 4,
+      "paramSet": 0,
+      "recipe": "Silk pad",
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 4,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.349999994,
+        "env.decay": 0.75,
+        "env.sustain": 0.819999993,
+        "env.release": 1.25,
+        "filter.enabled": 0,
+        "filter.type": 1,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.200000003,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 30,
+        "hp.resonance": 0,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.219999999,
+        "recipe.macro2": 0.330000013,
+        "recipe.macro3": 0.5,
+        "recipe.retrigger": 0,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.550000012,
+        "out.enabled": 1
+      },
+      "limits": {
+        "recipe.macro1": [0, 0.649999976],
+        "recipe.macro2": [0, 1],
+        "recipe.macro3": [0.100000001, 0.600000024]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Silk",
+          "field": "recipe.macro1"
+        },
+        {
+          "lane": "Attack",
+          "name": "Detune",
+          "field": "recipe.macro2"
+        },
+        {
+          "lane": "Decay",
+          "name": "Blend",
+          "field": "recipe.macro3"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        {
+          "label": "Silk",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 0.649999976,
+          "center": 0.25
+        },
+        {
+          "label": "Detune",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 1,
+          "center": 0.349999994
+        },
+        {
+          "label": "Blend",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0.100000001,
+          "max": 0.600000024,
+          "center": 0.349999994
+        }
+      ],
+      "cutoff": {
+        "min": 120,
+        "max": 5000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 120],
+          [0.100000001, 168.800003],
+          [0.25, 425],
+          [0.370000005, 788.072021],
+          [0.5, 1340],
+          [0.75, 2865],
+          [1, 5000]
+        ]
+      }
+    },
+    {
+      "index": 25,
+      "name": "HollowBell",
+      "engine": 4,
+      "paramSet": 0,
+      "recipe": "Hollow bell",
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 4,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.00200000009,
+        "env.decay": 1.39999998,
+        "env.sustain": 0,
+        "env.release": 0.800000012,
+        "filter.enabled": 0,
+        "filter.type": 1,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.200000003,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 30,
+        "hp.resonance": 0,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 2,
+        "recipe.macro2": 0.0599999987,
+        "recipe.macro3": 0.680000007,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.720000029,
+        "out.enabled": 1
+      },
+      "limits": {
+        "recipe.macro1": [0.5, 6],
+        "recipe.macro2": [0, 0.449999988],
+        "recipe.macro3": [0, 0.850000024]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Ratio",
+          "field": "recipe.macro1"
+        },
+        {
+          "lane": "Attack",
+          "name": "Edge",
+          "field": "recipe.macro2"
+        },
+        {
+          "lane": "Decay",
+          "name": "Ring",
+          "field": "recipe.macro3"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        {
+          "label": "Ratio",
+          "unit": "Ratio",
+          "curve": "octave",
+          "min": 0.5,
+          "max": 6,
+          "center": 2
+        },
+        {
+          "label": "Edge",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 0.449999988,
+          "center": 0.150000006
+        },
+        {
+          "label": "Ring",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 0.850000024,
+          "center": 0.5
+        }
+      ],
+      "cutoff": {
+        "min": 120,
+        "max": 5000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 120],
+          [0.100000001, 168.800003],
+          [0.25, 425],
+          [0.370000005, 788.072021],
+          [0.5, 1340],
+          [0.75, 2865],
+          [1, 5000]
+        ]
+      }
+    },
+    {
+      "index": 26,
+      "name": "SyncLead",
+      "engine": 4,
+      "paramSet": 0,
+      "recipe": "Sync lead",
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 4,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.00899999961,
+        "env.decay": 0.180000007,
+        "env.sustain": 0.680000007,
+        "env.release": 0.119999997,
+        "filter.enabled": 0,
+        "filter.type": 1,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.200000003,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 30,
+        "hp.resonance": 0,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 2,
+        "recipe.macro2": 0.300000012,
+        "recipe.macro3": 0.449999988,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.560000002,
+        "out.enabled": 1
+      },
+      "limits": {
+        "recipe.macro1": [1, 5],
+        "recipe.macro2": [0, 0.649999976],
+        "recipe.macro3": [0.100000001, 0.800000012]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Sync",
+          "field": "recipe.macro1"
+        },
+        {
+          "lane": "Attack",
+          "name": "Edge",
+          "field": "recipe.macro2"
+        },
+        {
+          "lane": "Decay",
+          "name": "Bite",
+          "field": "recipe.macro3"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        {
+          "label": "Sync",
+          "unit": "Ratio",
+          "curve": "octave",
+          "min": 1,
+          "max": 5,
+          "center": 2
+        },
+        {
+          "label": "Edge",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 0.649999976,
+          "center": 0.25
+        },
+        {
+          "label": "Bite",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0.100000001,
+          "max": 0.800000012,
+          "center": 0.449999988
+        }
+      ],
+      "cutoff": {
+        "min": 120,
+        "max": 5000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 120],
+          [0.100000001, 168.800003],
+          [0.25, 425],
+          [0.370000005, 788.072021],
+          [0.5, 1340],
+          [0.75, 2865],
+          [1, 5000]
+        ]
+      }
+    },
+    {
+      "index": 27,
+      "name": "OrbitPluck",
+      "engine": 4,
+      "paramSet": 0,
+      "recipe": "Orbit pluck",
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 4,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.00300000003,
+        "env.decay": 0.379999995,
+        "env.sustain": 0,
+        "env.release": 0.239999995,
+        "filter.enabled": 0,
+        "filter.type": 1,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.200000003,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 30,
+        "hp.resonance": 0,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 1.39999998,
+        "recipe.macro2": 2,
+        "recipe.macro3": 0.280000001,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.639999986,
+        "out.enabled": 1
+      },
+      "limits": {
+        "recipe.macro1": [0, 3],
+        "recipe.macro2": [0.5, 4],
+        "recipe.macro3": [0.100000001, 0.800000012]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Index",
+          "field": "recipe.macro1"
+        },
+        {
+          "lane": "Attack",
+          "name": "Ratio",
+          "field": "recipe.macro2"
+        },
+        {
+          "lane": "Decay",
+          "name": "Body",
+          "field": "recipe.macro3"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        {
+          "label": "Index",
+          "unit": "Percent",
+          "curve": "exp",
+          "min": 0,
+          "max": 3,
+          "center": 1.20000005
+        },
+        {
+          "label": "Ratio",
+          "unit": "Ratio",
+          "curve": "linear",
+          "min": 0.5,
+          "max": 4,
+          "center": 2
+        },
+        {
+          "label": "Body",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0.100000001,
+          "max": 0.800000012,
+          "center": 0.400000006
+        }
+      ],
+      "cutoff": {
+        "min": 120,
+        "max": 5000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 120],
+          [0.100000001, 168.800003],
+          [0.25, 425],
+          [0.370000005, 788.072021],
+          [0.5, 1340],
+          [0.75, 2865],
+          [1, 5000]
+        ]
+      }
+    },
+    {
+      "index": 28,
+      "name": "AirChime",
+      "engine": 4,
+      "paramSet": 0,
+      "recipe": "Air chime",
+      "values": {
+        "base.note": 0,
+        "base.velocity": 0.5,
+        "base.octave": 0,
+        "base.gateLength": 0.75,
+        "base.gate": 1,
+        "base.slide": 0,
+        "base.glide": 0.0599999987,
+        "source.engine": 4,
+        "source.oscCount": 0,
+        "osc1.wave": 4,
+        "osc1.level": 0.5,
+        "osc1.detune": 0,
+        "osc1.pulse": 0.5,
+        "osc1.harmony": 0,
+        "osc2.wave": 4,
+        "osc2.level": 0.5,
+        "osc2.detune": 0,
+        "osc2.pulse": 0.5,
+        "osc2.harmony": 0,
+        "osc3.wave": 4,
+        "osc3.level": 0.5,
+        "osc3.detune": 0,
+        "osc3.pulse": 0.5,
+        "osc3.harmony": 0,
+        "env.enabled": 1,
+        "env.attack": 0.0120000001,
+        "env.decay": 1.10000002,
+        "env.sustain": 0.0799999982,
+        "env.release": 0.850000024,
+        "filter.enabled": 0,
+        "filter.type": 1,
+        "filter.mode": 0,
+        "filter.cutoff": 0.370000005,
+        "filter.resonance": 0.200000003,
+        "filter.drive": 1.79999995,
+        "filter.passband": 0.230000004,
+        "filter.envOctaves": 4,
+        "filter.envRest": 0,
+        "hp.cutoff": 30,
+        "hp.resonance": 0,
+        "drive.enabled": 0,
+        "drive.amount": 0.25,
+        "drive.gain": 0.340000004,
+        "string.t60": 2.5,
+        "string.brightness": 0.699999988,
+        "string.pickPosition": 0.25,
+        "string.pickHardness": 0.800000012,
+        "string.stiffness": 0,
+        "string.detune": 6,
+        "saw.detune": 0.200000003,
+        "saw.mix": 0.5,
+        "noise.level": 1,
+        "noise.chaosRate": 1,
+        "noise.diffuseSize": 0.800000012,
+        "noise.diffuseMix": 0.699999988,
+        "noise.swarmColor": 0.5,
+        "noise.swarmRegen": 0.899999976,
+        "noise.chaosLevel": 0.349999994,
+        "recipe.macro1": 0.25,
+        "recipe.macro2": 0.649999976,
+        "recipe.macro3": 0.239999995,
+        "recipe.retrigger": 1,
+        "recipe.fmFeedback": 0,
+        "recipe.phaseFold": 0,
+        "recipe.subRatio": 0.5,
+        "recipe.subShape": 0,
+        "recipe.driftChaos": 0.649999976,
+        "out.level": 0.680000007,
+        "out.enabled": 1
+      },
+      "limits": {
+        "recipe.macro1": [0, 0.800000012],
+        "recipe.macro2": [0.100000001, 1],
+        "recipe.macro3": [0, 0.649999976]
+      },
+      "lanes": [
+        {
+          "lane": "Note",
+          "name": "Note",
+          "field": "base.note"
+        },
+        {
+          "lane": "Velocity",
+          "name": "Velocity",
+          "field": "base.velocity"
+        },
+        {
+          "lane": "Filter",
+          "name": "Focus",
+          "field": "recipe.macro1"
+        },
+        {
+          "lane": "Attack",
+          "name": "Spread",
+          "field": "recipe.macro2"
+        },
+        {
+          "lane": "Decay",
+          "name": "OctMix",
+          "field": "recipe.macro3"
+        },
+        {
+          "lane": "Octave",
+          "name": "Octave",
+          "field": "base.octave"
+        },
+        {
+          "lane": "GateLength",
+          "name": "Gate length",
+          "field": "base.gateLength"
+        },
+        {
+          "lane": "Gate",
+          "name": "Gate enable",
+          "field": "base.gate"
+        },
+        {
+          "lane": "Slide",
+          "name": "Slide enable",
+          "field": "base.slide"
+        },
+        {
+          "lane": "Sustain",
+          "name": "Sustain",
+          "field": "env.sustain"
+        },
+        {
+          "lane": "Release",
+          "name": "Release",
+          "field": "env.release"
+        }
+      ],
+      "macros": [
+        {
+          "label": "Focus",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 0.800000012,
+          "center": 0.300000012
+        },
+        {
+          "label": "Spread",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0.100000001,
+          "max": 1,
+          "center": 0.550000012
+        },
+        {
+          "label": "OctMix",
+          "unit": "Percent",
+          "curve": "linear",
+          "min": 0,
+          "max": 0.649999976,
+          "center": 0.25
+        }
+      ],
+      "cutoff": {
+        "min": 120,
+        "max": 5000,
+        "curve": "exp",
+        "center": null,
+        "samples": [
+          [0, 120],
+          [0.100000001, 168.800003],
+          [0.25, 425],
+          [0.370000005, 788.072021],
+          [0.5, 1340],
+          [0.75, 2865],
+          [1, 5000]
+        ]
+      }
+    }
+  ]
+}

@@ -122,6 +122,11 @@ const Parameter &parameter(Id id) noexcept;
 const char *groupName(Group group) noexcept;
 const char *name(Id id, const VoiceConfig &config) noexcept;
 bool available(Id id, const VoiceConfig &config) noexcept;
+// The range setValue() clamps this parameter to under `config`: the layout lane's
+// own span when the layout re-purposes the field (recipe macros, string position),
+// else the catalog's. For the sequenced base ids (Note..Slide) the stored patch
+// value's range, not the lane's display range.
+void limits(Id id, const VoiceConfig &config, float &minimum, float &maximum) noexcept;
 float value(Id id, const VoiceConfig &config) noexcept;
 void setValue(Id id, VoiceConfig &config, float value) noexcept;
 // Stepped values move one step (an octave for Octave) per adjust() call,

@@ -126,7 +126,11 @@ real header paths exactly — a stub for `pico/sync.h` must live at `tests/stubs
 What's tested vs. not, per `tests/CMakeLists.txt` (eight focused targets: `pico2seq_tests`,
 `pico2seq_ui_tests`, `pico2seq_voice_tests`, `pico2seq_watchdog_tests`, `pico2seq_audio_tests`,
 `pico2seq_tile_tests`, `py32_slider_tests`, `py32_button_tests`):
-- **Tested**: `src/rpdsp/` additions via
+- **Tested**: the user-preset layer — `src/pico2seq-core/persistence/UserPresetBank.*`,
+  `src/voice/{PatchFields,UserPresetCodec}.*`, `src/presetlink/*` (frame parser, command session, bank store)
+  and `src/ui/PresetBrowser.h` via `test_user_presets.cpp`, `test_preset_link.cpp`, `test_preset_browser.cpp`
+  and the generated-resource check `test_preset_resources.cpp` (all in `pico2seq_tests`; see "Preset
+  Studio" below). `src/rpdsp/` additions via
   `tests/unit/test_rpdsp_additions.cpp`, `test_dsp_recipe_regressions.cpp`,
   and `test_recipe_optimization.cpp`,
   `src/pico2seq-core/scales/scales.cpp` via `test_scales.cpp`,
@@ -176,7 +180,7 @@ What's tested vs. not, per `tests/CMakeLists.txt` (eight focused targets: `pico2
   the Wire-bound parts of `src/ui/AlchemyControlBridge.cpp`,
   `src/ui/{UIEventHandler,ButtonHandlers,ButtonManager}.cpp`, the rest of
   `src/app/` (`Application`, `ControlIO`, `AudioEngine`, `ClockService`,
-  `SessionStorage`), `src/utils/Debug.cpp` and the linker-symbol binding
+  `SessionStorage`, `UserPresetStorage`, `PresetLinkService`), `src/utils/Debug.cpp` and the linker-symbol binding
   `src/utils/StackWatermark.cpp`.
   There is no `src/midi/` module any more: it holds a removal notice only.
 
@@ -299,3 +303,34 @@ is what makes "Note track at 16 steps, Filter track at 8 steps" possible on the 
   conventions before adding a new processor rather than pulling in DaisySP fresh.
 - **External modules (`src/rpdsp/` and `src/VelocityEncoder/`) are Git submodules.** When cloning,
   use `git clone --recurse-submodules` or run `git submodule update --init --recursive`.
+
+## Preset Studio (user presets from the PC)
+
+Full guide: `docs/preset-studio.md`. The short version for anyone touching related code:
+
+- **What exists.** A Windows editor (`tools/PresetStudio/`, .NET 8: `Core` = all logic, `App` = WPF windows,
+  `Core.Tests` = xUnit) sends user presets over the USB serial port to the Pico. The Pico stores them in
+  `/presets.p2u` (second LittleFS file, not part of the song) and shows them as extra preset-browser pages
+  (pad 31 = page key), each preset at its own pad in its own LED colour.
+- **All serial input goes through `PresetLinkService::poll()`** (`src/app/`). Do not add other `Serial.read()`
+  calls: binary frames would be eaten. The old bare-`W` bench freeze is only honoured when the editor has not
+  spoken in the last 3 s.
+- **Flash writes stop the clock.** A bank upload does what the song save does (`stopClockForEditor()` first,
+  restart after) and blocks the song autosave while open (`PresetLinkService::busy()`).
+- **One source of truth for the patch layout: `src/voice/PatchFields.cpp`.** Changing it (or `PatchSnapshot`)
+  means: bump `patchfields::kLayoutVersion`, update the pinned hash in `tests/unit/test_user_presets.cpp`,
+  regenerate the editor's resources with
+  `PICO2SEQ_UPDATE_RESOURCES=1 ./build_test_ninja/tests/pico2seq_tests "[resources]"` and commit them, and write
+  help text in `tools/PresetStudio/PresetStudio.Core/Resources/field-help.json`. `[resources]` and the C# tests
+  fail until you do; that is the point.
+- **Uploads are validated, never trusted.** `usercodec::validate()` (strict, uses `VoiceEdit::limits()` so it
+  matches the on-device editor) runs on upload, at boot and again before a pad tap or audition applies a record.
+  Floats are checked by bit pattern because of `-ffast-math`.
+- **C# tests:** `dotnet test tools/PresetStudio/PresetStudio.Core.Tests` (needs the .NET 8 SDK; runs on Linux). The link
+  tests drive `build_test_ninja/tests/preset_link_sim`, the firmware's own parser/session/store on stdin/stdout;
+  build it with `cmake --build build_test_ninja --target preset_link_sim` or they skip. The WPF project builds
+  on Linux (`EnableWindowsTargeting`) but cannot be run there.
+- **Firmware compile on Linux.** `arduino-cli compile` as documented above fails on case-sensitive filesystems at
+  `#include "ledMatrix.h"` (the file is `LedMatrix.h`; Windows does not care). To verify firmware edits on Linux add
+  a one-line `ledMatrix.h` that includes `LedMatrix.h` in an extra include directory passed through
+  `--build-property "build.extra_flags=-ffast-math -I<dir> -I<sketch>/src/LEDMatrix"`.

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>Pico2SeqPresetStudio</AssemblyName>
+    <RootNamespace>PresetStudio.App</RootNamespace>
+    <Product>Pico2Seq Preset Studio</Product>
+    <Version>1.0.0</Version>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PresetStudio.Core\PresetStudio.Core.csproj" />
+  </ItemGroup>
+</Project>

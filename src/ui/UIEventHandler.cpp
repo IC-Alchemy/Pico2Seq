@@ -11,6 +11,8 @@
 #include "../voice/Voice.h"
 #include "../voice/VoiceManager.h"
 #include "../voice/VoicePresets.h"
+#include "../app/UserPresetStorage.h"
+#include "PresetBrowser.h"
 #include "../voice/VoiceSystem.h"
 #include "ButtonManager.h"
 #include "ButtonHandlers.h"
@@ -467,7 +469,9 @@ void closeSettingsMode(UIState &uiState)
 
 /**
  * Handle Preset Selection sub-mode.
- * - Pads 0..30 apply that preset to the selected voice (voice buttons pick it).
+ * - Page 0 (factory): pads 0..30 apply that preset to the selected voice.
+ * - Pages 1.. (user presets from the PC editor): each lit pad applies its preset.
+ * - Pad 31 flips to the next page once any user preset exists.
  * - Remain in Preset Selection mode after applying a preset.
  * Safe while the transport runs: applyVoicePreset stages the config and the
  * voice applies it without stopping playback.
@@ -480,19 +484,33 @@ static void handlePresetSelection(const MatrixButtonEvent &evt, UIState &uiState
   if (evt.type != MATRIX_BUTTON_PRESSED)
     return;
 
-  const int presetIndex = VoicePresets::presetIndexForPad(evt.buttonIndex, VoicePresets::getPresetCount());
-  if (presetIndex >= 0)
+  const auto &user = UserPresetStorage::directory();
+  // A page whose presets were all replaced since it was shown falls back to the factory page.
+  uiState.presetPage = user.clampPage(uiState.presetPage);
+  const PresetBrowser::Target target = PresetBrowser::resolve(uiState.presetPage, evt.buttonIndex, user);
+  using Kind = PresetBrowser::Target::Kind;
+  if (target.kind == Kind::PageKey)
   {
-    // Apply to currently selected voice (0..3 for applyVoicePreset)
-    const uint8_t voiceIdx = uiState.selectedVoiceIndex;
-    if (voiceIdx < UIEventConstants::MAX_VOICES)
-    {
-      uiState.voicePresetIndices[voiceIdx] = static_cast<uint8_t>(presetIndex);
-      applyVoicePreset(voiceIdx, static_cast<uint8_t>(presetIndex));
-    }
-
-    // Applying a preset does not change the settings page.
+    uiState.presetPage = user.nextPage(uiState.presetPage);
+    return;
   }
+  if (target.kind == Kind::None)
+    return;
+
+  // Apply to currently selected voice (0..3 for applyVoicePreset)
+  const uint8_t voiceIdx = uiState.selectedVoiceIndex;
+  if (voiceIdx >= UIEventConstants::MAX_VOICES)
+    return;
+  if (target.kind == Kind::User)
+  {
+    applyUserPreset(voiceIdx, target.index);
+  }
+  else
+  {
+    uiState.voicePresetIndices[voiceIdx] = target.index;
+    applyVoicePreset(voiceIdx, target.index);
+  }
+  // Applying a preset does not change the settings page.
 }
 
 // The same pad catalogue drives edits, persistent LEDs and OLED labels.

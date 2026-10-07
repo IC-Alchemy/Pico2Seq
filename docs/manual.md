@@ -678,7 +678,7 @@ only **Analog** and **Lead** still run the true ladder filter.
 
 ### 4.2 The 29 presets
 
-The sound bank contains 29 built-in presets (held as `constexpr` flash tables), all on one browser page in Settings mode. Preset *n* sits on pad *n*−1:
+The sound bank contains 29 built-in presets (held as `constexpr` flash tables), all on the first browser page in Settings mode. Preset *n* sits on pad *n*−1. Presets you design in [Preset Studio](preset-studio.md) and send over USB appear on further pages (see below):
 
 #### Pads 0–23: Presets 1–24
 
@@ -723,7 +723,8 @@ The sound bank contains 29 built-in presets (held as `constexpr` flash tables), 
 
 Presets live in flash and are auditioned and applied per voice in the **preset browser** (long-press Play, or stop the transport to open Settings on the OLED):
 - **Voice Selection**: Press the SliderModule **V1–V4** buttons to switch which voice is being edited. Pads never change the voice while Settings is open.
-- **Applying Presets**: Touch **pads 0–30** (the lit pads on the LED matrix mirror; pads 0–28 hold today's 29 presets) to instantly assign that preset to the active voice. Pad 31 is unassigned. There are no pages.
+- **Applying Presets**: Touch **pads 0–30** (the lit pads on the LED matrix mirror; pads 0–28 hold today's 29 presets) to instantly assign that preset to the active voice. Until you send your own presets there is only this one page, and pad 31 is unassigned.
+- **Your own presets (pages 2 and 3)**: once Preset Studio has sent any, **pad 31** lights dim white; touch it to flip to the next page that has presets (the pages wrap round to the factory bank). On a user page every preset glows in the colour you gave it, at a quarter strength, and breathes at full strength when it is the one the selected voice is playing. Tapping a pad applies it to the selected voice exactly like a factory preset. The OLED shows the page (`P2/3 USER 6 presets`) and the preset's name, and the voice header shows that name too. See [Preset Studio](preset-studio.md).
 - **Voice Parameters**: Pressing the encoder button toggles the Settings screen between the preset browser and the voice-parameter toggles (envelope, overdrive, filter mode, filter resonance).
 
 ---
@@ -739,7 +740,7 @@ Presets live in flash and are auditioned and applied per voice in the **preset b
 | Shift + pad | Clear that step (gate off, parameters to defaults) |
 | Hold a parameter button + tap pad | Set that parameter track's length to the pad number |
 | Pad press in the lit bank while a voice button is long-held | Set the selected voice's Gate track length (2–16 steps) |
-| Tap a pad while the preset browser is open | Apply that preset to the selected voice — pads 0–28 = presets 1–29 (pads 0–30 are preset slots); V1–V4 switch the target voice |
+| Tap a pad while the preset browser is open | Apply that preset to the selected voice — pads 0–28 = presets 1–29 (pads 0–30 are preset slots); V1–V4 switch the target voice. Pad 31 flips to the next page of your own presets once any exist ([Preset Studio](preset-studio.md)) |
 
 ### Faders
 

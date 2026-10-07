@@ -524,6 +524,14 @@ from `Application::update()` context with the transport stopped:
 - LittleFS mounts **before** `freezeWatchdogArm()`: a first-boot format can
   take seconds and must not trip the 2 s watchdog.
 
+### User presets (the second file)
+
+Presets sent from the PC editor live in their own file, `/presets.p2u`, next to the song file; the song is
+untouched by them. `UserPresetStorage` (Core 0) owns the in-RAM directory the preset browser, LEDs and OLED
+read; `PresetLinkService` answers the editor's USB frames in short slices of the main loop and stops the
+clock around flash writes exactly as a song save does. Details, file layout and wire protocol:
+[preset-studio.md](preset-studio.md).
+
 ### Watchdog recovery
 
 On a watchdog reset the boot checks the retained store: if valid and fewer

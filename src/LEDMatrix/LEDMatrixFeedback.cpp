@@ -19,6 +19,8 @@
 #include "../ui/UIEventHandler.h"
 #include "../utils/Debug.h"
 #include "../voice/VoicePresets.h"
+#include "../app/UserPresetStorage.h"
+#include "../ui/PresetBrowser.h"
 #include "LEDConstants.h"
 #include "ledMatrix.h"
 
@@ -729,6 +731,10 @@ static const LEDThemeColors *activeThemeColors =
 static constexpr uint8_t GATE_ON_GAIN_NUM = 6;   // 1.2x
 static constexpr uint8_t GATE_ON_GAIN_DEN = 5;
 static constexpr uint8_t GATE_OFF_DIVISOR = 16;  // 1/16 of the hue
+// User presets keep their chosen colour recognisable at rest: 1/4 brightness, not 1/16.
+static constexpr uint8_t USER_PRESET_IDLE_LEVEL = 64;
+// Page key (pad 31): neutral grey so it is never mistaken for a preset colour.
+static constexpr uint8_t PAGE_KEY_LEVEL = 40;
 
 // One channel of a gate-state scale. Rounds to the nearest step so the dim
 // off-state levels keep the hue that truncation would distort.
@@ -885,8 +891,6 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
   }
 
   if (uiState.isPresetSelection()) {
-    const uint8_t totalPresets = VoicePresets::getPresetCount();
-
     // Keep preset selection in the hue assigned to the configured voice.
     CRGB selectedColor =
         getVoiceGateColor(*activeThemeColors, uiState.selectedVoiceIndex, true);
@@ -897,26 +901,41 @@ void updateSettingsModeLEDs(LEDMatrix &ledMatrix, const UIState &uiState) {
                                    ? uiState.selectedVoiceIndex
                                    : 0;
     const uint8_t currentPresetIndex = uiState.voicePresetIndices[voiceIndex];
+    const uint8_t currentUserSlot = uiState.voiceUserSlot[voiceIndex];
 
-    // Pad N holds preset N, so each LED mirrors its pad.
-    for (uint8_t pad = 0; pad < VoicePresets::kPresetPadCount; pad++) {
-      const int presetIndex =
-          VoicePresets::presetIndexForPad(pad, totalPresets);
-      if (presetIndex < 0) {
+    // Page 0 is the factory bank in the voice hue; pages 1.. are the player's own presets,
+    // each pad in the colour its owner picked in the PC editor. Pad 31 is the page key.
+    const auto &user = UserPresetStorage::directory();
+    const uint8_t page = user.clampPage(uiState.presetPage);
+    const float pulse = 0.5f + 0.5f * sinf(millis() * 0.008f);
+
+    for (uint8_t pad = 0; pad < LEDMatrix::WIDTH * LEDMatrix::HEIGHT; pad++) {
+      const PresetBrowser::Target target = PresetBrowser::resolve(page, pad, user);
+      if (target.kind == PresetBrowser::Target::Kind::None) {
         continue;
       }
 
       CRGB color;
-      if (presetIndex == currentPresetIndex) {
-        // Current preset breathes; the rest sit at gate-off level.
-        uint32_t time = millis();
-        float pulse = 0.5f + 0.5f * sinf(time * 0.008f);
-        color = selectedColor;
-        color.nscale8(static_cast<uint8_t>(128 + 127 * pulse));
+      if (target.kind == PresetBrowser::Target::Kind::PageKey) {
+        color = CRGB(PAGE_KEY_LEVEL, PAGE_KEY_LEVEL, PAGE_KEY_LEVEL);
       } else {
-        // Available preset - the voice's gate-off color, i.e. the same dim
-        // steady level an off step shows in the step row.
-        color = availableColor;
+        const bool current =
+            PresetBrowser::isCurrent(target, currentPresetIndex, currentUserSlot);
+        if (target.kind == PresetBrowser::Target::Kind::User) {
+          const persistence::UserPresetEntry *entry = user.slot(target.index);
+          const CRGB own(entry->r, entry->g, entry->b);
+          color = own;
+          // Current preset breathes; the rest sit dimmer, but still readable as their colour.
+          color.nscale8(current ? static_cast<uint8_t>(128 + 127 * pulse) : USER_PRESET_IDLE_LEVEL);
+        } else if (current) {
+          // Current preset breathes; the rest sit at gate-off level.
+          color = selectedColor;
+          color.nscale8(static_cast<uint8_t>(128 + 127 * pulse));
+        } else {
+          // Available preset - the voice's gate-off color, i.e. the same dim
+          // steady level an off step shows in the step row.
+          color = availableColor;
+        }
       }
 
       ledMatrix.setLED(pad % LEDMatrix::WIDTH, pad / LEDMatrix::WIDTH, color);
