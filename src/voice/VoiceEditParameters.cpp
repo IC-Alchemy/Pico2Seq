@@ -833,6 +833,13 @@ Id envelopeAlias(Id id, const VoiceConfig &c) noexcept {
                                                                        : id;
 }
 } // namespace
+void limits(Id id, const VoiceConfig &c, float &minimum, float &maximum) noexcept {
+  id = envelopeAlias(id, c);
+  const auto &p = parameter(id);
+  const auto *b = id <= Id::Slide ? nullptr : bindingFor(id, c);
+  minimum = b ? b->minimum : p.minimum;
+  maximum = b ? b->maximum : p.maximum;
+}
 void setValue(Id id, VoiceConfig &c, float v) noexcept {
   if (id >= Id::Count || !std::isfinite(v))
     return;

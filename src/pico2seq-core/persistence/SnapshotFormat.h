@@ -21,6 +21,19 @@ constexpr uint16_t SNAPSHOT_FORMAT_VERSION_V1 = 1;
 // IEEE CRC over the payload only; catches torn flash writes and bit rot.
 uint32_t crc32(const uint8_t *data, size_t length) noexcept;
 
+// The same CRC fed in pieces, for streams that cannot be held in RAM (the user preset
+// bank file is written record by record). value() after any update() equals crc32() of
+// everything fed so far.
+class Crc32
+{
+public:
+    void update(const uint8_t *data, size_t length) noexcept;
+    uint32_t value() const noexcept { return state_ ^ 0xFFFFFFFFu; }
+
+private:
+    uint32_t state_ = 0xFFFFFFFFu;
+};
+
 // 12-byte little-endian frame header; fixed size keeps flash offsets stable.
 struct FrameHeader
 {

@@ -5,6 +5,8 @@
 #include "RetainedSession.h"
 #include "Session.h"
 #include "SessionStorage.h"
+#include "UserPresetStorage.h"
+#include "PresetLinkService.h"
 #include "VoiceSetup.h"
 #include "AudioEngine.h"
 #include "../sensors/DistanceSensor.h"
@@ -220,6 +222,7 @@ void Application::begin()
     // LittleFS format takes seconds and must not reboot mid-format.
     freezeWatchdogMark(FW_SETUP_STORAGE); // breadcrumb only; not armed yet
     SessionStorage::begin();
+    UserPresetStorage::begin(); // the player's own presets; the browser reads this directory
     bool loaded;
     if (resumeFromRetained)
     {
@@ -322,7 +325,9 @@ void Application::update()
 
     // Deferred flash I/O: UI handlers only request; this loop executes. Never in
     // ISR/uClock context — a save with the transport running pauses the clock first.
-    const Session::PendingAction action = Session::consumePendingAction();
+    // An open preset upload owns the filesystem; a song save waits for it (the request stays queued).
+    const Session::PendingAction action =
+        PresetLinkService::busy() ? Session::PendingAction::None : Session::consumePendingAction();
     if (action != Session::PendingAction::None)
     {
         const bool wasRunning = isClockRunning;
@@ -381,7 +386,7 @@ void Application::update()
     if (wasClockRunningForAutosave && !isClockRunning)
         stopEdgeMs = nowMs;
     wasClockRunningForAutosave = isClockRunning;
-    if (stopEdgeMs != 0 && !isClockRunning && nowMs - stopEdgeMs >= 1000)
+    if (stopEdgeMs != 0 && !isClockRunning && nowMs - stopEdgeMs >= 1000 && !PresetLinkService::busy())
     {
         stopEdgeMs = 0;
         Session::captureSession(g_sessionSnapshot);
@@ -397,12 +402,16 @@ void Application::update()
         }
     }
 
-    // Bench aid: 'W' over serial hangs Core 0 to prove the retained-RAM resume path.
-    if (Serial.available() > 0 && Serial.read() == 'W')
-    {
-        Serial.println("[BENCH] freezing Core 0 on request");
-        for (;;) {}
-    }
+    // USB serial: the PC editor's frames are answered here; every other byte is console input.
+    PresetLinkService::poll(nowMs, [](uint8_t byte) {
+        // Bench aid: 'W' hangs Core 0 to prove the retained-RAM resume path. Ignored while the
+        // editor is talking, so a damaged frame can never reboot the box.
+        if (byte == 'W' && !PresetLinkService::editorActive(millis()))
+        {
+            Serial.println("[BENCH] freezing Core 0 on request");
+            for (;;) {}
+        }
+    });
 
     ControlIO::pollHeldButtons();
     // Fixed slice order: steps, diagnostics, gate ticks, controls, LEDs, OLED.

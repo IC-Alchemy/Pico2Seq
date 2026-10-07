@@ -2,6 +2,7 @@
 #include "../ui/ControlSurfaceLogic.h"
 #include "../voice/Voice.h"
 #include "../voice/VoicePresets.h"
+#include "../app/UserPresetStorage.h"
 #include "../voice/MusicalValues.h"
 #include "../voice/DelayTiming.h"
 #include "../app/VoiceEditor.h"
@@ -267,8 +268,22 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
   {
     const char *line1 = "RANDOMIZED";
     const char *line2 = "";
+    char dynamicLine[24];
     switch (uiState.oledNoticeKind)
     {
+    case UIState::OledNoticeKind::PresetsReceiving:
+      line1 = "PC LINK";
+      line2 = "receiving presets";
+      break;
+    case UIState::OledNoticeKind::PresetsSaved:
+      line1 = "PRESETS";
+      snprintf(dynamicLine, sizeof(dynamicLine), "%u saved", static_cast<unsigned>(uiState.oledNoticeValue));
+      line2 = dynamicLine;
+      break;
+    case UIState::OledNoticeKind::PresetsFailed:
+      line1 = "PC LINK";
+      line2 = "upload failed";
+      break;
     case UIState::OledNoticeKind::Saved:    line1 = "SAVED"; break;
     case UIState::OledNoticeKind::Loaded:   line1 = "LOADED"; break;
     case UIState::OledNoticeKind::LoadError: line1 = "LOAD ERR"; break;
@@ -861,7 +876,7 @@ void OLEDDisplay::drawMusicalValue(const char *text, int y)
 void OLEDDisplay::drawVoiceHeader(const UIState &state, bool prominent)
 {
   const uint8_t voice = std::min<uint8_t>(state.selectedVoiceIndex, 3);
-  const char *preset = VoicePresets::getPresetName(state.voicePresetIndices[voice]);
+  const char *preset = UserPresetStorage::voiceLabel(state, voice);
   displayHardware.setTextSize(1);
   displayHardware.setCursor(2, 0);
   displayHardware.print("V"); displayHardware.print(voice + 1);
@@ -948,7 +963,7 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
 
     // Current preset - large and centered
     displayHardware.setTextSize(2);
-    const char *currentPresetName = VoicePresets::getPresetName(currentPresetIndex);
+    const char *currentPresetName = UserPresetStorage::voiceLabel(uiState, uiState.selectedVoiceIndex);
     const int presetSize = strlen(currentPresetName) <= 10 ? 2 : 1;
     displayHardware.setTextSize(presetSize);
     int textWidth = strlen(currentPresetName) * 6 * presetSize; // 6px per size-1 column
@@ -963,17 +978,48 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
 
     displayHardware.setTextSize(1);
 
-    // Pad N holds preset N (VoicePresets::presetIndexForPad)
+    // Page 0 is the factory bank (pad N holds preset N); further pages are the user presets
+    // sent from the PC editor, with pad 31 flipping between pages.
+    const auto &user = UserPresetStorage::directory();
+    const uint8_t page = user.clampPage(uiState.presetPage);
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 45);
-    displayHardware.print("Pads 0-");
-    displayHardware.print(VoicePresets::getPresetCount() - 1);
-    displayHardware.print(" #");
-    displayHardware.print(currentPresetIndex + 1);
-    displayHardware.print("/");
-    displayHardware.print(VoicePresets::getPresetCount());
+    if (user.count() == 0)
+    {
+      displayHardware.print("Pads 0-");
+      displayHardware.print(VoicePresets::getPresetCount() - 1);
+      displayHardware.print(" #");
+      displayHardware.print(currentPresetIndex + 1);
+      displayHardware.print("/");
+      displayHardware.print(VoicePresets::getPresetCount());
+    }
+    else
+    {
+      displayHardware.print("P");
+      displayHardware.print(page + 1);
+      displayHardware.print("/");
+      displayHardware.print(persistence::kBrowserPageCount);
+      if (page == 0)
+      {
+        displayHardware.print(" FACTORY");
+        if (uiState.selectedVoiceIndex >= UIState::MAX_VOICES ||
+            uiState.voiceUserName[uiState.selectedVoiceIndex][0] == '\0')
+        {
+          displayHardware.print(" #");
+          displayHardware.print(currentPresetIndex + 1);
+          displayHardware.print("/");
+          displayHardware.print(VoicePresets::getPresetCount());
+        }
+      }
+      else
+      {
+        displayHardware.print(" USER ");
+        displayHardware.print(user.pageCount(page));
+        displayHardware.print(" presets");
+      }
+    }
 
     displayHardware.setCursor(OLEDConstants::TEXT_MARGIN, 56);
-    displayHardware.print("V1-V4 select voice");
+    displayHardware.print(user.count() == 0 ? "V1-V4 select voice" : "31:page V1-4:voice");
   }
   else
   {
@@ -1004,7 +1050,7 @@ void OLEDDisplay::displaySettingsMenu(const UIState &uiState)
 
       displayHardware.setCursor(12, yPosition);
       displayHardware.print(voiceIndex + 1); displayHardware.print(" ");
-      const char *presetName = (voiceIndex < UIState::MAX_VOICES) ? VoicePresets::getPresetName(uiState.voicePresetIndices[voiceIndex]) : "Unknown";
+      const char *presetName = (voiceIndex < UIState::MAX_VOICES) ? UserPresetStorage::voiceLabel(uiState, static_cast<uint8_t>(voiceIndex)) : "Unknown";
       displayHardware.print(presetName);
     }
 

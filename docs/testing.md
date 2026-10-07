@@ -272,6 +272,10 @@ The host test executable (`pico2seq_tests`) links all unit suites under `tests/u
 | 32 | `tests/unit/test_tuning_scales.cpp` | Per-tuning scale sets (`src/pico2seq-core/tuning/TuningScales.h`; also in `pico2seq_ui_tests`) | Which scales a tuning offers: twelve-note modes only in twelve-note tunings, tuned rows only in their own tuning, every tuning playable, scale coercion/remembering on tuning changes (`[tuning][tuning-scales]`) |
 | 33 | `tests/unit/test_tuning_page.cpp` | Tuning page (`src/ui/TuningPageControls.h`, `src/ui/TuningPageLogic.h`; also in `pico2seq_ui_tests`) | Open gesture and chord, scale buttons, hot favourites, A/B partner, gestures turned into a `tuning::Selection`, the playing scale and the `Bank` (`[tuning][tuning-page]`) |
 | 34 | `tests/unit/test_serial_rate_limit.cpp` | `src/utils/SerialRateLimit.h` | `StallWatch` stays quiet while counters advance however fast it is polled and reports a frozen count once per interval; `LogBudget` allows a burst then caps the sustained rate and counts drops for the summary (`[serial_rate]`) |
+| 35 | `tests/unit/test_user_presets.cpp` | User preset record, bank file and store (`src/pico2seq-core/persistence/UserPresetBank.*`, `src/voice/{PatchFields,UserPresetCodec}.*`, `src/presetlink/UserPresetStore.*`) | Locked 256-byte record and bank layout, directory and page navigation, the patch field table (unique keys, no overlaps, every sound-bearing byte covered, pinned hash), every factory preset valid as a user preset and rebuilding the same voice, strict validation (NaN, ranges, choices, names, places, recipe-engine rule, per-recipe macro spans), canonical form, show rules agreeing with `VoiceEdit::available`, streaming atomic uploads (abort, flash failure, failed rename, full 62-preset bank, torn/corrupt/stricter-than-before files) (`[userpreset]`) |
+| 36 | `tests/unit/test_preset_link.cpp` | USB preset link (`src/presetlink/`) | Frame layout, parser (byte-wise, log text passthrough, corrupt frames, timeouts, duplicated sync), every command through the session (upload/commit/read back, refusals with the offending field, abort and idle timeout, audition, factory read, voice capture) (`[presetlink]`) |
+| 37 | `tests/unit/test_preset_browser.cpp` | `src/ui/PresetBrowser.h` | What each pad means on the factory and user pages, page key, current-preset highlight, emptied-page fallback (`[browser]`) |
+| 38 | `tests/unit/test_preset_resources.cpp` | Generated editor resources | `tools/PresetStudio/PresetStudio.Core/Resources/{patch-schema,factory-presets,golden-vectors}.json` equal what the firmware tables produce; `PICO2SEQ_UPDATE_RESOURCES=1` regenerates (`[resources]`) |
 
 ---
 
@@ -378,6 +382,23 @@ ctest --test-dir build_test_ninja --output-on-failure
 ```
 
 ---
+
+### 4. The Windows preset editor (`tools/PresetStudio`)
+
+The Windows editor has its own xUnit suite (needs only the .NET 8 SDK; it runs on Linux too):
+
+```bash
+dotnet test tools/PresetStudio/PresetStudio.Core.Tests
+```
+
+It checks the schema and help text against each other, replays the firmware's golden byte vectors (records and
+request/reply frames) through the independent C# codec, and exercises the editing logic, library files and the
+whole application flow (`MainViewModel`) with a fake dialog service. The link tests start `preset_link_sim`
+(built with the host suites: `cmake --build build_test_ninja --target preset_link_sim`), which runs the
+**firmware's own** frame parser, command session, bank store and validator over stdin/stdout, so the real client
+is tested against the real protocol code; without it they skip with a note. `XamlSanityTests` reads the WPF XAML
+as text and checks every resource key, binding name, command and event handler resolves (the windows themselves
+cannot start without Windows). See [Preset Studio](preset-studio.md#510-tests).
 
 ## Key Testing Pitfalls & Gotchas
 

@@ -9,6 +9,7 @@
 #include "../voice/VoiceEditParameters.h"
 #include "../voice/VoicePresets.h"
 #include "../voice/VoiceSystem.h"
+#include "UserPresetStorage.h"
 #include "../pico2seq-core/persistence/PatternCodec.h"
 #include <Arduino.h>
 #include <uClock.h>
@@ -47,6 +48,9 @@ void Session::captureSession(persistence::ProjectSnapshot &out)
         if (config)
             voicecodec::capturePatch(*config, out.patches[v]);
         out.patches[v].presetIndex = uiState.voicePresetIndices[v];
+        // Where a user preset's sound came from, in the patch's two spare bytes (zero = factory).
+        out.patches[v].reserved[0] = UserPresetStorage::sessionTag(uiState, v);
+        out.patches[v].reserved[1] = UserPresetStorage::sessionCheck(uiState, v);
 
         out.settings.editorCursor[v] = static_cast<uint8_t>(uiState.voiceEditor.cursor[v]);
         if (uiState.voiceEditor.changed[v])
@@ -94,6 +98,7 @@ void Session::applyAfterVoices(persistence::ProjectSnapshot &s)
             voiceManager->setVoiceConfig(voiceId, config);
             voiceManager->setVoiceSlide(voiceId, config.slideSeconds);
         }
+        UserPresetStorage::restoreFromSession(uiState, v, s.patches[v].reserved[0], s.patches[v].reserved[1]);
         // Format-1 lanes were patch-relative offsets: resolve to the values heard.
         const VoiceConfig *applied = voiceManager->getVoiceConfig(voiceSystem.getVoiceId(v));
         if (s.laneModel == persistence::LANE_MODEL_OFFSETS && applied)

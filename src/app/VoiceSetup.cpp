@@ -1,9 +1,12 @@
 #include "VoiceSetup.h"
 #include "AppState.h"
 #include "AudioEngine.h"
+#include "UserPresetStorage.h"
+#include "../voice/UserPresetCodec.h"
 #include "../voice/VoicePresets.h"
 #include "../voice/VoiceEditParameters.h"
 #include <Arduino.h>
+#include <cstring>
 
 // One-shot construction: presets → configs → sequencer links → lane maps.
 // Publishing happens later in Application::begin(), after the rest of setup.
@@ -53,6 +56,8 @@ void applyVoicePreset(uint8_t voiceIndex, uint8_t presetIndex)
     {
         voiceManager->setVoiceSlide(voiceId,config.slideSeconds);
         uiState.voiceEditor.changed[voiceIndex]=false;
+        uiState.voiceUserSlot[voiceIndex] = persistence::kNoSlot;
+        uiState.voiceUserName[voiceIndex][0] = '\0';
         Serial.print("Applied preset '");
         Serial.print(VoicePresets::getPresetName(presetIndex));
         Serial.print("' to Voice ");
@@ -62,4 +67,41 @@ void applyVoicePreset(uint8_t voiceIndex, uint8_t presetIndex)
     {
         Serial.println("Failed to apply voice preset");
     }
+}
+
+bool applyUserPreset(uint8_t voiceIndex, uint8_t slot)
+{
+    if (voiceIndex >= VoiceSystem::MAX_VOICES || !voiceManager)
+        return false;
+    // One 256-byte record, read back from flash and checked again: the bank was verified when
+    // it was loaded, but a pad tap should never hand the audio core an unchecked patch.
+    static persistence::UserPresetRecord record;
+    if (UserPresetStorage::store().readSlot(slot, record) != presetlink::UserPresetStore::Result::Ok ||
+        !usercodec::validate(record).ok())
+    {
+        Serial.println("User preset unreadable");
+        return false;
+    }
+    VoiceConfig config;
+    if (!usercodec::toConfig(record, config))
+        return false;
+    VoiceEdit::enablePatch(config);
+    const uint8_t voiceId = voiceSystem.getVoiceId(voiceIndex);
+    if (!voiceManager->setVoiceConfig(voiceId, config))
+    {
+        Serial.println("Failed to apply user preset");
+        return false;
+    }
+    voiceManager->setVoiceSlide(voiceId, config.slideSeconds);
+    // voicePresetIndices keeps the factory base: the song file rebuilds the voice's lanes from it.
+    uiState.voicePresetIndices[voiceIndex] = record.baseIndex;
+    uiState.voiceUserSlot[voiceIndex] = slot;
+    std::strncpy(uiState.voiceUserName[voiceIndex], record.name, sizeof uiState.voiceUserName[voiceIndex] - 1);
+    uiState.voiceUserName[voiceIndex][sizeof uiState.voiceUserName[voiceIndex] - 1] = '\0';
+    uiState.voiceEditor.changed[voiceIndex] = false;
+    Serial.print("Applied user preset '");
+    Serial.print(record.name);
+    Serial.print("' to Voice ");
+    Serial.println(voiceIndex); // 0-based; UI shows 1-based
+    return true;
 }

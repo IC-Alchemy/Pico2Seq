@@ -91,8 +91,14 @@ add_library(pico2seq_persist_code OBJECT
   ${CORE_DIR}/persistence/SnapshotFormat.cpp
   ${CORE_DIR}/persistence/ProjectSnapshot.cpp
   ${CORE_DIR}/persistence/PatternCodec.cpp
+  ${CORE_DIR}/persistence/UserPresetBank.cpp
   ${SRC_DIR}/voice/PatchCodec.cpp
+  ${SRC_DIR}/voice/PatchFields.cpp
+  ${SRC_DIR}/voice/UserPresetCodec.cpp
   ${SRC_DIR}/voice/EffectsCodec.cpp
+  ${SRC_DIR}/presetlink/PresetLinkProtocol.cpp
+  ${SRC_DIR}/presetlink/PresetLinkSession.cpp
+  ${SRC_DIR}/presetlink/UserPresetStore.cpp
 )
 
 # Tuning library, pitch maths and the scale tables (portable, flash tables only): the voices,
@@ -159,6 +165,10 @@ add_executable(pico2seq_tests
   unit/test_voice_edit.cpp
   unit/test_settings_pads.cpp
   unit/test_persistence.cpp
+  unit/test_user_presets.cpp
+  unit/test_preset_link.cpp
+  unit/test_preset_browser.cpp
+  unit/test_preset_resources.cpp
   ${PICO2SEQ_UI_TEST_SOURCES}
   ${PICO2SEQ_VOICE_TEST_SOURCES}
   $<TARGET_OBJECTS:pico2seq_ui_code>
@@ -178,7 +188,8 @@ target_include_directories(pico2seq_tests PRIVATE
 
 find_package(Threads REQUIRED)
 target_link_libraries(pico2seq_tests PRIVATE Catch2::Catch2WithMain Threads::Threads)
-target_compile_definitions(pico2seq_tests PRIVATE AUG_DEBUG_COMPILED=0)
+target_compile_definitions(pico2seq_tests PRIVATE AUG_DEBUG_COMPILED=0
+  PICO2SEQ_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 
 target_compile_options(pico2seq_tests PRIVATE
   -Wall
@@ -272,6 +283,21 @@ target_link_libraries(py32_button_tests PRIVATE Catch2::Catch2WithMain)
 target_compile_options(py32_button_tests PRIVATE -Wall -Wno-unused-parameter
   -Wno-unused-function -Wno-unused-variable -x c++)
 catch_discover_tests(py32_button_tests TEST_PREFIX "py32-button: ")
+
+# The firmware's preset link as a host process, for the PC editor's end-to-end tests
+# (tools/PresetStudio): same parser, session, store and validator as the firmware, with a
+# file for flash and plain voices. Built with the suites so the C# tests can find it.
+add_executable(preset_link_sim
+  tools/preset_link_sim.cpp
+  unit/test_helpers.cpp
+  $<TARGET_OBJECTS:pico2seq_persist_code>
+  $<TARGET_OBJECTS:pico2seq_voice_code>
+  $<TARGET_OBJECTS:pico2seq_tuning_code>)
+target_include_directories(preset_link_sim PRIVATE
+  ${STUB_DIR} ${PROJECT_SOURCE_DIR} ${SRC_DIR} ${CORE_DIR} ${RPDSP_DIR})
+target_link_libraries(preset_link_sim PRIVATE Threads::Threads)
+target_compile_definitions(preset_link_sim PRIVATE AUG_DEBUG_COMPILED=0)
+target_compile_options(preset_link_sim PRIVATE -Wall -Wno-unused-parameter)
 
 # Opt-in throughput measurement; timing thresholds do not belong in CTest.
 add_executable(pico2seq_recipe_benchmark EXCLUDE_FROM_ALL benchmarks/recipe_benchmark.cpp)

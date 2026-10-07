@@ -17,6 +17,18 @@ uint32_t crc32(const uint8_t *data, size_t length) noexcept
     return crc ^ 0xFFFFFFFFu;
 }
 
+void Crc32::update(const uint8_t *data, size_t length) noexcept
+{
+    uint32_t crc = state_;
+    for (size_t i = 0; i < length; ++i)
+    {
+        crc ^= data[i];
+        for (int bit = 0; bit < 8; ++bit)
+            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+    }
+    state_ = crc;
+}
+
 void writeFrameHeader(uint8_t out[12], uint32_t payloadSize, uint32_t payloadCrc) noexcept
 {
     out[0] = static_cast<uint8_t>(SNAPSHOT_MAGIC);

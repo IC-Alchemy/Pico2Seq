@@ -78,7 +78,7 @@ struct UIState
     // the raw 0..31 pad; 0 = press was consumed by a mode, so release ignores it.
     unsigned long padPressTimestamps[NUMBER_OF_STEP_PADS] = {0};
     // --- Transient OLED notice (short confirmation banner; replaces the old control-cluster LED flashes) ---
-    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6, Macro = 7, DelayMix = 8, DelayTime = 9, DelayFeedback = 10, ArpOn = 11, ArpOff = 12, DelaySync = 13, DelayMsMode = 14 };
+    enum class OledNoticeKind : uint8_t { None = 0, Randomized = 1, Saved = 2, Loaded = 3, LoadError = 4, VoiceCleared = 5, AllCleared = 6, Macro = 7, DelayMix = 8, DelayTime = 9, DelayFeedback = 10, ArpOn = 11, ArpOff = 12, DelaySync = 13, DelayMsMode = 14, PresetsReceiving = 15, PresetsSaved = 16, PresetsFailed = 17 };
     volatile unsigned long oledNoticeUntil = 0;
     volatile OledNoticeKind oledNoticeKind = OledNoticeKind::None;
     volatile uint8_t oledNoticeVoice = 0; // 0-based voice, valid for Randomized and VoiceCleared
@@ -124,6 +124,15 @@ struct UIState
     uint8_t settingsSubMenuIndex = 0; // For preset selection
     static constexpr int MAX_VOICES = 4;
     uint8_t voicePresetIndices[MAX_VOICES] = {4, 2, 1, 6}; // Default presets: Square, Bass, Digital, Percussion (indices into VoicePresets)
+    // --- User presets (uploaded from the PC editor) ---
+    // Preset browser page: 0 = factory bank, 1.. = user pages. Stale values (an emptied
+    // page) are clamped to 0 wherever the page is read.
+    uint8_t presetPage = 0;
+    // The user slot each voice's sound was loaded from (255 = a factory preset), and the name
+    // that preset had then. A voice keeps its name and sound if the bank is replaced later;
+    // voicePresetIndices[] then holds the preset it was built on (its factory base).
+    uint8_t voiceUserSlot[MAX_VOICES] = {255, 255, 255, 255};
+    char voiceUserName[MAX_VOICES][16] = {};
     unsigned long playStopPressTime = 0;
     bool playStopWasPressed = false;
 
