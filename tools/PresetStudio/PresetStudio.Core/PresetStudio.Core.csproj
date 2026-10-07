@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>PresetStudio</RootNamespace>
+    <AssemblyName>PresetStudio.Core</AssemblyName>
+    <Description>Pico2Seq Preset Studio engine: patch schema, preset codec, library files and the USB link. No UI.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Generated from the firmware by tests/unit/test_preset_resources.cpp, plus the hand-written help text. -->
+    <EmbeddedResource Include="Resources\*.json" LogicalName="PresetStudio.Resources.%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="PresetStudio.Core.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.IO.Ports" Version="8.0.0" />
+  </ItemGroup>
+</Project>

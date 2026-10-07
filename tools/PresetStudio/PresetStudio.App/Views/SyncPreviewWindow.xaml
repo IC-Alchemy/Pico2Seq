@@ -1,0 +1,57 @@
+<Window x:Class="PresetStudio.App.Views.SyncPreviewWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Send presets to the Pico" Width="760" Height="600" MinWidth="620" MinHeight="420"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{StaticResource WindowBackgroundBrush}" FontFamily="Segoe UI" FontSize="13">
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+            <TextBlock x:Name="HeadlineText" Style="{StaticResource HeadingText}" FontSize="17" TextWrapping="Wrap" />
+            <TextBlock x:Name="CountsText" Margin="0,4,0,0" FontWeight="SemiBold" />
+            <TextBlock x:Name="StorageText" Margin="0,4,0,0" />
+            <Border x:Name="WarningBox" Background="#FFF4E0" CornerRadius="4" Padding="8" Margin="0,8,0,0" Visibility="Collapsed">
+                <TextBlock x:Name="WarningText" Foreground="{StaticResource WarningTextBrush}" TextWrapping="Wrap" />
+            </Border>
+        </StackPanel>
+
+        <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,12,0,12" Padding="0">
+            <ListBox x:Name="ChangeList" BorderThickness="0" Background="Transparent" HorizontalContentAlignment="Stretch"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="6,5">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="28" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding Symbol}" FontSize="18" FontWeight="Bold" Foreground="{Binding Brush}"
+                                       VerticalAlignment="Top" HorizontalAlignment="Center" />
+                            <StackPanel Grid.Column="1">
+                                <TextBlock>
+                                    <Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold" />
+                                    <Run Text="{Binding Place, Mode=OneWay}" Foreground="{StaticResource MutedTextBrush}" />
+                                </TextBlock>
+                                <TextBlock Text="{Binding Detail}" Style="{StaticResource SubtleText}" />
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Border>
+
+        <DockPanel Grid.Row="2">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button x:Name="SendButton" Content="Send to Pico" MinWidth="120" Style="{StaticResource PrimaryButton}" IsDefault="True" Click="Send_Click" />
+                <Button Content="Cancel" MinWidth="90" Style="{StaticResource ToolbarButton}" IsCancel="True" Margin="8,0,0,0" />
+            </StackPanel>
+            <TextBlock Style="{StaticResource SubtleText}" FontSize="11" VerticalAlignment="Center" Margin="0,0,16,0"
+                       Text="The Pico stops playing for about a second while it saves, then carries on. If anything goes wrong, its previous presets are kept." />
+        </DockPanel>
+    </Grid>
+</Window>

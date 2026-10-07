@@ -1,0 +1,418 @@
+<Window x:Class="PresetStudio.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:app="clr-namespace:PresetStudio.App"
+        xmlns:views="clr-namespace:PresetStudio.App.Views"
+        Title="{Binding WindowTitle}"
+        Width="1420" Height="900" MinWidth="1100" MinHeight="700"
+        Background="{StaticResource WindowBackgroundBrush}"
+        FontFamily="Segoe UI" FontSize="13"
+        Closing="Window_Closing">
+
+    <Window.Resources>
+        <app:ParameterTemplateSelector x:Key="ParameterSelector"
+                                       Numeric="{StaticResource NumericParameterTemplate}"
+                                       Toggle="{StaticResource ToggleParameterTemplate}"
+                                       Choice="{StaticResource ChoiceParameterTemplate}" />
+    </Window.Resources>
+
+    <Window.InputBindings>
+        <KeyBinding Key="N" Modifiers="Control" Command="{Binding NewCommand}" />
+        <KeyBinding Key="O" Modifiers="Control" Command="{Binding OpenCommand}" />
+        <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveCommand}" />
+        <KeyBinding Key="S" Modifiers="Control+Shift" Command="{Binding SaveAsCommand}" />
+    </Window.InputBindings>
+
+    <DockPanel>
+
+        <!-- ============ Menu ============ -->
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="_File">
+                <MenuItem Header="_New library" Command="{Binding NewCommand}" InputGestureText="Ctrl+N" />
+                <MenuItem Header="_Open library..." Command="{Binding OpenCommand}" InputGestureText="Ctrl+O" />
+                <MenuItem Header="_Save" Command="{Binding SaveCommand}" InputGestureText="Ctrl+S" />
+                <MenuItem Header="Save _as..." Command="{Binding SaveAsCommand}" InputGestureText="Ctrl+Shift+S" />
+                <Separator />
+                <MenuItem Header="_Import a preset file..." Command="{Binding ImportCommand}" />
+                <MenuItem Header="_Export the selected preset..." Command="{Binding ExportCommand}" />
+                <Separator />
+                <MenuItem Header="E_xit" Click="Exit_Click" />
+            </MenuItem>
+            <MenuItem Header="_Preset">
+                <MenuItem x:Name="NewFromFactoryMenu" Header="_New from a factory preset" />
+                <MenuItem Header="_Duplicate" Command="{Binding DuplicateCommand}" />
+                <MenuItem Header="D_elete" Command="{Binding DeleteCommand}" />
+                <Separator />
+                <MenuItem Header="_Start over from the base preset" Command="{Binding ResetAllCommand}" />
+            </MenuItem>
+            <MenuItem Header="Pi_co">
+                <MenuItem Header="_Connect" Command="{Binding ConnectCommand}" />
+                <MenuItem Header="_Disconnect" Command="{Binding DisconnectCommand}" />
+                <Separator />
+                <MenuItem Header="_Load presets from the Pico..." Command="{Binding PullCommand}" />
+                <MenuItem Header="_Send presets to the Pico..." Command="{Binding PushCommand}" />
+                <Separator />
+                <MenuItem Header="_Play the selected preset now" Command="{Binding AuditionCommand}" />
+                <MenuItem Header="_Grab the sound playing on voice">
+                    <MenuItem Header="Voice _1" Command="{Binding GrabCommand}" CommandParameter="1" />
+                    <MenuItem Header="Voice _2" Command="{Binding GrabCommand}" CommandParameter="2" />
+                    <MenuItem Header="Voice _3" Command="{Binding GrabCommand}" CommandParameter="3" />
+                    <MenuItem Header="Voice _4" Command="{Binding GrabCommand}" CommandParameter="4" />
+                </MenuItem>
+            </MenuItem>
+            <MenuItem Header="_Help">
+                <MenuItem Header="_Quick start..." Command="{Binding QuickStartCommand}" />
+            </MenuItem>
+        </Menu>
+
+        <!-- ============ Toolbar ============ -->
+        <Border DockPanel.Dock="Top" Background="White" BorderBrush="{StaticResource CardBorderBrush}"
+                BorderThickness="0,0,0,1" Padding="10,6">
+            <WrapPanel Orientation="Horizontal">
+                <StackPanel Orientation="Horizontal" Margin="0,2,18,2">
+                    <Button Content="New" Command="{Binding NewCommand}" Style="{StaticResource ToolbarButton}" />
+                    <Button Content="Open..." Command="{Binding OpenCommand}" Style="{StaticResource ToolbarButton}" />
+                    <Button Content="Save" Command="{Binding SaveCommand}" Style="{StaticResource ToolbarButton}" />
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Margin="0,2,18,2">
+                    <Ellipse Width="10" Height="10" Margin="0,0,8,0" VerticalAlignment="Center"
+                             ToolTip="{Binding ConnectionText}">
+                        <Ellipse.Style>
+                            <Style TargetType="Ellipse">
+                                <Setter Property="Fill" Value="#B0B5BF" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                        <Setter Property="Fill" Value="{StaticResource GoodBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Ellipse.Style>
+                    </Ellipse>
+                    <ComboBox Width="120" ItemsSource="{Binding Ports}" SelectedItem="{Binding SelectedPort, Mode=TwoWay}"
+                              IsEnabled="{Binding IsConnected, Converter={StaticResource InverseBool}}"
+                              ToolTip="The Pico's USB serial port. Auto-detect tries each port and uses the one that answers." />
+                    <Button Content="&#x27F3;" Command="{Binding RefreshPortsCommand}" Style="{StaticResource ToolbarButton}"
+                            ToolTip="Look for serial ports again" />
+                    <Button Content="Connect" Command="{Binding ConnectCommand}" Style="{StaticResource ToolbarButton}" />
+                    <Button Content="Disconnect" Command="{Binding DisconnectCommand}" Style="{StaticResource ToolbarButton}" />
+                    <Button Content="Load from Pico" Command="{Binding PullCommand}" Style="{StaticResource ToolbarButton}"
+                            ToolTip="Replace this window's presets with the ones stored on the Pico" />
+                    <Button Content="Send to Pico" Command="{Binding PushCommand}" Style="{StaticResource PrimaryButton}"
+                            ToolTip="Write this library to the Pico's preset pages" />
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                    <TextBlock Text="Play on voice" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <ComboBox Width="52" ItemsSource="{Binding Voices}" SelectedItem="{Binding AuditionVoice, Mode=TwoWay}" />
+                    <CheckBox Content="Live" Margin="10,0,4,0" VerticalAlignment="Center"
+                              IsChecked="{Binding LiveAudition, Mode=TwoWay}"
+                              ToolTip="While on, the selected preset plays on that voice of the Pico as you change it, and when you pick another preset." />
+                    <Button Content="Play now" Command="{Binding AuditionCommand}" Style="{StaticResource ToolbarButton}" />
+                </StackPanel>
+            </WrapPanel>
+        </Border>
+
+        <!-- ============ Status bar ============ -->
+        <StatusBar DockPanel.Dock="Bottom">
+            <StatusBar.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <DockPanel LastChildFill="True" />
+                </ItemsPanelTemplate>
+            </StatusBar.ItemsPanel>
+            <StatusBarItem DockPanel.Dock="Right"
+                           Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding ProgressText}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                    <ProgressBar Width="200" Height="12" Minimum="0" Maximum="1" Value="{Binding Progress, Mode=OneWay}" />
+                </StackPanel>
+            </StatusBarItem>
+            <StatusBarItem DockPanel.Dock="Right">
+                <TextBlock Text="{Binding ConnectionText}" Foreground="{StaticResource MutedTextBrush}" />
+            </StatusBarItem>
+            <StatusBarItem>
+                <TextBlock Text="{Binding Status}" TextTrimming="CharacterEllipsis" />
+            </StatusBarItem>
+        </StatusBar>
+
+        <!-- ============ Body ============ -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="285" />
+                <ColumnDefinition Width="*" MinWidth="520" />
+                <ColumnDefinition Width="410" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Library list -->
+            <Border Grid.Column="0" Style="{StaticResource Card}" Margin="8,8,4,8">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <TextBlock Text="Presets" Style="{StaticResource HeadingText}" />
+                        <TextBlock Style="{StaticResource SubtleText}" FontSize="11"
+                                   Text="{Binding Presets.Count, StringFormat='{}{0} in this library · the Pico holds up to 62'}" />
+                    </StackPanel>
+                    <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                        <Button Content="&#xFF0B; New preset from factory sound..." Click="AddPreset_Click"
+                                Style="{StaticResource PrimaryButton}" Margin="0,0,0,6" />
+                        <UniformGrid Columns="2">
+                            <Button Content="Duplicate" Command="{Binding DuplicateCommand}" Style="{StaticResource ToolbarButton}" Margin="0,0,3,0" />
+                            <Button Content="Delete" Command="{Binding DeleteCommand}" Style="{StaticResource ToolbarButton}" Margin="3,0,0,0" />
+                        </UniformGrid>
+                    </StackPanel>
+                    <TextBlock DockPanel.Dock="Top" Style="{StaticResource SubtleText}" Margin="0,8"
+                               Visibility="{Binding Presets.Count, Converter={StaticResource CountToVisibility}, ConverterParameter=invert}"
+                               Text="No presets yet. Click the blue button below and pick the factory sound that is closest to what you want, then change it. Or use File &#x2192; Open to load a library, or Pico &#x2192; Load to read the Pico's presets." />
+                    <ListBox ItemsSource="{Binding Presets}" SelectedItem="{Binding SelectedPreset, Mode=TwoWay}"
+                             HorizontalContentAlignment="Stretch" BorderThickness="0" Background="Transparent"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="2,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="24" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Width="16" Height="16" CornerRadius="4" VerticalAlignment="Center"
+                                            Background="{Binding Color, Converter={StaticResource RgbToBrush}}"
+                                            BorderBrush="#40000000" BorderThickness="1" />
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Foreground="{StaticResource MutedTextBrush}" FontSize="11" TextTrimming="CharacterEllipsis">
+                                            <Run Text="{Binding Place, Mode=OneWay}" /><Run Text=" &#xB7; " /><Run Text="{Binding BaseName, Mode=OneWay}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="2" Text="&#x26A0;" Foreground="{StaticResource ErrorBrush}" VerticalAlignment="Center"
+                                               ToolTip="This preset has a problem the Pico would refuse. Select it to see which value."
+                                               Visibility="{Binding HasErrors, Converter={StaticResource BoolToVisibility}}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <!-- Editor -->
+            <Grid Grid.Column="1" Margin="4,8,4,8">
+                <TextBlock Text="Select a preset on the left, or add one." Style="{StaticResource SubtleText}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="15"
+                           Visibility="{Binding Editor, Converter={StaticResource NullToVisibility}, ConverterParameter=invert}" />
+
+                <DockPanel Visibility="{Binding Editor, Converter={StaticResource NullToVisibility}}">
+
+                    <!-- Identity -->
+                    <Border DockPanel.Dock="Top" Style="{StaticResource Card}">
+                        <StackPanel>
+                            <WrapPanel Orientation="Horizontal">
+                                <StackPanel Margin="0,0,14,8" Width="200">
+                                    <TextBlock Text="Name (up to 15 characters)" Style="{StaticResource FieldLabel}" />
+                                    <TextBox MaxLength="15" Tag="name" GotKeyboardFocus="Identity_Focus" MouseEnter="Identity_Focus"
+                                             Text="{Binding Editor.Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,14,8">
+                                    <TextBlock Text="LED colour" Style="{StaticResource FieldLabel}" />
+                                    <StackPanel Orientation="Horizontal">
+                                        <ToggleButton x:Name="ColorButton" Width="34" Height="26" Padding="3" Tag="color"
+                                                      GotKeyboardFocus="Identity_Focus" MouseEnter="Identity_Focus"
+                                                      ToolTip="Pick the colour this preset's pad lights up on the Pico">
+                                            <Border CornerRadius="3" BorderBrush="#40000000" BorderThickness="1"
+                                                    Background="{Binding Editor.Color, Converter={StaticResource RgbToBrush}}" />
+                                        </ToggleButton>
+                                        <TextBox Width="80" Margin="6,0,0,0" MaxLength="7" Tag="color"
+                                                 GotKeyboardFocus="Identity_Focus" MouseEnter="Identity_Focus"
+                                                 Text="{Binding Editor.ColorHex, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
+                                        <Popup IsOpen="{Binding IsChecked, ElementName=ColorButton, Mode=TwoWay}"
+                                               PlacementTarget="{Binding ElementName=ColorButton}" Placement="Bottom"
+                                               StaysOpen="False" AllowsTransparency="True">
+                                            <Border Style="{StaticResource Card}" Padding="12" Margin="0,4,12,12" BorderThickness="1">
+                                                <Border.Effect>
+                                                    <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.25" />
+                                                </Border.Effect>
+                                                <views:ColorPickerControl DataContext="{Binding Editor}" />
+                                            </Border>
+                                        </Popup>
+                                    </StackPanel>
+                                </StackPanel>
+                                <StackPanel Margin="0,0,14,8" Width="180">
+                                    <TextBlock Text="Built on" Style="{StaticResource FieldLabel}" />
+                                    <ComboBox ItemsSource="{Binding FactoryPresets}" DisplayMemberPath="Name" SelectedValuePath="Index"
+                                              Tag="base" GotKeyboardFocus="Identity_Focus" MouseEnter="Identity_Focus"
+                                              SelectedValue="{Binding SelectedBaseIndex, Mode=TwoWay}" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,14,8" Width="100">
+                                    <TextBlock Text="Page" Style="{StaticResource FieldLabel}" />
+                                    <ComboBox ItemsSource="{Binding Pages}" DisplayMemberPath="Title" SelectedValuePath="Page"
+                                              Tag="page" GotKeyboardFocus="Identity_Focus" MouseEnter="Identity_Focus"
+                                              SelectedValue="{Binding SelectedPresetPage, Mode=TwoWay}" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,0,8" Width="70">
+                                    <TextBlock Text="Pad" Style="{StaticResource FieldLabel}" />
+                                    <ComboBox ItemsSource="{Binding PadNumbers}"
+                                              Tag="pad" GotKeyboardFocus="Identity_Focus" MouseEnter="Identity_Focus"
+                                              SelectedItem="{Binding SelectedPresetPad, Mode=TwoWay}" />
+                                </StackPanel>
+                            </WrapPanel>
+                            <DockPanel LastChildFill="True">
+                                <Button DockPanel.Dock="Right" Content="Start over from base" Style="{StaticResource ToolbarButton}"
+                                        Command="{Binding ResetAllCommand}"
+                                        ToolTip="Put every value back to the factory preset this one is built on" />
+                                <TextBlock VerticalAlignment="Center" Foreground="{StaticResource MutedTextBrush}">
+                                    <Run Text="{Binding Editor.ChangedCount, Mode=OneWay}" FontWeight="SemiBold" Foreground="{StaticResource WarningTextBrush}" />
+                                    <Run Text=" values changed from " /><Run Text="{Binding Editor.BaseFactory.Name, Mode=OneWay}" FontWeight="SemiBold" />
+                                    <Run Text=" (marked with an amber bar)" />
+                                </TextBlock>
+                            </DockPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Notes -->
+                    <Border DockPanel.Dock="Bottom" Style="{StaticResource Card}" Margin="0,8,0,0" Padding="10,8">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Left" Text="Notes" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                            <TextBox Tag="notes" GotKeyboardFocus="Identity_Focus" MouseEnter="Identity_Focus" MaxHeight="54"
+                                     AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                     Text="{Binding Editor.Notes, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Values -->
+                    <Border Style="{StaticResource Card}" Margin="0,8,0,0" Padding="0">
+                        <TabControl ItemsSource="{Binding Editor.Tabs}" BorderThickness="0" Background="Transparent"
+                                    MouseMove="Params_MouseMove" GotKeyboardFocus="Params_GotFocus" PreviewKeyDown="Params_PreviewKeyDown">
+                            <TabControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal"
+                                                Opacity="{Binding HasEnabled, Converter={StaticResource BoolToOpacity}}">
+                                        <TextBlock Text="{Binding Title}" />
+                                        <Border Background="{StaticResource ChangedBrush}" CornerRadius="8" Margin="6,0,0,0" Padding="5,0"
+                                                Visibility="{Binding HasChanges, Converter={StaticResource BoolToVisibility}}">
+                                            <TextBlock Text="{Binding ChangedCount}" Foreground="White" FontSize="10" FontWeight="SemiBold" />
+                                        </Border>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </TabControl.ItemTemplate>
+                            <TabControl.ContentTemplate>
+                                <DataTemplate>
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                        <StackPanel Margin="14,10,14,14">
+                                            <TextBlock Text="{Binding Summary}" Style="{StaticResource SubtleText}" Margin="0,0,0,10" />
+                                            <ItemsControl ItemsSource="{Binding Sections}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Margin="0,0,0,16"
+                                                                    Opacity="{Binding HasEnabled, Converter={StaticResource BoolToOpacity}}">
+                                                            <TextBlock Text="{Binding Title}" Style="{StaticResource HeadingText}" FontSize="13" Margin="0,0,0,4" />
+                                                            <Border BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="0,1,0,0" Padding="0,4,0,0">
+                                                                <ItemsControl ItemsSource="{Binding Parameters}"
+                                                                              ItemTemplateSelector="{StaticResource ParameterSelector}" />
+                                                            </Border>
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </DataTemplate>
+                            </TabControl.ContentTemplate>
+                        </TabControl>
+                    </Border>
+                </DockPanel>
+            </Grid>
+
+            <!-- Pad grid and help -->
+            <Grid Grid.Column="2" Margin="4,8,8,8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="Preset pages on the Pico" Style="{StaticResource HeadingText}" />
+                        <TextBlock Style="{StaticResource SubtleText}" FontSize="11" Margin="0,2,0,6"
+                                   Text="Each tile is a pad on the 8 × 4 touch grid, lit in the colour you chose. Click an empty pad to move the selected preset there; drag a preset onto a pad to move or swap it." />
+                        <ListBox ItemsSource="{Binding Pages}" SelectedValuePath="Page" DisplayMemberPath="Caption"
+                                 SelectedValue="{Binding ShownPage, Mode=TwoWay}" BorderThickness="0" Background="Transparent" Margin="0,0,0,6">
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" />
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                        </ListBox>
+                        <Border Background="#15151B" CornerRadius="8" Padding="4">
+                            <ItemsControl ItemsSource="{Binding Pads}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <UniformGrid Columns="8" Rows="4" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button Style="{StaticResource PadButton}" Width="44" Height="44"
+                                                Background="{Binding Color, Converter={StaticResource RgbToBrush}}"
+                                                ToolTip="{Binding ToolTip}" AllowDrop="True"
+                                                Click="Pad_Click" Drop="Pad_Drop"
+                                                PreviewMouseLeftButtonDown="Pad_PreviewMouseDown" PreviewMouseMove="Pad_PreviewMouseMove">
+                                            <Grid>
+                                                <TextBlock Text="{Binding Index}" FontSize="8" Opacity="0.6" Margin="3,1,0,0"
+                                                           HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                           Foreground="{Binding UseDarkText, Converter={StaticResource DarkTextToBrush}}" />
+                                                <TextBlock Text="{Binding Label}" FontSize="9.5" TextWrapping="Wrap" TextAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis" Margin="2,9,2,1"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                           Foreground="{Binding UseDarkText, Converter={StaticResource DarkTextToBrush}}" />
+                                                <Border BorderBrush="#222222" BorderThickness="4" CornerRadius="4"
+                                                        Visibility="{Binding IsSelected, Converter={StaticResource BoolToVisibility}}" />
+                                                <Border BorderBrush="White" BorderThickness="2" CornerRadius="3" Margin="1"
+                                                        Visibility="{Binding IsSelected, Converter={StaticResource BoolToVisibility}}" />
+                                            </Grid>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Border>
+                        <TextBlock Style="{StaticResource SubtleText}" FontSize="11" Margin="0,6,0,0"
+                                   Text="On the box the LEDs show an idle preset at about a quarter of this brightness; the one a voice is playing glows at full strength. The grey pad is the page key." />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,8,0,0">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel DataContext="{Binding Help}">
+                            <TextBlock Text="{Binding Title}" Style="{StaticResource HeadingText}" FontSize="17" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding Summary}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,4,0,8" />
+                            <Border Background="#FFF4E0" CornerRadius="4" Padding="8" Margin="0,0,0,8"
+                                    Visibility="{Binding Unavailable, Converter={StaticResource StringToVisibility}}">
+                                <TextBlock Text="{Binding Unavailable}" Foreground="{StaticResource WarningTextBrush}" TextWrapping="Wrap" />
+                            </Border>
+                            <StackPanel Margin="0,0,0,8" Visibility="{Binding HasValue, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Text="{Binding Current}" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding BaseText}" Style="{StaticResource SubtleText}" />
+                                <TextBlock Text="{Binding Range}" Style="{StaticResource SubtleText}"
+                                           Visibility="{Binding Range, Converter={StaticResource StringToVisibility}}" />
+                                <TextBlock Text="{Binding Hint}" Style="{StaticResource SubtleText}"
+                                           Visibility="{Binding Hint, Converter={StaticResource StringToVisibility}}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" LineHeight="19" />
+                            <ItemsControl ItemsSource="{Binding Tips}" Margin="0,10,0,0"
+                                          Visibility="{Binding HasTips, Converter={StaticResource BoolToVisibility}}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="16" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="&#x2022;" Foreground="{StaticResource MutedTextBrush}" />
+                                            <TextBlock Grid.Column="1" Text="{Binding}" TextWrapping="Wrap" Foreground="{StaticResource MutedTextBrush}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Border>
+            </Grid>
+        </Grid>
+    </DockPanel>
+</Window>

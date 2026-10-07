@@ -1,0 +1,46 @@
+<Window x:Class="PresetStudio.App.Views.QuickStartWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Quick start" Width="680" Height="640" MinWidth="520" MinHeight="420"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{StaticResource WindowBackgroundBrush}" FontFamily="Segoe UI" FontSize="13">
+    <DockPanel Margin="20">
+        <Button DockPanel.Dock="Bottom" Content="Got it" MinWidth="90" HorizontalAlignment="Right" Margin="0,14,0,0"
+                Style="{StaticResource PrimaryButton}" IsDefault="True" IsCancel="True" />
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Text="Pico2Seq Preset Studio" Style="{StaticResource HeadingText}" FontSize="20" />
+                <TextBlock Style="{StaticResource SubtleText}" Margin="0,2,0,14"
+                           Text="Design your own voice presets on the computer and send them to the Pico over USB." />
+
+                <TextBlock Text="1  Connect" Style="{StaticResource HeadingText}" />
+                <TextBlock TextWrapping="Wrap" LineHeight="19" Margin="0,2,0,12"
+                           Text="Plug the Pico into your computer with a USB data cable (the same one you use to program it). The firmware must include the preset link (a build from this repository). Choose Auto-detect in the toolbar and click Connect. No driver is needed. Close the Arduino serial monitor first: only one program can use the port." />
+
+                <TextBlock Text="2  Make a preset" Style="{StaticResource HeadingText}" />
+                <TextBlock TextWrapping="Wrap" LineHeight="19" Margin="0,2,0,12"
+                           Text="Click the blue button on the left and pick the factory sound closest to what you want. Every value of the sound is on the tabs in the middle; point at one to read what it does in the panel on the right. A value you change gets an amber bar so you can see what you have altered, and the small arrow puts it back." />
+
+                <TextBlock Text="3  Hear it" Style="{StaticResource HeadingText}" />
+                <TextBlock TextWrapping="Wrap" LineHeight="19" Margin="0,2,0,12"
+                           Text="Turn on Live in the toolbar and choose a voice. The selected preset now plays on that voice of the Pico as you move the sliders. Start the sequencer on the box to hear it in your pattern. Picking a different preset in the list plays that one instead. Voice sounds you tweak with the box's own knobs can be brought back with Pico → Grab the sound playing on voice." />
+
+                <TextBlock Text="4  Name it, colour it, place it" Style="{StaticResource HeadingText}" />
+                <TextBlock TextWrapping="Wrap" LineHeight="19" Margin="0,2,0,12"
+                           Text="Give the preset a short name (up to 15 characters), pick the colour its pad lights up in, and choose its page and pad. The grid on the right mirrors the box's touch pads: click an empty pad to move the selected preset there, or drag presets around to move and swap them. Pad 31 (grey) is the page key on the box and cannot hold a preset." />
+
+                <TextBlock Text="5  Save on your computer, send to the Pico" Style="{StaticResource HeadingText}" />
+                <TextBlock TextWrapping="Wrap" LineHeight="19" Margin="0,2,0,12"
+                           Text="File → Save keeps your library as a .p2lib file. Send to Pico first shows exactly what will change, then writes your presets to the Pico's flash. They are still there after power-off. The Pico pauses its sequencer for about a second while it saves. Load from Pico reads whatever is on the box back into the editor, so you can carry on from another computer." />
+
+                <TextBlock Text="6  Use them on the box" Style="{StaticResource HeadingText}" />
+                <TextBlock TextWrapping="Wrap" LineHeight="19" Margin="0,2,0,12"
+                           Text="Stop the transport (or long-press Play) to open the preset browser. The first page is the factory bank. Press pad 31 to flip to your pages; your presets light up in the colours you chose. Choose a voice with V1 to V4 and tap a pad to load that preset on it." />
+
+                <TextBlock Text="If something does not work" Style="{StaticResource HeadingText}" />
+                <TextBlock TextWrapping="Wrap" LineHeight="19" Margin="0,2,0,0"
+                           Text="No Pico found: check the cable, close other programs using the port, and make sure the firmware is a recent build. 'Older layout' or 'newer layout' messages mean Preset Studio and the firmware were built from different versions; update whichever is older. The Pico always keeps its previous presets if a transfer fails." />
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

@@ -1,0 +1,126 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:app="clr-namespace:PresetStudio.App">
+
+    <!-- Colours -->
+    <Color x:Key="AccentColor">#2F6FEB</Color>
+    <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
+    <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#F3F4F7" />
+    <SolidColorBrush x:Key="CardBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="CardBorderBrush" Color="#D9DCE3" />
+    <SolidColorBrush x:Key="TextBrush" Color="#1F2430" />
+    <SolidColorBrush x:Key="MutedTextBrush" Color="#667085" />
+    <SolidColorBrush x:Key="ChangedBrush" Color="#F59E0B" />
+    <SolidColorBrush x:Key="WarningTextBrush" Color="#B45309" />
+    <SolidColorBrush x:Key="ErrorBrush" Color="#D92D20" />
+    <SolidColorBrush x:Key="GoodBrush" Color="#16A34A" />
+    <SolidColorBrush x:Key="EmptyPadBrush" Color="#22222A" />
+
+    <!-- Converters -->
+    <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    <app:RgbToBrushConverter x:Key="RgbToBrush" />
+    <app:BoolToOpacityConverter x:Key="BoolToOpacity" WhenFalse="0.45" />
+    <app:InverseBooleanConverter x:Key="InverseBool" />
+    <app:CountToVisibilityConverter x:Key="CountToVisibility" />
+    <app:StringToVisibilityConverter x:Key="StringToVisibility" />
+    <app:NullToVisibilityConverter x:Key="NullToVisibility" />
+    <app:DarkTextToBrushConverter x:Key="DarkTextToBrush" />
+
+    <!-- Text -->
+    <Style x:Key="HeadingText" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    </Style>
+    <Style x:Key="SubtleText" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style x:Key="FieldLabel" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Margin" Value="0,0,0,2" />
+    </Style>
+
+    <!-- Cards -->
+    <Style x:Key="Card" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource CardBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Padding" Value="12" />
+    </Style>
+
+    <!-- Buttons -->
+    <Style x:Key="ToolbarButton" TargetType="Button">
+        <Setter Property="Padding" Value="10,5" />
+        <Setter Property="Margin" Value="2,0" />
+        <Setter Property="MinHeight" Value="28" />
+    </Style>
+
+    <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource ToolbarButton}">
+        <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="4"
+                            Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="Opacity" Value="0.88" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Chrome" Property="Opacity" Value="0.4" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="ResetButton" TargetType="Button">
+        <Setter Property="Width" Value="22" />
+        <Setter Property="Height" Value="22" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Content" Value="&#x21BA;" />
+        <Setter Property="ToolTip" Value="Put this value back to the base preset's" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Foreground" Value="{StaticResource WarningTextBrush}" />
+    </Style>
+
+    <!-- A pad of the 8 x 4 grid. The background is the preset's LED colour. -->
+    <Style x:Key="PadButton" TargetType="Button">
+        <Setter Property="Margin" Value="2" />
+        <Setter Property="Padding" Value="2" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Chrome" Background="{TemplateBinding Background}"
+                            BorderBrush="Transparent" BorderThickness="2" CornerRadius="5" SnapsToDevicePixels="True">
+                        <ContentPresenter />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="#99FFFFFF" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="TextBox">
+        <Setter Property="Padding" Value="4,3" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style TargetType="ComboBox">
+        <Setter Property="Padding" Value="6,3" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+</ResourceDictionary>

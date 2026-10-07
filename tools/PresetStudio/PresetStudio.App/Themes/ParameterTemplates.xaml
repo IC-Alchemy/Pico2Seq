@@ -1,0 +1,92 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:ed="clr-namespace:PresetStudio.Editing;assembly=PresetStudio.Core">
+
+    <ResourceDictionary.MergedDictionaries>
+        <!-- Merged dictionaries cannot see each other's keys, so this one brings in the styles it uses. -->
+        <ResourceDictionary Source="Styles.xaml" />
+    </ResourceDictionary.MergedDictionaries>
+
+    <!--
+        One row per value. The amber bar on the left says "changed from the base preset";
+        a dimmed row is a value that does not apply to the preset as it is now (hover for why).
+        The three templates are chosen by ParameterTemplateSelector.
+    -->
+
+    <DataTemplate x:Key="NumericParameterTemplate" DataType="{x:Type ed:ParameterViewModel}">
+        <Grid Margin="0,3" Background="Transparent"
+              Opacity="{Binding IsEnabled, Converter={StaticResource BoolToOpacity}}"
+              ToolTip="{Binding DisabledReason}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="8" />
+                <ColumnDefinition Width="200" />
+                <ColumnDefinition Width="*" MinWidth="140" />
+                <ColumnDefinition Width="92" />
+                <ColumnDefinition Width="28" />
+            </Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Width="3" CornerRadius="1.5" HorizontalAlignment="Left" Margin="0,2"
+                    Background="{StaticResource ChangedBrush}"
+                    Visibility="{Binding IsChanged, Converter={StaticResource BoolToVisibility}}" />
+            <TextBlock Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" Margin="0,0,8,0" />
+            <Slider Grid.Column="2" Minimum="0" Maximum="1" SmallChange="0.005" LargeChange="0.05"
+                    IsMoveToPointEnabled="True" VerticalAlignment="Center" Margin="0,0,10,0"
+                    IsEnabled="{Binding IsEnabled}"
+                    Value="{Binding SliderPosition, Mode=TwoWay}" />
+            <TextBox Grid.Column="3" HorizontalContentAlignment="Right"
+                     IsEnabled="{Binding IsEnabled}"
+                     Text="{Binding EditText, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
+            <Button Grid.Column="4" Style="{StaticResource ResetButton}" Margin="4,0,0,0"
+                    Command="{Binding ResetCommand}"
+                    Visibility="{Binding IsChanged, Converter={StaticResource BoolToVisibility}}" />
+        </Grid>
+    </DataTemplate>
+
+    <DataTemplate x:Key="ToggleParameterTemplate" DataType="{x:Type ed:ParameterViewModel}">
+        <Grid Margin="0,3" Background="Transparent"
+              Opacity="{Binding IsEnabled, Converter={StaticResource BoolToOpacity}}"
+              ToolTip="{Binding DisabledReason}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="8" />
+                <ColumnDefinition Width="200" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="28" />
+            </Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Width="3" CornerRadius="1.5" HorizontalAlignment="Left" Margin="0,2"
+                    Background="{StaticResource ChangedBrush}"
+                    Visibility="{Binding IsChanged, Converter={StaticResource BoolToVisibility}}" />
+            <TextBlock Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" Margin="0,0,8,0" />
+            <CheckBox Grid.Column="2" VerticalAlignment="Center" IsEnabled="{Binding IsEnabled}"
+                      IsChecked="{Binding BoolValue, Mode=TwoWay}" Content="{Binding Text}" />
+            <Button Grid.Column="3" Style="{StaticResource ResetButton}" Margin="4,0,0,0"
+                    Command="{Binding ResetCommand}"
+                    Visibility="{Binding IsChanged, Converter={StaticResource BoolToVisibility}}" />
+        </Grid>
+    </DataTemplate>
+
+    <DataTemplate x:Key="ChoiceParameterTemplate" DataType="{x:Type ed:ParameterViewModel}">
+        <Grid Margin="0,3" Background="Transparent"
+              Opacity="{Binding IsEnabled, Converter={StaticResource BoolToOpacity}}"
+              ToolTip="{Binding DisabledReason}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="8" />
+                <ColumnDefinition Width="200" />
+                <ColumnDefinition Width="200" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="28" />
+            </Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Width="3" CornerRadius="1.5" HorizontalAlignment="Left" Margin="0,2"
+                    Background="{StaticResource ChangedBrush}"
+                    Visibility="{Binding IsChanged, Converter={StaticResource BoolToVisibility}}" />
+            <TextBlock Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" Margin="0,0,8,0" />
+            <ComboBox Grid.Column="2" IsEnabled="{Binding IsEnabled}"
+                      ItemsSource="{Binding Choices}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                      SelectedValue="{Binding SelectedChoice, Mode=TwoWay}" />
+            <Button Grid.Column="4" Style="{StaticResource ResetButton}" Margin="4,0,0,0"
+                    Command="{Binding ResetCommand}"
+                    Visibility="{Binding IsChanged, Converter={StaticResource BoolToVisibility}}" />
+        </Grid>
+    </DataTemplate>
+</ResourceDictionary>

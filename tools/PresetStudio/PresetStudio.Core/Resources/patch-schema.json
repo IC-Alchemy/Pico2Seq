@@ -1,0 +1,1248 @@
+{
+  "format": "pico2seq-patch-schema",
+  "layoutVersion": 1,
+  "tableHash": 3442168243,
+  "recordSize": 256,
+  "recordHeaderSize": 24,
+  "patchSize": 232,
+  "nameSize": 16,
+  "presetNameMaxLength": 15,
+  "record": {
+    "nameOffset": 0,
+    "pageOffset": 16,
+    "padOffset": 17,
+    "baseIndexOffset": 18,
+    "colorOffset": 19,
+    "patchOffset": 24,
+    "paramSetOffset": 246,
+    "presetIndexOffset": 249,
+    "flagsOffset": 253,
+    "usePatchBasesMask": 1
+  },
+  "browser": {
+    "factoryPage": 0,
+    "firstUserPage": 1,
+    "userPages": 2,
+    "padsPerPage": 31,
+    "pageKeyPad": 31,
+    "gridWidth": 8,
+    "gridHeight": 4,
+    "maxPresets": 62,
+    "maxBankBytes": 15888
+  },
+  "paramSets": {
+    "standard": 0,
+    "waveguide": 1,
+    "hypersaw": 2,
+    "noisestorm": 3,
+    "hardsync": 4
+  },
+  "waveforms": {
+    "hardSyncSaw": 6,
+    "square": 3,
+    "bandLimitedSquare": 5,
+    "noise": 255
+  },
+  "engines": {
+    "osc": 0,
+    "waveguide": 1,
+    "noisefx": 2,
+    "hypersaw": 3,
+    "recipe": 4
+  },
+  "groups": [
+    {
+      "id": "Sequenced",
+      "label": "Sequenced bases"
+    },
+    {
+      "id": "Source",
+      "label": "Source"
+    },
+    {
+      "id": "Osc1",
+      "label": "Oscillator 1"
+    },
+    {
+      "id": "Osc2",
+      "label": "Oscillator 2"
+    },
+    {
+      "id": "Osc3",
+      "label": "Oscillator 3"
+    },
+    {
+      "id": "Envelope",
+      "label": "Envelope"
+    },
+    {
+      "id": "Filter",
+      "label": "Main filter"
+    },
+    {
+      "id": "HighPass",
+      "label": "High-pass"
+    },
+    {
+      "id": "Drive",
+      "label": "Overdrive"
+    },
+    {
+      "id": "Engine",
+      "label": "Engine"
+    },
+    {
+      "id": "Output",
+      "label": "Output"
+    }
+  ],
+  "fields": [
+    {
+      "key": "base.note",
+      "label": "Note",
+      "group": "Sequenced",
+      "offset": 0,
+      "type": "float",
+      "mask": 0,
+      "unit": "Number",
+      "integer": false,
+      "min": 0,
+      "max": 36,
+      "log": false,
+      "show": "always"
+    },
+    {
+      "key": "base.velocity",
+      "label": "Velocity",
+      "group": "Sequenced",
+      "offset": 4,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "always"
+    },
+    {
+      "key": "base.octave",
+      "label": "Octave",
+      "group": "Sequenced",
+      "offset": 8,
+      "type": "float",
+      "mask": 0,
+      "unit": "Semitones",
+      "integer": false,
+      "min": -24,
+      "max": 24,
+      "log": false,
+      "show": "always"
+    },
+    {
+      "key": "base.gateLength",
+      "label": "Gate length",
+      "group": "Sequenced",
+      "offset": 12,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0.00100000005,
+      "max": 1,
+      "log": false,
+      "show": "always"
+    },
+    {
+      "key": "base.gate",
+      "label": "Gate enable",
+      "group": "Sequenced",
+      "offset": 229,
+      "type": "flag",
+      "mask": 2,
+      "unit": "Toggle",
+      "integer": true,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "always"
+    },
+    {
+      "key": "base.slide",
+      "label": "Slide enable",
+      "group": "Sequenced",
+      "offset": 229,
+      "type": "flag",
+      "mask": 4,
+      "unit": "Toggle",
+      "integer": true,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "always"
+    },
+    {
+      "key": "base.glide",
+      "label": "Glide time",
+      "group": "Sequenced",
+      "offset": 16,
+      "type": "float",
+      "mask": 0,
+      "unit": "Seconds",
+      "integer": false,
+      "min": 0.00100000005,
+      "max": 10,
+      "log": true,
+      "show": "always"
+    },
+    {
+      "key": "source.engine",
+      "label": "Engine",
+      "group": "Source",
+      "offset": 221,
+      "type": "byte",
+      "mask": 0,
+      "unit": "Choice",
+      "integer": true,
+      "min": 0,
+      "max": 4,
+      "log": false,
+      "show": "always",
+      "choices": [
+        {
+          "value": 0,
+          "label": "Oscillators"
+        },
+        {
+          "value": 1,
+          "label": "Waveguide"
+        },
+        {
+          "value": 2,
+          "label": "Noise FX"
+        },
+        {
+          "value": 3,
+          "label": "Hypersaw"
+        },
+        {
+          "value": 4,
+          "label": "Recipe"
+        }
+      ]
+    },
+    {
+      "key": "source.oscCount",
+      "label": "Oscillators",
+      "group": "Source",
+      "offset": 220,
+      "type": "byte",
+      "mask": 0,
+      "unit": "Number",
+      "integer": true,
+      "min": 0,
+      "max": 3,
+      "log": false,
+      "show": "engine=osc"
+    },
+    {
+      "key": "osc1.wave",
+      "label": "Waveform",
+      "group": "Osc1",
+      "offset": 226,
+      "type": "byte",
+      "mask": 0,
+      "unit": "Choice",
+      "integer": true,
+      "min": 0,
+      "max": 255,
+      "log": false,
+      "show": "osc>=1",
+      "choices": [
+        {
+          "value": 0,
+          "label": "Sine"
+        },
+        {
+          "value": 1,
+          "label": "Triangle"
+        },
+        {
+          "value": 2,
+          "label": "Saw"
+        },
+        {
+          "value": 3,
+          "label": "Square"
+        },
+        {
+          "value": 4,
+          "label": "BS Saw"
+        },
+        {
+          "value": 5,
+          "label": "BS Square"
+        },
+        {
+          "value": 6,
+          "label": "Hard sync"
+        },
+        {
+          "value": 255,
+          "label": "Noise"
+        }
+      ]
+    },
+    {
+      "key": "osc1.level",
+      "label": "Level",
+      "group": "Osc1",
+      "offset": 20,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "osc>=1"
+    },
+    {
+      "key": "osc1.detune",
+      "label": "Detune",
+      "group": "Osc1",
+      "offset": 32,
+      "type": "float",
+      "mask": 0,
+      "unit": "Semitones",
+      "integer": false,
+      "min": -12,
+      "max": 12,
+      "log": false,
+      "show": "osc>=1"
+    },
+    {
+      "key": "osc1.pulse",
+      "label": "Pulse width",
+      "group": "Osc1",
+      "offset": 44,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0.00999999978,
+      "max": 0.99000001,
+      "log": false,
+      "show": "pulse1"
+    },
+    {
+      "key": "osc1.harmony",
+      "label": "Harmony",
+      "group": "Osc1",
+      "offset": 56,
+      "type": "int32",
+      "mask": 0,
+      "unit": "Number",
+      "integer": true,
+      "min": -12,
+      "max": 12,
+      "log": false,
+      "show": "harmony1"
+    },
+    {
+      "key": "osc2.wave",
+      "label": "Waveform",
+      "group": "Osc2",
+      "offset": 227,
+      "type": "byte",
+      "mask": 0,
+      "unit": "Choice",
+      "integer": true,
+      "min": 0,
+      "max": 255,
+      "log": false,
+      "show": "osc>=2",
+      "choices": [
+        {
+          "value": 0,
+          "label": "Sine"
+        },
+        {
+          "value": 1,
+          "label": "Triangle"
+        },
+        {
+          "value": 2,
+          "label": "Saw"
+        },
+        {
+          "value": 3,
+          "label": "Square"
+        },
+        {
+          "value": 4,
+          "label": "BS Saw"
+        },
+        {
+          "value": 5,
+          "label": "BS Square"
+        },
+        {
+          "value": 6,
+          "label": "Hard sync"
+        },
+        {
+          "value": 255,
+          "label": "Noise"
+        }
+      ]
+    },
+    {
+      "key": "osc2.level",
+      "label": "Level",
+      "group": "Osc2",
+      "offset": 24,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "osc>=2"
+    },
+    {
+      "key": "osc2.detune",
+      "label": "Detune",
+      "group": "Osc2",
+      "offset": 36,
+      "type": "float",
+      "mask": 0,
+      "unit": "Semitones",
+      "integer": false,
+      "min": -12,
+      "max": 12,
+      "log": false,
+      "show": "osc>=2"
+    },
+    {
+      "key": "osc2.pulse",
+      "label": "Pulse width",
+      "group": "Osc2",
+      "offset": 48,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0.00999999978,
+      "max": 0.99000001,
+      "log": false,
+      "show": "pulse2"
+    },
+    {
+      "key": "osc2.harmony",
+      "label": "Harmony",
+      "group": "Osc2",
+      "offset": 60,
+      "type": "int32",
+      "mask": 0,
+      "unit": "Number",
+      "integer": true,
+      "min": -12,
+      "max": 12,
+      "log": false,
+      "show": "osc>=2"
+    },
+    {
+      "key": "osc3.wave",
+      "label": "Waveform",
+      "group": "Osc3",
+      "offset": 228,
+      "type": "byte",
+      "mask": 0,
+      "unit": "Choice",
+      "integer": true,
+      "min": 0,
+      "max": 255,
+      "log": false,
+      "show": "osc>=3",
+      "choices": [
+        {
+          "value": 0,
+          "label": "Sine"
+        },
+        {
+          "value": 1,
+          "label": "Triangle"
+        },
+        {
+          "value": 2,
+          "label": "Saw"
+        },
+        {
+          "value": 3,
+          "label": "Square"
+        },
+        {
+          "value": 4,
+          "label": "BS Saw"
+        },
+        {
+          "value": 5,
+          "label": "BS Square"
+        },
+        {
+          "value": 6,
+          "label": "Hard sync"
+        },
+        {
+          "value": 255,
+          "label": "Noise"
+        }
+      ]
+    },
+    {
+      "key": "osc3.level",
+      "label": "Level",
+      "group": "Osc3",
+      "offset": 28,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "osc>=3"
+    },
+    {
+      "key": "osc3.detune",
+      "label": "Detune",
+      "group": "Osc3",
+      "offset": 40,
+      "type": "float",
+      "mask": 0,
+      "unit": "Semitones",
+      "integer": false,
+      "min": -12,
+      "max": 12,
+      "log": false,
+      "show": "osc>=3"
+    },
+    {
+      "key": "osc3.pulse",
+      "label": "Pulse width",
+      "group": "Osc3",
+      "offset": 52,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0.00999999978,
+      "max": 0.99000001,
+      "log": false,
+      "show": "pulse3"
+    },
+    {
+      "key": "osc3.harmony",
+      "label": "Harmony",
+      "group": "Osc3",
+      "offset": 64,
+      "type": "int32",
+      "mask": 0,
+      "unit": "Number",
+      "integer": true,
+      "min": -12,
+      "max": 12,
+      "log": false,
+      "show": "osc>=3"
+    },
+    {
+      "key": "env.enabled",
+      "label": "Envelope",
+      "group": "Envelope",
+      "offset": 229,
+      "type": "flag",
+      "mask": 32,
+      "unit": "Toggle",
+      "integer": true,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "always"
+    },
+    {
+      "key": "env.attack",
+      "label": "Attack",
+      "group": "Envelope",
+      "offset": 200,
+      "type": "float",
+      "mask": 0,
+      "unit": "Seconds",
+      "integer": false,
+      "min": 0.00100000005,
+      "max": 10,
+      "log": true,
+      "show": "envelope"
+    },
+    {
+      "key": "env.decay",
+      "label": "Decay",
+      "group": "Envelope",
+      "offset": 204,
+      "type": "float",
+      "mask": 0,
+      "unit": "Seconds",
+      "integer": false,
+      "min": 0.00100000005,
+      "max": 10,
+      "log": true,
+      "show": "envelope"
+    },
+    {
+      "key": "env.sustain",
+      "label": "Sustain",
+      "group": "Envelope",
+      "offset": 208,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "envelope"
+    },
+    {
+      "key": "env.release",
+      "label": "Release",
+      "group": "Envelope",
+      "offset": 212,
+      "type": "float",
+      "mask": 0,
+      "unit": "Seconds",
+      "integer": false,
+      "min": 0.00999999978,
+      "max": 8,
+      "log": true,
+      "show": "envelope"
+    },
+    {
+      "key": "filter.enabled",
+      "label": "Main filter",
+      "group": "Filter",
+      "offset": 229,
+      "type": "flag",
+      "mask": 64,
+      "unit": "Toggle",
+      "integer": true,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "always"
+    },
+    {
+      "key": "filter.type",
+      "label": "Topology",
+      "group": "Filter",
+      "offset": 223,
+      "type": "byte",
+      "mask": 0,
+      "unit": "Choice",
+      "integer": true,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "filter",
+      "choices": [
+        {
+          "value": 0,
+          "label": "Ladder"
+        },
+        {
+          "value": 1,
+          "label": "SVF"
+        }
+      ]
+    },
+    {
+      "key": "filter.mode",
+      "label": "Response",
+      "group": "Filter",
+      "offset": 224,
+      "type": "byte",
+      "mask": 0,
+      "unit": "Choice",
+      "integer": true,
+      "min": 0,
+      "max": 5,
+      "log": false,
+      "show": "filter",
+      "choices": [
+        {
+          "value": 0,
+          "label": "LP24"
+        },
+        {
+          "value": 1,
+          "label": "LP12"
+        },
+        {
+          "value": 2,
+          "label": "BP24"
+        },
+        {
+          "value": 3,
+          "label": "BP12"
+        },
+        {
+          "value": 4,
+          "label": "HP24"
+        },
+        {
+          "value": 5,
+          "label": "HP12"
+        }
+      ]
+    },
+    {
+      "key": "filter.cutoff",
+      "label": "Cutoff",
+      "group": "Filter",
+      "offset": 180,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "filter"
+    },
+    {
+      "key": "filter.resonance",
+      "label": "Resonance",
+      "group": "Filter",
+      "offset": 168,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "filter"
+    },
+    {
+      "key": "filter.drive",
+      "label": "Input drive",
+      "group": "Filter",
+      "offset": 172,
+      "type": "float",
+      "mask": 0,
+      "unit": "Number",
+      "integer": false,
+      "min": 0,
+      "max": 4,
+      "log": false,
+      "show": "ladder"
+    },
+    {
+      "key": "filter.passband",
+      "label": "Passband gain",
+      "group": "Filter",
+      "offset": 176,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 0.5,
+      "log": false,
+      "show": "ladder"
+    },
+    {
+      "key": "filter.envOctaves",
+      "label": "Env octaves",
+      "group": "Filter",
+      "offset": 108,
+      "type": "float",
+      "mask": 0,
+      "unit": "Number",
+      "integer": false,
+      "min": 0,
+      "max": 4,
+      "log": false,
+      "show": "filter"
+    },
+    {
+      "key": "filter.envRest",
+      "label": "Env rest",
+      "group": "Filter",
+      "offset": 112,
+      "type": "float",
+      "mask": 0,
+      "unit": "Number",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "filter"
+    },
+    {
+      "key": "hp.cutoff",
+      "label": "HP cutoff",
+      "group": "HighPass",
+      "offset": 184,
+      "type": "float",
+      "mask": 0,
+      "unit": "Hertz",
+      "integer": false,
+      "min": 0,
+      "max": 20000,
+      "log": true,
+      "show": "always"
+    },
+    {
+      "key": "hp.resonance",
+      "label": "HP resonance",
+      "group": "HighPass",
+      "offset": 188,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "always"
+    },
+    {
+      "key": "drive.enabled",
+      "label": "Overdrive",
+      "group": "Drive",
+      "offset": 229,
+      "type": "flag",
+      "mask": 16,
+      "unit": "Toggle",
+      "integer": true,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "always"
+    },
+    {
+      "key": "drive.amount",
+      "label": "Drive",
+      "group": "Drive",
+      "offset": 196,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "overdrive"
+    },
+    {
+      "key": "drive.gain",
+      "label": "Drive gain",
+      "group": "Drive",
+      "offset": 192,
+      "type": "float",
+      "mask": 0,
+      "unit": "Number",
+      "integer": false,
+      "min": 0,
+      "max": 2,
+      "log": false,
+      "show": "overdrive"
+    },
+    {
+      "key": "string.t60",
+      "label": "String T60",
+      "group": "Engine",
+      "offset": 116,
+      "type": "float",
+      "mask": 0,
+      "unit": "Seconds",
+      "integer": false,
+      "min": 0.0500000007,
+      "max": 10,
+      "log": true,
+      "show": "engine=waveguide"
+    },
+    {
+      "key": "string.brightness",
+      "label": "Brightness",
+      "group": "Engine",
+      "offset": 120,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "engine=waveguide"
+    },
+    {
+      "key": "string.pickPosition",
+      "label": "Pick position",
+      "group": "Engine",
+      "offset": 124,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0.0199999996,
+      "max": 0.5,
+      "log": false,
+      "show": "engine=waveguide"
+    },
+    {
+      "key": "string.pickHardness",
+      "label": "Pick hardness",
+      "group": "Engine",
+      "offset": 128,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "engine=waveguide"
+    },
+    {
+      "key": "string.stiffness",
+      "label": "Stiffness",
+      "group": "Engine",
+      "offset": 132,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "engine=waveguide"
+    },
+    {
+      "key": "string.detune",
+      "label": "String detune",
+      "group": "Engine",
+      "offset": 136,
+      "type": "float",
+      "mask": 0,
+      "unit": "Cents",
+      "integer": false,
+      "min": 0,
+      "max": 30,
+      "log": false,
+      "show": "engine=waveguide"
+    },
+    {
+      "key": "saw.detune",
+      "label": "Saw detune",
+      "group": "Engine",
+      "offset": 140,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "engine=hypersaw"
+    },
+    {
+      "key": "saw.mix",
+      "label": "Saw mix",
+      "group": "Engine",
+      "offset": 144,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "engine=hypersaw"
+    },
+    {
+      "key": "noise.level",
+      "label": "Noise level",
+      "group": "Engine",
+      "offset": 100,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "engine=noisefx"
+    },
+    {
+      "key": "noise.chaosRate",
+      "label": "Chaos rate",
+      "group": "Engine",
+      "offset": 104,
+      "type": "float",
+      "mask": 0,
+      "unit": "Number",
+      "integer": false,
+      "min": 0.125,
+      "max": 4,
+      "log": false,
+      "show": "engine=noisefx"
+    },
+    {
+      "key": "noise.diffuseSize",
+      "label": "Diffuse size",
+      "group": "Engine",
+      "offset": 148,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "engine=noisefx"
+    },
+    {
+      "key": "noise.diffuseMix",
+      "label": "Diffuse mix",
+      "group": "Engine",
+      "offset": 152,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "engine=noisefx"
+    },
+    {
+      "key": "noise.swarmColor",
+      "label": "Swarm color",
+      "group": "Engine",
+      "offset": 156,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "engine=noisefx"
+    },
+    {
+      "key": "noise.swarmRegen",
+      "label": "Swarm regen",
+      "group": "Engine",
+      "offset": 160,
+      "type": "float",
+      "mask": 0,
+      "unit": "Number",
+      "integer": false,
+      "min": 0,
+      "max": 1.20000005,
+      "log": false,
+      "show": "engine=noisefx"
+    },
+    {
+      "key": "noise.chaosLevel",
+      "label": "Chaos level",
+      "group": "Engine",
+      "offset": 164,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "engine=noisefx"
+    },
+    {
+      "key": "recipe.macro1",
+      "label": "Macro 1",
+      "group": "Engine",
+      "offset": 68,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 6,
+      "log": false,
+      "show": "engine=recipe"
+    },
+    {
+      "key": "recipe.macro2",
+      "label": "Macro 2",
+      "group": "Engine",
+      "offset": 72,
+      "type": "float",
+      "mask": 0,
+      "unit": "Number",
+      "integer": false,
+      "min": -1,
+      "max": 8,
+      "log": false,
+      "show": "engine=recipe"
+    },
+    {
+      "key": "recipe.macro3",
+      "label": "Macro 3",
+      "group": "Engine",
+      "offset": 76,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "engine=recipe"
+    },
+    {
+      "key": "recipe.retrigger",
+      "label": "Reset on gate",
+      "group": "Engine",
+      "offset": 229,
+      "type": "flag",
+      "mask": 8,
+      "unit": "Toggle",
+      "integer": true,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "engine=recipe"
+    },
+    {
+      "key": "recipe.fmFeedback",
+      "label": "Mod feedback",
+      "group": "Engine",
+      "offset": 80,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 0.949999988,
+      "log": false,
+      "show": "recipe=Feedback FM"
+    },
+    {
+      "key": "recipe.phaseFold",
+      "label": "Triangle fold",
+      "group": "Engine",
+      "offset": 84,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "recipe=Phase morph"
+    },
+    {
+      "key": "recipe.subRatio",
+      "label": "Sub ratio",
+      "group": "Engine",
+      "offset": 88,
+      "type": "float",
+      "mask": 0,
+      "unit": "Number",
+      "integer": false,
+      "min": 0.125,
+      "max": 2,
+      "log": false,
+      "show": "recipe=Spectral DSF"
+    },
+    {
+      "key": "recipe.subShape",
+      "label": "Sub shape",
+      "group": "Engine",
+      "offset": 92,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "recipe=Spectral DSF"
+    },
+    {
+      "key": "recipe.driftChaos",
+      "label": "Drift chaos",
+      "group": "Engine",
+      "offset": 96,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "recipe=Prism"
+    },
+    {
+      "key": "out.level",
+      "label": "Output level",
+      "group": "Output",
+      "offset": 216,
+      "type": "float",
+      "mask": 0,
+      "unit": "Percent",
+      "integer": false,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "always"
+    },
+    {
+      "key": "out.enabled",
+      "label": "Voice enabled",
+      "group": "Output",
+      "offset": 229,
+      "type": "flag",
+      "mask": 128,
+      "unit": "Toggle",
+      "integer": true,
+      "min": 0,
+      "max": 1,
+      "log": false,
+      "show": "always"
+    }
+  ],
+  "engineLimits": {
+    "0": {
+      "env.attack": [0.00100000005, 2],
+      "recipe.macro1": [0, 1],
+      "recipe.macro2": [0, 8]
+    },
+    "1": {
+      "recipe.macro1": [0, 1],
+      "recipe.macro2": [0, 8]
+    },
+    "2": {
+      "noise.swarmRegen": [0, 1],
+      "recipe.macro1": [0, 1],
+      "recipe.macro2": [0, 8]
+    },
+    "3": {
+      "recipe.macro1": [0, 1],
+      "recipe.macro2": [0, 8]
+    }
+  },
+  "laneIds": ["Note", "Velocity", "Filter", "Attack", "Decay", "Octave", "GateLength", "Gate", "Slide", "Sustain", "Release"]
+}
