@@ -17,6 +17,7 @@
 #include "UITransitions.h"
 #include "../AlchemyUI/src/ButtonMap.h"
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
+#include "../pico2seq-core/sequencer/LaneCopy.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../voice/DelayTiming.h"
 
@@ -126,12 +127,17 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
     latch_.reset(); playSettingsOpenedThisPress_=false;
     uiState.reverbPage.observe(buttons, voices); // a button held across the editor is not a new press
     uiState.tuningPage.observe(buttons, voices);
+    uiState.copyLane.observe(buttons, voices);
     if(uiState.voiceEditor.active) VoiceEditor::buttons(buttons,voices,nowMs);
     else if(buttons==0 && voices==0) uiState.controlsWaitRelease=false;
     return;
   }
 
   handleModeStrap(nowMs, uiState);
+
+  // COPY LANE decides before any page or single-button handler so a Shift press always
+  // leaves copy mode first and a claimed lane press never also arms recording.
+  handleCopyLane(buttons, voices, nowMs, uiState, sequencers);
 
   // The Tuning page (Shift + Utility 3) is decided first: nothing else claims that chord,
   // and while it is open or draining it owns every button, fader and pad.
@@ -416,6 +422,61 @@ void AlchemyControlBridge::handleTuningFaders(UIState &uiState)
   }
 }
 
+// --- COPY LANE -------------------------------------------------------------------
+
+// Why this is not a page: copy mode must leave pads, voice selection and recording
+// alone, so it claims only the one chord (voice button + lane button) and the Shift
+// press that ends it. Copy and paste are the same chord; whether the memory is
+// filled decides which one it is, so the performer learns a single gesture.
+// Why it runs before everything else: a Shift press has to leave copy mode before a
+// Shift chord (ADSR, Reverb, Tuning, editor) can open, and a lane press the chord
+// claims must never also arm recording or retarget the encoder.
+void AlchemyControlBridge::handleCopyLane(uint8_t buttons, uint8_t voices, uint32_t nowMs,
+                                          UIState &uiState, const SequencerView &sequencers)
+{
+  copyClaimed_ = 0;
+  CopyLane::Controls &copy = uiState.copyLane;
+
+  // The lane buttons mean "lane" only in plain Param mode; if anything else has
+  // taken the panel the memory is stale.
+  const bool usable = uiState.alchemyMode == UIState::AlchemyMode::Param &&
+                      !uiState.settingsMode && !uiState.arp.active();
+  if (copy.active && !usable)
+    copy.end();
+
+  const CopyLane::Input input =
+      copy.poll(buttons, voices, usable && !UITransitions::pageOwnsPanel(uiState), nowMs);
+  if (input.action != CopyLane::Action::Copy && input.action != CopyLane::Action::Paste)
+    return; // nothing, or Shift (poll already left copy mode)
+
+  const ParamId lane = ControlSurface::recordParamForButtonBit(input.laneKey);
+  Sequencer *sequencer = sequencers.get(input.voice);
+  if (lane == ParamId::Count || !sequencer)
+    return;
+
+  // A voice held past 400 ms is length entry; the chord outranks it.
+  UITransitions::cancelGateLengthHold(uiState);
+  // A lane pressed first has already armed recording: take that back, keep any latch.
+  if (input.undoLanePress)
+  {
+    latch_.onParamButton(static_cast<uint8_t>(lane), false, false);
+    latch_.applyTo(uiState.parameterButtonHeld, PARAM_ID_COUNT);
+    uiState.latchedParameter = latch_.latched();
+  }
+  copyClaimed_ = input.claimed;
+
+  if (input.action == CopyLane::Action::Copy)
+  {
+    lanecopy::capture(*sequencer, lane, copy.clip);
+    copy.begin(input.voice);
+  }
+  else if (lanecopy::paste(copy.clip, *sequencer, lane))
+  {
+    copy.notePaste(input.voice, lane, nowMs);
+    uiState.resetStepsLightsFlag = true; // the lane's length may have changed
+  }
+}
+
 // --- Mode strap ----------------------------------------------------------------
 
 // Why debounce in software: the Param/Utility strap is a bare physical switch,
@@ -446,6 +507,8 @@ void AlchemyControlBridge::handleModeStrap(uint32_t nowMs, UIState &uiState)
 void AlchemyControlBridge::onModeFlip(uint32_t nowMs, UIState &uiState)
 {
   UITransitions::cancelGateLengthHold(uiState);
+  // The lane buttons only mean "lane" in Param mode, so the memory goes too.
+  uiState.copyLane.end();
   // Nothing sticks across a mode change: drop the latch and every derived
   // hold, snap the fader deadband so the new mode's controls engage, and
   // raise the OLED banner flag.
@@ -594,6 +657,11 @@ void AlchemyControlBridge::handleParamButtons(UIState &uiState)
     }
 
     if (uiState.slideMode)
+      continue;
+
+    // A COPY LANE chord consumed this press (no arm, no encoder retarget); the
+    // release below is harmless because nothing was held.
+    if (edges.pressEdge && (copyClaimed_ & (1u << bit)))
       continue;
 
     // Length entry owns the pads and OLED until the voice button is released.

@@ -186,6 +186,24 @@ private:
   - `Octave` / `GateLength`: At this layer each step is rewritten with `mapNormalizedValueToParamRange(id, 0.5f)`, which is not the neutral value for Octave: it lands in the +1 detent (0.75), and GateLength becomes 0.55 (midpoint of 0.1–1.0). `Sequencer::randomizeParameters()` then writes Octave back to 0.5 across all 64 slots (unless the Octave lane amount is 0); GateLength stays at 0.55.
   - Remaining lanes: Triangular spread centered on the middle of the lane's range (most steps near the middle, a few reaching the depth edge) at the default depth of 35% (`ParameterManager.cpp:157-193`).
 
+### 2.5 Whole-lane copy (`LaneCopy.h`)
+
+`copyStep()` moves one step across all lanes; **`lanecopy`** (`src/pico2seq-core/sequencer/LaneCopy.h/.cpp`, portable) moves one *lane* across steps and voices. It backs the COPY LANE gesture (voice button + lane button, [manual §3.2](manual.md#copying-a-lane-between-voices-copy-lane)) but knows nothing about the UI.
+
+```cpp
+namespace lanecopy {
+struct LaneSnapshot { ParamId lane; uint8_t length; float values[64]; bool valid() const; };
+void  capture(const Sequencer &src, ParamId lane, LaneSnapshot &out) noexcept;
+bool  paste(const LaneSnapshot &in, Sequencer &dst, ParamId lane) noexcept;
+float convertValue(ParamId from, ParamId to, float stored) noexcept;
+}
+```
+
+- **A snapshot is the whole lane**: the loop length and all 64 raw slots (`getRawStepValue`), including the tail behind a shortened lane, so a pasted lane loops and later re-grows exactly like its source. The values are the stored lane numbers (Note = scale degrees 0–36, the rest ~0–1, patch-following lanes may hold `LANE_FOLLOWS_PATCH`), not what a voice plays: the destination voice applies its own patch when it plays them. Plain data, ~260 bytes, no heap.
+- **`paste` order matters.** Writes wrap at the active length, so it widens the destination lane to 64 first, writes all 64 slots, then sets the source's length — the same order as `persistence::applyPattern`. Writing a long source onto a short lane without widening would land its tail on the lane's head.
+- **Same lane = verbatim** (`setRawStepValue`, bit-exact, sentinel included). **Different lane** goes through `convertValue()` and then `setStepParameterValue()`, so every value is clamped/rounded/toggle-snapped by the rules of an ordinary edit. `convertValue` places the value on its lane's `min..max` as 0..1 and maps it onto the target's range; a "follows the patch" step stays following on a patch-following lane and becomes the target's default on Note/Octave/GateLength; Octave snaps to its five detents (`mapNormalizedValueToParamRange` is not used for it: its zones are hand distances and would turn a neutral 0.5 into +1 octave).
+- Core 0 only, like every sequencer edit. Transport, cursors, other lanes and the patch are untouched; a sounding note is not retriggered (the next step simply reads the new values). Covered by `tests/unit/test_lane_copy.cpp` (`[lanecopy]`).
+
 ---
 
 ## 3. Sequencer Public API & Core Advancement

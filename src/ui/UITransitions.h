@@ -22,17 +22,25 @@ inline void cancelGateLengthHold(UIState &state) noexcept
     state.gateSeqLengthVoice = -1;
 }
 
+// A page (voice editor, ADSR, reverb, tuning) owns the panel, or is still draining the
+// release tail of its chord. Performance gestures stand down until it is gone.
+inline bool pageOwnsPanel(const UIState &state) noexcept
+{
+    return state.voiceEditor.active || state.controlsWaitRelease ||
+           state.voiceEnvelope.active || state.voiceEnvelope.chordPending ||
+           state.voiceEnvelope.waitRelease || state.reverbPage.active ||
+           state.reverbPage.waitRelease || state.tuningPage.active ||
+           state.tuningPage.waitRelease;
+}
+
 // Only a fresh, unmodified voice press can arm length entry. Modal exits and
-// Shift changes cannot resurrect an old hold before the next press edge.
+// Shift changes cannot resurrect an old hold before the next press edge. In copy
+// mode a held voice button is the paste modifier, so it never becomes length entry.
 inline void beginGateLengthHold(UIState &state, uint8_t voice) noexcept
 {
     cancelGateLengthHold(state);
     if (voice >= UIState::MAX_VOICES || state.shiftHeld || state.settingsMode ||
-        state.arp.active() || state.voiceEditor.active || state.controlsWaitRelease ||
-        state.voiceEnvelope.active || state.voiceEnvelope.chordPending ||
-        state.voiceEnvelope.waitRelease || state.reverbPage.active ||
-        state.reverbPage.waitRelease || state.tuningPage.active ||
-        state.tuningPage.waitRelease) return;
+        state.arp.active() || state.copyLane.active || pageOwnsPanel(state)) return;
     state.gateSeqLengthVoice = static_cast<int8_t>(voice);
 }
 
@@ -42,11 +50,7 @@ inline bool updateGateLengthHold(UIState &state, uint8_t voice, bool held,
 {
     if (state.gateSeqLengthVoice != static_cast<int8_t>(voice)) return false;
     if (!held || state.shiftHeld || state.settingsMode || state.arp.active() ||
-        state.voiceEditor.active || state.controlsWaitRelease ||
-        state.voiceEnvelope.active || state.voiceEnvelope.chordPending ||
-        state.voiceEnvelope.waitRelease || state.reverbPage.active ||
-        state.reverbPage.waitRelease || state.tuningPage.active ||
-        state.tuningPage.waitRelease || state.selectedVoiceIndex != voice)
+        state.copyLane.active || pageOwnsPanel(state) || state.selectedVoiceIndex != voice)
     {
         cancelGateLengthHold(state);
         return false;

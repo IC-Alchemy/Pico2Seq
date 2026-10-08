@@ -7,6 +7,7 @@
 #include "VoiceEnvelopeControls.h"
 #include "ReverbPageControls.h"
 #include "TuningPageControls.h"
+#include "CopyLaneControls.h"
 #include "../voice/DelayTiming.h"
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
@@ -33,6 +34,9 @@ struct UIState
     // tuningNoticeUntil (millis()); empty text or an elapsed time shows nothing.
     char tuningNotice[24] = {};
     unsigned long tuningNoticeUntil = 0;
+    // COPY LANE memory and mode (voice button + lane button copies, then pastes; Shift
+    // exits). Not a page: pads, voice selection and recording keep working while it is on.
+    CopyLane::Controls copyLane;
     // Wait for all pads/tiles to release before performance input resumes
     // (prevents a held pad from firing a step toggle on mode exit).
     bool controlsWaitRelease = false;

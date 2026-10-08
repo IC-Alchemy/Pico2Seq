@@ -276,7 +276,7 @@ TEST_CASE("Gate length entry clears competing edits and pending pad releases", "
 
 TEST_CASE("Shift and modal gestures cannot become voice length holds", "[control_surface][ui_transitions][gate_length]")
 {
-    for (uint8_t blocker = 0; blocker < 8; ++blocker)
+    for (uint8_t blocker = 0; blocker < 9; ++blocker)
     for (const bool alreadyArmed : {false, true})
     {
         UIState state;
@@ -292,6 +292,11 @@ TEST_CASE("Shift and modal gestures cannot become voice length holds", "[control
         case 5: state.voiceEnvelope.active = true; break;
         case 6: state.voiceEnvelope.chordPending = true; break;
         case 7: state.voiceEnvelope.waitRelease = true; break;
+        case 8: // COPY LANE: a held voice button is the paste modifier
+            state.copyLane.clip.lane = ParamId::Filter;
+            state.copyLane.clip.length = 16;
+            state.copyLane.begin(1);
+            break;
         }
         if (!alreadyArmed) UITransitions::beginGateLengthHold(state, 0);
         CHECK_FALSE(pollVoiceHold(state, 0, true, 400));
@@ -299,6 +304,7 @@ TEST_CASE("Shift and modal gestures cannot become voice length holds", "[control
         CHECK(state.gateSeqLengthVoice == -1);
         state.shiftHeld = state.settingsMode = state.voiceEditor.active = false;
         state.controlsWaitRelease = false;
+        state.copyLane.end();
         state.voiceEnvelope = {};
         state.arp.setActive(false);
         CHECK_FALSE(pollVoiceHold(state, 0, true, 1000)); // release + fresh press required

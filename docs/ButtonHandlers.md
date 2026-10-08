@@ -173,6 +173,19 @@ Holding Shift and pressing Utility button 3 (bit 2, the Scale Cycle button) open
 
 ---
 
+### 7. COPY LANE (voice button + lane button, Param mode)
+
+A voice button held together with one of Param-mode buttons 1–6 (Note, Velocity, Filter, Attack, Release, Octave) is a chord that copies or pastes a whole lane. It is decided by `CopyLane::Controls` (`src/ui/CopyLaneControls.h`, pure edge logic inside `UIState::copyLane`, host-tested in `test_copy_lane_controls.cpp`) and run by `AlchemyControlBridge::handleCopyLane()`, which executes before the pages and the single-button handlers:
+
+- **Copy mode off** → the chord captures that voice's lane (`lanecopy::capture`, see [sequencer.md §2.5](sequencer.md)) into `copyLane.clip` and turns copy mode on. Releasing every button keeps the memory.
+- **Copy mode on** → the same chord pastes (`lanecopy::paste`) onto the held voice and the pressed lane, as often as wanted; `copyLane.notePaste()` starts the OLED's "PASTED" card.
+- **Shift** (press edge, or any time Shift is down the chord is off) leaves copy mode and drops the memory. A Shift press is decided before the ADSR/Reverb/Tuning chords so those never open while copy mode is still on. A strap flip (`onModeFlip`), Settings and the arpeggiator end it too — the lane buttons mean something else there.
+- **Order.** Voice held first, then the lane press: always a chord. Lane first, then the voice within `CopyLane::kChordWindowMs` (60 ms): also a chord (the bridge then takes back the lane's recording arm with `latch_.onParamButton(lane, false, false)`, keeping any Shift latch). Longer than that, the lane is a normal recording hold and the voice tap just switches voice.
+- **What the chord claims.** The lane's press edge is skipped by `handleParamButtons()` through `copyClaimed_` (no recording arm, no encoder retarget; the release is harmless because nothing was held). A voice held ≥ 400 ms was already length entry: the chord calls `cancelGateLengthHold()`. While copy mode is on `beginGateLengthHold()` does not arm at all, so a held voice is only ever the paste modifier. Slide (button 7) and Shift are not lanes.
+- **Why it is not a page.** Unlike the Reverb/Tuning pages it does not consume the panel: pads, voice selection and recording keep working. `UITransitions::pageOwnsPanel()` (shared with the gate-length hold) stands the chord down while a real page is open.
+
+---
+
 ## Pure C++ Decision Logic (`ControlSurfaceLogic.h/.cpp`)
 
 The core control surface algorithms are implemented as portable C++ classes decoupled from hardware:
@@ -354,6 +367,7 @@ src/ui/
 ├── UIEventHandler.h/.cpp      # Matrix step pad event dispatch & shared bridge entry points
 ├── UIConstants.h              # Button ID definitions, timing constants, and matrix sizes
 ├── UIState.h                  # Centralized UI state structure
+├── CopyLaneControls.h         # COPY LANE chord policy + the lane memory (voice + lane button copy/paste)
 ├── TuningPageControls.h       # Tuning page gesture policy (open chord, favourites, scale keys)
 ├── TuningPageLogic.h          # Tuning page pure logic: pad views, actions, notices, OLED text
 └── VoiceEditControls.h        # Hardware-free Voice Editing interaction state (inside UIState)

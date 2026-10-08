@@ -33,6 +33,9 @@ class SequencerView;
  *     Shift held they become transport chords (Play/Stop, Randomize,
  *     Scale, Voice editor). Shift + hold Voice 4 toggles Arpeggiator mode
  *     instead of opening the editor, so a tap and a hold never fire together.
+ *   - Param mode, hold a voice button and press a lane button (1-6): copies that voice's
+ *     lane into the COPY LANE memory and turns copy mode on; in copy mode the same chord
+ *     pastes the memory on the held voice's lane. Shift exits (ui/CopyLaneControls.h).
  *   - Shift + button 6 + Voice1..4 opens the live voice ADSR fader page.
  *     Voice buttons select its target; Shift exits. Shift+6 alone defers its
  *     existing short action until release so the chord has no side effects.
@@ -156,6 +159,11 @@ private:
   // Live Tuning page (Shift + Utility 3), same contract as handleReverbPage.
   bool handleTuningPage(uint8_t buttons, uint8_t voices, uint32_t nowMs, UIState &uiState);
   void handleTuningFaders(UIState &uiState);
+  // COPY LANE: voice button + lane button copies (copy mode off) or pastes (on), Shift
+  // exits. Runs every pass before the pages and the single-button handlers; the lane
+  // press it claims is skipped by handleParamButtons through copyClaimed_.
+  void handleCopyLane(uint8_t buttons, uint8_t voices, uint32_t nowMs, UIState &uiState,
+                      const SequencerView &sequencers);
 
   AlchemyPanel panel_;
   ControlSurface::ModeStabilizer mode_;
@@ -189,6 +197,8 @@ private:
   // the hold so the release cannot also clear a single voice.
   bool clearChordThisPress_ = false;
   bool clearAllLatch_ = false;
+  // ButtonModule8 bits whose press edge this pass was consumed by a COPY LANE chord.
+  uint8_t copyClaimed_ = 0;
   // Shift edges re-arm tempo/feedback, mix/time and volume/macro.
   bool shiftWasHeld_ = false;
   uint8_t modeSwitchPin_ = 7; // GP7 default; setup1 sets PIN_ALCHEMY_MODE_SWITCH
