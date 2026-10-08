@@ -152,6 +152,8 @@ Next to the faders: four buttons for **direct voice selection** in both modes.
 - **Tap V1–V4** — selects the voice all voice-scoped controls (encoder, distance sensor,
   faders in Param mode) act on. They are also the only way to change the voice the preset
   browser edits.
+- **Hold a voice + press a lane button (Param mode)** — copies that voice's lane, then
+  pastes it onto other voices; Shift exits. See *Copying a lane between voices* in §3.2.
 - **Shift chords** (hold the Shift button, then press a voice button):
   - **Shift + V1** — Play / Stop transport
   - **Shift + V2** — Randomize the selected voice
@@ -411,6 +413,42 @@ Other track behaviors worth knowing:
 - **Shift + Randomize long-press** clears **all four voices** the same way — the whole
   project starts fresh with no values and no gates (presets, tempo and transport
   state are kept). The OLED confirms with `ALL CLEAR`.
+
+#### Copying a lane between voices (COPY LANE)
+
+In **Param mode**, a voice button held together with a lane button (1–6: Note, Velocity,
+Filter, Attack, Release, Octave) copies or pastes that voice's lane. A lane is copied
+whole: every step value, including the steps hidden behind a shortened loop, **and its
+length**, so the pasted lane loops exactly like the original.
+
+1. **Copy** — hold a voice button (V1–V4), then press a lane button. The OLED shows
+   `COPY LANE` with the voice and the lane now in memory. Let go of everything; the
+   memory stays.
+2. **Paste** — hold any voice button, then press a lane button. That voice's lane is
+   replaced by the memory and the OLED briefly shows `PASTED` with where it went, then
+   returns to the `COPY LANE` screen. Paste as many times as you like, onto any voice and
+   any lane — the memory is not used up. Pasting onto a *different* lane works too: a
+   Filter shape pasted on Velocity keeps its shape (values are scaled between the two
+   lanes' ranges; on Note they become scale degrees, on Octave they snap to the five
+   octave steps).
+3. **Exit** — press **Shift** (the bottom line of the `COPY LANE` screen says so). The
+   memory is dropped. Flipping the mode switch exits too.
+
+Things worth knowing:
+
+- Hold the voice first, then press the lane — or press both together: a voice that lands
+  within about 60 ms after the lane counts as the same chord. Holding a lane to record and
+  tapping a voice later still just switches voice.
+- Steps that *follow the patch* keep following it on the destination voice (they play the
+  destination's own sound). Only the stored lane values are copied, never the voice's
+  patch, so the pasted lane sounds like the destination voice.
+- A paste **replaces** the destination lane and there is no undo; copy it first if you
+  might want it back.
+- While copy mode is on, holding a voice button no longer opens Gate Length entry (it is
+  the paste modifier). Press Shift to leave copy mode first. Pads, voice selection and
+  recording work as usual.
+- Decay, Sustain, GateLength, Gate and Slide have no lane button, so they cannot be copied
+  this way.
 
 ### 3.3 Scales
 
@@ -760,6 +798,7 @@ of the step to the patch value. See §1.3.
 |---|---|
 | Note / Velocity / Filter / Attack / Release / Octave | Hold to arm real-time recording for that parameter (distance sensor / encoder); auto-selects it as the encoder target |
 | Shift + tap a parameter | **Latches** the hold (no finger needed). One latch at a time: pressing another parameter moves the latch; tapping the latched one clears it |
+| Voice button held + one of the six above | **COPY LANE** copy / paste instead of arming recording (§3.2) |
 | Slide | Toggles slide/portamento mode (clears conflicting edit modes) |
 | Shift | Modifier for latches and voice-button chords |
 
@@ -789,6 +828,7 @@ itself — no power-cycle needed.
 | Gesture | Result |
 |---|---|
 | Tap V1–V4 | Select voice 1–4 |
+| Hold V1–V4 + press a lane button 1–6 (Param mode) | **COPY LANE**: copy that voice's lane; with copy mode on, paste onto it. Shift exits (§3.2) |
 | Shift + V1 | Play / Stop |
 | Shift + V2 | Randomize selected voice (short-press behavior) |
 | Shift + V3 | Cycle scale (within the playing tuning's scales) |

@@ -17,6 +17,7 @@
 #include "../ui/SettingsPads.h"
 #include "../ui/ArpDisplay.h"
 #include "../ui/TuningPageLogic.h"
+#include "../ui/CopyLaneControls.h"
 #include <algorithm>
 #include <cstring> // strcmp, strlen
 #include <Arduino.h>
@@ -202,6 +203,26 @@ void OLEDDisplay::displayVoiceParameterToggles(const UIState &uiState, VoiceMana
   commitFrame();
 }
 
+namespace
+{
+// Centered text on one row; a line wider than the panel starts at the left edge.
+void printCentered(Adafruit_SH1106G &display, const char *text, int y, uint8_t textSize)
+{
+  const int width = static_cast<int>(strlen(text)) * 6 * textSize;
+  display.setTextSize(textSize);
+  display.setCursor(width >= OLEDConstants::SCREEN_WIDTH ? 0 : (OLEDConstants::SCREEN_WIDTH - width) / 2, y);
+  display.print(text);
+}
+
+// A lane as that voice's patch names it ("Detune" for an oscillator's Attack lane),
+// else the generic lane name.
+const char *laneLabel(VoiceManager *manager, uint8_t voice, ParamId lane)
+{
+  const VoiceConfig *config = manager ? manager->getVoiceConfig(voiceSystem.getVoiceId(voice)) : nullptr;
+  return config ? VoiceEdit::laneName(lane, *config) : paramName(lane);
+}
+} // namespace
+
 // Thin wrapper: no voice config, so musical-value views degrade to raw lanes.
 void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers)
 {
@@ -209,10 +230,12 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
 }
 
 // Main render: strict view priority so two screens never fight for a frame:
-// PARAM/UTIL banner > confirmation notice > held-lane value > settings pages >
+// PARAM/UTIL banner > confirmation notice > COPY LANE "pasted" card > held-lane
+// value > settings pages >
 // arp page (below Settings, above the step pages: the mode replaces what the
 // panel edits, so step/gate/envelope views would show unreachable values) >
-// gate-length bar > step/ENV edit > idle status. One view draws, then returns.
+// gate-length bar > step/ENV edit > COPY LANE screen (copy mode's idle view) >
+// idle status. One view draws, then returns.
 void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers,
                          VoiceManager *voiceManager)
 {
@@ -373,6 +396,14 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
     return;
   }
 
+  // Where a paste just landed; the COPY LANE screen returns when the card times out.
+  if (uiState.copyLane.pasteNoticeShowing(millis()))
+  {
+    displayCopyLanePasted(uiState, voiceManager);
+    commitFrame();
+    return;
+  }
+
   const auto voice = std::min<uint8_t>(uiState.selectedVoiceIndex, sequencers.size() - 1);
   const Sequencer &sequence = sequencers.clamped(voice);
   const auto *config = voiceManager ? voiceManager->getVoiceConfig(voiceSystem.getVoiceId(voice)) : nullptr;
@@ -480,6 +511,8 @@ void OLEDDisplay::update(const UIState &uiState, const SequencerView &sequencers
                          base ? MusicalValues::baseStep(*config) :
                                 sequence.getPlaybackStep(selected ? step : UINT8_MAX),
                          uiState, step, config, selected, held != ParamId::Count, base);
+  } else if (uiState.copyLane.active) {
+    displayCopyLanePage(uiState, voiceManager);
   } else {
     // No parameter held: the encoder target's playing value, or for 1.5 s
     // after an encoder turn the base it changed (a step's own value could
@@ -815,6 +848,54 @@ void OLEDDisplay::displayTuningPage(const UIState &state)
     displayHardware.print(tuning::resolve(selection.tuningId).detail);
   else
     displayHardware.print("1-6 Scl 7 A/B 8 Exit");
+  displayHardware.setTextWrap(true);
+}
+
+// Copy mode's home screen. Everything the performer needs sits on it: which voice
+// and lane the memory holds, how to paste, and how to leave (the inverted bottom bar,
+// so the exit is the one thing that cannot be missed). Names come from the live
+// configs, as every other screen does.
+void OLEDDisplay::displayCopyLanePage(const UIState &state, VoiceManager *manager)
+{
+  const CopyLane::Controls &copy = state.copyLane;
+  const uint8_t voice = std::min<uint8_t>(copy.sourceVoice, 3);
+  char line[24];
+  displayHardware.setTextWrap(false);
+
+  printCentered(displayHardware, CopyLane::kTitle, 0, 2);
+  CopyLane::formatVoiceLine(line, sizeof(line), voice, UserPresetStorage::voiceLabel(state, voice));
+  printCentered(displayHardware, line, 18, 1);
+  const char *lane = laneLabel(manager, voice, copy.clip.lane);
+  printCentered(displayHardware, lane, 28, strlen(lane) <= 10 ? 2 : 1);
+  printCentered(displayHardware, CopyLane::kPasteHint, 46, 1);
+
+  displayHardware.fillRect(0, 55, OLEDConstants::SCREEN_WIDTH, 9, SH110X_WHITE);
+  displayHardware.setTextColor(SH110X_BLACK);
+  printCentered(displayHardware, CopyLane::kExitHint, 56, 1);
+  displayHardware.setTextColor(SH110X_WHITE);
+  displayHardware.setTextWrap(true);
+}
+
+// The card a paste leaves behind for CopyLane::kPasteNoticeMs: where the lane landed
+// (voice and lane) and where it came from, then the COPY LANE screen takes over again.
+void OLEDDisplay::displayCopyLanePasted(const UIState &state, VoiceManager *manager)
+{
+  const CopyLane::Controls &copy = state.copyLane;
+  const uint8_t target = std::min<uint8_t>(copy.pastedVoice, 3);
+  const uint8_t source = std::min<uint8_t>(copy.sourceVoice, 3);
+  char voiceLine[24];
+  char line[28];
+  displayHardware.setTextWrap(false);
+
+  printCentered(displayHardware, "PASTED", 0, 2);
+  CopyLane::formatVoiceLine(voiceLine, sizeof(voiceLine), target, UserPresetStorage::voiceLabel(state, target));
+  std::snprintf(line, sizeof(line), "to %s", voiceLine);
+  printCentered(displayHardware, line, 18, 1);
+  const char *lane = laneLabel(manager, target, copy.pastedLane);
+  printCentered(displayHardware, lane, 28, strlen(lane) <= 10 ? 2 : 1);
+  std::snprintf(line, sizeof(line), "from V%u %s", static_cast<unsigned>(source) + 1u,
+                laneLabel(manager, source, copy.clip.lane));
+  printCentered(displayHardware, line, 46, 1);
   displayHardware.setTextWrap(true);
 }
 

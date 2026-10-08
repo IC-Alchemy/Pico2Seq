@@ -141,7 +141,8 @@ What's tested vs. not, per `tests/CMakeLists.txt` (eight focused targets: `pico2
   `src/pico2seq-core/arpeggiator/Arpeggiator.cpp` via `test_arpeggiator.cpp`,
   `src/pico2seq-core/sequencer/{ParameterManager,Sequencer}.cpp` via
   `test_sequencer.cpp`, `test_parameter_mapping.cpp`, and
-  `test_parameter_randomize.cpp`,
+  `test_parameter_randomize.cpp`, the whole-lane copy behind COPY LANE
+  (`src/pico2seq-core/sequencer/LaneCopy.cpp`) via `test_lane_copy.cpp`,
   `src/voice/{Voice,VoicePresets,VoiceParameters,VoiceEditParameters,VoiceManager}.cpp`
   (incl. the `SpscQueue` control handoff via `test_voice_transfer.cpp`; recipes via
   `test_voice_recipes.cpp`; block rendering via `test_voice_block.cpp`; voice
@@ -153,7 +154,8 @@ What's tested vs. not, per `tests/CMakeLists.txt` (eight focused targets: `pico2
   session, patch and effect-settings serialization (`src/pico2seq-core/persistence/*`,
   `src/voice/{PatchCodec,EffectsCodec}.cpp`) via `test_persistence.cpp`,
   `src/ui/ControlSurfaceLogic.cpp` and `src/ui/UITransitions.h` via
-  `test_control_surface_logic.cpp` / `test_ui_transitions.cpp` / `test_reverb_page.cpp`
+  `test_control_surface_logic.cpp` / `test_ui_transitions.cpp` / `test_reverb_page.cpp`,
+  the COPY LANE chord policy `src/ui/CopyLaneControls.h` via `test_copy_lane_controls.cpp`
   (`pico2seq_ui_tests`),
   `src/ui/SettingsPads.h` via `test_settings_pads.cpp`,
   `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` via `tests/unit/test_alchemy_proto.cpp`

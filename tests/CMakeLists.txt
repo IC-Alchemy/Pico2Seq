@@ -78,6 +78,7 @@ add_library(pico2seq_ui_code OBJECT
 add_library(pico2seq_voice_code OBJECT
   ${CORE_DIR}/sequencer/ParameterManager.cpp
   ${CORE_DIR}/sequencer/Sequencer.cpp
+  ${CORE_DIR}/sequencer/LaneCopy.cpp
   ${SRC_DIR}/voice/Voice.cpp
   ${SRC_DIR}/voice/VoicePresets.cpp
   ${SRC_DIR}/voice/VoiceParameters.cpp
@@ -123,6 +124,7 @@ set(PICO2SEQ_UI_TEST_SOURCES
   unit/test_arpeggiator.cpp
   unit/test_ui_transitions.cpp
   unit/test_reverb_page.cpp
+  unit/test_copy_lane_controls.cpp
   unit/test_tuning.cpp
   unit/test_tuning_scales.cpp
   unit/test_tuning_page.cpp
@@ -148,6 +150,7 @@ add_executable(pico2seq_tests
   unit/test_dsp_recipe_regressions.cpp
   unit/test_scales.cpp
   unit/test_sequencer.cpp
+  unit/test_lane_copy.cpp
   unit/test_sequencer_view.cpp
   unit/test_voice_playback.cpp
   unit/test_voice_envelope.cpp

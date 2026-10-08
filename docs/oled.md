@@ -37,6 +37,28 @@ Mix, Diffuse, Mod and Width as percent; Decay as `0.25s`, `6.0s` or `20s`; Damp 
 audio-owned values that ease toward it. Layout and timing on the physical display
 still need a hardware check.
 
+## COPY LANE screen
+
+Holding a voice button and pressing a lane button (Param mode) copies that voice's lane into
+a temporary memory and turns copy mode on ([manual §3.2](manual.md#copying-a-lane-between-voices-copy-lane),
+`src/ui/CopyLaneControls.h`). While it is on, `OLEDDisplay::displayCopyLanePage()` replaces the
+default status screen, so a held lane value, Step Edit, Settings, the arpeggiator and the
+gate-length gauge still win when they apply:
+
+```
+ COPY LANE                     <- text size 2
+ V1 Analog                     <- voice the memory came from (+ its preset name)
+ Filter                        <- lane in memory, size 2, named as that voice's patch names it
+Hold voice+press lane          <- how to paste
+[SHIFT: exit copy mode]        <- inverted bar: how to leave
+```
+
+Each paste interrupts it for `CopyLane::kPasteNoticeMs` (1.2 s) with
+`displayCopyLanePasted()`: `PASTED`, `to V3 Bass`, the destination lane in size 2, and
+`from V1 Filter`; then the COPY LANE screen returns. Strings that must fit the 21-column
+panel (`kPasteHint`, `kExitHint`, the voice line) are checked in
+`tests/unit/test_copy_lane_controls.cpp`; the drawing itself still needs a hardware look.
+
 ## Tuning page
 
 Shift (button 8) + a press of Utility button 3 opens the live Tuning page
@@ -117,6 +139,12 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
                                     | (if expired)
                                     v
 +-------------------------------------------------------------------------+
+| Priority 3a: COPY LANE "PASTED" card (copyLane.pasteNoticeShowing:      |
+| ~1.2 s after each paste; the COPY LANE screen returns afterwards)       |
++-------------------------------------------------------------------------+
+                                    | (if expired)
+                                    v
++-------------------------------------------------------------------------+
 | Priority 3b: Held Parameter Button (no step selected)                   |
 | (heldParamId != ParamId::Count: live value + distance sensor mm)        |
 +-------------------------------------------------------------------------+
@@ -147,6 +175,12 @@ In `OLEDDisplay::update()`, the screen is updated by evaluating active states in
 +-------------------------------------------------------------------------+
 | Priority 6: Step Edit Screen                                            |
 |   └── Step Edit Mode (uiState.selectedStepForEdit != -1)                |
++-------------------------------------------------------------------------+
+                                    | (if inactive)
+                                    v
++-------------------------------------------------------------------------+
+| Priority 6b: COPY LANE screen (uiState.copyLane.active, nothing more    |
+| specific held or selected: it replaces only the default status screen)  |
 +-------------------------------------------------------------------------+
                                     | (if inactive)
                                     v

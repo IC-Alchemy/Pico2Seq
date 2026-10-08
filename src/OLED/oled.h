@@ -108,6 +108,11 @@ private:
   // Live Tuning page (Shift + Utility 3): family page header, the tuning playing (or under a
   // finger), its facts, the root / A4 line, the scale, and the last confirmation.
   void displayTuningPage(const UIState &state);
+  // COPY LANE (voice button + lane button, see ui/CopyLaneControls.h): the memory's
+  // voice and lane with how to paste and how to leave, and the brief "PASTED" card
+  // that interrupts it for kPasteNoticeMs after every paste.
+  void displayCopyLanePage(const UIState &state, class VoiceManager *manager);
+  void displayCopyLanePasted(const UIState &state, class VoiceManager *manager);
   void displayEnvelopePage(const UIState &state, const Sequencer &sequence,
                            const VoiceConfig *config);
 
