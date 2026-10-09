@@ -19,6 +19,7 @@ This module implements touch matrix scanning and event dispatch for Pico2Seq, ha
 - 32-pad (4-row × 8-column) step sequencing grid
 - Dual 16-step voice banks (Low Bank = Voice 0 or 2, High Bank = Voice 1 or 3)
 - IRQ-gated state-change tracking: `Matrix_scan()` is a no-op until the MPR121's GP8 `/IRQ` flags a change — no separate debounce stage
+- Multi-touch ghost rejection: a pad already held is assumed to stay held, so a second finger on another row and column registers as one pad, not three (`MatrixResolver.h`, see [docs/matrix.md](../../docs/matrix.md))
 - Callback hooks for all button press/release events
 - State query at any time for responsive UI logic
 - Lightweight initialization and non-blocking main loop integration

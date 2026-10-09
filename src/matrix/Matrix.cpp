@@ -1,9 +1,11 @@
 #include "Matrix.h"
+#include "MatrixResolver.h"
 #include "../app/HardwarePins.h"
 #include "Arduino.h"
 
 // Matrix.cpp — MPR121 row+column touch grid behind the 32 step pads.
-// A pad reads pressed when its row AND column electrodes are both touched.
+// A pad reads pressed when its row AND column electrodes are both touched;
+// MatrixResolver uses the pads already held to reject row/column ghosts.
 // ISR only flags change; Matrix_scan() (Core 0 loop) reads + dispatches.
 
 // --- Matrix Mapping Definitions ---
@@ -12,9 +14,9 @@ const uint8_t MATRIX_ROW_INPUTS[4] = {3, 2, 1, 0};
 // Physical columns -> MPR121 electrodes 4..11.
 const uint8_t MATRIX_COL_INPUTS[8] = {4, 5, 6, 7, 8, 9, 10, 11};
 
-// Linear pad -> (row, col) electrodes; current finger level per pad.
+// Linear pad -> (row, col) electrodes; resolved held pads (bit = pad index).
 static MatrixButton matrixButtons[MATRIX_BUTTON_COUNT];
-static bool buttonState[MATRIX_BUTTON_COUNT];
+static uint32_t heldPads = 0;
 // MPR121 instance (set in Matrix_init) + UI dispatch callback.
 static Adafruit_MPR121 *mpr121 = nullptr;
 static void (*eventHandler)(const MatrixButtonEvent &) = nullptr;
@@ -55,18 +57,18 @@ static void setupMatrixMapping()
     }
 }
 
-// A pad is pressed only when both its row and column electrodes sense touch.
-// (One finger bridges the row/col pair at that crossing.)
-
-static bool scanMatrixButton(const MatrixButton &btn, uint16_t touchBits)
+// Fold the 12 electrode bits into physical row (0..3) and column (0..7) masks.
+static void splitTouchBits(uint16_t touchBits, uint8_t &rowMask, uint8_t &colMask)
 {
-    return (touchBits & (1 << btn.rowInput)) &&
-           (touchBits & (1 << btn.colInput));
+    rowMask = 0;
+    colMask = 0;
+    for (uint8_t row = 0; row < 4; ++row)
+        if (touchBits & (1u << MATRIX_ROW_INPUTS[row]))
+            rowMask |= static_cast<uint8_t>(1u << row);
+    for (uint8_t col = 0; col < 8; ++col)
+        if (touchBits & (1u << MATRIX_COL_INPUTS[col]))
+            colMask |= static_cast<uint8_t>(1u << col);
 }
-
-// Diff all pads against last state; dispatch press/release edges on change.
-// The one dispatch path: Matrix_scan() inlines this loop so the quiet fast
-// path stays a single flag check.
 
 // Bind the sensor, build the pad map, arm the GP8 interrupt.
 // No Heavy init here: the MPR121 begin() belongs to the caller (setup).
@@ -75,7 +77,7 @@ void Matrix_init(Adafruit_MPR121 *sensor)
     Serial.println("Matrix_init called");
     mpr121 = sensor;
     setupMatrixMapping();
-    memset(buttonState, 0, sizeof(buttonState));
+    heldPads = 0;
     eventHandler = nullptr;
     mpr121InterruptPending = false;
 
@@ -104,42 +106,32 @@ void Matrix_scan()
         return;
     }
 
-    uint16_t touchBits = mpr121->touched();
+    uint8_t rowMask = 0;
+    uint8_t colMask = 0;
+    splitTouchBits(mpr121->touched(), rowMask, colMask);
 
-    // All fingers lifted: release every stuck pad so no gate hangs on.
-    if (touchBits == 0)
-    {
-        // Check if any button was previously pressed and needs a release event.
-        for (uint8_t i = 0; i < MATRIX_BUTTON_COUNT; ++i)
-        {
-            if (buttonState[i])
-            {
-                buttonState[i] = false;
-                if (eventHandler)
-                {
-                    MatrixButtonEvent evt = {i, MATRIX_BUTTON_RELEASED};
-                    eventHandler(evt);
-                }
-            }
-        }
+    // Resolve against the pads already held: a first pad stays held, so a
+    // second finger on another row and column is one new pad, not three.
+    // All fingers lifted resolves to no pads, releasing everything.
+    const uint32_t pressed = MatrixResolver::resolve(rowMask, colMask, heldPads);
+    const uint32_t changed = pressed ^ heldPads;
+    if (!changed)
         return;
-    }
 
-    // Some electrodes touched: diff every pad for press/release edges.
+    // Diff every pad for press/release edges.
     for (uint8_t i = 0; i < MATRIX_BUTTON_COUNT; ++i)
     {
-        bool isPressed = scanMatrixButton(matrixButtons[i], touchBits);
-        bool wasPressed = buttonState[i];
+        const uint32_t bit = 1u << i;
+        if (!(changed & bit))
+            continue;
 
-        if (isPressed != wasPressed)
+        const bool isPressed = (pressed & bit) != 0;
+        heldPads ^= bit; // Commit first so re-entrant reads agree.
+
+        if (eventHandler)
         {
-            buttonState[i] = isPressed; // Commit first so re-entrant reads agree.
-
-            if (eventHandler)
-            {
-                MatrixButtonEvent evt = {i, isPressed ? MATRIX_BUTTON_PRESSED : MATRIX_BUTTON_RELEASED};
-                eventHandler(evt);
-            }
+            MatrixButtonEvent evt = {i, isPressed ? MATRIX_BUTTON_PRESSED : MATRIX_BUTTON_RELEASED};
+            eventHandler(evt);
         }
     }
 }

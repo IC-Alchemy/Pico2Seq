@@ -156,7 +156,8 @@ What's tested vs. not, per `tests/CMakeLists.txt` (eight focused targets: `pico2
   `src/ui/ControlSurfaceLogic.cpp` and `src/ui/UITransitions.h` via
   `test_control_surface_logic.cpp` / `test_ui_transitions.cpp` / `test_reverb_page.cpp`,
   the COPY LANE chord policy `src/ui/CopyLaneControls.h` via `test_copy_lane_controls.cpp`
-  (`pico2seq_ui_tests`),
+  (`pico2seq_ui_tests`), the touch-matrix ghost rejection `src/matrix/MatrixResolver.h` via
+  `test_matrix_resolver.cpp` (`pico2seq_ui_tests`),
   `src/ui/SettingsPads.h` via `test_settings_pads.cpp`,
   `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` via `tests/unit/test_alchemy_proto.cpp`
   and `src/AlchemyUI/src/SatelliteLink.h` via `tests/unit/test_satellite_link.cpp`,
@@ -177,7 +178,7 @@ What's tested vs. not, per `tests/CMakeLists.txt` (eight focused targets: `pico2
 - **Not tested, by design** (hardware-bound glue — keep logic out of these):
   the PIO/DMA register-level parts of `src/audio/` (the pool/driver *logic* is
   covered against doubles, the real timing is not), `src/LEDMatrix/`
-  (WS2812B GPIO/DMA), `src/OLED/` (I2C display), `src/matrix/`,
+  (WS2812B GPIO/DMA), `src/OLED/` (I2C display), `src/matrix/Matrix.cpp` (MPR121 IRQ/I2C glue),
   `src/sensors/` (bus drivers — `SensorConstants.h` is tested, the reads are not),
   the Wire-bound parts of `src/ui/AlchemyControlBridge.cpp`,
   `src/ui/{UIEventHandler,ButtonHandlers,ButtonManager}.cpp`, the rest of
