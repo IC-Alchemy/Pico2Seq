@@ -20,6 +20,24 @@ The `src/matrix/` subsystem provides the capacitive touch step-input interface f
 - **Matrix Topology:** 4 Row electrodes (Electrodes 0–3) × 8 Column electrodes (Electrodes 4–11), multiplexed to sense 32 discrete touch pads.
 - **Scanning Frequency:** Scanning runs in the 1 ms Core 0 control slice but is IRQ-gated: `Matrix_scan()` performs no I2C traffic until the MPR121's GP8 `/IRQ` sets its pending flag, and there is no separate debouncing stage (`src/matrix/Matrix.h`).
 
+### Multi-touch ghost rejection (`src/matrix/MatrixResolver.h`)
+
+The MPR121 only reports which row and column electrodes are touched. Two fingers on
+different rows and columns light 2 rows × 2 columns, and a plain row-AND-column test
+would report four pads (the two real ones plus two "ghosts").
+
+`MatrixResolver::resolve()` breaks the tie with history: **a pad that is already held
+is assumed to stay held** while its row and column are still touched, and the newly
+touched electrodes identify the newly pressed pad. Holding pad (r1,c1) and then
+touching (r2,c2) therefore resolves to exactly those two pads; the ghosts (r1,c2) and
+(r2,c1) are never sent.
+
+When history cannot decide, the new press is not registered instead of guessing:
+two diagonal pads touched in the same scan with nothing held, or a new row whose
+column could belong to either of two held pads (and the column equivalent). Lifting
+a finger resolves the state on the next scan. Touches confined to one row or one
+column are always unambiguous. Tested by `tests/unit/test_matrix_resolver.cpp`.
+
 ---
 
 ## 32 Dedicated Step Pads & Bank Architecture
@@ -157,6 +175,7 @@ void loop() {
 src/matrix/
 ├── Matrix.cpp          # Scanning engine and electrode-to-pad mapping
 ├── Matrix.h            # Matrix data types and API definitions
+├── MatrixResolver.h    # Portable ghost-free multi-touch resolution (unit tested)
 └── README.md           # Module overview
 ```
 
