@@ -121,7 +121,25 @@ public:
     float getStepParameterValue(ParamId id, uint8_t stepIdx) const;
     void setStepParameterValue(ParamId id, uint8_t stepIdx, float value);
     uint8_t getParameterStepCount(ParamId id) const;
+    // Changing the length keeps the loop start while at least
+    // MIN_STEPS_COUNT steps remain after it; otherwise the start returns to 0.
     void setParameterStepCount(ParamId id, uint8_t steps);
+
+    /**
+     * @brief Loop one lane between two steps (inclusive, either order).
+     *
+     * The lane's play head then cycles first..last while every other lane
+     * keeps its own loop. Implemented as loop start = first, length = last + 1,
+     * so lane storage keeps its absolute step indices. Steps closer together
+     * than MIN_STEPS_COUNT are widened to it.
+     */
+    void setParameterLoop(ParamId id, uint8_t firstStep, uint8_t lastStep);
+    // First step of the lane's loop (0 when unset). Always leaves at least
+    // MIN_STEPS_COUNT steps before the lane length.
+    uint8_t getParameterLoopStart(ParamId id) const;
+    // Save/load and lane copy: apply after the length. Rejected (start 0) when
+    // fewer than MIN_STEPS_COUNT steps would remain.
+    void setParameterLoopStart(ParamId id, uint8_t start);
     // Save/load path: unwrapped read, unclamped write (values were normalized
     // at record time). Writes at/beyond the active length wrap — the codec
     // grows to MAX first so restore never wraps.
@@ -179,8 +197,8 @@ public:
      * @brief Step the transport once: advance every lane cursor, overdub any
      * held record buttons, then sound the resulting combination into voiceState.
      *
-     * Each lane wraps on its own length (uclock_step % laneLength), so lanes of
-     * different lengths phase against each other. UINT8_MAX inside processStep
+     * Each lane wraps on its own loop (start + uclock_step % (length - start)),
+     * so lanes of different lengths phase against each other. UINT8_MAX inside processStep
      * means "use each lane's own cursor" rather than one shared step.
      *
      * @param current_uclock_step Global clock counter (full 32-bit; narrow only
@@ -199,7 +217,7 @@ public:
     int8_t getCurrentNote() const { return currentNote; }
 
     /**
-     * @brief This lane's currently sounding step (0 to laneLength-1).
+     * @brief This lane's currently sounding step (loop start to laneLength-1).
      */
     uint8_t getCurrentStepForParameter(ParamId paramId) const;
 
@@ -262,6 +280,7 @@ private:
     bool running;
     uint8_t currentStep; // Bar position from the Gate lane (UI/LED cursor)
     uint8_t currentStepPerParam[static_cast<size_t>(ParamId::Count)]; // Sounding step per lane
+    uint8_t loopStartPerParam[static_cast<size_t>(ParamId::Count)] = {}; // First looped step per lane
     int8_t lastNote;
     int8_t currentNote;
     // Separate flag (not a sentinel): transposed notes legitimately go negative.

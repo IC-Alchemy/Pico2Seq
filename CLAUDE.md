@@ -157,7 +157,8 @@ What's tested vs. not, per `tests/CMakeLists.txt` (eight focused targets: `pico2
   `test_control_surface_logic.cpp` / `test_ui_transitions.cpp` / `test_reverb_page.cpp`,
   the COPY LANE chord policy `src/ui/CopyLaneControls.h` via `test_copy_lane_controls.cpp`
   (`pico2seq_ui_tests`), the touch-matrix ghost rejection `src/matrix/MatrixResolver.h` via
-  `test_matrix_resolver.cpp` (`pico2seq_ui_tests`),
+  `test_matrix_resolver.cpp` and the two-pad loop gesture `src/ui/LoopRangeGesture.h` via
+  `test_loop_range_gesture.cpp` (both `pico2seq_ui_tests`),
   `src/ui/SettingsPads.h` via `test_settings_pads.cpp`,
   `src/AlchemyUI/src/{AlchemyProto,TileButton}.h` via `tests/unit/test_alchemy_proto.cpp`
   and `src/AlchemyUI/src/SatelliteLink.h` via `tests/unit/test_satellite_link.cpp`,
@@ -259,6 +260,9 @@ Matrix/TMAG5273/VL53L1X input  (Core 0)
 `ParamId` (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide, Sustain, Release) gets its own
 fixed-size array with an independent `currentStepCount` and modulo-wrapping `getValue()`. This
 is what makes "Note track at 16 steps, Filter track at 8 steps" possible on the same voice.
+`Sequencer` also keeps a per-lane loop start (`setParameterLoop`/`getParameterLoopStart`): the lane's
+play head cycles `start..stepCount-1`, storage keeps absolute step indices, and the start is saved in
+`TrackSnapshot::reserved[0]` (zero in older files = step 0, so no format bump).
 
 ### Key conventions to preserve when editing
 

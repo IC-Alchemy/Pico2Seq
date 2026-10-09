@@ -85,6 +85,7 @@ The user interface separates physical responsibilities across two buses:
    - **Short Tap:** Toggles the gate state for the corresponding step on that voice.
    - **Step Edit Mode:** Long-pressing a step pad enters Step Edit mode for that specific step, routing parameter adjustments from the magnetic encoder or Alchemy faders into that step's automation memory.
    - **Real-Time Recording:** Touching step pads while holding parameter buttons records live parameter values into the pattern.
+   - **Two-Pad Loop (Param mode):** Holding one pad and pressing another in the same bank loops the last-pressed parameter lane between those two steps (`Sequencer::setParameterLoop`; pairing in `src/ui/LoopRangeGesture.h`). Other lanes keep their loops, and neither pad toggles a gate.
 
 2. **Alchemy Tiles (Wire1 GP14/GP15 @ 400kHz):**
    - `SliderModule`: 4 passive analog faders + 4 Voice Select buttons (Voice 1–4; Shift + button 4 enters Voice Editing mode).

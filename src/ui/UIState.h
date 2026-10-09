@@ -8,6 +8,7 @@
 #include "ReverbPageControls.h"
 #include "TuningPageControls.h"
 #include "CopyLaneControls.h"
+#include "LoopRangeGesture.h"
 #include "../voice/DelayTiming.h"
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
@@ -62,6 +63,10 @@ struct UIState
     // Which step-parameter lane (Note/Velocity/...) the performer is holding.
     // Indexed by ParamId for direct lookup.
     bool parameterButtonHeld[PARAM_ID_COUNT] = {false};
+    // Lane the last record-button press selected (Count = none yet). In Param
+    // mode two held step pads loop this lane between their steps.
+    ParamId loopRangeParam = ParamId::Count;
+    LoopRange::Gesture loopRange;
 
     // --- Mode States ---
     // Mutually exclusive step-edit modes: only one may own the pads at a time.

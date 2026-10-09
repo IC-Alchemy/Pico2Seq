@@ -108,8 +108,23 @@ void handleEncoderControlPress(UIState &uiState)
  * early — that keeps per-step behavior consistent no matter which surface
  * produced the event.
  */
+static void routeMatrixEvent(const MatrixButtonEvent &evt, UIState &uiState,
+                             const SequencerView &sequencers);
+
 void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
                         const SequencerView &sequencers)
+{
+  // The two-pad loop gesture sees every edge, even ones a page swallows, so a
+  // pad lifted while Settings or a modal page was open never stays "held".
+  if (evt.type == MATRIX_BUTTON_PRESSED)
+    uiState.loopRange.notePress(evt.buttonIndex);
+  routeMatrixEvent(evt, uiState, sequencers);
+  if (evt.type == MATRIX_BUTTON_RELEASED)
+    uiState.loopRange.noteRelease(evt.buttonIndex);
+}
+
+static void routeMatrixEvent(const MatrixButtonEvent &evt, UIState &uiState,
+                             const SequencerView &sequencers)
 {
 
   if(uiState.voiceEditor.active || uiState.controlsWaitRelease)
@@ -242,6 +257,8 @@ void handleParameterButtonById(uint8_t paramId, bool pressed, UIState &uiState)
   if (pressed)
   {
     autoSelectEncoderParameter(currentParamId, uiState);
+    // This lane is now the one a two-pad press loops.
+    uiState.loopRangeParam = currentParamId;
   }
 
   // Handle parameter editing in step edit mode
@@ -380,6 +397,36 @@ static bool handleStepButtonEvent(const MatrixButtonEvent &evt,
       uiState.selectedStepForEdit = -1;
     }
     return true; // Event was handled as parameter length adjustment
+  }
+
+  // =======================
+  //   TWO PADS: LOOP SELECTED LANE
+  // =======================
+  // Param mode: with one pad held, a second pad on the same voice row loops
+  // the last-selected parameter lane between the two steps. Other lanes keep
+  // their loops; neither pad toggles its gate or opens step edit.
+  if (evt.type == MATRIX_BUTTON_PRESSED &&
+      uiState.alchemyMode == UIState::AlchemyMode::Param &&
+      uiState.loopRangeParam != ParamId::Count && padSequencerPtr)
+  {
+    const LoopRange::Pair pair = uiState.loopRange.pairFor(evt.buttonIndex);
+    if (pair.valid)
+    {
+      const ControlSurface::PadAddress anchor =
+          ControlSurface::PadBank::resolve(pair.anchorPad, uiState.selectedVoiceIndex);
+      padSequencerPtr->setParameterLoop(uiState.loopRangeParam, anchor.step, pad.step);
+      uiState.padPressTimestamps[pair.anchorPad] = 0;
+      uiState.padPressTimestamps[evt.buttonIndex] = 0;
+      uiState.selectedStepForEdit = -1;
+      uiState.currentEditParameter = ParamId::Count;
+      return true;
+    }
+  }
+  // A pad that took part in a loop gesture does nothing on release.
+  if (evt.type != MATRIX_BUTTON_PRESSED && uiState.loopRange.consumed(evt.buttonIndex))
+  {
+    uiState.padPressTimestamps[evt.buttonIndex] = 0;
+    return true;
   }
 
   // Handle normal step pad presses (short/long press detection)

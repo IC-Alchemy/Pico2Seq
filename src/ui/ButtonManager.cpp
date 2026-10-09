@@ -55,6 +55,8 @@ void initButtonManager(UIState &uiState)
   {
     uiState.parameterButtonHeld[paramIndex] = false;
   }
+  uiState.loopRangeParam = ParamId::Count;
+  uiState.loopRange = {};
 
   // Clear pad timers so no boot-time release reads as a hold.
   for (int padIndex = 0; padIndex < NUMBER_OF_STEP_PADS; ++padIndex)

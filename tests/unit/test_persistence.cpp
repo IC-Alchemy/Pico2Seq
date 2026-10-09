@@ -224,6 +224,32 @@ TEST_CASE("pattern codec round-trips values, lengths, and shrink-grown tails", "
     REQUIRE(restored.getStepParameterValue(ParamId::Gate, 20) == 0.0f);
 }
 
+TEST_CASE("pattern codec round-trips lane loop starts; zero bytes load as step 0", "[persistence][loop_range]")
+{
+    Sequencer seq(1);
+    seq.initializeParameters();
+    seq.setParameterLoop(ParamId::Velocity, 3, 7);
+
+    persistence::PatternSnapshot snap;
+    persistence::EnvelopeTracksSnapshot envelopes;
+    persistence::capturePattern(seq, snap, envelopes);
+    CHECK(snap.tracks[static_cast<size_t>(ParamId::Velocity)].reserved[0] == 3);
+    CHECK(snap.tracks[static_cast<size_t>(ParamId::Filter)].reserved[0] == 0);
+
+    Sequencer restored(1);
+    restored.initializeParameters();
+    restored.setParameterLoop(ParamId::Filter, 2, 9); // must be replaced by the file
+    persistence::applyPattern(snap, envelopes, restored);
+    REQUIRE(restored.getParameterLoopStart(ParamId::Velocity) == 3);
+    REQUIRE(restored.getParameterStepCount(ParamId::Velocity) == 8);
+    REQUIRE(restored.getParameterLoopStart(ParamId::Filter) == 0);
+
+    // A start that no longer fits the (capped) length loads as 0.
+    snap.tracks[static_cast<size_t>(ParamId::Velocity)].reserved[0] = 7;
+    persistence::applyPattern(snap, envelopes, restored);
+    REQUIRE(restored.getParameterLoopStart(ParamId::Velocity) == 0);
+}
+
 TEST_CASE("pattern codec preserves every track of a random pattern", "[persistence]")
 {
     Sequencer seq(2);

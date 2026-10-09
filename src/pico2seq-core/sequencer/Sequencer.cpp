@@ -3,6 +3,7 @@
 // Portable C++ — no Arduino/hardware includes here.
 #include <cstdint>
 #include <algorithm>
+#include <utility>
 #include <cmath>
 #include "SequencerDefs.h"
 #include "Sequencer.h"
@@ -104,11 +105,50 @@ bool Sequencer::isNotePlaying() const
 void Sequencer::initializeParameters()
 {
     parameterManager.init();
+    for (auto &start : loopStartPerParam)
+        start = 0;
 }
 
 void Sequencer::setParameterStepCount(ParamId id, uint8_t steps)
 {
     parameterManager.setStepCount(id, steps);
+    // Re-validate the loop start against the new length.
+    setParameterLoopStart(id, getParameterLoopStart(id));
+}
+
+void Sequencer::setParameterLoop(ParamId id, uint8_t firstStep, uint8_t lastStep)
+{
+    if (static_cast<size_t>(id) >= PARAM_ID_COUNT)
+        return;
+    if (firstStep > lastStep)
+        std::swap(firstStep, lastStep);
+    constexpr uint8_t kMax = SequencerConstants::MAX_STEPS_COUNT;
+    constexpr uint8_t kMin = SequencerConstants::MIN_STEPS_COUNT;
+    if (lastStep >= kMax)
+        lastStep = kMax - 1;
+    if (firstStep > kMax - kMin)
+        firstStep = kMax - kMin;
+    if (lastStep < firstStep + kMin - 1)
+        lastStep = static_cast<uint8_t>(firstStep + kMin - 1);
+    parameterManager.setStepCount(id, static_cast<uint8_t>(lastStep + 1));
+    setParameterLoopStart(id, firstStep);
+}
+
+uint8_t Sequencer::getParameterLoopStart(ParamId id) const
+{
+    if (static_cast<size_t>(id) >= PARAM_ID_COUNT)
+        return 0;
+    return loopStartPerParam[static_cast<size_t>(id)];
+}
+
+void Sequencer::setParameterLoopStart(ParamId id, uint8_t start)
+{
+    if (static_cast<size_t>(id) >= PARAM_ID_COUNT)
+        return;
+    const uint8_t count = getParameterStepCount(id);
+    const bool fits = count >= SequencerConstants::MIN_STEPS_COUNT &&
+                      start <= count - SequencerConstants::MIN_STEPS_COUNT;
+    loopStartPerParam[static_cast<size_t>(id)] = fits ? start : 0;
 }
 
 uint8_t Sequencer::getParameterStepCount(ParamId id) const
@@ -238,6 +278,7 @@ void Sequencer::clearPattern()
     {
         parameterManager.setStepCount(static_cast<ParamId>(param),
                                       CORE_PARAMETERS[param].defaultSteps);
+        loopStartPerParam[param] = 0;
     }
     // End a sounding note the same way reset() does.
     handleNoteOff(nullptr);
@@ -252,33 +293,27 @@ void Sequencer::advanceStep(uint32_t current_uclock_step, int mm_distance,
         return;
     }
 
-    // Bar cursor follows the Gate lane; narrowing only after modulo avoids
-    // aliasing every 256 steps onto position 0.
-    uint8_t sequenceLength = getParameterStepCount(ParamId::Gate);
-    if (sequenceLength > 0)
-    {
-        currentStep = static_cast<uint8_t>(current_uclock_step % sequenceLength);
-    }
-    else
-    {
-        currentStep = 0; // No Gate length yet; park the cursor at step 0
-    }
-
-    // Each lane wraps on its own length: different lengths phase into polyrhythm.
+    // Each lane wraps on its own loop (start..length-1): different loops phase
+    // into polyrhythm. Narrowing only after modulo avoids aliasing every 256
+    // steps onto position 0.
     for (size_t i = 0; i < static_cast<size_t>(ParamId::Count); ++i)
     {
         ParamId paramId = static_cast<ParamId>(i);
-        uint8_t paramStepCount = getParameterStepCount(paramId);
+        const uint8_t paramStepCount = getParameterStepCount(paramId);
+        const uint8_t loopStart = loopStartPerParam[i];
 
-        if (paramStepCount > 0)
+        if (paramStepCount > loopStart)
         {
-            currentStepPerParam[i] = static_cast<uint8_t>(current_uclock_step % paramStepCount);
+            currentStepPerParam[i] = static_cast<uint8_t>(
+                loopStart + current_uclock_step % (paramStepCount - loopStart));
         }
         else
         {
             currentStepPerParam[i] = 0; // Unset length; park at step 0
         }
     }
+    // Bar cursor follows the Gate lane.
+    currentStep = currentStepPerParam[static_cast<size_t>(ParamId::Gate)];
 
     // Live overdub first (skipped in step-edit mode so the hand never fights a selection).
     if (mm_distance >= 0 && current_selected_step_for_edit == -1)

@@ -100,6 +100,14 @@ What pads do, per situation:
   step's selected parameter.
 - **Hold a parameter button + tap a pad** — sets that parameter track's **length** to the
   pad number (pad 5 = 5 steps). This is how you make polymetric tracks (§3.2).
+- **Hold a pad + press a second pad in the same bank** (Param mode) — loops the **last
+  parameter button you pressed** between those two steps. Press Velocity, then hold pad 4
+  and press pad 8: the Velocity track's play head now cycles steps 4–8 while every other
+  track keeps its own loop. Either pad can go first. Keep the first pad held and press
+  another to move the end again. Neither pad toggles its gate. Pads closer than two steps
+  are widened to two. The loop is saved with the session and copied by COPY LANE. Setting
+  the length afterwards (hold the button + tap a pad) keeps the start while at least two
+  steps remain after it; otherwise the track loops from step 1 again.
 - **Shift + pad** — clears that step (gate off, all parameters back to defaults).
 - **While Gate Length mode is active** (hold a voice button for 400 ms) — a pad in that voice's lit bank sets
   the selected voice's **Gate track length** (2–16 steps) instead of toggling a step.
@@ -777,6 +785,7 @@ Presets live in flash and are auditioned and applied per voice in the **preset b
 | Long-press a pad (~0.4 s) | Enter Step Edit mode for that step (encoder/faders/sensor edit it; OLED shows values) |
 | Shift + pad | Clear that step (gate off, parameters to defaults) |
 | Hold a parameter button + tap pad | Set that parameter track's length to the pad number |
+| Param mode: hold a pad + press another in the same bank | Loop the last-pressed parameter's track between those two steps (other tracks unchanged) |
 | Pad press in the lit bank while a voice button is long-held | Set the selected voice's Gate track length (2–16 steps) |
 | Tap a pad while the preset browser is open | Apply that preset to the selected voice — pads 0–28 = presets 1–29 (pads 0–30 are preset slots); V1–V4 switch the target voice. Pad 31 flips to the next page of your own presets once any exist ([Preset Studio](preset-studio.md)) |
 
@@ -992,7 +1001,8 @@ cmake --build build_test --parallel
   any pad) to leave Step Edit and record into the playing steps again.
 - **Pad does something unexpected** — check the context: a held parameter button turns pad
   presses into track-length setting; Gate Length mode turns them into Gate length; Shift
-  turns them into clear-step. All pads are step pads; there is no pad "menu".
+  turns them into clear-step. In Param mode, two pads of one bank held together loop the
+  last-pressed parameter's track instead of toggling gates. All pads are step pads; there is no pad "menu".
 - **Stopping the transport opens the preset browser** on the OLED (a Play long-press
   toggles it without stopping). That is intentional; press Play to leave it.
 - **Distance sensor dead?** It is used across 55–700 mm only; readings more than 40 mm

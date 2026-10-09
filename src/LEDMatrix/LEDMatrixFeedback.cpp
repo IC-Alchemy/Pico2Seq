@@ -1399,6 +1399,8 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
   if (paramValueEditActive) {
     uint8_t currentLength =
         activeSeq.getParameterStepCount(activeParamIdForLength);
+    const uint8_t loopStart =
+        activeSeq.getParameterLoopStart(activeParamIdForLength);
     uint8_t paramPlayhead =
         activeSeq.getCurrentStepForParameter(activeParamIdForLength);
 
@@ -1424,7 +1426,7 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
 
     for (int step = 0; step < SEQ_STEPS; ++step) {
       CRGB targetColor;
-      if (step < currentLength) {
+      if (step >= loopStart && step < currentLength) {
         if (step == paramPlayhead && activeSeq.isRunning()) {
           targetColor = getParameterColor(activeParamIdForLength, 180);
         } else {
@@ -1448,6 +1450,8 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
   if (anyParamForLengthHeld) {
     uint8_t currentLength =
         activeSeq.getParameterStepCount(activeParamIdForLength);
+    const uint8_t loopStart =
+        activeSeq.getParameterLoopStart(activeParamIdForLength);
     uint8_t paramPlayhead =
         activeSeq.getCurrentStepForParameter(activeParamIdForLength);
 
@@ -1455,7 +1459,7 @@ void updateStepLEDs(LEDMatrix &ledMatrix, const SequencerView &sequencers,
     const uint8_t selBand = ControlSurface::LedLayout::bandOfVoiceInPair(
         uiState.selectedVoiceIndex);
     bool isSecondInPair = selBand == 1;
-    for (int step = 0; step < currentLength; ++step) {
+    for (int step = loopStart; step < currentLength; ++step) {
       CRGB targetColor =
           (step == paramPlayhead && activeSeq.isRunning())
               ? getParameterColor(activeParamIdForLength, 180)
