@@ -14,6 +14,13 @@ The user has authorized ordinary commits and branch pushes without repeated
 confirmation. Publish to the user's `local` repository and the verified GitHub
 source remote. Leave PR creation and merging to the user.
 
+**Scope.** This skill is for local Delta checkouts, which have a `local` remote.
+A cloud session has no `local` remote and is assigned its branch (e.g. `ccr-*`):
+there, skip the `delta/*` allocation and the `local` push, commit on the assigned
+branch, push `origin`, and open a *draft* PR (see `AGENTS.md`). Everything else
+here (what to stage, which checks to run, how to word the commit and the report)
+applies to both.
+
 ## 1. Inspect and check ownership
 
 Read the applicable project rules, then inspect:
@@ -67,7 +74,8 @@ In a **Land Changes subthread**:
 - Do not run while the parent is still editing or publishing the same work.
 
 Never create or publish from reviews, ordinary subthreads, or attached subagents.
-Never push a branch outside `delta/*`, including the remote's default branch.
+In a local thread, never push a branch outside `delta/*`, including the remote's
+default branch.
 
 ## Land-to-parent handoff
 
@@ -99,12 +107,26 @@ of that commit. Do not wait for a later push rejection to discover divergence.
 - Stage explicit file paths, not a blanket `git add -A`. Do not stage unrelated
   changes, `.env` files, keys, credentials, build products, or uncommitted changes
   inside submodules. Stop if pre-staged unrelated work would enter the commit.
-- Run the checks required for the files changed by the task. Reuse successful
-  checks from this task only if the contents have not changed since they ran.
-  For documentation/configuration-only changes, validate their syntax and run
-  `git diff --check`; a firmware build is not required.
-- Failed required checks block the commit and push. Report environment blockers
-  honestly; do not label unrun tests as passed.
+- Run the checks for the files changed. Reuse a successful check from this task
+  only if the contents have not changed since it ran. Run `git diff --check` for
+  every task.
+
+  | Changed files | Required check |
+  | --- | --- |
+  | Anything on `CLAUDE.md`'s **Tested** list, or `tests/` | `cmake -P scripts/check_host_tests.cmake` |
+  | Anything on its **Not tested, by design** list (OLED, LEDMatrix, `Matrix.cpp`, the Wire-bound UI and app glue) or `Pico2Seq.ino` | Compile with `arduino-cli` (command and FQBN in `CLAUDE.md`). If it is unavailable, the report must say **firmware not compiled**. |
+  | A mix | Both rows |
+  | Docs or config only | `git diff --check` only |
+
+  A fresh checkout needs `git submodule update --init --recursive` before the
+  host check can configure. Never edit a test, its tags, or
+  `tests/known_failures.txt` to make a check pass; the list changes only when a
+  listed test is genuinely fixed (the script then demands the line be deleted).
+- Failed required checks block the commit and push. About thirty host tests fail
+  on a clean checkout; the script compares their names with
+  `tests/known_failures.txt`, so only a **new** failure, a listed test that now
+  passes, or a build failure counts. Report environment blockers honestly; do not
+  label unrun tests as passed.
 - Re-check `git --no-optional-locks status` immediately before staging.
   Inspect the staged diff and run `git diff --cached --check` before committing.
 - Inspect outgoing commits and their diffs against each destination as well.
@@ -114,14 +136,19 @@ of that commit. Do not wait for a later push rejection to discover divergence.
   Routine retries may publish the already-reviewed task commit; stop if earlier
   unpublished history, secrets, ownership, or validation is ambiguous.
 
-## 3. Commit once, push both destinations
+## 3. Commit, then push both destinations
 
 Verify the remotes on the live checkout. `local` is the user's repository,
 not GitHub. The source remote must point to `IC-Alchemy/Pico2Seq` on GitHub;
 it is currently `origin`. Stop if the destination has changed or is ambiguous.
 Do not add or replace remotes automatically.
 
-Use an imperative commit subject describing the work, then:
+Commit shape: one coherent concern per commit (a task that mixes a refactor, a
+behavior change and docs makes several commits, so the PR can be reviewed in
+pieces and a merge commit keeps that history). Imperative subject of about 72
+characters or fewer; the body says *why* and names anything not verified. Keep a
+change together with the test, doc and generated file it requires. Add the
+attribution trailers the session specifies, if any.
 
 ```sh
 GIT_EDITOR=true git commit -m "<subject>"
@@ -152,7 +179,16 @@ git --no-optional-locks status --short --branch
 Both remote branch hashes must equal HEAD before claiming publication.
 Report the commit, branch, checks actually run, and any excluded changes or
 partial push. Say "published for your PR", never "merged into main".
-Do not claim CI passed unless its result was actually observed.
+This repository currently has no CI workflows (no `.github/`), so there is no CI
+result to claim; never describe local checks as CI.
+
+Also give the user a ready-to-paste PR description with three parts, so the PR
+the user opens carries the honest state: **Changes** (one line per commit),
+**Verification** (the exact checks run and their observed result, including the
+baseline comparison for the host suite), and **Not verified** (firmware not
+compiled, hardware not exercised, anything skipped). Merge the PR with a merge
+commit, not a squash: the repository's history uses merge commits, and the
+commit-per-concern structure is lost by squashing.
 
 For a Land child, use `report-landed` for the result card, with the thread branch
 as the target and CI marked unverified if not checked. Send the parent a handoff
