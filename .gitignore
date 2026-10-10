@@ -7,7 +7,6 @@ build_fw_on/*
 
 build_test/
 TODO.md
-AGENTS.md
 .zcode/*
 .vscode/settings.json
 .agents/*
