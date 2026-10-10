@@ -9,6 +9,8 @@
 #include "TuningPageControls.h"
 #include "CopyLaneControls.h"
 #include "LoopRangeGesture.h"
+#include "../display/LaneDisplay.h"
+#include "../display/DisplayGesture.h"
 #include "../voice/DelayTiming.h"
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
@@ -23,6 +25,8 @@
  */
 struct UIState
 {
+    LaneDisplay::Controls display;
+    DisplayGesture::SwingHold displaySwing;
     VoiceEdit::Controls voiceEditor;
     VoiceEnvelope::Controls voiceEnvelope;
     // Live master-reverb page (Shift + 6 + 2): faders, Freeze and layer switch.

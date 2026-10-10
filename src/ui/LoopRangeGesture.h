@@ -40,7 +40,7 @@ public:
             return;
         if (held_ == 0)
             anchor_ = static_cast<int8_t>(pad);
-        held_ |= bit(pad);
+        held_ |= bitMask(pad);
     }
 
     // Every pad release edge, after routing (so consumed() still answers).
@@ -48,8 +48,8 @@ public:
     {
         if (pad >= 32)
             return;
-        held_ &= ~bit(pad);
-        consumed_ &= ~bit(pad);
+        held_ &= ~bitMask(pad);
+        consumed_ &= ~bitMask(pad);
         if (anchor_ == static_cast<int8_t>(pad))
             anchor_ = -1;
     }
@@ -64,9 +64,9 @@ public:
         if (pad >= 32 || anchor_ < 0 || static_cast<uint8_t>(anchor_) == pad)
             return pair;
         const uint8_t anchor = static_cast<uint8_t>(anchor_);
-        if (!(held_ & bit(anchor)) || anchor / kPadsPerBank != pad / kPadsPerBank)
+        if (!(held_ & bitMask(anchor)) || anchor / kPadsPerBank != pad / kPadsPerBank)
             return pair;
-        consumed_ |= bit(anchor) | bit(pad);
+        consumed_ |= bitMask(anchor) | bitMask(pad);
         pair.valid = true;
         pair.anchorPad = anchor;
         pair.otherPad = pad;
@@ -75,11 +75,13 @@ public:
 
     bool consumed(uint8_t pad) const noexcept
     {
-        return pad < 32 && (consumed_ & bit(pad)) != 0;
+        return pad < 32 && (consumed_ & bitMask(pad)) != 0;
     }
 
 private:
-    static constexpr uint32_t bit(uint8_t pad) { return 1u << pad; }
+    // Not named `bit`: the Arduino core defines a `bit()` macro, which would
+    // rewrite this declaration into `(1UL << (uint8_t pad))` on the firmware build.
+    static constexpr uint32_t bitMask(uint8_t pad) { return 1u << pad; }
 
     uint32_t held_ = 0;
     uint32_t consumed_ = 0;

@@ -20,6 +20,7 @@
 #include "../pico2seq-core/sequencer/LaneCopy.h"
 #include "../pico2seq-core/sequencer/Sequencer.h"
 #include "../voice/DelayTiming.h"
+#include "../display/DisplayConfig.h"
 
 #include <uClock.h>
 
@@ -112,6 +113,8 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
   uint8_t buttons=0, voices=0;
   for(uint8_t bit=0;bit<8;++bit) if(buttonAt(buttonSlot_,bit).held()) buttons|=1u<<bit;
   for(uint8_t bit=0;bit<4;++bit) if(buttonAt(sliderSlot_,bit).held()) voices|=1u<<bit;
+  if (UITransitions::pageOwnsPanel(uiState) || uiState.settingsMode || uiState.arp.active())
+    uiState.displaySwing.cancel();
   if(uiState.voiceEditor.active || uiState.controlsWaitRelease) {
     UITransitions::cancelGateLengthHold(uiState);
     // Keep physical histories current even while their performance actions are
@@ -134,6 +137,8 @@ void AlchemyControlBridge::update(uint32_t nowMs, UIState &uiState,
   }
 
   handleModeStrap(nowMs, uiState);
+  if (uiState.alchemyMode != UIState::AlchemyMode::Utility)
+    uiState.displaySwing.cancel();
 
   // COPY LANE decides before any page or single-button handler so a Shift press always
   // leaves copy mode first and a claimed lane press never also arms recording.
@@ -925,7 +930,8 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
     // with no edge. Skipping those passes made both long presses unreachable.
     // The Randomize Shift chord needs the same mid-hold passes for its
     // clear-all hold, but only while the chord is armed (Shift at press).
-    const bool actsWhileHeld = bit <= 1 || (bit == 6 && uiState.shiftHeld);
+    const bool actsWhileHeld = bit <= 1 || (bit == 6 && uiState.shiftHeld) ||
+                              (bit == 3 && DisplayConfig::kLargePanel);
     if (!edges.take(tileButton) && !(actsWhileHeld && tileButton.held()))
     {
       continue;
@@ -948,8 +954,20 @@ void AlchemyControlBridge::handleUtilityButtons(uint32_t nowMs, UIState &uiState
         handleControlButton(BUTTON_CHANGE_SCALE, uiState);
       break;
 
-    case 3: // Swing template cycle
-      if (edges.pressEdge)
+    case 3: // Swing tap; large-panel holds are display-only, never alter swing.
+      if (DisplayConfig::kLargePanel && !uiState.settingsMode)
+      {
+        const auto action = uiState.displaySwing.update(
+            edges.pressEdge, edges.releaseEdge, tileButton.held(), uiState.shiftHeld,
+            nowMs, UITimingConstants::LONG_PRESS_THRESHOLD_MS);
+        if (action == DisplayGesture::Action::Page)
+          UITransitions::cycleDisplayPage(uiState);
+        else if (action == DisplayGesture::Action::Style)
+          UITransitions::cycleDisplayStyle(uiState);
+        else if (action == DisplayGesture::Action::Swing)
+          handleControlButton(BUTTON_CHANGE_SWING_PATTERN, uiState);
+      }
+      else if (edges.pressEdge)
         handleControlButton(BUTTON_CHANGE_SWING_PATTERN, uiState);
       break;
 

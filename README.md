@@ -27,7 +27,7 @@ A powerful 4-voice polyphonic step sequencer and synthesizer for the Raspberry P
 - **Hardware Mode Strap (GP7)**: Instant hardware toggle between Parameter mode and Utility mode
 - **Real-time Sensors**: TMAG5273 magnetic encoder (Velocity Encoder board) for responsive parameter dialing
 - **Distance Control**: VL53L1X TOF sensor for hands-free optical parameter modulation (55–700 mm usable range, normalized 0–1)
-- **Visual Feedback**: 128×64 SH1106G OLED display with 6-tier priority screen rendering
+- **Selectable Display**: Keep the 128×64 SH1106G OLED, or select a portrait 3.5-inch 320×480 SPI ST7796 using one configuration setting. The TFT adds a 2×8 Lane Matrix with cycling graph styles and a four-voice Loop Observatory while preserving the existing editor/status pages. See [display setup and controls](docs/st7796-display.md) and [demo images](docs/display/README.md).
 - **LED Matrix**: 8×4 WS2812B RGB LED display (mirroring the 4×8 touch matrix) with 10 vibrant color themes and playhead visualization
 
 ### Architecture Highlights
@@ -76,6 +76,7 @@ For a practical guide to changing the firmware, start with
 │   ├── midi/                 # Removal notice only; USB remains CDC-only
 │   ├── LEDMatrix/            # 8×4 WS2812B RGB visual feedback (pad-mirror) and 10 color themes
 │   ├── OLED/                 # 128×64 SH1106G OLED display manager and priority screens
+│   ├── display/              # Display selection, ST7796 strip renderer, lane visualizations
 │   ├── utils/                # Debug logging (Debug.h/.cpp) with serial rate limiting (SerialRateLimit.h)
 │   └── AlchemyUI/            # Vendored Alchemy Modular UI tile library (tracked in-repo)
 ├── docs/                     # Comprehensive architecture and subsystem documentation
@@ -96,7 +97,7 @@ For a practical guide to changing the firmware, start with
 - MPR121 capacitive touch sensor (4×8 grid wired as 32 dedicated step pads)
 - Alchemy Modular UI tiles: `SliderModule` (4 faders + 4 buttons) and `ButtonModule8` (8 buttons) on Wire1
 - GP7 mode strap switch (LOW = Param mode, HIGH = Utility mode)
-- OLED display (128×64 SH1106G on I2C `Wire` @ `0x3C`)
+- Display: 128×64 SH1106G on I2C `Wire` @ `0x3C`, or a [3.5-inch SPI ST7796](docs/st7796-display.md)
 - Velocity Encoder board (TMAG5273A magnetic encoder on I2C `Wire` @ `0x35`)
 - VL53L1X time-of-flight distance sensor (I2C `Wire` @ `0x29`)
 - WS2812B RGB LED matrix (8×4 on GPIO pin 1)

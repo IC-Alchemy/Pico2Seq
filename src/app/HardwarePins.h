@@ -16,6 +16,15 @@ constexpr uint8_t PIN_ALCHEMY_MODE_SWITCH = 7;
 // MPR121 /IRQ: active-low, open-drain; Matrix configures INPUT_PULLUP.
 constexpr uint8_t PIN_MPR121_INT = 8;
 
+// Optional 3.5-inch ST7796 on hardware SPI0. Write-only, MISO not connected.
+// No touch/SD pins are claimed; GP4/5 and GP14/15 remain the two I2C buses.
+constexpr uint8_t PIN_TFT_MISO = 16; // SPI backend configures this pin; leave unwired
+constexpr uint8_t PIN_TFT_SCK = 18;
+constexpr uint8_t PIN_TFT_MOSI = 19;
+constexpr uint8_t PIN_TFT_CS = 17;
+constexpr uint8_t PIN_TFT_DC = 20;
+constexpr uint8_t PIN_TFT_RESET = 21;
+
 // I2S owns these pads; PIO derives LRCK as clock base + 1. Moving them breaks sound.
 constexpr uint8_t PICO_AUDIO_I2S_DATA_PIN = 12;
 constexpr uint8_t PICO_AUDIO_I2S_CLOCK_PIN_BASE = 10; // BCLK GP10, LRCK GP11

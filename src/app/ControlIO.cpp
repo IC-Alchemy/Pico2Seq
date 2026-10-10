@@ -7,7 +7,7 @@
 #include "../LEDMatrix/LedMatrix.h"
 #include "../LEDMatrix/LEDMatrixFeedback.h"
 #include "../matrix/Matrix.h"
-#include "../OLED/oled.h"
+#include "../display/PerformanceDisplay.h"
 #include "../sensors/DistanceSensor.h"
 #include "../sensors/EncoderManager.h"
 #include "../ui/AlchemyControlBridge.h"
@@ -18,8 +18,8 @@
 #include "../utils/FreezeWatchdog.h"
 
 // Core 0 control slices: 1 ms hands/sensors, ~13 ms LEDs, ~40 ms OLED.
-// The OLED only ships changed pages and LEDs go via PIO+DMA, so the fast
-// cadences stay cheap and the groove never waits on feedback.
+// The optional TFT advances one capture lane or eight-row strip per pass.
+// Neither display belongs on the audio core.
 
 namespace
 {
@@ -27,7 +27,8 @@ constexpr uint32_t kControlIntervalMs = 1;
 // The OLED and LED matrix run on independent cadences. OLED: commitFrame()
 // only puts the pages that changed on the bus, so a frame costs a page or two
 // of I2C transfer instead of the old full 1 KB push.
-constexpr uint32_t kOledIntervalMs = 40; // ~25 fps: readable without hogging I2C
+constexpr uint32_t kOledIntervalMs = DisplayConfig::kLargePanel ? 1 : 40;
+// TFT: one capture lane or eight-row SPI strip per pass, not a full-frame push.
 // LEDs: 3x the OLED rate. show() hands the 32-pixel frame to FastLED's PIO+DMA
 // driver (~1 ms on the wire, no interrupt blackout), so a fast cadence costs
 // Core 0 little. Blends in updateStepLEDs() are per frame, so fades settle
@@ -53,7 +54,7 @@ struct ControlHardware
     LEDMatrix ledMatrix;
     AlchemyControlBridge alchemyBridge;
     Adafruit_MPR121 touchSensor;
-    OLEDDisplay display;
+    PerformanceDisplay display;
     uint32_t lastControlUpdate = 0;
     uint32_t lastOledUpdate = 0;
     uint32_t lastLedUpdate = 0;
@@ -162,26 +163,26 @@ void ControlIO::beginTouchPads()
 void ControlIO::beginDisplay()
 {
     freezeWatchdogFeed(FW_SETUP_OLED);
-    controls.display.begin();
-    Serial.println("OLED display initialized");
+    if (!controls.display.begin())
+        Serial.println("[ERROR] Display initialization failed; continuing headless");
 }
 
 void ControlIO::observeVoiceChanges()
 {
-    // Register the OLED as the voice-change observer so edits show at once.
+    // Register the selected display as the control-core voice observer.
     if (voiceManager)
     {
         controls.display.setVoiceManager(voiceManager.get());
 
-        // Mirror voice edits into the OLED via VoiceManager's callback.
+        // Mirror voice edits via VoiceManager's existing callback.
         voiceManager->setVoiceUpdateCallback([](uint8_t voiceId, const VoiceState &state)
                                              { controls.display.onVoiceParameterChanged(voiceId, state); });
 
-        Serial.println("OLED display registered as voice parameter observer");
+        Serial.println("Display registered as voice parameter observer");
     }
     else
     {
-        Serial.println("[ERROR] VoiceManager not initialized - cannot register OLED observer");
+        Serial.println("[ERROR] VoiceManager not initialized - cannot register display observer");
     }
 }
 

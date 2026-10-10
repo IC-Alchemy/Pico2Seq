@@ -8,6 +8,23 @@
 // side effects. Every transition leaves no modal residue so the pads always
 // return to a known grid. Add new mode switches here, not inline in handlers.
 namespace UITransitions {
+// Display-only navigation never changes a lane, sounding voice, or pad gesture.
+// Both eight-row banks are reached before leaving the Matrix page.
+inline void cycleDisplayPage(UIState &state) noexcept
+{
+    if (state.display.page == LaneDisplay::Page::Matrix && state.display.laneBank == 0)
+        state.display.laneBank = 1;
+    else {
+        state.display.laneBank = 0;
+        state.display.page = LaneDisplay::cyclePage(state.display.page);
+    }
+}
+
+inline void cycleDisplayStyle(UIState &state) noexcept
+{
+    state.display.style = LaneDisplay::cycleStyle(state.display.style);
+}
+
 // Leave step-edit: pads go back to toggling gates. Never stops sounding notes.
 inline void clearStepEdit(UIState &state) noexcept
 {

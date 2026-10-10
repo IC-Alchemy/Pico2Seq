@@ -40,7 +40,10 @@ public:
   OLEDDisplay();
 
   // Probe the panel at 0x3C; false = run headless, caller degrades gracefully.
-  bool begin();
+  // panelAttached=false renders the same contextual pages into RAM for the TFT,
+  // without probing, resetting, or transferring anything on the OLED I2C address.
+  bool begin(bool panelAttached = true);
+  const uint8_t *framebuffer() { return displayHardware.getBuffer(); }
 
   // Render from UI + sequencer snapshots (no voice config: some views degrade).
   void update(const UIState &uiState, const SequencerView &sequencers);
@@ -68,8 +71,14 @@ public:
 private:
   void displayVoiceEditor(const UIState &uiState, class VoiceManager *voiceManager);
   // SH1106 driver; all drawing goes to its 1 KB buffer, commitFrame() pushes.
-  Adafruit_SH1106G displayHardware;
+  class StatusCanvas : public Adafruit_SH1106G {
+  public:
+    using Adafruit_SH1106G::Adafruit_SH1106G;
+    bool beginCanvas();
+  };
+  StatusCanvas displayHardware;
   bool isDisplayInitialized = false;
+  bool panelAttached_ = true;
 
   // Cached for observer callbacks between update() calls (never owned).
   class VoiceManager *voiceManagerReference = nullptr;

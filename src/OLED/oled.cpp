@@ -46,9 +46,21 @@ OLEDDisplay::OLEDDisplay() : displayHardware(OLEDConstants::SCREEN_WIDTH, OLEDCo
 
 // begin(): probe at 0x3C (false = headless); boot splash may delay, the live
 // loop never does.
-bool OLEDDisplay::begin()
+bool OLEDDisplay::StatusCanvas::beginCanvas()
 {
-  if (!displayHardware.begin(OLEDConstants::I2C_ADDRESS, true))
+  // Same allocation ownership as Adafruit_GrayOLED::_init(), but no bus device.
+  // Setup only; its destructor frees the buffer in the normal library path.
+  if (!buffer)
+    buffer = static_cast<uint8_t *>(malloc(OLEDConstants::SCREEN_WIDTH *
+                                          OLEDConstants::SCREEN_HEIGHT / 8));
+  return buffer != nullptr;
+}
+
+bool OLEDDisplay::begin(bool panelAttached)
+{
+  panelAttached_ = panelAttached;
+  if (!(panelAttached_ ? displayHardware.begin(OLEDConstants::I2C_ADDRESS, true)
+                      : displayHardware.beginCanvas()))
   {
     Serial.println("[ERROR] OLED display initialization failed!");
     return false;
@@ -61,9 +73,11 @@ bool OLEDDisplay::begin()
   displayHardware.setTextColor(SH110X_WHITE);
   displayHardware.setCursor(0, 0);
 
-  runStartupAnimation();
+  if (panelAttached_)
+    runStartupAnimation();
 
-  Serial.println("OLED display initialized successfully");
+  Serial.println(panelAttached_ ? "OLED display initialized successfully"
+                                : "Context display canvas initialized");
   return true;
 }
 
@@ -133,7 +147,7 @@ bool pushFramePage(uint8_t page, const uint8_t *pageData)
 // cannot be reached from here.
 void OLEDDisplay::commitFrame()
 {
-  if (!isDisplayInitialized)
+  if (!isDisplayInitialized || !panelAttached_)
   {
     return;
   }

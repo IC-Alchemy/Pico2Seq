@@ -47,6 +47,8 @@ ParamId paramIdFromName(const char *name)
  */
 void initButtonManager(UIState &uiState)
 {
+  uiState.display = {};
+  uiState.displaySwing = {};
   uiState.voiceEnvelope = {};
   uiState.reverbPage = {};
   uiState.tuningPage = {};

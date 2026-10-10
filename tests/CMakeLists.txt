@@ -120,6 +120,8 @@ endforeach()
 
 # Test files shared by more than one suite, listed once.
 set(PICO2SEQ_UI_TEST_SOURCES
+  unit/test_display_controls.cpp
+  unit/test_lane_display.cpp
   unit/test_control_surface_logic.cpp
   unit/test_arpeggiator.cpp
   unit/test_ui_transitions.cpp
@@ -154,6 +156,7 @@ add_executable(pico2seq_tests
   unit/test_sequencer.cpp
   unit/test_lane_copy.cpp
   unit/test_sequencer_view.cpp
+  unit/test_display_model.cpp
   unit/test_voice_playback.cpp
   unit/test_voice_envelope.cpp
   unit/test_reverb_editor.cpp
@@ -307,3 +310,9 @@ target_compile_options(preset_link_sim PRIVATE -Wall -Wno-unused-parameter)
 # Opt-in throughput measurement; timing thresholds do not belong in CTest.
 add_executable(pico2seq_recipe_benchmark EXCLUDE_FROM_ALL benchmarks/recipe_benchmark.cpp)
 target_include_directories(pico2seq_recipe_benchmark PRIVATE ${SRC_DIR})
+
+# Synthetic screen images from the same portable renderer as the TFT.
+# Opt-in: cmake --build build_test_ninja --target pico2seq_display_demo
+add_executable(pico2seq_display_demo EXCLUDE_FROM_ALL tools/lane_display_demo.cpp)
+target_include_directories(pico2seq_display_demo PRIVATE ${PROJECT_SOURCE_DIR} ${SRC_DIR})
+target_compile_options(pico2seq_display_demo PRIVATE -Wall -Wno-unused-parameter)
