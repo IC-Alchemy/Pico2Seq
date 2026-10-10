@@ -134,8 +134,8 @@ public:
      * than MIN_STEPS_COUNT are widened to it.
      */
     void setParameterLoop(ParamId id, uint8_t firstStep, uint8_t lastStep);
-    // First step of the lane's loop (0 when unset). Always leaves at least
-    // MIN_STEPS_COUNT steps before the lane length.
+    // First step of the lane's loop (0 when unset). The loop, start..length-1,
+    // is never shorter than MIN_STEPS_COUNT (ParameterManager keeps that true).
     uint8_t getParameterLoopStart(ParamId id) const;
     // Save/load and lane copy: apply after the length. Rejected (start 0) when
     // fewer than MIN_STEPS_COUNT steps would remain.
@@ -280,7 +280,6 @@ private:
     bool running;
     uint8_t currentStep; // Bar position from the Gate lane (UI/LED cursor)
     uint8_t currentStepPerParam[static_cast<size_t>(ParamId::Count)]; // Sounding step per lane
-    uint8_t loopStartPerParam[static_cast<size_t>(ParamId::Count)] = {}; // First looped step per lane
     int8_t lastNote;
     int8_t currentNote;
     // Separate flag (not a sentinel): transposed notes legitimately go negative.

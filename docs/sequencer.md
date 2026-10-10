@@ -162,8 +162,11 @@ class ParameterManager
 public:
     void init();
     void fillTrack(ParamId id, float value);   // all 64 slots, length unchanged
-    void setStepCount(ParamId id, uint8_t steps);
+    void setStepCount(ParamId id, uint8_t steps);     // also re-validates the loop start
     uint8_t getStepCount(ParamId id) const;
+    uint8_t getLoopStart(ParamId id) const;           // first step of the lane's loop (0 = whole lane)
+    void setLoopStart(ParamId id, uint8_t start);     // rejected (-> 0) if < MIN_STEPS_COUNT steps would remain
+    void setLoop(ParamId id, uint8_t firstStep, uint8_t lastStep);  // start = first, length = last + 1
     float getValue(ParamId id, uint8_t stepIdx) const;
     void setValue(ParamId id, uint8_t stepIdx, float value);
     void copyStep(uint8_t srcStep, uint8_t dstStep);
@@ -175,9 +178,11 @@ public:
 
 private:
     ParameterTrack<SequencerConstants::MAX_STEPS_COUNT> _tracks[static_cast<size_t>(ParamId::Count)];
+    uint8_t _loopStarts[static_cast<size_t>(ParamId::Count)];
 };
 ```
 
+- **Lane loop (start + length).** A lane's loop is `start..stepCount-1`; the play head cycles that window while storage keeps absolute step indices, so "loop steps 4–8 of Velocity" is `start = 4, length = 9` and nothing is copied or shifted. `ParameterManager` owns the loop start next to the length because the two share one invariant: at least `MIN_STEPS_COUNT` steps must remain from the start to the end of the lane. `setStepCount()` keeps the start while it still fits and otherwise drops it to 0, so no caller (the two-pad gesture, the length gesture, a save/load, `clearPattern()`) can leave a stale start behind. `setLoopStart()` *rejects* an unfit start as 0 rather than clamping: an old or corrupt value should fall back to the whole lane, not to a guessed loop. `setLoop()` accepts either order, clamps both ends to the 64-step storage and widens a one-step request to the minimum.
 - **Clamping and Rounding in `setValue`**:
   `setValue()` clamps the incoming value between `CORE_PARAMETERS[id].minValue` and `maxValue`. If the lane's `editKind` is `Toggle`, it thresholds at `> 0.5f` to produce `0.0f` or `1.0f`. If `minValue` is an integer variant (Note), it rounds using `roundf()`. On patch-default lanes the follow-patch sentinel (`LANE_FOLLOWS_PATCH`, -1) is stored unclamped. `getRawValue()`/`setRawValue()` bypass all of this for save/load.
 - **Randomization Algorithm (`randomizeParameters`)**:
@@ -228,6 +233,9 @@ public:
     void setStepParameterValue(ParamId id, uint8_t stepIdx, float value);
     uint8_t getParameterStepCount(ParamId id) const;
     void setParameterStepCount(ParamId id, uint8_t steps);
+    uint8_t getParameterLoopStart(ParamId id) const;                  // delegates to ParameterManager
+    void setParameterLoopStart(ParamId id, uint8_t start);            // save/load, lane copy: after the length
+    void setParameterLoop(ParamId id, uint8_t firstStep, uint8_t lastStep);  // two-pad loop gesture
     uint8_t getCurrentStep() const;
     int8_t getCurrentNote() const;
     uint8_t getCurrentStepForParameter(ParamId paramId) const;
@@ -279,19 +287,20 @@ public:
 When `advanceStep()` is called on each 16th note clock tick:
 
 1. **Check Running State**: If `!running`, returns immediately without updating state.
-2. **Sequence Length Calculation**:
-   Calculates `currentStep = current_uclock_step % getParameterStepCount(ParamId::Gate)`.
-4. **Independent Parameter Stepping**:
-   For each parameter track `i` in `0..ParamId::Count-1`:
+2. **Independent Parameter Stepping**:
+   For each parameter track `i` in `0..ParamId::Count-1`, with `start = getLoopStart(paramId)`:
    ```cpp
-   currentStepPerParam[i] = current_uclock_step % getParameterStepCount(paramId);
+   currentStepPerParam[i] = start + current_uclock_step % (getParameterStepCount(paramId) - start);
    ```
-5. **Real-time Parameter Recording**:
+   The modulo is taken on the full 32-bit clock counter and narrowed only afterwards, so the cursor does not alias every 256 steps. A lane with no loop (`start = 0`) behaves exactly as before.
+3. **Bar Cursor**:
+   `currentStep = currentStepPerParam[ParamId::Gate]` — the UI/LED cursor follows the Gate lane's own loop.
+4. **Real-time Parameter Recording**:
    If `mm_distance >= 0` and not in step-edit mode (`current_selected_step_for_edit == -1`):
    - Normalizes the hand: the calibrated value from `setRecordingInput()` (55–700 mm window), else the portable fallback `clamp(mm_distance / MAX_SENSOR_DISTANCE_MM, 0.0f, 1.0f)` with `MAX_SENSOR_DISTANCE_MM = 555.0f` (`Sequencer.cpp`). The firmware overrides the fallback: `processSequencerStep()` in `src/app/StepPlayback.cpp` calls `setRecordingInput(AppState::performanceInput.recordingValue())` on every voice before each advance, and the value is consumed (reset to -1) once per `advanceStep()`.
    - For each held parameter button, maps the value to the parameter's range and calls `recordLiveValue(paramId, value)`, which writes the lane's own playing step (`currentStepPerParam[paramId]`). For `ParamId::Note` it writes only while the playing Gate step is HIGH.
    - This is the step-boundary half of live recording: the new step starts from the hand's current height. Between steps the firmware keeps recording the continuous lanes (Velocity, Filter, Attack, Release; `ControlSurface::recordsBetweenSteps()`) through the same `recordLiveValue()` every control pass (`recordHeldParameters()` and `recordParameter()` in `src/app/StepPlayback.cpp`). It refreshes the voice while its gate is high; edits on rests remain stored until a gated step plays. Note and Octave stay one value per note.
-6. **Step Processing (`processStep`)**:
+5. **Step Processing (`processStep`)**:
    Calls `processStep(UINT8_MAX, voiceState)` to populate the output `VoiceState`:
    - Extracts all parameter values at their respective `currentStepPerParam[id]` indices.
     - Calculates final note value and clamps to valid MIDI range `[0, 127]`.

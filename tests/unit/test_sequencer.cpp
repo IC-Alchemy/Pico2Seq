@@ -402,6 +402,43 @@ TEST_CASE("Adjacent loop steps keep the minimum loop length", "[sequencer][loop_
     REQUIRE(seq.getParameterStepCount(ParamId::Note) == 12);
 }
 
+TEST_CASE("ParameterManager alone keeps a lane's loop start valid", "[sequencer][loop_range]") {
+    // The invariant lives with the length it depends on, so a caller that never
+    // goes through Sequencer (the clear path widens and shrinks lanes directly)
+    // cannot leave a start that no longer fits.
+    ParameterManager lanes;
+    lanes.init();
+    lanes.setLoop(ParamId::Filter, 9, 4); // either order
+    CHECK(lanes.getLoopStart(ParamId::Filter) == 4);
+    CHECK(lanes.getStepCount(ParamId::Filter) == 10);
+
+    lanes.setStepCount(ParamId::Filter, 64); // growing keeps the window
+    CHECK(lanes.getLoopStart(ParamId::Filter) == 4);
+    lanes.setStepCount(ParamId::Filter, 5);  // one step left: start falls back to 0
+    CHECK(lanes.getLoopStart(ParamId::Filter) == 0);
+
+    // Both ends clamp to the 64-step storage; the loop stays two steps wide.
+    lanes.setLoop(ParamId::Filter, 200, 250);
+    CHECK(lanes.getStepCount(ParamId::Filter) == SequencerConstants::MAX_STEPS_COUNT);
+    CHECK(lanes.getLoopStart(ParamId::Filter) ==
+          SequencerConstants::MAX_STEPS_COUNT - SequencerConstants::MIN_STEPS_COUNT);
+
+    // A rejected start is 0, never clamped to something the caller did not ask for.
+    lanes.setLoopStart(ParamId::Filter, 63);
+    CHECK(lanes.getLoopStart(ParamId::Filter) == 0);
+
+    // Other lanes are independent, and init() clears every start.
+    lanes.setLoop(ParamId::Velocity, 3, 7);
+    CHECK(lanes.getLoopStart(ParamId::Filter) == 0);
+    lanes.init();
+    CHECK(lanes.getLoopStart(ParamId::Velocity) == 0);
+
+    // An invalid lane id is ignored on every path.
+    lanes.setLoop(ParamId::Count, 1, 5);
+    lanes.setLoopStart(ParamId::Count, 1);
+    CHECK(lanes.getLoopStart(ParamId::Count) == 0);
+}
+
 TEST_CASE("clearPattern and initializeParameters return loops to step 0", "[sequencer][loop_range]") {
     Sequencer seq(0);
     seq.setParameterLoop(ParamId::Octave, 2, 9);
