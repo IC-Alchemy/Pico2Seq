@@ -19,11 +19,6 @@
 extern const uint8_t MATRIX_ROW_INPUTS[4];
 extern const uint8_t MATRIX_COL_INPUTS[8];
 
-typedef struct {
-    uint8_t rowInput; // MPR121 electrode for this row (0..3)
-    uint8_t colInput; // MPR121 electrode for this column (4..11)
-} MatrixButton;
-
 typedef enum {
     MATRIX_BUTTON_PRESSED,  // finger touched the pad
     MATRIX_BUTTON_RELEASED  // finger left the pad

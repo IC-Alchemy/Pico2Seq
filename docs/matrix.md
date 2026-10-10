@@ -100,11 +100,6 @@ The user interface separates physical responsibilities across two buses:
 ```cpp
 #define MATRIX_BUTTON_COUNT 32
 
-typedef struct {
-    uint8_t rowInput;    // MPR121 electrode for row (0-3)
-    uint8_t colInput;    // MPR121 electrode for column (4-11)
-} MatrixButton;
-
 typedef enum {
     MATRIX_BUTTON_PRESSED,   // Pad touch detected
     MATRIX_BUTTON_RELEASED   // Pad release detected
@@ -121,10 +116,7 @@ typedef struct {
 |---|---|---|
 | `Matrix_init` | `void Matrix_init(Adafruit_MPR121 *sensor)` | Initializes matrix state, binds the MPR121, and enables its GP8 interrupt |
 | `Matrix_scan` | `void Matrix_scan()` | Consumes a pending MPR121 interrupt, reads electrode states over I2C, and dispatches callbacks |
-| `Matrix_getButtonState` | `bool Matrix_getButtonState(uint8_t idx)` | Queries current state of pad `idx` (0–31) |
-| `Matrix_setEventHandler` | `void Matrix_setEventHandler(void (*handler)(const MatrixButtonEvent &))` | Sets general callback for press and release events |
-| `Matrix_setRisingEdgeHandler` | `void Matrix_setRisingEdgeHandler(void (*handler)(uint8_t buttonIndex))` | Sets callback invoked only on touch press events |
-| `Matrix_printState` | `void Matrix_printState()` | Prints 4×8 matrix debug state to Serial |
+| `Matrix_setEventHandler` | `void Matrix_setEventHandler(void (*handler)(const MatrixButtonEvent &))` | Sets the single callback for press and release edges |
 
 ---
 
