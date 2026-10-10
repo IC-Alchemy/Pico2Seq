@@ -13,3 +13,7 @@
 # The Delta checkout hook is a POSIX shell script; CRLF would break its shebang
 # and every command in it on the shells Delta runs it with.
 .agents/prepare text eol=lf
+
+# Baseline list read by scripts/check_host_tests.cmake; CRLF would corrupt the names.
+tests/known_failures.txt text eol=lf
+scripts/*.cmake text eol=lf

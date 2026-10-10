@@ -35,6 +35,16 @@ cmake --build build_test_ninja --parallel
 ./build_test_ninja/tests/pico2seq_tests --reporter console
 ```
 
+**Gate before you push.** About thirty host tests already fail on a clean checkout, so judge a change by failing
+test *names*, not by "all green":
+
+```bash
+cmake -P scripts/check_host_tests.cmake    # builds, runs CTest, diffs failing names against tests/known_failures.txt
+```
+
+It fails on a new failure, on a listed test that now passes (delete its line), on a build failure and on a run that
+finds no tests. Never add a name to `tests/known_failures.txt` to make a change pass.
+
 Run a single tag/group instead of the full suite:
 
 ```bash

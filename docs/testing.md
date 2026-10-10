@@ -205,45 +205,17 @@ chromatic mapping`, `Voice combines note indices with octave track semitones`, `
 indices`); the rest fall in the recorded categories. The 33-name Linux set was never enumerated, so compare failure
 names, not the count, before treating one as new.
 
-Re-recorded 2026-10-10 on Linux (GCC 13.3, Debug) at `c2ed5bb` plus the post-merge cleanup: 1158 CTest checks, 32 fail,
-and the failing set is identical before and after the cleanup. This is the first time the Linux set is enumerated, so
-future runs can diff names (`ctest ... | grep Failed`) instead of trusting a count. None is in the user-preset, COPY LANE,
-matrix-resolver or loop-range tests. Whether each is a stale expectation or a code regression is still not investigated;
-the one that was checked (the golden frame test) fails on its `Release` lane minimum of 0.01 *after* its frame-byte
-assertions pass, which is a stale expectation:
+Re-recorded 2026-10-10 on Linux (GCC 13.3, Debug) at `c2ed5bb`: 1158 CTest checks, 32 fail. The 32 failing names are
+now enumerated in **`tests/known_failures.txt`**, the single source of truth (this paragraph used to hold a copy; two
+copies drift). None is in the user-preset, COPY LANE, matrix-resolver or loop-range tests. Whether each is a stale
+expectation or a code regression is still not investigated; the one that was checked (the golden frame test) fails on
+its `Release` lane minimum of 0.01 *after* its frame-byte assertions pass, which is a stale expectation.
 
-- A step's own release shapes its tail
-- A step's own sustain holds its note
-- An encoder base edit moves an oscillator voice's patch value while it plays
-- Default sequencer starts at neutral octave and half-step gate
-- Displayed notes use the same tuning as rendered oscillator pitches
-- Hard sync follows the oscillator bank and keeps the preset cutoff lane
-- Lidar button lanes reach stored steps, OLED values and published voices
-- Live envelope edits and patch re-sends never step a sounding note
-- Live parameter modulation with distance sensor produces distinct values across all lanes
-- No injected table falls back to chromatic mapping
-- Notes stay compact integers and octave/gate length return to neutral
-- OLED snapshot matches playback and never triggers a note
-- Only Analog and Lead keep the ladder filter
-- Oscillator presets own octave cutoff lanes centered on their resting cutoff
-- Patch bases and recorded step values are independent
-- Patch randomization stays within its depth around the preset bases
-- Pitch lookup clamps out-of-range indices
-- Pitch lookup honors the injected scale table over the global
-- Preset seeding survives the first audio update and preserves musical tracks
-- Recorded attack and decay are heard on every oscillator voice
-- Rest steps leave the triggering note's voice settings intact
-- Sequencer OLED formats final physical and preset-specific units
-- Step Edit waits for a selected future step while transport runs
-- Texture presets own spans that keep their effect zones at the top
-- Voice combines note indices with octave track semitones
-- golden full-project round-trip through frame bytes
-- voice-focused:No injected table falls back to chromatic mapping
-- voice-focused:Only Analog and Lead keep the ladder filter
-- voice-focused:Pitch lookup clamps out-of-range indices
-- voice-focused:Pitch lookup honors the injected scale table over the global
-- voice-focused:Preset seeding survives the first audio update and preserves musical tracks
-- voice-focused:Voice combines note indices with octave track semitones
+Run the gate with `cmake -P scripts/check_host_tests.cmake` (any OS). It builds, runs CTest and compares failing
+**names** with that file, failing on a new failure, on a listed test that now passes (delete its line), on a build
+failure, and on a run that discovered no tests. Never add a name to the list to make a change pass. The list is
+recorded on Linux/GCC; the Windows/clang failing set differed when last measured (above), so a Windows gate should keep
+its own file and pass `-DBASELINE=<file>`.
 
 **Normal versus fast-math.** The firmware is built with `-O3 -ffast-math`, so the same suites were also run that way:
 
