@@ -4,6 +4,12 @@ Follow `CLAUDE.md` for the firmware architecture, build commands, and testing po
 
 ## Automatic branch publishing
 
+**Scope: Delta threads only.** The rules in this section apply only to agents
+running inside Delta (an Isolated Delta Worktree that has a `local` remote and
+the `land` skill). Any other agent, including Claude Code cloud sessions and
+Codex, follows its own session instructions for branches, pushes and pull
+requests, and these rules do not apply to it.
+
 The user authorizes the following workflow for this repository. It replaces the
 personal "never commit, stage, push, or create a branch unless asked" rule for
 completed implementation tasks only.
