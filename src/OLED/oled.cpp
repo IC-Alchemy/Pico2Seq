@@ -214,6 +214,17 @@ void printCentered(Adafruit_SH1106G &display, const char *text, int y, uint8_t t
   display.print(text);
 }
 
+// Voice indices on screen come from UI state; clamp so a stale one cannot index past the voices.
+constexpr uint8_t kLastVoice = VoiceSystem::MAX_VOICES - 1;
+
+// A lane name as large as it fits: size 2 (12 px a character) when the whole name spans the
+// panel at that size, else size 1 so a long patch-specific label still shows in full.
+void printLaneName(Adafruit_SH1106G &display, const char *name, int y)
+{
+  const bool fitsLarge = static_cast<int>(strlen(name)) * 12 <= OLEDConstants::SCREEN_WIDTH;
+  printCentered(display, name, y, fitsLarge ? 2 : 1);
+}
+
 // A lane as that voice's patch names it ("Detune" for an oscillator's Attack lane),
 // else the generic lane name.
 const char *laneLabel(VoiceManager *manager, uint8_t voice, ParamId lane)
@@ -858,7 +869,7 @@ void OLEDDisplay::displayTuningPage(const UIState &state)
 void OLEDDisplay::displayCopyLanePage(const UIState &state, VoiceManager *manager)
 {
   const CopyLane::Controls &copy = state.copyLane;
-  const uint8_t voice = std::min<uint8_t>(copy.sourceVoice, 3);
+  const uint8_t voice = std::min<uint8_t>(copy.sourceVoice, kLastVoice);
   char line[24];
   displayHardware.setTextWrap(false);
 
@@ -866,7 +877,7 @@ void OLEDDisplay::displayCopyLanePage(const UIState &state, VoiceManager *manage
   CopyLane::formatVoiceLine(line, sizeof(line), voice, UserPresetStorage::voiceLabel(state, voice));
   printCentered(displayHardware, line, 18, 1);
   const char *lane = laneLabel(manager, voice, copy.clip.lane);
-  printCentered(displayHardware, lane, 28, strlen(lane) <= 10 ? 2 : 1);
+  printLaneName(displayHardware, lane, 28);
   printCentered(displayHardware, CopyLane::kPasteHint, 46, 1);
 
   displayHardware.fillRect(0, 55, OLEDConstants::SCREEN_WIDTH, 9, SH110X_WHITE);
@@ -881,8 +892,8 @@ void OLEDDisplay::displayCopyLanePage(const UIState &state, VoiceManager *manage
 void OLEDDisplay::displayCopyLanePasted(const UIState &state, VoiceManager *manager)
 {
   const CopyLane::Controls &copy = state.copyLane;
-  const uint8_t target = std::min<uint8_t>(copy.pastedVoice, 3);
-  const uint8_t source = std::min<uint8_t>(copy.sourceVoice, 3);
+  const uint8_t target = std::min<uint8_t>(copy.pastedVoice, kLastVoice);
+  const uint8_t source = std::min<uint8_t>(copy.sourceVoice, kLastVoice);
   char voiceLine[24];
   char line[28];
   displayHardware.setTextWrap(false);
@@ -892,7 +903,7 @@ void OLEDDisplay::displayCopyLanePasted(const UIState &state, VoiceManager *mana
   std::snprintf(line, sizeof(line), "to %s", voiceLine);
   printCentered(displayHardware, line, 18, 1);
   const char *lane = laneLabel(manager, target, copy.pastedLane);
-  printCentered(displayHardware, lane, 28, strlen(lane) <= 10 ? 2 : 1);
+  printLaneName(displayHardware, lane, 28);
   std::snprintf(line, sizeof(line), "from V%u %s", static_cast<unsigned>(source) + 1u,
                 laneLabel(manager, source, copy.clip.lane));
   printCentered(displayHardware, line, 46, 1);
