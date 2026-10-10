@@ -11,6 +11,18 @@ struct VoiceConfig;
 
 namespace voicecodec
 {
+// Bit positions inside PatchSnapshot::flags (the table beside that struct in
+// ProjectSnapshot.h). Public because the user preset codec must set and test the very bit the
+// song loader reads; a second copy of the layout could only drift.
+inline constexpr uint8_t kUsePatchBases = 1u << 0;
+inline constexpr uint8_t kBaseGate = 1u << 1;
+inline constexpr uint8_t kBaseSlide = 1u << 2;
+inline constexpr uint8_t kRecipeRetrigger = 1u << 3;
+inline constexpr uint8_t kHasOverdrive = 1u << 4;
+inline constexpr uint8_t kHasEnvelope = 1u << 5;
+inline constexpr uint8_t kHasFilter = 1u << 6;
+inline constexpr uint8_t kEnabled = 1u << 7;
+
 void capturePatch(const VoiceConfig &config, persistence::PatchSnapshot &out) noexcept;
 
 // Rebuilds a patch from its factory preset (correct flash-resident descriptor

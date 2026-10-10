@@ -14,6 +14,9 @@ constexpr const char *kTempPath = "/presets.tmp";
 // block) and, while it is being replaced, the old file stays too; keep two spare blocks
 // for metadata so a tight filesystem refuses the upload up front instead of failing halfway.
 constexpr uint32_t kSpareBlocks = 2;
+// Generous allowance for LittleFS's own bookkeeping inside each block: erring high only
+// makes canWrite() refuse a little early, which is the safe side.
+constexpr uint32_t kBlockOverheadBytes = 16;
 
 class LittleFsBankFile final : public presetlink::UserPresetFile
 {
@@ -48,7 +51,8 @@ public:
             LittleFS.remove(kTempPath); // a torn upload from a previous boot
         if (!LittleFS.info(info))
             return false;
-        const uint32_t usable = info.blockSize > 16 ? info.blockSize - 16 : info.blockSize;
+        const uint32_t usable = info.blockSize > kBlockOverheadBytes ? info.blockSize - kBlockOverheadBytes
+                                                                     : info.blockSize;
         const uint32_t needBlocks = static_cast<uint32_t>((bytes + usable - 1) / usable) + kSpareBlocks;
         const uint32_t freeBlocks = (info.totalBytes - info.usedBytes) / info.blockSize;
         return freeBlocks >= needBlocks;
@@ -94,6 +98,9 @@ private:
     File temp_;
 };
 
+// FNV-1a folded to one byte. It is the tamper check saved beside a voice's slot tag (see
+// sessionCheck): not security, just enough that a song saved before the bank was replaced
+// cannot silently re-label a voice with whatever preset now sits in that pad.
 uint8_t nameHash(const char *name)
 {
     uint32_t h = 2166136261u;
@@ -128,6 +135,19 @@ uint16_t begin()
     return shown;
 }
 
+void setVoiceOrigin(UIState &state, uint8_t voice, uint8_t slot, const char *name)
+{
+    if (voice >= UIState::MAX_VOICES)
+        return;
+    char *dest = state.voiceUserName[voice];
+    state.voiceUserSlot[voice] = slot;
+    dest[0] = '\0';
+    if (name)
+        std::strncpy(dest, name, sizeof state.voiceUserName[voice] - 1);
+    // strncpy does not terminate a name that fills the buffer.
+    dest[sizeof state.voiceUserName[voice] - 1] = '\0';
+}
+
 const char *voiceLabel(const UIState &state, uint8_t voice)
 {
     const uint8_t v = voice < UIState::MAX_VOICES ? voice : 0;
@@ -150,18 +170,14 @@ uint8_t sessionCheck(const UIState &state, uint8_t voice)
 
 void restoreFromSession(UIState &state, uint8_t voice, uint8_t tag, uint8_t check)
 {
-    if (voice >= UIState::MAX_VOICES)
-        return;
-    state.voiceUserSlot[voice] = persistence::kNoSlot;
-    state.voiceUserName[voice][0] = '\0';
+    // Start from "factory"; only a tag that still checks out earns its pad back.
+    setVoiceOrigin(state, voice, persistence::kNoSlot, nullptr);
     if (tag == 0 || tag > persistence::kUserSlotCount)
         return;
     const persistence::UserPresetEntry *entry = directory().slot(static_cast<uint8_t>(tag - 1));
     if (!entry || entry->baseIndex != state.voicePresetIndices[voice] || nameHash(entry->name) != check)
         return;
-    state.voiceUserSlot[voice] = static_cast<uint8_t>(tag - 1);
-    std::strncpy(state.voiceUserName[voice], entry->name, sizeof state.voiceUserName[voice] - 1);
-    state.voiceUserName[voice][sizeof state.voiceUserName[voice] - 1] = '\0';
+    setVoiceOrigin(state, voice, static_cast<uint8_t>(tag - 1), entry->name);
 }
 
 void refreshAfterBankChange(UIState &state)

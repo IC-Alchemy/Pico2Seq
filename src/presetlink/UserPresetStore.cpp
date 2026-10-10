@@ -1,6 +1,8 @@
 // UserPresetStore.cpp - streaming bank writer and boot-time scanner.
 #include "UserPresetStore.h"
 
+#include "../pico2seq-core/persistence/LittleEndian.h"
+
 #include <cstring>
 
 namespace presetlink
@@ -36,9 +38,7 @@ uint16_t UserPresetStore::load() noexcept
     uint8_t trailer[persistence::kUserBankTrailerSize];
     if (!file_.read(persistence::userBankRecordOffset(count), trailer, sizeof trailer))
         return 0;
-    const uint32_t stored = trailer[0] | (uint32_t(trailer[1]) << 8) | (uint32_t(trailer[2]) << 16) |
-                            (uint32_t(trailer[3]) << 24);
-    if (crc.value() != stored)
+    if (crc.value() != persistence::getLe32(trailer))
         return 0;
 
     fileRecords_ = count;
@@ -72,7 +72,6 @@ UserPresetStore::Result UserPresetStore::readSlot(uint8_t slot, UserPresetRecord
 
 UserPresetStore::UploadError UserPresetStore::begin(uint16_t count) noexcept
 {
-    UploadError e;
     if (uploading_)
         return {Result::BadState, {}};
     if (count > persistence::kUserSlotCount)
@@ -95,7 +94,7 @@ UserPresetStore::UploadError UserPresetStore::begin(uint16_t count) noexcept
     expected_ = count;
     received_ = 0;
     uploading_ = true;
-    return e;
+    return {};
 }
 
 UserPresetStore::UploadError UserPresetStore::put(UserPresetRecord &record) noexcept
@@ -127,8 +126,7 @@ UserPresetStore::UploadError UserPresetStore::commit(uint32_t *crcOut) noexcept
         return {Result::CountMismatch, {}};
     const uint32_t value = crc_.value();
     uint8_t trailer[persistence::kUserBankTrailerSize];
-    for (int i = 0; i < 4; ++i)
-        trailer[i] = static_cast<uint8_t>(value >> (8 * i));
+    persistence::putLe32(trailer, value);
     if (!file_.write(trailer, sizeof trailer) || !file_.commitWrite())
     {
         abort();

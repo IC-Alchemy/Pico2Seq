@@ -1,28 +1,18 @@
 // PresetLinkSession.cpp - request handlers.
 #include "PresetLinkSession.h"
 
+#include "../pico2seq-core/persistence/LittleEndian.h"
 #include "../voice/PatchFields.h"
 #include "../voice/VoicePresets.h"
+#include "../voice/VoiceSystem.h"
 #include <cstring>
 
 namespace presetlink
 {
 using persistence::UserPresetRecord;
 
-namespace
-{
-uint16_t le16(const uint8_t *p) noexcept { return static_cast<uint16_t>(p[0] | (uint16_t(p[1]) << 8)); }
-void put16(uint8_t *p, uint16_t v) noexcept
-{
-    p[0] = static_cast<uint8_t>(v);
-    p[1] = static_cast<uint8_t>(v >> 8);
-}
-void put32(uint8_t *p, uint32_t v) noexcept
-{
-    for (int i = 0; i < 4; ++i)
-        p[i] = static_cast<uint8_t>(v >> (8 * i));
-}
-} // namespace
+// A validation error's field byte goes onto the wire unchanged as ErrorPayload::aux.
+static_assert(kNoField == usercodec::kNoField, "wire and codec must agree on 'no field'");
 
 size_t PresetLinkSession::reply(const FrameParser::Frame &request, const uint8_t *payload,
                                 size_t length, uint8_t *out, size_t capacity) noexcept
@@ -38,6 +28,12 @@ size_t PresetLinkSession::error(const FrameParser::Frame &request, ErrorCode cod
     return encodeFrame(kErrorType, request.seq, payload, sizeof payload, out, capacity);
 }
 
+size_t PresetLinkSession::fail(const FrameParser::Frame &request, ErrorCode code, uint8_t *out,
+                               size_t capacity) noexcept
+{
+    return error(request, code, 0, kNoField, out, capacity);
+}
+
 size_t PresetLinkSession::uploadError(const FrameParser::Frame &request,
                                       const UserPresetStore::UploadError &e, uint8_t *out,
                                       size_t capacity) noexcept
@@ -48,18 +44,20 @@ size_t PresetLinkSession::uploadError(const FrameParser::Frame &request,
     case R::Invalid:
         return error(request, ErrorCode::InvalidRecord, static_cast<uint8_t>(e.check.problem),
                      e.check.field, out, capacity);
-    case R::BadState: return error(request, ErrorCode::BadState, 0, 0xFF, out, capacity);
-    case R::Range: return error(request, ErrorCode::OutOfRange, 0, 0xFF, out, capacity);
-    case R::NoSpace: return error(request, ErrorCode::NoSpace, 0, 0xFF, out, capacity);
-    case R::SlotTaken: return error(request, ErrorCode::SlotTaken, 0, 0xFF, out, capacity);
-    case R::CountMismatch: return error(request, ErrorCode::CountMismatch, 0, 0xFF, out, capacity);
-    default: return error(request, ErrorCode::Storage, 0, 0xFF, out, capacity);
+    case R::BadState: return fail(request, ErrorCode::BadState, out, capacity);
+    case R::Range: return fail(request, ErrorCode::OutOfRange, out, capacity);
+    case R::NoSpace: return fail(request, ErrorCode::NoSpace, out, capacity);
+    case R::SlotTaken: return fail(request, ErrorCode::SlotTaken, out, capacity);
+    case R::CountMismatch: return fail(request, ErrorCode::CountMismatch, out, capacity);
+    default: return fail(request, ErrorCode::Storage, out, capacity);
     }
 }
 
 size_t PresetLinkSession::record(const FrameParser::Frame &request, const UserPresetRecord &rec,
                                  uint8_t *out, size_t capacity) noexcept
 {
+    // The record is its own wire format: fixed 256 bytes, layout locked by the
+    // static_asserts beside UserPresetRecord, and both ends are little-endian.
     return reply(request, reinterpret_cast<const uint8_t *>(&rec), sizeof rec, out, capacity);
 }
 
@@ -112,10 +110,10 @@ size_t PresetLinkSession::handle(const FrameParser::Frame &request, uint32_t now
     case Command::BankBegin:
     {
         if (length != 2)
-            return error(request, ErrorCode::BadPayload, 0, 0xFF, out, capacity);
+            return fail(request, ErrorCode::BadPayload, out, capacity);
         if (store_.uploading())
-            return error(request, ErrorCode::Busy, 0, 0xFF, out, capacity);
-        const uint16_t count = le16(payload);
+            return fail(request, ErrorCode::Busy, out, capacity);
+        const uint16_t count = persistence::getLe16(payload);
         host_.uploadStarted(); // quiet the transport before the first flash write
         const auto e = store_.begin(count);
         if (!e.ok())
@@ -125,17 +123,17 @@ size_t PresetLinkSession::handle(const FrameParser::Frame &request, uint32_t now
         }
         lastUploadActivityMs_ = nowMs;
         uint8_t body[6];
-        put16(body, count);
-        put32(body + 2, static_cast<uint32_t>(persistence::userBankFileSize(count)));
+        persistence::putLe16(body, count);
+        persistence::putLe32(body + 2, static_cast<uint32_t>(persistence::userBankFileSize(count)));
         return reply(request, body, sizeof body, out, capacity);
     }
 
     case Command::BankPut:
     {
         if (length != sizeof(UserPresetRecord))
-            return error(request, ErrorCode::BadPayload, 0, 0xFF, out, capacity);
+            return fail(request, ErrorCode::BadPayload, out, capacity);
         if (!store_.uploading())
-            return error(request, ErrorCode::BadState, 0, 0xFF, out, capacity);
+            return fail(request, ErrorCode::BadState, out, capacity);
         std::memcpy(&work_, payload, sizeof work_);
         lastUploadActivityMs_ = nowMs;
         const auto e = store_.put(work_);
@@ -148,7 +146,7 @@ size_t PresetLinkSession::handle(const FrameParser::Frame &request, uint32_t now
             return uploadError(request, e, out, capacity);
         }
         uint8_t body[3];
-        put16(body, store_.received());
+        persistence::putLe16(body, store_.received());
         body[2] = persistence::userSlotIndex(work_.page, work_.pad);
         return reply(request, body, sizeof body, out, capacity);
     }
@@ -156,7 +154,7 @@ size_t PresetLinkSession::handle(const FrameParser::Frame &request, uint32_t now
     case Command::BankCommit:
     {
         if (length != 0)
-            return error(request, ErrorCode::BadPayload, 0, 0xFF, out, capacity);
+            return fail(request, ErrorCode::BadPayload, out, capacity);
         uint32_t crc = 0;
         const auto e = store_.commit(&crc);
         if (!e.ok())
@@ -167,8 +165,8 @@ size_t PresetLinkSession::handle(const FrameParser::Frame &request, uint32_t now
         }
         endUpload(true);
         uint8_t body[6];
-        put16(body, store_.fileRecords());
-        put32(body + 2, crc);
+        persistence::putLe16(body, store_.fileRecords());
+        persistence::putLe32(body + 2, crc);
         return reply(request, body, sizeof body, out, capacity);
     }
 
@@ -184,25 +182,25 @@ size_t PresetLinkSession::handle(const FrameParser::Frame &request, uint32_t now
     case Command::BankRead:
     {
         if (length != 2)
-            return error(request, ErrorCode::BadPayload, 0, 0xFF, out, capacity);
+            return fail(request, ErrorCode::BadPayload, out, capacity);
         if (store_.uploading())
-            return error(request, ErrorCode::Busy, 0, 0xFF, out, capacity);
-        const auto r = store_.read(le16(payload), work_);
+            return fail(request, ErrorCode::Busy, out, capacity);
+        const auto r = store_.read(persistence::getLe16(payload), work_);
         if (r == UserPresetStore::Result::Range)
-            return error(request, ErrorCode::OutOfRange, 0, 0xFF, out, capacity);
+            return fail(request, ErrorCode::OutOfRange, out, capacity);
         if (r != UserPresetStore::Result::Ok)
-            return error(request, ErrorCode::Storage, 0, 0xFF, out, capacity);
+            return fail(request, ErrorCode::Storage, out, capacity);
         return record(request, work_, out, capacity);
     }
 
     case Command::Audition:
     {
         if (length != 1 + sizeof(UserPresetRecord))
-            return error(request, ErrorCode::BadPayload, 0, 0xFF, out, capacity);
+            return fail(request, ErrorCode::BadPayload, out, capacity);
         if (store_.uploading())
-            return error(request, ErrorCode::Busy, 0, 0xFF, out, capacity);
-        if (payload[0] >= 4)
-            return error(request, ErrorCode::OutOfRange, 0, 0xFF, out, capacity);
+            return fail(request, ErrorCode::Busy, out, capacity);
+        if (payload[0] >= VoiceSystem::MAX_VOICES)
+            return fail(request, ErrorCode::OutOfRange, out, capacity);
         std::memcpy(&work_, payload + 1, sizeof work_);
         usercodec::canonicalize(work_);
         const usercodec::Check check = usercodec::validate(work_);
@@ -210,16 +208,16 @@ size_t PresetLinkSession::handle(const FrameParser::Frame &request, uint32_t now
             return error(request, ErrorCode::InvalidRecord, static_cast<uint8_t>(check.problem),
                          check.field, out, capacity);
         if (!host_.audition(payload[0], work_))
-            return error(request, ErrorCode::Storage, 0, 0xFF, out, capacity);
+            return fail(request, ErrorCode::Storage, out, capacity);
         return reply(request, nullptr, 0, out, capacity);
     }
 
     case Command::FactoryRead:
     {
         if (length != 1)
-            return error(request, ErrorCode::BadPayload, 0, 0xFF, out, capacity);
+            return fail(request, ErrorCode::BadPayload, out, capacity);
         if (payload[0] >= VoicePresets::getPresetCount())
-            return error(request, ErrorCode::OutOfRange, 0, 0xFF, out, capacity);
+            return fail(request, ErrorCode::OutOfRange, out, capacity);
         usercodec::fromFactory(payload[0], work_);
         return record(request, work_, out, capacity);
     }
@@ -227,16 +225,16 @@ size_t PresetLinkSession::handle(const FrameParser::Frame &request, uint32_t now
     case Command::VoiceRead:
     {
         if (length != 1)
-            return error(request, ErrorCode::BadPayload, 0, 0xFF, out, capacity);
-        if (payload[0] >= 4)
-            return error(request, ErrorCode::OutOfRange, 0, 0xFF, out, capacity);
+            return fail(request, ErrorCode::BadPayload, out, capacity);
+        if (payload[0] >= VoiceSystem::MAX_VOICES)
+            return fail(request, ErrorCode::OutOfRange, out, capacity);
         if (!host_.captureVoice(payload[0], work_))
-            return error(request, ErrorCode::Storage, 0, 0xFF, out, capacity);
+            return fail(request, ErrorCode::Storage, out, capacity);
         return record(request, work_, out, capacity);
     }
 
     default:
-        return error(request, ErrorCode::UnknownCommand, 0, 0xFF, out, capacity);
+        return fail(request, ErrorCode::UnknownCommand, out, capacity);
     }
 }
 

@@ -1,6 +1,8 @@
 // UserPresetBank: bank file header and the browser's slot directory.
 #include "UserPresetBank.h"
 
+#include "LittleEndian.h"
+
 #include <cstring>
 
 namespace persistence
@@ -8,28 +10,22 @@ namespace persistence
 
 void writeUserBankHeader(uint8_t out[kUserBankHeaderSize], uint16_t count) noexcept
 {
-    for (int i = 0; i < 4; ++i)
-        out[i] = static_cast<uint8_t>(kUserBankMagic >> (8 * i));
-    out[4] = static_cast<uint8_t>(kUserBankVersion);
-    out[5] = static_cast<uint8_t>(kUserBankVersion >> 8);
-    out[6] = static_cast<uint8_t>(sizeof(UserPresetRecord));
-    out[7] = static_cast<uint8_t>(sizeof(UserPresetRecord) >> 8);
-    out[8] = static_cast<uint8_t>(count);
-    out[9] = static_cast<uint8_t>(count >> 8);
-    out[10] = out[11] = 0;
+    putLe32(out, kUserBankMagic);
+    putLe16(out + 4, kUserBankVersion);
+    putLe16(out + 6, static_cast<uint16_t>(sizeof(UserPresetRecord)));
+    putLe16(out + 8, count);
+    out[10] = out[11] = 0; // reserved
 }
 
 BankStatus readUserBankHeader(const uint8_t in[kUserBankHeaderSize], uint16_t &count) noexcept
 {
-    const uint32_t magic = in[0] | (uint32_t(in[1]) << 8) | (uint32_t(in[2]) << 16) |
-                           (uint32_t(in[3]) << 24);
-    if (magic != kUserBankMagic)
+    if (getLe32(in) != kUserBankMagic)
         return BankStatus::BadMagic;
-    if ((in[4] | (uint16_t(in[5]) << 8)) != kUserBankVersion)
+    if (getLe16(in + 4) != kUserBankVersion)
         return BankStatus::BadVersion;
-    if ((in[6] | (uint16_t(in[7]) << 8)) != sizeof(UserPresetRecord))
+    if (getLe16(in + 6) != sizeof(UserPresetRecord))
         return BankStatus::BadRecordSize;
-    const uint16_t n = static_cast<uint16_t>(in[8] | (uint16_t(in[9]) << 8));
+    const uint16_t n = getLe16(in + 8);
     if (n > kUserSlotCount)
         return BankStatus::BadCount;
     count = n;

@@ -16,8 +16,6 @@ namespace
 using persistence::PatchSnapshot;
 using persistence::UserPresetRecord;
 
-constexpr uint8_t kUsePatchBases = 1u << 0;
-
 bool validName(const char (&name)[persistence::kUserPresetNameSize]) noexcept
 {
     size_t length = 0;
@@ -63,6 +61,9 @@ bool validChoice(const patchfields::Field &f, float v) noexcept
     }
 }
 
+// The lane meaning (paramSet) follows from the engine and oscillators, never from the
+// upload: the on-device editor derives it the same way, so an editor cannot request a layout
+// its patch does not support. A recipe engine keeps its base preset's set.
 uint8_t derivedParamSet(const UserPresetRecord &r, uint8_t baseParamSet) noexcept
 {
     switch (r.patch.engine)
@@ -110,7 +111,7 @@ void canonicalize(UserPresetRecord &r) noexcept
     r.reserved = 0;
     r.patch.reserved[0] = r.patch.reserved[1] = 0;
     r.patch.presetIndex = r.baseIndex;
-    r.patch.flags = static_cast<uint8_t>(r.patch.flags | kUsePatchBases);
+    r.patch.flags = static_cast<uint8_t>(r.patch.flags | voicecodec::kUsePatchBases);
 
     // Quantised bases: the on-device editor stores whole scale steps and whole octaves.
     if (patchfields::finiteFloat(r.patch.baseNote))
@@ -127,7 +128,7 @@ void canonicalize(UserPresetRecord &r) noexcept
 bool toConfig(const UserPresetRecord &r, VoiceConfig &out) noexcept
 {
     PatchSnapshot patch = r.patch;
-    patch.flags = static_cast<uint8_t>(patch.flags | kUsePatchBases);
+    patch.flags = static_cast<uint8_t>(patch.flags | voicecodec::kUsePatchBases);
     if (!voicecodec::applyPatch(r.baseIndex, patch, out))
     {
         if (r.baseIndex >= VoicePresets::getPresetCount())
@@ -145,9 +146,9 @@ void fromConfig(const VoiceConfig &config, uint8_t baseIndex, UserPresetRecord &
     out.baseIndex = baseIndex;
     out.patch.presetIndex = baseIndex;
     out.patch.paramSet = config.paramSet; // keep the running voice's own lane meaning
-    out.patch.flags = static_cast<uint8_t>(out.patch.flags | kUsePatchBases);
+    out.patch.flags = static_cast<uint8_t>(out.patch.flags | voicecodec::kUsePatchBases);
     out.page = persistence::kFirstUserPage;
-    out.colorR = out.colorG = out.colorB = 0xFF;
+    out.colorR = out.colorG = out.colorB = 0xFF; // white until the editor picks a colour
 }
 
 void fromFactory(uint8_t presetIndex, UserPresetRecord &out) noexcept
@@ -160,15 +161,14 @@ void fromFactory(uint8_t presetIndex, UserPresetRecord &out) noexcept
 
 Check validate(const UserPresetRecord &r) noexcept
 {
-    Check result;
     if (!validName(r.name))
-        return {Problem::BadName, 0xFF};
+        return {Problem::BadName, kNoField};
     if (!persistence::validUserPlace(r.page, r.pad))
-        return {Problem::BadPlace, 0xFF};
+        return {Problem::BadPlace, kNoField};
     if (r.baseIndex >= VoicePresets::getPresetCount() || r.patch.presetIndex != r.baseIndex)
-        return {Problem::BadBase, 0xFF};
+        return {Problem::BadBase, kNoField};
     if (r.flags != 0 || r.reserved != 0 || r.patch.reserved[0] != 0 || r.patch.reserved[1] != 0)
-        return {Problem::BadReserved, 0xFF};
+        return {Problem::BadReserved, kNoField};
 
     // Choices and counts first: they decide which layout the remaining ranges come from.
     for (size_t i = 0; i < patchfields::count(); ++i)
@@ -185,30 +185,30 @@ Check validate(const UserPresetRecord &r) noexcept
             return {Problem::BadField, static_cast<uint8_t>(i)};
         }
     }
-    if ((r.patch.flags & kUsePatchBases) == 0)
-        return {Problem::BadReserved, 0xFF};
+    if ((r.patch.flags & voicecodec::kUsePatchBases) == 0)
+        return {Problem::BadReserved, kNoField};
 
     VoiceConfig config;
     if (!toConfig(r, config))
-        return {Problem::EngineNeedsRecipe, 0xFF};
+        return {Problem::EngineNeedsRecipe, kNoField};
 
     for (size_t i = 0; i < patchfields::count(); ++i)
     {
         const patchfields::Field &f = patchfields::field(i);
         if (f.type == patchfields::Type::Flag)
             continue;
-        const float v = patchfields::read(r.patch, f);
-        float lo, hi;
-        patchfields::limits(f, config, lo, hi);
         // Waveform ids are not a continuous range (noise is 255); validChoice covered them.
         const bool isWave = f.edit == VoiceEdit::Id::Wave1 || f.edit == VoiceEdit::Id::Wave2 ||
                             f.edit == VoiceEdit::Id::Wave3;
         if (isWave)
             continue;
+        const float v = patchfields::read(r.patch, f);
+        float lo, hi;
+        patchfields::limits(f, config, lo, hi);
         if (v < lo - kLimitSlack || v > hi + kLimitSlack)
             return {Problem::BadField, static_cast<uint8_t>(i)};
     }
-    return result;
+    return {};
 }
 
 } // namespace usercodec

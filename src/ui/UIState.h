@@ -11,6 +11,7 @@
 #include "LoopRangeGesture.h"
 #include "../voice/DelayTiming.h"
 #include "../pico2seq-core/arpeggiator/Arpeggiator.h"
+#include "../pico2seq-core/persistence/UserPresetBank.h" // kNoSlot, kUserPresetNameSize
 #include "../pico2seq-core/sequencer/SequencerDefs.h" // For ParamId, EncoderParameterMode
 
 /**
@@ -140,8 +141,10 @@ struct UIState
     // The user slot each voice's sound was loaded from (255 = a factory preset), and the name
     // that preset had then. A voice keeps its name and sound if the bank is replaced later;
     // voicePresetIndices[] then holds the preset it was built on (its factory base).
-    uint8_t voiceUserSlot[MAX_VOICES] = {255, 255, 255, 255};
-    char voiceUserName[MAX_VOICES][16] = {};
+    // Always written together: UserPresetStorage::setVoiceOrigin().
+    uint8_t voiceUserSlot[MAX_VOICES] = {persistence::kNoSlot, persistence::kNoSlot,
+                                         persistence::kNoSlot, persistence::kNoSlot};
+    char voiceUserName[MAX_VOICES][persistence::kUserPresetNameSize] = {};
     unsigned long playStopPressTime = 0;
     bool playStopWasPressed = false;
 

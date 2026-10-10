@@ -56,8 +56,7 @@ void applyVoicePreset(uint8_t voiceIndex, uint8_t presetIndex)
     {
         voiceManager->setVoiceSlide(voiceId,config.slideSeconds);
         uiState.voiceEditor.changed[voiceIndex]=false;
-        uiState.voiceUserSlot[voiceIndex] = persistence::kNoSlot;
-        uiState.voiceUserName[voiceIndex][0] = '\0';
+        UserPresetStorage::setVoiceOrigin(uiState, voiceIndex, persistence::kNoSlot, nullptr);
         Serial.print("Applied preset '");
         Serial.print(VoicePresets::getPresetName(presetIndex));
         Serial.print("' to Voice ");
@@ -95,9 +94,7 @@ bool applyUserPreset(uint8_t voiceIndex, uint8_t slot)
     voiceManager->setVoiceSlide(voiceId, config.slideSeconds);
     // voicePresetIndices keeps the factory base: the song file rebuilds the voice's lanes from it.
     uiState.voicePresetIndices[voiceIndex] = record.baseIndex;
-    uiState.voiceUserSlot[voiceIndex] = slot;
-    std::strncpy(uiState.voiceUserName[voiceIndex], record.name, sizeof uiState.voiceUserName[voiceIndex] - 1);
-    uiState.voiceUserName[voiceIndex][sizeof uiState.voiceUserName[voiceIndex] - 1] = '\0';
+    UserPresetStorage::setVoiceOrigin(uiState, voiceIndex, slot, record.name);
     uiState.voiceEditor.changed[voiceIndex] = false;
     Serial.print("Applied user preset '");
     Serial.print(record.name);

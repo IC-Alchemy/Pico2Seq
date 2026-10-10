@@ -1,6 +1,7 @@
 // SnapshotFormat: CRC + little-endian frame codec (see header for layout).
 // Bit-by-bit IEEE CRC keeps flash dependency-free; payloads are small.
 #include "SnapshotFormat.h"
+#include "LittleEndian.h"
 
 namespace persistence
 {
@@ -31,41 +32,31 @@ void Crc32::update(const uint8_t *data, size_t length) noexcept
 
 void writeFrameHeader(uint8_t out[12], uint32_t payloadSize, uint32_t payloadCrc) noexcept
 {
-    out[0] = static_cast<uint8_t>(SNAPSHOT_MAGIC);
-    out[1] = static_cast<uint8_t>(SNAPSHOT_MAGIC >> 8);
-    out[2] = static_cast<uint8_t>(SNAPSHOT_MAGIC >> 16);
-    out[3] = static_cast<uint8_t>(SNAPSHOT_MAGIC >> 24);
-    out[4] = static_cast<uint8_t>(SNAPSHOT_FORMAT_VERSION);
-    out[5] = static_cast<uint8_t>(SNAPSHOT_FORMAT_VERSION >> 8);
-    out[6] = static_cast<uint8_t>(payloadSize);
-    out[7] = static_cast<uint8_t>(payloadSize >> 8);
-    for (int i = 0; i < 4; ++i)
-        out[8 + i] = static_cast<uint8_t>(payloadCrc >> (8 * i));
+    putLe32(out, SNAPSHOT_MAGIC);
+    putLe16(out + 4, SNAPSHOT_FORMAT_VERSION);
+    putLe16(out + 6, static_cast<uint16_t>(payloadSize));
+    putLe32(out + 8, payloadCrc);
 }
 
 uint16_t frameVersion(const uint8_t *header) noexcept
 {
-    return static_cast<uint16_t>(header[4] | (uint16_t(header[5]) << 8));
+    return getLe16(header + 4);
 }
 
 FrameStatus readFrameHeader(const uint8_t *header, const uint8_t *payload,
                             size_t payloadCapacity, uint16_t expectedPayloadSize,
                             uint16_t expectedVersion) noexcept
 {
-    const uint32_t magic = header[0] | (uint32_t(header[1]) << 8) | (uint32_t(header[2]) << 16) |
-                           (uint32_t(header[3]) << 24);
-    if (magic != SNAPSHOT_MAGIC)
+    if (getLe32(header) != SNAPSHOT_MAGIC)
         return FrameStatus::BadMagic;
     if (frameVersion(header) != expectedVersion)
         return FrameStatus::BadVersion;
-    const uint16_t size = header[6] | (uint16_t(header[7]) << 8);
+    const uint16_t size = getLe16(header + 6);
     if (size != expectedPayloadSize)
         return FrameStatus::BadSize;
     if (payloadCapacity < size)
         return FrameStatus::TooShort;
-    const uint32_t expected = header[8] | (uint32_t(header[9]) << 8) | (uint32_t(header[10]) << 16) |
-                              (uint32_t(header[11]) << 24);
-    if (crc32(payload, size) != expected)
+    if (crc32(payload, size) != getLe32(header + 8))
         return FrameStatus::BadCrc;
     return FrameStatus::Ok;
 }

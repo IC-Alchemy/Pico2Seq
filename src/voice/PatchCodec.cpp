@@ -6,18 +6,6 @@
 
 namespace voicecodec
 {
-namespace
-{
-constexpr uint8_t kUsePatchBases = 1u << 0;
-constexpr uint8_t kBaseGate = 1u << 1;
-constexpr uint8_t kBaseSlide = 1u << 2;
-constexpr uint8_t kRecipeRetrigger = 1u << 3;
-constexpr uint8_t kHasOverdrive = 1u << 4;
-constexpr uint8_t kHasEnvelope = 1u << 5;
-constexpr uint8_t kHasFilter = 1u << 6;
-constexpr uint8_t kEnabled = 1u << 7;
-} // namespace
-
 void capturePatch(const VoiceConfig &c, persistence::PatchSnapshot &o) noexcept
 {
     o.baseNote = c.baseNote; o.baseVelocity = c.baseVelocity; o.baseOctave = c.baseOctave;

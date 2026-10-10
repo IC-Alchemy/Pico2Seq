@@ -14,9 +14,15 @@
 
 namespace
 {
-// Enough for a whole 266-byte frame per pass, small enough that a flood cannot starve the loop.
-constexpr size_t kMaxBytesPerPass = 600;
+// Serial bytes taken per loop pass. The link is stop-and-wait, so one worst-case frame is all
+// the editor can have in flight; the factor of two leaves room for console bytes around it.
+// The cap keeps a byte flood from starving the rest of the control loop - the rest waits a pass.
+constexpr size_t kMaxBytesPerPass = 2 * presetlink::kMaxFrame;
+// How long after the editor's last request stray bytes are still treated as its traffic, not
+// console commands (see editorActive()).
 constexpr uint32_t kEditorQuietMs = 3000;
+// "Receiving presets" stays up this long: an upload is a stream of writes with no natural end
+// to hang a shorter notice on, and uploadFinished() replaces it with the result.
 constexpr uint32_t kNoticeMs = 6000;
 
 void setNotice(UIState::OledNoticeKind kind, uint32_t durationMs, uint16_t value = 0)
@@ -77,9 +83,9 @@ public:
             return false;
         // The same publisher an encoder edit uses: staged to the audio core, glide handled.
         uiState.voicePresetIndices[voice] = record.baseIndex;
-        uiState.voiceUserSlot[voice] = persistence::kNoSlot;
-        std::strncpy(uiState.voiceUserName[voice], record.name, sizeof uiState.voiceUserName[voice] - 1);
-        uiState.voiceUserName[voice][sizeof uiState.voiceUserName[voice] - 1] = '\0';
+        // An audition keeps the editor's name on screen but owns no pad: the sound is not
+        // in the bank (yet), so a later bank change must not be able to rename it.
+        UserPresetStorage::setVoiceOrigin(uiState, voice, persistence::kNoSlot, record.name);
         VoiceEditor::publish(voice, config);
         return true;
     }

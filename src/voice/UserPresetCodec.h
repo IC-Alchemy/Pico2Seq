@@ -26,10 +26,13 @@ enum class Problem : uint8_t
     EngineNeedsRecipe // engine = recipe, but the base preset carries no recipe
 };
 
+// Check::field value for a problem that is not about one patch row.
+inline constexpr uint8_t kNoField = 0xFF;
+
 struct Check
 {
     Problem problem = Problem::None;
-    uint8_t field = 0xFF; // BadField: row in patchfields
+    uint8_t field = kNoField; // BadField: row in patchfields
     bool ok() const noexcept { return problem == Problem::None; }
 };
 

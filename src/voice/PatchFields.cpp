@@ -1,6 +1,7 @@
 // PatchFields.cpp - the table. Row order is the editor's display order within a group.
 #include "PatchFields.h"
 
+#include "PatchCodec.h"
 #include "VoiceConfig.h"
 #include "engines/RecipeSources.h"
 #include <cmath>
@@ -22,8 +23,8 @@ using Id = VoiceEdit::Id;
 #define F_BYTE(key, member, id, show) {key, P_OFF(member), Type::Byte, 0, Id::id, Show::show}
 #define F_WAVE(key, i, id, show) \
     {key, static_cast<uint16_t>(offsetof(PatchSnapshot, oscWaveforms) + (i)), Type::Byte, 0, Id::id, Show::show}
-#define F_FLAG(key, bit, id, show) \
-    {key, P_OFF(flags), Type::Flag, static_cast<uint8_t>(1u << (bit)), Id::id, Show::show}
+// `mask` is a voicecodec flag constant, so this table and the song codec share one definition.
+#define F_FLAG(key, mask, id, show) {key, P_OFF(flags), Type::Flag, mask, Id::id, Show::show}
 
 // clang-format off
 const Field kFields[] = {
@@ -32,8 +33,8 @@ const Field kFields[] = {
     F_FLOAT("base.velocity",   baseVelocity,   Velocity,   Always),
     F_FLOAT("base.octave",     baseOctave,     Octave,     Always),
     F_FLOAT("base.gateLength", baseGateLength, GateLength, Always),
-    F_FLAG ("base.gate",       1,              Gate,       Always),
-    F_FLAG ("base.slide",      2,              Slide,      Always),
+    F_FLAG ("base.gate",            voicecodec::kBaseGate,        Gate,            Always),
+    F_FLAG ("base.slide",           voicecodec::kBaseSlide,       Slide,           Always),
     F_FLOAT("base.glide",      slideSeconds,   SlideTime,  Always),
     // Source
     F_BYTE ("source.engine",   engine,         Engine,     Always),
@@ -55,13 +56,13 @@ const Field kFields[] = {
     F_ELEM ("osc3.pulse",   oscPulseWidth, 2, Pulse3,   Pulse3),
     F_INT  ("osc3.harmony", harmony,       2, Harmony3, Osc3),
     // Envelope
-    F_FLAG ("env.enabled",  5,              EnvelopeOn, Always),
+    F_FLAG ("env.enabled",          voicecodec::kHasEnvelope,     EnvelopeOn,      Always),
     F_FLOAT("env.attack",   defaultAttack,  EnvAttack,  Envelope),
     F_FLOAT("env.decay",    defaultDecay,   EnvDecay,   Envelope),
     F_FLOAT("env.sustain",  defaultSustain, Sustain,    Envelope),
     F_FLOAT("env.release",  defaultRelease, Release,    Envelope),
     // Main filter
-    F_FLAG ("filter.enabled",   6,                  FilterOn,        Always),
+    F_FLAG ("filter.enabled",       voicecodec::kHasFilter,       FilterOn,        Always),
     F_BYTE ("filter.type",      filterType,         FilterType,      Filter),
     F_BYTE ("filter.mode",      filterMode,         FilterMode,      Filter),
     F_FLOAT("filter.cutoff",    filterCutoffBase,   StaticCutoff,    Filter),
@@ -74,7 +75,7 @@ const Field kFields[] = {
     {"hp.cutoff", P_OFF(highPassFreq), Type::Float, 0, Id::HighPassFreq, Show::Always, 0.0f, kCatalog},
     F_FLOAT("hp.resonance", highPassRes,  HighPassRes,  Always),
     // Overdrive
-    F_FLAG ("drive.enabled", 4,              DriveOn,   Always),
+    F_FLAG ("drive.enabled",        voicecodec::kHasOverdrive,    DriveOn,         Always),
     F_FLOAT("drive.amount",  overdriveDrive, Drive,     Overdrive),
     F_FLOAT("drive.gain",    overdriveGain,  DriveGain, Overdrive),
     // Plucked string
@@ -99,7 +100,7 @@ const Field kFields[] = {
     F_FLOAT("recipe.macro1",    macro1,            Macro1,          EngineRecipe),
     F_FLOAT("recipe.macro2",    macro2,            Macro2,          EngineRecipe),
     F_FLOAT("recipe.macro3",    macro3,            Macro3,          EngineRecipe),
-    F_FLAG ("recipe.retrigger", 3,                 RecipeRetrigger, EngineRecipe),
+    F_FLAG ("recipe.retrigger",     voicecodec::kRecipeRetrigger, RecipeRetrigger, EngineRecipe),
     F_FLOAT("recipe.fmFeedback", fmModFeedback,    FmModFeedback,   RecipeFm),
     F_FLOAT("recipe.phaseFold",  phaseTriangleFold, PhaseFold,      RecipePhase),
     F_FLOAT("recipe.subRatio",   spectralSubRatio, SubRatio,        RecipeSpectral),
@@ -107,7 +108,7 @@ const Field kFields[] = {
     F_FLOAT("recipe.driftChaos", prismDriftChaos,  DriftChaos,      RecipePrism),
     // Output
     F_FLOAT("out.level",   outputLevel, Output,  Always),
-    F_FLAG ("out.enabled", 7,           Enabled, Always),
+    F_FLAG ("out.enabled",          voicecodec::kEnabled,         Enabled,         Always),
 };
 // clang-format on
 
