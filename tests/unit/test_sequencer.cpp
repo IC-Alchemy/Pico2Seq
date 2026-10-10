@@ -341,6 +341,78 @@ TEST_CASE("advanceStep phase follows global step modulo across the 8-bit wrap", 
     }
 }
 
+// ─── Per-lane loop start (two-pad loop gesture) ──────────────────────────────
+
+TEST_CASE("setParameterLoop loops one lane between two steps and leaves the others", "[sequencer][loop_range]") {
+    Sequencer seq(0);
+    seq.start();
+    // Pads 4 and 8 = steps 3..7, given in either order.
+    seq.setParameterLoop(ParamId::Velocity, 7, 3);
+    REQUIRE(seq.getParameterLoopStart(ParamId::Velocity) == 3);
+    REQUIRE(seq.getParameterStepCount(ParamId::Velocity) == 8);
+    REQUIRE(seq.getParameterLoopStart(ParamId::Filter) == 0);
+    REQUIRE(seq.getParameterStepCount(ParamId::Filter) == 16);
+
+    VoiceState voiceState;
+    for (uint32_t step = 0; step < 300; ++step) {
+        seq.advanceStep(step, -1, StepEditButtons{}, -1, &voiceState);
+        REQUIRE(seq.getCurrentStepForParameter(ParamId::Velocity) == 3 + step % 5);
+        REQUIRE(seq.getCurrentStepForParameter(ParamId::Filter) == step % 16);
+        REQUIRE(seq.getCurrentStep() == step % 16);
+    }
+}
+
+TEST_CASE("Velocity plays the stored values of the looped steps", "[sequencer][loop_range]") {
+    Sequencer seq(0);
+    seq.start();
+    for (uint8_t step = 0; step < 16; ++step)
+        seq.setRawStepValue(ParamId::Velocity, step, 0.05f * step);
+    seq.setParameterLoop(ParamId::Velocity, 3, 7);
+    VoiceState voiceState;
+    for (uint32_t step = 0; step < 20; ++step) {
+        seq.advanceStep(step, -1, StepEditButtons{}, -1, &voiceState);
+        const uint8_t cursor = seq.getCurrentStepForParameter(ParamId::Velocity);
+        REQUIRE(cursor >= 3);
+        REQUIRE(cursor <= 7);
+        REQUIRE(seq.getPlaybackStep().velocityLevel == Catch::Approx(0.05f * cursor));
+    }
+}
+
+TEST_CASE("Loop start survives a longer length but resets when too few steps remain", "[sequencer][loop_range]") {
+    Sequencer seq(0);
+    seq.setParameterLoop(ParamId::Filter, 4, 9);
+    seq.setParameterStepCount(ParamId::Filter, 14); // hold-param + pad length gesture
+    REQUIRE(seq.getParameterLoopStart(ParamId::Filter) == 4);
+    seq.setParameterStepCount(ParamId::Filter, 6); // 4..5 still two steps
+    REQUIRE(seq.getParameterLoopStart(ParamId::Filter) == 4);
+    seq.setParameterStepCount(ParamId::Filter, 5); // only step 4 would remain
+    REQUIRE(seq.getParameterLoopStart(ParamId::Filter) == 0);
+
+    seq.setParameterLoopStart(ParamId::Filter, 200); // out of range: ignored
+    REQUIRE(seq.getParameterLoopStart(ParamId::Filter) == 0);
+}
+
+TEST_CASE("Adjacent loop steps keep the minimum loop length", "[sequencer][loop_range]") {
+    Sequencer seq(0);
+    seq.setParameterLoop(ParamId::Note, 5, 5);
+    REQUIRE(seq.getParameterLoopStart(ParamId::Note) == 5);
+    REQUIRE(seq.getParameterStepCount(ParamId::Note) == 5 + SequencerConstants::MIN_STEPS_COUNT);
+    seq.setParameterLoop(ParamId::Note, 10, 11);
+    REQUIRE(seq.getParameterLoopStart(ParamId::Note) == 10);
+    REQUIRE(seq.getParameterStepCount(ParamId::Note) == 12);
+}
+
+TEST_CASE("clearPattern and initializeParameters return loops to step 0", "[sequencer][loop_range]") {
+    Sequencer seq(0);
+    seq.setParameterLoop(ParamId::Octave, 2, 9);
+    seq.clearPattern();
+    REQUIRE(seq.getParameterLoopStart(ParamId::Octave) == 0);
+    REQUIRE(seq.getParameterStepCount(ParamId::Octave) == 16);
+    seq.setParameterLoop(ParamId::Octave, 2, 9);
+    seq.initializeParameters();
+    REQUIRE(seq.getParameterLoopStart(ParamId::Octave) == 0);
+}
+
 TEST_CASE("Default sequencer starts at neutral octave and half-step gate", "[sequencer]") {
     Sequencer seq;
     const Step defaults = seq.getPlaybackStep(0);

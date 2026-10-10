@@ -126,6 +126,7 @@ set(PICO2SEQ_UI_TEST_SOURCES
   unit/test_reverb_page.cpp
   unit/test_copy_lane_controls.cpp
   unit/test_matrix_resolver.cpp
+  unit/test_loop_range_gesture.cpp
   unit/test_tuning.cpp
   unit/test_tuning_scales.cpp
   unit/test_tuning_page.cpp

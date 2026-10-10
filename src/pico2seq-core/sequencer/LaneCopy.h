@@ -24,6 +24,7 @@ struct LaneSnapshot
 {
     ParamId lane = ParamId::Count;
     uint8_t length = 0;
+    uint8_t loopStart = 0; // First looped step (Sequencer::setParameterLoop)
     float values[SequencerConstants::MAX_STEPS_COUNT] = {};
 
     bool valid() const noexcept { return lane < ParamId::Count && length >= 1; }

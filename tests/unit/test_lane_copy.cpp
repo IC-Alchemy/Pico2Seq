@@ -80,6 +80,21 @@ TEST_CASE("pasting the same lane onto another voice is verbatim, length and tail
     }
 }
 
+TEST_CASE("a paste carries the source lane's loop start", "[lanecopy][sequencer][loop_range]")
+{
+    Sequencer source;
+    source.setParameterLoop(ParamId::Filter, 4, 11);
+    LaneSnapshot clip;
+    lanecopy::capture(source, ParamId::Filter, clip);
+    CHECK(clip.loopStart == 4);
+
+    Sequencer destination;
+    destination.setParameterLoop(ParamId::Velocity, 1, 3);
+    REQUIRE(lanecopy::paste(clip, destination, ParamId::Velocity));
+    CHECK(destination.getParameterLoopStart(ParamId::Velocity) == 4);
+    CHECK(destination.getParameterStepCount(ParamId::Velocity) == 12);
+}
+
 TEST_CASE("a paste touches only the destination lane", "[lanecopy][sequencer]")
 {
     Sequencer source, destination, untouched;

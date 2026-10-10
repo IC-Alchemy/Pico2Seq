@@ -39,6 +39,7 @@ void capture(const Sequencer &src, ParamId lane, LaneSnapshot &out) noexcept
         return;
     out.lane = lane;
     out.length = src.getParameterStepCount(lane);
+    out.loopStart = src.getParameterLoopStart(lane);
     for (uint8_t step = 0; step < SequencerConstants::MAX_STEPS_COUNT; ++step)
         out.values[step] = src.getRawStepValue(lane, step);
 }
@@ -61,6 +62,7 @@ bool paste(const LaneSnapshot &in, Sequencer &dst, ParamId lane) noexcept
             dst.setStepParameterValue(lane, step, convertValue(in.lane, lane, in.values[step]));
     }
     dst.setParameterStepCount(lane, in.length);
+    dst.setParameterLoopStart(lane, in.loopStart);
     return true;
 }
 

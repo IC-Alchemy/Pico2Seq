@@ -21,7 +21,9 @@ struct TrackSnapshot
 {
     float values[SequencerConstants::MAX_STEPS_COUNT]; // 64 floats = 256 B
     uint8_t stepCount; // Active loop length, 1..64
-    uint8_t reserved[3]; // Zero; keeps size/alignment deterministic
+    // [0] = loop start (first looped step; 0 in files written before it
+    // existed, which is also the old behaviour). [1..2] zero.
+    uint8_t reserved[3];
 };
 
 // Format 1 held Note..Slide per voice; Sustain/Release appended later so a

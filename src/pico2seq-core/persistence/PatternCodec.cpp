@@ -26,8 +26,9 @@ void capturePattern(const Sequencer &sequencer, PatternSnapshot &out,
     {
         const ParamId id = static_cast<ParamId>(t);
         TrackSnapshot &track = trackFor(out, envelopes, t);
-        // Zeroed for deterministic bytes on flash; loaders must not interpret.
-        track.reserved[0] = 0;
+        // reserved[0] carries the loop start (zero in older files = step 0);
+        // the rest stay zeroed for deterministic bytes on flash.
+        track.reserved[0] = sequencer.getParameterLoopStart(id);
         track.reserved[1] = 0;
         track.reserved[2] = 0;
         track.stepCount = sequencer.getParameterStepCount(id);
@@ -53,6 +54,8 @@ void applyPattern(const PatternSnapshot &in, const EnvelopeTracksSnapshot &envel
         for (uint8_t step = 0; step < SequencerConstants::MAX_STEPS_COUNT; ++step)
             sequencer.setRawStepValue(id, step, track.values[step]);
         sequencer.setParameterStepCount(id, count);
+        // Validated against the length: an out-of-range start loads as 0.
+        sequencer.setParameterLoopStart(id, track.reserved[0]);
     }
 }
 
