@@ -9,14 +9,32 @@
 // ParameterManager: owns one fixed-size ParameterTrack per ParamId.
 // Each lane has its own step count, so e.g. Note can run 16 steps while
 // Filter loops 8 — that independence is the polymetric sequencer.
+// A lane's loop is a window onto its storage: the play head cycles
+// loopStart..stepCount-1 while values keep their absolute step indices.
 class ParameterManager
 {
 public:
-    // Reset every lane to its CORE_PARAMETERS default value and length.
+    // Reset every lane to its CORE_PARAMETERS default value, length and loop start 0.
     void init();
 
+    // Re-validates the lane's loop start against the new length (see setLoopStart),
+    // so no caller can leave a lane with a start that no longer fits.
     void setStepCount(ParamId id, uint8_t steps);
     uint8_t getStepCount(ParamId id) const;
+
+    // First step of the lane's loop (0 = the whole lane). Invariant, kept here
+    // because this class owns the length: at least MIN_STEPS_COUNT steps remain
+    // from the start to the end of the lane, so a loop is never shorter than the
+    // shortest legal lane.
+    uint8_t getLoopStart(ParamId id) const;
+    // A start that would break the invariant is rejected as 0 (not clamped): save
+    // files and lane copies apply the length first, and an old or corrupt start
+    // should fall back to the old whole-lane behaviour rather than a guessed loop.
+    void setLoopStart(ParamId id, uint8_t start);
+    // Loop the lane between two steps (inclusive, either order) as start = first,
+    // length = last + 1. Steps closer than MIN_STEPS_COUNT are widened to it and
+    // both ends are clamped to the 64-step storage.
+    void setLoop(ParamId id, uint8_t firstStep, uint8_t lastStep);
     float getValue(ParamId id, uint8_t stepIdx) const;
     void setValue(ParamId id, uint8_t stepIdx, float value);
     void copyStep(uint8_t srcStep, uint8_t dstStep);
@@ -55,6 +73,7 @@ private:
     }
 
     ParameterTrack<SequencerConstants::MAX_STEPS_COUNT> _tracks[static_cast<size_t>(ParamId::Count)];
+    uint8_t _loopStarts[static_cast<size_t>(ParamId::Count)] = {};
     LaneAmounts _laneAmounts = fullLaneAmounts();
 };
 

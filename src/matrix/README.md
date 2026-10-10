@@ -41,7 +41,6 @@ This module implements touch matrix scanning and event dispatch for Pico2Seq, ha
 
 ### Data Types
 
-- `MatrixButton` – Row/column pairing for each button
 - `MatrixButtonEventType` – `MATRIX_BUTTON_PRESSED` or `MATRIX_BUTTON_RELEASED`
 - `MatrixButtonEvent` – Event record for callback handlers
 
@@ -51,10 +50,7 @@ This module implements touch matrix scanning and event dispatch for Pico2Seq, ha
 |:---|:---|
 | `void Matrix_init(Adafruit_MPR121*)` | Initialize with sensor instance |
 | `void Matrix_scan()` | IRQ-gated scan for state changes (no-op until the MPR121 IRQ; call in main loop on Core 0) |
-| `bool Matrix_getButtonState(uint8_t)` | Query current button state |
-| `void Matrix_setEventHandler(func)` | Set general event handler for button events |
-| `void Matrix_setRisingEdgeHandler(func)` | Set handler for button press only |
-| `void Matrix_printState()` | Print all button states to serial console |
+| `void Matrix_setEventHandler(func)` | Set the one press/release handler (the UI funnel, `matrixEventHandler`) |
 
 ---
 

@@ -35,6 +35,16 @@ cmake --build build_test_ninja --parallel
 ./build_test_ninja/tests/pico2seq_tests --reporter console
 ```
 
+**Gate before you push.** About thirty host tests already fail on a clean checkout, so judge a change by failing
+test *names*, not by "all green":
+
+```bash
+cmake -P scripts/check_host_tests.cmake    # builds, runs CTest, diffs failing names against tests/known_failures.txt
+```
+
+It fails on a new failure, on a listed test that now passes (delete its line), on a build failure and on a run that
+finds no tests. Never add a name to `tests/known_failures.txt` to make a change pass.
+
 Run a single tag/group instead of the full suite:
 
 ```bash
@@ -260,9 +270,11 @@ Matrix/TMAG5273/VL53L1X input  (Core 0)
 `ParamId` (Note, Velocity, Filter, Attack, Decay, Octave, GateLength, Gate, Slide, Sustain, Release) gets its own
 fixed-size array with an independent `currentStepCount` and modulo-wrapping `getValue()`. This
 is what makes "Note track at 16 steps, Filter track at 8 steps" possible on the same voice.
-`Sequencer` also keeps a per-lane loop start (`setParameterLoop`/`getParameterLoopStart`): the lane's
+`Sequencer` also exposes a per-lane loop start (`setParameterLoop`/`getParameterLoopStart`): the lane's
 play head cycles `start..stepCount-1`, storage keeps absolute step indices, and the start is saved in
-`TrackSnapshot::reserved[0]` (zero in older files = step 0, so no format bump).
+`TrackSnapshot::reserved[0]` (zero in older files = step 0, so no format bump). `ParameterManager` owns the
+start beside the length because they share one invariant (at least `MIN_STEPS_COUNT` steps from the start
+to the end); change a lane's length through it, never by resizing the track directly.
 
 ### Key conventions to preserve when editing
 
@@ -299,6 +311,10 @@ play head cycles `start..stepCount-1`, storage keeps absolute step indices, and 
 - **Voice index is always 0-based (0–3)** in internal APIs; some UI/MIDI code displays it
   1-based to users (see `applyVoicePreset` printing `voiceIndex` with a comment noting "0-based
   display"). Don't conflate the two.
+- **Pack file and wire integers with `persistence/LittleEndian.h`** (`putLe16/32`, `getLe16/32`), not casts or
+  `memcpy`: the song, preset-bank and preset-link formats are little-endian by definition, and a hand-rolled
+  shift-and-or is how the byte offsets drift. Patch flag bits live once, in `voice/PatchCodec.h`
+  (`voicecodec::kUsePatchBases`, ...); `PatchFields.cpp` and the preset codec use those constants.
 - **Declarations and definitions must agree on `noexcept`.** Arduino's GCC silently accepted
   mismatches; the host GCC used for tests does not (see `docs/testing.md` step 7 for the
   `Voice.h`/`Voice.cpp` bug this caught). If you add a method with `noexcept` in the `.cpp`,

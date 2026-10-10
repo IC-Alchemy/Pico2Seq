@@ -94,28 +94,23 @@ void handleEncoderControlPress(UIState &uiState)
   }
 }
 
-/**
- * @brief Primary matrix event handler that always uses the provided sequencer array.
- *
- * Since the Alchemy tile migration, ALL 32 matrix indices are step pads: the
- * parameter/utility buttons that used to live at indices 16-31 now live on
- * the ButtonModule8/SliderModule tiles and enter through AlchemyControlBridge.
- * Every pad is resolved to (voice, step) through the pad-bank mapping instead
- * of assuming the single selected voice.
- *
- * Why: since the Alchemy migration this is the single funnel for all 32 pads,
- * so it guards voice-editor/modal states first and routes slide vs. normal
- * early — that keeps per-step behavior consistent no matter which surface
- * produced the event.
- */
 static void routeMatrixEvent(const MatrixButtonEvent &evt, UIState &uiState,
                              const SequencerView &sequencers);
 
+/**
+ * @brief Entry point for every pad edge: feeds the two-pad loop gesture, then routes.
+ *
+ * Why a wrapper: routeMatrixEvent() returns early from many places (modal pages,
+ * the Tuning page, the voice editor swallow edges), and the gesture must still
+ * see every press and release or a pad lifted while a page was open would stay
+ * "held" and pair with the next unrelated press. Bookkeeping here, in one
+ * place, cannot be skipped by an early return added below. The press is noted
+ * before routing (so the router can pair it) and the release after (so the
+ * router can still ask whether that pad took part in a loop).
+ */
 void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
                         const SequencerView &sequencers)
 {
-  // The two-pad loop gesture sees every edge, even ones a page swallows, so a
-  // pad lifted while Settings or a modal page was open never stays "held".
   if (evt.type == MATRIX_BUTTON_PRESSED)
     uiState.loopRange.notePress(evt.buttonIndex);
   routeMatrixEvent(evt, uiState, sequencers);
@@ -123,6 +118,19 @@ void matrixEventHandler(const MatrixButtonEvent &evt, UIState &uiState,
     uiState.loopRange.noteRelease(evt.buttonIndex);
 }
 
+/**
+ * @brief Route one pad edge to the modal page, arp, or step logic that owns it.
+ *
+ * Since the Alchemy tile migration, ALL 32 matrix indices are step pads: the
+ * parameter/utility buttons that used to live at indices 16-31 now live on
+ * the ButtonModule8/SliderModule tiles and enter through AlchemyControlBridge.
+ * Every pad is resolved to (voice, step) through the pad-bank mapping instead
+ * of assuming the single selected voice.
+ *
+ * Why: this is the single funnel for all 32 pads, so it guards voice-editor and
+ * modal states first and routes slide vs. normal early — that keeps per-step
+ * behavior consistent no matter which surface produced the event.
+ */
 static void routeMatrixEvent(const MatrixButtonEvent &evt, UIState &uiState,
                              const SequencerView &sequencers)
 {

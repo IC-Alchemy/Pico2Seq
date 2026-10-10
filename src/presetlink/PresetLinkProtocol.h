@@ -26,6 +26,7 @@ inline constexpr uint8_t kSync0 = 0xA5;
 inline constexpr uint8_t kSync1 = 0x5A;
 inline constexpr uint8_t kProtocolVersion = 1;
 inline constexpr size_t kMaxPayload = 288;           // one 256-byte record plus a short prefix
+// sync(2) + type(1) + seq(1) + length(2) + crc(4)
 inline constexpr size_t kFrameOverhead = 2 + 1 + 1 + 2 + 4;
 inline constexpr size_t kMaxFrame = kFrameOverhead + kMaxPayload;
 // A half-received frame is dropped after this long without a byte.
@@ -55,11 +56,14 @@ enum class ErrorCode : uint8_t
     Busy,         // an upload is in progress
     NoSpace,      // the bank would not fit on flash
     Storage,      // flash write/rename failed
-    InvalidRecord, // aux = patchfields row (0xFF when not a field), detail = usercodec::Problem
+    InvalidRecord, // aux = patchfields row (kNoField when not a field), detail = usercodec::Problem
     OutOfRange,   // index/voice does not exist
     SlotTaken,    // two records in one upload claim the same page/pad
     CountMismatch // BankCommit before all records arrived
 };
+
+// ErrorPayload::aux value for an error that is not about one patch field.
+inline constexpr uint8_t kNoField = 0xFF;
 
 // Error payload: which command failed, why, and two bytes of detail.
 struct ErrorPayload
@@ -67,7 +71,7 @@ struct ErrorPayload
     uint8_t command;
     uint8_t code;   // ErrorCode
     uint8_t detail; // InvalidRecord: usercodec::Problem
-    uint8_t aux;    // InvalidRecord: patchfields row, 0xFF if none
+    uint8_t aux;    // InvalidRecord: patchfields row, kNoField if none
 };
 static_assert(sizeof(ErrorPayload) == 4, "wire layout");
 

@@ -23,6 +23,13 @@ uint16_t begin();
 presetlink::UserPresetStore &store();
 const persistence::UserPresetDirectory &directory();
 
+// Records where a voice's sound came from: `slot` is the user pad it was loaded from, or
+// kNoSlot for a sound that owns no pad (a factory preset, or an editor audition); `name` is
+// what to show for it (nullptr or "" = none, fall back to the factory name). The slot and
+// the name are one fact, so every writer goes through here instead of poking the two
+// UIState arrays separately - the name copy is bounded and always NUL-terminated.
+void setVoiceOrigin(UIState &state, uint8_t voice, uint8_t slot, const char *name);
+
 // The name to show for a voice's sound: its user preset's name, else the factory name.
 const char *voiceLabel(const UIState &state, uint8_t voice);
 

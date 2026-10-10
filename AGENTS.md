@@ -24,19 +24,43 @@ completed implementation tasks only.
   Their changes must return to the top-level thread first. A **Land Changes**
   subthread is the exception: it may publish the parent's branch as that skill
   describes.
-- Do not publish interrupted tasks, work with failed required checks, unrelated
-  edits, secrets, generated build output, or dirty submodule contents.
+- Do not publish interrupted tasks, work with failed required checks (below),
+  unrelated edits, secrets, generated build output, or dirty submodule contents.
 - A discussion, investigation, or plan does not request publication. Installing
   this publishing workflow does not itself publish existing changes.
   **Land Changes** or an explicit publish request can publish the workflow setup.
-- Never open a PR, merge into the default branch, push to `main`, `master`, or
-  `DeCluttered`, force-push, rewrite published history, or delete branches.
-  The user creates PRs and merges them.
+- Never merge into the default branch, push to `main`, `master`, or `DeCluttered`,
+  force-push, rewrite published history, or delete branches. Local threads do not
+  open PRs: the user creates and merges them.
+- **Cloud sessions** (no `local` remote; the session assigns the branch, e.g.
+  `ccr-*`) differ from local threads: they commit on the assigned branch, push to
+  `origin` only, and open a **draft** PR because their session rules require one.
+  They never mark it ready or merge it. The `delta/*` naming, the `local` remote
+  and the branch-allocation steps in the land skill apply to local threads only.
 - On authentication, network, local-remote, or non-fast-forward failures, retain
   the work and report the exact blocker. Do not loop, change destinations,
   disable hooks, or weaken safety checks to make the push pass.
-- Keep successful publication reporting to one line: commit, published branch,
-  and checks actually run. Report blockers prominently.
+- Keep a successful publication report short: commit, published branch and the
+  checks actually run, followed by the ready-to-paste PR description the land skill
+  specifies (Changes / Verification / Not verified). Report blockers prominently.
+
+## Required checks
+
+"Validated" means the checks for the files changed (step 2 of
+`.delta/skills/land/SKILL.md` has the full table). In short:
+
+- **Host-testable code or tests:** `cmake -P scripts/check_host_tests.cmake` (any
+  OS). About thirty host tests already fail on a clean checkout, so the gate
+  compares failing test *names* with `tests/known_failures.txt`: a new failure, a
+  listed test that now passes, or a build failure blocks. Never add a name to that
+  list to make a push pass.
+- **Firmware-only code** (OLED, LEDMatrix, `Matrix.cpp`, the Wire-bound UI and app
+  files, `Pico2Seq.ino`): compile with `arduino-cli` (command in `CLAUDE.md`). If
+  the toolchain is unavailable, report "firmware not compiled"; never call it passing.
+- **Docs or config only:** `git diff --check`.
+
+This repository has no CI workflows, so these local checks are the only automated
+gate. Do not describe them as CI.
 
 This is agent-driven publishing at task completion, not a filesystem watcher:
 manual edits while the agent is idle are not automatically committed.

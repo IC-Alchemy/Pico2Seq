@@ -191,11 +191,8 @@ typedef struct {
 } MatrixButtonEvent;
 
 void Matrix_init(Adafruit_MPR121 *sensor);
-void Matrix_scan();
-bool Matrix_getButtonState(uint8_t idx);
+void Matrix_scan();                  // IRQ-gated: no-op until the MPR121 flags a change
 void Matrix_setEventHandler(void (*handler)(const MatrixButtonEvent &));
-void Matrix_setRisingEdgeHandler(void (*handler)(uint8_t buttonIndex));
-void Matrix_printState();
 ```
 
 ---

@@ -7,6 +7,7 @@
 #include <chrono>    // For std::chrono::high_resolution_clock (for seeding)
 #include <cmath>     // For roundf
 #include <cstdint>   // For uint32_t
+#include <utility>   // For std::swap
 #include <variant> // For ParameterValueType (std::variant, via SequencerDefs.h)
 
 // Encoder bounds helpers live in src/sensors/EncoderManager, not here.
@@ -56,6 +57,7 @@ void ParameterManager::init() {
     // Pass the length explicitly: rpdsp::ParameterTrack::init() defaults to 64.
     _tracks[i].init(parameterValueAsFloat(CORE_PARAMETERS[i].defaultValue),
                     CORE_PARAMETERS[i].defaultSteps);
+    _loopStarts[i] = 0;
   }
 }
 
@@ -72,6 +74,49 @@ void ParameterManager::setStepCount(ParamId id, uint8_t steps) {
     return;
   }
   _tracks[static_cast<size_t>(id)].resize(steps);
+  // Judge the old start against the length the track actually settled on.
+  setLoopStart(id, _loopStarts[static_cast<size_t>(id)]);
+}
+
+uint8_t ParameterManager::getLoopStart(ParamId id) const {
+  if (static_cast<size_t>(id) >= kParamCount) {
+    return 0;
+  }
+  return _loopStarts[static_cast<size_t>(id)];
+}
+
+void ParameterManager::setLoopStart(ParamId id, uint8_t start) {
+  if (static_cast<size_t>(id) >= kParamCount) {
+    return;
+  }
+  const uint8_t count = getStepCount(id);
+  const bool fits = count >= SequencerConstants::MIN_STEPS_COUNT &&
+                    start <= count - SequencerConstants::MIN_STEPS_COUNT;
+  _loopStarts[static_cast<size_t>(id)] = fits ? start : 0;
+}
+
+void ParameterManager::setLoop(ParamId id, uint8_t firstStep, uint8_t lastStep) {
+  if (static_cast<size_t>(id) >= kParamCount) {
+    return;
+  }
+  if (firstStep > lastStep) {
+    std::swap(firstStep, lastStep);
+  }
+  constexpr uint8_t kMax = SequencerConstants::MAX_STEPS_COUNT;
+  constexpr uint8_t kMin = SequencerConstants::MIN_STEPS_COUNT;
+  if (lastStep >= kMax) {
+    lastStep = kMax - 1;
+  }
+  if (firstStep > kMax - kMin) {
+    firstStep = kMax - kMin;
+  }
+  if (lastStep < firstStep + kMin - 1) {
+    lastStep = static_cast<uint8_t>(firstStep + kMin - 1);
+  }
+  // Resize the track directly: the setLoopStart() below validates the new start
+  // against the final length, so setStepCount() would only validate twice.
+  _tracks[static_cast<size_t>(id)].resize(static_cast<uint8_t>(lastStep + 1));
+  setLoopStart(id, firstStep);
 }
 
 uint8_t ParameterManager::getStepCount(ParamId id) const {

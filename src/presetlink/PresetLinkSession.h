@@ -55,6 +55,9 @@ private:
                  uint8_t *out, size_t capacity) noexcept;
     size_t error(const FrameParser::Frame &request, ErrorCode code, uint8_t detail, uint8_t aux,
                  uint8_t *out, size_t capacity) noexcept;
+    // An error frame with no detail byte and no patch field (most refusals).
+    size_t fail(const FrameParser::Frame &request, ErrorCode code, uint8_t *out,
+                size_t capacity) noexcept;
     size_t uploadError(const FrameParser::Frame &request, const UserPresetStore::UploadError &e,
                        uint8_t *out, size_t capacity) noexcept;
     size_t record(const FrameParser::Frame &request, const persistence::UserPresetRecord &rec,

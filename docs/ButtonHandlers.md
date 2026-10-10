@@ -186,6 +186,19 @@ A voice button held together with one of Param-mode buttons 1–6 (Note, Velocit
 
 ---
 
+### 8. Two-pad loop (hold one step pad, press another, Param mode)
+
+Holding one step pad and pressing a second pad of the same bank loops the **last-pressed parameter lane** between those two steps (either order). Only that lane changes; every other lane keeps its own loop, and neither pad toggles its gate or opens step edit. The pairing is `LoopRange::Gesture` (`src/ui/LoopRangeGesture.h`, pure pad bookkeeping inside `UIState::loopRange`, host-tested in `test_loop_range_gesture.cpp`); the effect is `Sequencer::setParameterLoop()` (loop start + length, see [sequencer.md §2.4](sequencer.md)).
+
+- **Why a wrapper around the router.** `matrixEventHandler()` feeds the gesture every press and release, then calls `routeMatrixEvent()`. The router returns early for modal pages (voice editor, Tuning, Settings), so if the bookkeeping lived inside it a pad lifted under a page would stay "held" and pair with the next unrelated press.
+- **Anchor.** The pad that went down while no other pad was held. Every further pad in the anchor's bank pairs with it, so holding step 4 and tapping 8 then 12 loops 4..8 and then 4..12.
+- **Which lane.** `UIState::loopRangeParam`, set whenever a record/lane button is pressed (`handleParameterButtonById`); `ParamId::Count` until the first press, in which case the gesture is off.
+- **Consumed pads.** Both pads of a pair are marked consumed: the press never reaches the tap/hold logic, and the release is swallowed (`consumed()`), so a gesture cannot also toggle a gate or enter step edit.
+- **Display.** The held-lane LED view lights only `loopStart..length-1` (`updateStepLEDs`). The loop start is saved with the session and carried by COPY LANE.
+- **Ghost pads.** The gesture is the first to need two simultaneous touches on the grid; `MatrixResolver` (see [matrix.md](matrix.md)) is what keeps a second finger from also reporting the two crossing "ghost" pads.
+
+---
+
 ## Pure C++ Decision Logic (`ControlSurfaceLogic.h/.cpp`)
 
 The core control surface algorithms are implemented as portable C++ classes decoupled from hardware:
@@ -368,6 +381,7 @@ src/ui/
 ├── UIConstants.h              # Button ID definitions, timing constants, and matrix sizes
 ├── UIState.h                  # Centralized UI state structure
 ├── CopyLaneControls.h         # COPY LANE chord policy + the lane memory (voice + lane button copy/paste)
+├── LoopRangeGesture.h         # Two-pad loop gesture: which two held step pads loop the selected lane
 ├── TuningPageControls.h       # Tuning page gesture policy (open chord, favourites, scale keys)
 ├── TuningPageLogic.h          # Tuning page pure logic: pad views, actions, notices, OLED text
 └── VoiceEditControls.h        # Hardware-free Voice Editing interaction state (inside UIState)

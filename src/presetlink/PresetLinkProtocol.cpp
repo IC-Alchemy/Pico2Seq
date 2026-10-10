@@ -1,6 +1,7 @@
 // PresetLinkProtocol.cpp - frame encoder and byte-wise parser.
 #include "PresetLinkProtocol.h"
 
+#include "../pico2seq-core/persistence/LittleEndian.h"
 #include "../pico2seq-core/persistence/SnapshotFormat.h"
 #include <cstring>
 
@@ -16,15 +17,12 @@ size_t encodeFrame(uint8_t type, uint8_t seq, const uint8_t *payload, size_t len
     out[1] = kSync1;
     out[2] = type;
     out[3] = seq;
-    out[4] = static_cast<uint8_t>(length);
-    out[5] = static_cast<uint8_t>(length >> 8);
+    persistence::putLe16(out + 4, static_cast<uint16_t>(length));
     if (length)
         std::memcpy(out + 6, payload, length);
     persistence::Crc32 crc;
     crc.update(out + 2, 4 + length);
-    const uint32_t value = crc.value();
-    for (int i = 0; i < 4; ++i)
-        out[6 + length + i] = static_cast<uint8_t>(value >> (8 * i));
+    persistence::putLe32(out + 6 + length, crc.value());
     return kFrameOverhead + length;
 }
 
@@ -68,7 +66,7 @@ FrameParser::Push FrameParser::push(uint8_t byte, uint32_t nowMs) noexcept
             return Push::Pending;
         frame_.type = header_[0];
         frame_.seq = header_[1];
-        frame_.length = static_cast<uint16_t>(header_[2] | (uint16_t(header_[3]) << 8));
+        frame_.length = persistence::getLe16(header_ + 2);
         have_ = 0;
         if (frame_.length > kMaxPayload)
         {
@@ -94,8 +92,7 @@ FrameParser::Push FrameParser::push(uint8_t byte, uint32_t nowMs) noexcept
         persistence::Crc32 crc;
         crc.update(header_, sizeof header_);
         crc.update(payload_, frame_.length);
-        const uint32_t expected = crcBytes_[0] | (uint32_t(crcBytes_[1]) << 8) |
-                                  (uint32_t(crcBytes_[2]) << 16) | (uint32_t(crcBytes_[3]) << 24);
+        const uint32_t expected = persistence::getLe32(crcBytes_);
         reset();
         if (crc.value() != expected)
             return Push::Dropped;

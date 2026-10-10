@@ -14,8 +14,14 @@ const uint8_t MATRIX_ROW_INPUTS[4] = {3, 2, 1, 0};
 // Physical columns -> MPR121 electrodes 4..11.
 const uint8_t MATRIX_COL_INPUTS[8] = {4, 5, 6, 7, 8, 9, 10, 11};
 
-// Linear pad -> (row, col) electrodes; resolved held pads (bit = pad index).
-static MatrixButton matrixButtons[MATRIX_BUTTON_COUNT];
+// heldPads and the resolver's result are one bit per pad in a uint32_t.
+static_assert(MATRIX_BUTTON_COUNT == MatrixResolver::kRows * MatrixResolver::kCols &&
+                  MATRIX_BUTTON_COUNT <= 32,
+              "pad bitmasks are 32 bits and the resolver assumes the 4x8 grid");
+
+// Pads the resolver reported as pressed on the previous scan (bit = pad index,
+// row-major: pad = row*8 + col). MatrixResolver needs this history to tell a
+// real second finger from a ghost, and the diff against it yields the edges.
 static uint32_t heldPads = 0;
 // MPR121 instance (set in Matrix_init) + UI dispatch callback.
 static Adafruit_MPR121 *mpr121 = nullptr;
@@ -40,23 +46,6 @@ static bool consumeMpr121Interrupt()
     return pending;
 }
 
-// Build the linear pad -> electrode table (row-major: pad = row*8+col).
-static void setupMatrixMapping()
-{
-    uint8_t idx = 0;
-    // Iterate through each row and column to populate the matrixButtons array.
-    for (uint8_t row = 0; row < 4; ++row)
-    {
-        for (uint8_t col = 0; col < 8; ++col)
-        {
-            // Assign the corresponding MPR121 input pins for the current row and column.
-            matrixButtons[idx].rowInput = MATRIX_ROW_INPUTS[row];
-            matrixButtons[idx].colInput = MATRIX_COL_INPUTS[col];
-            ++idx; // Move to the next button index.
-        }
-    }
-}
-
 // Fold the 12 electrode bits into physical row (0..3) and column (0..7) masks.
 static void splitTouchBits(uint16_t touchBits, uint8_t &rowMask, uint8_t &colMask)
 {
@@ -70,13 +59,12 @@ static void splitTouchBits(uint16_t touchBits, uint8_t &rowMask, uint8_t &colMas
             colMask |= static_cast<uint8_t>(1u << col);
 }
 
-// Bind the sensor, build the pad map, arm the GP8 interrupt.
+// Bind the sensor and arm the GP8 interrupt.
 // No Heavy init here: the MPR121 begin() belongs to the caller (setup).
 void Matrix_init(Adafruit_MPR121 *sensor)
 {
     Serial.println("Matrix_init called");
     mpr121 = sensor;
-    setupMatrixMapping();
     heldPads = 0;
     eventHandler = nullptr;
     mpr121InterruptPending = false;

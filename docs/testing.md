@@ -205,6 +205,18 @@ chromatic mapping`, `Voice combines note indices with octave track semitones`, `
 indices`); the rest fall in the recorded categories. The 33-name Linux set was never enumerated, so compare failure
 names, not the count, before treating one as new.
 
+Re-recorded 2026-10-10 on Linux (GCC 13.3, Debug) at `c2ed5bb`: 1158 CTest checks, 32 fail. The 32 failing names are
+now enumerated in **`tests/known_failures.txt`**, the single source of truth (this paragraph used to hold a copy; two
+copies drift). None is in the user-preset, COPY LANE, matrix-resolver or loop-range tests. Whether each is a stale
+expectation or a code regression is still not investigated; the one that was checked (the golden frame test) fails on
+its `Release` lane minimum of 0.01 *after* its frame-byte assertions pass, which is a stale expectation.
+
+Run the gate with `cmake -P scripts/check_host_tests.cmake` (any OS). It builds, runs CTest and compares failing
+**names** with that file, failing on a new failure, on a listed test that now passes (delete its line), on a build
+failure, and on a run that discovered no tests. Never add a name to the list to make a change pass. The list is
+recorded on Linux/GCC; the Windows/clang failing set differed when last measured (above), so a Windows gate should keep
+its own file and pass `-DBASELINE=<file>`.
+
 **Normal versus fast-math.** The firmware is built with `-O3 -ffast-math`, so the same suites were also run that way:
 
 ```bash

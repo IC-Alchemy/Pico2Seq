@@ -94,8 +94,13 @@ Design rules (do not break these):
 - **On-disk layout is locked** by `static_assert`s. Never reorder, resize, or
   repurpose a field without bumping `SNAPSHOT_FORMAT_VERSION` and adding a
   migration — old files must keep loading or be cleanly rejected.
-- **`reserved` bytes must stay zero.** They exist so `memcmp`/CRC are
-  deterministic across compilers.
+- **`reserved` bytes must stay zero** unless a section below gives one a meaning. They exist so
+  `memcmp`/CRC are deterministic across compilers. The one repurposed so far is
+  `TrackSnapshot::reserved[0]`, the lane's loop start (see "Lane loop start" below).
+- **Multi-byte integers go through `LittleEndian.h`** (`putLe16/32`, `getLe16/32`) rather than casts or
+  `memcpy`: the file and serial formats are little-endian by definition, so the bytes do not depend on the
+  host or on struct alignment. The song frame header, the user preset bank header/trailer and the
+  preset-link frames all use it.
 
 ## 3. The snapshot structs
 
@@ -103,7 +108,7 @@ All in `persistence::` (`ProjectSnapshot.h`). Sizes are part of the format:
 
 | Struct | Size | Layout |
 |---|---|---|
-| `TrackSnapshot` | 260 B | 64 floats `values[64]` (256 B) + `stepCount` u8 + 3 `reserved` bytes |
+| `TrackSnapshot` | 260 B | 64 floats `values[64]` (256 B) + `stepCount` u8 + 3 `reserved` bytes (`reserved[0]` = loop start, see below) |
 | `PatternSnapshot` | 2,340 B | 9 tracks (`kPatternTrackCount`), `ParamId::Note`..`Slide` |
 | `EnvelopeTracksSnapshot` | 520 B | 2 tracks: `ParamId::Sustain`, `ParamId::Release` (format 2) |
 | `PatchSnapshot` | 232 B | 55 × 4-byte value words (220 B) + 10 u8 (counts, engine/paramSet/filter/preset/waveforms/flags) + 2 `reserved` tail bytes, packed so there is **no** compiler-dependent padding |
@@ -175,6 +180,12 @@ Field notes:
   `capturePatch` — a `VoiceConfig` doesn't know which factory preset it came from.
   For a voice loaded from a *user preset* (see [preset-studio.md](preset-studio.md)) it holds the
   preset's factory base, which is what rebuilds the voice's flash-resident lane layout.
+- **Lane loop start.** `TrackSnapshot::reserved[0]` holds the first step of the lane's loop (the two-pad
+  loop gesture, `Sequencer::setParameterLoop`). A lane plays `start..stepCount-1`; values keep their absolute
+  step indices, so nothing else in the track moves. Files written before the feature hold 0 there, which is
+  exactly the old behaviour (loop the whole lane), so there was no format bump. On load `applyPattern()` sets
+  it *after* the length, and `ParameterManager::setLoopStart()` rejects a start that would leave fewer than
+  `MIN_STEPS_COUNT` steps (a corrupt byte loads as 0 instead of a guessed loop).
 - `PatchSnapshot::reserved[0..1]` carry where a voice's sound came from, written by `Session` and read
   back by `UserPresetStorage::restoreFromSession()`: `reserved[0]` = user slot + 1 (0 = a factory
   preset), `reserved[1]` = an 8-bit hash of the preset's name at the time. On load the tag is honoured
